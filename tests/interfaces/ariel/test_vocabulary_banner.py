@@ -1,19 +1,21 @@
 """Real-browser suite for ARIEL's vocabulary surfaces: expansion strip + config banners.
 
-Three things only a live page can prove, all of them wired in
-``static/js/search.js`` from payloads the backend really produces:
+Three things only a live page can prove, all of them painted by the list pane
+(``static/js/list.js``) from payloads the backend really produces:
 
 - the query-expansion strip (``[data-testid="expansion-banner"]``) renders one
   pair per ``expanded_terms`` group, and is absent whenever the response
   expanded nothing;
 - a vocabulary file that could not be loaded, with no database behind the
   panel, still puts ``ariel.vocabulary.path`` and its remedy on screen inside
-  ``#config-invalid-banner`` and leaves ``#search-btn`` disabled;
+  ``#config-invalid-banner``, disables the mode chip and contributes no search
+  field to the tile bar;
 - the warning class (a pre-existing ``validate()`` error, valid vocabulary)
-  renders ``#config-warning-banner`` instead and leaves the button usable.
+  renders ``#config-warning-banner`` instead and leaves search usable.
 
 The panel is booted the way ``_launchers.py::launch_ariel`` boots it —
-a real ``create_app()`` on a real uvicorn server — with a real ``config.yml``
+a real ``create_app()`` on a real uvicorn server, framed by the host fixture
+page (``_panel_host.py``) — with a real ``config.yml``
 written into ``tmp_path`` and ``create_ariel_service`` patched, so the
 configuration classification, the ``/api/capabilities`` payload and the
 remedy text are all the real ones while no PostgreSQL is required. Only
@@ -38,6 +40,7 @@ import pytest
 import yaml
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._panel_host import PanelHost, open_panel_host
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -108,6 +111,9 @@ class _ServiceDouble:
         """Report the double as healthy (the lifespan logs this)."""
         return True, "Service healthy"
 
+    async def aclose(self) -> None:
+        """Close the service (the lifespan calls this on shutdown)."""
+
     async def verify_search_model_table(self) -> None:
         """Report the embedding table as present (the lifespan probes it)."""
         return None
@@ -129,7 +135,7 @@ def _launch_ariel_with_config(
     *,
     with_service: bool,
 ) -> Iterator[str]:
-    """Boot standalone ARIEL against a real ``config.yml``, with no database.
+    """Boot ARIEL against a real ``config.yml``, with no database.
 
     Mirrors ``_launchers.py::launch_ariel`` (cwd isolation + the real
     ``create_app()`` on a real server); the config file is written first and
@@ -186,13 +192,13 @@ def _entry(entry_id: str, subject: str) -> dict[str, Any]:
     """An ``EntryResponse``-shaped hit whose id and title are unique per response.
 
     Every faked response carries one of these so a test can wait for the render
-    that response produced: ``search.js`` wipes ``#search-results`` into a
-    loading overlay before the fetch, and ``index.html`` ships a static
-    "Ready to Search" ``.empty-state`` inside the same container, so neither an
-    empty container nor an empty state proves a response was ever drawn.
+    that response produced: the list pane wipes ``#ariel-list-body`` into a
+    loading state before the fetch, and before any search it holds the
+    newest-first listing (or its error state), so neither an emptied body nor
+    a painted one proves a search response was ever drawn.
 
     Args:
-        entry_id: Shown verbatim in the card's ``.entry-id`` span.
+        entry_id: The row's ``data-entry-id``.
         subject: First line of ``raw_text``.
 
     Returns:
@@ -256,10 +262,14 @@ def _route_search(page: Page, state: dict[str, list[dict[str, Any]]]) -> None:
     page.route("**/api/search", handler)
 
 
-def _run_search(page: Page, query: str) -> None:
-    """Type *query* into the search box and submit it."""
-    page.fill("#search-input", query)
-    page.click("#search-btn")
+def _run_search(page: PanelHost, query: str) -> None:
+    """Type *query* into the host bar's search field, which reports it to the panel."""
+    page.search_box().fill(query)
+
+
+def _result_row(page: PanelHost, entry_id: str):
+    """The list row a search response painted for *entry_id*."""
+    return page.locator(f'#ariel-list-body [data-entry-id="{entry_id}"]')
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +317,7 @@ def test_missing_vocabulary_blocks_the_search_form(
         tmp_path, monkeypatch, _invalid_section(), with_service=False
     ) as base_url:
         page = chromium_browser.new_page()
-        page.goto(base_url, wait_until="load")
+        page = open_panel_host(page, base_url)
 
         banner = page.locator("#config-invalid-banner")
         expect(banner).to_be_visible(timeout=10_000)
@@ -319,14 +329,17 @@ def test_missing_vocabulary_blocks_the_search_form(
         expect(banner).to_contain_text("ariel.vocabulary.path")
         expect(banner).to_contain_text(VOCABULARY_REMEDY)
 
-        # The banner is the form's first child, not a replacement for it: the
-        # controls stay in the DOM so the operator can see search is blocked.
+        # The banner leads the list pane's banner strip, under the pane head, not
+        # in place of it: the chip stays in the DOM so the operator can see search
+        # is blocked.
         assert (
-            page.evaluate("document.getElementById('search-form').firstElementChild.id")
+            page.evaluate(
+                "document.querySelector('#ariel-list .ariel-list-banners').firstElementChild.id"
+            )
             == "config-invalid-banner"
         )
-        expect(page.locator("#search-btn")).to_be_disabled()
-        expect(page.locator("#search-input")).to_be_disabled()
+        expect(page.locator("#ariel-mode-chip")).to_be_disabled()
+        assert not [item for item in page.items() if item["kind"] == "search"]
 
         expect(page.locator("#config-warning-banner")).to_have_count(0)
 
@@ -342,7 +355,7 @@ def test_configuration_warning_leaves_search_usable(
         tmp_path, monkeypatch, _warning_section(), with_service=True
     ) as base_url:
         page = chromium_browser.new_page()
-        page.goto(base_url, wait_until="load")
+        page = open_panel_host(page, base_url)
 
         banner = page.locator("#config-warning-banner")
         expect(banner).to_be_visible(timeout=10_000)
@@ -353,8 +366,8 @@ def test_configuration_warning_leaves_search_usable(
         expect(banner).not_to_contain_text("ariel.vocabulary.path")
 
         expect(page.locator("#config-invalid-banner")).to_have_count(0)
-        expect(page.locator("#search-btn")).to_be_enabled()
-        expect(page.locator("#search-input")).to_be_enabled()
+        expect(page.search_box()).to_be_enabled()
+        expect(page.locator("#ariel-mode-chip")).to_be_enabled()
 
         page.close()
 
@@ -378,7 +391,7 @@ def test_expansion_strip_renders_one_pair_per_group(
             "entries": [_entry("EXPANDED-1", "First search hit")],
         }
         _route_search(page, state)
-        page.goto(base_url, wait_until="load")
+        page = open_panel_host(page, base_url)
 
         expect(page.locator("#config-invalid-banner")).to_have_count(0)
 
@@ -386,7 +399,7 @@ def test_expansion_strip_renders_one_pair_per_group(
 
         # The hit only THIS response carries, so everything below is asserted
         # against the rendered results, not the loading overlay.
-        expect(page.locator(".entry-card .entry-id")).to_have_text("EXPANDED-1", timeout=10_000)
+        expect(_result_row(page, "EXPANDED-1")).to_be_visible(timeout=10_000)
 
         strip = page.locator('[data-testid="expansion-banner"]')
         expect(strip).to_be_visible()
@@ -398,13 +411,14 @@ def test_expansion_strip_renders_one_pair_per_group(
 
         # A response that expanded nothing renders no strip at all. The second
         # response carries its own entry id, and waiting for that id is what
-        # makes the count of 0 meaningful: search.js empties #search-results
-        # into a loading overlay the instant the button is clicked, so an
-        # unanchored count would latch onto that transient state instead.
+        # makes the count of 0 meaningful: the list pane empties its body into
+        # a loading state the instant the query is submitted, so an unanchored
+        # count would latch onto that transient state instead.
         state["expanded_terms"] = []
         state["entries"] = [_entry("NOT-EXPANDED-1", "Second search hit")]
         _run_search(page, "nothing to expand")
-        expect(page.locator(".entry-card .entry-id")).to_have_text("NOT-EXPANDED-1", timeout=10_000)
+        expect(_result_row(page, "NOT-EXPANDED-1")).to_be_visible(timeout=10_000)
+        expect(_result_row(page, "EXPANDED-1")).to_have_count(0)
         expect(strip).to_have_count(0)
 
         page.close()

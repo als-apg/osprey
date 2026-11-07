@@ -7,13 +7,18 @@
  * /api/panels at init; panel-lifecycle.js appends runtime-registered panels;
  * panel-sse.js reads it for the close fallback.
  *
- * The ids, endpoints and health posture below are the browser's own — they are
- * what it builds proxy paths and polls from. The DISPLAY LABELS are not: the
- * backend registry owns them, and the page carries them here as a stamp on
- * <html>. /api/panels cannot seed them, for two reasons: PANELS is module
- * state read before that request resolves, and the route answers for the
- * ENABLED panels only, so it could never name the full roster the "+"
- * menu's catalog list needs.
+ * For the companion panels, the ids, endpoints and health posture below are
+ * the browser's own — they are what it builds proxy paths and polls from. The
+ * DISPLAY LABELS are not: the backend registry owns them, and the page carries
+ * them here as a stamp on <html>. /api/panels cannot seed them, for two
+ * reasons: PANELS is module state read before that request resolves, and the
+ * route answers for the ENABLED panels only, so it could never name the full
+ * roster the "+" menu's catalog list needs.
+ *
+ * The SIDECAR panels — the ones the terminal starts itself — are not listed
+ * here at all. The backend registry describes each one whole (id, label,
+ * icon, description, endpoints), the page stamps those descriptors on <html>,
+ * and this module builds one descriptor per entry.
  *
  * The sidebar shows each label in title case ({@link titleCase}) and each
  * panel with an icons.js glyph ({@link panelIconName}).
@@ -27,6 +32,8 @@
  * @property {string | null} [healthEndpoint] - null/undefined means skip health polling
  * @property {string} [path] - iframe subpath for custom panels (e.g. "/panel/")
  * @property {string} [startEndpoint] - POST target that starts a failed sidecar again
+ * @property {string} [icon] - icons.js glyph the registry names for a sidecar panel
+ * @property {string} [description] - tooltip sentence the registry gives a sidecar panel
  */
 
 /** Sidebar id of the Agent pane (the terminal/chat tile). NOT a service panel:
@@ -35,24 +42,89 @@
  *  renders its sidebar row and routes activate/close to the dock). Kept out of
  *  PANELS so every service-panel iteration stays terminal-free. */
 export const TERMINAL_RAIL_ID = 'terminal';
-export const TERMINAL_RAIL_LABEL = 'Agent';
+/** The sidebar row's name: it lists the agent's sessions. The pane it opens keeps its own name. */
+export const TERMINAL_RAIL_LABEL = 'Sessions';
+/** The Agent pane's name: its tile, its header menu, its pop-out window. */
+export const TERMINAL_PANE_LABEL = 'Agent';
+
+/** Attribute carrying the registry's sidecar panel descriptors, a JSON array. */
+const SIDECAR_PANELS_ATTR = 'data-sidecar-panels';
 
 /**
- * The icons.js glyph of each known panel's sidebar row. A panel not named here
- * (a custom or runtime-registered one) wears {@link FALLBACK_PANEL_ICON}.
+ * A string field of a stamped descriptor, or `fallback` when it is absent or
+ * not a non-empty string.
+ * @template T
+ * @param {unknown} value
+ * @param {T} fallback
+ * @returns {string | T}
+ */
+function stringOr(value, fallback) {
+  return typeof value === 'string' && value ? value : fallback;
+}
+
+/**
+ * The sidecar panels this page was served with, one descriptor each. An
+ * absent or unreadable stamp answers with none — the sidecar panels are then
+ * missing, and the console says so once. An entry without an id is skipped.
+ *
+ * `healthEndpoint` is carried as the registry states it: a path means poll it,
+ * null means the panel is not polled.
+ * @returns {Panel[]}
+ */
+function sidecarPanels() {
+  const raw =
+    typeof document === 'undefined'
+      ? null
+      : document.documentElement?.getAttribute(SIDECAR_PANELS_ATTR);
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((entry) => entry && typeof entry.id === 'string' && entry.id)
+          .map((entry) => {
+            /** @type {Panel} */
+            const panel = {
+              id: entry.id,
+              label: titleCase(stringOr(entry.label, entry.id.toUpperCase())),
+              configEndpoint: stringOr(entry.configEndpoint, `/api/panels/${entry.id}/server`),
+              healthEndpoint: stringOr(entry.healthEndpoint, null),
+              // Data strings; apiRequest prefixes the start one in retryPanelStart().
+              startEndpoint: stringOr(entry.startEndpoint, `/api/panels/${entry.id}/start`),
+            };
+            const icon = stringOr(entry.icon, null);
+            if (icon) panel.icon = icon;
+            const description = stringOr(entry.description, null);
+            if (description) panel.description = description;
+            return panel;
+          });
+      }
+    } catch {
+      // Falls through to the warning below.
+    }
+  }
+  console.warn(
+    `[panel-catalog] no readable ${SIDECAR_PANELS_ATTR} on this page; ` +
+      'sidecar panels are missing'
+  );
+  return [];
+}
+
+/**
+ * The icons.js glyph of each known companion panel's sidebar row. A sidecar
+ * panel's glyph is its registry entry's; a panel named in neither place (a
+ * custom or runtime-registered one) wears {@link FALLBACK_PANEL_ICON}.
  * @type {Readonly<Record<string, string>>}
  */
 export const PANEL_ICONS = Object.freeze({
   terminal: 'agent',
   artifacts: 'layers',
   events: 'activity',
-  jupyter: 'notebook',
   ariel: 'book-open',
-  lattice: 'hexagon',
   okf: 'library',
   'channel-finder': 'radio',
-  bluesky: 'flask',
-  'system-health': 'activity',
+  bluesky: 'chart-scatter',
+  'system-health': 'stethoscope',
 });
 
 /** The glyph of a panel {@link PANEL_ICONS} does not name. */
@@ -64,13 +136,16 @@ export const FALLBACK_PANEL_ICON = 'workspace';
  * @returns {string}
  */
 export function panelIconName(id) {
+  const sidecar = SIDECAR_PANELS.find((p) => p.id === id);
+  if (sidecar) return sidecar.icon ?? FALLBACK_PANEL_ICON;
   return Object.hasOwn(PANEL_ICONS, id) ? PANEL_ICONS[id] : FALLBACK_PANEL_ICON;
 }
 
 /**
- * One plain sentence per known panel, shown as the explanatory line of its
- * sidebar tooltip. A panel not named here (a custom or runtime-registered one)
- * has no description, and its tooltip stays a bare label.
+ * One plain sentence per known companion panel, shown as the explanatory line
+ * of its sidebar tooltip. A sidecar panel's sentence is its registry entry's;
+ * a panel named in neither place (a custom or runtime-registered one) has no
+ * description, and its tooltip stays a bare label.
  * @type {Readonly<Record<string, string>>}
  */
 export const PANEL_DESCRIPTIONS = Object.freeze({
@@ -79,10 +154,8 @@ export const PANEL_DESCRIPTIONS = Object.freeze({
   events: 'Event dispatcher dashboard',
   ariel: 'Search the electronic logbook',
   'channel-finder': 'Find control-system channels by name or property',
-  lattice: 'Optics of the lattice models the simulator serves',
   okf: 'Browse the facility knowledge bundle',
   'system-health': 'Health checks for the framework and its services',
-  jupyter: 'JupyterLab with kernels that follow the terminal session',
   bluesky: 'Write plans, run the queue and watch live results',
 });
 
@@ -92,6 +165,8 @@ export const PANEL_DESCRIPTIONS = Object.freeze({
  * @returns {string | null} `null` when the panel has no description
  */
 export function describePanel(id) {
+  const sidecar = SIDECAR_PANELS.find((p) => p.id === id);
+  if (sidecar) return sidecar.description ?? null;
   return Object.hasOwn(PANEL_DESCRIPTIONS, id) ? PANEL_DESCRIPTIONS[id] : null;
 }
 
@@ -154,6 +229,9 @@ function labelOf(id) {
   return titleCase(typeof label === 'string' && label ? label : id.toUpperCase());
 }
 
+/** The sidecar panels of this page, built once from the stamp. */
+const SIDECAR_PANELS = sidecarPanels();
+
 /** @type {Panel[]} */
 export const PANELS = [
   {
@@ -172,18 +250,9 @@ export const PANELS = [
     label: labelOf('channel-finder'),
     configEndpoint: '/api/channel-finder-server',
   },
-  {
-    id: 'lattice',
-    label: labelOf('lattice'),
-    configEndpoint: '/api/lattice-server',
-  },
-  {
-    id: 'jupyter',
-    label: labelOf('jupyter'),
-    configEndpoint: '/api/jupyter-server',
-    healthEndpoint: '/api/status', // the sidecar's own status route, reached through the panel proxy
-    startEndpoint: '/api/panels/jupyter/start', // data string; apiRequest prefixes it in retryPanelStart()
-  },
+  // The sidecar panels, from the page's stamp, where the notebook panel has
+  // always sat in the roster.
+  ...SIDECAR_PANELS,
   {
     id: 'okf',
     label: labelOf('okf'),

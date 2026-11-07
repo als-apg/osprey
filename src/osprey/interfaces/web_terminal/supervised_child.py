@@ -173,9 +173,9 @@ class SupervisedChild:
         argv_for: Returns the child's argv. Called for every (re)start.
         env_for: Returns the child's complete environment. Called for every
             (re)start, so a replacement is launched with a freshly rendered
-            environment. Both callables run under the supervisor's lock and
-            must not call back into this supervisor (its properties,
-            :meth:`stop`), or they deadlock it.
+            environment. Both callables run outside the supervisor's lock,
+            so they may read it and may :meth:`stop` it; a stop that lands
+            while they render starts no child.
         grace_s: How long :meth:`stop` waits after SIGTERM before SIGKILL.
         respawn_now_codes: Exit statuses that mean "replace me at once".
             Respawned without a wait, unless the child lived under
@@ -359,11 +359,15 @@ class SupervisedChild:
         Returns:
             Whether a child was started.
         """
+        if stop.is_set():
+            return False
+        # Rendered outside the lock, so they may ask this supervisor anything,
+        # stop() included; a stop that lands meanwhile is seen below.
+        argv = list(self._argv_for())
+        env = dict(self._env_for())
         with self._lock:
             if stop.is_set():
                 return False
-            argv = list(self._argv_for())
-            env = dict(self._env_for())
             if self._exit_status is not None:
                 env[PREVIOUS_EXIT_ENV] = str(self._exit_status)
             else:

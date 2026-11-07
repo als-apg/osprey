@@ -29,7 +29,7 @@ def test_create_and_read_draft(tmp_path, monkeypatch):
 
     monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: tmp_path / "drafts")
 
-    draft_id = "draft-abc123"
+    draft_id = "draft-abc123abc123"
     data = {
         "draft_id": draft_id,
         "subject": "Test subject",
@@ -54,7 +54,7 @@ def test_get_nonexistent_returns_none(tmp_path, monkeypatch):
 
     monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: tmp_path / "drafts")
 
-    result = read_draft("draft-nonexistent")
+    result = read_draft("draft-00000000dead")
     assert result is None
 
 
@@ -67,14 +67,14 @@ def test_expired_drafts_cleaned_up(tmp_path, monkeypatch):
     monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: drafts_dir)
 
     # Write a draft file and backdate its mtime
-    draft_id = "draft-expired1"
+    draft_id = "draft-e0e0e0e0e0e1"
     filepath = drafts_dir / f"{draft_id}.json"
     filepath.write_text(json.dumps({"draft_id": draft_id, "subject": "Old"}))
     old_time = time.time() - DRAFT_TTL_SECONDS - 60
     os.utime(filepath, (old_time, old_time))
 
     # Write a fresh draft
-    fresh_id = "draft-fresh1"
+    fresh_id = "draft-f0f0f0f0f0f1"
     fresh_path = drafts_dir / f"{fresh_id}.json"
     fresh_path.write_text(json.dumps({"draft_id": fresh_id, "subject": "New"}))
 
@@ -124,11 +124,19 @@ async def test_api_create_and_get_draft(draft_app):
         assert draft["author"] == "Bob"
 
 
-async def test_api_get_nonexistent_returns_404(draft_app):
-    """GET /api/drafts/{bad_id} returns 404."""
+async def test_api_get_bad_id_returns_422(draft_app):
+    """GET /api/drafts/{bad_id} is refused: the id breaks C-DRAFT-ID."""
     transport = ASGITransport(app=draft_app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/drafts/draft-doesnotexist")
+        assert resp.status_code == 422
+
+
+async def test_api_get_absent_draft_returns_404(draft_app):
+    """GET /api/drafts/{id} for a well-formed id with no draft returns 404."""
+    transport = ASGITransport(app=draft_app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/drafts/draft-00000000dead")
         assert resp.status_code == 404
 
 
@@ -148,7 +156,7 @@ def test_read_draft_resolves_dir_without_dict_injection(tmp_path, monkeypatch):
     monkeypatch.setattr(ws_mod, "resolve_shared_data_root", lambda: tmp_path)
 
     # No NameError, no crash — just a clean "not found".
-    assert read_draft("draft-missing") is None
+    assert read_draft("draft-0000000dead0") is None
 
 
 @pytest.mark.usefixtures("example_entry_fields")
@@ -184,3 +192,79 @@ async def test_mcp_draft_fields_read_back_through_api(tmp_path, monkeypatch):
 
     assert resp.status_code == 200
     assert resp.json()["fields"] == {"book": "physics", "day": "2026-10-01"}
+
+
+def test_write_draft_is_atomic_and_round_trips(tmp_path, monkeypatch):
+    """write_draft goes through the services-level atomic writer."""
+    import osprey.interfaces.ariel.api.drafts as drafts_mod
+    import osprey.services.ariel_search.atomic_json as atomic_json
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: drafts_dir)
+    calls: list = []
+    real = atomic_json.atomic_write_json
+
+    def spy(path, obj):
+        calls.append(path)
+        real(path, obj)
+
+    monkeypatch.setattr(drafts_mod, "atomic_write_json", spy)
+
+    draft_id = "draft-abc123abc124"
+    write_draft(draft_id, {"draft_id": draft_id, "subject": "S", "details": "D"})
+
+    assert calls == [drafts_dir / f"{draft_id}.json"]
+    assert read_draft(draft_id)["subject"] == "S"
+
+
+def test_atomic_write_json_replaces_whole(tmp_path):
+    from osprey.services.ariel_search.atomic_json import atomic_write_json
+
+    target = tmp_path / "x.json"
+    atomic_write_json(target, {"a": 1})
+    atomic_write_json(target, {"b": [1, 2]})
+
+    assert json.loads(target.read_text()) == {"b": [1, 2]}
+    assert [p.name for p in tmp_path.iterdir()] == ["x.json"]
+
+
+async def test_an_agent_follow_up_draft_reaches_the_compose_sheet_with_its_parent(
+    tmp_path, monkeypatch
+):
+    """Through the API: GET /api/drafts/{id} serves the agent's ``metadata.follows_up``,
+    which the compose sheet forwards on submit, as its own Follow up does."""
+    from unittest.mock import AsyncMock, patch
+
+    import osprey.interfaces.ariel.api.drafts as drafts_mod
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+    from osprey.mcp_server.ariel.server_context import initialize_ariel_context
+    from osprey.mcp_server.ariel.tools.entry import entry_create
+    from tests.mcp_server.ariel.conftest import get_tool_fn
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(
+        json.dumps({"ariel": {"database": {"uri": "postgresql://localhost/test"}}})
+    )
+    initialize_ariel_context()
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: drafts_dir)
+    service = AsyncMock()
+    service.repository.get_entry.return_value = {"entry_id": "DEMO-025"}
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=service),
+    ):
+        result = await get_tool_fn(entry_create)(
+            subject="Cathode check", details="Stable", follows_up="DEMO-025"
+        )
+    draft_id = json.loads(result)["draft_id"]
+
+    app = FastAPI()
+    app.include_router(draft_router)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get(f"/api/drafts/{draft_id}")
+
+    assert resp.status_code == 200
+    assert resp.json()["metadata"]["follows_up"] == "DEMO-025"

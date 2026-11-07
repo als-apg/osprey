@@ -19,7 +19,12 @@ consumed elsewhere, not a CSS value).
 
 from __future__ import annotations
 
-__all__ = ["PROMOTED_PRIMITIVE_GROUPS", "css_variable_name", "promoted_css_name"]
+__all__ = [
+    "FORBIDDEN_PROMOTED_PREFIXES",
+    "PROMOTED_PRIMITIVE_GROUPS",
+    "css_variable_name",
+    "promoted_css_name",
+]
 
 #: Semantic token groups excluded from CSS emission entirely. ``code.*``
 #: selects a highlight.js asset name for server-side href resolution /
@@ -58,6 +63,19 @@ PROMOTED_PRIMITIVE_GROUPS: tuple[str, ...] = (
     "radius",
     "z",
     "duration",
+)
+
+#: CSS name prefixes no promoted primitive may emit. ``tokens.css`` is also
+#: linked into CANOPY documents, whose own namespaces are ``--canopy-*``
+#: (canopy-shell), ``--cds-*`` (Carbon), ``--dv-*`` (dockview) and
+#: ``--pydm-*``; web_terminal uses ``--bar-*`` for local properties. A
+#: promoted name under any of these would shadow or be shadowed by them.
+FORBIDDEN_PROMOTED_PREFIXES: tuple[str, ...] = (
+    "--canopy-",
+    "--cds-",
+    "--dv-",
+    "--pydm-",
+    "--bar-",
 )
 
 

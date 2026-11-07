@@ -6,10 +6,9 @@ single :class:`~osprey_connectors.errors.BuildProfileError` is raised whose mess
 ``"Build profile validation failed:\\n  - "`` followed by every failure joined
 by ``"\\n  - "``. A profile with four unrelated faults therefore reports all
 four in one raise, so a build author fixes them in one pass instead of one
-rebuild per typo. The structural checks that ``continue`` (a service with a
-bundled ``osprey.``-prefixed template, a ``panel_presets`` entry that is not a
-list, a ``categories`` entry that is not a mapping) skip only their own
-remaining sub-checks — they never short-circuit the rest of the validator.
+rebuild per typo. The structural check that uses ``continue`` (a
+``panel_presets`` entry that is not a list) skips only its own remaining
+sub-checks — it never short-circuits the rest of the validator.
 
 Complements the block-scoped suites (``test_profile_schema.py`` for
 ``dispatch:``, ``test_build_profile.py`` for ``bluesky_web:``) by covering
@@ -249,6 +248,19 @@ def test_service_template_dir_not_found_is_rejected(tmp_path: Path) -> None:
     assert error == f"Service 'svc' template dir not found: {tmp_path / 'services/svc'}"
 
 
+def test_unknown_bundled_template_is_refused(tmp_path: Path) -> None:
+    """A bundled name OSPREY does not ship fails, naming the service and the value."""
+    profile = _profile(name="x", services={"nope": ServiceDef(template="osprey.no_such_service")})
+    assert _errors(profile, tmp_path) == [
+        "Service 'nope' template 'osprey.no_such_service' names no template OSPREY ships"
+    ]
+
+
+def test_shipped_bundled_template_is_accepted(tmp_path: Path) -> None:
+    """A bundled name OSPREY ships produces no failure."""
+    _profile(name="x", services={"db": ServiceDef(template="osprey.mongodb")}).validate(tmp_path)
+
+
 def test_service_template_dir_without_compose_is_rejected(tmp_path: Path) -> None:
     """A template dir that exists must still carry docker-compose.yml.j2."""
     (tmp_path / "services" / "svc").mkdir(parents=True)
@@ -389,18 +401,10 @@ def test_a_profile_without_pinned_env_names_declares_none() -> None:
     assert _parse_profile({"name": "x", "env": {"required": ["OSPREY_TOKEN"]}}).env.pinned == []
 
 
-def test_missing_env_file_is_rejected(tmp_path: Path) -> None:
-    """env.file names a profile-relative file to copy; it must exist."""
-    profile = _profile(name="x", env=EnvConfig(file="env.template"))
-    (error,) = _errors(profile, tmp_path)
-    assert error.startswith("env.file not found: env.template")
-    assert str(tmp_path / "env.template") in error
-
-
-def test_present_env_file_validates(tmp_path: Path) -> None:
-    """An env.file that exists produces no failure."""
-    (tmp_path / "env.template").write_text("FOO=bar", encoding="utf-8")
-    _profile(name="x", env=EnvConfig(file="env.template")).validate(tmp_path)
+def test_env_file_is_refused_as_an_unknown_key() -> None:
+    """The ``env:`` block is closed: a key the schema does not declare is refused."""
+    with pytest.raises(BuildProfileError, match=r"Unknown env key\(s\): 'file'"):
+        _parse_profile({"name": "x", "env": {"file": "x"}})
 
 
 # --- dependencies ---------------------------------------------------------
@@ -474,7 +478,8 @@ def test_default_panel_naming_an_unselected_builtin_is_rejected(tmp_path: Path) 
 
 def test_unknown_panel_presets_member_is_rejected(tmp_path: Path) -> None:
     """Preset members resolve through the same predicate as default_panel."""
-    profile = _profile(name="x", web_panels=["ariel"], panel_presets={"Ops": ["ariel", "areil"]})
+    layout = {"split": "row", "items": [{"tabs": ["ariel"]}, {"tabs": ["areil"]}]}
+    profile = _profile(name="x", web_panels=["ariel"], panel_presets={"Ops": layout})
     (error,) = _errors(profile, tmp_path)
     assert error.startswith("Unknown panel_presets['Ops'] member 'areil'")
 
@@ -494,58 +499,66 @@ def test_an_authored_enabled_agreeing_with_the_selection_validates(tmp_path: Pat
     )
 
 
-def test_non_list_panel_presets_entry_is_rejected(tmp_path: Path) -> None:
-    """A preset whose value is not a list is reported once and skipped."""
+def test_non_layout_panel_presets_entry_is_rejected(tmp_path: Path) -> None:
+    """A preset whose value is not a layout is reported once and skipped."""
     profile = _parse_profile({"name": "x", "data": "data", "panel_presets": {"Ops": "ariel"}})
     assert _errors(profile, tmp_path) == [
-        "panel_presets['Ops'] must be a list of panel ids (got str)"
+        "panel_presets['Ops'] must be a layout: a tile {tabs: [<panel id>]} or a split "
+        "{split: row|column, items: [...]} (got str)"
+    ]
+
+
+def test_old_list_panel_presets_entry_is_rejected_with_its_rewrite(tmp_path: Path) -> None:
+    """The retired list form is one error that spells the layout to write instead."""
+    profile = _parse_profile({"name": "x", "data": "data", "panel_presets": {"Ops": ["artifacts"]}})
+    assert _errors(profile, tmp_path) == [
+        "panel_presets['Ops'] is the retired list-of-panel-ids form; rewrite it as a layout, "
+        "e.g. 'Ops': {tabs: [artifacts]}"
+    ]
+
+
+def test_a_preset_tile_naming_two_panels_is_one_error_that_says_where(tmp_path: Path) -> None:
+    """One panel per tile is refused at build time, before membership is judged."""
+    profile = _profile(
+        name="x", web_panels=["ariel"], panel_presets={"Ops": {"tabs": ["ariel", "areil"]}}
+    )
+    assert _errors(profile, tmp_path) == [
+        "panel_presets['Ops'] puts several panels in one tile (layout.tabs): a tile holds "
+        "one panel; to show several, put them side by side in tiles of their own"
     ]
 
 
 # --- artifact_server ------------------------------------------------------
 
 
-def test_non_mapping_category_is_rejected(tmp_path: Path) -> None:
-    """A category that is not a mapping is reported once, then skipped."""
+_RETIRED = "artifact_server.categories is retired; declare artifact_server.extension_types instead"
+
+
+@pytest.mark.parametrize(
+    "categories",
+    [
+        {"ops": ["label", "color"]},
+        {"ops": {"color": "#aabbcc"}},
+        {"ops": {"label": "Ops", "color": "red"}},
+        {"ops": {"label": "Ops", "color": "#A1B2C3"}},
+    ],
+    ids=["non_mapping", "missing_label", "non_hex_color", "well_formed"],
+)
+def test_any_categories_block_is_refused_as_retired(tmp_path: Path, categories) -> None:
+    """Categories are retired: every ``categories`` block, well-formed or not,
+    gets the one migration message and nothing about its contents."""
     profile = _parse_profile(
-        {
-            "name": "x",
-            "data": "data",
-            "artifact_server": {"categories": {"ops": ["label", "color"]}},
-        }
+        {"name": "x", "data": "data", "artifact_server": {"categories": categories}}
     )
-    assert _errors(profile, tmp_path) == ["Category 'ops' must be a mapping with label and color"]
-
-
-def test_category_missing_label_is_rejected(tmp_path: Path) -> None:
-    """A category needs a string 'label'."""
-    profile = _profile(name="x", artifact_server={"categories": {"ops": {"color": "#aabbcc"}}})
-    assert _errors(profile, tmp_path) == ["Category 'ops' missing or invalid 'label'"]
-
-
-def test_category_with_non_hex_color_is_rejected(tmp_path: Path) -> None:
-    """Category colors must be #RRGGBB hex."""
-    profile = _profile(
-        name="x", artifact_server={"categories": {"ops": {"label": "Ops", "color": "red"}}}
-    )
-    assert _errors(profile, tmp_path) == [
-        "Category 'ops' missing or invalid 'color' (must be #RRGGBB)"
-    ]
-
-
-def test_well_formed_category_validates(tmp_path: Path) -> None:
-    """A label + #RRGGBB color pair passes."""
-    _profile(
-        name="x", artifact_server={"categories": {"ops": {"label": "Ops", "color": "#A1B2C3"}}}
-    ).validate(tmp_path)
+    assert _errors(profile, tmp_path) == [_RETIRED]
 
 
 def test_artifact_server_unknown_subkey_rejected(tmp_path: Path) -> None:
-    """Only host/port/auto_launch/categories are supported under artifact_server."""
+    """Only host/port/auto_launch/extension_types are supported under artifact_server."""
     profile = _profile(name="x", artifact_server={"prot": "http"})
     assert _errors(profile, tmp_path) == [
         "artifact_server.prot is not a supported key "
-        "(must be one of ['auto_launch', 'categories', 'host', 'port'])"
+        "(must be one of ['auto_launch', 'extension_types', 'host', 'port'])"
     ]
 
 
@@ -1156,10 +1169,10 @@ def test_build_refuses_a_profile_writing_only_one_limits_leaf(tmp_path: Path) ->
 
 
 def test_build_refuses_a_flat_dotted_custom_type(tmp_path: Path) -> None:
-    """Flattened, the dots in ``mypkg.MoatConnector`` are indistinguishable
+    """Flattened, the dots in ``mypkg.SiteConnector`` are indistinguishable
     from path separators, so the emitter renders a key no connector reads. The
     build names the offending key instead of rendering the dead spelling."""
-    key = "control_system.connector.mypkg.MoatConnector.limits_checking.enabled"
+    key = "control_system.connector.mypkg.SiteConnector.limits_checking.enabled"
 
     result = _build_with_config(tmp_path, {key: True}, "dotted-type")
 

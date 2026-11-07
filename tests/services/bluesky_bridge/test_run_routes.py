@@ -129,14 +129,18 @@ def test_list_runs_passes_the_limit_through(bridge) -> None:
     assert [r["id"] for r in body] == ["run-0", "run-1"]
 
 
-def test_list_runs_reports_an_unreachable_manager_as_503_with_a_code(bridge) -> None:
+@pytest.mark.parametrize(
+    "url",
+    [pytest.param("/runs", id="list-runs"), pytest.param("/runs/anything", id="get-run")],
+)
+def test_a_run_route_reports_an_unreachable_manager_as_503_with_a_code(bridge, url) -> None:
     """Same refusal shape as the queue surface: a bare-string detail here would
     make this the one route a consumer has to special-case."""
     from bluesky_queueserver_api.comm_base import RequestTimeoutError
 
     client, _ = bridge(queue=RequestTimeoutError("no answer", {}))
     with client:
-        resp = client.get("/runs")
+        resp = client.get(url)
 
     assert resp.status_code == 503
     assert resp.json()["detail"]["code"] == "manager_unreachable"
@@ -186,15 +190,29 @@ def test_get_run_carries_progress_once_the_document_plane_has_rows(bridge) -> No
     assert body["progress"]["fraction"] == pytest.approx(0.5)
 
 
-def test_get_run_reports_an_unreachable_manager_as_503_with_a_code(bridge) -> None:
-    from bluesky_queueserver_api.comm_base import RequestTimeoutError
+def test_get_run_carries_the_managers_timing_and_the_rate(bridge, monkeypatch) -> None:
+    from osprey.services.bluesky_bridge import runs
 
-    client, _ = bridge(queue=RequestTimeoutError("no answer", {}))
+    start = 1_760_000_000.0
+    monkeypatch.setattr(runs, "_wall_clock", lambda: start + 4.0)
+    document_plane.record_expected_points("running", 10)
+    recorder = live_rows.LiveRowRecorder(key="running")
+    recorder("start", {"uid": "re-uid"})
+    recorder("event", {"data": {"BPM1": 1.0}})
+    recorder("event", {"data": {"BPM1": 2.0}})
+
+    running = {**_item("running"), "properties": {"time_start": start}}
+    client, _ = bridge(queue={"items": [], "running_item": running})
     with client:
-        resp = client.get("/runs/anything")
+        body = client.get("/runs/running").json()
 
-    assert resp.status_code == 503
-    assert resp.json()["detail"]["code"] == "manager_unreachable"
+    from datetime import datetime
+
+    assert datetime.fromisoformat(body["started_at"]).timestamp() == start
+    assert body["elapsed_s"] == pytest.approx(4.0)
+    assert "finished_at" not in body
+    assert body["progress"]["points_per_s"] == pytest.approx(0.5)
+    assert body["progress"]["remaining_s"] == pytest.approx(16.0)
 
 
 # =========================================================================

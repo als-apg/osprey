@@ -176,33 +176,33 @@ class TestAskSageGetAvailableModels:
     # Every error path and missing credentials fall back to the static defaults,
     # matching argo.get_available_models.
 
-    def test_missing_api_key_falls_back_to_defaults(self):
-        """Test missing API key falls back to static defaults."""
+    @pytest.mark.parametrize(
+        ("api_key", "base_url"),
+        [
+            pytest.param(None, "https://test", id="missing-api-key"),
+            pytest.param("key", None, id="missing-base-url"),
+        ],
+    )
+    def test_missing_credentials_fall_back_to_defaults(self, api_key, base_url):
         provider = AskSageProviderAdapter()
-        result = provider.get_available_models(api_key=None, base_url="https://test")
+        result = provider.get_available_models(api_key=api_key, base_url=base_url)
         assert result == provider.available_models
 
-    def test_missing_base_url_falls_back_to_defaults(self):
-        """Test missing base URL falls back to static defaults."""
-        provider = AskSageProviderAdapter()
-        result = provider.get_available_models(api_key="key", base_url=None)
-        assert result == provider.available_models
-
-    def test_auth_failure_falls_back_to_defaults(self):
-        """Test a 401 falls back to static defaults."""
+    @pytest.mark.parametrize(
+        ("status_code", "api_key"),
+        [
+            # A 401.
+            pytest.param(401, "bad", id="auth-failure"),
+            # A non-200/401 status.
+            pytest.param(500, "key", id="server-error"),
+        ],
+    )
+    def test_a_rejected_request_falls_back_to_defaults(self, status_code, api_key):
+        """Test an error status falls back to static defaults."""
         provider = AskSageProviderAdapter()
         with patch("requests.get") as mock_get:
-            mock_get.return_value = Mock(status_code=401)
-            result = provider.get_available_models(api_key="bad", base_url="https://test")
-
-        assert result == provider.available_models
-
-    def test_server_error_falls_back_to_defaults(self):
-        """Test a non-200/401 status falls back to static defaults."""
-        provider = AskSageProviderAdapter()
-        with patch("requests.get") as mock_get:
-            mock_get.return_value = Mock(status_code=500)
-            result = provider.get_available_models(api_key="key", base_url="https://test")
+            mock_get.return_value = Mock(status_code=status_code)
+            result = provider.get_available_models(api_key=api_key, base_url="https://test")
 
         assert result == provider.available_models
 
@@ -503,17 +503,19 @@ class TestAskSageExecuteCompletion:
         assert self._ask_structured(client) == SampleOutput(result="ok", value=2)
         assert client.chat.completions.create.call_count == 2
 
-    def test_structured_output_second_bad_reply_is_the_failure(self):
-        """Test the second reply that does not parse is the failure."""
-        client = self._mock_client_replies("not json", "still not json")
-
-        with pytest.raises(ValueError, match="^Failed to parse structured output from AskSage: "):
-            self._ask_structured(client)
-        assert client.chat.completions.create.call_count == 2
-
-    def test_structured_output_with_no_content_is_a_reply_that_does_not_parse(self):
-        """Test a reply with no content is reported like any reply that does not parse."""
-        client = self._mock_client_replies(None, None)
+    @pytest.mark.parametrize(
+        ("first_reply", "second_reply"),
+        [
+            # The second reply that does not parse is the failure.
+            pytest.param("not json", "still not json", id="second-bad-reply"),
+            # A reply with no content is reported like any reply that does not parse.
+            pytest.param(None, None, id="no-content"),
+        ],
+    )
+    def test_structured_output_that_does_not_parse_twice_is_the_failure(
+        self, first_reply, second_reply
+    ):
+        client = self._mock_client_replies(first_reply, second_reply)
 
         with pytest.raises(ValueError, match="^Failed to parse structured output from AskSage: "):
             self._ask_structured(client)
@@ -523,19 +525,18 @@ class TestAskSageExecuteCompletion:
 class TestAskSageCheckHealth:
     """Test AskSage health check."""
 
-    def test_no_api_key(self):
-        """Test health check fails without an API key."""
+    @pytest.mark.parametrize(
+        ("api_key", "base_url", "expected_message"),
+        [
+            pytest.param(None, "https://test", "API key not set", id="no-api-key"),
+            pytest.param("key", None, "Base URL not configured", id="no-base-url"),
+        ],
+    )
+    def test_health_check_fails_without_credentials(self, api_key, base_url, expected_message):
         provider = AskSageProviderAdapter()
-        ok, message = provider.check_health(api_key=None, base_url="https://test")
+        ok, message = provider.check_health(api_key=api_key, base_url=base_url)
         assert ok is False
-        assert "API key not set" in message
-
-    def test_no_base_url(self):
-        """Test health check fails without a base URL."""
-        provider = AskSageProviderAdapter()
-        ok, message = provider.check_health(api_key="key", base_url=None)
-        assert ok is False
-        assert "Base URL not configured" in message
+        assert expected_message in message
 
     def test_successful(self):
         """Test a 200 reports the API as accessible."""

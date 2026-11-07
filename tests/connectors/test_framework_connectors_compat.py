@@ -20,7 +20,9 @@ import pytest
 
 import osprey
 import osprey_connectors
+from osprey.facility.records import FacilityRecords
 from osprey_connectors_tests.compat import contracts, scan_framework_imports
+from tests._facility_file import demo_facility_document
 
 # The framework and the connectors this suite imports, wherever they are
 # installed: both from this checkout in most lanes, the floor connectors from
@@ -76,19 +78,18 @@ def test_the_framework_ships_the_view_writer_where_the_contract_looks() -> None:
 
 
 def test_the_connectors_open_the_view_the_framework_writes(tmp_path: Path) -> None:
-    from osprey.facility.build import build_facility
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
 
-    doc = build_facility(TEMPLATE_FACILITY, project_name="example")
+    doc = demo_facility_document()
     write_simulator_view(
         tmp_path / "data" / "simulator",
         ViewInputs(
-            doc=doc,
+            records=FacilityRecords(doc),
             rendered_config=VIEW_CONFIG,
             facility_dir=TEMPLATE_FACILITY,
-            served=resolve_served(VIEW_CONFIG, doc),
+            served=resolve_served(VIEW_CONFIG, FacilityRecords(doc)),
             reported=None,
         ),
     )

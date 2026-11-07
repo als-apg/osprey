@@ -22,110 +22,19 @@ import {
   artifactPath,
   getTypeRegistry,
   initTypeRegistry,
-  typeBadge,
-  typeIcon,
-  typeColor,
-  thumbnailHtml,
   escapeHtml,
   withTheme,
   formatSize,
-  formatTime,
   formatFullTime,
-  formatDate,
   openUrl,
   isoToDate,
   isTimeseries,
   hasTimeseriesData,
-  isNewThisSession,
-  requestColorPass,
 } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
-import { qs } from '../_support/dom.mjs';
 import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-describe('typeColor', () => {
-  test('an unknown type falls back to the theme-invariant default', () => {
-    expect(typeColor('totally_unknown_type')).toBe('#64748b');
-  });
-
-  test('a registered artifact_type returns its registry color', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        json: () =>
-          Promise.resolve({ artifact_types: { plot_html: { label: 'Plot', color: '#ff0000' } } }),
-      })
-    );
-    await initTypeRegistry();
-    expect(typeColor('plot_html')).toBe('#ff0000');
-  });
-
-  test('categories take precedence over artifact_types when both are present', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        json: () =>
-          Promise.resolve({
-            categories: { visualization: { label: 'Viz', color: '#00ff00' } },
-            artifact_types: { visualization: { label: 'Viz (type)', color: '#0000ff' } },
-          }),
-      })
-    );
-    await initTypeRegistry();
-    expect(typeColor('visualization')).toBe('#00ff00');
-    expect(typeBadge('visualization')).toBe('Viz');
-  });
-});
-
-describe('typeBadge', () => {
-  test('an unknown type falls back to a humanized version of the raw type string', () => {
-    expect(typeBadge('some_custom_type')).toBe('some custom type');
-  });
-
-  test('a registered type returns its registry label', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        json: () => Promise.resolve({ artifact_types: { json: { label: 'JSON Data' } } }),
-      })
-    );
-    await initTypeRegistry();
-    expect(typeBadge('json')).toBe('JSON Data');
-  });
-
-  test('Task 1.3 — a hostile registry label (agent-fed /api/type-registry) is escaped to inert text', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        json: () =>
-          Promise.resolve({ artifact_types: { evil: { label: '<img src=x onerror=alert(1)>' } } }),
-      })
-    );
-    await initTypeRegistry();
-    const result = typeBadge('evil');
-    expect(result).not.toContain('<img');
-    expect(result).toContain('&lt;img');
-  });
-
-  test('Task 1.3 — a hostile unregistered type falls back to escaped humanized text (agent-supplied category/artifact_type)', () => {
-    const result = typeBadge('<script>alert(1)</script>');
-    expect(result).not.toContain('<script>');
-    expect(result).toContain('&lt;script&gt;');
-  });
-});
-
-describe('typeIcon', () => {
-  test('a known type returns its own SVG icon', () => {
-    expect(typeIcon('markdown')).toContain('<svg');
-    expect(typeIcon('markdown')).not.toBe(typeIcon('plot_html'));
-  });
-
-  test('an unknown type falls back to the generic text icon', () => {
-    expect(typeIcon('some_unregistered_type')).toBe(typeIcon('text'));
-  });
 });
 
 describe('initTypeRegistry / getTypeRegistry', () => {
@@ -232,32 +141,14 @@ describe('isoToDate (shared timestamp guard)', () => {
   });
 });
 
-describe('formatTime / formatFullTime / formatDate', () => {
-  test('formatTime and formatFullTime return "" for falsy input', () => {
-    expect(formatTime(/** @type {string} */ (/** @type {unknown} */ (null)))).toBe('');
-    expect(formatTime(undefined)).toBe('');
+describe('formatFullTime', () => {
+  test('formatFullTime returns "" for falsy input', () => {
     expect(formatFullTime(/** @type {string} */ (/** @type {unknown} */ (null)))).toBe('');
     expect(formatFullTime(undefined)).toBe('');
   });
 
-  test('formatDate returns "Unknown" for falsy input', () => {
-    expect(formatDate(/** @type {string} */ (/** @type {unknown} */ (null)))).toBe('Unknown');
-    expect(formatDate(undefined)).toBe('Unknown');
-  });
-
-  test('formatDate returns "Today" for the current date', () => {
-    expect(formatDate(new Date().toISOString())).toBe('Today');
-  });
-
-  test('formatDate returns "Yesterday" for the prior calendar day', () => {
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    expect(formatDate(yesterday.toISOString())).toBe('Yesterday');
-  });
-
-  test('formatTime and formatFullTime produce non-empty output for a valid ISO string', () => {
+  test('formatFullTime produces non-empty output for a valid ISO string', () => {
     const iso = '2026-07-03T15:45:00Z';
-    expect(formatTime(iso).length).toBeGreaterThan(0);
     expect(formatFullTime(iso)).toContain('2026');
   });
 
@@ -265,26 +156,21 @@ describe('formatTime / formatFullTime / formatDate', () => {
     // artifact_store.py emits datetime.now(UTC).isoformat(), e.g. this form —
     // the guard's ISO-shape regex must pass it through, not reject it.
     const iso = '2026-07-07T15:45:00.123456+00:00';
-    expect(formatTime(iso).length).toBeGreaterThan(0);
     expect(formatFullTime(iso)).toContain('2026');
-    expect(formatDate(iso)).not.toBe('Unknown');
   });
 
-  test('non-ISO / fabricating input yields the empty/"Unknown" fallback, never an invented date', () => {
+  test('non-ISO / fabricating input yields the empty fallback, never an invented date', () => {
     // Bare `new Date("0")`/`new Date(0)` would fabricate a year-2000/epoch
     // date; the guard must reject these rather than render a made-up time.
     for (const junk of ['0', '1751000000000', 'not-a-date', 42, {}, []]) {
       const bad = /** @type {string} */ (/** @type {unknown} */ (junk));
-      expect(formatTime(bad)).toBe('');
       expect(formatFullTime(bad)).toBe('');
-      expect(formatDate(bad)).toBe('Unknown');
     }
   });
 
   test('an ISO string that parses to an invalid date falls back rather than throwing', () => {
     // ISO-shaped but impossible (month 99): Date coercion yields NaN.
     expect(formatFullTime('2026-99-99T00:00:00Z')).toBe('');
-    expect(formatDate('2026-99-99T00:00:00Z')).toBe('Unknown');
   });
 });
 
@@ -309,38 +195,11 @@ describe('gallery times on the facility clock', () => {
     minute: '2-digit',
   };
 
-  test('formatTime reads the stamped zone', () => {
-    stampFacilityZone(FACILITY_ZONE);
-    expect(formatTime(ISO)).toBe(intl(FACILITY_ZONE, { hour: '2-digit', minute: '2-digit' }));
-  });
-
   test('formatFullTime names the zone when the viewer reads another clock, and not otherwise', () => {
     stampFacilityZone(FACILITY_ZONE);
     expect(formatFullTime(ISO)).toBe(intl(FACILITY_ZONE, { ...FULL, timeZoneName: 'short' }));
     stampFacilityZone(VIEWER_ZONE);
     expect(formatFullTime(ISO)).toBe(intl(VIEWER_ZONE, FULL));
-  });
-
-  test("Today and Yesterday are the facility calendar's days", () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    // Jan 16 01:00 in Kathmandu; still Jan 15 in UTC and the Americas.
-    vi.setSystemTime(new Date('2026-01-15T19:15:00Z'));
-    stampFacilityZone('Asia/Kathmandu');
-    expect(formatDate('2026-01-15T18:30:00Z')).toBe('Today');
-    expect(formatDate('2026-01-15T18:00:00Z')).toBe('Yesterday');
-    const older = formatDate('2026-01-14T18:00:00Z');
-    expect(older).not.toBe('Today');
-    expect(older).not.toBe('Yesterday');
-  });
-
-  test('Yesterday is the civil day before, across a spring-forward night', () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    // 00:30 EDT on Mar 9, the morning after the 23-hour Mar 8.
-    vi.setSystemTime(new Date('2026-03-09T04:30:00Z'));
-    stampFacilityZone('America/New_York');
-    expect(formatDate('2026-03-08T12:00:00Z')).toBe('Yesterday');
-    // Exactly 24 h back is 23:30 on Mar 7.
-    expect(formatDate('2026-03-08T04:30:00Z')).not.toBe('Yesterday');
   });
 });
 
@@ -439,8 +298,12 @@ describe('isTimeseries', () => {
     );
   });
 
-  test('true when category is "archiver_data"', () => {
-    expect(isTimeseries({ category: 'archiver_data', artifact_type: 'json' })).toBe(true);
+  test('true when tool_source is "archiver_read"', () => {
+    expect(isTimeseries({ tool_source: 'archiver_read', artifact_type: 'json' })).toBe(true);
+  });
+
+  test('false when only the retired category "archiver_data" is set', () => {
+    expect(isTimeseries({ category: 'archiver_data', artifact_type: 'json' })).toBe(false);
   });
 
   test('false for an ordinary artifact with no timeseries markers', () => {
@@ -448,7 +311,7 @@ describe('isTimeseries', () => {
   });
 
   test('does not require a data file (print strategy captures the on-screen chart)', () => {
-    expect(isTimeseries({ category: 'archiver_data' })).toBe(true);
+    expect(isTimeseries({ tool_source: 'archiver_read' })).toBe(true);
   });
 
   test('tolerates a missing metadata object without throwing', () => {
@@ -458,7 +321,7 @@ describe('isTimeseries', () => {
 
 describe('hasTimeseriesData', () => {
   test('true when a timeseries artifact carries a top-level data_file', () => {
-    expect(hasTimeseriesData({ category: 'archiver_data', data_file: 'y.parquet' })).toBe(true);
+    expect(hasTimeseriesData({ tool_source: 'archiver_read', data_file: 'y.parquet' })).toBe(true);
   });
 
   test('true when the data_file lives under metadata', () => {
@@ -468,89 +331,11 @@ describe('hasTimeseriesData', () => {
   });
 
   test('false for a timeseries artifact with no data file (nothing to fetch/render)', () => {
-    expect(hasTimeseriesData({ category: 'archiver_data' })).toBe(false);
+    expect(hasTimeseriesData({ tool_source: 'archiver_read' })).toBe(false);
   });
 
   test('false for a non-timeseries artifact even when it happens to have a data_file', () => {
     expect(hasTimeseriesData({ artifact_type: 'json', data_file: 'z.parquet' })).toBe(false);
-  });
-});
-
-describe('thumbnailHtml', () => {
-  test('an image type renders an <img> tag pointing at the file URL', () => {
-    const html = thumbnailHtml({ id: 'i1', artifact_type: 'image', filename: 'photo.png' });
-    expect(html).toContain('<img');
-    expect(html).toContain('/files/i1/photo.png');
-  });
-
-  test('an html-family type renders an <iframe>', () => {
-    const html = thumbnailHtml({ id: 'i2', artifact_type: 'plot_html', filename: 'p.html' });
-    expect(html).toContain('<iframe');
-  });
-
-  test('the notebook iframe src percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
-    const html = thumbnailHtml({
-      id: 'a/../b?x="y"',
-      artifact_type: 'notebook',
-      filename: 'n.ipynb',
-    });
-    expect(html).toContain('/api/notebooks/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
-    expect(html).not.toContain('/api/notebooks/a/../b');
-  });
-
-  test('the notebook iframe src is byte-identical for a real 12-hex artifact id', () => {
-    const html = thumbnailHtml({
-      id: '0123456789ab',
-      artifact_type: 'notebook',
-      filename: 'n.ipynb',
-    });
-    expect(html).toContain('/api/notebooks/0123456789ab/rendered');
-  });
-
-  test('a type with a non-empty summary renders the summary fields, escaped', () => {
-    const html = thumbnailHtml({
-      id: 'i3',
-      artifact_type: 'json',
-      filename: 'd.json',
-      summary: { rows: 10 },
-    });
-    expect(html).toContain('thumb-summary');
-    expect(html).toContain('rows: 10');
-  });
-
-  test('a type with no summary falls back to the generic type icon + badge', () => {
-    const html = thumbnailHtml({ id: 'i4', artifact_type: 'unknown_type', filename: 'f.bin' });
-    expect(html).toContain('thumb-placeholder');
-  });
-});
-
-describe('isNewThisSession', () => {
-  test('an artifact timestamped at/after session start is new', () => {
-    expect(isNewThisSession({ timestamp: '2026-07-03T12:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(
-      true
-    );
-    expect(isNewThisSession({ timestamp: '2026-07-03T13:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(
-      true
-    );
-  });
-
-  test('an artifact timestamped before session start is not new', () => {
-    expect(isNewThisSession({ timestamp: '2026-07-03T11:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(
-      false
-    );
-  });
-
-  test('an artifact with no timestamp is not new', () => {
-    expect(isNewThisSession({}, '2026-07-03T12:00:00Z')).toBe(false);
-  });
-
-  test('the shipped example is never new, even though it is written at gallery start', () => {
-    expect(
-      isNewThisSession(
-        { timestamp: '2026-07-03T13:00:00Z', origin: 'demo' },
-        '2026-07-03T12:00:00Z'
-      )
-    ).toBe(false);
   });
 });
 
@@ -592,15 +377,5 @@ describe('artifactPath', () => {
     withArtifactDirMeta('', () => {
       expect(artifactPath({ filename: 'beam.png' })).toBe('var/agent_data/artifacts/beam.png');
     });
-  });
-});
-
-describe('requestColorPass', () => {
-  test('recolors a badge-* element on the next animation frame, without throwing', async () => {
-    document.body.innerHTML = '<span class="badge-plot_html"></span>';
-    requestColorPass();
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-    const el = qs(document, '.badge-plot_html');
-    expect(el.style.color).not.toBe('');
   });
 });

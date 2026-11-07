@@ -41,7 +41,6 @@ from osprey.utils.workspace import PROFILE_FILENAME
 from osprey_connectors.call_timeout import refuse_renamed_timeout_keys
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.simulation import TICK_KEY, resolve_tick_s
-from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 from osprey_connectors.types import (
     RETIRED_CONTROL_SYSTEM_TYPES,
     SET_CONTROL_SYSTEM_TYPES,
@@ -59,9 +58,13 @@ from .build_profile_document import (
     _normalize_empty_collections,
     _read_profile_document,
 )
-from .build_profile_merge import resolve_profile_document
+from .build_profile_merge import refuse_inputs_outside_repository, resolve_profile_document
 from .build_profile_model import SERVICE_AXES, BuildProfile
-from .build_profile_presets import PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY
+from .build_profile_presets import (
+    PRESET_DATA_BUNDLE_KEY,
+    PRESET_FACILITY_KEY,
+    bundled_service_names,
+)
 from .build_profile_schema import (
     DEFAULT_DEVIATION_MARKER,
     BlueskyConfig,
@@ -75,6 +78,7 @@ from .build_profile_schema import (
     LifecycleStep,
     McpServerDef,
     NextcloudBridgeProfileConfig,
+    OptimizerConfig,
     ProfileProvenance,
     ServiceDef,
     SlackBridgeProfileConfig,
@@ -166,6 +170,7 @@ def load_profile_document(path: Path) -> LoadedProfile:
     # packaged data bundle this profile's tree came from. Stamped here rather
     # than parsed, because no key of the resolved document says it.
     profile.inherited_preset = document.inherited_preset
+    refuse_inputs_outside_repository(document)
     profile.validate(document.root_dir)
     return LoadedProfile(
         profile=profile,
@@ -191,13 +196,14 @@ _PROFILE_SCHEMA_MIN_OSPREY = "2026.10.0"
 #: The release from which the retired roster spellings (the ``RETIRED_*``
 #: constants of :mod:`osprey.cli.build_profile_document`: the tier pin, the
 #: default tier, the role target and the render catalog) are refused rather than rewritten to their ``tier``
-#: successors at parse time. The rewrite is a one-release migration window:
-#: the release that carries the tiers/apps vocabulary
-#: (:data:`_PROFILE_SCHEMA_MIN_OSPREY`) still reads the old spellings, and the
-#: minor release after it does not. A test asserts the running release sits
-#: below this value, so the release that reaches it fails until the rewrite is
-#: removed.
-RETIRED_ROSTER_KEYS_REFUSED_FROM = "2026.11.0"
+#: successors at parse time. The rewrite is a two-release migration window
+#: (owner ruling 2026-11-02, moved from 2026.11.0 so the first stable release
+#: after the tiers/apps vocabulary still reads the old spellings): the release
+#: that carries the vocabulary (:data:`_PROFILE_SCHEMA_MIN_OSPREY`) and the
+#: minor release after it read them, and the second minor release after it
+#: does not. A test asserts the running release sits below this value, so the
+#: release that reaches it fails until the rewrite is removed.
+RETIRED_ROSTER_KEYS_REFUSED_FROM = "2026.12.0"
 
 #: The one sunset of the write-posture migration windows: the retired write
 #: keys, undeclared write-looking facility tools, ``control_system.write_tools``
@@ -211,9 +217,10 @@ RETIRED_WRITE_KEYS_REFUSED_FROM = RETIRED_ROSTER_KEYS_REFUSED_FROM
 #: The release from which ``approval.tools.<tool>`` for a tool the write switch
 #: governs is refused rather than dropped with a warning
 #: (:func:`~osprey.cli.build_profile_document.normalize_retired_approval_policies`).
-#: Its own window, one minor after the write-posture sunset, because the
-#: policies retire in the release that refuses the write keys. A test tripwire
-#: like the others, not a runtime version compare.
+#: Its own constant, but since the write-posture sunset moved to 2026.12.0
+#: (owner ruling 2026-11-02) it closes on that same release, the date already
+#: promised for it, so the policies retire with the write keys. A test
+#: tripwire like the others, not a runtime version compare.
 RETIRED_APPROVAL_POLICY_REFUSED_FROM = "2026.12.0"
 
 
@@ -263,6 +270,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "bluesky",
         "virtual_accelerator",
         "bluesky_web",
+        "optimizer",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -382,6 +390,11 @@ _WARNED_MCP_SERVER_KEYS: set[tuple[str, str]] = set()
 # what the facility asked for.
 _KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
 
+# Keys recognized inside the ``env:`` block, derived from its dataclass like the
+# bluesky set below. Closed so a key the schema does not declare is refused
+# rather than silently ignored.
+_KNOWN_ENV_KEYS = frozenset(f.name for f in fields(EnvConfig))
+
 
 # Keys recognized inside the ``bluesky:`` block, derived from the dataclass the
 # block is parsed into rather than listed by hand: every field below is read by
@@ -391,6 +404,11 @@ _KNOWN_ENVIRONMENT_KEYS = frozenset({"python", "packages", "inherit_exclude"})
 # for, and a knob a release removed (e.g. `demo_runner:`) has to announce its
 # removal instead of being silently ignored.
 _KNOWN_BLUESKY_KEYS = frozenset(f.name for f in fields(BlueskyConfig))
+
+# Keys recognized inside the ``optimizer:`` block, derived from its dataclass
+# for the same reason the bluesky set is: a misspelled `target:` would leave the
+# deployment on its default target with no word said.
+_KNOWN_OPTIMIZER_KEYS = frozenset(f.name for f in fields(OptimizerConfig))
 
 # Keys recognized inside the ``bluesky.external:`` block, derived from its
 # dataclass exactly as the parent block's are, and for the same reason.
@@ -479,6 +497,36 @@ def config_port_base(config: Any) -> int:
     }
     return resolve_port_base(
         {"deployment": effective_config_subtree(deployment_keys, ("deployment",))}
+    )
+
+
+def _parse_optimizer(raw: Any, base: int) -> OptimizerConfig | None:
+    """Parse the ``optimizer:`` block, or ``None`` when the profile has none.
+
+    Shapes are checked here; which targets are allowed is a validation rule
+    (:func:`~.build_profile_schema.optimizer_errors`), reported with the rest.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise BuildProfileError("Profile 'optimizer' must be a mapping")
+    _reject_unknown_block_keys(raw, _KNOWN_OPTIMIZER_KEYS, "optimizer")
+    targets = raw.get("targets", ["va"])
+    if not isinstance(targets, list) or not all(isinstance(t, str) for t in targets):
+        raise BuildProfileError(
+            f"optimizer.targets must be a list of target names (got {targets!r})"
+        )
+    environments_dir = raw.get("environments_dir")
+    if environments_dir is not None and (
+        not isinstance(environments_dir, str) or not environments_dir
+    ):
+        raise BuildProfileError(
+            f"optimizer.environments_dir must be a non-empty path string (got {environments_dir!r})"
+        )
+    return OptimizerConfig(
+        port=raw.get("port", default_port("optimizer", base=base)),
+        targets=list(targets),
+        environments_dir=environments_dir,
     )
 
 
@@ -579,7 +627,7 @@ def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], 
     """Reject unrecognized keys in a closed profile block, naming every one at once.
 
     The shared body behind the closed-schema blocks this module parses — the
-    top level, ``environment``, ``dispatch``, ``bluesky``, ``provenance``, the
+    top level, ``env``, ``environment``, ``dispatch``, ``bluesky``, ``provenance``, the
     virtual-accelerator blocks and the closed blocks inside ``config:``
     (:func:`reject_unknown_closed_config_keys`) — so an operator meets one
     wording whichever of them they mistyped. Two closed blocks parsed elsewhere answer in their
@@ -613,15 +661,6 @@ def _reject_unknown_block_keys(keys: Iterable[str], known_keys: frozenset[str], 
     )
 
 
-#: The file that makes a directory a service template, bundled or custom.
-_SERVICE_TEMPLATE_FILE = "docker-compose.yml.j2"
-
-#: The second instance of the virtual accelerator, rendered off the same
-#: template under a service key of its own. Its block keeps its own manifest
-#: rows (``services.live_standin.*``): the instance is told apart by them.
-LIVE_STANDIN_SERVICE = LIVE_STANDIN_PORT_KEY.split(".")[1]
-
-
 def service_family(name: str) -> str:
     """The service whose manifest rows close the ``services.<name>`` block.
 
@@ -631,28 +670,6 @@ def service_family(name: str) -> str:
     service — the live stand-in included — is its own family.
     """
     return LANE_ONE if name in SECOND_LANE_KEYS.values() else name
-
-
-@lru_cache(maxsize=1)
-def bundled_service_names() -> frozenset[str]:
-    """Every service key whose block OSPREY's own template reads.
-
-    The template directories shipped under ``osprey/templates/services``, plus
-    the instances rendered off one of them: the second plan lanes and the live
-    stand-in. A custom service is not here — its template is the facility's
-    own, so its block stays open.
-    """
-    import osprey.templates
-
-    root = Path(osprey.templates.__file__).parent / "services"
-    if not root.is_dir():
-        return frozenset()
-    templates = {
-        entry.name
-        for entry in root.iterdir()
-        if entry.is_dir() and (entry / _SERVICE_TEMPLATE_FILE).is_file()
-    }
-    return frozenset(templates | set(SECOND_LANE_KEYS.values()) | {LIVE_STANDIN_SERVICE})
 
 
 @lru_cache(maxsize=1)
@@ -830,7 +847,8 @@ def _check_default_scenarios(raw: dict[str, Any]) -> None:
             ``simulation.default_scenarios`` if the value is not a list of
             non-empty strings.
     """
-    from osprey.simulation.apply import DEFAULT_SCENARIOS_KEY, resolve_default_scenarios
+    from osprey.simulation import DEFAULT_SCENARIOS_KEY
+    from osprey.simulation.apply import resolve_default_scenarios
 
     try:
         resolve_default_scenarios(_expand_dotted(raw.get("config")))
@@ -1609,11 +1627,11 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     )
 
     env_raw = _block(raw, "env")
+    _reject_unknown_block_keys(env_raw, _KNOWN_ENV_KEYS, "env")
     env = EnvConfig(
         required=env_raw.get("required", []),
         pinned=env_raw.get("pinned", []),
         defaults=env_raw.get("defaults", {}),
-        file=env_raw.get("file"),
     )
 
     environment = _parse_environment(raw)
@@ -1782,6 +1800,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_web_raw.get("port", default_port("bluesky_web", base=port_base)),
         )
 
+    optimizer = _parse_optimizer(raw.get("optimizer"), port_base)
+
     nextcloud_bridge_raw = raw.get("nextcloud_bridge")
     nextcloud_bridge = None
     if nextcloud_bridge_raw is not None:
@@ -1918,6 +1938,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
         bluesky_web=bluesky_web,
+        optimizer=optimizer,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
         teams_bridge=teams_bridge,

@@ -31,16 +31,29 @@ def _clean_wheel_cache():
     _reset_wheel_build_cache()
 
 
+#: What the stand-in lock exports as, for the checkouts faked below.
+FAKE_LOCK_EXPORT = "aiohttp==3.14.3\nnumpy==2.3.0 ; python_version >= '3.11'\n"
+
+
 @pytest.fixture
 def editable_checkout(tmp_path, monkeypatch):
-    """Fake an editable osprey install rooted at a writable temp checkout."""
+    """Fake an editable osprey install rooted at a writable temp checkout.
+
+    The checkout carries a ``uv.lock`` and its export is stubbed: the fake
+    pyproject is no workspace uv could export, and what is under test here is
+    the staging around the export, not uv.
+    """
+    import osprey.deployment.wheel_build as wb
+
     src = tmp_path / "checkout" / "src" / "osprey"
     src.mkdir(parents=True)
     (tmp_path / "checkout" / "pyproject.toml").write_text("[project]\nname='osprey'\n")
+    (tmp_path / "checkout" / "uv.lock").write_text("version = 1\n")
 
     import osprey
 
     monkeypatch.setattr(osprey, "__file__", str(src / "__init__.py"))
+    monkeypatch.setattr(wb, "export_lock_constraints", lambda root: FAKE_LOCK_EXPORT)
     return tmp_path / "checkout"
 
 
@@ -107,6 +120,27 @@ class TestPreflightDevMode:
 
         assert "pyproject.toml" in str(exc.value)
 
+    def test_missing_lock_raises(self, editable_checkout):
+        """A dev build installs third-party packages at the lock's versions, so no lock, no build."""
+        (editable_checkout / "uv.lock").unlink()
+
+        with pytest.raises(DevModeUnavailableError) as exc:
+            preflight_dev_mode()
+
+        assert "uv.lock" in str(exc.value)
+        assert "uv lock" in exc.value.remedy
+
+    @pytest.mark.usefixtures("editable_checkout")
+    def test_missing_uv_raises(self, monkeypatch):
+        import osprey.deployment.wheel_build as wb
+
+        monkeypatch.setattr(wb, "find_uv", lambda: None)
+
+        with pytest.raises(DevModeUnavailableError) as exc:
+            preflight_dev_mode()
+
+        assert "uv" in str(exc.value)
+
     @pytest.mark.usefixtures("editable_checkout")
     def test_healthy_environment_passes(self):
         """The repo's own dev environment must satisfy the preflight."""
@@ -127,13 +161,20 @@ class TestPreflightDevMode:
 class TestWheelBuildFailuresRaise:
     """A failed wheel build must not degrade into a released-code deploy."""
 
-    def test_missing_build_module_raises(self, editable_checkout, monkeypatch):
+    @pytest.mark.parametrize(
+        ("returncode", "stderr"),
+        [
+            pytest.param(1, "No module named build", id="missing-build-module"),
+            pytest.param(0, "", id="no-wheel-produced"),
+        ],
+    )
+    def test_a_build_that_yields_no_wheel_raises(
+        self, editable_checkout, monkeypatch, returncode, stderr
+    ):
         monkeypatch.setattr(
             subprocess,
             "run",
-            lambda *a, **k: subprocess.CompletedProcess(
-                a[0] if a else [], 1, "", "No module named build"
-            ),
+            lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], returncode, "", stderr),
         )
 
         with pytest.raises(DevModeUnavailableError):
@@ -169,16 +210,6 @@ class TestWheelBuildFailuresRaise:
                 _build_dev_wheel_cached(editable_checkout)
 
         assert len(calls) == 2, "failed builds must not be cached"
-
-    def test_build_producing_no_wheel_raises(self, editable_checkout, monkeypatch):
-        monkeypatch.setattr(
-            subprocess,
-            "run",
-            lambda *a, **k: subprocess.CompletedProcess(a[0] if a else [], 0, "", ""),
-        )
-
-        with pytest.raises(DevModeUnavailableError):
-            _build_dev_wheel_cached(editable_checkout)
 
 
 class TestStagingNeverSilentlyFallsBack:
@@ -318,7 +349,11 @@ class TestMemberWheelsSatisfyTheFramework:
         self._add_members(editable_checkout)
         cache = tmp_path / "cache"
         cache.mkdir()
-        versions = {"osprey-connectors": connectors_version, "pyaml-cs-osprey": "2026.9.0b3.post7"}
+        versions = {
+            "osprey-connectors": connectors_version,
+            "osprey-optimizer": "2026.9.0b3.post7",
+            "pyaml-cs-osprey": "2026.9.0b3.post7",
+        }
 
         def _fake_build(root):
             if root == editable_checkout:

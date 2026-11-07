@@ -28,7 +28,6 @@ from tests.e2e.ariel_picture import FIXTURES, PictureCase, run_picture_case
 from tests.e2e.sdk_helpers import HAS_SDK
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.agentic_benchmark,
     pytest.mark.requires_e2e_provider,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),

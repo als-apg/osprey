@@ -1,6 +1,6 @@
 """``osprey build`` renders every tier and every app beside the deployment.
 
-One build of the control-assistant exemplar renders ``build/<project>-<name>``
+One build of the demo exemplar renders ``build/<project>-<name>``
 for each file under ``tiers/`` and ``apps/``, and an image context
 ``build/.image/<project>-<name>/`` for each of them beside the deployment's own.
 A tier render is the deployment's agent at one access level, so it records the
@@ -11,6 +11,7 @@ rules, its write posture, and the card the roster resolves for it.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from pathlib import Path
@@ -31,7 +32,7 @@ from tests.fixtures.lifecycle_repo import build_exemplar_repo, preserved_environ
 PROJECT = "als-exemplar"
 TIERS = ("readonly", "readwrite", "admin")
 APPS = ("logbook", "knowledge", "channel-finder")
-HOST_PRESET = "control-assistant"
+HOST_PRESET = "demo"
 
 #: Servers the logbook app must not run: the deployment's write and compute
 #: surfaces, and the services only an operator's agent dials.
@@ -200,7 +201,12 @@ def test_logbook_selects_the_graph_subagent_and_the_safety_rule(built):
 
 def test_logbook_writes_nothing(built):
     config = _config(_render(built["repo"], "logbook"))
-    writes = _values_of(config, "writes")
+    # ``web.panels.<id>.writes`` is a panel affordance setting, not a control-system posture.
+    posture = copy.deepcopy(config)
+    for panel in ((posture.get("web") or {}).get("panels") or {}).values():
+        if isinstance(panel, dict):
+            panel.pop("writes", None)
+    writes = _values_of(posture, "writes")
 
     assert writes, "the logbook render states no write posture at all"
     assert (config.get("control_system") or {}).get("writes") == "never", writes
@@ -303,7 +309,7 @@ def test_verify_names_a_missing_layer_file(built, tmp_path):
 
 
 def test_shape_problem_speaks_of_tiers_and_apps():
-    problem = render_build_profile_shape_problem("control-assistant")
+    problem = render_build_profile_shape_problem("demo")
 
     assert problem is not None
     assert "preset" in problem

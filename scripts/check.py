@@ -7,7 +7,7 @@ from there::
 
     check.py quick [--changed BASE [--worktree] | --base BASE] [--fix] [-- PATH...]
     check.py full  [--changed BASE [--worktree] | --base BASE]         [-- PATH...]
-    check.py run ID... [--base BASE] [--shard cli|rest-a|rest-b] [-- EXEC-FLAGS...]
+    check.py run ID... [--base BASE] [--shard cli-a|cli-b|rest-a|rest-b|rest-c|macos] [-- EXEC-FLAGS...]
     check.py list [--tier quick|full] [--changed BASE] [--json]
 
 An owner declares its checks in a ``repo_checks.py`` module beside its code:
@@ -29,12 +29,11 @@ Four kinds of check:
   the rule that no tracked file is gitignored, the secret scan, and the tests
   that pin this declaration.
 * ``static`` -- one per language or rule: mypy, the import contracts, the
-  private-name imports, tsc, eslint, prettier, actionlint.
+  private-name imports, the connectors public names, tsc, eslint, prettier,
+  actionlint.
 * ``tests`` -- one per runner: the parallel pytest sweep, the serial
-  real-terminal and wall-clock suites, the live Channel Access gate, Vitest,
-  and the dock-engine's own Vitest suite.
-* ``build`` -- the documentation and its links, the dock-engine bundle, and the
-  packages.
+  real-terminal and wall-clock suites, the live Channel Access gate and Vitest.
+* ``build`` -- the documentation and its links, and the packages.
 
 Two tiers. ``quick`` is what a commit needs, ``full`` is what a push needs and
 adds the serial suites and the builds. ``run`` runs named checks as declared and
@@ -49,7 +48,7 @@ untracked), so one verdict judges one range. A check whose scope
 the range does not touch is reported as not touched; a path the range deleted or
 moved away touches the scope it left. The test runners get only the tests the
 changed paths map to. A path the mapping cannot place widens that runner to its
-whole selection; scoping never narrows. A script a check runs through, and a
+whole selection, and ``list --changed`` names that path; scoping never narrows. A script a check runs through, and a
 checks module, selects ``tests/scripts/``; a file under ``tests/<dir>/`` selects
 that directory when it holds a test module and widens otherwise. A base also arms the
 checks that judge a range. Paths after ``--`` are test files, pytest node ids
@@ -1025,29 +1024,45 @@ def declaration(tier: str | None = None) -> dict[str, object]:
     }
 
 
-def touched_by(base: str, tier: str = "full") -> list[str]:
-    """The ids of the checks of *tier* and of the CI lanes the range ``BASE...HEAD`` touches."""
-    files = repository_files()
-    plan = select(tier, touched(base), (), files, touched(base, scope=True))
+def _touched_plan(base: str, tier: str) -> Plan:
+    return select(tier, touched(base), (), repository_files(), touched(base, scope=True))
+
+
+def _touched_ids(plan: Plan) -> list[str]:
     checks = [name for name, chosen in plan.selections.items() if chosen.state != NOT_TOUCHED]
     return [*checks, *plan.lanes]
 
 
+def touched_by(base: str, tier: str = "full") -> list[str]:
+    """The ids of the checks of *tier* and of the CI lanes the range ``BASE...HEAD`` touches."""
+    return _touched_ids(_touched_plan(base, tier))
+
+
+def _widened(plan: Plan) -> dict[str, str]:
+    """Per runner the range widened to its whole selection, the changed path that did it."""
+    return {name: chosen.cause for name, chosen in plan.selections.items() if chosen.cause}
+
+
 def _list(tier: str | None, as_json: bool, changed: str | None = None) -> int:
-    hit = touched_by(changed, tier or "full") if changed else None
+    plan = _touched_plan(changed, tier or "full") if changed else None
+    hit = _touched_ids(plan) if plan is not None else None
     if as_json:
         data = declaration(tier)
-        if hit is not None:
+        if plan is not None:
             data["touched"] = hit
+            data["widened"] = _widened(plan)
         print(json.dumps(data, indent=2))
         return CLEAN
+    width = max(len(check.id) for check in CHECKS) + 2
     for check in CHECKS:
         if tier is None or tier in check.tiers:
             owner = DECLARED.owners.get(check.id, FRAMEWORK_MODULE)
             spelling = shlex.join(check.argv) if check.argv else f"(in {owner})"
             tiers = ",".join(t for t in TIERS if t in check.tiers)
-            print(f"{check.id:<20}{check.kind:<11}{tiers:<12}{spelling}")
-    if hit is not None:
+            print(f"{check.id:<{width}}{check.kind:<11}{tiers:<12}{spelling}")
+    if plan is not None:
+        for name, cause in _widened(plan).items():
+            print(f"widened: {name} runs whole because of {cause}")
         print(f"touched: {', '.join(hit)}")
     return CLEAN
 

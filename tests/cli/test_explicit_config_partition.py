@@ -82,6 +82,7 @@ from osprey.deployment.web_terminals.render_naming import (
     RENDER_KIND_TIER,
     RENDERS_KEY,
 )
+from osprey.facility.settings import FACILITY_SETTINGS
 from osprey.port_layout import DEFAULT_PORT_BASE
 from osprey.profiles.providers import load_provider_catalog
 from tests.cli.test_explicit_config_equivalence import (
@@ -89,6 +90,9 @@ from tests.cli.test_explicit_config_equivalence import (
     ABSENT,
     CELL_DELTAS,
 )
+
+#: The keys the build derives from the facility when the profile leaves them unstated.
+_FACT_KEYS = {row.key for row in FACILITY_SETTINGS}
 
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "explicit_config"
 
@@ -301,6 +305,7 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
         "B": set(),
         "Ports": set(),
         "Corpus": set(),
+        "Fill": set(),
         "W": set(),
         "C": set(),
     }
@@ -317,6 +322,8 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
             sets["Ports"].add(key)
         elif key in corpus:
             sets["Corpus"].add(key)
+        elif key in _FACT_KEYS and key not in config:
+            sets["Fill"].add(key)
         elif _WRITTEN_BY_BUILD_PATTERN.match(key) and key not in config:
             sets["W"].add(key)
         elif key in config:
@@ -487,8 +494,19 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
     document = _layer_document(preset, stem, kind)
     config = _config_leaves(document)
     block_prefixes = _block_derived_prefixes(document)
-    panel_switches = _panel_switches(document) | _carried_block_switches(render, config)
     root_document = _preset_document(preset)
+    # A tier that excludes a panel still inherits the root's
+    # `web.panels.<id>.*` keys (a tier cannot subtract `config:`), and the
+    # build switches that block off, so the switch is the build's.
+    panel_switches = (
+        _panel_switches(document)
+        | _carried_block_switches(render, config)
+        | {
+            f"web.panels.{key.split('.')[2]}.enabled"
+            for key in _config_leaves(root_document)
+            if key.startswith("web.panels.") and key.count(".") >= 3
+        }
+    )
     corpus = set(graphdb_corpus_fill(dict(root_document.get("config") or {})))
     unclaimed = [
         key
@@ -497,6 +515,7 @@ def test_render_stays_inside_the_partition(stem: str, preset: str, directory: st
             is_derived_key(key)
             or _WRITTEN_BY_BUILD_PATTERN.match(key)
             or key in corpus
+            or (key in _FACT_KEYS and key not in config)
             or key == _PROVIDERS_KEY
             or key in panel_switches
             or _PORT_LEAF.match(key)

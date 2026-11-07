@@ -44,7 +44,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
-from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS
+from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS, is_loopback_bind
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
     ComposeProvider,
@@ -59,6 +59,7 @@ from osprey.deployment.subprocess_capture import run_captured
 # and conftest keep patching / importing it from this module's namespace.
 from osprey.deployment.wheel_build import (
     _copy_local_framework_for_override,
+    _staged_dev_artifact_paths,
     preflight_dev_mode,
 )
 from osprey.deployment.wheel_build import (
@@ -1021,18 +1022,25 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         not a string (a mode other than ``optional``), or names a file that is
         not on this host
     """
+    from osprey_connectors.control_system import LimitsValidator, mapping_config_lookup
     from osprey_connectors.types import WRITES_KEY, tier_limits_database_targets, tier_writes
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
+    # The connector's one reading of the key decides whether it names a file
+    # and which file that is, so the mount and the validator that opens it
+    # cannot disagree about one config. Only the directory of the anchor is
+    # read; the file name is nominal.
+    resolved = LimitsValidator.configured_database_path(
+        config_lookup=mapping_config_lookup(config),
+        config_path=str(Path(config_dir) / "config.yml"),
+    )
     limits_required = bool(
-        tier_limits_database_targets(
-            control_system, path_configured=isinstance(raw, str) and bool(raw.strip())
-        )
+        tier_limits_database_targets(control_system, path_configured=resolved is not None)
     )
 
-    if not isinstance(raw, str) or not raw.strip():
+    if resolved is None:
         if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
@@ -1064,11 +1072,12 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         # spelled.
         return None
 
-    configured = Path(raw).expanduser()
+    assert isinstance(raw, str)  # a key that names no string resolves to None above
+    configured = Path(raw.strip()).expanduser()
+    on_host = Path(resolved)
     if configured.is_absolute():
-        source = repo_relative_mount_source(raw, repo_root=None)
+        source = repo_relative_mount_source(str(configured), repo_root=None)
         target = source
-        on_host = configured
     else:
         relative = PurePosixPath(configured)
         # The prefix is joined for the SOURCE only. ``deployed_config_dir`` is
@@ -1080,7 +1089,6 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         )
         source = repo_relative_mount_source(str(deployed), repo_root=None)
         target = str(PurePosixPath(_CONTAINER_PROJECT_ROOT) / relative)
-        on_host = Path(config_dir) / configured
 
     if not on_host.is_file():
         if limits_required:
@@ -1666,6 +1674,7 @@ _OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
     "va": "-va",
     "bluesky_bridge": "-bluesky-bridge",
     "bluesky_web": "-bluesky-web",
+    "optimizer": "-optimizer",
     "gchat_bridge": "-gchat-bridge",
     "nextcloud_bridge": "-nextcloud-bridge",
     "teams_bridge": "-teams-bridge",
@@ -1905,6 +1914,61 @@ def _bluesky_lane_write_posture(services, control_system):
     return {key: armed for key in LANE_KEYS if isinstance(services.get(key), dict)}
 
 
+#: The control identity the optimizer service runs as, so every write it makes
+#: names it in the put-log. ``osprey-`` names are reserved for services
+#: (:data:`osprey.deployment.control_identity.RESERVED_RE`).
+OPTIMIZER_CONTROL_IDENTITY = "osprey-optimizer"
+
+
+def _optimizer_write_posture(optimizer, control_system):  # noqa: ARG001
+    """Whether the optimizer's container is rendered for writes.
+
+    The write tier is target-blind (:func:`~osprey_connectors.types.tier_allows`):
+    it is a ceiling, and the owner's switch picks the machine. So the
+    optimizer's limits database and control-context tree are mounted when the
+    deployment's tier allows writes at all, whichever targets it may drive, as
+    for every bluesky lane (:func:`_bluesky_lane_write_posture`).
+
+    :param optimizer: The config's ``services.optimizer`` block.
+    :type optimizer: dict
+    :param control_system: The config's ``control_system:`` section.
+    :return: True iff the deployment's write tier allows writes
+    :rtype: bool
+    """
+    from osprey_connectors.types import tier_allows
+
+    return tier_allows(control_system)
+
+
+def _refuse_optimizer_targets(optimizer):
+    """Refuse a ``services.optimizer.targets`` naming one the optimizer may not drive.
+
+    The build profile refuses them first, but the rendered config is the file
+    an operator edits, and what renders here is what the service is allowed to
+    drive: ``live`` added there would reach the real machine.
+
+    :param optimizer: The config's ``services.optimizer`` block.
+    :type optimizer: dict
+    :raises DeploymentPreconditionError: when a target is not in
+        :data:`~osprey.cli.build_profile_schema.OPTIMIZER_TARGETS`
+    """
+    from osprey.cli.build_profile_schema import OPTIMIZER_TARGETS
+
+    targets = optimizer.get("targets") or ["va"]
+    refused = [t for t in targets if t not in OPTIMIZER_TARGETS]
+    if refused:
+        raise DeploymentPreconditionError(
+            reason=(
+                f"services.optimizer.targets names {', '.join(map(repr, refused))}; the "
+                f"optimizer may drive only {', '.join(OPTIMIZER_TARGETS)}."
+            ),
+            remedy=(
+                "Remove it from services.optimizer.targets in config.yml, or from "
+                "optimizer.targets in the build profile, and rebuild."
+            ),
+        )
+
+
 def project_label_values(config):
     """The values of the project labels a render gives every container.
 
@@ -2062,7 +2126,7 @@ def _dispatch_worker_corpus_mounts(config, source_dir, layer_root=None):
     repo_root = resolve_repo_root(config)
     tier = entry["render"]
     project_dir = entry["container_project_dir"]
-    mounts = {"bundle": None, "mirror": None}
+    mounts: dict[str, dict[str, str] | None] = {"bundle": None, "mirror": None}
 
     knowledge = config.get("facility_knowledge")
     bundle_path = knowledge.get("bundle_path") if isinstance(knowledge, dict) else None
@@ -2117,9 +2181,11 @@ def _stages_runtime_config(config, source_dir):
 
 #: Basenames of the service contexts whose staged ``config.yml`` carries the
 #: login→tier map: the tree-bound shared containers, which run one render for
-#: every login whose job they carry. Every other context — and every
-#: terminal-served, image and root render — carries none.
-LOGIN_TIERS_SERVICES = frozenset({"bluesky", "dispatch_worker"})
+#: every login whose job they carry — the Bluesky queue, the dispatch worker,
+#: and the optimizer, whose runs each write for the login that started them.
+#: Every other context — and every terminal-served, image and root render —
+#: carries none.
+LOGIN_TIERS_SERVICES = frozenset({"bluesky", "dispatch_worker", "optimizer"})
 
 
 def staged_login_tiers(config, layer_root=None):
@@ -2166,7 +2232,7 @@ def with_login_tiers(document, login_tiers):
 def _stage_login_tiers(config, source_dir, out_dir, login_tiers):
     """Add the login→tier map to the ``config.yml`` staged into *out_dir*.
 
-    Applies to the Bluesky context and the untiered dispatch worker's, after
+    Applies to the Bluesky and optimizer contexts and the untiered dispatch worker's, after
     whichever branch staged the file — the root flatten or its verbatim-copy
     fallback. The tiered worker's copy is not touched here: it is the tier's
     render, written by ``osprey build``. A context with no staged file is left
@@ -2187,15 +2253,88 @@ def _stage_login_tiers(config, source_dir, out_dir, login_tiers):
         return
     if not _stages_runtime_config(config, source_dir):
         return
+    _rewrite_staged_config(out_dir, lambda document: with_login_tiers(document, login_tiers))
+
+
+def _rewrite_staged_config(out_dir, transform):
+    """Replace the ``config.yml`` staged into *out_dir* with *transform* of it.
+
+    A context with no staged file is left alone.
+
+    :param out_dir: The service's output directory.
+    :type out_dir: str
+    :param transform: Maps the staged document to the one written back.
+    :type transform: Callable[[dict], dict]
+    """
     staged_path = os.path.join(out_dir, "config.yml")
     if not os.path.isfile(staged_path):
         return
     with open(staged_path, encoding="utf-8") as f:
         document = yaml_loader.safe_load(f) or {}
     with open(staged_path, "w", encoding="utf-8") as f:
-        yaml_loader.safe_dump(
-            with_login_tiers(document, login_tiers), f, default_flow_style=False, sort_keys=False
-        )
+        yaml_loader.safe_dump(transform(document), f, default_flow_style=False, sort_keys=False)
+
+
+#: The deployed machines a bridged container reaches by compose service name.
+#: Each is both a ``deployed_services`` key and its connector block's key; its
+#: service name is the key with ``-`` for ``_`` (the virtual_accelerator
+#: compose template). The rendered config addresses them as ``localhost``, right
+#: on the host and in the host-network web terminals; inside a container on the
+#: compose network that name is the container itself.
+_IN_NETWORK_MACHINES = ("virtual_accelerator", "live_standin")
+
+
+def in_network_gateways(document, deployed_services):
+    """A copy of config *document* whose deployed machines' loopback gateways name their service.
+
+    Each ``read_only`` and ``write_access`` row of a deployed machine's
+    connector block whose address is loopback is given that machine's compose
+    service name, and a loopback ``pva_gateway`` row is given the simulator's;
+    the port is kept, since the machine serves on the same port in-network. Any
+    other address is the operator's and is left alone.
+
+    :param document: The staged ``config.yml`` mapping.
+    :type document: dict
+    :param deployed_services: The deployment's ``deployed_services``.
+    :type deployed_services: list[str]
+    :return: The readdressed copy.
+    :rtype: dict
+    """
+    import copy
+
+    out = copy.deepcopy(document)
+    connectors = (out.get("control_system") or {}).get("connector") or {}
+    for key in _IN_NETWORK_MACHINES:
+        block = connectors.get(key)
+        if key not in deployed_services or not isinstance(block, dict):
+            continue
+        rows = [(row, key.replace("_", "-")) for row in (block.get("gateways") or {}).values()]
+        # Only the simulator publishes pvAccess, so a loopback pva_gateway is its server.
+        rows.append((block.get("pva_gateway"), "virtual-accelerator"))
+        for row, service in rows:
+            if isinstance(row, dict) and is_loopback_bind(str(row.get("address", ""))):
+                row["address"] = service
+    return out
+
+
+def _stage_in_network_gateways(config, source_dir, out_dir):
+    """Readdress the deployed machines in the optimizer's staged ``config.yml``.
+
+    The optimizer runs the connector-host pool on the compose network
+    (:func:`in_network_gateways`); every other context is left alone, as is one
+    with no staged file.
+
+    :param config: Deploy config.
+    :type config: dict
+    :param source_dir: The service's source directory.
+    :type source_dir: str
+    :param out_dir: The service's output directory.
+    :type out_dir: str
+    """
+    if os.path.basename(os.path.normpath(source_dir)) != "optimizer":
+        return
+    deployed = [str(s) for s in (config.get("deployed_services") or [])]
+    _rewrite_staged_config(out_dir, lambda document: in_network_gateways(document, deployed))
 
 
 def _inject_project_metadata(config):
@@ -2395,6 +2534,7 @@ def _inject_project_metadata(config):
     config_with_labels["lane_control_identities"] = {
         lane: lane_control_identity(lane) for lane in LANE_KEYS
     }
+    config_with_labels["optimizer_control_identity"] = OPTIMIZER_CONTROL_IDENTITY
 
     # The spool and state zones, in two spellings:
     # the HOST-side bind source, and the container-side root for a project
@@ -2452,6 +2592,18 @@ def _inject_project_metadata(config):
         (agent_data_base / STATE_DIR_NAME).as_posix(), repo_root
     )
     config_with_labels["osprey_container_control_tree_dir"] = _CONTAINER_CONTROL_TREE_DIR
+
+    # The holders' write ledger, in the same two spellings: the HOST source a
+    # program container binds read-write — ``var/write_ledger``, provisioned
+    # setgid + group-writable by :func:`ensure_write_ledger_dirs` — and the
+    # container path it is named by (``OSPREY_WRITE_LEDGER_DIR``). Whether a
+    # service binds it is its template's decision: the optimizer does whenever
+    # it binds the tree, because a tree-bound writer with no ledger directory
+    # has every write refused.
+    config_with_labels["write_ledger_mount_source"] = repo_relative_mount_source(
+        write_ledger_relpath()
+    )
+    config_with_labels["write_ledger_container_dir"] = WRITE_LEDGER_CONTAINER_DIR
 
     # ARIEL's markdown mirror, in the same two spellings and for the same
     # reason as the spool and state zones above: the HOST bind source compose resolves
@@ -2597,6 +2749,17 @@ def _inject_project_metadata(config):
                 services[lane_key] = {**services[lane_key], "writes_enabled": armed}
             config_with_labels["services"] = services
 
+    # The optimizer's write posture, for the same reason: the template reads no
+    # tier (:func:`_optimizer_write_posture`).
+    services = config_with_labels.get("services")
+    if isinstance(services, dict) and isinstance(services.get("optimizer"), dict):
+        _refuse_optimizer_targets(services["optimizer"])
+        armed = _optimizer_write_posture(
+            services["optimizer"], config_with_labels.get("control_system")
+        )
+        services = {**services, "optimizer": {**services["optimizer"], "writes_enabled": armed}}
+        config_with_labels["services"] = services
+
     # The simulated machine's tick period, resolved through the one function the
     # in-process simulator and the build's profile check call, so every surface
     # serving the composite ticks at the period the config states. Rendered as
@@ -2720,6 +2883,27 @@ def _site_image_args_for_context(config, out_dir):
     }
 
 
+#: Build contexts whose image installs a workspace package instead of the
+#: framework, keyed by context directory name, mapped to that package's path in
+#: the checkout. Their dev builds are handed that package's wheel (and the
+#: connectors wheel), not the framework's.
+_DEV_WHEEL_MEMBERS = {"optimizer": "packages/osprey-optimizer"}
+
+#: Build contexts whose image installs extras of its primary wheel (the
+#: framework's, or the member's named in :data:`_DEV_WHEEL_MEMBERS`) before the
+#: wheel layer, keyed by context directory name, mapped to those extras. Their
+#: dev builds are handed the extras' third-party requirements
+#: (``osprey-extra-requirements.txt``), which the image installs under the lock
+#: constraints instead of fetching ``<distribution>[<extra>]`` from the index.
+#: ``test_service_dockerfiles`` holds this to the recipes' own extras.
+_DEV_WHEEL_EXTRAS = {
+    "gchat_bridge": ("gchat",),
+    "optimizer": ("service",),
+    "teams_bridge": ("teams",),
+    "virtual_accelerator": ("virtual-accelerator",),
+}
+
+
 def _stage_dev_wheel_for_context(out_dir, dev_mode):
     """Stage the local dev wheel into a service build context; report success.
 
@@ -2742,6 +2926,14 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     :return: True iff a wheel was successfully staged into ``out_dir``
     :rtype: bool
     """
+    if os.path.isfile(os.path.join(out_dir, "Dockerfile")):
+        # A context that outlives a deploy (the incremental refresh, a render
+        # in place) may still hold an earlier --dev run's artifacts. The lock
+        # constraints file is the one that matters: its presence alone puts the
+        # Dockerfile on the lock-driven install, so a stale copy would turn this
+        # build into a lock-pinned one whatever mode it was asked for.
+        for artifact in _staged_dev_artifact_paths(out_dir):
+            artifact.unlink()
     if not dev_mode:
         # DEBUG, not INFO — fires once per service build context on every
         # production build, restating a flag the operator already passed.
@@ -2759,7 +2951,12 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     # Raises DevModeUnavailableError rather than returning False when --dev
     # cannot be honored; the deploy stops instead of silently deploying the
     # pinned PyPI release under a flag that means "run my local code".
-    _copy_local_framework_for_override(out_dir)
+    context_name = os.path.basename(out_dir)
+    _copy_local_framework_for_override(
+        out_dir,
+        member=_DEV_WHEEL_MEMBERS.get(context_name),
+        extras=_DEV_WHEEL_EXTRAS.get(context_name, ()),
+    )
     logger.debug("Development mode: Osprey override prepared")
     return True
 
@@ -3290,7 +3487,7 @@ def dispatch_worker_audit_identities(config):
     worker = ((config or {}).get("services") or {}).get("dispatch_worker")
     raw = worker.get("worker_count") if isinstance(worker, dict) else None
     try:
-        count = int(raw)
+        count = int(raw) if raw is not None else 1
     except (TypeError, ValueError):
         # The template's own `| default(1)` for the same unset/unusable value.
         count = 1
@@ -3321,7 +3518,7 @@ def dispatch_worker_audit_identities(config):
 #: The auth sidecar is deliberately NOT here: it is rendered by the web-terminal
 #: overlay rather than from ``services/``, and provisioned on that path
 #: (``web_terminals.provision``) alongside the roster's own identities.
-FIXED_SERVICE_AUDIT_IDENTITIES = {"bluesky_web": "bluesky-web"}
+FIXED_SERVICE_AUDIT_IDENTITIES = {"bluesky_web": "bluesky-web", "optimizer": "optimizer"}
 
 
 def lane_queueserver_audit_identities(config):
@@ -4006,6 +4203,86 @@ def ensure_guarded_run_dirs(repo_root, config, relative_to=None):
     return gid
 
 
+#: The holders' write-ledger directory under the state zone: where a program's
+#: connector child spends its authorization's steps, and where the holder
+#: writes the requests a person approves. One directory per deployment; a
+#: program container binds it read-write as ``OSPREY_WRITE_LEDGER_DIR``.
+WRITE_LEDGER_DIR_NAME = "write_ledger"
+
+#: Where a program's container writes its ledgers and requests: a READ-WRITE
+#: bind of ``var/write_ledger``, named to it as ``OSPREY_WRITE_LEDGER_DIR``.
+#: Outside the container's ``var/``, as the terminals' requests bind is, and
+#: beside it: under a bound control-context tree a program with no ledger
+#: directory has every write refused ``auth_unreadable``.
+WRITE_LEDGER_CONTAINER_DIR = "/opt/osprey/write_authorization/ledger"
+
+#: Where a web terminal sees the holders' requests: a READ-ONLY bind of
+#: ``var/write_ledger/requests``, named to it as ``OSPREY_WRITE_REQUESTS_DIR``.
+#: Outside the container's ``var/``, so the entrypoint's hand-back sweep never
+#: reaches a read-only bind.
+WRITE_REQUESTS_CONTAINER_DIR = "/opt/osprey/write_authorization/requests"
+
+#: Where a web terminal sees the holders' whole ledger directory: a READ-ONLY
+#: bind of ``var/write_ledger``, named as ``OSPREY_WRITE_LEDGER_VIEW_DIR``. The
+#: programs' self-issued grants are there (with their ledgers and requests,
+#: nothing else): an approval refuses a channel one of them holds, the chip
+#: lists the ones that name its login, and a grant whose ledger shows its lease
+#: lapsed or its steps spent is shown ended. Never the holder's
+#: ``OSPREY_WRITE_LEDGER_DIR``: a terminal writes nothing there.
+WRITE_LEDGER_VIEW_CONTAINER_DIR = "/opt/osprey/write_authorization/ledger_view"
+
+
+def write_ledger_relpath():
+    """``var/write_ledger``, the holders' ledger directory relative to the repo root.
+
+    :return: The repo-relative POSIX path
+    :rtype: str
+    """
+    from osprey.utils.workspace import STATE_DIR_NAME
+
+    return f"{STATE_DIR_NAME}/{WRITE_LEDGER_DIR_NAME}"
+
+
+def write_requests_relpath():
+    """``var/write_ledger/requests``: the requests every web terminal reads.
+
+    :return: The repo-relative POSIX path
+    :rtype: str
+    """
+    from osprey_connectors.write_authorization import REQUESTS_DIR_NAME
+
+    return f"{write_ledger_relpath()}/{REQUESTS_DIR_NAME}"
+
+
+def ensure_write_ledger_dirs(repo_root, relative_to=None):
+    """Provision the holders' ledger directory and its requests directory.
+
+    ``var/write_ledger/`` and ``var/write_ledger/requests/``, setgid and
+    group-writable (see :func:`ensure_shared_corpus_dir`): a program's
+    container writes its ledgers, requests and self-issued grants there under
+    its own uid, and every web terminal reads them through read-only binds
+    under another. Created here, before compose runs, for the root-owned-mount-source
+    reason every provisioned bind has.
+
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param relative_to: Root to spell the directories against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :return: The group id of ``var/write_ledger/``, or ``None`` when it could
+        not be provisioned or the platform reports none
+    :rtype: int | None
+    """
+    provision = {
+        "relative_to": relative_to,
+        "label": "Write-ledger dir",
+        "noun": "write-ledger directory",
+        "consequence": "A program may be unable to ask for or spend a write authorization.",
+    }
+    gid = _ensure_group_shared_dir(Path(repo_root) / write_ledger_relpath(), **provision)
+    _ensure_group_shared_dir(Path(repo_root) / write_requests_relpath(), **provision)
+    return gid
+
+
 def _ensure_agent_data_structure(config):
     """Ensure the agent-data directory and subdirectories exist before deployment.
 
@@ -4083,6 +4360,10 @@ def _ensure_agent_data_structure(config):
     # The guarded-run directories, bound read-write into every container that
     # runs the agent, whatever the deployment's targets are.
     ensure_guarded_run_dirs(project_root, config, relative_to=project_root)
+
+    # The holders' write ledger and its requests, bound read-only into every
+    # web terminal (the requests) and read-write into a program that asks.
+    ensure_write_ledger_dirs(project_root, relative_to=project_root)
 
     # The facility-knowledge bundle, for the same root-owned-mount-source reason
     # as the scenario state directory above — the qmd sidecar binds it READ-ONLY
@@ -4174,18 +4455,81 @@ def _ensure_agent_data_structure(config):
 
 
 #: Basename of the one service directory whose build context carries the
-#: channel snapshot: the bluesky_web sidecar's /channels route serves it.
+#: channel snapshot: the bluesky_web sidecar's /channels route serves it to its
+#: plan form. The per-user CANOPY panel reads its own copy, the one
+#: :func:`stage_web_terminal_channel_snapshot` writes for the web terminals.
 _CHANNEL_SNAPSHOT_SERVICE = "bluesky_web"
 
-#: Filename the sidecar's /channels route expects beside its mounted config.yml.
+#: Basename of the archiver recorder's service directory.
+ARCHIVER_RECORDER_SERVICE = "archiver_recorder"
+
+#: Filename the services' /channels routes read from their mounted snapshot.
 CHANNEL_SNAPSHOT_FILENAME = "channels.json"
+
+#: Where the web terminals' copy of the channel snapshot lives, relative to the
+#: build directory: outside every service directory, because it belongs to no
+#: service. ``render_web_terminals`` bind-mounts it read-only into each web
+#: container when, and only when, the file is there.
+WEB_TERMINAL_CHANNEL_SNAPSHOT = Path("web_terminals") / CHANNEL_SNAPSHOT_FILENAME
+
+
+def _write_channel_snapshot(config, snapshot_path):
+    """Write the build's channel snapshot to ``snapshot_path``, or remove a stale one.
+
+    One decision (:func:`compute_channel_snapshot`) for every copy the build
+    writes. When the decision is not to emit, a file left at ``snapshot_path``
+    by an earlier build is removed, so a reused directory cannot keep a
+    snapshot the decision revoked.
+
+    :return: True iff a snapshot was written
+    :rtype: bool
+    """
+    decision = compute_channel_snapshot(config)
+    if not decision.emit:
+        try:
+            os.remove(snapshot_path)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.warning(f"Could not remove the stale channel snapshot {snapshot_path}: {e}")
+        return False
+
+    try:
+        os.makedirs(os.path.dirname(snapshot_path) or ".", exist_ok=True)
+        with open(snapshot_path, "w") as f:
+            json.dump(decision.channels, f)
+    except OSError as e:
+        logger.warning(f"Could not write the channel snapshot to {snapshot_path}: {e}")
+        return False
+    logger.debug(f"Wrote channel snapshot ({decision.count} channels) to {snapshot_path}")
+    return True
+
+
+def stage_web_terminal_channel_snapshot(config, build_dir):
+    """Write the web terminals' channel snapshot under ``build_dir``; report success.
+
+    ``osprey build`` calls this once per build, with the config the services
+    render used, so the per-user CANOPY panel serves the same addresses the
+    bluesky_web sidecar does. The file goes to
+    :data:`WEB_TERMINAL_CHANNEL_SNAPSHOT` below ``build_dir``; a stale copy is
+    removed when the decision is not to emit.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param build_dir: The build directory being rendered
+    :type build_dir: str | os.PathLike
+    :return: True iff a snapshot was written
+    :rtype: bool
+    """
+    return _write_channel_snapshot(config, os.path.join(build_dir, WEB_TERMINAL_CHANNEL_SNAPSHOT))
 
 
 def _stage_channel_snapshot(config, source_dir, out_dir):
-    """Write the channel snapshot into the bluesky_web build context; report success.
+    """Write the channel snapshot into a serving service's build context; report success.
 
-    Only the bluesky_web sidecar serves the snapshot, so every other service
-    render skips the database load entirely and reports False. The boolean
+    Only ``_CHANNEL_SNAPSHOT_SERVICE`` serves the snapshot, so
+    every other service render skips the database load entirely and reports
+    False. The boolean
     return is the value the render context's ``channel_snapshot`` key carries —
     fail-closed exactly like dev_mode's wheel gating: the compose template may
     only mount a file that was actually written. When the decision is not to
@@ -4204,25 +4548,7 @@ def _stage_channel_snapshot(config, source_dir, out_dir):
     if os.path.basename(source_dir) != _CHANNEL_SNAPSHOT_SERVICE:
         return False
 
-    snapshot_path = os.path.join(out_dir, CHANNEL_SNAPSHOT_FILENAME)
-    decision = compute_channel_snapshot(config)
-    if not decision.emit:
-        try:
-            os.remove(snapshot_path)
-        except FileNotFoundError:
-            pass
-        except OSError as e:
-            logger.warning(f"Could not remove the stale channel snapshot {snapshot_path}: {e}")
-        return False
-
-    try:
-        with open(snapshot_path, "w") as f:
-            json.dump(decision.channels, f)
-    except OSError as e:
-        logger.warning(f"Could not write the channel snapshot to {snapshot_path}: {e}")
-        return False
-    logger.debug(f"Wrote channel snapshot ({decision.count} channels) to {snapshot_path}")
-    return True
+    return _write_channel_snapshot(config, os.path.join(out_dir, CHANNEL_SNAPSHOT_FILENAME))
 
 
 #: The one service whose compose environment lists the roster's per-user
@@ -4287,7 +4613,6 @@ def _connection_ca_bundles(config, source_dir):
         ca_bundle_mounts,
         config_archiver_ca_bundles,
     )
-    from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 
     service = os.path.basename(os.path.normpath(source_dir))
     if service == "dispatch_worker":
@@ -4495,7 +4820,7 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
 #: The build contexts whose compose fragments mount the control-identity module
 #: unconditionally: the dispatch worker and every bluesky lane (all lanes render
 #: the one ``bluesky`` directory, so one staged copy serves them all).
-_CONTROL_IDENTITY_SERVICES = frozenset({"dispatch_worker", "bluesky"})
+_CONTROL_IDENTITY_SERVICES = frozenset({"dispatch_worker", "bluesky", "optimizer"})
 
 #: The directory inside a build context that holds the script and its closure.
 CONTROL_IDENTITY_DIRNAME = "control_identity"
@@ -4721,8 +5046,8 @@ def setup_build_dir(
                 raise
     os.makedirs(out_dir, exist_ok=True)
     if kept_tiered_config is not None:
-        with open(os.path.join(out_dir, "config.yml"), "wb") as f:
-            f.write(kept_tiered_config)
+        with open(os.path.join(out_dir, "config.yml"), "wb") as kept_file:
+            kept_file.write(kept_tiered_config)
 
     # Copy the service's own files (except templates) and stage the dev wheel
     # BEFORE rendering the compose template: the render context's dev_mode flag
@@ -4823,8 +5148,10 @@ def setup_build_dir(
                     dst_dir = os.path.join(out_dir, dir_spec)
                 elif isinstance(dir_spec, dict):
                     # Dictionary: allows custom source -> destination mapping
-                    src_dir = dir_spec.get("src")
-                    dst_dir = os.path.join(out_dir, dir_spec.get("dst", src_dir))
+                    if not dir_spec.get("src"):
+                        continue  # names nothing to copy
+                    src_dir = dir_spec["src"]
+                    dst_dir = os.path.join(out_dir, dir_spec.get("dst") or src_dir)
                 else:
                     continue
 
@@ -4896,9 +5223,9 @@ def setup_build_dir(
                 adjust_src_paths_recursive(flattened_config)
 
                 config_yml_dst = os.path.join(out_dir, "config.yml")
-                with open(config_yml_dst, "w") as f:
+                with open(config_yml_dst, "w") as config_file:
                     yaml_loader.safe_dump(
-                        flattened_config, f, default_flow_style=False, sort_keys=False
+                        flattened_config, config_file, default_flow_style=False, sort_keys=False
                     )
                 logger.debug(f"Created flattened config.yml at {config_yml_dst}")
             except Exception as e:
@@ -4914,6 +5241,7 @@ def setup_build_dir(
         # After both branches above: a shared container's staged config carries
         # the login→tier map whichever of them wrote it.
         _stage_login_tiers(config, source_dir, out_dir, login_tiers)
+        _stage_in_network_gateways(config, source_dir, out_dir)
 
     return compose_filepath
 
@@ -5038,6 +5366,7 @@ def _incremental_setup_build_dir(
     # The config.yml left in place carries the map this render computed, as in
     # setup_build_dir.
     _stage_login_tiers(config, source_dir, out_dir, login_tiers)
+    _stage_in_network_gateways(config, source_dir, out_dir)
 
     return compose_filepath
 

@@ -253,11 +253,13 @@ def _await_stream_open(page: Page, path: str) -> None:
 #: would carry its own `sharedStreams` map and prove the opposite of what
 #: this asks.
 _ADD_SUBSCRIBER = """
-async (path) => {
+async () => {
   const entry = document.querySelector('script[type="module"][src$="/js/app.js"]');
   if (!entry) throw new Error('the hub page loads no app.js module entrypoint');
   const api = await import(entry.src.replace('/app.js', '/api.js'));
-  window.__ctcExtra = api.createEventSource(path, {});
+  // The page's own events URL (pageEventsUrl tags it with the page's client
+  // id), so a subscriber through api.js keys the socket the page holds.
+  window.__ctcExtra = api.createEventSource(api.pageEventsUrl(), {});
 }
 """
 
@@ -285,6 +287,26 @@ _PENDING_PROBE = """
 # ---------------------------------------------------------------------------
 
 
+#: Answers the page-load ``GET /api/sessions/last-active`` with no key, the
+#: branch in which the page mints a session instead of resuming one.
+_NO_LAST_ACTIVE_JS = """
+(() => {
+  const real = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    const method = (init && init.method) || 'GET';
+    if (method === 'GET' && new URL(url, location.href).pathname.endsWith('/api/sessions/last-active')) {
+      return Promise.resolve(new Response(
+        JSON.stringify({ session_key: null, at: null }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ));
+    }
+    return real(input, init);
+  };
+})();
+"""
+
+
 def test_a_switch_in_one_tab_reaches_the_other_before_its_next_poll(
     tmp_path, monkeypatch, chromium_browser
 ):
@@ -310,7 +332,12 @@ def test_a_switch_in_one_tab_reaches_the_other_before_its_next_poll(
     with chip_hub(tmp_path, monkeypatch) as (base_url, _app, root):
         publish_report(root)
         switcher, switcher_session = settled_chip(chromium_browser, base_url)
-        watcher, watcher_session = settled_chip(chromium_browser, base_url)
+        # A fresh tab resumes the operator's last-active session, which is the
+        # first tab's; the second one is served no last-active key, so it mints
+        # a session of its own.
+        watcher, watcher_session = settled_chip(
+            chromium_browser, base_url, init_script=_NO_LAST_ACTIVE_JS
+        )
         try:
             # Two tabs, two sessions — the terminal route mints one per socket.
             assert switcher_session and watcher_session, (
@@ -411,7 +438,7 @@ def test_one_event_stream_serves_the_whole_page_across_a_switch(
             )
 
             # A second subscriber, through the page's own api.js.
-            watcher.evaluate(_ADD_SUBSCRIBER, FILES_EVENT_STREAM)
+            watcher.evaluate(_ADD_SUBSCRIBER)
             assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
                 "subscribing again opened a second socket instead of sharing the one open"
             )

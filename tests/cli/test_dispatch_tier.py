@@ -305,7 +305,7 @@ def test_schema_manifest_registers_worker_tier() -> None:
     manifest_path = Path(osprey.__file__).parent / "profiles" / "config_key_manifest.yml"
     manifest = YAML(typ="safe").load(manifest_path.read_text(encoding="utf-8"))
     entry = manifest["keys"]["services.dispatch_worker.tier"]
-    # control-assistant sets ``dispatch.tier``, so its render carries the key:
+    # demo sets ``dispatch.tier``, so its render carries the key:
     # a ``rendered: false`` flag would be a false claim the guard refuses.
     assert entry.get("rendered", True) is True
     injectors = (Path(osprey.__file__).parent / "cli" / "build_injectors.py").read_text(
@@ -371,8 +371,8 @@ def _asked_exemplar(tmp_path_factory) -> Path:
 class TestFlagshipExemplar:
     """The flagship preset runs its workers at ``readonly``; nothing else changes."""
 
-    def test_control_assistant_profile_sets_dispatch_tier_readonly(self) -> None:
-        assert _emitted_profile("control-assistant")["dispatch"]["tier"] == "readonly"
+    def test_demo_profile_sets_dispatch_tier_readonly(self) -> None:
+        assert _emitted_profile("demo")["dispatch"]["tier"] == "readonly"
 
     def test_exemplar_profile_carries_the_preset_line(self) -> None:
         from tests.fixtures.lifecycle_repo import exemplar_source_files

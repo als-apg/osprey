@@ -20,7 +20,7 @@ from osprey.profiles.providers import (
 from osprey_connectors.errors import BuildProfileError
 
 # The providers the packaged catalog ships: the ten chat providers the
-# control-assistant app template carried under `api.providers`, the
+# demo app template carried under `api.providers`, the
 # embeddings-only llama-cpp, and openrouter. Frozen here so a dropped entry is a
 # test failure, not a silently smaller catalog.
 EXPECTED_PROVIDERS = {
@@ -178,17 +178,26 @@ class TestValidationRefusals:
         assert PROVIDERS_FILENAME in message
         return message
 
-    def test_non_mapping_document_refused(self, tmp_path):
-        assert "mapping" in self._refuses(tmp_path, "- one\n- two\n")
-
-    def test_missing_providers_key_refused(self, tmp_path):
-        assert "providers" in self._refuses(tmp_path, "something_else: {}\n")
-
-    def test_non_mapping_providers_refused(self, tmp_path):
-        assert "mapping" in self._refuses(tmp_path, "providers:\n  - cborg\n")
-
-    def test_non_mapping_entry_refused_naming_the_key(self, tmp_path):
-        assert "providers.cborg" in self._refuses(tmp_path, "providers:\n  cborg: https://x\n")
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            pytest.param("- one\n- two\n", "mapping", id="non-mapping-document"),
+            pytest.param("something_else: {}\n", "providers", id="missing-providers-key"),
+            pytest.param("providers:\n  - cborg\n", "mapping", id="non-mapping-providers"),
+            pytest.param(
+                "providers:\n  cborg: https://x\n",
+                "providers.cborg",
+                id="non-mapping-entry-naming-the-key",
+            ),
+            pytest.param(
+                "providers:\n  gw: [unclosed\n",
+                "Cannot read",
+                id="unparseable-yaml-naming-the-file",
+            ),
+        ],
+    )
+    def test_a_malformed_catalog_is_refused_naming_the_problem(self, tmp_path, text, expected):
+        assert expected in self._refuses(tmp_path, text)
 
     def test_entry_without_base_url_refused_naming_the_key(self, tmp_path):
         message = self._refuses(tmp_path, "providers:\n  gw:\n    api_key: k\n")
@@ -263,9 +272,6 @@ class TestValidationRefusals:
         for value in ("yes", 1, None, "true"):
             message = self._refuses_entry(tmp_path, **_entry(supports_images=value))
             assert "providers.gw.supports_images" in message, value
-
-    def test_unparseable_yaml_refused_naming_the_file(self, tmp_path):
-        assert "Cannot read" in self._refuses(tmp_path, "providers:\n  gw: [unclosed\n")
 
     def test_missing_file_refused_naming_the_file(self, tmp_path):
         with pytest.raises(BuildProfileError) as exc:

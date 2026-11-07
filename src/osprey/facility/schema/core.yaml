@@ -410,6 +410,42 @@ classes:
         range: Gate
         inlined: true
         description: "What the channel does while any of `inputs` reads its blocking label, beside `nominal`."
+      topoff:
+        range: Topoff
+        inlined: true
+        description: >-
+          A stored current refilled every `period_s` and decaying between
+          refills with lifetime `lifetime_h`; it holds the level the decay
+          averages to, so it carries no `nominal`.
+      topoff_lifetime:
+        range: TopoffLifetime
+        inlined: true
+        description: The lifetime of a `topoff` channel, read as a constant.
+
+  Topoff:
+    description: >-
+      A top-off sawtooth: the reading falls from `ceiling` with lifetime
+      `lifetime_h` and returns to it every `period_s`.
+    attributes:
+      ceiling:
+        range: float
+        required: true
+        description: The reading just after a refill, in the channel's unit.
+      lifetime_h:
+        range: float
+        required: true
+        description: The decay lifetime in hours; above 0.
+      period_s:
+        range: float
+        required: true
+        description: The seconds between refills; above 0.
+
+  TopoffLifetime:
+    description: A channel that reads the `lifetime_h` of another channel's `topoff` seed.
+    attributes:
+      of:
+        required: true
+        description: The address of the channel whose `topoff` seed's lifetime this channel reads.
 
   Pulse:
     description: >-
@@ -780,6 +816,17 @@ classes:
           `attachments` lists the entry's pictures, each `{path: <picture
           file>}` or `{plot: <plot spec .json>}`, relative to the scenario's
           own directory `scenarios/<name>/`.
+      sessions:
+        range: Any
+        multivalued: true
+        list_elements_ordered: true
+        description: >-
+          `[{slug, title, when, parts: [{title, turns: [{prompt, at_offset_s,
+          channels, logbook_ids, steps, artifacts?}]}]}]`, past conversations
+          with the agent. A step is `{tool: {server, name}, input, result,
+          approved?}` or `{answer}`. `channels` lists every channel a turn
+          names, `logbook_ids` every logbook entry it cites, from `nominal` or
+          this scenario.
       drivers:
         range: Any
         description: >-
@@ -799,8 +846,11 @@ classes:
       still:
         range: Any
         description: >-
-          `all`, or a list of addresses: while the scenario is active, those
-          readings serve without drift, couplings or noise.
+          `all`, or a list of addresses and selections: while the scenario is
+          active, those readings serve without drift, couplings or noise. A
+          selection is `{model|place, group, signal, role, plane}` and names a
+          model or a place; its `role` is the wiring record's role
+          (`setpoint|readback|monitor|output`), not the channel's.
 
   Any:
     class_uri: linkml:Any

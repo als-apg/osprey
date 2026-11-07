@@ -29,8 +29,10 @@ const SERVER_COLORS = {
   graph: 'srv-graph',
   phoebus: 'srv-phoebus',
   bluesky: 'srv-bluesky',
+  optimizer: 'srv-optimizer',
   health: 'srv-health',
   event_dispatcher: 'srv-event-dispatcher',
+  canopy: 'srv-canopy',
 };
 
 /**

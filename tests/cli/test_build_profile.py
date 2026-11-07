@@ -6,13 +6,14 @@ exemption that lets the non-builtin ``bluesky`` web_panels id validate
 without a pre-existing ``web.panels.bluesky.url`` when a ``bluesky_web``
 block is present
 (its url is derived post-build by ``_inject_bluesky_web``), and a
-regression guard that the shipped control-assistant preset/profile still
+regression guard that the shipped demo preset/profile still
 validates — the gate task 3.3 (tutorial-config) re-runs after adding the
 bluesky panel to that preset.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -134,7 +135,14 @@ def test_panel_presets_builtin_members_validate(tmp_path: Path) -> None:
     """A preset whose members are the universal panel and a SELECTED built-in
     validates without raising."""
     profile = _profile(
-        name="x", web_panels=["ariel"], panel_presets={"Machine setup": ["artifacts", "ariel"]}
+        name="x",
+        web_panels=["ariel"],
+        panel_presets={
+            "Machine setup": {
+                "split": "row",
+                "items": [{"tabs": ["artifacts"]}, {"tabs": ["ariel"]}],
+            }
+        },
     )
     profile.validate(tmp_path)  # must not raise
 
@@ -142,14 +150,23 @@ def test_panel_presets_builtin_members_validate(tmp_path: Path) -> None:
 def test_panel_presets_unselected_builtin_member_raises(tmp_path: Path) -> None:
     """A built-in the profile never selected renders no tab, so a preset naming
     it would open on nothing."""
-    profile = _profile(name="x", panel_presets={"Machine setup": ["artifacts", "ariel"]})
+    profile = _profile(
+        name="x",
+        panel_presets={
+            "Machine setup": {
+                "split": "row",
+                "items": [{"tabs": ["artifacts"]}, {"tabs": ["ariel"]}],
+            }
+        },
+    )
     with pytest.raises(BuildProfileError, match="'ariel'"):
         profile.validate(tmp_path)
 
 
 def test_panel_presets_unknown_member_raises(tmp_path: Path) -> None:
     """A preset member that is not a known panel id fails validation."""
-    profile = _profile(name="x", panel_presets={"Setup": ["artifacts", "ghost"]})
+    layout = {"split": "row", "items": [{"tabs": ["artifacts"]}, {"tabs": ["ghost"]}]}
+    profile = _profile(name="x", panel_presets={"Setup": layout})
     with pytest.raises(BuildProfileError, match="ghost"):
         profile.validate(tmp_path)
 
@@ -160,7 +177,7 @@ def test_panel_presets_url_backed_member_validates(tmp_path: Path) -> None:
     profile = _profile(
         name="x",
         web_panels=["grafana"],
-        panel_presets={"Dash": ["grafana"]},
+        panel_presets={"Dash": {"tabs": ["grafana"]}},
         config={"web.panels.grafana.url": "http://grafana.local:3000"},
     )
     profile.validate(tmp_path)  # must not raise
@@ -215,14 +232,85 @@ def test_a_panels_key_inside_a_web_mapping_fails_validation(tmp_path: Path) -> N
 
 def test_panel_presets_web_panels_member_validates(tmp_path: Path) -> None:
     """A member declared in web_panels is a known id."""
-    profile = _profile(name="x", web_panels=["ariel"], panel_presets={"L": ["ariel"]})
+    profile = _profile(
+        name="x", web_panels=["ariel"], panel_presets={"L": {"tabs": ["ariel"], "showing": "ariel"}}
+    )
     profile.validate(tmp_path)  # must not raise
 
 
-def test_panel_presets_non_list_value_raises(tmp_path: Path) -> None:
-    """A preset whose value is not a list of ids is rejected."""
+def test_panel_presets_non_layout_value_raises(tmp_path: Path) -> None:
+    """A preset whose value is neither a layout nor the retired list is rejected."""
     profile = _profile(name="x", panel_presets={"Bad": "artifacts"})  # type: ignore[dict-item]
-    with pytest.raises(BuildProfileError, match="must be a list"):
+    with pytest.raises(BuildProfileError, match="must be a layout"):
+        profile.validate(tmp_path)
+
+
+def test_panel_presets_old_list_shape_says_how_to_rewrite(tmp_path: Path) -> None:
+    """The retired ``label: [ids]`` form fails the build and names the layout to write."""
+    profile = _profile(
+        name="x",
+        web_panels=["ariel"],
+        panel_presets={"Ops": ["artifacts", "ariel"]},  # type: ignore[dict-item]
+    )
+    with pytest.raises(BuildProfileError) as excinfo:
+        profile.validate(tmp_path)
+    message = str(excinfo.value)
+    assert "panel_presets['Ops'] is the retired list-of-panel-ids form" in message
+    assert message.endswith(
+        "rewrite it as a layout, e.g. 'Ops': "
+        "{split: row, items: [{tabs: [artifacts]}, {tabs: [ariel]}]} (side by side)"
+    )
+
+
+def test_panel_presets_nested_layout_with_weights_validates(tmp_path: Path) -> None:
+    """Splits nest, a tile names one panel, sizes are weights, showing is optional."""
+    layout = {
+        "split": "row",
+        "items": [
+            {"tabs": ["ariel"], "showing": "ariel", "size": 2},
+            {
+                "split": "column",
+                "items": [{"tabs": ["okf"]}, {"tabs": ["system-health"], "size": 3}],
+            },
+        ],
+    }
+    profile = _profile(
+        name="x", web_panels=["ariel", "okf", "system-health"], panel_presets={"L": layout}
+    )
+    profile.validate(tmp_path)  # must not raise
+
+
+@pytest.mark.parametrize(
+    ("layout", "fragment"),
+    [
+        pytest.param({"tabs": []}, "empty_tabs", id="empty-tabs"),
+        pytest.param(
+            {"tabs": ["artifacts"], "showing": "ariel"}, "showing_not_in_tabs", id="showing"
+        ),
+        pytest.param(
+            {"split": "row", "items": [{"tabs": ["artifacts"]}]},
+            "split_too_few_items",
+            id="one-item",
+        ),
+        pytest.param({"tabs": ["artifacts"], "size": 0}, "bad_size", id="size"),
+        pytest.param({"tile": "t1", "tabs": ["artifacts"]}, "unknown_field", id="tile-id"),
+        pytest.param({"slot": 0}, "not_layout", id="not-a-layout"),
+        pytest.param({"tabs": [0]}, "not member indexes", id="index-key"),
+        pytest.param({"tabs": ["terminal", "artifacts"]}, "names the terminal", id="terminal"),
+        pytest.param(
+            {"split": "row", "items": [{"tabs": ["okf"]}, {"tabs": ["artifacts", "ariel"]}]},
+            "puts several panels in one tile (layout.items[1].tabs): a tile holds one panel; "
+            "to show several, put them side by side in tiles of their own",
+            id="two-panels-in-a-tile",
+        ),
+    ],
+)
+def test_panel_presets_invalid_layout_raises(
+    tmp_path: Path, layout: dict[str, Any], fragment: str
+) -> None:
+    """A preset breaking a dock-layout collection-form rule fails with its named reason."""
+    profile = _profile(name="x", panel_presets={"L": layout})
+    with pytest.raises(BuildProfileError, match=re.escape(fragment)):
         profile.validate(tmp_path)
 
 
@@ -242,15 +330,15 @@ def test_is_known_panel_id_shared_predicate() -> None:
     assert _profile(name="x", web_panels=["grafana"])._is_known_panel_id("grafana")
 
 
-def test_control_assistant_profile_validates() -> None:
-    """The shipped control-assistant preset/profile validates cleanly.
+def test_demo_profile_validates() -> None:
+    """The shipped demo preset/profile validates cleanly.
 
     This is a regression guard task 3.3 (tutorial-config) re-runs after
     adding the bluesky_web block + the bluesky-panel web_panels ids to
     this preset — it must keep validating once that wiring lands.
     """
     presets_dir = bp._presets_dir()
-    raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
+    raw = yaml.safe_load((presets_dir / "demo.yml").read_text(encoding="utf-8"))
     # `app_template:` and `facility:` are preset-side and consumed at the single
     # read point in `_load_preset_raw`; reading the file straight off disk has to
     # pop them too.
@@ -263,10 +351,10 @@ def test_control_assistant_profile_validates() -> None:
 
 # ── Task 3.3: turn-key VA-backed plan stack render ───────────────────────────
 #
-# The control-assistant preset now bakes the bluesky/virtual_accelerator/
+# The demo preset now bakes the bluesky/virtual_accelerator/
 # bluesky_web injector blocks in directly (no --set flags needed),
 # so `osprey build` on the bare preset renders the full plan stack + the
-# BLUESKY panel turn-key. These tests build a control-assistant deployment
+# BLUESKY panel turn-key. These tests build a demo deployment
 # repo in-process (CliRunner, --skip-deps --skip-lifecycle -- Docker-free,
 # mirroring tests/cli/test_va_default_config.py's scaffolded_project fixture and
 # tests/e2e/_orm_stack.py's build_via_cli_runner) and assert on the rendered
@@ -275,9 +363,9 @@ def test_control_assistant_profile_validates() -> None:
 
 @pytest.fixture(scope="module")
 def turnkey_plan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Build the bare control-assistant preset (no overrides) into a tmp repo.
+    """Build the bare demo preset (no overrides) into a tmp repo.
 
-    The exemplar repo (:func:`build_exemplar_repo`) is control-assistant's
+    The exemplar repo (:func:`build_exemplar_repo`) is demo's
     profile.yml written out verbatim, so materializing it and building it is
     the bare preset with no overrides. Module-scoped: the build is the slow
     part (template render + service template copies) and every test in this
@@ -300,7 +388,7 @@ def turnkey_plan_config(turnkey_plan_project: Path) -> dict:
     return yaml.safe_load((turnkey_plan_project / "config.yml").read_text(encoding="utf-8"))
 
 
-class TestControlAssistantTurnkeyPlanServices:
+class TestDemoTurnkeyPlanServices:
     """The three injected services render inside the deployment's port block.
 
     The preset no longer bakes a number in for any of them: it declares the
@@ -311,43 +399,37 @@ class TestControlAssistantTurnkeyPlanServices:
     there instead of breaking every suite that names a port.
     """
 
-    def test_control_assistant_bluesky_service_rendered(self, turnkey_plan_config: dict) -> None:
+    def test_demo_bluesky_service_rendered(self, turnkey_plan_config: dict) -> None:
         bluesky = turnkey_plan_config["services"]["bluesky"]
         assert bluesky["port"] == default_port("bluesky")
         assert bluesky["tiled_enabled"] is True
         assert bluesky["tiled_port"] == default_port("tiled")
 
-    def test_control_assistant_virtual_accelerator_service_rendered(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_virtual_accelerator_service_rendered(self, turnkey_plan_config: dict) -> None:
         va = turnkey_plan_config["services"]["virtual_accelerator"]
         assert va["port"] == 5064
 
-    def test_control_assistant_bluesky_web_service_rendered(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_bluesky_web_service_rendered(self, turnkey_plan_config: dict) -> None:
         bluesky_web = turnkey_plan_config["services"]["bluesky_web"]
         assert bluesky_web["port"] == default_port("bluesky_web")
 
-    def test_control_assistant_deployed_services_includes_all_three(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_deployed_services_includes_all_three(self, turnkey_plan_config: dict) -> None:
         deployed = turnkey_plan_config["deployed_services"]
         assert "bluesky" in deployed
         assert "virtual_accelerator" in deployed
         assert "bluesky_web" in deployed
 
 
-class TestControlAssistantTurnkeyPlanPanels:
+class TestDemoTurnkeyPlanPanels:
     """The one bluesky-panel web.panels entry is registered with a url."""
 
-    def test_control_assistant_bluesky_panel(self, turnkey_plan_config: dict) -> None:
+    def test_demo_bluesky_panel(self, turnkey_plan_config: dict) -> None:
         panel = turnkey_plan_config["web"]["panels"]["bluesky"]
         assert panel["path"] == "/bluesky/"
         assert panel["url"]
 
 
-class TestControlAssistantTurnkeyPlanControlSystem:
+class TestDemoTurnkeyPlanControlSystem:
     """The preset's config overrides land: simulator baseline + subprocess execution.
 
     The VA soft-IOC ships and is deployed unconditionally as part of the
@@ -359,29 +441,25 @@ class TestControlAssistantTurnkeyPlanControlSystem:
     (covered by tests/cli/test_va_default_config.py).
     """
 
-    def test_control_assistant_control_system_type_is_the_simulator(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_control_system_type_is_the_simulator(self, turnkey_plan_config: dict) -> None:
         assert turnkey_plan_config["control_system"]["type"] == "virtual_accelerator"
 
-    def test_control_assistant_execution_method_is_subprocess(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_execution_method_is_subprocess(self, turnkey_plan_config: dict) -> None:
         """Agent Python runs as a host subprocess — the preset pins nothing, so
         this is the template default the built project inherits."""
         assert turnkey_plan_config["execution"]["execution_method"] == "subprocess"
 
-    def test_control_assistant_bluesky_mcp_server_enabled(self, turnkey_plan_config: dict) -> None:
+    def test_demo_bluesky_mcp_server_enabled(self, turnkey_plan_config: dict) -> None:
         assert turnkey_plan_config["claude_code"]["servers"]["bluesky"]["enabled"] is True
 
 
 @pytest.mark.usefixtures("turnkey_plan_project")
-def test_control_assistant_turnkey_plan_preset_validates() -> None:
+def test_demo_turnkey_plan_preset_validates() -> None:
     """BuildProfile.validate() passes for the preset as shipped (bare, no
     overrides) -- the non-builtin bluesky-panel ids are accepted because
     the preset's own bluesky_web block is present."""
     presets_dir = bp._presets_dir()
-    raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
+    raw = yaml.safe_load((presets_dir / "demo.yml").read_text(encoding="utf-8"))
     # `app_template:` and `facility:` are preset-side and consumed at the single
     # read point in `_load_preset_raw`; reading the file straight off disk has to
     # pop them too.
@@ -603,9 +681,20 @@ class TestEnvironmentValidation:
         profile = _profile(name="x", environment=EnvironmentConfig(python=str(venv_interpreter)))
         profile.validate(tmp_path)  # must not raise
 
-    def test_missing_python_raises(self, tmp_path: Path) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(python="/nope/bin/python"))
-        with pytest.raises(BuildProfileError, match="environment.python not found"):
+    @pytest.mark.parametrize(
+        ("python", "message"),
+        [
+            ("/nope/bin/python", "environment.python not found"),
+            # environment.python names a host interpreter, not a profile-relative
+            # asset — consumers hold only the profile, so it must be absolute.
+            ("venv/bin/python", "must be an absolute path"),
+            ("   ", "environment.python must be a non-empty"),
+        ],
+        ids=["missing", "relative", "empty"],
+    )
+    def test_an_unusable_python_raises(self, tmp_path: Path, python: str, message: str) -> None:
+        profile = _profile(name="x", environment=EnvironmentConfig(python=python))
+        with pytest.raises(BuildProfileError, match=message):
             profile.validate(tmp_path)
 
     def test_non_executable_python_raises(self, tmp_path: Path) -> None:
@@ -620,18 +709,6 @@ class TestEnvironmentValidation:
         """A directory is traversable-executable but is not an interpreter."""
         profile = _profile(name="x", environment=EnvironmentConfig(python=str(tmp_path)))
         with pytest.raises(BuildProfileError, match="is not an executable file"):
-            profile.validate(tmp_path)
-
-    def test_relative_python_raises(self, tmp_path: Path) -> None:
-        """environment.python names a host interpreter, not a profile-relative
-        asset — consumers hold only the profile, so it must be absolute."""
-        profile = _profile(name="x", environment=EnvironmentConfig(python="venv/bin/python"))
-        with pytest.raises(BuildProfileError, match="must be an absolute path"):
-            profile.validate(tmp_path)
-
-    def test_empty_python_string_raises(self, tmp_path: Path) -> None:
-        profile = _profile(name="x", environment=EnvironmentConfig(python="   "))
-        with pytest.raises(BuildProfileError, match="environment.python must be a non-empty"):
             profile.validate(tmp_path)
 
     @pytest.mark.parametrize("bad", ["", "   "])
@@ -899,7 +976,7 @@ def test_either_claude_code_spelling_alone_is_fine() -> None:
 
 def test_the_shipped_preset_listings_are_not_empty() -> None:
     """Guards the two parametrizations below against running over nothing."""
-    assert {"control-assistant", "hello-world"} <= set(list_presets())
+    assert {"demo", "hello-world"} <= set(list_presets())
     assert {"readonly", "readwrite", "admin"} <= set(list_tiers())
     assert {"logbook", "knowledge"} <= set(list_apps())
 

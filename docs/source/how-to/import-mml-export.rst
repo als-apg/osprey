@@ -111,7 +111,7 @@ Run the import
 
 The first run finds no mapping, writes a draft to
 ``data/facility/imported/mml/mapping.yaml`` and stops with
-``import mml: mapping-draft``. Nothing else is written. Review the draft, then
+``import mml: mapping-draft``. No record is written. Review the draft, then
 run the same command again.
 
 The import takes every export the mapping names: a run given a subset is
@@ -200,10 +200,11 @@ What the import writes
 A clean run prints one ``wrote <path>`` line per file. The record files under
 ``data/facility/imported/mml/`` are rewritten by every import; ``mapping.yaml``
 is yours and is only drafted when absent. The authored files beside them ---
-``limits.yaml``, ``seeds.yaml``, ``identity.yaml``, ``classes.yaml``,
+``limits.yaml``, ``seeds.yaml``, ``identity.yaml``,
 ``measurement/<model>.yaml`` and ``scenarios/readout.yaml`` --- are created
 only when absent and never rewritten, so your edits to them survive a
-re-import.
+re-import. ``classes.yaml`` is created when absent; when it exists, the import
+appends only the classes it lacks and leaves its rows as written.
 ``measurement/<model>.yaml`` names, as ``quad`` and ``sext``, the families the
 export tags as tune and chromaticity correctors, and lists every kind those
 groups and instruments allow; the import names the wired families it left out.
@@ -281,29 +282,26 @@ whose conversion curves the pass cut, and
 whose supplies feed several devices. Both go to stdout and never stop the
 import.
 
-The import refuses to run while ``data/facility/`` holds a record source of
-your own that would merge against the imported records. It prints
-``import mml: authored-present: <n> files`` and one ``rm <path>`` line per
-file. Corrections belong in ``fixes.yaml``, which is never in the way.
+Before it reads an export, the import looks at ``data/facility/``:
 
-Scenario files never stop the import. After a clean run it prints
-``these scenario files name channels that no longer exist:`` and one
-``rm <path>`` line for each scenario file that names a channel or model the
-imported facility does not have, followed by an ``rm -r <folder>/`` line when
-the scenario keeps a folder of attached files beside it. The import deletes
-nothing, and
-``osprey build`` stops while one is left: remove each listed file, or point it
-at the imported channels.
+* Hand-written records of a kind this format writes refuse the import, which
+  names each file, changes nothing and exits 1. The mml format writes channel,
+  device, group, model, deck, seed, limit, identity and measurement records; the
+  list format writes channel and device records. A file is hand-written once its
+  bundled-origin line is gone. Corrections belong in ``fixes.yaml``.
+* Bundled files are replaced, and one line says so:
+  ``import mml: replaced the bundled example facility (<n> files)``. The line
+  prints before the export is read, so a stop that follows it, such as a mapping
+  draft, comes after the replacement.
+* Everything else of your own stays, such as ``fixes.yaml``, your knowledge pages
+  and hand-written records of other kinds.
 
-A deployment that began as a preset states
-``control_system.connector.virtual_accelerator.probe_channel`` for the demo's
-channels. ``osprey build`` and ``osprey facility validate`` stop with
-``profile-invalid`` while it names a channel the imported facility does not
-hold, and name one it does. Set it to that channel:
+The import regenerates the knowledge indexes, so your kept pages are listed, and
+leaves a blank ``knowledge/index.md`` when no page remains.
 
-.. code-block:: bash
-
-   osprey set config.control_system.connector.virtual_accelerator.probe_channel=<channel>
+The build derives the simulator's probe channel from the imported file. A stated
+``simulation.default_scenarios`` naming a scenario the imported file lacks stops
+the next build with the file's scenarios.
 
 Check the result
 ================

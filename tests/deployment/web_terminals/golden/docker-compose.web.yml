@@ -35,6 +35,7 @@ services:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest
     container_name: dls_controls-web-alice
     restart: unless-stopped
+    init: true
     network_mode: host
     security_opt: ["no-new-privileges:true"]
     labels:
@@ -52,6 +53,8 @@ services:
       - OSPREY_STATE_DIR=/app/dls_controls-assistant/var/state/alice
       - OSPREY_AGENT_RECORD_URL=http://127.0.0.1:10053
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/alice
+      - OSPREY_WRITE_REQUESTS_DIR=/opt/osprey/write_authorization/requests
+      - OSPREY_WRITE_LEDGER_VIEW_DIR=/opt/osprey/write_authorization/ledger_view
       - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator
       - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
@@ -64,7 +67,6 @@ services:
       - OSPREY_ARTIFACT_SERVER_PORT=10200
       - OSPREY_ARIEL_PORT=10300
       - OSPREY_CHANNEL_FINDER_PORT=10500
-      - OSPREY_LATTICE_DASHBOARD_PORT=10400
       - OSPREY_FACILITY_KNOWLEDGE_PORT=10600
       - OSPREY_HEALTH_PORT=10700
     volumes:
@@ -87,6 +89,18 @@ services:
       # group-writable, and the entrypoint joins its group
       # (OSPREY_GUARDED_RUN_DIR above).
       - ./var/guarded_run:/app/dls_controls-assistant/var/guarded_run
+      # The holders' requests for a program's write authorization, READ-ONLY:
+      # a program writes them into the deployment's write ledger, and this
+      # terminal shows the ones that name its login on the approve card. The
+      # deploy provisions the directory setgid + group-writable, and the
+      # entrypoint joins its group (OSPREY_WRITE_REQUESTS_DIR above).
+      - ./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro
+      # The holders' whole write ledger, READ-ONLY: their self-issued grants
+      # are there, so an approval here refuses a channel one of them holds and
+      # the chip lists the ones naming this login, and the ledgers that end a
+      # grant whose lease lapsed or whose steps are spent. Grants, ledgers,
+      # leases and requests only; the same group as the requests directory above.
+      - ./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro
     healthcheck:
       # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
       # layout's `web` slot at the deployment's own base (resolve_web_port in
@@ -107,6 +121,7 @@ services:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest
     container_name: dls_controls-web-bob
     restart: unless-stopped
+    init: true
     network_mode: host
     security_opt: ["no-new-privileges:true"]
     labels:
@@ -124,6 +139,8 @@ services:
       - OSPREY_STATE_DIR=/app/dls_controls-assistant/var/state/bob
       - OSPREY_AGENT_RECORD_URL=http://127.0.0.1:10053
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-assistant/var/agent_data/control_target/bob
+      - OSPREY_WRITE_REQUESTS_DIR=/opt/osprey/write_authorization/requests
+      - OSPREY_WRITE_LEDGER_VIEW_DIR=/opt/osprey/write_authorization/ledger_view
       - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-assistant/var/simulator
       - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-assistant/var/guarded_run
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
@@ -136,7 +153,6 @@ services:
       - OSPREY_ARTIFACT_SERVER_PORT=10201
       - OSPREY_ARIEL_PORT=10301
       - OSPREY_CHANNEL_FINDER_PORT=10501
-      - OSPREY_LATTICE_DASHBOARD_PORT=10401
       - OSPREY_FACILITY_KNOWLEDGE_PORT=10601
       - OSPREY_HEALTH_PORT=10701
     volumes:
@@ -159,6 +175,18 @@ services:
       # group-writable, and the entrypoint joins its group
       # (OSPREY_GUARDED_RUN_DIR above).
       - ./var/guarded_run:/app/dls_controls-assistant/var/guarded_run
+      # The holders' requests for a program's write authorization, READ-ONLY:
+      # a program writes them into the deployment's write ledger, and this
+      # terminal shows the ones that name its login on the approve card. The
+      # deploy provisions the directory setgid + group-writable, and the
+      # entrypoint joins its group (OSPREY_WRITE_REQUESTS_DIR above).
+      - ./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro
+      # The holders' whole write ledger, READ-ONLY: their self-issued grants
+      # are there, so an approval here refuses a channel one of them holds and
+      # the chip lists the ones naming this login, and the ledgers that end a
+      # grant whose lease lapsed or whose steps are spent. Grants, ledgers,
+      # leases and requests only; the same group as the requests directory above.
+      - ./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro
     healthcheck:
       # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
       # layout's `web` slot at the deployment's own base (resolve_web_port in
@@ -179,6 +207,7 @@ services:
     image: git.dls.example.org:5050/physics/production/dls-profiles/web-terminal-logbook:latest
     container_name: dls_controls-web-logbook
     restart: unless-stopped
+    init: true
     network_mode: host
     security_opt: ["no-new-privileges:true"]
     labels:
@@ -196,6 +225,8 @@ services:
       - OSPREY_STATE_DIR=/app/dls_controls-logbook/var/state/logbook
       - OSPREY_AGENT_RECORD_URL=http://127.0.0.1:10053
       - OSPREY_CONTROL_CONTEXT_DIR=/app/dls_controls-logbook/var/agent_data/control_target/logbook
+      - OSPREY_WRITE_REQUESTS_DIR=/opt/osprey/write_authorization/requests
+      - OSPREY_WRITE_LEDGER_VIEW_DIR=/opt/osprey/write_authorization/ledger_view
       - OSPREY_SIMULATOR_LOG_DIR=/app/dls_controls-logbook/var/simulator
       - OSPREY_GUARDED_RUN_DIR=/app/dls_controls-logbook/var/guarded_run
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
@@ -209,7 +240,6 @@ services:
       - OSPREY_ARTIFACT_SERVER_PORT=10299
       - OSPREY_ARIEL_PORT=10399
       - OSPREY_CHANNEL_FINDER_PORT=10599
-      - OSPREY_LATTICE_DASHBOARD_PORT=10499
       - OSPREY_FACILITY_KNOWLEDGE_PORT=10699
       - OSPREY_HEALTH_PORT=10799
     volumes:
@@ -232,6 +262,18 @@ services:
       # group-writable, and the entrypoint joins its group
       # (OSPREY_GUARDED_RUN_DIR above).
       - ./var/guarded_run:/app/dls_controls-logbook/var/guarded_run
+      # The holders' requests for a program's write authorization, READ-ONLY:
+      # a program writes them into the deployment's write ledger, and this
+      # terminal shows the ones that name its login on the approve card. The
+      # deploy provisions the directory setgid + group-writable, and the
+      # entrypoint joins its group (OSPREY_WRITE_REQUESTS_DIR above).
+      - ./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro
+      # The holders' whole write ledger, READ-ONLY: their self-issued grants
+      # are there, so an approval here refuses a channel one of them holds and
+      # the chip lists the ones naming this login, and the ledgers that end a
+      # grant whose lease lapsed or whose steps are spent. Grants, ledgers,
+      # leases and requests only; the same group as the requests directory above.
+      - ./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro
     healthcheck:
       # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
       # layout's `web` slot at the deployment's own base (resolve_web_port in

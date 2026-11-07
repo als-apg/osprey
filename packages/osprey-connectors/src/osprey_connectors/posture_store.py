@@ -73,7 +73,7 @@ worker, a CLI run — is decided by the same field as one that does.
 
 Inside an executor sandbox one further term is read, and only there:
 :data:`LAUNCH_POSTURE_ENV_VAR`, the switch state the run was LAUNCHED under
-(:func:`launch_posture_stamp` writes it, :func:`launch_pin_term` reads it). Its
+(:func:`launch_posture_stamp` writes it, :func:`_launch_pin_term` reads it). Its
 job is asymmetry: a machine switched off mid-run is refused by the record read,
 while a machine switched ON never reaches a run that started with it off, which
 would otherwise hand a running script write access the operator had not given
@@ -180,7 +180,6 @@ __all__ = [
     "current_owner",
     "execution_verdict",
     "invalidate_cache",
-    "launch_pin_term",
     "launch_posture_stamp",
     "owner_tier_term",
     "parse_posture_value",
@@ -230,7 +229,7 @@ VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 
 #: The launch-time pin, stamped into an executor sandbox's environment by
 #: ``osprey.mcp_server.python_executor.executor._apply_target_stamp`` and read
-#: back HERE, inside that sandbox, by :func:`launch_pin_term`.
+#: back HERE, inside that sandbox, by :func:`_launch_pin_term`.
 #:
 #: The wire format is one ``"<target>=<posture>"`` pair and nothing else:
 #:
@@ -244,7 +243,7 @@ VALID_POSTURES = frozenset({POSTURE_SANDBOX, POSTURE_WRITES})
 #: the in-flight marker states what the run launched under, and is inert here:
 #: a stamp can refuse and never grant. A missing or blank stamp is inert too,
 #: which is what makes every process that is not an executor sandbox
-#: unaffected by this term; an unparseable one refuses (:func:`launch_pin_term`).
+#: unaffected by this term; an unparseable one refuses (:func:`_launch_pin_term`).
 #:
 #: Spelled here rather than imported because this is the reading side and the
 #: reading side runs in the lean connector chain;
@@ -992,7 +991,7 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     """Compose the :data:`LAUNCH_POSTURE_ENV_VAR` value for one launch.
 
     The one place the wire format is written, so the executor that stamps it
-    and :func:`launch_pin_term` which reads it cannot disagree about the
+    and :func:`_launch_pin_term` which reads it cannot disagree about the
     separator or about how "no target" is spelled.
 
     Args:
@@ -1005,7 +1004,7 @@ def launch_posture_stamp(target: str | None, launch_posture: str) -> str:
     return f"{target or LAUNCH_POSTURE_ALL_TARGETS}={launch_posture}"
 
 
-def launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadable"]:
+def _launch_pin_term(target: str | None) -> Literal["none", "pinned", "unreadable"]:
     """The launch pin as a term of the write verdict — fail-closed on a bad stamp.
 
     Reads :data:`LAUNCH_POSTURE_ENV_VAR` on every call and answers, for *target*:
@@ -1143,6 +1142,10 @@ class WriteVerdict:
             :func:`backstop_verdict`.
         detail: Words the refusal adds after its phrase, such as what raised a
             session's hold. Not part of the decision, so verdicts compare without it.
+        authorization: The id of the program's write authorization the verdict
+            was decided by (:mod:`~osprey_connectors.write_authorization`), or
+            ``None`` for a verdict no authorization took part in. An authorized
+            write carries no ``position``: the switch did not decide it.
     """
 
     allowed: bool
@@ -1151,6 +1154,7 @@ class WriteVerdict:
     kind: Literal["real", "rehearsal", "simulator"] | None
     position: Literal["asked", "allowed"] | None = None
     detail: str | None = field(default=None, compare=False)
+    authorization: str | None = None
 
 
 def write_verdict(
@@ -1193,7 +1197,7 @@ def write_verdict(
        (:func:`~osprey_connectors.control_context.switch_position`) is ``off``.
        The record's ``posture`` field is not read: it mirrors the switch, and
        an old ``sandbox`` value left in a file does not refuse.
-    8. ``launch_pinned`` — the launch pin (:func:`launch_pin_term`) is
+    8. ``launch_pinned`` — the launch pin (:func:`_launch_pin_term`) is
        ``pinned`` or ``unreadable`` for *target*; skipped when
        *ignore_launch_pin*, for a caller that reports the pin on its own.
 
@@ -1218,24 +1222,63 @@ def write_verdict(
         A :class:`WriteVerdict`. Never raises: an exception anywhere in the
         terms refuses rather than allows.
     """
+    return _write_verdict(section, target, owner, ignore_launch_pin, None)
+
+
+class _RecordSeen:
+    """The record one verdict read, for a caller that judges more on that same read.
+
+    Filled by :func:`_write_refusal` once the record governing the write has
+    been read and found usable: ``read`` is then ``True`` and ``record`` the
+    record, or ``None`` for one that is absent (every switch off). A verdict
+    refused before the record was reached leaves ``read`` ``False``. The write
+    authorization's verdict takes it so one authorized write is judged on one
+    read of the record rather than two that a person's gesture could fall
+    between.
+    """
+
+    __slots__ = ("read", "record")
+
+    def __init__(self) -> None:
+        self.read = False
+        self.record: Any = None
+
+
+def _write_verdict(
+    section: Any,
+    target: str | None,
+    owner: str | NoOwner | None,
+    ignore_launch_pin: bool,
+    seen: _RecordSeen | None,
+) -> WriteVerdict:
+    """:func:`write_verdict`, recording the record it read into *seen* when given."""
     named = target if isinstance(target, str) else None
-    try:
-        # The name decides whether the target resolves at all; the published
-        # report decides what it is (C-KIND), so a stand-in the controls server
-        # has not vouched for is the real machine in the refusal's words.
-        kind = None if machine_kind(section, target) is None else published_machine_kind(target)
-    except Exception:  # the kind is a word in a refusal; it must not decide one
-        logger.debug("Could not name the machine kind of %r", target, exc_info=True)
-        kind = None
+    kind = _verdict_kind(section, target)
     position: Literal["asked", "allowed"] | None = None
     try:
-        reason, position = _write_refusal(section, target, owner, ignore_launch_pin)
+        reason, position = _write_refusal(section, target, owner, ignore_launch_pin, seen)
     except Exception:  # a verdict that cannot be reached refuses; it never raises
         logger.warning("Write verdict for %r could not be reached; refusing", target, exc_info=True)
         reason = "record_unavailable"
+        if seen is not None:
+            seen.read = False
     return WriteVerdict(
         allowed=reason is None, reason=reason, target=named, kind=kind, position=position
     )
+
+
+def _verdict_kind(section: Any, target: Any) -> Literal["real", "rehearsal", "simulator"] | None:
+    """The machine kind a verdict on *target* names, or ``None``. Never raises.
+
+    The name decides whether the target resolves at all; the published report
+    decides what it is (C-KIND), so a stand-in the controls server has not
+    vouched for is the real machine in the refusal's words.
+    """
+    try:
+        return None if machine_kind(section, target) is None else published_machine_kind(target)
+    except Exception:  # the kind is a word in a refusal; it must not decide one
+        logger.debug("Could not name the machine kind of %r", target, exc_info=True)
+        return None
 
 
 def backstop_verdict(section: Any) -> WriteVerdict:
@@ -1355,6 +1398,13 @@ def execution_verdict(
         :func:`write_verdict`. Never raises.
     """
     verdict = write_verdict(section, target, owner=owner, ignore_launch_pin=ignore_launch_pin)
+    return _with_hold(section, verdict, session_keys)
+
+
+def _with_hold(
+    section: Any, verdict: WriteVerdict, session_keys: Sequence[str] | None
+) -> WriteVerdict:
+    """*verdict* as :func:`execution_verdict` answers it: the hold after the backstop."""
     if not backstop_verdict(section).allowed:
         return verdict
     held = session_hold_refusal(session_keys=session_keys)
@@ -1364,11 +1414,16 @@ def execution_verdict(
 
 
 def _write_refusal(
-    section: Any, target: Any, owner: str | NoOwner | None, ignore_launch_pin: bool
+    section: Any,
+    target: Any,
+    owner: str | NoOwner | None,
+    ignore_launch_pin: bool,
+    seen: _RecordSeen | None = None,
 ) -> tuple[str | None, Literal["asked", "allowed"] | None]:
     """The first term of :func:`write_verdict` that refuses, else the position.
 
-    Answers ``(reason, None)`` or ``(None, position)``. May raise.
+    Answers ``(reason, None)`` or ``(None, position)``. May raise. The usable
+    record it read, if it got that far, is left in *seen*.
     """
     # Imported here, not at module scope: ``control_context`` imports this module.
     from osprey_connectors import control_context
@@ -1415,12 +1470,14 @@ def _write_refusal(
             return "record_unavailable", None
         if status != "ok":
             record = None
+    if seen is not None:
+        seen.read, seen.record = True, record
 
     stored = control_context.switch_position(record, target)
     if stored == "off":
         return "switch_off", None
 
-    if not ignore_launch_pin and launch_pin_term(target) != "none":
+    if not ignore_launch_pin and _launch_pin_term(target) != "none":
         return "launch_pinned", None
     ceiling = write_ceiling(section, resolved)
     return None, cast("Literal['asked', 'allowed']", min(stored, ceiling, key=_LOGIN_TIERS.index))

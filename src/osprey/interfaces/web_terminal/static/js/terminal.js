@@ -6,6 +6,7 @@ import { clearPointer, getPointer, setPointer } from './session-pointer.js';
 import { askAboutStartedCommands } from './started-commands.js';
 import { hideHandoffOverlay, showHandoffPending, showHandoffRefused } from './terminal-handoff.js';
 import { monoFontStack, subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
+import { queryAllDocuments } from './attached-window.js';
 
 /** @type {any} */
 let term = null;
@@ -377,8 +378,6 @@ export function startTerminal(
           const msg = JSON.parse(e.data);
           if (msg.type === 'exit') {
             term.write(`\r\n\x1b[33m[Process exited with code ${msg.code}]\x1b[0m\r\n`);
-            const led = document.getElementById('session-led');
-            if (led) led.classList.remove('active');
 
             // If this was our page-load auto-resume attempt, treat the exit
             // as the resume having failed: drop the dead id and fall back to
@@ -732,17 +731,13 @@ export function stopTerminal() {
 }
 
 /**
- * Single owner of the connection-status indicators: the header LED
- * (`#session-led`) and the terminal-body glow track PTY WebSocket
- * connectedness together. (The process-exit branch in onMessage
- * deliberately dims only the LED — the chrome keeps its glow until the
- * connection itself closes.)
+ * Single owner of the connection-status indicator: the terminal-body glow
+ * tracks PTY WebSocket connectedness. (A process exit leaves it on: the glow
+ * goes when the connection itself closes.)
  * @param {boolean} connected
  */
 function setConnectionIndicator(connected) {
-  const led = document.getElementById('session-led');
-  if (led) led.classList.toggle('active', connected);
-  const body = document.querySelector('.terminal-body');
+  const body = queryAllDocuments('.terminal-body')[0];
   if (body) body.classList.toggle('active', connected);
 }
 
@@ -758,7 +753,8 @@ function setConnectionIndicator(connected) {
 export function setSessionLabel(sessionId) {
   const label = document.getElementById('terminal-label');
   if (!label) return;
-  label.textContent = 'Agent';
+  // Once the session switcher owns the label, its text is the session's title.
+  if (!label.classList.contains('session-switcher')) label.textContent = 'Agent';
   if (sessionId) {
     label.title = `Session ${sessionId}`;
     label.dataset.sessionId = sessionId;
@@ -854,7 +850,7 @@ export function onSessionChange(fn) {
  * @param {string} sessionId - The new session UUID.
  */
 export function notifySessionChange(sessionId) {
-  document.querySelectorAll('.panel-iframe').forEach((iframe) => {
+  queryAllDocuments('.panel-iframe').forEach((iframe) => {
     try {
       /** @type {Window} */ (/** @type {HTMLIFrameElement} */ (iframe).contentWindow).postMessage(
         { type: 'osprey-session-change', session_id: sessionId },

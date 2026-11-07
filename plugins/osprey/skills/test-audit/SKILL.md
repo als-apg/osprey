@@ -58,8 +58,8 @@ reuse the shared helpers (the `reserve_port` fixture in tests/conftest.py,
 `patch_subprocess()` in tests/cli/_scoped_subprocess.py, `isolated_home` in
 tests/cli/conftest.py, the named reset seams); new global state gets a public reset seam plus an autouse
 fixture; no import-time side effects; no new `xdist_group`; almost no flaky
-markers; assert on `result.stdout`; green serially and under
-`-n 4 --dist loadgroup`.
+markers; assert on `result.stdout`; green serially and in the parallel sweep
+(`check.py quick --changed HEAD -- <files>`).
 
 Bug fixes are test-first: the regression test must fail on the pre-fix code for
 the intended reason and pass after the owner-boundary repair. A regression test
@@ -248,16 +248,16 @@ first: a basename collision silently drops tests under xdist.
 
 Never edit source or tests, and never commit, while pytest or a gate is running
 in the checkout. Run gates in the foreground. Run e2e only by path
-(`uv run pytest tests/e2e/<file>`), never `-m e2e` (tests/e2e/README.md).
+(`uv run pytest tests/e2e/<file>`).
 
 1. Run the smallest owner and sibling tests twice, serially then parallel:
    `uv run pytest tests/<area>/test_x.py`, then, for a unit area,
-   `uv run pytest tests/<area> -m "not pty and not wallclock" -n 4 --dist loadgroup`
-   with the `pytest` check's `--ignore` list from `scripts/repo_checks.py`
-   (`uv run python scripts/check.py list --json` prints it; those files run
-   in their own CI jobs, such as tests/va/test_apply_fault.py — run them by
-   path). Run
-   `tests/pty -m pty` and `tests/integration -m wallclock` serially. For e2e,
+   `uv run python scripts/check.py quick --changed HEAD -- tests/<area>`
+   (the files the `pytest` check ignores run in their own CI jobs, such as
+   tests/va/test_apply_fault.py — run them by path). Run the serial checks alone:
+   `uv run python scripts/check.py run pytest-pty pytest-wallclock pytest-wallclock-unit`
+   (the pty suite, then the wall-clock budgets in tests/integration and in the
+   rest of the tree outside tests/e2e). For e2e,
    run one file by path, serially or with `-n 4 --dist loadfile`. Neither run
    is evidence for the other. For vitest files, run
    `npm run test:js -- <path>`, then

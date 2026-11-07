@@ -261,19 +261,18 @@ class TestSnapshotDerivesFromTheRoster:
         assert decision.emit is True
         assert set(decision.channels) == set(roster.addresses)
 
-    def test_switching_the_feature_off_leaves_the_roster_whole(self, two_channels):
-        # The typeahead is a panel affordance; the roster is what the facility
-        # has. Turning the first off must not shrink the second.
-        config = _config(two_channels, suggestions={"enabled": False})
-
-        decision = compute_channel_snapshot(config)
-
-        assert decision.emit is False
-        assert decision.channels == []
-        assert len(registered_channels(config).addresses) == 2
-
-    def test_a_roster_over_the_size_guard_is_still_whole(self, two_channels):
-        config = _config(two_channels, suggestions={"max_channels": 1})
+    @pytest.mark.parametrize(
+        "suggestions",
+        [
+            # The typeahead is a panel affordance; the roster is what the facility
+            # has. Turning the first off must not shrink the second.
+            {"enabled": False},
+            {"max_channels": 1},
+        ],
+        ids=["feature-switched-off", "over-the-size-guard"],
+    )
+    def test_a_suppressed_snapshot_leaves_the_roster_whole(self, two_channels, suggestions):
+        config = _config(two_channels, suggestions=suggestions)
 
         decision = compute_channel_snapshot(config)
 

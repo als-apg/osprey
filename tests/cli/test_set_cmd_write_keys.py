@@ -104,24 +104,34 @@ def test_asked_is_accepted_from_allowed(runner, lifecycle_repo):
     assert _rendered_ceiling(lifecycle_repo) == "asked"
 
 
-@pytest.mark.parametrize("ceiling", ["never", "asked", None])
-def test_asked_is_refused_unless_the_ceiling_is_allowed(runner, lifecycle_repo, ceiling):
+@pytest.mark.parametrize(
+    ("assignment", "ceiling"),
+    [
+        ("config.control_system.writes=asked", "never"),
+        ("config.control_system.writes=asked", "asked"),
+        ("config.control_system.writes=asked", None),
+        ("config.control_system.writes=allowed", "never"),
+        ("config.control_system.writes=allowed", "asked"),
+        ("config.control_system.writes=allowed", "allowed"),
+        ("config.control_system.writes=allowed", None),
+    ],
+    ids=[
+        "asked-from-never",
+        "asked-from-asked",
+        "asked-from-unset",
+        "allowed-from-never",
+        "allowed-from-asked",
+        "allowed-from-allowed",
+        "allowed-from-unset",
+    ],
+)
+def test_a_write_above_the_ceiling_is_refused_and_points_at_the_profile(
+    runner, lifecycle_repo, assignment, ceiling
+):
     _state_ceiling(lifecycle_repo, ceiling)
     before = _profile_bytes(lifecycle_repo)
 
-    result = _invoke(runner, lifecycle_repo, "config.control_system.writes=asked")
-
-    assert result.exit_code != 0
-    assert "profile" in result.output and "tier file" in result.output, result.output
-    assert _profile_bytes(lifecycle_repo) == before
-
-
-@pytest.mark.parametrize("ceiling", ["never", "asked", "allowed", None])
-def test_allowed_is_refused_and_points_at_the_profile(runner, lifecycle_repo, ceiling):
-    _state_ceiling(lifecycle_repo, ceiling)
-    before = _profile_bytes(lifecycle_repo)
-
-    result = _invoke(runner, lifecycle_repo, "config.control_system.writes=allowed")
+    result = _invoke(runner, lifecycle_repo, assignment)
 
     assert result.exit_code != 0
     assert "profile" in result.output and "tier file" in result.output, result.output
@@ -140,7 +150,7 @@ def test_a_narrowing_cannot_be_walked_back(runner, lifecycle_repo):
     assert _rendered_ceiling(lifecycle_repo) == "never"
 
 
-@pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+@pytest.mark.parametrize("preset", ["demo", "hello-world"])
 def test_a_silent_root_is_judged_by_the_preset_it_extends(runner, tmp_path, preset):
     repo = _silent_root(tmp_path / "repo", preset)
     before = _profile_bytes(repo)
@@ -158,7 +168,7 @@ def test_a_silent_root_is_judged_by_the_preset_it_extends(runner, tmp_path, pres
         assert _profile_bytes(repo) == before
 
 
-@pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+@pytest.mark.parametrize("preset", ["demo", "hello-world"])
 def test_never_is_accepted_on_a_silent_root_over_any_preset(runner, tmp_path, preset):
     repo = _silent_root(tmp_path / "repo", preset)
 
@@ -178,7 +188,7 @@ def test_never_is_accepted_on_a_silent_root_over_any_preset(runner, tmp_path, pr
     ],
     ids=["dotted-allowed", "nested-allowed", "dotted-never", "nested-never"],
 )
-@pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+@pytest.mark.parametrize("preset", ["demo", "hello-world"])
 def test_the_ceiling_is_read_through_the_render(runner, tmp_path, preset, line, accepted):
     """The root's own word beats the preset's, in either way a config: block spells it."""
     repo = _silent_root(tmp_path / "repo", preset, line)
@@ -200,7 +210,7 @@ _SHADOWING_ROOTS = {
 
 @pytest.mark.parametrize("word", ["never", "asked"])
 @pytest.mark.parametrize("spelling", _SHADOWING_ROOTS, ids=str)
-@pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+@pytest.mark.parametrize("preset", ["demo", "hello-world"])
 def test_an_accepted_move_lands_past_the_roots_own_block(runner, tmp_path, preset, spelling, word):
     """The merge keeps a preset key's position, so a dotted write can sit behind a block."""
     repo = _silent_root(tmp_path / "repo", preset, *_SHADOWING_ROOTS[spelling])
@@ -215,7 +225,7 @@ def test_an_accepted_move_lands_past_the_roots_own_block(runner, tmp_path, prese
 def test_landing_inside_a_block_keeps_the_rest_of_it(runner, tmp_path):
     repo = _silent_root(
         tmp_path / "repo",
-        "control-assistant",
+        "demo",
         "# the machine this deployment talks to",
         "control_system: {type: virtual_accelerator, writes: allowed}",
     )
@@ -231,14 +241,14 @@ def test_landing_inside_a_block_keeps_the_rest_of_it(runner, tmp_path):
 @pytest.mark.parametrize("word", ["never", "asked"])
 def test_an_accepted_move_lands_past_a_block_the_parent_states(runner, tmp_path, word):
     repo = tmp_path / "repo"
-    _silent_root(repo, "control-assistant")
+    _silent_root(repo, "demo")
     (repo / "parent.yml").write_text(
-        "extends: control-assistant\nconfig:\n  control_system: {writes: allowed}\n",
+        "extends: demo\nconfig:\n  control_system: {writes: allowed}\n",
         encoding="utf-8",
     )
     path = repo / "profile.yml"
     path.write_text(
-        path.read_text().replace("extends: control-assistant", "extends: parent.yml"),
+        path.read_text().replace("extends: demo", "extends: parent.yml"),
         encoding="utf-8",
     )
     assert _rendered_ceiling(repo) == "allowed"
@@ -267,7 +277,7 @@ def test_a_move_that_cannot_land_restores_the_file_and_refuses(runner, tmp_path,
 
 
 def test_a_root_that_does_not_resolve_refuses_asked_and_writes_nothing(runner, tmp_path):
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
+    repo = _silent_root(tmp_path / "repo", "demo")
     path = repo / "profile.yml"
     path.write_text(path.read_text().replace("data: data\n", ""), encoding="utf-8")
     before = path.read_bytes()
@@ -280,7 +290,7 @@ def test_a_root_that_does_not_resolve_refuses_asked_and_writes_nothing(runner, t
 
 
 def test_narrowing_to_never_needs_no_resolvable_root(runner, tmp_path):
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
+    repo = _silent_root(tmp_path / "repo", "demo")
     path = repo / "profile.yml"
     path.write_text(path.read_text().replace("data: data\n", ""), encoding="utf-8")
 
@@ -395,7 +405,7 @@ def test_a_mapping_is_judged_against_the_ceiling_too(runner, lifecycle_repo, pai
     ],
     ids=["block", "config-block"],
 )
-@pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+@pytest.mark.parametrize("preset", ["demo", "hello-world"])
 def test_a_mapping_lands_over_the_roots_own_block(runner, tmp_path, preset, pair):
     repo = _silent_root(tmp_path / "repo", preset, "control_system: {writes: allowed}")
 
@@ -406,13 +416,13 @@ def test_a_mapping_lands_over_the_roots_own_block(runner, tmp_path, preset, pair
 
 def _root_over_parent(repo: Path, parent_block: str, *config_lines: str) -> Path:
     """A root extending a local parent whose ``config:`` holds *parent_block*."""
-    _silent_root(repo, "control-assistant", *config_lines)
+    _silent_root(repo, "demo", *config_lines)
     (repo / "parent.yml").write_text(
-        f"extends: control-assistant\nconfig:\n  {parent_block}\n", encoding="utf-8"
+        f"extends: demo\nconfig:\n  {parent_block}\n", encoding="utf-8"
     )
     path = repo / "profile.yml"
     path.write_text(
-        path.read_text().replace("extends: control-assistant", "extends: parent.yml"),
+        path.read_text().replace("extends: demo", "extends: parent.yml"),
         encoding="utf-8",
     )
     return repo
@@ -425,7 +435,7 @@ def _root_over_parent(repo: Path, parent_block: str, *config_lines: str) -> Path
 )
 def test_a_config_block_cannot_delete_a_roots_never(runner, tmp_path, pair):
     """The dotted line is what this command writes; the preset beneath it may allow writes."""
-    repo = _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
+    repo = _silent_root(tmp_path / "repo", "demo", "control_system.writes: never")
     before = _profile_bytes(repo)
     assert _rendered_ceiling(repo) == "never"
 
@@ -488,7 +498,7 @@ def test_a_block_cannot_uncover_the_ceiling_a_parent_states(runner, tmp_path, pa
 def test_a_block_that_does_not_raise_the_ceiling_is_written(
     runner, tmp_path, config_lines, pair, after
 ):
-    repo = _silent_root(tmp_path / "repo", "control-assistant", *config_lines)
+    repo = _silent_root(tmp_path / "repo", "demo", *config_lines)
 
     result = _invoke(runner, repo, pair)
 
@@ -497,7 +507,7 @@ def test_a_block_that_does_not_raise_the_ceiling_is_written(
 
 
 def test_an_unrelated_key_does_not_touch_the_ceiling(runner, tmp_path):
-    repo = _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
+    repo = _silent_root(tmp_path / "repo", "demo", "control_system.writes: never")
 
     result = _invoke(runner, repo, "config.system.timezone=UTC")
 
@@ -522,7 +532,7 @@ def test_a_block_of_another_shape_cannot_raise_the_ceiling(runner, tmp_path, val
 
 @pytest.mark.parametrize("value", ["5", "true", "[x]", "", "null"])
 def test_config_takes_a_mapping(runner, tmp_path, value):
-    repo = _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
+    repo = _silent_root(tmp_path / "repo", "demo", "control_system.writes: never")
     before = _profile_bytes(repo)
 
     result = _invoke(runner, repo, f"config={value}")
@@ -555,10 +565,12 @@ def test_an_odd_spelling_is_judged_by_the_render(runner, tmp_path, pair):
 
 
 def test_a_line_that_breaks_a_root_with_a_block_is_taken_back(runner, tmp_path):
-    repo = _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
+    repo = _silent_root(tmp_path / "repo", "demo", "control_system.writes: never")
     before = _profile_bytes(repo)
 
-    result = _invoke(runner, repo, "config.control_system={writes: never, type: mock}")
+    # A block whose `connector` is a scalar: the preset's dotted keys under it
+    # can no longer be applied, so the render fails.
+    result = _invoke(runner, repo, "config.control_system={writes: never, connector: 5}")
 
     assert result.exit_code != 0
     assert _profile_bytes(repo) == before
@@ -592,7 +604,7 @@ def test_a_line_on_a_root_that_does_not_resolve_cannot_be_judged(runner, tmp_pat
             "control_system: {writes: never}",
         )
     else:
-        repo = _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
+        repo = _silent_root(tmp_path / "repo", "demo", "control_system.writes: never")
     _without_data(repo)
     before = _profile_bytes(repo)
 
@@ -613,9 +625,7 @@ def test_a_line_on_a_root_that_does_not_resolve_cannot_be_judged(runner, tmp_pat
 def test_a_line_that_cannot_reach_the_ceiling_is_written_to_a_root_that_does_not_resolve(
     runner, tmp_path
 ):
-    repo = _without_data(
-        _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
-    )
+    repo = _without_data(_silent_root(tmp_path / "repo", "demo", "control_system.writes: never"))
 
     result = _invoke(runner, repo, "config.system.timezone=UTC")
 
@@ -626,9 +636,7 @@ def test_a_line_that_cannot_reach_the_ceiling_is_written_to_a_root_that_does_not
 def test_never_beside_another_ceiling_input_is_refused_on_a_root_that_does_not_resolve(
     runner, tmp_path
 ):
-    repo = _without_data(
-        _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
-    )
+    repo = _without_data(_silent_root(tmp_path / "repo", "demo", "control_system.writes: never"))
     before = _profile_bytes(repo)
 
     result = _invoke(runner, repo, "config.control_system.writes=never", "config={}")
@@ -643,7 +651,7 @@ def test_a_render_that_fails_in_any_way_leaves_the_ceiling_unjudged(
     runner, tmp_path, monkeypatch, pair
 ):
     """Not only the resolve's own errors: whatever the render raises, the line is refused."""
-    repo = _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
+    repo = _silent_root(tmp_path / "repo", "demo", "control_system.writes: never")
     before = _profile_bytes(repo)
 
     def fails(_repo_root):
@@ -660,7 +668,7 @@ def test_a_render_that_fails_in_any_way_leaves_the_ceiling_unjudged(
 
 
 def test_a_render_that_fails_after_the_write_takes_the_line_back(runner, tmp_path, monkeypatch):
-    repo = _silent_root(tmp_path / "repo", "control-assistant", "control_system.writes: never")
+    repo = _silent_root(tmp_path / "repo", "demo", "control_system.writes: never")
     before = _profile_bytes(repo)
     calls = []
 
@@ -680,15 +688,36 @@ def test_a_render_that_fails_after_the_write_takes_the_line_back(runner, tmp_pat
 
 
 @pytest.mark.parametrize(
-    "text",
-    ["config:\n  control_system.writes: [never\n", "name: a\nname: b\n"],
-    ids=["unclosed-flow", "duplicate-key"],
+    ("text", "pair", "message"),
+    [
+        (
+            "config:\n  control_system.writes: [never\n",
+            "config.control_system.writes=never",
+            "not valid YAML",
+        ),
+        (
+            "config:\n  control_system.writes: [never\n",
+            "config.system.timezone=UTC",
+            "not valid YAML",
+        ),
+        ("name: a\nname: b\n", "config.control_system.writes=never", "not valid YAML"),
+        ("name: a\nname: b\n", "config.system.timezone=UTC", "not valid YAML"),
+        ("- a\n", "config.control_system.writes=never", "not a mapping"),
+        ("hello\n", "config.control_system.writes=never", "not a mapping"),
+    ],
+    ids=[
+        "unclosed-flow-writes",
+        "unclosed-flow-timezone",
+        "duplicate-key-writes",
+        "duplicate-key-timezone",
+        "list",
+        "scalar",
+    ],
 )
-@pytest.mark.parametrize(
-    "pair", ["config.control_system.writes=never", "config.system.timezone=UTC"]
-)
-def test_a_profile_that_is_not_yaml_is_refused_cleanly(runner, tmp_path, text, pair):
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
+def test_a_profile_that_is_not_a_yaml_mapping_is_refused_cleanly(
+    runner, tmp_path, text, pair, message
+):
+    repo = _silent_root(tmp_path / "repo", "demo")
     (repo / "profile.yml").write_text(text, encoding="utf-8")
     before = _profile_bytes(repo)
 
@@ -696,7 +725,7 @@ def test_a_profile_that_is_not_yaml_is_refused_cleanly(runner, tmp_path, text, p
 
     assert result.exit_code != 0
     assert isinstance(result.exception, SystemExit), result.output
-    assert "not valid YAML" in result.output, result.output
+    assert message in result.output, result.output
     assert _profile_bytes(repo) == before
 
 
@@ -708,7 +737,7 @@ def test_a_profile_that_is_not_yaml_is_refused_cleanly(runner, tmp_path, text, p
 )
 def test_a_move_that_breaks_a_retired_root_is_taken_back(runner, tmp_path, line, word):
     """The retired leaf resolves alone; beside the new key the next resolve refuses it."""
-    repo = _silent_root(tmp_path / "repo", "control-assistant", line)
+    repo = _silent_root(tmp_path / "repo", "demo", line)
     before = _profile_bytes(repo)
 
     result = _invoke(runner, repo, f"config.control_system.writes={word}")
@@ -758,7 +787,7 @@ def test_help_example_names_the_new_key(runner):
 
 @pytest.mark.parametrize("config", ["5", "true", "abc", "[a]", ""])
 def test_never_is_written_over_a_config_that_is_not_a_mapping(runner, tmp_path, config):
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
+    repo = _silent_root(tmp_path / "repo", "demo")
     path = repo / "profile.yml"
     path.write_text(path.read_text() + f"config: {config}\n", encoding="utf-8")
 
@@ -769,13 +798,24 @@ def test_never_is_written_over_a_config_that_is_not_a_mapping(runner, tmp_path, 
 
 
 @pytest.mark.parametrize("config", ["5", "true", "[a]", ""])
-def test_a_block_over_a_config_that_is_not_a_mapping_cannot_be_judged(runner, tmp_path, config):
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
+@pytest.mark.parametrize(
+    "pair",
+    [
+        "config.control_system={type: virtual_accelerator}",
+        # The line names no ceiling, but turning `config:` back into a mapping repairs the root.
+        "config.system.timezone=UTC",
+    ],
+    ids=["block", "replacing-config"],
+)
+def test_a_write_over_a_config_that_is_not_a_mapping_cannot_be_judged(
+    runner, tmp_path, config, pair
+):
+    repo = _silent_root(tmp_path / "repo", "demo")
     path = repo / "profile.yml"
     path.write_text(path.read_text() + f"config: {config}\n", encoding="utf-8")
     before = _profile_bytes(repo)
 
-    result = _invoke(runner, repo, "config.control_system={type: virtual_accelerator}")
+    result = _invoke(runner, repo, pair)
 
     assert result.exit_code != 0
     assert isinstance(result.exception, SystemExit), result.output
@@ -783,22 +823,8 @@ def test_a_block_over_a_config_that_is_not_a_mapping_cannot_be_judged(runner, tm
     assert _profile_bytes(repo) == before
 
 
-@pytest.mark.parametrize("text", ["- a\n", "hello\n"], ids=["list", "scalar"])
-def test_a_profile_that_is_not_a_mapping_is_refused_cleanly(runner, tmp_path, text):
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
-    (repo / "profile.yml").write_text(text, encoding="utf-8")
-    before = _profile_bytes(repo)
-
-    result = _invoke(runner, repo, "config.control_system.writes=never")
-
-    assert result.exit_code != 0
-    assert isinstance(result.exception, SystemExit), result.output
-    assert "not a mapping" in result.output, result.output
-    assert _profile_bytes(repo) == before
-
-
 def test_never_is_written_into_an_empty_profile(runner, tmp_path):
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
+    repo = _silent_root(tmp_path / "repo", "demo")
     (repo / "profile.yml").write_text("", encoding="utf-8")
 
     result = _invoke(runner, repo, "config.control_system.writes=never")
@@ -806,19 +832,3 @@ def test_never_is_written_into_an_empty_profile(runner, tmp_path):
     assert result.exit_code == 0, result.output
     assert "not checked" in result.output, result.output
     assert "control_system.writes: never" in (repo / "profile.yml").read_text()
-
-
-@pytest.mark.parametrize("config", ["5", "true", "[a]", ""])
-def test_replacing_a_config_that_is_not_a_mapping_cannot_be_judged(runner, tmp_path, config):
-    """The line names no ceiling, but turning `config:` back into a mapping repairs the root."""
-    repo = _silent_root(tmp_path / "repo", "control-assistant")
-    path = repo / "profile.yml"
-    path.write_text(path.read_text() + f"config: {config}\n", encoding="utf-8")
-    before = _profile_bytes(repo)
-
-    result = _invoke(runner, repo, "config.system.timezone=UTC")
-
-    assert result.exit_code != 0
-    assert isinstance(result.exception, SystemExit), result.output
-    assert "cannot be judged" in result.output, result.output
-    assert _profile_bytes(repo) == before

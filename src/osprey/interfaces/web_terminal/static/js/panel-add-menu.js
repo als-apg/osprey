@@ -19,15 +19,11 @@
  * parent (panel-manager) passes closures for the actions and for the current
  * hidden-panel/allow-URL state, so the menu stays a dumb view over whatever the
  * panel manager knows.
- *
- * The one dock coupling: a "Show panel" pick docks the revealed panel BESIDE the
- * active dock group (dock-sync.dockPanelBesideActive) before the reveal POST, so
- * it lands where the operator is working rather than on the adapter's default
- * anchor. That call no-ops without a dockview shell, keeping the menu portable.
+ * A "Show panel" pick is an open like any other: the reveal's activation lands
+ * the panel by the open rule (dock-open.js), so the menu has no dock coupling.
  */
 
 import { closePopover, openPopover } from '/design-system/js/popover.js';
-import { dockPanelBesideActive } from './dock-sync.js';
 
 /**
  * @typedef {object} HiddenPanel
@@ -135,10 +131,9 @@ export function initPanelAddMenu(opts) {
       const item = menuItem(panel.label);
       item.dataset.panelId = panel.id;
       item.addEventListener('click', () => {
-        // Dock the placeholder beside the active group first, then reveal it —
-        // the adapter adopts the pre-placed placeholder by id (no-op without a
-        // dock shell). The reveal itself POSTs the visibility + focus.
-        dockPanelBesideActive(panel.id, panel.label);
+        // The reveal POSTs the visibility + focus; its activation lands the
+        // panel by the open rule (the service tile used last, replacing its
+        // panel), like every other open.
         opts.onShowPanel(panel.id);
         closeMenu();
       });

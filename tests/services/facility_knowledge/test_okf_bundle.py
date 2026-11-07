@@ -228,12 +228,21 @@ class TestReadConcept:
         assert doc.frontmatter["type"] == "facility_overview"
         assert "synchrotron" in doc.body
 
-    def test_reads_nested_concept(self, tmp_path: Path):
+    @pytest.mark.parametrize(
+        ("concept_id", "key", "expected"),
+        [
+            pytest.param("tables/beam_params", "title", "Beam Parameters", id="nested"),
+            pytest.param(
+                "/accelerator_overview", "type", "facility_overview", id="leading-slash-tolerated"
+            ),
+        ],
+    )
+    def test_reads_a_concept_by_its_id(self, tmp_path: Path, concept_id, key, expected):
         _make_bundle(tmp_path)
         bundle = OKFBundle(tmp_path)
-        doc = bundle.read_concept("tables/beam_params")
+        doc = bundle.read_concept(concept_id)
 
-        assert doc.frontmatter["title"] == "Beam Parameters"
+        assert doc.frontmatter[key] == expected
 
     def test_raises_for_missing_concept(self, tmp_path: Path):
         bundle = OKFBundle(tmp_path)
@@ -259,13 +268,6 @@ class TestReadConcept:
 
         with pytest.raises(OKFDocumentError):
             bundle.read_concept("bad")
-
-    def test_concept_id_with_leading_slash_is_tolerated(self, tmp_path: Path):
-        _make_bundle(tmp_path)
-        bundle = OKFBundle(tmp_path)
-        doc = bundle.read_concept("/accelerator_overview")
-
-        assert doc.frontmatter["type"] == "facility_overview"
 
     # --- path-traversal containment (security regression) ---
 

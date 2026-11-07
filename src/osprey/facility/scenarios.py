@@ -23,19 +23,24 @@ time}``, resolved against the activation anchor when the entry is seeded.
 An entry's ``attachments`` list names its pictures, each item one of
 ``{path: <picture file>}`` or ``{plot: <plot spec .json>}``, relative to the
 scenario's own directory ``scenarios/<name>/``.
+
+A scenario's ``sessions`` block parses through
+:func:`~osprey.simulation.sessions.parse_sessions`;
+:func:`check_scenario_sessions` checks it against the facility.
 """
 
 from __future__ import annotations
 
 import difflib
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Set
 from datetime import time
 from importlib import metadata
 from pathlib import Path
 from typing import Any
 
 from osprey.facility.errors import FacilityBuildError, exact_number, quoted_slots
+from osprey.simulation.sessions import SessionTurn, ToolStep, parse_sessions
 from osprey_connectors.relative_time import RelativeTimestamp
 from osprey_connectors.simulation.logbook import ScenarioLogEntry, parse_log_attachments
 
@@ -45,6 +50,7 @@ __all__ = [
     "check_scenario_attachments",
     "check_scenario_engines",
     "check_scenario_events",
+    "check_scenario_sessions",
     "fault_roster",
     "map_fault_errors",
     "scenario_logbook",
@@ -485,6 +491,10 @@ _EVENT_FRACTIONS = ("at", "until")
 #: The ``ramp`` end key each position key pairs with.
 _RAMP_UNTIL = {"at": "until", "at_offset": "until_offset"}
 
+#: The optional ``step`` end key each position key pairs with; a daily
+#: ``at_time`` step has none.
+_STEP_UNTIL = {"at": "until", "at_offset": "until_offset", "at_when": "until_when"}
+
 
 def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     """Check every event of every scenario's ``archiver`` entries.
@@ -493,7 +503,10 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
     keys, exactly one position key (``at``, ``at_offset``, ``at_time``,
     ``at_when``), a number wherever the archive reads one, and a shape other
     than ``step`` only on a ``float`` channel. A ``ramp`` is placed by ``at``
-    with ``until`` or by ``at_offset`` with ``until_offset``. ``at`` and
+    with ``until`` or by ``at_offset`` with ``until_offset``. A ``step`` may
+    end, on a ``float`` channel only, by the key its position pairs with
+    (``until``, ``until_offset``, ``until_when``), later than its start; a
+    daily ``at_time`` step never ends. ``at`` and
     ``until`` lie from 0 to 1, a ``width`` is greater than 0, ``at_time`` is
     an ``HH:MM[:SS]`` time of day, ``at_when`` is ``{days_ago: <int>, time:
     HH:MM[:SS]}``, and a ``to`` coerces to the channel's value type, options
@@ -540,7 +553,125 @@ def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildErro
                 if problem is not None:
                     detail, remedy = problem
                     errors.append(_error("value-invalid", name, files, f"{where} {detail}", remedy))
+    errors.extend(check_scenario_sessions(document))
     return errors
+
+
+#: The scenario whose logbook entries every scenario's sessions may cite.
+_SHARED_LOGBOOK_SCENARIO = "nominal"
+
+
+def check_scenario_sessions(document: Mapping[str, Any]) -> list[FacilityBuildError]:
+    """Check every scenario's ``sessions`` block against the facility.
+
+    The block parses through the session model, which refuses a malformed
+    shape and a controls tool input naming a channel its turn's ``channels:``
+    lacks; that is one ``value-invalid``. A parsed block's turns then name, in
+    ``channels:``, only channels of the facility, in ``logbook_ids:``, only
+    entries of the ``nominal`` scenario's logbook or the scenario's own, and in
+    each tool step, a known OSPREY server; each miss is one
+    ``reference-missing``. :func:`check_scenario_events` runs this check, so
+    its stops join the build's scenario errors.
+
+    Args:
+        document: The combined document.
+
+    Returns:
+        Every stop, in scenario, session, part, turn and step order.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    channels = {str(c["id"]) for c in document.get("channels") or [] if isinstance(c, dict)}
+    scenarios = [s for s in document.get("scenarios") or [] if isinstance(s, dict)]
+    shared = {
+        entry_id
+        for scenario in scenarios
+        if scenario.get("name") == _SHARED_LOGBOOK_SCENARIO
+        for entry_id in _logbook_ids(scenario)
+    }
+    errors: list[FacilityBuildError] = []
+    for scenario in scenarios:
+        if scenario.get("sessions") is None:
+            continue
+        name = str(scenario.get("name"))
+        files = [f"scenarios/{name}.yaml"]
+        try:
+            sessions = parse_sessions(scenario["sessions"], prefix=f"{files[0]} `sessions`")
+        except ValueError as exc:
+            errors.append(
+                _error(
+                    "value-invalid",
+                    name,
+                    files,
+                    str(exc),
+                    f"correct the `sessions` block of {files[0]} where the message points",
+                )
+            )
+            continue
+        citable = shared | _logbook_ids(scenario)
+        for s, session in enumerate(sessions):
+            for p, part in enumerate(session.parts):
+                for t, turn in enumerate(part.turns):
+                    slot = f"sessions[{s}].parts[{p}].turns[{t}]"
+                    errors.extend(
+                        _turn_errors(name, files, slot, turn, channels, citable, FRAMEWORK_SERVERS)
+                    )
+    return errors
+
+
+def _turn_errors(
+    name: str,
+    files: list[str],
+    slot: str,
+    turn: SessionTurn,
+    channels: Set[str],
+    citable: Set[str],
+    servers: Mapping[str, Any],
+) -> Iterator[FacilityBuildError]:
+    """A parsed turn's names the facility does not hold, one stop each."""
+    where = f"{files[0]} `{slot}"
+    for channel in turn.channels:
+        if channel not in channels:
+            yield _error(
+                "reference-missing",
+                name,
+                files,
+                f"{where}.channels` names channel {channel}",
+                f"add channel {channel} or correct `{slot}.channels`",
+            )
+    for entry_id in turn.logbook_ids:
+        if entry_id not in citable:
+            yield _error(
+                "reference-missing",
+                name,
+                files,
+                f"{where}.logbook_ids` names logbook entry {entry_id}, which neither "
+                f"`{_SHARED_LOGBOOK_SCENARIO}` nor this scenario states",
+                f"add entry {entry_id} to this scenario's `logbook` or correct "
+                f"`{slot}.logbook_ids`",
+            )
+    for index, step in enumerate(turn.steps):
+        if isinstance(step, ToolStep) and step.server not in servers:
+            yield _error(
+                "reference-missing",
+                name,
+                files,
+                f"{where}.steps[{index}].tool.server` names server {step.server}, "
+                "not an OSPREY server",
+                f"name one of {', '.join(sorted(servers))} in `{slot}.steps[{index}].tool.server`",
+            )
+
+
+def _logbook_ids(scenario: Mapping[str, Any]) -> set[str]:
+    """The ``entry_id`` of every well-formed entry of a scenario's ``logbook``."""
+    logbook = scenario.get("logbook")
+    if not isinstance(logbook, list):
+        return set()
+    return {
+        entry["entry_id"]
+        for entry in logbook
+        if isinstance(entry, Mapping) and isinstance(entry.get("entry_id"), str)
+    }
 
 
 def _event_problem(
@@ -569,11 +700,29 @@ def _event_problem(
                 "place the `ramp` by `at` with `until`, or by `at_offset` with `until_offset`",
             )
         required.append(until)
+    if shape == "step":
+        ends = [key for key in _STEP_UNTIL.values() if key in event]
+        if ends and position == "at_time":
+            return (
+                f"ends an `at_time` step with {quoted_slots(ends)}",
+                "drop the end, or place the step by `at`, `at_offset` or `at_when`",
+            )
+        if ends and value_type != "float":
+            return (
+                f"ends a `step` on a {value_type} channel",
+                "drop the end, or move the bounded step to a float channel",
+            )
+        if ends and ends != [_STEP_UNTIL[position]]:
+            return (
+                f"ends a `step` placed by `{position}` with {quoted_slots(ends)}",
+                f"end a step placed by `{position}` with `{_STEP_UNTIL[position]}` only",
+            )
+        required += ends
     missing = [key for key in required if key not in event]
     if missing:
         return f"lacks {quoted_slots(missing)}", f"give the `{shape}` event {quoted_slots(missing)}"
     numbers = [key for key in (position, *required) if key in ("at", "at_offset")]
-    numbers += [key for key in required if key != "to"]
+    numbers += [key for key in required if key not in ("to", "until_when")]
     for key in numbers:
         value = event[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -604,22 +753,31 @@ def _event_problem(
                 f"has `at_time` {at_time!r}; {offset}",
                 "write `at_time` as HH:MM:SS without an offset",
             )
-    if position == "at_when":
-        when = event["at_when"]
+    for key in ("at_when", "until_when"):
+        if key not in (position, *required):
+            continue
+        when = event[key]
         if not _relative_when(when):
             return (
-                f"has `at_when` {when!r}, not {{days_ago: <int>, time: HH:MM[:SS]}}",
-                "write `at_when` as {days_ago: <int>, time: HH:MM:SS}",
+                f"has `{key}` {when!r}, not {{days_ago: <int>, time: HH:MM[:SS]}}",
+                f"write `{key}` as {{days_ago: <int>, time: HH:MM:SS}}",
             )
         if when["days_ago"] < 0:
             return (
-                f"has `at_when` {when!r}; days_ago must be a non-negative integer",
+                f"has `{key}` {when!r}; days_ago must be a non-negative integer",
                 "write `days_ago` as 0 or more",
             )
         if _has_offset(when["time"]):
             return (
-                f"has `at_when` {when!r}; {offset}",
-                "write `at_when.time` as HH:MM:SS without an offset",
+                f"has `{key}` {when!r}; {offset}",
+                f"write `{key}.time` as HH:MM:SS without an offset",
+            )
+    if shape == "step" and _STEP_UNTIL.get(position) in event:
+        until = _STEP_UNTIL[position]
+        if not _ends_after(event[position], event[until]):
+            return (
+                f"ends at `{until}` {event[until]!r}, not after `{position}` {event[position]!r}",
+                f"write `{until}` later than `{position}`",
             )
     if shape != "step" and value_type != "float":
         return (
@@ -653,6 +811,17 @@ def _has_offset(value: Any) -> bool:
     """Whether ``value``, a readable time of day, carries a timezone offset."""
     parsed = _time_of_day(value)
     return parsed is not None and parsed.tzinfo is not None
+
+
+def _ends_after(start: Any, end: Any) -> bool:
+    """Whether ``end`` lies after ``start``: two numbers, or two ``{days_ago, time}``."""
+    if isinstance(start, Mapping):
+        # More days ago is earlier; on the same day the later time of day is later.
+        return bool(
+            (-start["days_ago"], _time_of_day(start["time"]))
+            < (-end["days_ago"], _time_of_day(end["time"]))
+        )
+    return bool(end > start)
 
 
 def _relative_when(value: Any) -> bool:

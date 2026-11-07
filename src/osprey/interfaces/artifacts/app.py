@@ -11,22 +11,25 @@ import json
 import logging
 import re
 import threading
-from collections.abc import AsyncIterator, Collection
+from collections.abc import AsyncIterator, Collection, Iterable
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass
 from itertools import chain
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from osprey.agent_runner.artifact_resolve import deployed_render_dir
 from osprey.interfaces._app_setup import configure_interface_app
+from osprey.interfaces.artifacts import inline_assets
+from osprey.interfaces.artifacts.content_sandbox import ContentSandboxMiddleware, not_content
 from osprey.interfaces.opaque_origin import document_headers, opaque_headers
-from osprey.interfaces.vendor import html_has_plotly_bundle, vendor_url
-from osprey.port_layout import default_port
+from osprey.interfaces.vendor import html_has_plotly_bundle, is_offline, vendor_url
 from osprey.utils.timeseries import (
     downsample_channel_map,
     extract_channel_series,
@@ -40,6 +43,23 @@ STATIC_DIR = Path(__file__).parent / "static"
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
 
+
+def _shell_vendor_script(name: str) -> str:
+    """A vendor ``<script>`` for the gallery shell: CDN online, inline offline.
+
+    For assets the manifest does not ship into this app's own ``/static``
+    (DOMPurify ships to the web terminal's vendor directory), so the shell
+    cannot reference a local path for them.
+    """
+    from markupsafe import Markup
+
+    return Markup(
+        inline_assets.vendor_script(name, offline=is_offline())
+    )  # vendor file or CDN tag, never agent text
+
+
+templates.env.globals["vendor_script"] = _shell_vendor_script
+
 # Head of every injected snippet: it makes the served artifact a design-system
 # page like any other.  theme-boot.js resolves `data-theme` pre-paint (?theme=
 # from the gallery, then the operator's stored preference, then the
@@ -49,6 +69,12 @@ templates.env.globals["vendor_url"] = vendor_url
 # as a preview iframe.
 _DESIGN_SYSTEM_HEAD = """<script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">"""
+
+# Every page below is served into the content sandbox's opaque origin
+# (``self.origin === 'null'``). Each one's module script calls theme-manager.js's
+# ``initTheme({ role: 'follower' })``, which on an opaque page takes the hub's
+# live ``osprey-theme-change`` broadcast that the gallery relays to its preview
+# iframes from the embedding parent only.
 
 # C-MSG: every page served on the opaque origin carries this listener.  The
 # gallery cannot reach into an opaque document, so the document announces
@@ -81,7 +107,11 @@ _ARTIFACT_MESSAGE_LISTENER = """<script>
 # overriding CSS, so the script below deletes those fixed dimensions and calls
 # Plotly.Plots.resize() once the library is ready.  Every color comes from the
 # --chart-* tokens via chartRelayout(), so all eight themes work and nothing
-# here needs to know what "light" or "dark" looks like.
+# here needs to know what "light" or "dark" looks like.  In a frame the page
+# also takes the gallery's content-strip commands (zoom, pan, autoscale, reset
+# axes, export PNG) from plot-commands.js, tells the gallery while the pointer
+# is over it (frame-pointer.js: the strip shows then), and hides Plotly's own
+# modebar, which the strip replaces; a plot opened on its own keeps the modebar.
 _RESPONSIVE_PLOTLY = (
     _DESIGN_SYSTEM_HEAD
     + "\n"
@@ -96,10 +126,19 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 .plotly-graph-div { width: 100% !important; height: 100vh !important; }
 .js-plotly-plot { width: 100% !important; height: 100vh !important; visibility: hidden; }
 table { max-width: 100%; }
+/* OSPREY: framed, the gallery's content strip replaces Plotly's modebar
+   (plot-commands.js marks the page); a plot opened on its own keeps it. */
+html[data-osprey-framed] .modebar-container,
+html[data-osprey-framed] .modebar { display: none !important; }
+/* OSPREY: the browser's own print of the sandboxed page omits plot chrome. */
+@media print { .plotly-notifier, .modebar, .modebar-container { display: none !important; } }
 </style>
 <script type="module">
-/* OSPREY: responsive sizing + live re-theming from the design tokens. */
+/* OSPREY: responsive sizing, live re-theming from the design tokens, and the
+   gallery's content-strip commands. */
 import { initTheme, subscribe, chartRelayout } from '/design-system/js/theme-manager.js';
+import { followPlotCommands, rememberViews } from '/static/js/plot-commands.js';
+import { reportPointer } from '/static/js/frame-pointer.js';
 
 function plots() { return Array.from(document.querySelectorAll('.js-plotly-plot')); }
 function reveal(gd) { gd.style.visibility = 'visible'; }
@@ -126,12 +165,15 @@ let loaded = false;
 function initAll() {
   loaded = true;
   resizeAll();
+  rememberViews(plots());
   applyTheme();
   /* Safety net: if relayout somehow fails to reveal, force-show after 400ms */
   setTimeout(() => plots().forEach(reveal), 400);
 }
 
 initTheme({ role: 'follower' });
+followPlotCommands(window, plots);
+reportPointer(window);
 // Re-theme in place on every later apply (a hub broadcast, or the gallery's
 // re-send when a hidden iframe becomes visible). Before `load` there are no
 // charts to theme, and revealing them then would flash the author's own
@@ -162,7 +204,7 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: auto; }
 table { max-width: 100%; }
 /* OSPREY: themed defaults -- zero specificity, author styles always win */
 :where(html) { background: var(--bg-primary); }
-:where(body) { color: var(--text-primary); }
+:where(body) { color: var(--text-primary); font-family: var(--font-display); }
 :where(table.artifact-table) { border-collapse: collapse; }
 :where(.artifact-table th, .artifact-table td) {
   border: 1px solid var(--border-default); padding: 4px 8px;
@@ -171,7 +213,10 @@ table { max-width: 100%; }
 </style>
 <script type="module">
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { reportPointer } from '/static/js/frame-pointer.js';
 initTheme({ role: 'follower' });
+// In a frame, the gallery shows a table's content strip while the pointer is over it.
+reportPointer(window);
 </script>"""
 )
 
@@ -190,6 +235,8 @@ body.jp-Notebook { padding: 0 16px; overflow-x: hidden; overflow-y: auto; }
 .jp-Cell { max-width: 100%; }
 /* Classic nbconvert fallback */
 #notebook-container, .container { max-width: 100% !important; width: 100% !important; padding: 0 16px; }
+/* OSPREY: the browser's own print of the sandboxed page omits the toolbar. */
+@media print { .jp-Toolbar, .jp-mod-toolbar { display: none !important; } }
 </style>"""
 
 # The notebook page renders light whatever the theme (the gallery frames it as
@@ -209,6 +256,13 @@ _RESPONSIVE_SNIPPETS = {
 # Standalone HTML page for server-side rendered markdown.
 # Embeds raw markdown as JSON inside a non-executable <script> tag, then
 # renders client-side using the same marked + hljs + KaTeX pipeline as gallery.js.
+#
+# The page is served into an opaque origin (content sandbox), where every
+# server path answers 401 on a multi-user deployment. So the template below is
+# written with ordinary server paths for the first-party parts and passed
+# through ``inline_assets.self_contained`` (design-system scripts, stylesheets
+# and modules become inline / ``data:`` URL), and the vendor libraries come
+# from ``_markdown_vendor_head`` (CDN online, inline offline).
 _MARKDOWN_PAGE_TEMPLATE = """\
 <!DOCTYPE html>
 <html lang="en">
@@ -234,11 +288,7 @@ initTheme({{ role: 'follower' }});
       href="{hljs_dark_href}"
       data-href-dark="{hljs_dark_href}"
       data-href-light="{hljs_light_href}">
-<script src="/static/js/vendor/highlight.min.js"></script>
-<script src="/static/js/vendor/marked.min.js"></script>
-<script src="{purify_src}"></script>
-<link rel="stylesheet" href="/static/css/vendor/katex.min.css">
-<script src="/static/js/vendor/katex.min.js"></script>
+{vendor_head}
 <style>
 body {{
   margin: 0; padding: 24px 32px;
@@ -285,64 +335,64 @@ body {{
 // Renders markdown from the embedded JSON source through the gallery's
 // shared marked + hljs + KaTeX pipeline (md-render.js) — one algorithm for
 // the preview pane and this standalone page. Module scripts defer, so the
-// classic vendor <script> tags above have populated the marked/hljs/katex
-// globals by the time this runs.
-import {{ configureMarked, renderMathInMarkdown }} from '/static/js/md-render.js';
+// classic vendor <script> tags above have populated the marked/hljs/katex/
+// DOMPurify globals by the time this runs. md-render.js owns the one
+// HTML sink and sanitises it with DOMPurify (agent markdown is untrusted).
+import {{ renderMarkdownInto }} from '/static/js/md-render.js';
 
-configureMarked();
 const src = JSON.parse(document.getElementById('md-source').textContent);
-// Safe: marked.parse() and katex.renderToString() produce sanitized HTML
-// from trusted local artifact content (not user input from the web).
-document.getElementById('md-rendered').innerHTML = renderMathInMarkdown(src);  // trusted content
+renderMarkdownInto(document.getElementById('md-rendered'), src);
 </script>
 </body>
 </html>"""
 
 
-def _build_markdown_page(md_source: str, title: str) -> str:
-    """Build a standalone HTML page that renders markdown client-side."""
-    # Escape for safe embedding inside <script type="application/json">
-    md_json = json.dumps(md_source).replace("</", r"<\/")
-    return _MARKDOWN_PAGE_TEMPLATE.format(
-        title=title.replace("&", "&amp;").replace("<", "&lt;"),
-        md_json=md_json,
-        msg_listener=_ARTIFACT_MESSAGE_LISTENER,
-        purify_src=vendor_url("DOMPurify", "/static/js/vendor/purify.min.js"),
-        hljs_dark_href=vendor_url(
-            "highlight.js atom-one-dark theme", "/static/css/vendor/atom-one-dark.min.css"
-        ),
-        hljs_light_href=vendor_url(
-            "highlight.js atom-one-light theme", "/static/css/vendor/atom-one-light.min.css"
-        ),
+def _markdown_vendor_head(offline: bool) -> str:
+    """highlight.js, marked, KaTeX (script and stylesheet) and DOMPurify for the markdown page."""
+    return "\n".join(
+        (
+            inline_assets.vendor_script("highlight.js", offline=offline),
+            inline_assets.vendor_script("marked", offline=offline),
+            inline_assets.katex_stylesheet(offline=offline),
+            inline_assets.vendor_script("KaTeX JS", offline=offline),
+            inline_assets.vendor_script("DOMPurify", offline=offline),
+        )
     )
 
 
-_CDN_PLOTLY_RE = re.compile(r'(src=["\'])https://cdn\.plot\.ly/plotly[^"\']*\.min\.js(["\'])')
-
-# Strip SRI attributes — the local copy may differ from the CDN version.
-_SRI_ATTR_RE = re.compile(r'\s+(?:integrity|crossorigin)=["\'][^"\']*["\']')
+_PAGE_SLOT_RE = re.compile("\x00OSPREY_SLOT_([a-z_]+)\x00")
 
 
-def _rewrite_plotly_cdn(html_bytes: bytes) -> bytes:
-    """In offline mode, replace CDN Plotly URLs with the local bundled copy.
-
-    Also strips ``integrity`` and ``crossorigin`` attributes from the same
-    ``<script>`` tag, since the local file may differ from the CDN version
-    and SRI would block execution.
-
-    In default (CDN) mode this is a no-op — the browser fetches plotly
-    directly from ``cdn.plot.ly`` with its original SRI attributes intact.
-    """
-    from osprey.interfaces.vendor import is_offline
-
-    if not is_offline():
-        return html_bytes
-    html = html_bytes.decode("utf-8", errors="replace")
-    if "cdn.plot.ly/plotly" not in html:
-        return html_bytes
-    html = _CDN_PLOTLY_RE.sub(r"\1/static/js/vendor/plotly-3.3.1.min.js\2", html)
-    html = _SRI_ATTR_RE.sub("", html)
-    return html.encode("utf-8")
+def _build_markdown_page(md_source: str, title: str) -> str:
+    """Build a standalone, self-contained HTML page that renders markdown client-side."""
+    offline = is_offline()
+    # The template's first-party parts are inlined while the agent-authored
+    # title and source, and the vendor libraries, are still slots: the rewrite
+    # must never scan (or touch) text it did not write. The slots are then
+    # filled in one pass, so no filled value is ever re-scanned for a slot.
+    page = inline_assets.self_contained(
+        _MARKDOWN_PAGE_TEMPLATE.format(
+            title="\x00OSPREY_SLOT_title\x00",
+            md_json="\x00OSPREY_SLOT_md_json\x00",
+            hljs_dark_href="\x00OSPREY_SLOT_hljs_dark\x00",
+            hljs_light_href="\x00OSPREY_SLOT_hljs_light\x00",
+            vendor_head="\x00OSPREY_SLOT_vendor_head\x00",
+            msg_listener=_ARTIFACT_MESSAGE_LISTENER,
+        )
+    )
+    slots = {
+        "title": title.replace("&", "&amp;").replace("<", "&lt;"),
+        # Escape for safe embedding inside <script type="application/json">
+        "md_json": json.dumps(md_source).replace("</", r"<\/"),
+        "hljs_dark": inline_assets.vendor_stylesheet_href(
+            "highlight.js atom-one-dark theme", offline=offline
+        ),
+        "hljs_light": inline_assets.vendor_stylesheet_href(
+            "highlight.js atom-one-light theme", offline=offline
+        ),
+        "vendor_head": _markdown_vendor_head(offline),
+    }
+    return _PAGE_SLOT_RE.sub(lambda m: slots[m.group(1)], page)
 
 
 #: The opening ``<html`` tag, provided it carries no ``data-theme`` of its own.
@@ -365,22 +415,6 @@ def _stamp_data_theme(html: str, theme_id: str | None) -> str:
     if not theme_id:
         return html
     return _HTML_TAG_WITHOUT_THEME_RE.sub(f'<html data-theme="{theme_id}"', html, count=1)
-
-
-def _example_artifact_enabled() -> bool:
-    """Whether ``artifact_server.example_artifact`` is on in the primed config.
-
-    Off when no config is primed (standalone gallery, tests) or the key is
-    absent: seeding is something a deployment opts into, and a gallery that
-    cannot read its config must not invent an artifact.
-    """
-    try:
-        from osprey_connectors.config import get_config_value
-
-        return bool(get_config_value("artifact_server.example_artifact", False))
-    except Exception:
-        logger.debug("No config available for artifact_server.example_artifact", exc_info=True)
-        return False
 
 
 def _resolve_pinned_web_theme() -> str | None:
@@ -461,16 +495,35 @@ def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
     return html.encode("utf-8")
 
 
-class FocusRequest(BaseModel):
+class _SetInSession(BaseModel):
+    """The session a focus was set in: at most one of two fields.
+
+    Browsers send ``session_key``, which the hub resolves through its ledger;
+    processes in a conversation send ``transcript_id``, a canonical session
+    UUID. Neither, or a key that resolves to no transcript, means "set in no
+    session". Both, or a malformed ``transcript_id``, is a 422.
+    """
+
+    session_key: str | None = None
+    transcript_id: str | None = None
+
+    @model_validator(mode="after")
+    def _one_session_field(self) -> _SetInSession:
+        from osprey.interfaces.web_terminal.session_key import is_posture_key
+
+        if self.session_key is not None and self.transcript_id is not None:
+            raise ValueError("give at most one of session_key and transcript_id")
+        if self.transcript_id is not None and not is_posture_key(self.transcript_id):
+            raise ValueError(f"{self.transcript_id!r} is not a session UUID")
+        return self
+
+
+class FocusRequest(_SetInSession):
     artifact_id: str
     fullscreen: bool = False
     #: Set by a sender acting on its own (the approval hook), not for a person or
     #: an agent that chose the artifact; broadcast so a layout can tell them apart.
     automatic: bool = False
-
-
-class PinRequest(BaseModel):
-    pinned: bool = True
 
 
 class BulkDeleteRequest(BaseModel):
@@ -512,6 +565,237 @@ DEFAULT_MAX_TIMESERIES_FILE_MB = 200
 DEFAULT_PAGE_SIZE = 20
 #: Largest page one listing request may ask for; a configured page_size above it is capped.
 MAX_PAGE_SIZE = 200
+
+
+#: How many transcripts one batched ``session-list`` may page at once.
+MAX_BATCHED_SESSIONS = 5
+
+
+class SessionListRequest(BaseModel):
+    """``POST /api/artifacts/session-list``: exactly one of the three targets.
+
+    ``session`` names a transcript; ``key`` a session key, listed through the
+    ledger's current transcript for it; ``sessions`` up to
+    :data:`MAX_BATCHED_SESSIONS` transcripts paged together. ``form``,
+    ``runs`` and ``search`` narrow any target the way they narrow
+    ``GET /api/artifacts``.
+    """
+
+    session: str | None = None
+    key: str | None = None
+    sessions: list[str] | None = Field(None, min_length=1, max_length=MAX_BATCHED_SESSIONS)
+    form: str | None = None
+    runs: Literal["grouped"] | None = None
+    search: str | None = None
+    cursor: str | None = None
+    limit: int | None = Field(None, ge=1, le=MAX_PAGE_SIZE)
+
+    @model_validator(mode="after")
+    def _one_target(self) -> SessionListRequest:
+        given = [name for name in ("session", "key", "sessions") if getattr(self, name) is not None]
+        if len(given) != 1:
+            raise ValueError("give exactly one of session, key or sessions")
+        return self
+
+
+class SessionSummaryRequest(BaseModel):
+    """``POST /api/artifacts/session-summary``: the transcripts one sidebar page shows.
+
+    No cap: the client sends one page of its session rows. Every id must be a
+    canonical session UUID (a transcript id has a key's form); anything else
+    is a 422.
+    """
+
+    sessions: list[str]
+
+    @field_validator("sessions")
+    @classmethod
+    def _uuid_form(cls, sessions: list[str]) -> list[str]:
+        from osprey.interfaces.web_terminal.session_key import is_posture_key
+
+        for transcript_id in sessions:
+            if not is_posture_key(transcript_id):
+                raise ValueError(f"{transcript_id!r} is not a session UUID")
+        return sessions
+
+
+class _LedgerCache:
+    """The hub's session ledger as this process last read it.
+
+    The hub writes ``session-ledger.json`` in this identity's state directory
+    (:func:`osprey_connectors.posture_store.state_dir`, the rule the hub's
+    ``session_meta.ledger_state_dir`` follows); this app only reads it, again
+    whenever the file's mtime or size moves, through
+    :func:`session_ledger.load_checked` — the reader the agent's MCP processes
+    share. An unreadable ledger is reported as unavailable rather than as an
+    empty one (which would silently re-own every artifact): every answer then
+    says ``ledger: unavailable`` and only stamped artifacts have an owner. A
+    missing file is an empty, available ledger (no session has been recorded
+    yet).
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._key: tuple[str, int, int] | None = None
+        self._value: tuple[Any, bool] = (None, False)
+
+    def read(self) -> tuple[Any, bool]:
+        """``(ledger, available)``; the ledger is empty when it is unavailable."""
+        from osprey.stores import session_ledger
+        from osprey_connectors import posture_store
+
+        try:
+            state_dir = posture_store.state_dir()
+        except Exception:  # an unresolvable root is "no ledger", not a crash
+            logger.warning("The session ledger's location does not resolve", exc_info=True)
+            state_dir = None
+        path = session_ledger.ledger_path(state_dir)
+        if path is None:
+            return session_ledger.Ledger(), False
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return session_ledger.Ledger(), True
+        except OSError:
+            logger.warning("The session ledger at %s cannot be read", path, exc_info=True)
+            return session_ledger.Ledger(), False
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+        with self._lock:
+            if key == self._key:
+                return self._value
+        value = session_ledger.load_checked(state_dir)
+        with self._lock:
+            self._key, self._value = key, value
+        return value
+
+
+@dataclass(frozen=True)
+class _ListingView:
+    """What one answer reads besides the entries: run groups, the ledger, the registry."""
+
+    groups: dict[str, Any]
+    members: dict[str, list[Any]]
+    ledger: Any
+    ledger_ok: bool
+    registry: Any
+
+    @property
+    def owner_ledger(self) -> Any:
+        """The ledger :func:`owner_of` reads; none while it is unavailable."""
+        return self.ledger if self.ledger_ok else None
+
+
+def _listing_view(entries: Iterable[Any], ledger: Any, ledger_ok: bool) -> _ListingView:
+    """Classify every ``exec_id`` group among *entries* once, for one answer."""
+    from osprey.stores.artifact_store import classify, registry_or_default
+
+    members: dict[str, list[Any]] = {}
+    for entry in entries:
+        if entry.exec_id:
+            members.setdefault(entry.exec_id, []).append(entry)
+    groups = {exec_id: classify(group) for exec_id, group in members.items()}
+    return _ListingView(groups, members, ledger, ledger_ok, registry_or_default())
+
+
+def _group_of(entry: Any, view: _ListingView) -> Any:
+    group = view.groups.get(entry.exec_id) if entry.exec_id else None
+    return group if group is not None and entry.id in group.roles else None
+
+
+def _listed_form(entry: Any, view: _ListingView) -> str | None:
+    from osprey.stores.artifact_store import listed_form
+
+    return listed_form(entry, _group_of(entry, view), view.registry)
+
+
+def _payload(entry: Any, view: _ListingView) -> dict[str, Any]:
+    """The entry as every browser-bound frame and response carries it.
+
+    ``entry.to_dict()`` is the index format and stays as it is. Beside it ride
+    the server's verdicts, so no client re-derives a rule: ``form`` (the listed
+    form, ``None`` for a run's preview or notebook) and its ``form_label``;
+    ``run_part`` and the group's ``run_status``; ``owner`` (the transcript that
+    owns it, else ``None``); ``operator_visible``; ``interactive``; and
+    the legacy ``run_record`` verdict. A run's head also
+    lists its ``run_parts``.
+    """
+    from osprey.stores.artifact_forms import form_label, is_interactive
+    from osprey.stores.artifact_store import (
+        classify,
+        is_run_record,
+        operator_visible,
+        owner_of,
+        run_parts,
+        run_role,
+    )
+
+    group = _group_of(entry, view)
+    form = _listed_form(entry, view)
+    if group is not None:
+        run_part: str | None = group.roles[entry.id]
+        run_status = group.run_status
+    else:
+        role = run_role(entry)
+        run_part = None if role == "output" else role
+        run_status = classify([entry]).run_status if role == "result" else None
+    payload = {
+        **entry.to_dict(),
+        "run_record": is_run_record(entry),
+        "form": form,
+        "form_label": form_label(form, view.registry) if form else None,
+        "kind": entry.kind,
+        "exec_id": entry.exec_id,
+        "run_part": run_part,
+        "run_status": run_status,
+        "interactive": is_interactive(entry),
+        "session_id": entry.session_id,
+        "owner": owner_of(entry, view.owner_ledger),
+        "operator_visible": operator_visible(entry),
+    }
+    if group is not None and group.head_id == entry.id:
+        payload["run_parts"] = run_parts(group, view.members[entry.exec_id], view.registry)
+    return payload
+
+
+def _refine(
+    entries: list[Any],
+    view: _ListingView,
+    *,
+    form: str | None = None,
+    runs: str | None = None,
+    search: str | None = None,
+) -> list[Any]:
+    """Keep the entries the ``form``, ``runs`` and ``search`` params admit.
+
+    ``form`` keeps the entries listed under it; ``runs="grouped"`` drops a run's
+    preview and notebook (they list under their head; outputs stay);
+    ``search`` is a case-insensitive substring of the title, file name,
+    description, artifact type or listed form's label.
+    """
+    from osprey.stores.artifact_forms import form_label
+
+    if not (form or runs or search):
+        return entries
+    needle = (search or "").lower()
+    kept = []
+    for entry in entries:
+        listed = _listed_form(entry, view)
+        if form and listed != form:
+            continue
+        if runs == "grouped" and listed is None:
+            continue
+        if needle:
+            fields = (
+                entry.title,
+                entry.filename,
+                entry.description,
+                entry.artifact_type,
+                form_label(listed, view.registry) if listed else "",
+            )
+            if not any(needle in (value or "").lower() for value in fields):
+                continue
+        kept.append(entry)
+    return kept
 
 
 def _max_timeseries_file_bytes() -> int:
@@ -717,7 +1001,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         ArtifactEntry,
         ArtifactStore,
         artifact_mutation_actor,
-        is_run_record,
+        operator_visible,
+        owner_of,
+        page_of,
         register_artifact_delete_listener,
         register_artifact_listener,
         unregister_artifact_delete_listener,
@@ -728,12 +1014,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     data_root: Path = workspace_root if workspace_root is not None else resolve_shared_data_root()
     store = ArtifactStore(workspace_root=data_root)
 
-    # Prime config and load custom artifact categories (if available).
+    # Prime config and load the declared extension types (if available).
     #
     # Resolved through the ordinary config rule, not by looking for a
     # `config.yml` INSIDE the agent-data root — no layout has ever written one
     # there, so the `exists()` gate below was always false and the gallery
-    # silently never loaded a custom category. `OSPREY_CONFIG` is set on every
+    # silently never loaded a custom declaration. `OSPREY_CONFIG` is set on every
     # launch path that starts this app, and resolve_config_path falls back to
     # the render zone beneath the cwd otherwise.
     try:
@@ -744,11 +1030,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             from osprey_connectors.config import get_config_builder
 
             get_config_builder(config_path=str(config_path), set_as_default=True)
-            from osprey.stores.type_registry import load_categories_from_config
+            from osprey.stores.type_registry import load_extension_types
 
-            load_categories_from_config()
-    except Exception:
-        pass  # Config may not be available in all contexts
+            load_extension_types()
+    except Exception as exc:  # config may not be available in all contexts
+        logger.warning("Config priming / extension type loading failed (non-fatal): %s", exc)
 
     # Resolved once, after config priming, and stamped onto every served HTML
     # page (see _stamp_data_theme) so a pinned ``web.theme`` reaches a page
@@ -772,29 +1058,26 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # defined.
     page_size = _page_size()
 
-    # Also after config priming: the one gallery process each workspace has
-    # (single-user `osprey web` and every render container alike) seeds the
-    # shipped example here, so the Artifacts panel is not empty on a first visit.
-    # Idempotent and sentinel-aware — see example_artifact.py.
-    if _example_artifact_enabled():
-        try:
-            from osprey.interfaces.artifacts.example_artifact import seed_example_artifact
-
-            seed_example_artifact(store)
-        except Exception:
-            logger.warning("Could not seed the example artifact", exc_info=True)
-
     broadcaster = _SSEBroadcaster()
 
-    def _entry_payload(entry: ArtifactEntry) -> dict[str, Any]:
-        """The entry as every browser-bound frame and response carries it.
+    ledger_cache = _LedgerCache()
 
-        ``entry.to_dict()`` is the index format and stays as it is; the server's
-        :func:`~osprey.stores.artifact_store.is_run_record` verdict rides along
-        as ``run_record`` so the web terminal's sidebar sorts Script runs from
-        Artifacts without re-deriving the rule in JavaScript.
-        """
-        return {**entry.to_dict(), "run_record": is_run_record(entry)}
+    def _view() -> _ListingView:
+        """The whole index's run groups and the ledger, read once for one answer."""
+        return _listing_view(store.list_entries(), *ledger_cache.read())
+
+    def _entry_payload(entry: ArtifactEntry) -> dict[str, Any]:
+        """One entry's payload (see :func:`_payload`), reading only its own run group."""
+        members = store.run_members(entry.exec_id) if entry.exec_id else []
+        return _payload(entry, _listing_view(members, *ledger_cache.read()))
+
+    def _page_body(page: Any, view: _ListingView) -> dict[str, Any]:
+        return {
+            "count": len(page.entries),
+            "total": page.total,
+            "next_cursor": page.next_cursor,
+            "artifacts": [_payload(e, view) for e in page.entries],
+        }
 
     index_watcher = StoreIndexWatcher(
         workspace_root=data_root,
@@ -807,8 +1090,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         broadcaster.broadcast({"type": "artifact", **_entry_payload(entry)})
 
     def _on_artifact_deleted(entry: ArtifactEntry) -> None:
+        # Every slot holding the id is cleared, the unscoped one and each transcript's.
         if app.state.focused_artifact_id == entry.id:
             app.state.focused_artifact_id = None
+        slots = app.state.focus_by_transcript
+        for transcript in [t for t, aid in slots.items() if aid == entry.id]:
+            del slots[transcript]
         _write_focus_file()
         broadcaster.broadcast({"type": "artifact_deleted", "id": entry.id})
 
@@ -839,29 +1126,73 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     # exception guard, so the /compose response was simply missing its
     # provenance with nothing to say so.
     app.state.agent_project_dir = deployed_render_dir()
+    # Focus slots (contract C6): the unscoped slot, set from no session, and one
+    # slot per transcript. A focus replaces only its own slot.
     app.state.focused_artifact_id = None  # None = show latest
+    app.state.focus_by_transcript = {}
+    import itertools
+
+    from osprey.stores.artifact_scope import SessionScope
+
+    #: When each slot was last set (``None`` = the unscoped slot), so an unkeyed
+    #: read answers the most recently set one.
+    focus_set_order: dict[str | None, int] = {}
+    focus_counter = itertools.count(1)
+
+    def _key_scope(session_key: str) -> SessionScope:
+        """The web scope *session_key* names through the hub ledger."""
+        from osprey.stores.artifact_scope import resolve_scope
+
+        ledger, ledger_ok = ledger_cache.read()
+        return resolve_scope(key=session_key, ledger=ledger, ledger_ok=ledger_ok)
+
+    def _set_in(req: _SetInSession) -> str | None:
+        """The transcript a focus was set in; ``None`` for no session."""
+        if req.transcript_id is not None:
+            return req.transcript_id
+        if req.session_key:
+            return _key_scope(req.session_key).transcript
+        return None
 
     focus_file = data_root / "focus_state.txt"
 
+    _control_chars = re.compile(r"[\x00-\x1f\x7f]+")
+    _marker_opener = re.compile(r"\((id|session)=")
+
+    def _focus_title(title: str) -> str:
+        """*title* safe for one focus line: control characters and newlines
+        collapse to a space, and ``(id=`` / ``(session=`` lose their ``=`` so no
+        title can end the line or spell a marker of its own."""
+        return _marker_opener.sub(r"(\1 ", _control_chars.sub(" ", title or ""))
+
     def _write_focus_file() -> None:
-        """Write current focus state to a plain-text file for the CLI hook."""
+        """Write the focus file the CLI hook reads (contract C7).
+
+        One ``artifact:`` line per transcript slot, ending in that transcript's
+        ``(session=<id>)`` marker. The unscoped slot writes no line. Always written, so
+        an empty state empties the file rather than leaving a stale one.
+        """
         lines: list[str] = []
-        aid = app.state.focused_artifact_id
-        if aid:
-            entry = store.get_entry(aid)
-            if entry:
-                lines.append(f'  artifact: "{entry.title}" (id={aid})')
-        # List pinned artifacts
-        pinned = store.list_entries(pinned=True)
-        lines.extend(f'  pinned:   "{p.title}" (id={p.id})' for p in pinned if p.id != aid)
-        if lines:
-            focus_file.write_text("[Gallery Focus]\n" + "\n".join(lines) + "\n")
-        elif focus_file.exists():
-            focus_file.write_text("")
+        for transcript, aid in app.state.focus_by_transcript.items():
+            entry = store.get_entry(aid) if aid else None
+            if entry is not None:
+                lines.append(
+                    f'  artifact: "{_focus_title(entry.title)}" (id={aid}) (session={transcript})'
+                )
+        text = "[Gallery Focus]\n" + "\n".join(lines) + "\n" if lines else ""
+        try:
+            focus_file.parent.mkdir(parents=True, exist_ok=True)
+            focus_file.write_text(text)
+        except OSError:
+            logger.warning("could not write focus file %s", focus_file, exc_info=True)
+
+    # A hub (re)start holds empty slots: clear any marked lines a previous run left.
+    _write_focus_file()
 
     # --- Routes ---
 
     @app.get("/")
+    @not_content
     async def root(request: Request):
         # A pinned web.theme reaches the gallery shell too. Embedded, the hub's
         # ?theme= outranks it in theme-boot.js's ladder, so this only shows up
@@ -882,9 +1213,39 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     @app.get("/api/type-registry")
     async def get_type_registry():
-        from osprey.stores.type_registry import registry_to_api_dict
+        from osprey.stores.type_registry import registry_to_api_dict, viewer_path
 
-        return JSONResponse(registry_to_api_dict())
+        registry = registry_to_api_dict()
+        # ``viewer_url`` only flags "has a viewer": the gallery builds the
+        # import URL itself, as a literal the hub's proxy can rebase (a JSON
+        # body is never rewritten).
+        for ext in registry["extension_types"]:
+            if viewer_path(ext["key"]) is not None:
+                ext["viewer_url"] = f"/viewers/{quote(ext['key'], safe='')}.js"
+        return JSONResponse(registry)
+
+    @app.get("/viewers/{key}.js")
+    @not_content
+    async def get_viewer(key: str):
+        """Extension type ``key``'s viewer module: the one file resolved for it at load.
+
+        Installed facility code, not agent content, hence ``not_content``. The
+        key is only a registry lookup and never reaches the filesystem; an
+        unknown key or a type without a viewer is a 404.
+        """
+        from osprey.stores.type_registry import viewer_path
+
+        path = viewer_path(key)
+        if path is None or not path.is_file():
+            return Response(content="Not found", status_code=404)
+        return Response(
+            content=path.read_bytes(),
+            media_type="text/javascript",
+            headers={
+                "cache-control": "no-cache, no-store, must-revalidate",
+                "x-content-type-options": "nosniff",
+            },
+        )
 
     @app.get("/api/events")
     async def sse_events():
@@ -908,41 +1269,127 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def list_artifacts(
         type: str | None = None,
         search: str | None = None,
-        pinned: bool | None = Query(None),
-        category: str | None = None,
-        session_id: str | None = None,
         limit: int = Query(page_size, ge=1, le=MAX_PAGE_SIZE),
         cursor: str | None = Query(None),
-        run: bool | None = Query(None),
+        form: str | None = None,
+        after: str | None = None,
+        before: str | None = None,
+        runs: Literal["grouped"] | None = Query(None),
     ):
         """List one newest-first page of artifacts.
 
-        ``run`` splits the store by the server's run-record verdict
-        (:func:`~osprey.stores.artifact_store.is_run_record`): ``true`` returns
-        only run records, ``false`` everything else, absent both. ``total`` and
-        ``next_cursor`` count and walk the filtered set. Every entry carries
-        its verdict as ``run_record``.
+        ``form`` keeps the entries listed under that form (a run's head under
+        ``runs``); ``after``/``before`` keep the half-open window ``[after,
+        before)`` of aware ISO-8601 times; ``runs=grouped`` drops a run's
+        preview and notebook, which list under their head, and keeps its
+        outputs; ``search`` matches the title, file name, description, type
+        and form label. ``total`` and ``next_cursor`` count and walk the
+        filtered set.
+
+        This is the unscoped listing, the palette's search and the gallery's
+        all-sessions view: it takes no session and keeps dispatch and watchdog
+        artifacts. One session's listing is ``POST /api/artifacts/session-list``.
         """
         try:
-            page = store.page_entries(
-                limit=limit,
-                cursor=cursor,
+            entries = store.list_entries(
                 type_filter=type,
-                search=search,
-                pinned=pinned,
-                category_filter=category,
-                session_filter=session_id,
-                run_record=run,
+                after=after,
+                before=before,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        view = _view()
+        entries = _refine(entries, view, form=form, runs=runs, search=search)
+        try:
+            page = page_of(entries, limit, cursor)
         except ValueError as exc:
             raise HTTPException(
                 status_code=400, detail="cursor is not one this listing issued"
             ) from exc
+        return _page_body(page, view)
+
+    @app.post("/api/artifacts/session-list")
+    async def session_list(body: SessionListRequest):
+        """One session's visible artifacts, paged like ``GET /api/artifacts``.
+
+        A transcript's page holds the entries
+        :func:`~osprey.stores.artifact_scope.owned_by` its web scope, the rule
+        every other listing shares. ``{key}`` resolves the key through
+        :func:`~osprey.stores.artifact_scope.resolve_scope` and answers the
+        resolved ``transcript`` (``null`` for a key the ledger has no row for,
+        or while it is unreadable); ``{sessions}`` answers ``{pages: {id:
+        page}}``. An artifact no transcript owns lists under none. Every
+        answer says whether the ledger could be read.
+        """
+        from osprey.stores.artifact_scope import owned_by, resolve_scope, scope_for
+
+        view = _view()
+        limit = body.limit or page_size
+        entries = store.list_entries()
+
+        def page(selected: list[Any]) -> dict[str, Any]:
+            selected = _refine(selected, view, form=body.form, runs=body.runs, search=body.search)
+            return _page_body(page_of(selected, limit, body.cursor), view)
+
+        def transcript_page(scope: Any) -> dict[str, Any]:
+            return page([e for e in entries if owned_by(e, scope)])
+
+        def owned(transcript_id: str | None) -> dict[str, Any]:
+            return transcript_page(scope_for(transcript_id, view.owner_ledger, view.ledger_ok))
+
+        status = "ok" if view.ledger_ok else "unavailable"
+        try:
+            if body.sessions is not None:
+                pages = {tid: owned(tid) for tid in dict.fromkeys(body.sessions)}
+                return {"pages": pages, "ledger": status}
+            if body.key is not None:
+                scope = resolve_scope(key=body.key, ledger=view.ledger, ledger_ok=view.ledger_ok)
+                return {**transcript_page(scope), "transcript": scope.transcript, "ledger": status}
+            answer = owned(body.session)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="cursor is not one this listing issued"
+            ) from exc
+        return {**answer, "ledger": status}
+
+    @app.post("/api/artifacts/session-summary")
+    async def session_counts(body: SessionSummaryRequest):
+        """Counts for one page of sessions, and every owned artifact together.
+
+        One pass over the index, under the same rules as ``session-list``:
+        visibility is :func:`~osprey.stores.artifact_store.operator_visible`,
+        ownership :func:`~osprey.stores.artifact_store.owner_of`, and an entry
+        counts under its listed form, so ``by_form[f]`` equals the rows
+        ``session-list`` returns with ``runs=grouped`` and ``form=f`` and a run
+        counts once (its head) whatever its status. ``by_form`` names only the
+        forms that occur. ``owned_total`` counts every owned entry, requested or
+        not: the client's "More sessions" is ``owned_total`` minus its loaded
+        totals. An entry no transcript owns counts nowhere.
+        """
+        view = _view()
+        ledger = view.owner_ledger
+        requested = dict.fromkeys(body.sessions)
+        counts: dict[str, dict[str, Any]] = {tid: {"total": 0, "by_form": {}} for tid in requested}
+        owned_total = 0
+        for entry in store.list_entries():
+            if not operator_visible(entry):
+                continue
+            form = _listed_form(entry, view)
+            if form is None:  # a run's preview or notebook lists under its head
+                continue
+            owner = owner_of(entry, ledger)
+            if owner is None:
+                continue
+            owned_total += 1
+            bucket = counts.get(owner)
+            if bucket is None:
+                continue
+            bucket["total"] += 1
+            bucket["by_form"][form] = bucket["by_form"].get(form, 0) + 1
         return {
-            "count": len(page.entries),
-            "total": page.total,
-            "next_cursor": page.next_cursor,
-            "artifacts": [_entry_payload(e) for e in page.entries],
+            "counts": counts,
+            "owned_total": owned_total,
+            "ledger": "ok" if view.ledger_ok else "unavailable",
         }
 
     @app.get("/api/artifacts/{artifact_id}")
@@ -951,15 +1398,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         return _entry_payload(entry)
-
-    @app.post("/api/artifacts/{artifact_id}/pin")
-    async def pin_artifact(artifact_id: str, req: PinRequest):
-        entry = store.set_pinned(artifact_id, req.pinned)
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        _write_focus_file()
-        broadcaster.broadcast({"type": "artifact_updated", **_entry_payload(entry)})
-        return {"status": "ok", "artifact_id": artifact_id, "pinned": entry.pinned}
 
     @app.get("/api/artifacts/{artifact_id}/data")
     async def get_artifact_data(
@@ -1067,20 +1505,52 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         }
 
     @app.get("/api/focus")
-    async def get_focus():
-        focused_id = app.state.focused_artifact_id
-        if focused_id:
-            entry = store.get_entry(focused_id)
-            if entry:
-                return {"focused": True, "artifact": _entry_payload(entry)}
-            # Stale focus — clear it and fall back to latest
-            app.state.focused_artifact_id = None
+    async def get_focus(session_key: str | None = None):
+        """The focus a view shows (contract C6).
 
-        # Fall back to latest artifact
-        entries = store.list_entries()
-        if entries:
-            return {"focused": False, "artifact": _entry_payload(entries[-1])}
-        return {"focused": False, "artifact": None}
+        With ``session_key``: that key's current transcript's slot, else the
+        newest entry that key's scope owns, else none. Without it: the most
+        recently set slot of any kind, else the newest operator-visible entry.
+        A slot whose artifact is gone is cleared on the way.
+        """
+        from osprey.stores.artifact_scope import owned_by
+        from osprey.stores.artifact_store import operator_visible
+
+        def _slot_entry(slot: str | None) -> ArtifactEntry | None:
+            if slot is None:
+                focused_id = app.state.focused_artifact_id
+            else:
+                focused_id = app.state.focus_by_transcript.get(slot)
+            if not focused_id:
+                return None
+            entry = store.get_entry(focused_id)
+            if entry is None:  # stale: the artifact went away under the slot
+                if slot is None:
+                    app.state.focused_artifact_id = None
+                else:
+                    app.state.focus_by_transcript.pop(slot, None)
+                focus_set_order.pop(slot, None)
+            return entry
+
+        if session_key is not None:
+            scope = _key_scope(session_key)
+            if scope.transcript is None:
+                return {"focused": False, "artifact": None}
+            entry = _slot_entry(scope.transcript)
+            if entry is not None:
+                return {"focused": True, "artifact": _entry_payload(entry)}
+            owned = [e for e in store.list_entries() if owned_by(e, scope)]
+            return {"focused": False, "artifact": _entry_payload(owned[-1]) if owned else None}
+
+        slots: list[str | None] = [None, *app.state.focus_by_transcript]
+        slots.sort(key=lambda slot: focus_set_order.get(slot, 0), reverse=True)
+        for slot in slots:
+            entry = _slot_entry(slot)
+            if entry is not None:
+                return {"focused": True, "artifact": _entry_payload(entry)}
+
+        visible = [e for e in store.list_entries() if operator_visible(e)]
+        return {"focused": False, "artifact": _entry_payload(visible[-1]) if visible else None}
 
     @app.post("/api/focus")
     async def set_focus(req: FocusRequest):
@@ -1090,9 +1560,19 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 status_code=404,
                 detail=f"Artifact {req.artifact_id} not found",
             )
-        app.state.focused_artifact_id = req.artifact_id
+        transcript = _set_in(req)
+        if transcript is None:
+            app.state.focused_artifact_id = req.artifact_id
+        else:
+            app.state.focus_by_transcript[transcript] = req.artifact_id
+        focus_set_order[transcript] = next(focus_counter)
         _write_focus_file()
-        event: dict[str, Any] = {"type": "focus", "domain": "artifact", "id": req.artifact_id}
+        event: dict[str, Any] = {
+            "type": "focus",
+            "domain": "artifact",
+            "id": req.artifact_id,
+            "session": transcript,
+        }
         if req.fullscreen:
             event["fullscreen"] = True
         if req.automatic:
@@ -1131,18 +1611,26 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
                 headers=document_headers(media_type),
             )
 
-        # HTML types may need responsive snippet injection + CDN rewriting.
+        # HTML types get the responsive/theming snippet and a self-contained
+        # Plotly. The page is served into the content sandbox's opaque origin,
+        # where every server path answers 401 on a multi-user deployment, so
+        # nothing it loads may be a /static or /design-system URL.
+        offline = is_offline()
         content = filepath.read_bytes()
-        # Always rewrite CDN Plotly URLs to local — artifacts may have been
-        # generated with include_plotlyjs='cdn' regardless of what OSPREY's
-        # own code paths use, and the CDN is unreachable in offline deployments.
-        content = _rewrite_plotly_cdn(content)
-        # Inject the Plotly bundle unless the page already loads one, by
+        # Artifacts may have been generated with include_plotlyjs='cdn' (or
+        # pointing at a local /static copy) whatever OSPREY's own code paths
+        # use: offline the CDN is unreachable and a /static path is never
+        # loadable in the sandbox, so those tags become one inline copy.
+        html = inline_assets.self_contain_plotly(
+            content.decode("utf-8", errors="replace"), offline=offline
+        )
+        content = html.encode("utf-8")
+        snippet = inline_assets.self_contained(snippet)
+        # Supply the Plotly bundle unless the page already loads one, by
         # script tag or inlined (include_plotlyjs=True). Avoid duplicates —
-        # the 4.8MB file takes ~1s through the reverse proxy per load.
+        # the bundle is 4.8 MB.
         if entry.artifact_type == "plot_html" and not html_has_plotly_bundle(content):
-            plotly_src = vendor_url("Plotly.js", "/static/js/vendor/plotly-3.3.1.min.js")
-            snippet = f'<script src="{plotly_src}"></script>\n' + snippet
+            snippet = inline_assets.plotly_script(offline=offline) + "\n" + snippet
         content = _inject_html_snippet(content, snippet)
         page = _stamp_data_theme(content.decode("utf-8", errors="replace"), web_theme_pin)
         return Response(
@@ -1158,9 +1646,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def delete_artifact(artifact_id: str):
         # This delete is a person clicking in the gallery, not the agent —
         # tag it so store listeners don't report it as agent activity.
+        # Deleting a run's head deletes its whole run; anything else goes alone.
         with artifact_mutation_actor("human"):
-            deleted = store.delete_entry(artifact_id)
-        if not deleted:
+            removed = store.delete_with_group(artifact_id)
+        if not removed:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         return {"status": "ok", "artifact_id": artifact_id}
 
@@ -1226,54 +1715,12 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     app.include_router(logbook_router)
 
+    # Added before the shared stack, so it sits inside the auth gate (which
+    # must stay outermost) and against the router: every response the app
+    # produces that is not marked ``not_content`` -- the content routes, any
+    # route added later, error statuses and unmatched paths alike -- is
+    # served into an opaque sandbox origin.
+    app.add_middleware(ContentSandboxMiddleware)
     configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
-
-
-def run_server(
-    host: str = "127.0.0.1",
-    port: int = default_port("artifact"),
-    workspace_root: Path | None = None,
-) -> None:
-    """Run the artifact gallery server.
-
-    Direct-serve entry point: this same process builds the app and answers
-    requests. It mints this process's operator secret and prints the one-time
-    ``?token=`` login URL — the operator's only way past the auth middleware —
-    before constructing the app. The print is suppressed when the secret was
-    already supplied by an ancestor launcher or a multi-user deployment, so a
-    supplied secret is never re-echoed.
-
-    Args:
-        host: Host to bind to.
-        port: Port to run on. The default is the ``artifact`` slot at the
-            layout's *default* base, which is right only for a programmatic
-            caller with no config to resolve a base from. ``osprey artifacts
-            web`` — the one caller — passes the port it resolved from this
-            deployment's ``deployment.port_base``. A multi-user deployment does
-            not come through here at all: its launcher builds the app from the
-            registry's factory and serves it itself.
-        workspace_root: Agent-data root containing the ``artifacts/`` dir.
-            Omitted, it is the deployment's shared agent-data root.
-    """
-    import os
-
-    import uvicorn
-
-    from osprey.interfaces.common_middleware import WEB_PORT_ENV
-    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
-
-    # Publish the settled port before the app is constructed: cookies ignore
-    # ports, so two OSPREY servers on this host share an origin as far as the
-    # browser is concerned, and the port is the only thing keeping their session
-    # cookies apart. ``session_cookie_name()`` reads it from here.
-    os.environ[WEB_PORT_ENV] = str(port)
-
-    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
-    login_url = mint_and_announce(host, port)
-    if announce:
-        print(f"Open: {login_url}")  # noqa: T201 -- the server announces its login URL on stdout
-
-    app = create_app(workspace_root=workspace_root)
-    uvicorn.run(app, host=host, port=port, log_level="info")

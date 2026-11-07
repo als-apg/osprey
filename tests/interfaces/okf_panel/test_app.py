@@ -56,7 +56,23 @@ def test_root_serves_spa_shell(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
-    assert '<div id="app">' in r.text
+    assert '<div id="app"' in r.text
+
+
+def test_root_loads_dompurify_from_the_cdn_by_default(client, monkeypatch):
+    from osprey.interfaces.vendor import asset_cdn_url
+
+    monkeypatch.setenv("OSPREY_OFFLINE", "0")
+    body = client.get("/").text
+    assert f'<script src="{asset_cdn_url("DOMPurify")}"></script>' in body
+    assert body.index("purify.min.js") < body.index("/static/js/app.js")
+
+
+def test_root_loads_the_vendored_dompurify_offline(client, monkeypatch):
+    monkeypatch.setenv("OSPREY_OFFLINE", "1")
+    body = client.get("/").text
+    assert '<script src="/static/vendor/purify.min.js"></script>' in body
+    assert "{{" not in body
 
 
 def test_concepts_grouped_and_sorted(client):

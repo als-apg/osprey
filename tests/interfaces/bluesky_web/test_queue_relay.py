@@ -42,6 +42,7 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.bluesky_web import queue_relay
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WebAuthMiddleware
 from osprey.interfaces.web_auth import WebCredentials
+from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.utils.owner_header import OWNER_HEADER
 from tests.interfaces.bluesky_web._relay import (
     BRIDGE_URL,
@@ -211,10 +212,11 @@ def test_get_queue_never_sends_the_launch_token(monkeypatch: pytest.MonkeyPatch)
     assert "x-launch-token" not in seen[0].headers
 
 
-def test_get_queue_bridge_unreachable_returns_502() -> None:
+@pytest.mark.parametrize("path", ["/queue", "/queue/events"])
+def test_read_route_bridge_unreachable_returns_502(path) -> None:
     app = _build_app(refusing_handler)
     with TestClient(app) as client:
-        response = client.get("/queue")
+        response = client.get(path)
 
     assert response.status_code == 502
     assert response.json() == {"detail": "bluesky bridge unreachable"}
@@ -872,15 +874,20 @@ def test_enqueue_stale_revision_409_passes_through_without_unwrapping() -> None:
 @pytest.mark.parametrize(
     ("status_code", "code"),
     [
-        (409, "draft_revision_already_launched"),
-        (409, "session_plan_unvalidated"),
-        (409, "session_plan_not_in_namespace"),
-        (409, "queue_request_rejected"),
-        (409, "unsupported_connector"),
-        (409, "config_unreadable"),
-        (503, "manager_not_configured"),
-        (503, "manager_unreachable"),
-        (503, "environment_unavailable"),
+        *(
+            (qb.REFUSAL_REASONS[code].status, code)
+            for code in (
+                qb.REASON_DRAFT_REVISION_ALREADY_LAUNCHED,
+                qb.REASON_SESSION_PLAN_UNVALIDATED,
+                qb.REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
+                qb.REASON_QUEUE_REQUEST_REJECTED,
+                qb.REASON_UNSUPPORTED_CONNECTOR,
+                qb.REASON_CONFIG_UNREADABLE,
+                qb.REASON_MANAGER_NOT_CONFIGURED,
+                qb.REASON_MANAGER_UNREACHABLE,
+                qb.REASON_ENVIRONMENT_UNAVAILABLE,
+            )
+        ),
     ],
 )
 def test_every_refusal_code_reaches_the_caller_intact(status_code: int, code: str) -> None:
@@ -1051,15 +1058,6 @@ def test_queue_events_never_sends_the_launch_token(monkeypatch: pytest.MonkeyPat
             list(response.iter_bytes())
 
     assert "x-launch-token" not in seen[0].headers
-
-
-def test_queue_events_bridge_unreachable_returns_502() -> None:
-    app = _build_app(refusing_handler)
-    with TestClient(app) as client:
-        response = client.get("/queue/events")
-
-    assert response.status_code == 502
-    assert response.json() == {"detail": "bluesky bridge unreachable"}
 
 
 # ---------------------------------------------------------------------------

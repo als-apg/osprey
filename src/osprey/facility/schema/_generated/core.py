@@ -481,6 +481,26 @@ class SignalRoleEnum(str, Enum):
     """
     Measured longitudinal offset (phase) of an insertion device's magnet rows.
     """
+    temperature_limit_readback = "temperature_limit_readback"
+    """
+    Temperature above which a device's over-temperature interlock trips.
+    """
+    blade_position_setpoint = "blade_position_setpoint"
+    """
+    Commanded insertion of a scraper blade into the beam aperture.
+    """
+    blade_position_readback = "blade_position_readback"
+    """
+    Measured insertion of a scraper blade into the beam aperture.
+    """
+    coolant_flow_readback = "coolant_flow_readback"
+    """
+    Measured cooling-water flow through a device.
+    """
+    valve_position_readback = "valve_position_readback"
+    """
+    Measured opening of a modulating valve, in percent.
+    """
     temperature_readback = "temperature_readback"
     """
     Measured temperature.
@@ -548,6 +568,14 @@ class SignalRoleEnum(str, Enum):
     temperature_setpoint = "temperature_setpoint"
     """
     Commanded temperature of a regulated loop (e.g. a cooling-water heater).
+    """
+    beam_lifetime_readback = "beam_lifetime_readback"
+    """
+    Measured lifetime readback of the stored beam.
+    """
+    operation_mode_status = "operation_mode_status"
+    """
+    Current operating mode of the machine (e.g. user operation, machine development, shutdown).
     """
 
 
@@ -1428,6 +1456,28 @@ class Seed(ConfiguredBaseModel):
     linear: Optional[dict[str, Union[float, LinearTerm]]] = Field(default=None, description="""The value as a weighted sum of other channels, `{<address>: <coefficient>}`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Curve'], 'list_elements_ordered': True} })
     pulse: Optional[Pulse] = Field(default=None, description="""The trace of a waveform channel, shaped in code and scaled by a driving channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
     gate: Optional[Gate] = Field(default=None, description="""What the channel does while any of `inputs` reads its blocking label, beside `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    topoff: Optional[Topoff] = Field(default=None, description="""A stored current refilled every `period_s` and decaying between refills with lifetime `lifetime_h`; it holds the level the decay averages to, so it carries no `nominal`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+    topoff_lifetime: Optional[TopoffLifetime] = Field(default=None, description="""The lifetime of a `topoff` channel, read as a constant.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed']} })
+
+
+class Topoff(ConfiguredBaseModel):
+    """
+    A top-off sawtooth: the reading falls from `ceiling` with lifetime `lifetime_h` and returns to it every `period_s`.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    ceiling: float = Field(default=..., description="""The reading just after a refill, in the channel's unit.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff']} })
+    lifetime_h: float = Field(default=..., description="""The decay lifetime in hours; above 0.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff']} })
+    period_s: float = Field(default=..., description="""The seconds between refills; above 0.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff', 'Drift']} })
+
+
+class TopoffLifetime(ConfiguredBaseModel):
+    """
+    A channel that reads the `lifetime_h` of another channel's `topoff` seed.
+    """
+    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
+
+    of: str = Field(default=..., description="""The address of the channel whose `topoff` seed's lifetime this channel reads.""", json_schema_extra = { "linkml_meta": {'domain_of': ['TopoffLifetime']} })
 
 
 class Pulse(ConfiguredBaseModel):
@@ -1481,7 +1531,7 @@ class Drift(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     amplitude: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Drift']} })
-    period_s: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Drift']} })
+    period_s: float = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Topoff', 'Drift']} })
 
 
 class LinearTerm(ConfiguredBaseModel):
@@ -1684,10 +1734,11 @@ class Scenario(ConfiguredBaseModel):
     channel_faults: Optional[Any] = Field(default=None, description="""`{<address>: stuck | frozen | disconnected}`: faults of the channel itself while the scenario is active. `stuck` holds a setpoint's writes; `frozen` holds a reading at the value it served when the scenario became active; `disconnected` reads not-a-number with an undefined alarm and holds writes.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     archiver: Optional[list[Any]] = Field(default=None, description="""`[{channel, events}]`, the history each channel's archive shows. An event's `at_offset` is in seconds relative to the moment the scenario is applied (negative is the past); a step or spike may instead state `at_when` `{days_ago, time}`, a logbook entry's own `when`, so the event and the entry narrating it fall at one instant. An anchored spike's `width` is its Gaussian sigma in seconds. An event meant to be sampled densely sits inside the archive's dense tier, with a `width` of at least twice the sampling interval.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario'], 'list_elements_ordered': True} })
     logbook: Optional[list[Any]] = Field(default=None, description="""`[{entry_id, when, author, title, text, tags?, categories?, loto_tag?, extra?, attachments?}]`, the entries the scenario narrates. `attachments` lists the entry's pictures, each `{path: <picture file>}` or `{plot: <plot spec .json>}`, relative to the scenario's own directory `scenarios/<name>/`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario'], 'list_elements_ordered': True} })
+    sessions: Optional[list[Any]] = Field(default=None, description="""`[{slug, title, when, parts: [{title, turns: [{prompt, at_offset_s, channels, logbook_ids, steps, artifacts?}]}]}]`, past conversations with the agent. A step is `{tool: {server, name}, input, result, approved?}` or `{answer}`. `channels` lists every channel a turn names, `logbook_ids` every logbook entry it cites, from `nominal` or this scenario.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario'], 'list_elements_ordered': True} })
     drivers: Optional[Any] = Field(default=None, description="""`{<driver>: {kind, amplitude, period_s}}`, slow signals shared by the channels `couple` names, so those channels move together.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     couple: Optional[Any] = Field(default=None, description="""`{<address>: [{driver, gain, gain_wander?}]}`: the channel adds `gain` times each named driver to its value; `gain_wander` `{amplitude, period_s}` lets that gain wax and wane.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     noise: Optional[Any] = Field(default=None, description="""`{<address>: {absolute: <sigma>} | {relative: <fraction>}}`, the channel's noise while the scenario is active, in place of its seed's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
-    still: Optional[Any] = Field(default=None, description="""`all`, or a list of addresses: while the scenario is active, those readings serve without drift, couplings or noise.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
+    still: Optional[Any] = Field(default=None, description="""`all`, or a list of addresses and selections: while the scenario is active, those readings serve without drift, couplings or noise. A selection is `{model|place, group, signal, role, plane}` and names a model or a place; its `role` is the wiring record's role (`setpoint|readback|monitor|output`), not the channel's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
 
 
 # Model rebuild
@@ -1746,6 +1797,8 @@ Device.model_rebuild()
 OnTarget.model_rebuild()
 Channel.model_rebuild()
 Seed.model_rebuild()
+Topoff.model_rebuild()
+TopoffLifetime.model_rebuild()
 Pulse.model_rebuild()
 Gate.model_rebuild()
 GateInput.model_rebuild()

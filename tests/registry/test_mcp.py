@@ -127,28 +127,24 @@ class TestResolveServers:
         assert s["permissions_ask"] == ["write_data"]
         assert s["is_custom"] is True
 
-    def test_resolve_external_command_resolves_current_python_env(self):
-        """An external server's ``command`` resolves {current_python_env}
-        the same way ``args`` and ``env`` already do."""
+    @pytest.mark.parametrize(
+        ("command", "expected"),
+        [
+            # An external server's ``command`` resolves {current_python_env}
+            # the same way ``args`` and ``env`` already do.
+            pytest.param("{current_python_env}", "/usr/bin/python3", id="current-python-env"),
+            # An external server's ``command`` resolves {project_root}.
+            pytest.param("{project_root}/bin/x", "/tmp/test-project/bin/x", id="project-root"),
+            # ``${VAR}`` in an external server's ``command`` survives verbatim,
+            # matching the existing behavior for ``args`` and ``env``.
+            pytest.param("${TOOL_HOME}/bin/x", "${TOOL_HOME}/bin/x", id="dollar-var-untouched"),
+        ],
+    )
+    def test_resolve_external_command_resolves_its_placeholders(self, command, expected):
         ctx = _base_ctx()
-        cfg = {"servers": {"my-server": {"command": "{current_python_env}"}}}
+        cfg = {"servers": {"my-server": {"command": command}}}
         s = _resolve_one(cfg, "my-server", ctx)
-        assert s["command"] == "/usr/bin/python3"
-
-    def test_resolve_external_command_resolves_project_root(self):
-        """An external server's ``command`` resolves {project_root}."""
-        ctx = _base_ctx()
-        cfg = {"servers": {"my-server": {"command": "{project_root}/bin/x"}}}
-        s = _resolve_one(cfg, "my-server", ctx)
-        assert s["command"] == "/tmp/test-project/bin/x"
-
-    def test_resolve_external_command_leaves_dollar_var_untouched(self):
-        """``${VAR}`` in an external server's ``command`` survives verbatim,
-        matching the existing behavior for ``args`` and ``env``."""
-        ctx = _base_ctx()
-        cfg = {"servers": {"my-server": {"command": "${TOOL_HOME}/bin/x"}}}
-        s = _resolve_one(cfg, "my-server", ctx)
-        assert s["command"] == "${TOOL_HOME}/bin/x"
+        assert s["command"] == expected
 
     def test_resolve_custom_server_url_defaults_to_http_transport(self):
         """A URL server without a transport key resolves as streamable-HTTP."""
@@ -204,29 +200,27 @@ class TestResolveServers:
         assert not [s for s in servers if s["name"] == "typo-api"]
         assert "invalid transport" in caplog.text
 
-    def test_resolve_custom_server_double_underscore_name_rejected(self, caplog):
-        """A ``__`` in a custom server name is rejected loudly, like extends clones.
-
-        Tool names are ``mcp__<server>__<tool>``, so a server named
-        ``my__server`` would make every consumer that splits on the first
-        ``__`` (transcript reader, display formatting) silently mis-attribute
-        its calls to a server named ``my``.
-        """
+    @pytest.mark.parametrize(
+        "name",
+        [
+            # A ``__`` in a custom server name is rejected loudly, like extends clones.
+            #
+            # Tool names are ``mcp__<server>__<tool>``, so a server named
+            # ``my__server`` would make every consumer that splits on the first
+            # ``__`` (transcript reader, display formatting) silently mis-attribute
+            # its calls to a server named ``my``.
+            pytest.param("my__server", id="double-underscore"),
+            # A trailing ``_`` makes ``mcp__<server>__`` ambiguous, so it is rejected.
+            pytest.param("srv_", id="trailing-underscore"),
+        ],
+    )
+    def test_resolve_custom_server_name_that_breaks_the_tool_prefix_rejected(self, caplog, name):
         ctx = _base_ctx()
-        cfg = {"servers": {"my__server": {"command": "node", "args": ["s.js"]}}}
+        cfg = {"servers": {name: {"command": "node", "args": ["s.js"]}}}
         with caplog.at_level("WARNING"):
             servers = resolve_servers(cfg, ctx)
-        assert not [s for s in servers if s["name"] == "my__server"]
-        assert "my__server" in caplog.text
-
-    def test_resolve_custom_server_trailing_underscore_rejected(self, caplog):
-        """A trailing ``_`` makes ``mcp__<server>__`` ambiguous — rejected."""
-        ctx = _base_ctx()
-        cfg = {"servers": {"srv_": {"command": "node", "args": ["s.js"]}}}
-        with caplog.at_level("WARNING"):
-            servers = resolve_servers(cfg, ctx)
-        assert not [s for s in servers if s["name"] == "srv_"]
-        assert "srv_" in caplog.text
+        assert not [s for s in servers if s["name"] == name]
+        assert name in caplog.text
 
     def test_resolve_custom_server_transport_on_stdio_ignored(self, caplog):
         """A command server declaring transport keeps working; the key is ignored loudly."""
@@ -327,7 +321,16 @@ class TestResolveServers:
         allow = set(workspace["permissions_allow"])
         ask = set(workspace["permissions_ask"])
         gated = {"add_panel_to_rail", "remove_panel_from_rail", "register_panel"}
-        assert {"list_panels", "open_panel", "close_panel", "arrange_workspace"} <= allow
+        assert {
+            "list_panels",
+            "open_panel",
+            "open_panel_set",
+            "arrange_workspace",
+            "drop_panel",
+            "close_panel",
+        } <= allow
+        # One close verb: a tile shows one panel, so it closes with it.
+        assert sorted(tool for tool in allow if tool.startswith("close_")) == ["close_panel"]
         assert allow.isdisjoint(gated)
         assert gated <= ask
         # A literal matcher per tool: the approval hook and the SDK's disallow
@@ -335,39 +338,6 @@ class TestResolveServers:
         # gate nothing — and it would blind check_config_keys.py's extractor.
         matchers = {rule["matcher"] for rule in workspace["hooks_pre"]}
         assert {f"mcp__osprey_workspace__{tool}" for tool in gated} <= matchers
-
-    def test_workspace_read_back_tools_are_auto_approved(self):
-        """The artifact and lattice read-backs resolve to silent-allow.
-
-        ``artifact_pin`` and the five lattice verbs below were unclassified —
-        in neither list — so nothing pinned which side of the split they land
-        on, and the disjointness assertion above stays green either way. They
-        are named here because each is either a read of state the agent just
-        produced or a write to the simulation's own scratch state:
-        ``lattice_set_baseline`` sets a fresh baseline, so
-        ``lattice_clear_baseline`` is undone by it; the dashboard's model switch
-        also re-initialises the state. None of it reaches hardware, so a prompt
-        per call would buy nothing.
-
-        ``lattice_clear_baseline`` is allow-listed here and still blocked under
-        the headless read-only floor, which classifies it side-effecting from
-        its name — that is the intended posture, not a contradiction.
-        """
-        ctx = _base_ctx()
-        servers = resolve_servers({}, ctx)
-        workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
-        allow = set(workspace["permissions_allow"])
-        ask = set(workspace["permissions_ask"])
-        read_back = {
-            "artifact_pin",
-            "lattice_get_data",
-            "lattice_get_figure",
-            "lattice_get_settings",
-            "lattice_update_settings",
-            "lattice_clear_baseline",
-        }
-        assert read_back <= allow
-        assert ask.isdisjoint(read_back)
 
     def test_health_server_entry(self):
         """The health server is an opt-in, read-only server.
@@ -394,7 +364,7 @@ class TestResolveServers:
         assert [r["matcher"] for r in health["hooks_post"]] == ["mcp__health__.*"]
 
     def test_health_server_enabled_via_config_override(self):
-        """control-assistant opts the health server in via the dotted override
+        """demo opts the health server in via the dotted override
         ``claude_code.servers.health.enabled: true`` (renders to this config).
 
         Mirrors the bluesky enablement pattern: the preset's ``claude_code``
@@ -1175,6 +1145,50 @@ class TestArielAttachmentView:
         } <= set(allow)
 
 
+class TestArielSqlTool:
+    """``ariel_sql_tool`` decides whether the agent is offered sql_query."""
+
+    _CFG = {"servers": {"ariel": {"enabled": True}, "ariel2": {"extends": "ariel"}}}
+
+    @staticmethod
+    def _by_name(cfg, offered):
+        ctx = _base_ctx(ariel_sql_tool=offered)
+        return {s["name"]: s for s in resolve_servers(cfg, ctx)}
+
+    def test_withheld_from_the_server_and_every_clone(self):
+        offered = self._by_name(self._CFG, True)
+        withheld = self._by_name(self._CFG, False)
+        for name in ("ariel", "ariel2"):
+            assert withheld[name]["permissions_allow"] == [
+                t for t in offered[name]["permissions_allow"] if t != "sql_query"
+            ]
+            assert "sql_query" not in withheld[name]["permissions_ask"]
+
+    def test_offered_by_default(self):
+        servers = {s["name"]: s for s in resolve_servers(self._CFG, _base_ctx())}
+        for name in ("ariel", "ariel2"):
+            assert "sql_query" in servers[name]["permissions_allow"]
+
+    def test_withholding_leaves_the_framework_template_untouched(self):
+        self._by_name(self._CFG, False)
+        assert "sql_query" in FRAMEWORK_SERVERS["ariel"].permissions_allow
+
+    @staticmethod
+    def _settings_allow(offered):
+        from osprey.cli.templates.manager import TemplateManager
+
+        rendering = TestTemplateRendering()
+        ctx = rendering._full_ctx(ariel_sql_tool=offered, _claude_code_config=TestArielSqlTool._CFG)
+        rendered = rendering._render(TemplateManager(), "claude_code/claude/settings.json.j2", ctx)
+        return json.loads(rendered)["permissions"]["allow"]
+
+    def test_rendered_allow_list_is_the_one_without_sql_query(self):
+        offered = self._settings_allow(True)
+        withheld = self._settings_allow(False)
+        assert {"mcp__ariel__sql_query", "mcp__ariel2__sql_query"} <= set(offered)
+        assert withheld == [p for p in offered if not p.endswith("__sql_query")]
+
+
 # ---------------------------------------------------------------------------
 # Agent resolution tests
 # ---------------------------------------------------------------------------
@@ -1931,6 +1945,68 @@ class TestEventDispatcherServer:
         assert EVENT_DISPATCHER_PROXY_URL == (
             f"http://127.0.0.1:${{{WEB_PORT_ENV}:-}}/panel/{EVENTS_PANEL_ID}{DISPATCHER_MCP_PATH}"
         )
+
+    def test_the_proxy_origin_is_the_dispatcher_urls_own_prefix(self):
+        """Panel-derived entries dial the same terminal the dispatcher entry does."""
+        from osprey.registry.mcp import EVENT_DISPATCHER_PROXY_URL, PANEL_PROXY_ORIGIN
+
+        assert EVENT_DISPATCHER_PROXY_URL == f"{PANEL_PROXY_ORIGIN}/panel/events/mcp"
+
+    @pytest.mark.parametrize(
+        "spec",
+        [
+            {"url": "http://elsewhere.example/mcp"},
+            {"command": "other-mcp"},
+            {"url": "http://elsewhere.example/mcp", "command": "other-mcp"},
+        ],
+        ids=["url", "command", "both"],
+    )
+    def test_a_spec_cannot_repoint_a_framework_server(self, caplog, spec):
+        """``url`` / ``command`` on a framework name are ignored, and said to be.
+
+        Read silently, they would let a facility believe it had moved a
+        framework server while the render kept dialing the framework's own
+        definition — the same trap ``extends`` on a framework name is.
+        """
+        ctx = _base_ctx(event_dispatcher_wired=True)
+        with caplog.at_level(logging.WARNING):
+            entry = [
+                s
+                for s in resolve_servers({"servers": {"event_dispatcher": spec}}, ctx)
+                if s["name"] == "event_dispatcher"
+            ][0]
+
+        assert entry["url"] == "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp"
+        assert entry["command"] == ""
+        (warning,) = [
+            r.message
+            for r in caplog.records
+            if "event_dispatcher" in r.message and "cannot be shadowed" in r.message
+        ]
+        for key in spec:
+            assert repr(key) in warning
+
+    def test_enabled_alone_on_a_framework_server_warns_about_nothing(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            resolve_servers({"servers": {"controls": {"enabled": True}}}, _base_ctx())
+
+        assert not [r for r in caplog.records if "cannot be shadowed" in r.message]
+
+    def test_enabled_true_still_overrides_the_dispatchers_condition(self):
+        """Only a panel-derived server is held to a false condition.
+
+        The dispatcher keeps the override it has always had; see
+        ``tests/registry/test_panel_servers.py`` for the entries that do not.
+        """
+        entry = [
+            s
+            for s in resolve_servers(
+                {"servers": {"event_dispatcher": {"enabled": True}}}, _base_ctx()
+            )
+            if s["name"] == "event_dispatcher"
+        ][0]
+
+        assert entry["enabled"] is True
 
     def test_extends_of_the_dispatcher_is_refused(self, caplog):
         """A second instance cannot be cloned out of the conditioned entry.

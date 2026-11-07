@@ -4,83 +4,47 @@
 Dock Engine Contract
 ====================
 
-``packages/dock-engine`` is the dock layout engine OSPREY and CANOPY share: the
-layout model and its validation, geometry, drop planning, open/close/reopen
-and hit-testing, as pure functions with no DOM and no runtime dependencies.
-This page says what the package holds, how each consumer obtains it, and
-where it is edited.
+The web terminal's dock runs CANOPY's dock engine, which lives in the CANOPY
+screen runtime (``packages/dock-engine``): the layout model and its
+validation, geometry, drop planning, open/close/reopen and hit-testing, as pure
+functions with no DOM and no runtime dependencies. OSPREY does not edit it.
 
-What the package is
-===================
+What OSPREY holds
+=================
 
-- **One case set.** ``cases/<kind>/<name>.json``, one directory per kind
-  (``close``, ``drop``, ``hit``, ``normalize``, ``open``, ``open-set``,
-  ``reopen``, ``replace-key``, ``validate``). Each case names the rule it pins.
-  The cases are the specification; both implementations replay them.
-- **One JS engine.** ``@als-apg/dock-engine``: ``dist/dock-engine.mjs``, one
-  dependency-free ES module, types in ``dist/dock-engine.d.mts``.
-  ``@als-apg/dock-engine/cases`` is the case runner (``loadCases``,
-  ``runCase``, ``checkCase``, ``CASES_DIR``) that replays the cases against any
-  implementation of the engine.
-- **One Python rule implementation.** The module ``dock_engine`` (Python
-  3.11+, standard library only) implements the layout rules --
-  ``validate_layout``, ``layout_refusal``, ``normalize_layout`` and the reason
-  vocabulary ``LAYOUT_REASONS``. The framework wheel ships it from
-  ``packages/dock-engine``, with the case files and ``dist/manifest.json`` as
-  package data; an import-linter contract keeps it from importing the
-  framework back.
+- **The built engine.** ``web_terminal/static/vendor/dock-engine.mjs`` and its
+  types ``dock-engine.d.mts`` are byte copies of the runtime's ``dist/`` at one
+  commit. ``vendor_manifest.json`` lists both by that source and no URL, so
+  ``osprey vendor fetch`` never fetches them. The terminal serves the engine at
+  ``/static/vendor/dock-engine.mjs`` beside dockview.
+- **The server's layout rules.** ``osprey.interfaces.web_terminal.dock_layout``
+  implements ``validate_layout``, ``layout_refusal``, ``normalize_layout`` and
+  the reason vocabulary ``LAYOUT_REASONS`` in the standard library, so a preset,
+  a layout report or an agent operation is refused for the reason the browser
+  would give.
+- **The engine's cases.** The runtime's ``validate`` and ``normalize`` cases are
+  copied into ``tests/dock_engine/cases/``. ``tests/dock_engine/cases-pin.json``
+  records the runtime commit, path and git blob of each copy and of the bundle.
 
-The Python tests replay the ``validate`` and ``normalize`` cases through
-``dock_engine`` and check that its reason vocabulary and ``rules_digest()``
-match the JS bundle's manifest, so the two implementations cannot drift
-apart unnoticed.
+``tests/dock_engine/`` replays the cases through ``dock_layout`` and fails when
+a copy no longer matches its blob, when a copy is missing or extra, or when the
+manifest's sha256 names other bytes than the vendored engine.
 
-How each consumer obtains it
-============================
-
-Each consumer is wired in a later stream; none of them copies the source.
-
-- **OSPREY** -- ``import dock_engine``; the framework wheel carries it. The
-  web terminal takes the JS engine as a generated vendor copy of
-  ``dist/dock-engine.mjs``.
-- **CANOPY screen runtime** -- a git dependency on ``@als-apg/dock-engine``.
-- **CANOPY backend** -- the same directory installed from git, without the
-  framework: ``osprey-dock-engine @ git+https://github.com/als-apg/osprey@<ref>#subdirectory=packages/dock-engine``
-  (the directory's own ``pyproject.toml`` exists for this install alone). Never
-  beside ``osprey-framework`` in one environment: the two distributions own the
-  same ``dock_engine/`` files, so one overwrites the other and uninstalling
-  either removes the module; ``dock_engine`` warns at import when it finds both.
-
-Nothing is published to a registry: no PyPI project, no npm package. The
-engine is too small for a distribution of its own, and the three consumers
-are paired by ``rules_digest()`` -- the hash over the reason vocabulary, the
-``normalize``/``validate`` cases and ``layout.ts`` -- rather than by a version
-floor. Versions follow OSPREY's ``v*`` CalVer tags wherever metadata exists
-(the framework wheel, or the git install); ``0.0.0-dev`` in ``package.json``
-marks an untagged checkout.
-
-The cutover
-===========
-
-The engine was cut over on 2026-10-24 from the CANOPY screen runtime
-(``als-apg/canopy-osprey-mirror-screen-runtime`` at ``386c66cb``,
-``apps/viewer/src/workspace/dock/model/``). At the cutover every refusing
-``validate`` case gained a ``where`` field. ``CUTOVER.json`` records the source
-digest, the blob of each imported file, the 42 exported names and the case
-counts. From the cutover on, the package is the only place the engine changes.
-
-Source of truth
+OSPREY's policy
 ===============
 
-``ts/`` and ``cases/`` are edited in the package and rebuilt with
-``node packages/dock-engine/scripts/build.mjs``; ``dist/``, vendor copies and
-consumer installs are generated, never edited.
+The engine's layout grammar lets a tile hold several panels (a tile's ``tabs``
+field is a list). OSPREY holds one panel per tile, as a policy of its own
+above the engine. It lives in three places: the browser's ``dock-policy.js``
+and ``dock-open.js``, the layout holder ``dock-apply.js``, and the server's
+``presets.crowded_tile``, which the agent operation routes, the layout report
+and the profile build all use. Each refuses a layout with a crowded tile for
+the one reason ``one_panel_per_tile``. The vendored engine and its pinned
+cases are unchanged: a tile's ``tabs`` is always one entry.
 
-``build.mjs --check`` exits non-zero when ``dist/`` is stale; the local gate
-and CI run it, together with ``npm run test:dock-engine`` and
-``pytest tests/dock_engine/``.
+Changing the engine
+===================
 
-.. seealso::
-
-   :doc:`/contributing/workflow`
-      How workspace packages are versioned and released.
+A rule changes in the runtime, with its cases. OSPREY then re-copies the bundle
+and the two case directories from one runtime commit, re-pins them, updates the
+two manifest entries, and changes ``dock_layout`` until the cases pass.

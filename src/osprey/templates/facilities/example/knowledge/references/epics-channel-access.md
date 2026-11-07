@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Reference
 title: EPICS Channel Access Reference
 description: Channel naming conventions, access modes, and common PV types used at the Example Research Facility.

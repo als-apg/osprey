@@ -5,14 +5,7 @@ import noTsNocheck from './tools/eslint/no-ts-nocheck.js';
 export default [
   // (1) Leading SOLE-KEY global ignore — must be the ONLY key in this object so it applies globally.
   {
-    ignores: [
-      '**/vendor/**',
-      '**/*.min.js',
-      'docs/**',
-      '**/.venv/**',
-      '.claude/**',
-      'packages/dock-engine/dist/**',
-    ],
+    ignores: ['**/vendor/**', '**/*.min.js', 'docs/**', '**/.venv/**', '.claude/**'],
   },
 
   // (2) Base recommended rules.
@@ -77,17 +70,15 @@ export default [
     },
   },
 
+  // (4c) P-4: ARIEL reports through toasts (C-TOAST), never a blocking alert().
+  {
+    files: ['src/osprey/interfaces/ariel/static/js/**/*.js'],
+    rules: { 'no-alert': 'error' },
+  },
+
   // (5) Root config files: node globals.
   {
     files: ['vitest.config.js', 'eslint.config.js'],
-    languageOptions: {
-      globals: { ...globals.node },
-    },
-  },
-
-  // (5a) The dock-engine build script runs under node.
-  {
-    files: ['packages/dock-engine/scripts/**/*.mjs'],
     languageOptions: {
       globals: { ...globals.node },
     },

@@ -25,6 +25,7 @@ import yaml
 
 from osprey.facility.build import LATER_STAGES, build_facility
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.layers import HEADER
 from osprey.facility.layers.mml.importer import (
     LAYER_DIR,
     import_mml,
@@ -32,7 +33,8 @@ from osprey.facility.layers.mml.importer import (
     write_records,
 )
 from osprey.facility.layers.mml.mapping import MAPPING_FILE, read_mapping
-from osprey.facility.layers.mml.seed import HEADER, READOUT_FILE, TUNING, band
+from osprey.facility.layers.mml.seed import READOUT_FILE, TUNING, band
+from osprey.facility.records import FacilityRecords
 from osprey.facility.sources import group_families
 from osprey.facility.validate import known_classes, run_stages
 from tests.facility._mml_built import (
@@ -171,6 +173,8 @@ def test_every_seeded_file_opens_with_the_header(imported: _Imported) -> None:
     for name, content in authored.items():
         assert content.decode("utf-8").splitlines()[0] == HEADER, name
     assert HEADER.startswith("# ")
+    assert "facility import" in HEADER
+    assert "mml" not in HEADER
 
 
 def test_the_import_returns_each_file_it_seeded(imports: Callable[[str], _Imported]) -> None:
@@ -207,7 +211,28 @@ def test_a_file_a_person_wrote_is_never_overwritten(tmp_path: Path) -> None:
         (facility / name).write_text(text, encoding="utf-8")
     import_mml(export_files("synthetic"), facility)
     for name, text in authored.items():
-        assert (facility / name).read_text(encoding="utf-8") == text, name
+        if name == "classes.yaml":
+            assert (facility / name).read_text(encoding="utf-8").startswith(text), name
+        else:
+            assert (facility / name).read_text(encoding="utf-8") == text, name
+
+
+def test_an_existing_classes_file_gains_only_the_classes_it_lacks(tmp_path: Path) -> None:
+    facility = mapped_facility(tmp_path, "nsls2")
+    fresh = mapped_facility(tmp_path / "fresh", "nsls2")
+    import_mml(export_files("nsls2"), fresh)
+    derived = [row["class"] for row in _load(fresh / "classes.yaml")]
+    held = f"# kept\n- {{class: {derived[-1]}, parent: Instrumentation}}\n"
+    (facility / "classes.yaml").write_text(held, encoding="utf-8")
+
+    import_mml(export_files("nsls2"), facility)
+
+    text = (facility / "classes.yaml").read_text(encoding="utf-8")
+    assert text.startswith(held)
+    rows = [row["class"] for row in _load(facility / "classes.yaml")]
+    assert rows == [derived[-1], *derived[:-1]]
+    import_mml(export_files("nsls2"), facility)
+    assert (facility / "classes.yaml").read_text(encoding="utf-8") == text
 
 
 def test_one_import_judges_each_export_once(
@@ -626,7 +651,7 @@ def _served_and_model_readings(
     from osprey.simulation.engines import pyat as engine
 
     (model,) = [entry for entry in document["models"] if entry["name"] == model_name]
-    wiring = simulator_wiring(document, model_name)
+    wiring = simulator_wiring(FacilityRecords(document), model_name)
     deck = facility / model["deck"]
     monitors = {
         record["address"]
@@ -672,7 +697,7 @@ def test_the_middle_layer_correction_of_a_served_spear3_reading_is_the_model_pos
     facility = imports("spear3").copy(tmp_path)
     widen(facility, WIDENED["spear3"])
     document = build_facility(facility, project_name="demo")
-    wiring = simulator_wiring(document, "StorageRing")
+    wiring = simulator_wiring(FacilityRecords(document), "StorageRing")
     monitors = {
         record["address"]: record
         for record in wiring

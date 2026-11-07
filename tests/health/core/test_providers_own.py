@@ -29,6 +29,7 @@ async def test_the_deployments_own_provider_failing_is_an_error() -> None:
     )
     config = {
         "claude_code": {"provider": "own"},
+        "models": {"helper": {"provider": "other"}},
         "api": {"providers": {"own": {"api_key": "k"}, "other": {"api_key": "k"}}},
     }
     by_name = {r.name: r for r in await _run(config, registry)}
@@ -37,6 +38,25 @@ async def test_the_deployments_own_provider_failing_is_an_error() -> None:
     assert "Authentication failed" in by_name["own"].message
     assert "claude_code.provider" in by_name["own"].message
     assert by_name["other"].status is Status.WARNING
+
+
+async def test_with_personal_logins_allowed_the_own_provider_failing_is_a_warning() -> None:
+    """A terminal on its user's own login never touches the provider (#925).
+
+    Which terminals are login-routed is decided inside each container and is
+    not visible to health, so the row stays the probe's warning and says who
+    is affected instead of declaring the deployment down.
+    """
+    registry = StubRegistry({"own": fake_provider(_AUTH_FAILED)})
+    config = {
+        "claude_code": {"provider": "own", "allow_personal_login": True},
+        "api": {"providers": {"own": {"api_key": "k"}}},
+    }
+    (row,) = await _run(config, registry)
+    assert row.status is Status.WARNING
+    assert "Authentication failed" in row.message
+    assert "allow_personal_login" in row.message
+    assert "without a personal login" in row.message
 
 
 async def test_the_deployments_own_provider_passing_is_plain_ok() -> None:
@@ -50,7 +70,11 @@ async def test_the_deployments_own_provider_passing_is_plain_ok() -> None:
 
 async def test_without_a_claude_code_provider_every_failure_stays_advisory() -> None:
     registry = StubRegistry({"p": fake_provider((False, "auth failed"))})
-    rows = await _run({"api": {"providers": {"p": {"api_key": "k"}}}}, registry)
+    config = {
+        "models": {"helper": {"provider": "p"}},
+        "api": {"providers": {"p": {"api_key": "k"}}},
+    }
+    rows = await _run(config, registry)
 
     assert rows[0].status is Status.WARNING
 

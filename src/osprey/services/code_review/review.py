@@ -12,8 +12,9 @@ import asyncio
 import os
 import shutil
 import tempfile
+import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple
@@ -34,7 +35,9 @@ from osprey.agent_runner.verdict import _BUDGET_SUBTYPES, EXIT_PASS, evaluate_ve
 from osprey.services.code_review.contract import (
     ReviewFailure,
     ReviewRequest,
+    ReviewSwitchedOff,
     ReviewVerdict,
+    code_digest,
     parse_verdict,
     render_request,
 )
@@ -52,6 +55,10 @@ ACTION_REFUSE = "refuse"
 
 #: The ``reason`` of every review's audit record.
 AUDIT_REASON = "code_review"
+
+#: Hex characters of the code's SHA-256 a review's record carries: enough to tell two runs
+#: apart and to find the code in the agent's record, and no code.
+AUDIT_DIGEST_CHARS = 16
 
 #: The most one review may spend, in USD.
 _REVIEW_BUDGET_USD = 1.0
@@ -82,12 +89,16 @@ class ReviewOutcome:
     Attributes:
         action: ``ACTION_PROCEED`` or ``ACTION_REFUSE``.
         level: The level it was decided under; ``None`` when the level could not be read.
-        result: The reviewer's verdict, or the failure that stands in for one.
+        result: The reviewer's verdict, the failure that stands in for one, or the
+            runtime switch that left the review out.
+        elapsed: Seconds the reviewer's run took, prompt read included; ``None`` where no
+            run was attempted.
     """
 
     action: str
     level: str | None
-    result: ReviewVerdict | ReviewFailure
+    result: ReviewVerdict | ReviewFailure | ReviewSwitchedOff
+    elapsed: float | None = None
 
 
 class AuditFields(NamedTuple):
@@ -97,7 +108,8 @@ class AuditFields(NamedTuple):
         decision: ``"refused"`` or ``"allowed"``.
         reason: Always :data:`AUDIT_REASON`.
         subject: The request's audit subject.
-        detail: The result in ``key=value`` form; never reasons or code.
+        detail: The result in ``key=value`` form; never reasons or code, only the code's
+            short digest.
     """
 
     decision: str
@@ -121,6 +133,19 @@ def decide(result: ReviewVerdict | ReviewFailure, level: str | None) -> ReviewOu
     """
     stopped = level != "flag" and (isinstance(result, ReviewFailure) or result.verdict == "block")
     return ReviewOutcome(ACTION_REFUSE if stopped else ACTION_PROCEED, level, result)
+
+
+def skip_switched_off(off: ReviewSwitchedOff, level: str | None) -> ReviewOutcome:
+    """The outcome of a review the runtime switch left out: the code goes ahead unreviewed.
+
+    Args:
+        off: Who switched code review off, and when.
+        level: The level the review would have been decided under.
+
+    Returns:
+        A proceeding outcome carrying *off*.
+    """
+    return ReviewOutcome(ACTION_PROCEED, level, off)
 
 
 def _verdict_message(outcome: ReviewOutcome, verdict: ReviewVerdict) -> str | None:
@@ -163,6 +188,8 @@ def agent_message(outcome: ReviewOutcome) -> str | None:
     result = outcome.result
     if isinstance(result, ReviewVerdict):
         return _verdict_message(outcome, result)
+    if isinstance(result, ReviewSwitchedOff):
+        return f"The code review was skipped: {switched_off_phrase(result)}. The code proceeded unreviewed."
     if outcome.action == ACTION_REFUSE:
         return (
             f"The code review failed (kind {result.kind}), so the code was refused: "
@@ -174,9 +201,19 @@ def agent_message(outcome: ReviewOutcome) -> str | None:
     )
 
 
+def switched_off_phrase(off: ReviewSwitchedOff) -> str:
+    """Who switched code review off and when, in the words every surface uses."""
+    by = f" by {off.off_by}" if off.off_by else ""
+    at = f" at {time.strftime('%Y-%m-%d %H:%M', time.localtime(off.off_at))}" if off.off_at else ""
+    return f"switched off in this terminal{by}{at}"
+
+
 def _result_name(outcome: ReviewOutcome) -> str:
-    """The word for a review's result: the verdict, or ``"failure"``."""
-    return outcome.result.verdict if isinstance(outcome.result, ReviewVerdict) else "failure"
+    """The word for a review's result: the verdict, ``"skipped"`` or ``"failure"``."""
+    result = outcome.result
+    if isinstance(result, ReviewVerdict):
+        return result.verdict
+    return "skipped" if isinstance(result, ReviewSwitchedOff) else "failure"
 
 
 def notice_text(outcome: ReviewOutcome, request: ReviewRequest) -> str | None:
@@ -189,12 +226,15 @@ def notice_text(outcome: ReviewOutcome, request: ReviewRequest) -> str | None:
         request: The request it answers.
 
     Returns:
-        The notice, or ``None`` for a pass, which sends none.
+        The notice, or ``None`` for a pass, which sends none. A review the switch left out
+        sends one every time, so a skip nobody meant shows up in the session.
     """
     result = _result_name(outcome)
     if result == "pass":
         return None
-    if isinstance(outcome.result, ReviewFailure):
+    if isinstance(outcome.result, ReviewSwitchedOff):
+        result = f"{result} ({switched_off_phrase(outcome.result)})"
+    elif isinstance(outcome.result, ReviewFailure):
         result = f"{result} ({outcome.result.kind})"
     taken = "refused" if outcome.action == ACTION_REFUSE else "proceeded"
     return f"Code review on {request.surface}: {result}, {taken}: {request.subject}"
@@ -208,15 +248,25 @@ def audit_fields(outcome: ReviewOutcome, request: ReviewRequest) -> AuditFields:
         request: The request it answers.
 
     Returns:
-        The fields, holding no reasons, no code and no failure message.
+        The fields, holding no reasons, no code and no failure message: the code's short
+        digest, how long the review took, and for a review the switch left out who
+        switched it off.
     """
     parts = [f"review={_result_name(outcome)}"]
     if outcome.level is not None:
         parts.append(f"level={outcome.level}")
     if isinstance(outcome.result, ReviewFailure):
         parts.append(f"kind={outcome.result.kind}")
+    if isinstance(outcome.result, ReviewSwitchedOff):
+        parts.append("kind=switched_off")
+        if outcome.result.off_by is not None:
+            parts.append(f"by={'_'.join(outcome.result.off_by.split())}")
     if request.mode is not None:
         parts.append(f"mode={request.mode}")
+    if request.code:
+        parts.append(f"digest={code_digest(request.code)[:AUDIT_DIGEST_CHARS]}")
+    if outcome.elapsed is not None:
+        parts.append(f"ms={round(outcome.elapsed * 1000)}")
     return AuditFields(
         decision="refused" if outcome.action == ACTION_REFUSE else "allowed",
         reason=AUDIT_REASON,
@@ -281,6 +331,9 @@ async def _run_review(
                 model=None,
                 cwd=Path(work_dir),
                 env_overrides=_reviewer_env(),
+                # The operator's CLAUDE_CONFIG_DIR is the one the record tails: a written
+                # transcript would enter the record as one of the operator's sessions.
+                persist_session=False,
             ),
             settings.time_limit,
         )
@@ -317,7 +370,8 @@ async def review_code(
         render_dir: The rendered project the reviewer's provider and launcher resolve from.
 
     Returns:
-        The outcome, with every failure as its kind.
+        The outcome, with every failure as its kind and the run's elapsed time.
     """
+    started = time.monotonic()
     result = await _run_review(request, settings, repo_root, render_dir)
-    return decide(result, settings.level)
+    return replace(decide(result, settings.level), elapsed=time.monotonic() - started)

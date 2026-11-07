@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Subsystem
 title: Experimental Stations (ES)
 description: Six end-stations where users conduct experiments, each with independent motion control, detectors, and sample environments.

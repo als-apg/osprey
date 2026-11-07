@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.validate import FACILITY_HEADER
 
 # ---------------------------------------------------------------------------
@@ -87,7 +88,7 @@ def mini_ttl(tmp_path: Path) -> Path:
     from osprey.facility.views.graph import graph_text
 
     p = tmp_path / "mini.ttl"
-    p.write_text(graph_text(_mini_facility()), encoding="utf-8")
+    p.write_text(graph_text(FacilityRecords(_mini_facility())), encoding="utf-8")
     return p
 
 
@@ -126,18 +127,12 @@ class TestModuleImport:
             seed_from_ttl,
         )
 
-    def test_seed_from_ttl_returns_empty_for_none(self):
-        """seed_from_ttl(None) returns [] without touching rdflib."""
+    @pytest.mark.parametrize("ttl", [None, ""], ids=["none", "empty-string"])
+    def test_seed_from_ttl_returns_empty_for_no_content(self, ttl):
+        """seed_from_ttl returns [] for an absent or empty input without touching rdflib."""
         from osprey.services.facility_knowledge.seeder import seed_from_ttl
 
-        result = seed_from_ttl(None)
-        assert result == []
-
-    def test_seed_from_ttl_returns_empty_for_empty_string(self):
-        """seed_from_ttl('') returns [] without touching rdflib."""
-        from osprey.services.facility_knowledge.seeder import seed_from_ttl
-
-        result = seed_from_ttl("")
+        result = seed_from_ttl(ttl)
         assert result == []
 
 
@@ -310,7 +305,7 @@ class TestSeedFromGraphView:
             "devices": [{"id": "SR/QF-1.A", "class": "Quadrupole", "place": "SR"}],
         }
         ttl = tmp_path / "facility.ttl"
-        ttl.write_text(graph_text(doc), encoding="utf-8")
+        ttl.write_text(graph_text(FacilityRecords(doc)), encoding="utf-8")
 
         [stub] = seed_from_ttl(ttl)
 

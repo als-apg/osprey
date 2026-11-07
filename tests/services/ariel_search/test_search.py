@@ -61,10 +61,18 @@ class TestSearchConstants:
 class TestParseQuery:
     """Tests for query parsing."""
 
-    def test_simple_query(self):
-        """Parses simple query with no operators."""
-        search_text, filters, phrases = parse_query("beam current")
-        assert search_text == "beam current"
+    @pytest.mark.parametrize(
+        "query",
+        [
+            # Parses simple query with no operators.
+            pytest.param("beam current", id="simple-query"),
+            pytest.param("", id="empty-query"),
+        ],
+    )
+    def test_query_without_operators_is_all_search_text(self, query):
+        """A query with no operators comes back as its own search text, with no filters or phrases."""
+        search_text, filters, phrases = parse_query(query)
+        assert search_text == query
         assert filters == {}
         assert phrases == []
 
@@ -103,13 +111,6 @@ class TestParseQuery:
         assert "vacuum" in search_text
         assert filters == {"author": "smith"}
         assert phrases == ["beam loss"]
-
-    def test_empty_query(self):
-        """Handles empty query."""
-        search_text, filters, phrases = parse_query("")
-        assert search_text == ""
-        assert filters == {}
-        assert phrases == []
 
     @pytest.mark.parametrize("spell", [str.lower, str.upper])
     @pytest.mark.parametrize("prefix", sorted(ALLOWED_FIELD_PREFIXES))
@@ -214,27 +215,32 @@ class TestKeywordSearchFunction:
         return repo
 
     @pytest.mark.asyncio
-    async def test_empty_query_returns_empty(self, mock_repository, mock_config):
-        """Empty query returns empty results."""
+    @pytest.mark.parametrize(
+        "query",
+        [pytest.param("", id="empty"), pytest.param("   ", id="whitespace-only")],
+    )
+    async def test_blank_query_returns_empty(self, mock_repository, mock_config, query):
+        """A blank query returns empty results."""
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        result = await keyword_search("", mock_repository, mock_config)
+        result = await keyword_search(query, mock_repository, mock_config)
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_whitespace_query_returns_empty(self, mock_repository, mock_config):
-        """Whitespace-only query returns empty results."""
+    @pytest.mark.parametrize(
+        "query",
+        [
+            # Simple search delegates to repository.
+            pytest.param("beam current", id="simple-search"),
+            # Date filter parses YYYY-MM-DD format.
+            pytest.param("beam date:2024-01-15", id="daily-date-filter"),
+        ],
+    )
+    async def test_search_calls_repository_once(self, mock_repository, mock_config, query):
+        """A search delegates to the repository."""
         from osprey.services.ariel_search.search.keyword import keyword_search
 
-        result = await keyword_search("   ", mock_repository, mock_config)
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_simple_search_calls_repository(self, mock_repository, mock_config):
-        """Simple search delegates to repository."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        await keyword_search("beam current", mock_repository, mock_config)
+        await keyword_search(query, mock_repository, mock_config)
         mock_repository.keyword_search.assert_called_once()
 
     @pytest.mark.asyncio
@@ -313,19 +319,6 @@ class TestKeywordSearchFunction:
         assert any("2024-01" in str(p) for p in params)
 
     @pytest.mark.asyncio
-    async def test_date_filter_daily(self, mock_repository, mock_config):
-        """Date filter parses YYYY-MM-DD format."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        await keyword_search(
-            "beam date:2024-01-15",
-            mock_repository,
-            mock_config,
-        )
-
-        mock_repository.keyword_search.assert_called_once()
-
-    @pytest.mark.asyncio
     async def test_date_filter_december(self, mock_repository, mock_config):
         """Date filter handles December (month 12) rollover correctly."""
         from osprey.services.ariel_search.search.keyword import keyword_search
@@ -399,26 +392,18 @@ class TestSemanticSearchFunction:
         return embedder
 
     @pytest.mark.asyncio
-    async def test_empty_query_returns_empty(
-        self, mock_repository, mock_config, mock_embedder, search_calls
+    @pytest.mark.parametrize(
+        "query",
+        [pytest.param("", id="empty"), pytest.param("   ", id="whitespace-only")],
+    )
+    async def test_blank_query_returns_empty(
+        self, mock_repository, mock_config, mock_embedder, search_calls, query
     ):
-        """Empty query returns empty results."""
+        """A blank query returns empty results."""
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         result = await semantic_search(
-            "", mock_repository, mock_config, mock_embedder, search_calls=search_calls
-        )
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_whitespace_query_returns_empty(
-        self, mock_repository, mock_config, mock_embedder, search_calls
-    ):
-        """Whitespace-only query returns empty results."""
-        from osprey.services.ariel_search.search.semantic import semantic_search
-
-        result = await semantic_search(
-            "   ", mock_repository, mock_config, mock_embedder, search_calls=search_calls
+            query, mock_repository, mock_config, mock_embedder, search_calls=search_calls
         )
         assert result == []
 
@@ -495,42 +480,43 @@ class TestSemanticSearchFunction:
         assert call_args.kwargs["similarity_threshold"] == 0.5
 
     @pytest.mark.asyncio
-    async def test_embedding_failure_returns_empty(
+    async def test_embedding_failure_raises_naming_the_cause(
         self, mock_repository, mock_config, mock_embedder, search_calls
     ):
-        """Returns empty on embedding failure."""
+        """A failed embedding is an error naming its cause, never an empty answer."""
+        from osprey.services.ariel_search.exceptions import EmbeddingGenerationError
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         mock_embedder.execute_embedding.side_effect = Exception("Ollama unavailable")
 
-        result = await semantic_search(
-            "test query",
-            mock_repository,
-            mock_config,
-            mock_embedder,
-            search_calls=search_calls,
-        )
-
-        assert result == []
+        with pytest.raises(EmbeddingGenerationError, match="Ollama unavailable"):
+            await semantic_search(
+                "test query",
+                mock_repository,
+                mock_config,
+                mock_embedder,
+                search_calls=search_calls,
+            )
+        mock_repository.semantic_search.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_empty_embedding_returns_empty(
+    async def test_empty_embedding_raises(
         self, mock_repository, mock_config, mock_embedder, search_calls
     ):
-        """Returns empty when embedding is empty."""
+        """A provider that answers without a vector has failed the embedding."""
+        from osprey.services.ariel_search.exceptions import EmbeddingGenerationError
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         mock_embedder.execute_embedding.return_value = [[]]
 
-        result = await semantic_search(
-            "test query",
-            mock_repository,
-            mock_config,
-            mock_embedder,
-            search_calls=search_calls,
-        )
-
-        assert result == []
+        with pytest.raises(EmbeddingGenerationError, match="returned no vector"):
+            await semantic_search(
+                "test query",
+                mock_repository,
+                mock_config,
+                mock_embedder,
+                search_calls=search_calls,
+            )
 
 
 class TestKeywordSearchWithResults:
@@ -1130,23 +1116,21 @@ class TestBoundaryValues:
     Input validation tests using agent.executor schemas.
     """
 
-    def test_max_results_zero_invalid(self):
-        """max_results=0 raises validation error (EDGE-007)."""
+    @pytest.mark.parametrize(
+        "max_results",
+        [
+            pytest.param(0, id="zero-edge-007"),
+            pytest.param(51, id="fifty-one-edge-008"),
+        ],
+    )
+    def test_max_results_outside_the_allowed_range_is_invalid(self, max_results):
+        """An out-of-range max_results raises validation error (EDGE-007, EDGE-008)."""
         from pydantic import ValidationError
 
         from osprey.services.ariel_search.search.keyword import KeywordSearchInput
 
         with pytest.raises(ValidationError):
-            KeywordSearchInput(query="test", max_results=0)
-
-    def test_max_results_fifty_one_invalid(self):
-        """max_results=51 raises validation error (EDGE-008)."""
-        from pydantic import ValidationError
-
-        from osprey.services.ariel_search.search.keyword import KeywordSearchInput
-
-        with pytest.raises(ValidationError):
-            KeywordSearchInput(query="test", max_results=51)
+            KeywordSearchInput(query="test", max_results=max_results)
 
     def test_similarity_negative_invalid(self):
         """similarity_threshold=-0.1 raises validation error (EDGE-009)."""
@@ -1171,8 +1155,8 @@ class TestEmbeddingGenerationFailure:
     """Tests for embedding generation failure handling (EDGE-012)."""
 
     @pytest.mark.asyncio
-    async def test_semantic_search_embedding_failure_returns_empty(self, search_calls):
-        """Semantic search returns empty on embedding failure."""
+    async def test_semantic_search_embedding_failure_raises(self, search_calls):
+        """Semantic search reports an embedding failure with the provider it dialled."""
         from unittest.mock import AsyncMock, MagicMock
 
         from osprey.services.ariel_search.config import ARIELConfig
@@ -1196,11 +1180,16 @@ class TestEmbeddingGenerationFailure:
             side_effect=Exception("Embedding service unavailable")
         )
 
-        result = await semantic_search(
-            "test", mock_repo, config, mock_embedder, search_calls=search_calls
-        )
+        from osprey.services.ariel_search.exceptions import EmbeddingGenerationError
 
-        assert result == []
+        with pytest.raises(EmbeddingGenerationError) as raised:
+            await semantic_search(
+                "test", mock_repo, config, mock_embedder, search_calls=search_calls
+            )
+
+        assert "Embedding service unavailable" in str(raised.value)
+        assert raised.value.model_name == "test-model"
+        mock_repo.semantic_search.assert_not_called()
 
 
 # ==============================================================================

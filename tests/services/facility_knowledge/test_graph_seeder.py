@@ -242,11 +242,18 @@ class TestBootstrapConfigGate:
         assert result.ok is False
         assert session.matching(_INIT) == [], "must not re-init a configured store"
 
-    def test_missing_key_counts_as_drift(self):
-        rows = [row for row in _config_rows() if row["param"] != "handleRDFTypes"]
+    @pytest.mark.parametrize(
+        "key",
+        [
+            pytest.param("handleRDFTypes", id="scalar-key"),
+            pytest.param("multivalPropList", id="multival-prop-list"),
+        ],
+    )
+    def test_missing_key_counts_as_drift(self, key):
+        rows = [row for row in _config_rows() if row["param"] != key]
         result = bootstrap(FakeSession({_SHOW: rows}))
         assert result.status is BootstrapStatus.DIFFERS
-        assert result.differing_keys == ("handleRDFTypes",)
+        assert result.differing_keys == (key,)
 
     def test_drift_message_names_the_differing_keys(self):
         session = FakeSession({_SHOW: _config_rows({"handleVocabUris": "IGNORE"})})
@@ -281,12 +288,6 @@ class TestBootstrapConfigGate:
         assert result.status is BootstrapStatus.DIFFERS
         assert result.differing_keys == ("handleMultival",)
         assert "handleMultival" in result.message
-
-    def test_missing_multival_prop_list_is_drift(self):
-        rows = [row for row in _config_rows() if row["param"] != "multivalPropList"]
-        result = bootstrap(FakeSession({_SHOW: rows}))
-        assert result.status is BootstrapStatus.DIFFERS
-        assert result.differing_keys == ("multivalPropList",)
 
     def test_extra_live_keys_are_not_drift(self):
         """n10s reports keys osprey does not pin; only load-bearing keys count."""

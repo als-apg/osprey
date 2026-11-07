@@ -3,7 +3,7 @@
 This module is the hand-authored reference deployment (``als-exemplar/``) that
 the lifecycle verbs are developed against, and the shape ``osprey init`` must
 emit. Exemplar-first: the content below was authored by hand, derived from the
-``control-assistant`` preset emission and rewritten onto the new command
+``demo`` preset emission and rewritten onto the new command
 surface; ``init`` is then made to reproduce it, never the reverse.
 
 The layout is the four-zone repo — one directory, four kinds of content::
@@ -28,7 +28,7 @@ fresh-clone state (SC-10). A test that needs a rendered build stubs one itself.
 Two variants, and which one a caller wants is not a matter of taste:
 
 ``with_ci=False`` (the default) is the **init-reproducible** shape. A bare
-``osprey init --preset control-assistant`` leaves the ``deploy:`` block a
+``osprey init --preset demo`` leaves the ``deploy:`` block a
 commented stub, and with no deployment coordinates there is nothing to render a
 CI pipeline from — so the repo carries neither ``.gitlab-ci.yml`` nor
 ``scripts/verify.sh``. This is the shape Task 2.1 compares ``init``'s emission
@@ -105,7 +105,7 @@ import yaml
 EXEMPLAR_DIRNAME = "als-exemplar"
 
 #: The preset the exemplar was materialized from.
-EXEMPLAR_PRESET = "control-assistant"
+EXEMPLAR_PRESET = "demo"
 
 #: The bundled tiers materialized into ``tiers/``, as file stem -> bundled
 #: source under ``presets/tiers/``. Location is the type: a file is a tier
@@ -168,11 +168,11 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept
 #
-# Made from the bundled `control-assistant` preset. Everything it sets is written
+# Made from the bundled `demo` preset. Everything it sets is written
 # out below and is yours to edit. Nothing is hidden or inherited.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant@
+#   preset content hash: @PRESET_HASH:demo@
 
 name: Als Exemplar
 # Names the compose project, volumes, images, tier and app renders; not the folder.
@@ -245,6 +245,9 @@ skills:
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
   - bluesky-plans  # Browse which plans this deployment can run
+  - canopy-panel-builder  # Build, port and check CANOPY screens (goes with the canopy panel)
+  - canopy-operator  # Open, arrange and close what the CANOPY panel shows (goes with the panel)
+  - canopy-screens  # Which CANOPY screen shows which device, built from the library (goes with the panel)
   - pyaml-tools  # Measure through pyaml_measure (renders only with a pyAML view)
   # Available — uncomment to enable:
   # - logbook-deep-research  # Multi-phase logbook investigation skill
@@ -273,12 +276,15 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
-  - lattice         # LATTICE tab, optics of the simulator's served models
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
-  - system-health   # SYSTEM tab, a framework health dashboard
+  - system-health   # Health tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
+  - canopy          # CANOPY tab, the operator GUI: machine screens and Trace, one per terminal
   # The events and bluesky panels are added by the write-armed tiers
   # (readwrite and admin) instead, so the read-only login is built without them.
+
+# The tab the web terminal opens on: CANOPY, the operator GUI.
+default_panel: canopy
 
 # ── Scanning and simulated hardware ──────────────────────────────────────────
 # These three blocks give you a working plan setup with no real hardware: a
@@ -317,8 +323,8 @@ virtual_accelerator:
   # in that block — so pointing this deployment at your facility is that one
   # edit and nothing here.
   # `osprey sim apply` moves both machines — a scenario changes the world, not
-  # one lane. The archiver records the stand-in: the archive belongs to the
-  # machine.
+  # one lane. The stand-in is never recorded: it reads the facility's archive,
+  # and the store holds the simulator's past.
   # `true` serves the stand-in on this deployment's own stand-in port, so two
   # deployments on one host never collide over it. Write a Channel Access port
   # number instead only to pin it somewhere specific.
@@ -345,10 +351,8 @@ va_archiver:
   hot_cadence_sec: 10      # seconds between samples inside the hot span
   tail_cadence_sec: 60     # and outside it (must be a whole multiple of the above)
   recorder_cadence_sec: 10  # how often the recorder samples the machine
-  # A channel `osprey health` watches to check the archive is still recording:
-  # if this stops moving, history has quietly stopped. Point it at something on
-  # your machine that always changes; delete the key for no check at all.
-  freshness_channel: SR:DIAG:DCCT:01:CURRENT:RB
+  # The build derives `freshness_channel`, the channel `osprey health` watches,
+  # from the facility file; a stated line is an override checked against it.
 
 # ── Agent record ─────────────────────────────────────────────────────────────
 # Every prompt, answer, tool call and decision, kept once. `clickhouse` keeps
@@ -432,13 +436,11 @@ config:
   # `gateways` and `probe_channel` first — then the switch probes that target
   # and requires your own
   # `control_system.target_switch.live_gateway_acknowledged` — the operator
-  # saying those gateways really are this facility's — and it still refuses
-  # while this deployment records its own archive from the stand-in, because
-  # that store's history is the stand-in's (see `va_archiver:` above).
+  # saying those gateways really are this facility's.
   # `osprey set connector=<type>` ("epics", "doocs" or "tango") makes your
   # facility's machine the session baseline in place of the simulator, with
   # `osprey set config.archiver.type=<the archiver that records it>` and
-  # `osprey set va_archiver=null`, because the recorded archive goes with it.
+  # `osprey set va_archiver=null`, because that store records the simulator.
   control_system.type: virtual_accelerator
   # Write ceiling, the FIRST guard in the write-safety chain: `never` refuses
   # every hardware write before the limits check or the approval prompt is
@@ -468,9 +470,6 @@ config:
   # inlines at most 4x this many elements across all the channels it read;
   # past that budget a channel takes the artifact path and says so.
   control_system.read_inline_max_elements: 2000
-  # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
-  # on save. Pinned entries are never pruned. 0 keeps everything.
-  control_system.channel_read_artifact_retention: 20
   # Pattern detection: raw client puts in generated code (epics.caput,
   # PV.put(), and the other client libraries' write calls) are denied by the
   # approval hook and refused at runtime; osprey.runtime.write_channel is the
@@ -492,9 +491,8 @@ config:
   # control_system.connector.virtual_accelerator.serving: served
   # Milliseconds each read and write takes when the simulator is served in process; unread when served.
   # control_system.connector.virtual_accelerator.response_delay_ms: 10
-  # Channel the target switch reads to prove this target is reachable before
-  # making it active. The simulator serves it from the built facility.
-  control_system.connector.virtual_accelerator.probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB
+  # The build derives `probe_channel`, the channel the target switch reads, from
+  # the facility file; a stated line is an override checked against it.
   # Gateways in CA name-server (TCP) mode against localhost, the one
   # host-to-container configuration that works across container runtimes. No
   # port is written: the connector follows `services.virtual_accelerator.port`,
@@ -662,12 +660,9 @@ config:
   # ── Channel finder ─────────────────────────────────────────────────────────
   # The pipeline itself is derived from `channel_finder_mode:` above. When that
   # field selects the graph paradigm it answers from the `services.graphdb.*`
-  # store below.
+  # store below. The build states `channel_finder.benchmark.dataset_path` when
+  # the facility ships benchmark query sources.
   #
-  # The scored benchmark query set every paradigm reads, materialized by the
-  # build; `osprey channel-finder benchmark` runs it (`--queries-path FILE`
-  # for another).
-  channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
   # Rows one `run_sql` answer carries before it is cut. The cap is on the
   # AGENT's context, not on DuckDB: a truncated answer says so and names this
   # key, so the agent narrows the query rather than presenting a partial list.
@@ -720,6 +715,9 @@ config:
   # below, so moving the database stays a one-place edit. Set it only to point
   # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
   # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+  # With an authored uri, the agent's SQL tool is served only through this
+  # SELECT-only login; without it the tool is not offered.
+  # ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
   # No `ariel.ingestion` block: the logbook is seeded from the simulation
   # scenario bundles by `osprey sim apply NAME...`. For production, add
   # `ariel.ingestion.adapter` and `ariel.ingestion.source_url` for your
@@ -731,9 +729,6 @@ config:
   # Links from the agent's answers to each entry's page in your logbook: one
   # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
   # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
-  # The ARIEL tab inside the web terminal offers Browse and New Entry; the
-  # agent searches the logbook. true adds the Search view there and opens on it.
-  # ariel.embedded_search: false
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
@@ -764,16 +759,11 @@ config:
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
-  # reported back as `expanded_terms`. The file is read once at startup; a
-  # broken one fails loudly there (panel in CONFIGURATION INVALID mode, search
-  # 503, MCP server refuses to start). Check edits with
-  # `osprey ariel vocab-check data/ariel/vocabulary.yml`.
-  ariel.vocabulary.enabled: true
-  # A twenty-concept EXAMPLE covering what most circular-accelerator facilities
-  # share (a linac or FEL should delete the group the file's header marks for
-  # it). A starting point, not your vocabulary: edit it. Relative to the
-  # project root.
-  ariel.vocabulary.path: data/ariel/vocabulary.yml
+  # reported back as `expanded_terms`. The build turns it on when the facility
+  # ships data/facility/ariel/vocabulary.yml. The file is read once at startup;
+  # a broken one fails loudly there (panel in CONFIGURATION INVALID mode,
+  # search 503, MCP server refuses to start). Check edits with
+  # `osprey ariel vocab-check data/facility/ariel/vocabulary.yml`.
   # Whether a search that expresses no preference gets expansion. The
   # per-request `expand_query` argument overrides it either way.
   ariel.vocabulary.expand_by_default: true
@@ -1050,8 +1040,7 @@ config:
   # ── Web terminal ───────────────────────────────────────────────────────────
   # Every panel tab is served by its own small web server, configured under its
   # own section: WORKSPACE `artifact_server`, ARIEL `ariel.web`, CHANNELS
-  # `channel_finder.web`, LATTICE `lattice_dashboard`, KNOWLEDGE
-  # `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
+  # `channel_finder.web`, KNOWLEDGE `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
   # `deployment.port_base`; the panel's env var wins, then its `port` key.
   # Multi-user deployments export the env var per user. The reference guide's
   # ports page prints the table.
@@ -1071,23 +1060,13 @@ config:
   # It fetches more as the list is scrolled.
   # Lowering it suits a slow link; raising it suits a small store.
   # artifact_server.page_size: 20
-  # Extra artifact categories on top of the ones the gallery ships, so a badge
-  # reads in this facility's own vocabulary. One dotted line per category, each
-  # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
-  # category nobody declared is still stored — it just keeps the default badge,
-  # and the save logs a warning naming this key.
-  # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-  # Seed one shipped example (an interactive plot, synthetic data) into an
-  # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
-  artifact_server.example_artifact: true
-  # osprey:panel-port lattice_dashboard
-  # The LATTICE tab needs no section: with `lattice` in `web_panels:` it
-  # binds its slot. Uncomment only to move it or switch it off.
-  # lattice_dashboard.host: 127.0.0.1
-  # lattice_dashboard.port: <a port outside this deployment's block>
-  # lattice_dashboard.auto_launch: true
+  # Facility artifact kinds on top of the gallery's base forms, so a listing
+  # reads in this facility's own vocabulary. One dotted line per type, each
+  # value a `label` and the `base_form` it is listed under (plots, trends,
+  # tables, documents, dashboards, images, data).
+  # artifact_server.extension_types.beam_diagnostics: {label: Beam Diagnostics, base_form: plots}
   # osprey:panel-port system_health
-  # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
+  # The Health tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.
   # health.web.host: 127.0.0.1
   # health.web.port: <a port outside this deployment's block>
@@ -1174,10 +1153,20 @@ config:
   # snapshot, so a database with more channels than this is skipped (the build
   # says so) and the fields simply offer no suggestions.
   web.channel_suggestions.max_channels: 50000
-  # The SYSTEM tab is served but starts out of the sidebar: `+ Add panel` and
-  # the command palette open it, and `+ Add panel` can also pin it there.
-  # Delete this line to give it a sidebar row from the first load.
-  web.panels.system-health.hidden: true
+  # The CANOPY tab is built in: each web terminal starts its own CANOPY for the
+  # user it serves, so the tab has no url, label or health endpoint to set.
+  # Trace, the correlation page and the waveform page open empty: the default
+  # collection's Orbit, RF thermal and Septum pulse carry their own views.
+  # A `*_default_query` here would give the bare tools a view as well.
+  # web.panels.canopy.trace_default_query: pv=SR:DIAG:BPM:03:POSITION:X&range=-1h
+  # The screen CANOPY opens on, by its id in data/canopy/library/screens.
+  web.panels.canopy.home_screen: facility/overview
+  # Ceiling in bytes on the live-value buffers one user's CANOPY keeps in
+  # memory (256 MB).
+  web.panels.canopy.vole_bytes_max: 268435456
+  # A colour theme for CANOPY, as a path relative to the project root
+  # (absolute accepted). Unset keeps CANOPY's own theme.
+  # web.panels.canopy.theme_file: data/canopy/theme/colors.json
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1368,8 +1357,9 @@ config:
   simulation.tick_s: 1.0
   # Scenarios a deployment that never chose a set starts in, by name from
   # the facility's scenarios; `osprey sim apply` replaces the set.
-  # Absent or [] starts in nominal alone.
-  simulation.default_scenarios: [rf-thermal]
+  # demo-history also seeds the sidebar's example sessions on first deploy.
+  # Absent or [] starts in nominal alone; a stated set is checked at build.
+  simulation.default_scenarios: [rf-thermal, demo-history]
 
 # ── Record archive ─────────────────────────────────────────────────────────
 # Copies artifacts and plan-queue history into var/archive/ once a day, beside
@@ -1377,6 +1367,20 @@ config:
 services:
   archive:
     template: osprey.archive
+
+# ── Build checks ─────────────────────────────────────────────────────────────
+# `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,
+# Trace and the staged spec, made by the canopy repo's scripts/build-payload.sh)
+# into this repo, where the image build picks it up. The directory is
+# OSPREY_CANOPY_PAYLOAD (shell, then .env.shared/.env in this repo). With none
+# named, the build leaves the CANOPY panel out and says so; a named payload that
+# is missing or half-built stops the build. Set OSPREY_CANOPY_PAYLOAD_CHECK=0 to
+# skip the step.
+lifecycle:
+  pre_build:
+    - name: canopy-payload
+      timeout: 30
+      run: '"{python}" -m osprey.integrations.canopy.stage'
 
 # ── Answering webhooks (optional) ────────────────────────────────────────────
 # Lets an outside system ask the agent a question over HTTP. The triggers that
@@ -1406,15 +1410,14 @@ dispatch:
 # secure with no editing. Put your own values in .env to override.
 # Environment variables the deployment needs. Replace `env: {}` with any
 # of `required` (the variable must be set somewhere), `pinned` (this
-# repo's own env chain owns it outright, and nowhere else), `defaults`
-# (name to value) and `file` (a profile-relative path copied in as .env):
+# repo's own env chain owns it outright, and nowhere else) and `defaults`
+# (name to value):
 #
 #   env:
 #     required: [DISPATCH_WORKER_TOKEN]
 #     pinned: [ARIEL_DB_PASSWORD]
 #     defaults:
 #       OSPREY_FACILITY_NAME: "Example Facility"
-#     file: env/facility.env
 #
 # If `env:` already has children, add yours under it.
 env:
@@ -1438,20 +1441,13 @@ requires_osprey_version: '>=2026.10.0'
 # `providers_hash` is the same record for providers.yml beside this file;
 # `osprey init --revalidate` adds the packaged entries and keys it lacks.
 provenance:
-  preset: control-assistant
-  preset_hash: @PRESET_HASH:control-assistant@
+  preset: demo
+  preset_hash: @PRESET_HASH:demo@
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
-# Named web-terminal layouts, as label -> list of panel ids.
+# Named web-terminal layouts, as label -> tiles of panel-id tabs.
 panel_presets: {}
-
-# --- Default web-terminal panel ----------------------------------------------
-# Panel id opened when the web terminal loads. Must be a built-in, an entry in
-# the web_panels list above, or a custom panel backed by a web.panels.<id>.url
-# config override.
-#
-# default_panel: artifacts
 @DEPLOY_BLOCK@
 # --- Facility MCP servers ----------------------------------------------------
 # Your own MCP servers, injected into the build's .mcp.json next to the
@@ -1486,17 +1482,31 @@ panel_presets: {}
 #     permissions:
 #       allow: [get_twiss]
 
-# --- Artifacts gallery: custom categories ------------------------------------
-# Extra buckets in the artifacts gallery. Each key is the id a facility MCP
-# tool passes as category="<key>" when it saves an artifact; label and color
-# (#RRGGBB) decide how the gallery renders that bucket. The artifact_server
-# block also accepts host/port/auto_launch overrides for the gallery server.
+# --- Artifacts gallery: extension types -------------------------------------
+# Facility artifact kinds, each conforming to one gallery base form (plots,
+# trends, tables, documents, dashboards, images, data) and listed under it.
+# A label may not repeat a base form's or another type's. The optional viewer
+# is a .js/.mjs ES module under this profile's project/ directory, given
+# relative to it. The block also accepts host/port/auto_launch overrides for
+# the gallery server.
 #
 # artifact_server:
-#   categories:
-#     optics:
-#       label: Optics
-#       color: "#4C9AFF"
+#   extension_types:
+#     beam_scan:
+#       label: Beam scan
+#       base_form: plots
+#       viewer: viewers/beam_scan.js
+
+# --- Optimizer ---------------------------------------------------------------
+# Tunes machine variables against an objective with Bayesian optimization. The
+# service takes the optimizer slot of this deployment's port block and keeps
+# its jobs in a Redis sidecar. `targets` lists the control targets it may
+# drive (va, standin); the live machine is not allowed yet. Environment files
+# (YAML) in `environments_dir` are mounted read-only into the service.
+#
+# optimizer:
+#   targets: [va]
+#   environments_dir: optimizer/environments
 
 # --- Nextcloud bridge --------------------------------------------------------
 # Answers questions asked from a Nextcloud Talk room. The trigger name must
@@ -1854,8 +1864,6 @@ config:
   approval.tools.entry_publish: always
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -1961,8 +1969,6 @@ config:
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -2066,8 +2072,6 @@ config:
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -2099,7 +2103,7 @@ def packaged_tutorial_triggers_yml() -> str:
     return (Path(str(package)) / "tutorial_triggers.yml").read_text(encoding="utf-8")
 
 
-#: The demonstration triggers the ``control-assistant`` preset ships, which
+#: The demonstration triggers the ``demo`` preset ships, which
 #: ``init`` writes into a new repo as ``triggers.yml``. Resolved at import,
 #: because :data:`BASE_SOURCE_FILES` is built at import.
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
@@ -2120,10 +2124,10 @@ def packaged_data_readme_md() -> str:
     """
     from tests._preset_data import preset_data
 
-    return (preset_data("control_assistant").app_data / "README.md").read_text(encoding="utf-8")
+    return (preset_data("demo").app_data / "README.md").read_text(encoding="utf-8")
 
 
-#: The ``data/README.md`` the ``control-assistant`` preset ships. Resolved at
+#: The ``data/README.md`` the ``demo`` preset ships. Resolved at
 #: import, because :data:`BASE_SOURCE_FILES` is built at import.
 DATA_README_MD = packaged_data_readme_md()
 
@@ -2207,8 +2211,10 @@ ENV_EXAMPLE = """\
 # Anything else starting with `.env` is written by OSPREY itself (`osprey up`
 # keeps `.env.auth` there, for one) — kept out of git, and not edited by hand.
 
-# API key for the provider this assistant uses. Fill this in.
-ANTHROPIC_API_KEY=your-anthropic-api-key-here
+# API key for the provider this assistant uses.
+# Needed when the web terminals run in containers or call the Anthropic API
+# directly; a host `osprey web` signed in to Claude needs none.
+# ANTHROPIC_API_KEY=your-anthropic-api-key-here
 
 # Other providers OSPREY supports. Uncomment one if you switch to it with
 # `osprey set provider=...`.
@@ -2247,6 +2253,7 @@ OSPREY_AUTH_PW_CAROL=carol
 # BLUESKY_LIVE_LAUNCH_TOKEN=  # bluesky_live — arms the plan-launch endpoint of the second Bluesky lane, the one serving the live machine (only on a deployment with `bluesky.second_lane`)
 # BLUESKY_STANDIN_LAUNCH_TOKEN=  # bluesky_standin — arms the plan-launch endpoint of the Bluesky lane serving the live stand-in soft IOC (only on a deployment with `bluesky.second_lane`)
 # OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
+# OPTIMIZER_LAUNCH_TOKEN=  # optimizer — arms the optimizer API's routes that start runs, write to the machine or load a model
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
 # ARIEL_DB_READONLY_PASSWORD=  # postgresql — password of the SELECT-only Postgres role the agent's SQL tool queries through
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
@@ -2428,13 +2435,13 @@ mcp_servers:
 ```
 
 The hello-world preset ships `example_server` as a worked copy to read. Which
-buckets the artifact gallery sorts into is a separate, top-level key, one entry
-per bucket:
+facility artifact kinds the gallery lists is a separate, top-level key, each
+type conforming to one base form:
 
 ```yaml
 artifact_server:
-  categories:
-    beam_studies: {label: Beam studies, color: "#4C6EF5"}
+  extension_types:
+    beam_study: {label: Beam study, base_form: plots}
 ```
 
 ### Adding a panel of your own
@@ -3017,10 +3024,12 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "web-terminal-context/bob/.gitkeep": "",
     "web-terminal-context/carol/.gitkeep": "",
     "data/README.md": DATA_README_MD,
-    "data/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
+    "data/facility/benchmarks/cross_paradigm/queries/tree_queries.json": BENCHMARK_QUERIES_JSON,
     "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
     "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
     "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "data/facility/scenarios/demo-history.yaml": "{}\n",
+    "data/facility/scenarios/rf-thermal.yaml": "{}\n",
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
     "data/facility/knowledge/subsystems/vacuum.md": FK_VACUUM_MD,
@@ -3081,6 +3090,46 @@ def packaged_providers_yml() -> str:
     return packaged_catalog_path().read_text(encoding="utf-8")
 
 
+#: Where the exemplar's screen library sits, repo-relative.
+CANOPY_LIBRARY_RELPATH = "data/canopy/library"
+
+
+def packaged_canopy_library() -> Path:
+    """The demo screen library inside the installed package.
+
+    Read rather than frozen, as :func:`packaged_providers_yml` reads the
+    catalog: the package owns the screens and their write-binding report, so
+    the exemplar carries exactly what ``osprey init --preset demo``
+    puts into a deployment's ``data/``.
+    """
+    bundle = importlib.resources.files("osprey.templates.apps.demo")
+    return Path(str(bundle)) / "data" / "canopy" / "library"
+
+
+def copy_canopy_library(root: Path) -> Path:
+    """Copy the packaged screen library into ``root`` as bytes.
+
+    Files land 0644 and directories 0755 whatever the installed tree's modes
+    are, so the library is the same in every checkout and its write-binding
+    report stays fresh. Kept out of :func:`exemplar_source_files` because the
+    library holds images: that mapping is the exemplar's text.
+    """
+    source = packaged_canopy_library()
+    target = root / CANOPY_LIBRARY_RELPATH
+    for path in sorted(source.rglob("*")):
+        dest = target / path.relative_to(source)
+        if path.is_dir():
+            dest.mkdir(parents=True, exist_ok=True)
+        elif path.is_file():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(path.read_bytes())
+            dest.chmod(0o644)
+    for path in [target.parent.parent, target.parent, target, *target.rglob("*")]:
+        if path.is_dir():
+            path.chmod(0o755)
+    return target
+
+
 def expand_sentinels(text: str) -> str:
     """Resolve the version, preset-hash and providers-hash sentinels in ``text``.
 
@@ -3117,8 +3166,21 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     Args:
         with_ci: Fill in the deploy coordinates and emit the CI pipeline they
             are rendered from. The default False is the init-reproducible
-            shape — a bare ``osprey init --preset control-assistant`` has no
+            shape — a bare ``osprey init --preset demo`` has no
             coordinates to render a pipeline from, so it emits neither.
+    """
+    return {
+        path: expand_sentinels(text)
+        for path, text in _exemplar_source_texts(with_ci=with_ci).items()
+    }
+
+
+def _exemplar_source_texts(*, with_ci: bool = False) -> dict[str, str]:
+    """The exemplar's source zone with its sentinels still in place.
+
+    The texts :func:`exemplar_source_files` expands. A patch over one of them
+    stays applicable across version bumps and preset edits, because a sentinel
+    line reads the same whatever value it stands for.
     """
     if with_ci:
         deploy_block = DEPLOY_BLOCK_ACTIVE
@@ -3141,7 +3203,7 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     files["rules/facility.md"] = seeded_facility_rule(files["profile.yml"])
     if with_ci:
         files.update(CI_PIPELINE_FILES)
-    return {path: expand_sentinels(text) for path, text in files.items()}
+    return files
 
 
 @contextlib.contextmanager
@@ -3200,6 +3262,8 @@ def build_exemplar_repo(
         path.write_text(text, encoding="utf-8")
         if rel in EXECUTABLE_FILES:
             path.chmod(0o755)
+
+    copy_canopy_library(root)
 
     # STATE zone: present and empty. Git-ignored, so no .gitkeep — a marker
     # file there would be ignored too, and would be the one thing a `reset`

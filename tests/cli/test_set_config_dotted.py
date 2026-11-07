@@ -268,7 +268,7 @@ def test_a_literal_key_inherited_from_a_parent_is_shadowed_too(tmp_path: Path) -
     """The prune runs post-``extends``: a parent's key is inherited content."""
     (tmp_path / "data").mkdir()
     child = tmp_path / "profile.yml"
-    child.write_text("name: Child\nextends: control-assistant\ndata: data\n", encoding="utf-8")
+    child.write_text("name: Child\nextends: demo\ndata: data\n", encoding="utf-8")
     inherited, _dir = resolve_build_profile(child, None)
     assert CONNECTOR_CONFIG_KEY in inherited.config
 
@@ -330,20 +330,18 @@ def test_the_conflict_is_caught_when_the_edit_is_parsed() -> None:
         cli_edit_layer(("connector=epics", "config.control_system.type=doocs"))
 
 
-def test_the_shorthand_alone_still_overrides_the_preset_literal_key() -> None:
-    """The preset's own literal key is what the shorthand exists to override."""
-    profile, _dir = resolve_build_profile(
-        None, "control-assistant", set_pairs=("connector=live_standin",)
-    )
-
-    assert profile.config[CONNECTOR_CONFIG_KEY] == "live_standin"
-
-
-def test_a_literal_type_set_now_reaches_the_render() -> None:
-    """No shorthand needed: the dotted key replaces the preset's own entry."""
-    profile, _dir = resolve_build_profile(
-        None, "control-assistant", set_pairs=("config.control_system.type=live_standin",)
-    )
+@pytest.mark.parametrize(
+    "pair",
+    [
+        # The preset's own literal key is what the shorthand exists to override.
+        "connector=live_standin",
+        # No shorthand needed: the dotted key replaces the preset's own entry.
+        "config.control_system.type=live_standin",
+    ],
+    ids=["shorthand-alone", "literal-type-key"],
+)
+def test_a_set_pair_for_the_connector_reaches_the_render(pair: str) -> None:
+    profile, _dir = resolve_build_profile(None, "demo", set_pairs=(pair,))
 
     assert profile.config[CONNECTOR_CONFIG_KEY] == "live_standin"
 
@@ -407,7 +405,7 @@ def test_osprey_set_moves_a_service_port_and_the_ledger_with_it(
     key they edited — not only in the rendered config.
     """
     runner, repo = runner_repo
-    _init(runner, repo, "control-assistant")
+    _init(runner, repo, "demo")
 
     written = runner.invoke(
         set_cmd, ["--repo", str(repo), "config.services.graphdb.port_host=9999"]
@@ -478,8 +476,8 @@ def test_init_set_and_osprey_set_resolve_to_the_same_profile(tmp_path: Path) -> 
     at_init = tmp_path / "at-init" / "deployment"
     afterwards = tmp_path / "afterwards" / "deployment"
 
-    _init(runner, at_init, "control-assistant", *_set_args(_EQUIVALENT_EDITS))
-    _init(runner, afterwards, "control-assistant")
+    _init(runner, at_init, "demo", *_set_args(_EQUIVALENT_EDITS))
+    _init(runner, afterwards, "demo")
     written = runner.invoke(set_cmd, ["--repo", str(afterwards), *_EQUIVALENT_EDITS])
     assert written.exit_code == 0, written.output
 
@@ -505,8 +503,8 @@ def test_init_set_and_osprey_set_write_the_same_profile_text(tmp_path: Path) -> 
     at_init = tmp_path / "at-init" / "deployment"
     afterwards = tmp_path / "afterwards" / "deployment"
 
-    _init(runner, at_init, "control-assistant", *_set_args(_EQUIVALENT_EDITS))
-    _init(runner, afterwards, "control-assistant")
+    _init(runner, at_init, "demo", *_set_args(_EQUIVALENT_EDITS))
+    _init(runner, afterwards, "demo")
     assert runner.invoke(set_cmd, ["--repo", str(afterwards), *_EQUIVALENT_EDITS]).exit_code == 0
 
     def _config(repo: Path) -> dict:

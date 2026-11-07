@@ -15,6 +15,8 @@ import ast
 import json
 from pathlib import Path
 
+import pytest
+
 import osprey
 from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
 from osprey.agent_runner.write_tools import (
@@ -90,20 +92,20 @@ def test_load_write_tools_malformed_json_returns_fallback(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_load_write_tools_missing_key_returns_fallback(tmp_path: Path) -> None:
-    """hook_config.json present but lacks write_tools key → returns fallback."""
+@pytest.mark.parametrize(
+    "hook_config",
+    [
+        # hook_config.json present but lacks write_tools key
+        pytest.param({"other_key": []}, id="missing-key"),
+        # hook_config.json with empty write_tools list
+        pytest.param({"write_tools": []}, id="empty-list"),
+    ],
+)
+def test_load_write_tools_without_any_listed_tools_returns_fallback(
+    tmp_path: Path, hook_config: dict
+) -> None:
     hooks = _hook_config_dir(tmp_path)
-    (hooks / "hook_config.json").write_text(json.dumps({"other_key": []}))
-
-    result = load_write_tools(tmp_path)
-
-    assert result == _FALLBACK_WRITE_TOOLS
-
-
-def test_load_write_tools_empty_list_returns_fallback(tmp_path: Path) -> None:
-    """hook_config.json with empty write_tools list → returns fallback."""
-    hooks = _hook_config_dir(tmp_path)
-    (hooks / "hook_config.json").write_text(json.dumps({"write_tools": []}))
+    (hooks / "hook_config.json").write_text(json.dumps(hook_config))
 
     result = load_write_tools(tmp_path)
 
@@ -309,21 +311,56 @@ def test_read_only_blocks_custom_server_destructive_allow_tool(tmp_path: Path) -
     assert "mcp__my-archive__list_runs" not in result  # non-destructive read preserved
 
 
-def test_read_only_blocks_writes_check_custom_server_at_server_level(tmp_path: Path) -> None:
-    """A custom server that writes-check-gates ALL its tools is blocked
-    server-level (the per-tool ``mcp__name__.*`` matcher is a no-op in the SDK
-    disallow engine, so server-level is the only form that actually blocks)."""
-    (tmp_path / "config.yml").write_text(
-        "claude_code:\n"
-        "  servers:\n"
-        "    danger-server:\n"
-        "      hooks: {pre_tool_use: [writes_check]}\n"
-        "      permissions: {allow: [do_thing]}\n"
-    )
+@pytest.mark.parametrize(
+    ("config", "blocked"),
+    [
+        # A custom server that writes-check-gates ALL its tools is blocked
+        # server-level (the per-tool ``mcp__name__.*`` matcher is a no-op in the SDK
+        # disallow engine, so server-level is the only form that actually blocks).
+        pytest.param(
+            "claude_code:\n"
+            "  servers:\n"
+            "    danger-server:\n"
+            "      hooks: {pre_tool_use: [writes_check]}\n"
+            "      permissions: {allow: [do_thing]}\n",
+            "mcp__danger-server",
+            id="writes-check-custom-server",
+        ),
+        # An unresolvable extends target (typo/version skew) must contribute a
+        # server-level disallow, not nothing — a stale .mcp.json from a previous
+        # build can still launch the server.
+        pytest.param(
+            "claude_code:\n  servers:\n    phoebus2:\n      extends: no_such_template\n",
+            "mcp__phoebus2",
+            id="extends-unknown-target",
+        ),
+        # A non-string extends value (e.g. ``extends: [phoebus]``) must not crash
+        # the classifier with a TypeError — it fails closed with the same
+        # server-level disallow as any other unresolvable extends spec.
+        pytest.param(
+            "claude_code:\n  servers:\n    phoebus2:\n      extends: [phoebus]\n",
+            "mcp__phoebus2",
+            id="extends-non-string-target",
+        ),
+        # A spec with NONE of extends/command/url (legacy form
+        # ``phoebus2: {enabled: true}``) must fail closed with the server-level
+        # disallow, exactly like an unresolvable extends — resolve_servers skips it,
+        # but a stale .mcp.json from a previous build can still launch the server.
+        pytest.param(
+            "claude_code:\n  servers:\n    phoebus2:\n      enabled: true\n",
+            "mcp__phoebus2",
+            id="legacy-enabled-only-spec",
+        ),
+    ],
+)
+def test_read_only_blocks_these_servers_at_server_level(
+    tmp_path: Path, config: str, blocked: str
+) -> None:
+    (tmp_path / "config.yml").write_text(config)
 
     result = read_only_disallowed_tools(tmp_path)
 
-    assert "mcp__danger-server" in result
+    assert blocked in result
 
 
 def test_read_only_blocks_extends_clone_drive(tmp_path: Path) -> None:
@@ -393,46 +430,6 @@ def test_read_only_extends_override_cannot_narrow(tmp_path: Path) -> None:
     assert "mcp__phoebus2__phoebus_perceive" not in result
 
 
-def test_read_only_extends_unknown_target_fails_closed(tmp_path: Path) -> None:
-    """An unresolvable extends target (typo/version skew) must contribute a
-    server-level disallow, not nothing — a stale .mcp.json from a previous
-    build can still launch the server."""
-    (tmp_path / "config.yml").write_text(
-        "claude_code:\n  servers:\n    phoebus2:\n      extends: no_such_template\n"
-    )
-
-    result = read_only_disallowed_tools(tmp_path)
-
-    assert "mcp__phoebus2" in result
-
-
-def test_read_only_extends_non_string_target_fails_closed(tmp_path: Path) -> None:
-    """A non-string extends value (e.g. ``extends: [phoebus]``) must not crash
-    the classifier with a TypeError — it fails closed with the same
-    server-level disallow as any other unresolvable extends spec."""
-    (tmp_path / "config.yml").write_text(
-        "claude_code:\n  servers:\n    phoebus2:\n      extends: [phoebus]\n"
-    )
-
-    result = read_only_disallowed_tools(tmp_path)
-
-    assert "mcp__phoebus2" in result
-
-
-def test_read_only_legacy_enabled_only_spec_fails_closed(tmp_path: Path) -> None:
-    """A spec with NONE of extends/command/url (legacy form
-    ``phoebus2: {enabled: true}``) must fail closed with the server-level
-    disallow, exactly like an unresolvable extends — resolve_servers skips it,
-    but a stale .mcp.json from a previous build can still launch the server."""
-    (tmp_path / "config.yml").write_text(
-        "claude_code:\n  servers:\n    phoebus2:\n      enabled: true\n"
-    )
-
-    result = read_only_disallowed_tools(tmp_path)
-
-    assert "mcp__phoebus2" in result
-
-
 def test_read_only_extends_disabled_not_enumerated(tmp_path: Path) -> None:
     """An extends clone with enabled: false contributes nothing (matches the
     custom-server enabled gate)."""
@@ -499,15 +496,12 @@ def test_registry_walk_matches_shared_classifier() -> None:
     """Drift guard: for every framework server the registry walk emits exactly
     the shared per-server classifier's output — pins that the framework path
     and the extends path share one implementation."""
-    from osprey.agent_runner.write_tools import (
-        _registry_side_effect_tools,
-        _server_side_effect_tools,
-    )
-    from osprey.registry.mcp import FRAMEWORK_SERVERS
+    from osprey.agent_runner.write_tools import _registry_side_effect_tools
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, server_side_effect_tools
 
     expected: list[str] = []
     for server in FRAMEWORK_SERVERS.values():
-        for name in _server_side_effect_tools(server):
+        for name in server_side_effect_tools(server):
             if name not in expected:
                 expected.append(name)
 
@@ -520,8 +514,11 @@ def test_extends_clone_classifies_like_template(tmp_path: Path) -> None:
     its template with the mcp__<template>__ prefix rewritten. Compares the full
     production output (read_only_disallowed_tools), not the classifier
     internals, so a blind spot in either path fails here."""
-    from osprey.agent_runner.write_tools import _server_side_effect_tools
-    from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
+    from osprey.registry.mcp import (
+        FRAMEWORK_SERVERS,
+        build_extended_server,
+        server_side_effect_tools,
+    )
 
     for template_name, template in FRAMEWORK_SERVERS.items():
         if template.condition:
@@ -531,7 +528,7 @@ def test_extends_clone_classifies_like_template(tmp_path: Path) -> None:
         assert clone is not None, f"extends of {template_name!r} unexpectedly rejected"
 
         old, new = f"mcp__{template_name}__", f"mcp__{clone_name}__"
-        template_surface = _server_side_effect_tools(template)
+        template_surface = server_side_effect_tools(template)
         expected = {new + t[len(old) :] if t.startswith(old) else t for t in template_surface}
 
         (tmp_path / "config.yml").write_text(
@@ -581,13 +578,26 @@ def test_no_destructive_permissions_allow_tool_is_reachable(tmp_path: Path) -> N
 
 
 def test_read_only_disallowed_tools_allows_audited_reads(tmp_path: Path) -> None:
-    """Approval-gated *reads* must stay callable — the read-only run still needs
-    to read PVs/archiver. Only writes/side-effects are blocked, not all
-    approval-gated tools."""
-    result = read_only_disallowed_tools(tmp_path)
+    """Every tool the registry declares an audited read, on every framework
+    server and on an ``extends`` clone of one, stays callable in the read-only
+    run: the floor blocks side effects, never an approval-gated read."""
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
 
-    assert "mcp__controls__channel_read" not in result
-    assert "mcp__controls__archiver_read" not in result
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n  servers:\n    controls2:\n      extends: controls\n"
+    )
+    clone = build_extended_server("controls2", {"extends": "controls"})
+    assert clone is not None
+
+    audited = {
+        f"mcp__{server.name}__{tool}"
+        for server in (*FRAMEWORK_SERVERS.values(), clone)
+        for tool in server.audited_reads
+    }
+    assert audited
+
+    blocked = audited & set(read_only_disallowed_tools(tmp_path))
+    assert not blocked, f"audited reads blocked in the read-only run: {sorted(blocked)}"
 
 
 def test_read_only_disallowed_covers_registry_side_effect_tools(tmp_path: Path) -> None:
@@ -597,14 +607,10 @@ def test_read_only_disallowed_covers_registry_side_effect_tools(tmp_path: Path) 
     auto-extends the read-only floor (or fails this test).
 
     The rail verbs and ``register_panel`` arrive through the walk below, since
-    they are ``permissions_ask``. ``lattice_clear_baseline`` does not — it is
-    auto-allowed and reaches the floor only through the destructive-name rule
-    ("clear"), so it is pinned by name."""
+    they are ``permissions_ask``."""
     from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
 
     result = set(read_only_disallowed_tools(tmp_path))
-
-    assert "mcp__osprey_workspace__lattice_clear_baseline" in result
 
     for server in FRAMEWORK_SERVERS.values():
         # Both ask lists render into the interactive approval list → side-effecting.
@@ -745,7 +751,7 @@ def test_caller_context_cannot_soften_the_deny_floor(tmp_path: Path) -> None:
         TemplateManager(),
         project_name="deny-floor-override",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical", "deny_defaults": []},
     )
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -798,21 +804,20 @@ def test_headless_keeps_a_declaring_servers_other_tools(tmp_path: Path) -> None:
     assert "mcp__plc" not in result
 
 
-def test_headless_blocks_undeclared_ask_tool_on_declaring_server(tmp_path: Path) -> None:
-    """An undeclared permissions.ask tool on a declaring server stays blocked."""
+@pytest.mark.parametrize(
+    "tool",
+    [
+        # An undeclared permissions.ask tool on a declaring server stays blocked.
+        pytest.param("mcp__plc__reset_fault", id="ask-tool"),
+        # An undeclared destructive-marker tool on a declaring server stays blocked,
+        # even though the facility auto-allows it.
+        pytest.param("mcp__plc__wipe_log", id="destructive-tool"),
+    ],
+)
+def test_headless_blocks_an_undeclared_tool_on_declaring_server(tmp_path: Path, tool: str) -> None:
     (tmp_path / "config.yml").write_text(_DECLARING_PLC)
 
-    assert "mcp__plc__reset_fault" in read_only_disallowed_tools(tmp_path)
-
-
-def test_headless_blocks_undeclared_destructive_tool_on_declaring_server(
-    tmp_path: Path,
-) -> None:
-    """An undeclared destructive-marker tool on a declaring server stays blocked,
-    even though the facility auto-allows it."""
-    (tmp_path / "config.yml").write_text(_DECLARING_PLC)
-
-    assert "mcp__plc__wipe_log" in read_only_disallowed_tools(tmp_path)
+    assert tool in read_only_disallowed_tools(tmp_path)
 
 
 def test_headless_empty_writes_list_still_blocks_ask_and_destructive(tmp_path: Path) -> None:

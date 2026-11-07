@@ -203,6 +203,40 @@ def test_attachment_keys_spelled_in_a_layer_are_refused(
     assert layer in message
 
 
+@pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"container_runtime": "podman"},
+        {"container_runtime": "docker"},
+        {"container_runtime": "auto"},
+    ],
+)
+def test_container_runtime_spelled_in_a_layer_is_refused(
+    tmp_path: Path, layer: str, config: dict
+) -> None:
+    """The deployment's runtime is set once, in profile.yml; a layer may not spell it."""
+    root = {**_ROOT, "config": {**_ROOT["config"], "container_runtime": "docker"}}
+    path = _repo(tmp_path, layer, {"name": "Layer", "config": config}, root=root)
+    with pytest.raises(BuildProfileError) as excinfo:
+        _resolve(path)
+    message = str(excinfo.value)
+    assert "'container_runtime'" in message
+    assert layer in message
+    assert "profile.yml" in message
+
+
+def test_container_runtime_spelled_in_a_retired_layer_is_refused(tmp_path: Path) -> None:
+    """The retired layer directory restates attachment facts; never the runtime."""
+    path = _repo(
+        tmp_path,
+        f"{RETIRED_LAYER_DIRNAME}/readonly.yml",
+        {"name": "Layer", "config": {"container_runtime": "auto"}},
+    )
+    with pytest.raises(BuildProfileError, match="'container_runtime'"):
+        _resolve(path)
+
+
 def test_other_web_terminals_keys_in_a_tier_are_not_attachment(tmp_path: Path) -> None:
     path = _repo(
         tmp_path, "tiers/readonly.yml", {"config": {"modules.web_terminals.idle_timeout": 30}}
@@ -244,7 +278,7 @@ def test_empty_exclude_in_a_tier_is_still_refused(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("layer", ["tiers/readonly.yml", "apps/logbook.yml"])
 def test_extends_in_a_layer_names_its_kind(tmp_path: Path, layer: str) -> None:
-    path = _repo(tmp_path, layer, {"extends": "control-assistant"})
+    path = _repo(tmp_path, layer, {"extends": "demo"})
     with pytest.raises(BuildProfileError, match="'extends'") as excinfo:
         _resolve(path)
     assert layer.split("/")[0] + "/" in str(excinfo.value)

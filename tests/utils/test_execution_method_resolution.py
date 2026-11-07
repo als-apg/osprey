@@ -30,14 +30,19 @@ def _config(method):
 class TestAcceptedValues:
     """Every accepted input resolves to the one backend that actually runs."""
 
-    def test_subprocess_resolves_to_subprocess(self):
-        assert resolve_execution_method(_config("subprocess")) == "subprocess"
-
-    def test_local_resolves_to_subprocess(self):
-        assert resolve_execution_method(_config("local")) == "subprocess"
-
-    def test_container_resolves_to_subprocess(self):
-        assert resolve_execution_method(_config("container")) == "subprocess"
+    @pytest.mark.parametrize(
+        "method",
+        [
+            pytest.param("subprocess", id="subprocess"),
+            pytest.param("local", id="local"),
+            pytest.param("container", id="container"),
+            # ``execution_method:`` with no value parses to None in YAML.
+            pytest.param(None, id="null"),
+            pytest.param("   ", id="blank"),
+        ],
+    )
+    def test_an_accepted_execution_method_resolves_to_subprocess(self, method):
+        assert resolve_execution_method(_config(method)) == "subprocess"
 
     def test_missing_execution_section_resolves_to_subprocess(self):
         assert resolve_execution_method({}) == "subprocess"
@@ -47,13 +52,6 @@ class TestAcceptedValues:
 
     def test_none_config_resolves_to_subprocess(self):
         assert resolve_execution_method(None) == "subprocess"
-
-    def test_null_execution_method_resolves_to_subprocess(self):
-        # ``execution_method:`` with no value parses to None in YAML.
-        assert resolve_execution_method(_config(None)) == "subprocess"
-
-    def test_blank_execution_method_resolves_to_subprocess(self):
-        assert resolve_execution_method(_config("   ")) == "subprocess"
 
     def test_values_are_case_and_whitespace_insensitive(self):
         assert resolve_execution_method(_config("  Local ")) == "subprocess"

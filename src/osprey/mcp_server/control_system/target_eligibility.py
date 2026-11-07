@@ -128,12 +128,8 @@ from osprey_connectors.ipc import (
     subsection,
 )
 from osprey_connectors.posture_env import is_readonly_run
-from osprey_connectors.standin import (
-    ARCHIVER_RECORDER_SERVICE,
-    LIVE_STANDIN_PORT_KEY,
-    archive_belongs_to_standin,
-    live_standin_active,
-)
+from osprey_connectors.simulator import virtual_accelerator_active
+from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY, live_standin_active
 from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_STANDIN,
@@ -149,9 +145,6 @@ logger = logging.getLogger("osprey.mcp_server.control_system.target_eligibility"
 ACK_KEY = "control_system.target_switch.live_gateway_acknowledged"
 #: The same key's leaf, derived from it so the two cannot drift apart.
 ACK_LEAF = ACK_KEY.rsplit(".", 1)[1]
-#: The build-profile key that stands the stand-in up. Named in a refusal so the
-#: operator is told the one line to delete, not merely which fact is true.
-STANDIN_PROFILE_KEY = "virtual_accelerator.live_standin"
 #: Leaf key on a connector block; the full key names the resolved type.
 PROBE_CHANNEL_KEY = "probe_channel"
 
@@ -185,7 +178,6 @@ REASON_STANDIN_NOT_DEPLOYED = "standin_not_deployed"
 REASON_REACHES_LIVE_MACHINE = "reaches_live_machine"
 REASON_INVENTED_HISTORY = "invented_history"
 REASON_OPERATOR_ACK_MISSING = "operator_ack_missing"
-REASON_ARCHIVE_BELONGS_TO_STANDIN = "archive_belongs_to_standin"
 
 #: Not an eligibility reason: a run holding the target down is a refusal the
 #: switch earns from the deployment's own traffic rather than from its config.
@@ -199,6 +191,11 @@ REASON_EXECUTION_IN_FLIGHT = "execution_in_flight"
 SURFACE_PYTHON_EXECUTOR = "python_executor"
 #: A notebook cell, between its first control-system call and the end of the cell.
 SURFACE_NOTEBOOK_KERNEL = "notebook_kernel"
+#: The in-flight marker field naming its client in words, stamped by a
+#: control-session write (:meth:`osprey.runtime.session.ControlSession.write`),
+#: which has no window or kernel an operator could find and ends on its own
+#: within the write time budget.
+MARKER_CLIENT_FIELD = "client"
 
 
 @dataclass(frozen=True)
@@ -296,13 +293,12 @@ def endpoint_is_live_standin(config: Any, endpoint: Endpoint | None) -> bool:
     The step between :func:`derive_endpoints` — which says where a session would
     land — and :func:`~osprey_connectors.standin.live_standin_active`, which says
     whether landing there is landing on the stand-in. It lives beside the
-    derivation because both of its callers reach it from one: the roster, which
-    labels the target an operator is told they are on, and the archiver
-    recorder, which decides from the same fact whether the readings it samples
-    belong in this deployment's archive. Two copies of this step could coerce
-    the port differently and answer differently, and a recorder that believed it
-    was sampling a stand-in while an operator was being told ``LIVE MACHINE``
-    would file model readings into a real machine's archive.
+    derivation because its callers reach it from one: the roster labels the
+    target an operator is told they are on from this answer, and the switch
+    refuses a ``standin`` block repointed at hardware on it. Two copies of this
+    step could coerce the port differently and answer differently, and an
+    operator would be told ``LIVE MACHINE`` on one surface and stand-in on
+    another.
 
     Args:
         config: The full rendered config mapping.
@@ -326,6 +322,37 @@ def endpoint_is_live_standin(config: Any, endpoint: Endpoint | None) -> bool:
         # no port names no stand-in either.
         return False
     return bool(live_standin_active(config, endpoint_host=str(endpoint.host), endpoint_port=port))
+
+
+def endpoint_is_virtual_accelerator(config: Any, endpoint: Endpoint | None) -> bool:
+    """Whether a derived *endpoint* is this deployment's own virtual accelerator.
+
+    The simulator's twin of :func:`endpoint_is_live_standin`: the step between
+    :func:`derive_endpoints` for the ``va`` target and
+    :func:`~osprey_connectors.simulator.virtual_accelerator_active`, which says
+    whether landing there is landing on the container this deployment built.
+    Its caller is the archiver recorder, which samples the ``va`` target into
+    the deployment's store and must not do so for an endpoint the deployment
+    cannot vouch for — a ``va`` block repointed at another host is a real
+    machine until the config proves otherwise, and a real machine's readings
+    must never land in a synthesized past.
+
+    Args:
+        config: The full rendered config mapping.
+        endpoint: The row the connector would configure, or ``None``.
+
+    Returns:
+        ``True`` only for an endpoint that is the deployment's own simulator.
+    """
+    if endpoint is None or not isinstance(config, dict):
+        return False
+    try:
+        port = int(endpoint.port)
+    except (TypeError, ValueError):
+        return False
+    return bool(
+        virtual_accelerator_active(config, endpoint_host=str(endpoint.host), endpoint_port=port)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -423,14 +450,16 @@ def evaluate_eligibility(
     7. FR-8 posture, only for a switch *toward* ``live``: the operator
        acknowledgment. The stand-in's equivalent was said at build time by
        ``virtual_accelerator.live_standin``
-       (:data:`REASON_OPERATOR_ACK_MISSING`);
-    8. for ``live`` only, and only toward it: the archive is not the stand-in's.
-       A deployment that records its own store beside a stand-in records the
-       stand-in, and a real machine's readings must not land in that store
-       (:data:`REASON_ARCHIVE_BELONGS_TO_STANDIN`).
+       (:data:`REASON_OPERATOR_ACK_MISSING`).
 
-    A **return to the deployment baseline** waives checks 3 and 4 along with 7
-    and 8. Those two are the Channel Access shape of a connector block, and a
+    The archive is not a gate on any target. The deployment's own store is the
+    virtual accelerator's — the recorder samples the simulator and nothing
+    else — and the live machine and its stand-in share the facility's
+    appliance, so no switch can put one machine's readings into another
+    machine's past.
+
+    A **return to the deployment baseline** waives checks 3 and 4 along with 7.
+    Those two are the Channel Access shape of a connector block, and a
     baseline that never filled it in — a machine reached over another protocol,
     a block half authored — would otherwise be a target a session could leave
     and never come back to. Coming home still has to pass 1, 2, 5 and 6: the
@@ -601,36 +630,19 @@ def evaluate_eligibility(
                 "session onto this target.",
             )
 
-    if target == TARGET_LIVE and switching_away:
-        # The acknowledgment is the live machine's alone. It is the operator
-        # saying the configured gateways really are this facility's, and the
-        # stand-in's equivalent was already said at build time by the profile
-        # line that stood it up: `virtual_accelerator.live_standin` names the
-        # port, and nothing about that endpoint is a gateway anyone could
-        # mistake for the facility's.
-        if not _acknowledged(config):
-            return Eligibility(
-                False,
-                REASON_OPERATOR_ACK_MISSING,
-                f"Switching to the live machine requires '{ACK_KEY}' to be set — the "
-                "operator confirming the configured gateways really are this "
-                "facility's. Set it to your live gateway's hostname.",
-            )
-        if archive_belongs_to_standin(config):
-            return Eligibility(
-                False,
-                REASON_ARCHIVE_BELONGS_TO_STANDIN,
-                f"Refusing target {target!r}: the deployment behind this archive "
-                f"store records it from the stand-in ('{STANDIN_PROFILE_KEY}' stood "
-                f"one up and its '{ARCHIVER_RECORDER_SERVICE}' samples it), so the "
-                "history in that store is the stand-in's. Selecting the live machine "
-                "would splice a real machine's readings onto a stand-in's past, in "
-                "one store nothing afterwards can tell apart. Switch that "
-                f"deployment's '{ARCHIVER_RECORDER_SERVICE}' service off, or drop "
-                f"'{STANDIN_PROFILE_KEY}' so it stops standing a stand-in up — in "
-                "the hosting profile, for an attached session — and rebuild before "
-                "switching a session onto the live machine.",
-            )
+    # The acknowledgment is the live machine's alone. It is the operator saying
+    # the configured gateways really are this facility's, and the stand-in's
+    # equivalent was already said at build time by the profile line that stood
+    # it up: `virtual_accelerator.live_standin` names the port, and nothing about
+    # that endpoint is a gateway anyone could mistake for the facility's.
+    if target == TARGET_LIVE and switching_away and not _acknowledged(config):
+        return Eligibility(
+            False,
+            REASON_OPERATOR_ACK_MISSING,
+            f"Switching to the live machine requires '{ACK_KEY}' to be set — the "
+            "operator confirming the configured gateways really are this "
+            "facility's. Set it to your live gateway's hostname.",
+        )
 
     return Eligibility(
         True,
@@ -744,7 +756,7 @@ def target_availability(
 # session its client belongs to, the reader names its own, and two equal
 # non-empty keys are one session. A pid walk answered the same question only
 # for clients that happened to descend from the reader, which a notebook kernel
-# and a popped-out window never do.
+# and a pane in its own window never does.
 
 
 #: How much of a session key a refusal prints. Long enough to tell two live
@@ -817,8 +829,12 @@ def _notebook_client(kernel_id: str, kernel_name: KernelNameResolver | None) -> 
 def busy_client(marker: Mapping[str, Any], *, kernel_name: KernelNameResolver | None = None) -> str:
     """How a refusal names the client whose run is holding the target down.
 
-    Four answers, and the last is the interesting one:
+    Five answers, and the last is the interesting one:
 
+    * a control-session write, named by the label its marker carries
+      (:data:`MARKER_CLIENT_FIELD`): its session key is ``<surface>:<pid>``,
+      which names a process, not a window, and the write ends on its own within
+      the write time budget;
     * a notebook kernel, named by the notebook it is running when *kernel_name*
       resolves one and by its kernel id when it does not. A kernel is named by
       its surface before its session because ``kernel:<id>`` is a session key
@@ -842,6 +858,10 @@ def busy_client(marker: Mapping[str, Any], *, kernel_name: KernelNameResolver | 
     Returns:
         A noun phrase that fits after "belongs to".
     """
+    client = marker.get(MARKER_CLIENT_FIELD)
+    if isinstance(client, str) and client:
+        return client
+
     kernel_id = _notebook_kernel_id(marker)
     if kernel_id is not None:
         return _notebook_client(kernel_id, kernel_name)

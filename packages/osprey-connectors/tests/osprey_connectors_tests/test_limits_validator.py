@@ -200,7 +200,7 @@ def _nested_control_system(values: dict) -> dict:
 
     Nesting on every dot is only correct because these keys name built-in
     leaves. A ``control_system.connector.*`` key would be nested on the dots of
-    the connector type too — ``mypackage.MoatConnector`` becoming two levels —
+    the connector type too — ``mypackage.SiteConnector`` becoming two levels —
     which is exactly the mistake the resolvers refuse to make, so a test that
     needs a per-type block passes ``control_system`` itself rather than adding
     one here.
@@ -893,14 +893,14 @@ class TestFromPosture:
         posture = LimitsPosture(
             enabled=None,
             mode=None,
-            connector_type="mypackage.MoatConnector",
+            connector_type="mypackage.SiteConnector",
             incomplete=("enabled", "mode"),
         )
 
         validator = LimitsValidator._from_posture(posture)
 
         assert validator.failsafe_reason == (
-            "control_system.connector.mypackage.MoatConnector.limits_checking "
+            "control_system.connector.mypackage.SiteConnector.limits_checking "
             "does not state enabled, mode as a readable value"
         )
 
@@ -1298,13 +1298,20 @@ class TestValidateWithoutStepCheck:
         # The very write validate() refuses without a reader.
         validator.validate_without_step_check("FOO", 50.0)
 
-    def test_bounds_are_still_enforced(self):
+    @pytest.mark.parametrize(
+        ("channel", "value", "violation_type"),
+        [
+            pytest.param("FOO", 999.0, "MAX_EXCEEDED", id="bounds"),
+            pytest.param("NOT:LISTED", 1.0, "UNLISTED_CHANNEL", id="unlisted-channel"),
+        ],
+    )
+    def test_every_other_check_is_still_enforced(self, channel, value, violation_type):
         validator = _step_validator(max_step=1.0)
 
         with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate_without_step_check("FOO", 999.0)
+            validator.validate_without_step_check(channel, value)
 
-        assert exc.value.violation_type == "MAX_EXCEEDED"
+        assert exc.value.violation_type == violation_type
 
     def test_a_read_only_channel_is_still_refused(self):
         limits = {
@@ -1316,14 +1323,6 @@ class TestValidateWithoutStepCheck:
             validator.validate_without_step_check("FOO", 1.0)
 
         assert exc.value.violation_type == "READ_ONLY_CHANNEL"
-
-    def test_an_unlisted_channel_is_still_refused(self):
-        validator = _step_validator(max_step=1.0)
-
-        with pytest.raises(ChannelLimitsViolationError) as exc:
-            validator.validate_without_step_check("NOT:LISTED", 1.0)
-
-        assert exc.value.violation_type == "UNLISTED_CHANNEL"
 
 
 # ---------------------------------------------------------------------------

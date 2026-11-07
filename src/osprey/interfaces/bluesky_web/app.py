@@ -121,7 +121,7 @@ app = FastAPI(title="OSPREY Bluesky", lifespan=_lifespan)
 
 
 @app.middleware("http")
-async def _no_cache(request, call_next):  # type: ignore[no-untyped-def]
+async def _no_cache(request, call_next):
     """Forbid browser caching on everything this sidecar serves.
 
     The panel bundles ship unversioned filenames (``panel.js``, not

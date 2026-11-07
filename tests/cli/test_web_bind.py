@@ -265,26 +265,26 @@ class TestPortEnvvar:
 class TestResolveWebPort:
     """Pure resolver: declared env authoritative; CLI/config only as fallback."""
 
-    def test_declared_web_port_env_overrides_explicit_port(self):
+    @pytest.mark.parametrize(
+        "explicit_port",
+        [
+            9000,
+            # A deployment CAN declare the same port the flag already requests —
+            # the invariant is "declared wins", not "flag is always rejected".
+            9001,
+        ],
+        ids=["differs-from-the-declaration", "matches-the-declaration"],
+    )
+    def test_declared_web_port_env_overrides_explicit_port(self, explicit_port):
         assert (
             resolve_web_port(
-                9000, None, base=DEFAULT_PORT_BASE, env={DECLARED_WEB_PORT_ENV: "9001"}
+                explicit_port, None, base=DEFAULT_PORT_BASE, env={DECLARED_WEB_PORT_ENV: "9001"}
             )
             == 9001
         )
 
     def test_no_env_honors_explicit_port(self):
         assert resolve_web_port(9000, None, base=DEFAULT_PORT_BASE, env={}) == 9000
-
-    def test_deliberate_matching_declaration(self):
-        """A deployment CAN declare the same port the flag already requests —
-        the invariant is "declared wins", not "flag is always rejected"."""
-        assert (
-            resolve_web_port(
-                9001, None, base=DEFAULT_PORT_BASE, env={DECLARED_WEB_PORT_ENV: "9001"}
-            )
-            == 9001
-        )
 
     def test_falls_back_to_config_then_layout(self):
         assert resolve_web_port(None, 9002, base=DEFAULT_PORT_BASE, env={}) == 9002

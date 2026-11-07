@@ -22,20 +22,25 @@ Four concerns are covered, in the sections below:
    is broadcast;
 3. ``GET /api/agent-activity/recent`` reads the ring back newest-first, with a
    clamped ``limit``;
-4. the panel routes mirror agent-origin commands into the same ring under
-   synthetic tool names, one row per action, and never mirror human gestures.
+4. the panel routes mirror agent-origin commands (rail changes, registration
+   and applied dock ops) into the same ring under synthetic tool names, one row
+   per action, and never mirror human gestures.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from unittest.mock import patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX, router
+from osprey.interfaces.web_terminal.routes.panel_ops import router as panel_ops_router
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -297,17 +302,43 @@ def test_recent_non_integer_limit_is_rejected():
 # Panel commands never pass through POST /api/agent-activity — they have their
 # own SSE frames — so ``routes/panels.py`` appends an equivalent row directly.
 # The synthetic tool name is what the frontend words the entry from, so each
-# one is pinned here.
+# one is pinned here. Agent dock ops (``/api/panel-op/*``) record their row once
+# the dock client has applied the op; the test plays that client.
 
 # Resolve the register route's SSRF check to a routable LAN address without
 # real DNS.
 _LAN_ADDR = [(2, 1, 6, "", ("10.0.0.5", 0))]
 _GETADDRINFO_TARGET = "osprey.interfaces.web_terminal.routes.panels.socket.getaddrinfo"
-#: Panel already in the launcher rail, so focusing it adds no membership.
+#: Panel already in the launcher rail, so opening it adds no membership.
 _MEMBER_PANEL = "ariel"
-#: Enabled panel deliberately left OUT of the rail, so focusing it takes the
-#: membership-add path that broadcasts a visibility frame before the focus one.
+#: Enabled panel deliberately left OUT of the rail, so opening it takes the
+#: membership-add path that broadcasts a visibility frame after the op is applied.
 _NON_MEMBER_PANEL = "artifacts"
+#: The page playing the current dock client.
+_DOCK_CLIENT = "page-1"
+_TERMINAL_TILE = {"tile": "t9", "tabs": ["terminal"], "showing": "terminal"}
+#: The dock's layout before any op: the member panel beside the terminal.
+_BEFORE = {
+    "split": "row",
+    "items": [
+        {"tile": "t1", "tabs": [_MEMBER_PANEL], "showing": _MEMBER_PANEL, "size": 0.5},
+        {**_TERMINAL_TILE, "size": 0.5},
+    ],
+}
+#: The layout the dock answers every op with: both panels on screen, a tile each.
+_AFTER = {
+    "split": "row",
+    "items": [
+        {"tile": "t1", "tabs": [_MEMBER_PANEL], "showing": _MEMBER_PANEL, "size": 0.25},
+        {"tile": "t2", "tabs": [_NON_MEMBER_PANEL], "showing": _NON_MEMBER_PANEL, "size": 0.25},
+        {**_TERMINAL_TILE, "size": 0.5},
+    ],
+}
+_PRESET = {
+    "name": "Review",
+    "panels": [_NON_MEMBER_PANEL, _MEMBER_PANEL],
+    "layout": {"split": "row", "items": [{"tabs": [_NON_MEMBER_PANEL]}, {"tabs": [_MEMBER_PANEL]}]},
+}
 
 
 def _make_panel_client() -> TestClient:
@@ -315,15 +346,23 @@ def _make_panel_client() -> TestClient:
 
     Both routers share ``app.state``, so a mirrored panel row can be read back
     through ``GET /api/agent-activity/recent`` — the round trip a browser makes.
+    A real broadcaster and a current dock client let an agent op be relayed.
     """
     return TestClient(
         bare_route_app(
             panels_router,
+            panel_ops_router,
             router,
             enabled_panels={_MEMBER_PANEL, _NON_MEMBER_PANEL},
             custom_panels=[],
             visible_panels=[_MEMBER_PANEL],
             allow_runtime_panels=True,
+            panel_presets=[_PRESET],
+            broadcaster=FileEventBroadcaster(),
+            dock_layout=_BEFORE,
+            dock_layout_rev=1,
+            dock_client_id=_DOCK_CLIENT,
+            layout_dock=True,
         )
     )
 
@@ -333,6 +372,26 @@ def _panel_post(client: TestClient, path: str, body: dict) -> None:
     assert client.post(path, json=body).status_code == 200
 
 
+async def _agent_op(client: TestClient, route: str, body: dict) -> None:
+    """Run one agent dock op, playing the dock client that applies it as ``_AFTER``."""
+    app = client.app
+    page = app.state.broadcaster.subscribe(_DOCK_CLIENT)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://wt") as http:
+        task = asyncio.create_task(
+            http.post(f"/api/panel-op/{route}", json={"request_id": "r1", **body})
+        )
+        frame = await asyncio.wait_for(page.get(), timeout=2)
+        result = await http.post(
+            "/api/panel-op-result",
+            json={"request_id": frame["request_id"], "client_id": _DOCK_CLIENT, "layout": _AFTER},
+        )
+        assert result.status_code == 200, result.text
+        resp = await task
+    app.state.broadcaster.unsubscribe(page)
+    assert resp.status_code == 200, resp.text
+
+
 def _only_row(client: TestClient) -> dict:
     """The ring's single row, asserting there is exactly one."""
     ring = client.app.state.agent_activity_buffer
@@ -340,16 +399,20 @@ def _only_row(client: TestClient) -> dict:
     return ring[0]
 
 
+def _assert_row_shape(row: dict, tool: str, panel: str) -> None:
+    """A mirrored row is shaped exactly like a broadcast activity frame."""
+    assert row == {
+        "type": "agent_activity",
+        "tool": tool,
+        "target": {"kind": "panel", "panel": panel},
+        "ts": row["ts"],
+    }
+    assert isinstance(row["ts"], float)
+
+
 @pytest.mark.parametrize(
     ("path", "body", "tool", "panel"),
     [
-        pytest.param(
-            "/api/panel-focus",
-            {"panel": _MEMBER_PANEL, "source": "agent"},
-            "open_panel",
-            _MEMBER_PANEL,
-            id="focus",
-        ),
         pytest.param(
             "/api/panel-visibility",
             {"panel": _NON_MEMBER_PANEL, "visible": True, "source": "agent"},
@@ -363,17 +426,6 @@ def _only_row(client: TestClient) -> dict:
             "remove_panel_from_rail",
             _MEMBER_PANEL,
             id="rail-remove",
-        ),
-        pytest.param(
-            "/api/panel-arrange",
-            {
-                "tiles": [_MEMBER_PANEL, _NON_MEMBER_PANEL],
-                "focus": _NON_MEMBER_PANEL,
-                "source": "agent",
-            },
-            "arrange_workspace",
-            _NON_MEMBER_PANEL,
-            id="arrange",
         ),
         pytest.param(
             "/api/panels/register",
@@ -390,58 +442,79 @@ def _only_row(client: TestClient) -> dict:
     ],
 )
 def test_agent_panel_command_mirrors_one_row(path, body, tool, panel):
-    """Each agent panel verb is one row, shaped exactly like a broadcast activity frame."""
+    """Each agent rail/registration verb is one row, shaped like an activity frame."""
     client = _make_panel_client()
     with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
         _panel_post(client, path, body)
 
-    row = _only_row(client)
-    assert row == {
-        "type": "agent_activity",
-        "tool": tool,
-        "target": {"kind": "panel", "panel": panel},
-        "ts": row["ts"],
-    }
-    assert isinstance(row["ts"], float)
+    _assert_row_shape(_only_row(client), tool, panel)
 
 
-def test_membership_adding_switch_mirrors_only_the_focus():
-    """Two frames, one action: the visibility frame that precedes the focus is
-    part of the same switch, so history records the switch once."""
+@pytest.mark.parametrize(
+    ("route", "body", "tool", "panel"),
+    [
+        pytest.param("open", {"member": _MEMBER_PANEL}, "open_panel", _MEMBER_PANEL, id="open"),
+        pytest.param(
+            "open-set",
+            {"members": [_NON_MEMBER_PANEL, _MEMBER_PANEL], "as": "side"},
+            "open_panel_set",
+            _NON_MEMBER_PANEL,
+            id="open-set",
+        ),
+        pytest.param(
+            "open-arrangement",
+            {"name": "Review"},
+            "arrange_workspace",
+            "Review",
+            id="arrange",
+        ),
+        pytest.param("close", {"key": _MEMBER_PANEL}, "close_panel", _MEMBER_PANEL, id="close"),
+    ],
+)
+async def test_agent_dock_op_mirrors_one_row(route, body, tool, panel):
+    """Each applied agent dock op is one row, shaped like an activity frame."""
     client = _make_panel_client()
-    _panel_post(client, "/api/panel-focus", {"panel": _NON_MEMBER_PANEL, "source": "agent"})
+    await _agent_op(client, route, body)
+
+    _assert_row_shape(_only_row(client), tool, panel)
+
+
+async def test_membership_adding_open_mirrors_only_the_open():
+    """Two frames, one action: the visibility frame that follows the applied op
+    is part of the same open, so history records the open once."""
+    client = _make_panel_client()
+    # A second stream of the dock page: the op frame is addressed to that page.
+    watcher = client.app.state.broadcaster.subscribe(_DOCK_CLIENT)
+    await _agent_op(client, "open", {"member": _NON_MEMBER_PANEL})
 
     # Both frames really did go out — the mirroring is what is deduped, not the
     # broadcast, so this test would pass vacuously if the path had changed.
-    kinds = [call[0][0]["type"] for call in client.app.state.broadcaster.broadcast.call_args_list]
-    assert kinds == ["panel_visibility", "panel_focus"]
+    kinds = [watcher.get_nowait()["type"] for _ in range(watcher.qsize())]
+    assert kinds == ["panel_op", "panel_visibility"]
 
     row = _only_row(client)
     assert row["tool"] == "open_panel"
     assert row["target"] == {"kind": "panel", "panel": _NON_MEMBER_PANEL}
 
 
-def test_agent_arrange_without_focus_targets_the_first_tile():
-    """No requested focus: the row names the tile the server records as active."""
+async def test_agent_open_set_targets_its_first_member():
+    """A set has no single focus: the row names its first member."""
     client = _make_panel_client()
-    _panel_post(
-        client,
-        "/api/panel-arrange",
-        {"tiles": [_NON_MEMBER_PANEL, _MEMBER_PANEL], "source": "agent"},
+    await _agent_op(
+        client, "open-set", {"members": [_NON_MEMBER_PANEL, _MEMBER_PANEL], "as": "side"}
     )
 
     assert _only_row(client)["target"] == {"kind": "panel", "panel": _NON_MEMBER_PANEL}
-    assert client.app.state.active_panel == _NON_MEMBER_PANEL
 
 
 @pytest.mark.parametrize(
     ("path", "body"),
     [
         ("/api/panel-focus", {"panel": _MEMBER_PANEL}),
-        ("/api/panel-focus", {"panel": _NON_MEMBER_PANEL}),  # membership-add path
+        ("/api/panel-focus", {"panel": _NON_MEMBER_PANEL}),  # straggler path
         ("/api/panel-visibility", {"panel": _MEMBER_PANEL, "visible": False}),
         ("/api/panel-visibility", {"panel": _NON_MEMBER_PANEL, "visible": True}),
-        ("/api/panel-arrange", {"tiles": [_MEMBER_PANEL]}),
+        ("/api/panel-layout", {"layout": _AFTER, "dock": True, "client_id": _DOCK_CLIENT}),
         (
             "/api/panels/register",
             {"id": "grafana", "label": "GRAFANA", "url": "http://grafana.lan:3000"},
@@ -450,7 +523,7 @@ def test_agent_arrange_without_focus_targets_the_first_tile():
 )
 def test_human_origin_commands_are_never_mirrored(path, body):
     """The history is the *agent's* activity: an operator's own gestures — which
-    carry no ``source`` — leave it empty."""
+    carry no ``source``, and a dock's layout report — leave it empty."""
     client = _make_panel_client()
     with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
         _panel_post(client, path, body)
@@ -458,10 +531,10 @@ def test_human_origin_commands_are_never_mirrored(path, body):
     assert list(client.app.state.agent_activity_buffer) == []
 
 
-def test_mirrored_rows_read_back_through_the_recent_endpoint():
+async def test_mirrored_rows_read_back_through_the_recent_endpoint():
     """The mirrored rows are consumable by the SSE handler, newest first."""
     client = _make_panel_client()
-    _panel_post(client, "/api/panel-focus", {"panel": _MEMBER_PANEL, "source": "agent"})
+    await _agent_op(client, "open", {"member": _MEMBER_PANEL})
     _panel_post(
         client,
         "/api/panel-visibility",

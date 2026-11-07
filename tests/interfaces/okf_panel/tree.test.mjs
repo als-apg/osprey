@@ -88,7 +88,7 @@ describe('boot race: highlightActive before renderTree (7a)', () => {
     tree.renderTree(GROUPS);
 
     const link = treeEl.querySelector(
-      '.concept-link.active[data-concept-id="control-system/channel-finding"]'
+      '.concept-link[aria-current="page"][data-concept-id="control-system/channel-finding"]'
     );
     expect(link).not.toBeNull();
   });
@@ -100,8 +100,8 @@ describe('boot race: highlightActive, then highlightStructure, before renderTree
     tree.highlightStructure();
     tree.renderTree(GROUPS);
 
-    expect(structureLink.classList.contains('active')).toBe(true);
-    expect(treeEl.querySelector('.concept-link.active')).toBeNull();
+    expect(structureLink.getAttribute('aria-current')).toBe('page');
+    expect(treeEl.querySelector('.concept-link[aria-current]')).toBeNull();
   });
 });
 
@@ -116,7 +116,7 @@ describe('7b-plain: highlightStructure before renderTree, with no prior highligh
   // `applyConceptHighlight(null)` whether or not the `!= null` guard exists.
   // `applyConceptHighlight` compares `link.dataset.conceptId === id`; since
   // `dataset` values are always strings, `=== null` is always false, so the
-  // call just strips `.active` from every concept link (a no-op right after
+  // call just strips `aria-current` from every concept link (a no-op right after
   // a fresh render) and never touches `structureLink`. Dropping the guard
   // therefore leaves this assertion passing -- it is a purely type-level
   // regression (`string | null` flowing into `applyConceptHighlight(id:
@@ -125,8 +125,8 @@ describe('7b-plain: highlightStructure before renderTree, with no prior highligh
     tree.highlightStructure();
     tree.renderTree(GROUPS);
 
-    expect(structureLink.classList.contains('active')).toBe(true);
-    expect(treeEl.querySelector('.concept-link.active')).toBeNull();
+    expect(structureLink.getAttribute('aria-current')).toBe('page');
+    expect(treeEl.querySelector('.concept-link[aria-current]')).toBeNull();
   });
 });
 
@@ -136,7 +136,7 @@ describe('ordinary order: renderTree before highlightActive', () => {
     tree.highlightActive('control-system/channel-finding');
 
     const link = treeEl.querySelector(
-      '.concept-link.active[data-concept-id="control-system/channel-finding"]'
+      '.concept-link[aria-current="page"][data-concept-id="control-system/channel-finding"]'
     );
     expect(link).not.toBeNull();
   });
@@ -173,7 +173,7 @@ describe('renderTree: empty-group placeholder', () => {
 
     const groups = Array.from(treeEl.querySelectorAll('section.group'));
     const emptyGroup = groups.find(
-      (section) => section.querySelector('.group-label')?.textContent === 'Empty Group'
+      (section) => section.querySelector('.osprey-section-label')?.textContent === 'Empty Group'
     );
     expect(emptyGroup).toBeDefined();
     const placeholder = /** @type {Element} */ (emptyGroup).querySelector('.muted.empty-group');
@@ -189,7 +189,7 @@ describe('highlightStructure basics', () => {
 
     tree.highlightStructure();
 
-    expect(structureLink.classList.contains('active')).toBe(true);
-    expect(treeEl.querySelectorAll('.concept-link.active').length).toBe(0);
+    expect(structureLink.getAttribute('aria-current')).toBe('page');
+    expect(treeEl.querySelectorAll('.concept-link[aria-current]').length).toBe(0);
   });
 });

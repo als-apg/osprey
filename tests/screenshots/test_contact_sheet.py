@@ -10,11 +10,13 @@ fits the narrow terminal card.
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from pathlib import Path
 
 import pytest
 from docs.screenshots.contact_sheet import (
+    _NAV_TIMEOUT_MS,
     _PLOT_DRAWN_SELECTOR,
     _PLOT_FRAME_SELECTOR,
     _PLOT_ROW_SELECTOR,
@@ -79,7 +81,7 @@ def _get(url: str) -> tuple[int, bytes]:
 
     request = urllib.request.Request(url)  # loopback
     request.add_header(OPERATOR_SECRET_HEADER, get_web_credentials().operator_secret)
-    with urllib.request.urlopen(request, timeout=10) as resp:  # loopback
+    with urllib.request.urlopen(request, timeout=_NAV_TIMEOUT_MS / 1000) as resp:  # loopback
         return resp.status, resp.read()
 
 
@@ -611,22 +613,25 @@ def test_accent_map_covers_every_token_accent_var() -> None:
     _assert_accent_map_covers_tokens()  # must not raise
 
 
-def test_accent_map_flags_an_unhandled_token_var(monkeypatch) -> None:
-    """A new /accent/ var outside the map and exclusions fails the run."""
+@pytest.mark.parametrize(
+    ("tokens_css", "match"),
+    [
+        # A new /accent/ var outside the map and exclusions fails the run.
+        pytest.param(
+            "--color-accent-brandnew: #fff;",
+            "neither overrides nor excludes",
+            id="unhandled-token-var",
+        ),
+        # An override key that no longer exists in tokens.css fails the run. This
+        # tokens.css has only one of the many overridden vars present.
+        pytest.param("--color-accent: #fff;", "absent from tokens.css", id="stale-override-key"),
+    ],
+)
+def test_accent_map_self_check_fails_the_run(monkeypatch, tokens_css, match) -> None:
     from docs.screenshots import contact_sheet as cs
 
-    monkeypatch.setattr(cs, "_tokens_css_text", lambda: "--color-accent-brandnew: #fff;")
-    with pytest.raises(RuntimeError, match="neither overrides nor excludes"):
-        cs._assert_accent_map_covers_tokens()
-
-
-def test_accent_map_flags_a_stale_override_key(monkeypatch) -> None:
-    """An override key that no longer exists in tokens.css fails the run."""
-    from docs.screenshots import contact_sheet as cs
-
-    # tokens.css with only one of the many overridden vars present.
-    monkeypatch.setattr(cs, "_tokens_css_text", lambda: "--color-accent: #fff;")
-    with pytest.raises(RuntimeError, match="absent from tokens.css"):
+    monkeypatch.setattr(cs, "_tokens_css_text", lambda: tokens_css)
+    with pytest.raises(RuntimeError, match=match):
         cs._assert_accent_map_covers_tokens()
 
 
@@ -668,9 +673,9 @@ def test_accent_effective_variants_double_and_are_paired() -> None:
 
 
 def test_plot_row_and_frame_selectors_name_the_hub_list_and_the_viewer() -> None:
-    """The row is the hub sidebar's list row; the frame is the embedded viewer's."""
+    """The row is the hub sidebar's tree row; the frame is the embedded viewer's."""
     assert _PLOT_ROW_SELECTOR == (
-        f'#sidebar-artifacts-list .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
+        f'#sidebar-session-tree .osprey-list-row[data-id="{DEMO_PLOT_ARTIFACT_ID}"]'
     )
     assert _PLOT_FRAME_SELECTOR == "#preview-content iframe.preview-iframe-light"
 
@@ -879,6 +884,36 @@ def test_hub_capture_names_the_variant_when_the_plot_row_is_not_clickable(
     assert not (tmp_path / "shot.png").exists()
 
 
+def _note_failed_capture(exc: BaseException, capture: str, hub: HermeticHub) -> None:
+    """Add a note naming *capture* and the hub's answer to one ``GET /health``."""
+    url = f"{hub.base_url}/health"
+    try:
+        with urllib.request.urlopen(url, timeout=_NAV_TIMEOUT_MS / 1000) as resp:  # loopback
+            state = f"HTTP {resp.status}"
+    except urllib.error.HTTPError as probe_exc:
+        state = f"HTTP {probe_exc.code}"
+    except Exception as probe_exc:  # the note records whatever the probe met
+        state = f"{type(probe_exc).__name__}: {probe_exc}"
+    exc.add_note(f"{capture}; hub {url}: {state}")
+
+
+def test_a_failed_hub_capture_notes_the_capture_and_the_hub_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A Playwright error from a capture is noted with the capture and the hub's answer."""
+    page = _FakeHubPage(drawn=[True, True], click_error=PlaywrightError("Target closed"))
+    hub = HermeticHub("http://127.0.0.1:9", "http://127.0.0.1:9", tmp_path, tmp_path / "s")
+    with pytest.raises(PlaywrightError) as info:
+        try:
+            _drive(monkeypatch, tmp_path, page)
+        except (RuntimeError, PlaywrightError) as exc:
+            _note_failed_capture(exc, "capture 0 of 1 (light, terminal)", hub)
+            raise
+    (note,) = info.value.__notes__
+    assert note.startswith("capture 0 of 1 (light, terminal); hub http://127.0.0.1:9/health: ")
+    assert "URLError" in note
+
+
 @pytest.mark.browser
 def test_hub_capture_writes_every_surface_twice_in_one_hub(tmp_path: Path) -> None:
     """Every surface captures in one hub, and a repeat terminal capture does not stall."""
@@ -897,8 +932,9 @@ def test_hub_capture_writes_every_surface_twice_in_one_hub(tmp_path: Path) -> No
                 dest = tmp_path / f"{index}_{theme}_{agent}.png"
                 try:
                     capture_hub_view(browser, hub, theme, agent, dest)
-                except RuntimeError as exc:
-                    exc.add_note(f"capture {index} of {len(sequence)} ({theme}, {agent})")
+                except (RuntimeError, PlaywrightError) as exc:
+                    capture = f"capture {index} of {len(sequence)} ({theme}, {agent})"
+                    _note_failed_capture(exc, capture, hub)
                     raise
                 assert dest.exists()
                 assert dest.read_bytes().startswith(b"\x89PNG")

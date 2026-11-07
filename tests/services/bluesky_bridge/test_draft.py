@@ -26,7 +26,7 @@ from osprey.services.bluesky_bridge.app import app
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
     "readbacks": ["BPM1"],
-    "span_a": 1.0,
+    "span": 1.0,
     "num": 3,
 }
 _GRID_SCAN_ARGS: dict[str, Any] = {
@@ -145,7 +145,7 @@ def test_plan_name_change_replaces_plan_args(client: TestClient) -> None:
     # value, so it is the one key a wholesale replacement leaves unchanged.
     assert set(body["changed"]) == {
         "correctors",
-        "span_a",
+        "span",
         "num",
         "axes",
     }
@@ -231,17 +231,21 @@ def test_patch_coerces_string_onto_int_and_is_a_noop_when_equal(client: TestClie
     assert isinstance(full["num"], int)
 
 
-def test_patch_field_constraint_violation_422(client: TestClient) -> None:
+@pytest.mark.parametrize(
+    "field",
+    [
+        pytest.param("num", id="constraint-violation"),  # num=1 breaks ge=3
+        pytest.param("bogus_field", id="unknown-field"),
+    ],
+)
+def test_patch_of_a_bad_field_is_422_naming_the_field(client: TestClient, field: str) -> None:
     client.patch(
         "/draft",
         json={"plan_name": "orm", "plan_args_patch": _ORM_ARGS, "client_id": "agent-1"},
     )
-    resp = client.patch(
-        "/draft",
-        json={"plan_args_patch": {"num": 1}, "client_id": "agent-1"},  # ge=3
-    )
+    resp = client.patch("/draft", json={"plan_args_patch": {field: 1}, "client_id": "agent-1"})
     assert resp.status_code == 422
-    assert resp.json()["detail"]["field"] == "num"
+    assert resp.json()["detail"]["field"] == field
 
 
 # ---------------------------------------------------------------------------
@@ -258,18 +262,6 @@ def test_unknown_plan_name_422(client: TestClient) -> None:
     assert "unknown plan" in str(resp.json()["detail"])
 
 
-def test_unknown_field_rejected_422(client: TestClient) -> None:
-    client.patch(
-        "/draft",
-        json={"plan_name": "orm", "plan_args_patch": _ORM_ARGS, "client_id": "agent-1"},
-    )
-    resp = client.patch(
-        "/draft", json={"plan_args_patch": {"bogus_field": 1}, "client_id": "agent-1"}
-    )
-    assert resp.status_code == 422
-    assert resp.json()["detail"]["field"] == "bogus_field"
-
-
 # ---------------------------------------------------------------------------
 # 409s: no_draft, expected_plan_name mismatch
 # ---------------------------------------------------------------------------
@@ -279,6 +271,7 @@ def test_patch_with_no_draft_and_no_plan_name_409(client: TestClient) -> None:
     resp = client.patch("/draft", json={"plan_args_patch": {"num": 5}, "client_id": "human-1"})
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "no_draft"
+    assert resp.json()["detail"]["retryable"] is False
 
 
 def test_expected_plan_name_mismatch_409(client: TestClient) -> None:
@@ -296,6 +289,7 @@ def test_expected_plan_name_mismatch_409(client: TestClient) -> None:
     )
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "plan_name_mismatch"
+    assert resp.json()["detail"]["retryable"] is False
 
     # A matching expectation succeeds normally.
     resp2 = client.patch(
@@ -474,8 +468,8 @@ def test_sse_frame_order_and_content_over_real_http() -> None:
                     frame3 = _read_frame(lines)
                     assert frame3["type"] == "plan-change"
                     assert frame3["revision"] == 3
-                    # The prior orm-only keys (correctors, span_a, num) vanish; axes is new.
-                    assert {"correctors", "span_a", "num", "axes"} <= set(frame3["changed"])
+                    # The prior orm-only keys (correctors, span, num) vanish; axes is new.
+                    assert {"correctors", "span", "num", "axes"} <= set(frame3["changed"])
 
                     del_resp = action_client.request("DELETE", "/draft")
                     assert del_resp.status_code == 200

@@ -145,7 +145,7 @@ dependencies = [
     "psycopg-pool>=3.3.1,<4.0.0",
     # MongoDB client for the stored archive: the `mongodb_archiver` connector
     # reads it, the deploy-time seeder writes it, and the recorder keeps it
-    # current. Core rather than an extra because the shipped `control-assistant`
+    # current. Core rather than an extra because the shipped `demo`
     # preset deploys that store, and `osprey up` preflights this import before it
     # builds anything -- so an install that lacked it could not run the preset at
     # all. Declared here as well as in osprey-connectors: three framework modules
@@ -168,7 +168,7 @@ dependencies = [
     "watchdog>=6.0.0",
     # Async HTTP client for the web-terminal panel reverse proxy
     "httpx>=0.28.1",
-    # Lattice physics (Accelerator Toolbox for lattice dashboard + shared ring).
+    # Lattice physics (Accelerator Toolbox for the simulator, pyAT agent + shared ring).
     # Floor-pinned for the save_mat/load_mat(use='RING'), disable_6d, and
     # get_optics(get_chrom=) surface the shared ALS-U AR ring relies on.
     "accelerator-toolbox[plot]>=0.8.0",
@@ -241,7 +241,7 @@ dependencies = [
     # release satisfies the floor, pip *and* uv under its default policy
     # (`if-necessary`) silently take a pre-release — which is why the floor
     # names only a stable connectors release already on PyPI.
-    "osprey-connectors>=2026.11.0",
+    "osprey-connectors>=2026.11.4",
     # pyAML control-system backend over the connector; versions with this repo's
     # own calendar stream (same v-tags, same describe), so the floor is the last
     # stable framework release tag, which any same-checkout build satisfies.
@@ -273,6 +273,10 @@ docs = [
 
 # Development and testing
 dev = [
+    # The optimizer's base install, so the unit lanes run its model and
+    # environment-file tests; its engine suite needs the package's `service` extra.
+    # Versions from the same v-tags as pyaml-cs-osprey, so the floor follows its rule.
+    "osprey-optimizer>=2026.6.2",
     "pytest",
     "setuptools-scm",  # The build backend under hatch-vcs, called directly by the version-parity test
     "pytest-asyncio",
@@ -293,6 +297,7 @@ dev = [
     "types-PyYAML",  # `yaml`
     "types-Markdown",  # `markdown`
     "types-aiofiles",  # `aiofiles`
+    "types-psutil",  # `psutil`
     "pre-commit",
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
     # changes between minors, so an unpinned floor lets CI and the local hook
@@ -447,17 +452,34 @@ virtual-accelerator = [
     "aioca>=1.7",
 ]
 
+# Optimizer (packages/osprey-optimizer): the base install only, its models and
+# environment-file format. The search stack is that package's own `service`
+# extra and is installed only in the optimizer's image; it never enters `all`.
+optimizer = [
+    # Versions with this repo's own calendar stream (same v-tags, same describe),
+    # so the floor is the last stable framework release tag, which any
+    # same-checkout build satisfies; the same rule as pyaml-cs-osprey above.
+    "osprey-optimizer>=2026.6.2",
+]
+
 # All optional dependencies for complete installation
 all = [
     "osprey-framework[docs,dev,ariel,screen-capture-linux,gchat,teams]"
 ]
 
 [tool.uv.workspace]
-members = ["packages/osprey-connectors", "packages/pyaml-cs-osprey"]
+members = ["packages/osprey-connectors", "packages/osprey-optimizer", "packages/pyaml-cs-osprey"]
 
 [tool.uv.sources]
 osprey-connectors = { workspace = true }
+osprey-optimizer = { workspace = true }
 pyaml-cs-osprey = { workspace = true }
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [project.urls]
 Homepage = "https://als-apg.github.io/osprey"
@@ -540,27 +562,16 @@ version-file = "src/osprey/_version.py"
 # keeps them out of git. Add one, add the other — tests/cli/test_dockerfile_template.py
 # fails if the pair comes apart.
 #
-# - benchmarks/results: written by running the channel-finder benchmark from
-#   inside the packaged template tree.
 # - prefetched-models: GGUF model files staged on disk where the model host is
 #   unreachable, for the qmd sidecar to load over a read-only mount. Gigabytes
 #   each — unexcluded they turn a small wheel into an unusable one.
-exclude = ["src/osprey/templates/apps/control_assistant/data/benchmarks/results", "**/prefetched-models"]
+exclude = ["**/prefetched-models"]
 
 [tool.hatch.build.targets.wheel]
-# `dock_engine` (the dock layout rules shared with the panel builder) ships inside this
-# wheel from packages/dock-engine: it is too small for a distribution of its
-# own, and nothing on PyPI could otherwise satisfy a framework import of it.
-# The panel builder installs the same directory from git (`#subdirectory=packages/dock-engine`),
-# never the framework. The import-linter contract `dock-engine-standalone`
-# keeps the module from importing the framework back.
-packages = ["src/osprey", "packages/dock-engine/src/dock_engine"]
-
-# The engine's case corpus and manifest live beside its TypeScript, outside the
-# import root; `dock_engine._data` reads both as package data.
-[tool.hatch.build.targets.wheel.force-include]
-"packages/dock-engine/cases" = "dock_engine/cases"
-"packages/dock-engine/dist/manifest.json" = "dock_engine/manifest.json"
+packages = ["src/osprey"]
+# The CANOPY integration's checks module declares repository gates for scripts/check.py;
+# it is a development file, like the framework's scripts/repo_checks.py, not runtime code.
+exclude = ["src/osprey/integrations/canopy/repo_checks.py"]
 
 # Development tool configurations
 [tool.mypy]
@@ -571,18 +582,31 @@ python_version = "3.11"
 # report the same errors. `explicit_package_bases` is the half that makes the
 # roots count: it derives each module's name from them rather than from the
 # directory the file happens to live in.
-mypy_path = "src:packages/osprey-connectors/src:packages/pyaml-cs-osprey/src:packages/dock-engine/src"
+#
+# The first two roots are directories of scripts deployed side by side, which
+# import one another by bare name (`import osprey_safety_file`, `from validation
+# import ...`). Naming them ahead of `src` resolves those imports, so a call from
+# one script into a sibling is checked rather than taken as `Any`.
+mypy_path = """\
+src/osprey/templates/claude_code/claude/hooks:\
+src/osprey/templates/services/teams_bridge/relay:\
+src:packages/osprey-connectors/src:packages/osprey-optimizer/src:packages/pyaml-cs-osprey/src"""
 explicit_package_bases = true
 files = [
     "src",
     "packages/osprey-connectors/src",
+    "packages/osprey-optimizer/src",
     "packages/pyaml-cs-osprey/src",
-    "packages/dock-engine/src",
 ]
 warn_return_any = true
 warn_unused_configs = true
+# A suppression that no longer silences anything is reported, so a fix or a stub
+# upgrade cannot leave a `# type: ignore` behind that would hide the next error.
+warn_unused_ignores = true
 disallow_untyped_defs = false  # Gradual typing
-ignore_missing_imports = true
+# An unannotated function is not required to gain annotations, but its body is
+# still checked against the types it calls into.
+check_untyped_defs = true
 exclude = [
     "^build/",
     "^dist/",
@@ -613,6 +637,66 @@ module = [
 ]
 ignore_missing_imports = true
 
+# Installed with the framework or its dev extra, but shipping no type information
+# (no `py.typed`, no stub distribution). Their values stay `Any`. A package that
+# gains types, or a stub distribution that appears for it, comes off this list.
+[[tool.mypy.overrides]]
+module = [
+    "aioca.*",
+    "at.*",  # pyAT
+    "authlib.*",
+    "bluesky_queueserver.*",
+    "bluesky_queueserver_api.*",
+    "bluesky_tiled_plugins.*",
+    "plotly.*",
+    "pyaml.*",
+    "pySC.*",
+]
+ignore_missing_imports = true
+
+# Imported only where an optional platform or service is present, and not
+# installed by the dev extra: Azure Functions and Service Bus (the Teams relay and
+# receiver), the X11 screen-capture backend (`mss`, `Xlib`), the LUME PVA runner,
+# and the CANOPY repo checks (`check_kit`).
+[[tool.mypy.overrides]]
+module = [
+    "azure.*",
+    "check_kit.*",
+    "lume_pva_apg.*",
+    "mss.*",
+    "Xlib.*",
+]
+ignore_missing_imports = true
+
+# The optimizer's `service` extra (packages/osprey-optimizer): its search stack,
+# imported only by the engine and not installed by the dev extra the type check
+# runs on. Several of them ship no type information even where the extra is
+# installed. Their values stay `Any`.
+[[tool.mypy.overrides]]
+module = [
+    "botorch.*",
+    "gpytorch.*",
+    "joblib.*",
+    "polars.*",
+    "sklearn.*",
+    "torch.*",
+    "xopt.*",
+]
+ignore_missing_imports = true
+
+# scipy ships no types, and its stub distribution (`scipy-stubs`) is written in
+# Python 3.12 syntax that a check targeting the `python_version` above cannot
+# parse. Until that version is raised, scipy's values stay `Any`.
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
+ignore_missing_imports = true
+
+# The limits hook tries this path second, for a deployed framework older than the
+# connectors package's namespaces. It no longer exists in this tree.
+[[tool.mypy.overrides]]
+module = ["osprey_connectors.control_system.limits_validator"]
+ignore_missing_imports = true
+
 # Bluesky bridge (osprey.services.bluesky_bridge): the bridge's own HTTP core
 # (app.py, runs.py, security.py) stays import-clean of these, but the modules
 # that run inside the queueserver worker (qserver_startup.py, devices/, plans/)
@@ -634,6 +718,14 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["sphinx.*"]
 follow_imports = "skip"
+
+# CANOPY's PV backend (osprey.integrations.canopy.backend) implements CANOPY's
+# connector contract and imports its models. CANOPY is not a dependency of this
+# package: it is installed beside it only where that backend is served, so the
+# check must pass in an environment that does not have it.
+[[tool.mypy.overrides]]
+module = ["canopy.*"]
+ignore_missing_imports = true
 
 # The facility schema's generated pydantic model is gen-pydantic output, byte
 # for byte; its root class's `schema` field overrides `BaseModel.schema`. The
@@ -693,6 +785,7 @@ markers = [
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
     "dockerbuild: E2E tests that run a real docker build (skipped when docker is unavailable)",
     "qmd: Tests that need the qmd sidecar image (OSPREY_QMD_IMAGE). They REFUSE to skip when it is absent — a lane that skipped on a missing image would report success having proved nothing — so a lane that does not build or load one must deselect them with `-m 'not qmd'`",
+    "canopy: Tests that need CANOPY and PyDMConverter installed at the commits osprey.integrations.canopy names (PROVEN_COMMITS). Applied by tests/conftest.py from each module's imports, not by hand, except where a test needs CANOPY without importing it (as a subprocess, or through its installed distribution metadata). They REFUSE to skip — a lane that skipped them would report success having proved nothing about write refusal through CANOPY — so a lane without CANOPY deselects them with -m 'not canopy' and its summary says the contract was not exercised",
     "real_workspace_watcher: Web-terminal app test that needs a live filesystem observer — opts out of the conftest stub that keeps broadcaster assertions deterministic",
     "real_http_posters: MCP-server test of the HTTP posters themselves — opts out of the conftest stub that keeps notify_* POSTs from reaching a live web terminal",
     "real_graph_index: Build test of the channel search index derivation itself — opts out of the conftest stub that builds each corpus once per session and copies it into every render",
@@ -704,13 +797,12 @@ markers = [
 ]
 
 # Import boundaries, checked by `lint-imports` (import-linter) in the lint job.
-# The graph covers three distributions: `osprey` is the framework,
-# `osprey_connectors` the separately installable connectors package, and
-# `dock_engine` the dock layout rules shared with the panel builder. Every
+# The graph covers two distributions: `osprey` is the framework and
+# `osprey_connectors` the separately installable connectors package. Every
 # import statement counts, including ones inside functions and under
 # `if TYPE_CHECKING:`; an `importlib.import_module("...")` string does not.
 [tool.importlinter]
-root_packages = ["osprey", "osprey_connectors", "dock_engine"]
+root_packages = ["osprey", "osprey_connectors"]
 
 [[tool.importlinter.contracts]]
 id = "connectors-standalone"
@@ -720,15 +812,6 @@ name = "osprey_connectors never imports the framework"
 type = "forbidden"
 source_modules = ["osprey_connectors"]
 forbidden_modules = ["osprey"]
-
-[[tool.importlinter.contracts]]
-id = "dock-engine-standalone"
-name = "dock_engine imports neither the framework nor the connectors"
-# The package is shared with the panel builder, which installs it without either, and is
-# standard library only.
-type = "forbidden"
-source_modules = ["dock_engine"]
-forbidden_modules = ["osprey", "osprey_connectors"]
 
 [[tool.importlinter.contracts]]
 id = "connectors-public-api"
@@ -773,6 +856,9 @@ name = "The connector package's top-level modules, in layers"
 # The read-only predicate lives in `posture_env`, a leaf, so the posture store
 # no longer imports the control-system connectors that consult it.
 #
+# `write_authorization` reads the record and the posture store and is read by
+# the write guard in the control-system connectors, so it sits between them.
+#
 # A layer written with ":" holds two modules that still import each other,
 # each in one direction from inside a function: `posture_store` reads the
 # record `control_context` parses, and `control_context` takes its root and
@@ -788,6 +874,7 @@ layers = [
     "osprey_connectors.settle",
     "osprey_connectors.recovery",
     "osprey_connectors.errors | osprey_connectors.write_target",
+    "osprey_connectors.write_authorization",
     "osprey_connectors.control_context : osprey_connectors.posture_store",
     "osprey_connectors.logger",
     "osprey_connectors.config : osprey_connectors.workspace",
@@ -814,6 +901,10 @@ ignore_imports = [
     # read from the controls server's report beside the control-context record.
     "osprey_connectors.types -> osprey_connectors.control_context",
     "osprey_connectors.types -> osprey_connectors.posture_store",
+    # A stop is one gesture: the switch's one writer marks the program
+    # authorizations on the stopped machines revoked inside its record lock,
+    # through one function-local import of the grant format's own writer.
+    "osprey_connectors.control_context -> osprey_connectors.write_authorization",
 ]
 
 # Ruff configuration for modern Python linting
@@ -826,8 +917,8 @@ src = [
     "deployment",
     "packages/osprey-connectors/src",
     "packages/osprey-connectors/tests",
+    "packages/osprey-optimizer/src",
     "packages/pyaml-cs-osprey/src",
-    "packages/dock-engine/src",
 ]
 # Executable Python scripts without a .py suffix. Ruff selects files by suffix and
 # cannot see them; the pre-commit hook selects by shebang and lints them.
@@ -837,8 +928,8 @@ extend-include = ["tests/pty/stub_runtime/docker"]
 extend-exclude = [
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
+    "*/src/osprey_optimizer/_version.py",
     "*/src/pyaml_cs_osprey/_version.py",
-    "*/src/dock_engine/_version.py",
     # Generated from the facility schema by gen-pydantic; compared byte for byte
     # with a regeneration, so it is never reformatted.
     "src/osprey/facility/schema/_generated/",
@@ -943,8 +1034,8 @@ source = [
     "interfaces",
     "deployment",
     "packages/osprey-connectors/src",
+    "packages/osprey-optimizer/src",
     "packages/pyaml-cs-osprey/src",
-    "packages/dock-engine/src",
 ]
 # Hooks ship as standalone scripts and are exercised by spawning them, so most of
 # their code runs in child processes. The subprocess patcher makes those children
@@ -963,7 +1054,7 @@ omit = [
     # Written by the hatch-vcs build hook (gitignored); not source anyone maintains.
     "*/src/osprey/_version.py",
     "*/src/osprey_connectors/_version.py",
-    "*/src/dock_engine/_version.py",
+    "*/src/osprey_optimizer/_version.py",
 ]
 
 [tool.coverage.report]

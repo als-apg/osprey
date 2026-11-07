@@ -54,7 +54,7 @@ from tests.cli._reporters import ConsoleReporter, installed
 _PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 # ---------------------------------------------------------------------------
-# The exemplar: the control-assistant preset, resolved the way `init` resolves
+# The exemplar: the demo preset, resolved the way `init` resolves
 # it, with the layers the materializer parses. Session-scoped: the
 # preset is packaged data, identical for every test here.
 # ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ _PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 @pytest.fixture(scope="session")
 def exemplar() -> tuple[BuildProfile, dict]:
-    resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
+    resolved, _preset_dir = resolve_build_profile(None, "demo", (), ())
     texts = _layer_profile_texts(resolved, "Exemplar", "")
     return resolved, _parsed_layer_deltas(texts)
 
@@ -123,7 +123,7 @@ def test_the_card_shows_every_family_the_deployment_publishes(exemplar_lines: li
     """
     ports = line_with(exemplar_lines, "ports (user 0)")
 
-    for family in ("web", "artifact", "ariel", "lattice", "channel finder", "okf", "system health"):
+    for family in ("web", "artifact", "ariel", "channel finder", "okf", "system health"):
         assert family in ports
     assert f"web :{_PORTS['web']}" in ports
     assert f"artifact :{_PORTS['artifact']}" in ports
@@ -366,9 +366,10 @@ def test_the_panels_row_is_the_union_across_renders(exemplar_lines: list[str]) -
     # come from `web.panels.<id>.label` — they are not built-ins.
     # The order is declaration order: the host profile's `web_panels` first, in
     # the order it lists them, then whatever the layers add. JUPYTER
-    # follows SYSTEM because the profile lists `jupyter` after `system-health`.
+    # follows Health because the profile lists `jupyter` after `system-health`,
+    # and CANOPY follows JUPYTER because the profile lists `canopy` next.
     panels = line_with(exemplar_lines, "panels")
-    assert "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
+    assert "LOGBOOK · CHANNELS · KNOWLEDGE · Health · JUPYTER · CANOPY · EVENTS · BLUESKY" in panels
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(
@@ -472,6 +473,52 @@ def test_the_card_reads_the_renders_own_gate_predicates(
     servers = mcp_servers_on(format_profile_card(profile, deltas))
     assert "graph" not in servers
     assert "event_dispatcher" not in servers
+
+
+def test_a_panel_served_mcp_server_is_listed_only_with_its_panel(monkeypatch) -> None:
+    """A server derived from a sidecar panel follows each render's enabled panels.
+
+    The card holds profiles, not rendered configs, so it asks the question the
+    render asks of ``web.panels`` of each render's projected panel blocks: the
+    host's selection, and each layer's on top of it.
+    """
+    from osprey.cli.profile_card import _enabled_mcp_servers
+    from osprey.profiles.sidecar_panels import SidecarPanel
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, derive_panel_servers
+
+    panel = SidecarPanel(
+        "Synthetic screens",
+        "tests.synthetic:Sidecar",
+        mcp_path="/mcp",
+        agent_hop=True,
+        mcp_ask=("push_screen",),
+    )
+    monkeypatch.setitem(
+        FRAMEWORK_SERVERS, "screens", derive_panel_servers({"screens": panel})["screens"]
+    )
+
+    with_panel = BuildProfile(name="with", web_panels=["jupyter", "screens"])
+    without_panel = BuildProfile(name="without", web_panels=["jupyter"])
+    forced = BuildProfile(
+        name="forced",
+        web_panels=["jupyter"],
+        config={"claude_code": {"servers": {"screens": {"enabled": True}}}},
+    )
+
+    assert "screens" in _enabled_mcp_servers(with_panel, {})
+    assert "screens" not in _enabled_mcp_servers(without_panel, {})
+    assert "screens" not in _enabled_mcp_servers(forced, {})
+    assert "screens" in line_with(format_profile_card(with_panel, {}), "mcp ")
+    assert "controls" in _enabled_mcp_servers(without_panel, {})
+    # A layer that adds the panel ships the server for that render.
+    assert "screens" in _enabled_mcp_servers(without_panel, {"ops": {"web_panels": ["screens"]}})
+
+
+def test_the_mcp_row_lists_the_canopy_server_the_host_panel_ships(
+    exemplar_lines: list[str],
+) -> None:
+    """The host profile selects the CANOPY panel, so every render ships its server."""
+    assert "canopy" in mcp_servers_on(exemplar_lines)
 
 
 def test_the_model_row_names_the_provider_default_when_the_profile_names_none(
@@ -634,7 +681,7 @@ def test_init_prints_the_card_after_its_report(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        ["init", str(tmp_path / "exemplar"), "--preset", "control-assistant", "--no-git"],
+        ["init", str(tmp_path / "exemplar"), "--preset", "demo", "--no-git"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output

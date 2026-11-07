@@ -93,7 +93,6 @@ from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: full VA/bridge/Tiled image build + deploy -- runs in the
     # dedicated orm-roundtrip-e2e CI job, never the shared e2e-tests lane
@@ -123,7 +122,7 @@ HEALTH_TIMEOUT_SEC = 300.0
 # Within the band of the corrector a limits record bounds (+-12A in the example
 # facility) and the response model's documented linear regime (ORMParams' own
 # docstring); NUM_POINTS >= 3 per the schema's `ge=3`.
-SPAN_A = 5.0
+SPAN = 5.0
 
 #: 6 correctors x 21 points = 126 rows, sized deliberately past the 100-row
 #: default window of ``GET /runs/{id}/data``. The figure route computes over a
@@ -251,7 +250,11 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
         # settles on the corrector readbacks and fits against their setpoints,
         # so the stack starts in the `still` scenario: every reading serves
         # without motion.
-        extra_config={"config": {"simulation.default_scenarios": [STILL_SCENARIO]}},
+        # Without the agent's knowledge services, which nothing here reads (see
+        # _orm_stack.KNOWLEDGE_SERVICES_OFF).
+        extra_config=_orm_stack.knowledge_services_off(
+            {"config": {"simulation.default_scenarios": [STILL_SCENARIO]}}
+        ),
         # This module's own thousand-port block (see test_dispatch_deploy.py's
         # 20700 note): everything not pinned explicitly follows it instead of
         # landing on a real deployment's default 10000 block.
@@ -600,7 +603,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     plan_args = {
         "correctors": list(correctors),
         "readbacks": list(bpms),
-        "span_a": SPAN_A,
+        "span": SPAN,
         "num": NUM_POINTS,
     }
     expected_rows = len(correctors) * NUM_POINTS
@@ -735,7 +738,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
                 f"{panel['title']} / {series['label']}: {len(series['points'])} points, "
                 f"expected {NUM_POINTS} -- on a {expected_rows}-row run this is the figure "
                 "having been computed over a window of the rows rather than all of them, or "
-                "a point whose corrector current was never recorded (a sample with no x is "
+                "a point whose corrector setpoint was never recorded (a sample with no x is "
                 "dropped from the trace)"
             )
 
@@ -774,7 +777,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     status, windowed = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {windowed}"
     assert windowed["row_count"] == expected_rows, (
-        f"expected {expected_rows} rows (one per (corrector, current) point), "
+        f"expected {expected_rows} rows (one per (corrector, setpoint) point), "
         f"got {windowed['row_count']}: {windowed}"
     )
     assert windowed["truncated"] is True, (
@@ -791,19 +794,19 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
     assert data["truncated"] is False, f"asked for every row and still got a window: {data}"
 
-    columns = data["columns"]
+    columns = [column["name"] for column in data["columns"]]
     rows = rows_from_columnar(columns, data["rows"], data["row_count"]).rows
     measured = build_response_matrix(rows, correctors=list(correctors), readbacks=list(bpms))
 
-    # (a) matches the model oracle: the same symmetric-sweep currents the
+    # (a) matches the model oracle: the same symmetric-sweep values the
     # deployed orm plan itself computes (plans_core/orm.py's build_plan), so
     # the model is driven identically to how the plan drove the real stack.
     # The plan kicks each corrector about its own pre-run working point; every
-    # reading this stack serves is still, so the VA's correctors idle at 0 A,
-    # here those kicks ARE these absolute currents and the model needs no
+    # reading this stack serves is still, so the VA's correctors idle at zero,
+    # here those kicks ARE these absolute values and the model needs no
     # offset of its own.
-    step = (2 * SPAN_A) / (NUM_POINTS - 1)
-    currents = [-SPAN_A + i * step for i in range(NUM_POINTS)]
+    step = (2 * SPAN) / (NUM_POINTS - 1)
+    currents = [-SPAN + i * step for i in range(NUM_POINTS)]
     model = _model_response_matrix(deployed_orm_stack.repo, correctors, bpms, currents)
 
     assert np.allclose(measured, model, rtol=MATCH_RTOL, atol=MATCH_ATOL), (

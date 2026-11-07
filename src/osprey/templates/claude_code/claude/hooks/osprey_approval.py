@@ -5,9 +5,13 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse, PostToolUse, PostToolUseFailure, Stop, StopFailure
-tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire
+tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire, mcp__canopy__new_screen, mcp__canopy__patch_node, mcp__canopy__add_node, mcp__canopy__remove_node, mcp__canopy__convert_legacy, mcp__canopy__delete_draft, mcp__canopy__request_push
 safety_layer: 2
 ---
+
+The ``tools:`` line documents what this hook gates; it is not a matcher. The
+matchers come from each server's hook rules. Bare names are OSPREY's own MCP
+tools; ``mcp__canopy__*`` names are tools of the external CANOPY server.
 
 ## Flow
 
@@ -23,6 +27,12 @@ stdin ──► Parse JSON
          Is OSPREY tool?  ──NO──► EXIT (allow)
               │
              YES
+              │
+              ▼
+         plan mode, and the plan-mode
+         rule denies it?  ──YES──► EXIT, no decision
+              │
+             NO
               │
               ▼
          Load config.yml
@@ -210,7 +220,14 @@ from osprey_hook_log import (
 try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
-    _target_state = None
+    _target_state = None  # type: ignore[assignment]  # the sibling is absent
+
+# The plan-mode rule, a sibling script like the reader above. Guarded the same
+# way: a render without it has no early exit below, so the hook asks as before.
+try:
+    import osprey_plan_mode as _plan_mode
+except Exception:  # pragma: no cover - render without the plan-mode rule
+    _plan_mode = None  # type: ignore[assignment]  # the sibling is absent
 
 # The shared, stdlib-only file helper the stamps are written through, a sibling
 # script like the reader above. Guarded the same way: without it no stamp is
@@ -218,7 +235,7 @@ except Exception:  # pragma: no cover - older render without the reader
 try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
-    _safety_file = None
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 #: When this hook process entered, as a `time.monotonic` instant.
 #:
@@ -300,7 +317,7 @@ try:
 
 except ImportError:
 
-    def has_write_patterns(code: str, config: dict | None = None) -> bool:  # type: ignore[misc]
+    def has_write_patterns(code: str, config: dict | None = None) -> bool:
         """Check if code contains control system write patterns (fallback)."""
         patterns = list(_FALLBACK_WRITE_PATTERNS)
         if config:
@@ -444,7 +461,7 @@ def _record_reader(hook_input=None):
     hook process renders one prompt, and a memo any wider would hand a later
     call an answer taken before a switch it should have seen.
     """
-    cell = []
+    cell: list = []
 
     def read():
         if not cell:
@@ -475,7 +492,31 @@ def build_allow_output() -> dict:
     }
 
 
-def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
+# Canonical lowercase session UUID — must equal the grammar of
+# ``osprey.interfaces.web_terminal.session_key._SESSION_KEY_RE`` (the hub 422s
+# any other ``transcript_id``); mirrored here because the hook adds no import.
+_FOCUS_TRANSCRIPT_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# Must equal ``WATCHDOG_SESSION_PREFIX`` in ``osprey.interfaces.web_terminal``.
+_WATCHDOG_SESSION_PREFIX = "watchdog-"
+
+
+def _focus_transcript(session_id) -> str | None:
+    """The session an automatic focus belongs to, or ``None`` for an unscoped focus.
+
+    Only a canonical session UUID qualifies, and never inside a dispatch run
+    (``OSPREY_DISPATCH_RUN_ID`` set, or ``OSPREY_DISPATCH_RUN == "1"``) or a
+    watchdog-prefixed terminal session: those runs belong to no operator session.
+    """
+    if not isinstance(session_id, str) or _FOCUS_TRANSCRIPT_ID.fullmatch(session_id) is None:
+        return None
+    if os.environ.get("OSPREY_DISPATCH_RUN_ID") or os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        return None
+    if (os.environ.get("OSPREY_TERMINAL_SESSION") or "").startswith(_WATCHDOG_SESSION_PREFIX):
+        return None
+    return session_id
+
+
+def _focus_artifact(gallery_base_url: str, artifact_id: str, session_id=None) -> None:
     """Fire-and-forget POST to bring an artifact into focus in the gallery.
 
     Carries ``Authorization: Bearer <OSPREY_PANEL_TOKEN>`` whenever that
@@ -490,6 +531,10 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     already shows the call another way (the chat's approval card) may
     leave its own selection alone.
 
+    *session_id* is the hook payload's ``session_id``: it is sent as
+    ``transcript_id`` when :func:`_focus_transcript` accepts it, so the focus
+    lands in that session only; otherwise the focus goes unscoped.
+
     Non-fatal: silently swallows errors so focus failures never block approval.
     A gallery that refuses the call — 401 included — is a focus failure like any
     other and is swallowed the same way.
@@ -497,7 +542,11 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     try:
         import urllib.request
 
-        data = json.dumps({"artifact_id": artifact_id, "automatic": True}).encode()
+        body = {"artifact_id": artifact_id, "automatic": True}
+        transcript = _focus_transcript(session_id)
+        if transcript is not None:
+            body["transcript_id"] = transcript
+        data = json.dumps(body).encode()
         headers = {"Content-Type": "application/json"}
         token = (os.environ.get("OSPREY_PANEL_TOKEN") or "").strip()
         if token:
@@ -875,8 +924,8 @@ def _stamp_binding(record):
     if not isinstance(target, str) or not target:
         return None, None
     try:
-        return target, int(record.get("generation"))
-    except (TypeError, ValueError):
+        return target, int(record["generation"])
+    except (KeyError, TypeError, ValueError):
         return None, None
 
 
@@ -1839,9 +1888,10 @@ def _budgeted_preview_lines(base_url: str, plan_name, plan_args, deadline: float
     What a slow bridge yields therefore depends on which budget binds. With
     more than the bridge's own budget left (~10 s of polling plus at most one
     in-flight RPC) the bridge answers first and the approver reads its
-    `preview_timed_out`; with less, this client gives up first and the
-    budget-spent line says so. A preview the deadline cut — skipped because
-    nothing was left, or cut off mid-fetch — renders that line either way. A
+    refusal, `function_timeout`, which is not retryable; with less, this
+    client gives up first and the budget-spent line says so. A preview the
+    deadline cut — skipped because nothing was left, or cut off mid-fetch —
+    renders that line either way. A
     preview that failed for any other reason (an unreachable bridge, a
     refusal) keeps its own reason word: those name something the approver can
     act on, where a spent budget names only this prompt's own impatience.
@@ -2765,6 +2815,10 @@ _REVIEW_OUTCOME_WORDS = {
 }
 
 
+#: The settle a run's stored result head implies, by its ``run_status``.
+_SETTLE_FOR_RUN_STATUS = {"succeeded": "ran", "failed": "failed", "not_run": "not_run"}
+
+
 #: The artifact-metadata field holding what the code review said about the previewed code.
 _REVIEW_FINDINGS_KEY = "code_review"
 
@@ -2817,7 +2871,7 @@ def _review_outcome_state(outcome: str, stamp) -> str:
 
 
 def _create_pre_execution_notebook(
-    code: str, exec_mode: str, config: dict, review=None
+    code: str, exec_mode: str, config: dict, review=None, tool_use_id=None, session_id=None
 ) -> tuple[str | None, str | None]:
     """Save the review notebook for *code* as ``(gallery URL, artifact id)``.
 
@@ -2827,12 +2881,18 @@ def _create_pre_execution_notebook(
 
     *review* is what the code review said ahead of the prompt, kept in the
     entry's metadata so that settling the notebook can write it out again.
+    *tool_use_id* is the asked call's id: a valid one files the notebook as
+    that run's ``preview`` part (``exec_id``); anything else leaves it standing alone.
+    *session_id* is the hook payload's session, passed on to the gallery focus.
     """
     artifact_id = None
     try:
         from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
 
-        metadata = {"exec_mode": exec_mode or "", RUN_RECORD_KEY: True}
+        call_id = _valid_tool_use_id(tool_use_id) or ""
+        metadata = {"exec_mode": exec_mode or "", RUN_RECORD_KEY: True, "run_part": "preview"}
+        if call_id:
+            metadata["call_id"] = call_id
         if review:
             metadata[_REVIEW_FINDINGS_KEY] = review
         # The hook is a one-shot process, so it must not start a gallery of its
@@ -2847,6 +2907,7 @@ def _create_pre_execution_notebook(
             mime_type="application/x-ipynb+json",
             tool_source="osprey_approval",
             metadata=metadata,
+            exec_id=call_id,
         )
         artifact_id = entry.id
 
@@ -2858,7 +2919,7 @@ def _create_pre_execution_notebook(
             return None, artifact_id
 
         # Fire-and-forget POST to switch gallery focus to this notebook
-        _focus_artifact(base_url, artifact_id)
+        _focus_artifact(base_url, artifact_id, session_id)
 
         return f"{base_url}#focus", artifact_id
     except Exception:
@@ -2871,6 +2932,11 @@ def _settle_review(stamp, outcome: str) -> None:
     Only the status line and the gallery description change: the code and the mode
     are read back from the notebook and written again as they were. A stamp with no
     review id, or a review no longer in the store, is left alone.
+
+    When the run's result head is already stored, its ``run_status`` decides the
+    outcome (a ``PostToolUseFailure`` for a call the executor refused before launch
+    reads ``not_run``). The outcome is merged into the entry's metadata as
+    ``settled``, keeping every other writer's keys.
     """
     try:
         artifact_id = stamp.get(REVIEW_ARTIFACT_KEY)
@@ -2889,6 +2955,13 @@ def _settle_review(stamp, outcome: str) -> None:
         )
         code = next(cell.source for cell in notebook.cells if cell.cell_type == "code")
         exec_mode = entry.metadata.get("exec_mode", "")
+        group = store.run_group(entry.exec_id) if entry.exec_id else None
+        if (
+            group is not None
+            and group.run_status is not None
+            and group.roles.get(group.head_id) == "result"
+        ):
+            outcome = _SETTLE_FOR_RUN_STATUS.get(group.run_status, outcome)
         state = _review_outcome_state(outcome, stamp)
         store.replace_file(
             artifact_id,
@@ -2897,6 +2970,7 @@ def _settle_review(stamp, outcome: str) -> None:
             ),
             description=_review_description(exec_mode, state),
         )
+        store.merge_entry_metadata({artifact_id: {"settled": outcome}})
     except Exception:
         return
 
@@ -2920,6 +2994,10 @@ def _settle_review(stamp, outcome: str) -> None:
 # not answer is an outcome of its own and takes the level's word for it, as it
 # does on every surface: denied in blocking mode, asked with the note in advisory
 # mode and left unstamped, so the executor tries again.
+#
+# A review an admin switched off in the terminal is not run: the prompt and the
+# activity feed say so, the skip is recorded, and nothing is stamped, so the
+# executor asks the switch again before the launch.
 
 #: The tools whose code this hook reviews ahead of the ask.
 _REVIEWED_TOOLS = frozenset({"execute", "execute_file"})
@@ -2979,9 +3057,13 @@ def _review_prompt_lines(outcome) -> list[str]:
     a line of the prompt itself. The suggested revision goes to the agent, not
     onto the prompt.
     """
-    from osprey.services.code_review.contract import ReviewVerdict
+    from osprey.services.code_review.contract import ReviewSwitchedOff, ReviewVerdict
+    from osprey.services.code_review.review import switched_off_phrase
 
     result = outcome.result
+    if isinstance(result, ReviewSwitchedOff):
+        phrase = _sanitize_label(switched_off_phrase(result))
+        return [f"Code review: skipped, {phrase}; the code runs unreviewed if approved."]
     if not isinstance(result, ReviewVerdict):
         return [f"Code review: did not run ({result.kind}); the code runs unreviewed if approved."]
     headline = f"Code review: {result.verdict}"
@@ -3046,7 +3128,7 @@ def _review_before_ask(hook_input, tool_name, short_name, tool_input):
     for itself; a render that leaves no room (one from before the review existed)
     reviews nothing here and leaves it to the executor.
     """
-    nothing = [], {}, None
+    nothing: tuple[list, dict, None] = [], {}, None
     if short_name not in _REVIEWED_TOOLS:
         return nothing
     try:
@@ -3078,8 +3160,14 @@ def _review_before_ask(hook_input, tool_name, short_name, tool_input):
         import dataclasses
 
         from osprey.services.code_review.contract import SURFACE_EXECUTE, ReviewRequest
-        from osprey.services.code_review.review import ACTION_REFUSE, agent_message, review_code
+        from osprey.services.code_review.review import (
+            ACTION_REFUSE,
+            agent_message,
+            review_code,
+            skip_switched_off,
+        )
         from osprey.services.code_review.stamp import reviewed_fields
+        from osprey.services.code_review.switch import switched_off
 
         description = tool_input.get("description")
         request = ReviewRequest(
@@ -3090,14 +3178,24 @@ def _review_before_ask(hook_input, tool_name, short_name, tool_input):
             mode=mode,
             script_args=script_args,
         )
-        outcome = asyncio.run(
-            review_code(
-                request,
-                dataclasses.replace(settings, time_limit=time_limit),
-                repo_root=Path(get_repo_root(hook_input)),
-                render_dir=locate_osprey_config(hook_input).parent,
+        asked = time.monotonic()
+        off = switched_off()
+        # The switch read spends the budget too; the review gets what it left, and
+        # with nothing left the executor reviews before the launch.
+        time_limit -= time.monotonic() - asked
+        if off is not None:
+            outcome = skip_switched_off(off, settings.level)
+        elif time_limit <= 0:
+            return nothing
+        else:
+            outcome = asyncio.run(
+                review_code(
+                    request,
+                    dataclasses.replace(settings, time_limit=time_limit),
+                    repo_root=Path(get_repo_root(hook_input)),
+                    render_dir=locate_osprey_config(hook_input).parent,
+                )
             )
-        )
     except Exception:
         return nothing
 
@@ -3768,7 +3866,12 @@ def _describe_ask(hook_input, tool_name, short_name, tool_input, config, read_re
         exec_mode = tool_input.get("execution_mode", "")
         if isinstance(code, str) and code.strip():
             gallery_link, review_id = _create_pre_execution_notebook(
-                code, exec_mode, config, review_text
+                code,
+                exec_mode,
+                config,
+                review_text,
+                hook_input.get("tool_use_id"),
+                hook_input.get("session_id"),
             )
             if gallery_link:
                 lines.append(f"\nApproval preview: {gallery_link}")
@@ -3925,6 +4028,11 @@ def main():
     tool_input = hook_input.get("tool_input", {})
     short_name = short_tool_name(tool_name, _prefixes)
 
+    # Plan mode: the plan-mode rule denies this call, and an ask here would win over its deny.
+    if _plan_mode is not None and _plan_mode.plan_mode_denies(hook_input):
+        log_hook("approval", hook_input, status="defer", detail=f"plan_mode tool={short_name}")
+        sys.exit(0)
+
     config = load_osprey_config(hook_input)
     approval_config = config.get("approval", {})
 
@@ -4059,7 +4167,12 @@ def main():
                 review_id = None
                 if code.strip():
                     gallery_link, review_id = _create_pre_execution_notebook(
-                        code, exec_mode, config, review_text
+                        code,
+                        exec_mode,
+                        config,
+                        review_text,
+                        hook_input.get("tool_use_id"),
+                        hook_input.get("session_id"),
                     )
                     if gallery_link:
                         reason_parts.append(f"\nApproval preview: {gallery_link}")

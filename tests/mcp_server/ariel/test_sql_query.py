@@ -16,96 +16,87 @@ from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 class TestValidateSqlQuery:
     """Tests for the SQL validation function."""
 
-    def test_valid_select(self):
-        """Basic SELECT is accepted."""
-        validate_sql_query("SELECT * FROM enhanced_entries LIMIT 10")
+    @pytest.mark.parametrize(
+        "query",
+        [
+            # Basic SELECT is accepted.
+            pytest.param("SELECT * FROM enhanced_entries LIMIT 10", id="select"),
+            # WITH (CTE) + SELECT is accepted.
+            pytest.param(
+                "WITH recent AS (SELECT * FROM enhanced_entries WHERE timestamp > '2024-01-01') "
+                "SELECT * FROM recent",
+                id="cte",
+            ),
+            # Trailing semicolon is stripped, not rejected.
+            pytest.param("SELECT * FROM enhanced_entries;", id="trailing-semicolon"),
+            # text_embeddings_* tables are allowed.
+            pytest.param(
+                "SELECT * FROM text_embeddings_nomic_embed_text LIMIT 5",
+                id="text-embeddings-table",
+            ),
+        ],
+    )
+    def test_a_read_only_query_over_allowed_tables_is_accepted(self, query):
+        validate_sql_query(query)
 
-    def test_valid_cte(self):
-        """WITH (CTE) + SELECT is accepted."""
-        validate_sql_query(
-            "WITH recent AS (SELECT * FROM enhanced_entries WHERE timestamp > '2024-01-01') "
-            "SELECT * FROM recent"
-        )
-
-    def test_reject_query_that_reads_no_table(self):
-        """A server-side file read names no table, so the allowlist saw nothing."""
-        with pytest.raises(ValueError, match="reads no allowlisted table"):
-            validate_sql_query("SELECT pg_read_file('/etc/passwd')")
-
-    def test_reject_cte_only_query(self):
-        """A query whose only references are its own CTEs reads no real table."""
-        with pytest.raises(ValueError, match="reads no allowlisted table"):
-            validate_sql_query("WITH x AS (SELECT 1 AS n) SELECT * FROM x")
-
-    def test_reject_insert(self):
-        """INSERT is rejected."""
-        with pytest.raises(ValueError, match="INSERT"):
-            validate_sql_query("INSERT INTO enhanced_entries VALUES ('x')")
-
-    def test_reject_update(self):
-        """UPDATE is rejected."""
-        with pytest.raises(ValueError, match="UPDATE"):
-            validate_sql_query("UPDATE enhanced_entries SET author = 'x'")
-
-    def test_reject_delete(self):
-        """DELETE is rejected."""
-        with pytest.raises(ValueError, match="DELETE"):
-            validate_sql_query("DELETE FROM enhanced_entries")
-
-    def test_reject_drop(self):
-        """DROP is rejected."""
-        with pytest.raises(ValueError, match="DROP"):
-            validate_sql_query("DROP TABLE enhanced_entries")
-
-    def test_reject_truncate(self):
-        """TRUNCATE is rejected."""
-        with pytest.raises(ValueError, match="TRUNCATE"):
-            validate_sql_query("TRUNCATE enhanced_entries")
-
-    def test_reject_multi_statement(self):
-        """Semicolons in query body are rejected."""
-        with pytest.raises(ValueError, match="Multi-statement"):
-            validate_sql_query("SELECT 1; DROP TABLE enhanced_entries")
-
-    def test_trailing_semicolon_ok(self):
-        """Trailing semicolon is stripped, not rejected."""
-        validate_sql_query("SELECT * FROM enhanced_entries;")
-
-    def test_case_insensitive_rejection(self):
-        """Forbidden keywords detected case-insensitively."""
-        with pytest.raises(ValueError, match="DROP"):
-            validate_sql_query("SELECT * FROM enhanced_entries WHERE 1=1 DROP TABLE foo")
-
-    def test_reject_table_not_in_allowlist(self):
-        """Tables not in allowlist are rejected."""
-        with pytest.raises(ValueError, match="not in the allowlist"):
-            validate_sql_query("SELECT * FROM users")
-
-    def test_text_embeddings_table_allowed(self):
-        """text_embeddings_* tables are allowed."""
-        validate_sql_query("SELECT * FROM text_embeddings_nomic_embed_text LIMIT 5")
-
-    def test_empty_query(self):
-        """Empty query is rejected."""
-        with pytest.raises(ValueError, match="empty"):
-            validate_sql_query("")
-
-    def test_must_start_with_select_or_with(self):
-        """Query must start with SELECT or WITH."""
-        with pytest.raises(ValueError, match="Only SELECT"):
-            validate_sql_query("EXPLAIN SELECT * FROM enhanced_entries")
-
-    def test_cte_with_insert_rejected(self):
-        """CTE followed by INSERT is rejected."""
-        with pytest.raises(ValueError, match="INSERT"):
-            validate_sql_query(
-                "WITH data AS (SELECT 1) INSERT INTO enhanced_entries SELECT * FROM data"
-            )
-
-    def test_comment_injection(self):
-        """A comment cannot hide a keyword: the comment itself is refused first."""
-        with pytest.raises(ValueError, match="Line comments are not allowed"):
-            validate_sql_query("SELECT * FROM enhanced_entries -- DROP TABLE foo\n DROP TABLE bar")
+    @pytest.mark.parametrize(
+        ("query", "match"),
+        [
+            # A server-side file read names no table, so the allowlist saw nothing.
+            pytest.param(
+                "SELECT pg_read_file('/etc/passwd')",
+                "reads no allowlisted table",
+                id="query-that-reads-no-table",
+            ),
+            # A query whose only references are its own CTEs reads no real table.
+            pytest.param(
+                "WITH x AS (SELECT 1 AS n) SELECT * FROM x",
+                "reads no allowlisted table",
+                id="cte-only-query",
+            ),
+            pytest.param("INSERT INTO enhanced_entries VALUES ('x')", "INSERT", id="insert"),
+            pytest.param("UPDATE enhanced_entries SET author = 'x'", "UPDATE", id="update"),
+            pytest.param("DELETE FROM enhanced_entries", "DELETE", id="delete"),
+            pytest.param("DROP TABLE enhanced_entries", "DROP", id="drop"),
+            pytest.param("TRUNCATE enhanced_entries", "TRUNCATE", id="truncate"),
+            # Semicolons in query body are rejected.
+            pytest.param(
+                "SELECT 1; DROP TABLE enhanced_entries", "Multi-statement", id="multi-statement"
+            ),
+            # Forbidden keywords detected case-insensitively.
+            pytest.param(
+                "SELECT * FROM enhanced_entries WHERE 1=1 DROP TABLE foo",
+                "DROP",
+                id="case-insensitive-rejection",
+            ),
+            # Tables not in allowlist are rejected.
+            pytest.param(
+                "SELECT * FROM users", "not in the allowlist", id="table-not-in-allowlist"
+            ),
+            pytest.param("", "empty", id="empty-query"),
+            # Query must start with SELECT or WITH.
+            pytest.param(
+                "EXPLAIN SELECT * FROM enhanced_entries",
+                "Only SELECT",
+                id="must-start-with-select-or-with",
+            ),
+            # CTE followed by INSERT is rejected.
+            pytest.param(
+                "WITH data AS (SELECT 1) INSERT INTO enhanced_entries SELECT * FROM data",
+                "INSERT",
+                id="cte-with-insert",
+            ),
+            # A comment cannot hide a keyword: the comment itself is refused first.
+            pytest.param(
+                "SELECT * FROM enhanced_entries -- DROP TABLE foo\n DROP TABLE bar",
+                "Line comments are not allowed",
+                id="comment-injection",
+            ),
+        ],
+    )
+    def test_a_disallowed_query_is_rejected_with_its_reason(self, query, match):
+        with pytest.raises(ValueError, match=match):
+            validate_sql_query(query)
 
 
 # ---------------------------------------------------------------------------
@@ -119,9 +110,17 @@ def _get_sql_query():
     return get_tool_fn(sql_query)
 
 
+#: An authored store that also names the SQL tool's SELECT-only login, so the
+#: tool is served.
+_DATABASE = {
+    "uri": "postgresql://ariel@localhost/test",
+    "readonly_uri": "postgresql://ariel_ro@localhost/test",
+}
+
+
 async def test_sql_query_valid(ariel_registry):
     """Valid SELECT query executes and returns rows."""
-    ariel_registry()
+    ariel_registry(database=_DATABASE)
 
     mock_rows = [
         {"entry_id": "e1", "author": "Alice"},
@@ -168,7 +167,7 @@ async def test_sql_query_empty():
 
 async def test_sql_query_row_limit(ariel_registry):
     """max_rows > 200 is capped at 200 inside sql_query()."""
-    ariel_registry()
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
@@ -191,7 +190,7 @@ async def test_sql_query_row_limit(ariel_registry):
 
 async def test_sql_query_service_error(ariel_registry):
     """Database error returns internal_error."""
-    ariel_registry()
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
@@ -215,7 +214,7 @@ async def test_sql_query_uses_the_readonly_pool(ariel_registry):
     """The tool queries through the SELECT-only role where the deployment has
     one, so a dangerous function is refused by Postgres rather than by a
     pattern match over the query text."""
-    ariel_registry()
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
@@ -236,15 +235,42 @@ async def test_sql_query_uses_the_readonly_pool(ariel_registry):
     assert mock_sql.call_args.args[0] is mock_service.readonly_pool
 
 
-async def test_sql_query_falls_back_to_the_ingestion_pool(ariel_registry):
-    """A store whose data volume predates the role has no read-only pool. The
-    tool keeps working on the connection it always used; the service logs the
-    one warning about it at start-up rather than here, per query."""
-    ariel_registry()
+async def test_sql_query_without_a_readonly_login_is_not_supported(ariel_registry):
+    """An authored store with no ``readonly_uri`` has no login the tool may run
+    as. The refusal names the key and comes before any service is built, so the
+    ingestion pool is never reached."""
+    from osprey.services.ariel_search.config import READONLY_URI_KEY
+
+    ariel_registry(database={"uri": "postgresql://ariel@localhost/test"})
+
+    service = AsyncMock(side_effect=AssertionError("no service may be built"))
+    mock_sql = AsyncMock(side_effect=AssertionError("no query may run"))
+
+    with (
+        patch("osprey.mcp_server.ariel.server_context.ARIELContext.service", new=service),
+        patch("osprey.mcp_server.ariel.tools.sql_query.execute_sql_query", new=mock_sql),
+    ):
+        fn = _get_sql_query()
+        with assert_raises_error(error_type="not_supported") as _exc_ctx:
+            await fn(sql="SELECT entry_id FROM enhanced_entries")
+
+    envelope = _exc_ctx["envelope"]
+    assert envelope["details"] == {"key": READONLY_URI_KEY}
+    assert READONLY_URI_KEY in envelope["error_message"]
+    service.assert_not_awaited()
+    mock_sql.assert_not_awaited()
+
+
+async def test_sql_query_with_a_refused_readonly_login_is_unavailable(ariel_registry):
+    """A store whose data volume predates the role refuses the read-only login.
+    The tool says so with the recorded reason and never queries through the
+    ingestion pool."""
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
     mock_service.readonly_pool = None
+    mock_service.readonly_pool_error = 'OSError: password authentication failed for user "ariel_ro"'
 
     mock_sql = AsyncMock(return_value=[])
 
@@ -256,9 +282,13 @@ async def test_sql_query_falls_back_to_the_ingestion_pool(ariel_registry):
         ),
     ):
         fn = _get_sql_query()
-        await fn(sql="SELECT entry_id FROM enhanced_entries")
+        with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
+            await fn(sql="SELECT entry_id FROM enhanced_entries")
 
-    assert mock_sql.call_args.args[0] is mock_service.pool
+    envelope = _exc_ctx["envelope"]
+    assert mock_service.readonly_pool_error in envelope["error_message"]
+    assert any("Read-only role for the SQL tool" in hint for hint in envelope["suggestions"])
+    mock_sql.assert_not_awaited()
 
 
 async def test_sql_query_binary_table_refusal_hints_at_text_columns():
@@ -281,4 +311,5 @@ def test_sql_query_docstring_lists_attachment_text_columns():
     doc = get_tool_fn(sql_query).__doc__ or ""
     assert "attachment_text (text)" in doc
     assert "attachment_captions (jsonb)" in doc
+    assert "facility_refs (jsonb)" in doc
     assert "attachment_files" in doc

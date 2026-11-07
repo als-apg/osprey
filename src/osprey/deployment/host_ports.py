@@ -122,6 +122,7 @@ _SERVICE_REMEDY_KEYS = {
     "bluesky-live-bridge": "services.bluesky_live.port",
     "tiled": "services.bluesky.tiled_port",
     "bluesky-web": "services.bluesky_web.port",
+    "optimizer": "services.optimizer.port",
     # The Channel Access port's key. The pvAccess binding is told apart by its
     # configured port and resolved before this table (see `_is_va_pva_binding`).
     "virtual-accelerator": "services.virtual_accelerator.port",
@@ -180,6 +181,7 @@ _SERVICE_LAYOUT_SLOTS = {
     "bluesky-live-bridge": ("bluesky", "bluesky_second_lane"),
     "tiled": ("tiled",),
     "bluesky-web": ("bluesky_web",),
+    "optimizer": ("optimizer",),
     "live-standin": ("va_standin",),
     "qmd": ("qmd",),
     GRAPHDB_SERVICE_NAME: ("graphdb_bolt", "graphdb_http"),
@@ -457,7 +459,7 @@ def _parse_port_entry(entry):
     """
     if isinstance(entry, dict):
         published = entry.get("published")
-        if published in (None, ""):
+        if published is None or published == "":
             return None  # long form without a host publication
         try:
             host_port = int(published)
@@ -712,8 +714,8 @@ def derive_host_network_bindings(config):
             if not host_binding_of(block).listens:
                 continue  # opens no listening socket: nothing to preflight
             try:
-                port = int(block.get("port"))
-            except (TypeError, ValueError):
+                port = int(block["port"])
+            except (KeyError, TypeError, ValueError):
                 logger.warning(
                     f"Service {name!r} runs on the host network but declares no integer "
                     f"`services.{name}.port`, so whatever it binds is NOT covered by "
@@ -755,7 +757,7 @@ def derive_web_terminal_bindings(config):
     Every terminal container runs on the host network (``docker-compose.web.yml``
     has no ``ports:`` block to parse), and each one binds a port in every panel
     family at its roster index: ``<family base> + index`` for the terminal
-    itself and for each companion server (artifact gallery, ARIEL, lattice, …).
+    itself and for each companion server (artifact gallery, ARIEL, OKF, …).
     The index band is allocated whole — a user holds a slot in every family
     whether or not the render starts that panel — so the whole band is checked,
     the same way the allocator reserves it.
@@ -1042,7 +1044,7 @@ def _runtime_port_holders(records):
     :return: ``{host_port: _PsRecord}`` (first container wins on a tie)
     :rtype: dict[int, _PsRecord]
     """
-    holders = {}
+    holders: dict[int, _PsRecord] = {}
     for record in records:
         for port in record.host_ports:
             holders.setdefault(port, record)
@@ -1289,7 +1291,7 @@ def find_port_conflicts(bindings, project_name, config=None, repo_id=None):
 
     # a. Intra-set duplicates: the first binding claims each address; any later
     #    binding on the same (host_ip, host_port) is a static duplicate.
-    claimed = {}
+    claimed: dict[tuple[str, int], HostPortBinding] = {}
     unique = []
     for binding in bindings:
         key = (binding.host_ip, binding.host_port)

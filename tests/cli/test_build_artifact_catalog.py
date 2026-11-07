@@ -96,6 +96,9 @@ class TestBuildArtifactCatalogDefault:
             "skills/session-report/reference",
             "skills/diagnose",
             "skills/setup-mode",
+            "skills/canopy-panel-builder",
+            "skills/canopy-operator",
+            "skills/canopy-screens",
             "output-styles/control-operator",
         ],
     )
@@ -118,7 +121,7 @@ class TestBuildArtifactCatalogDefault:
     def test_facility_exists(self, registry):
         art = registry.get("rules/facility")
         assert art is not None
-        assert art.description == "Facility identity & context"
+        assert art.description == "Operator guidance for the facility"
 
 
 class TestRegistryMatchesTemplateDirectory:
@@ -339,6 +342,7 @@ def test_helpers_are_the_rows_something_requires():
     assert BuildArtifactCatalog.default().helpers() == {
         "hooks/hook-config",
         "hooks/hook-log",
+        "hooks/plan-mode",
         "hooks/safety-file",
         "hooks/target-state",
     }

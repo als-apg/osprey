@@ -12,7 +12,9 @@ owned by no preset either: every composition lands it at
 :class:`PresetData` is that one composition. Everything that reads a preset's
 packaged data — ``osprey init`` materializing a profile, ``osprey scaffold
 pull`` listing and copying it — reads it through here, so a facility file is
-indistinguishable from one the app template ships itself.
+indistinguishable from one the app template ships itself. Every text file of a
+bundled facility opens with the bundled-origin line (``osprey.facility.bundled``),
+except the knowledge indexes ``osprey knowledge regen-index`` writes.
 """
 
 from __future__ import annotations

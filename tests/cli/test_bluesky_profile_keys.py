@@ -109,19 +109,35 @@ def test_empty_block_still_takes_the_defaults() -> None:
 # ── values are validated, not just key names ─────────────────────────────────
 
 
-@pytest.mark.parametrize("value", [0, -5, True, "abc"])
-def test_device_page_size_rejects_a_value_that_is_not_a_positive_int(value: Any) -> None:
-    """The key is auto-accepted (it is a dataclass field), so the VALUE check is
-    the only thing standing between a nonsense page size and a shipped build.
-
-    ``True`` is in the set on purpose: it is an ``int`` to ``isinstance``, and a
-    boolean page size is an authoring mistake, not a size of one.
-    """
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        # The key is auto-accepted (it is a dataclass field), so the VALUE check is
+        # the only thing standing between a nonsense page size and a shipped build.
+        #
+        # ``True`` is in the set on purpose: it is an ``int`` to ``isinstance``, and a
+        # boolean page size is an authoring mistake, not a size of one.
+        pytest.param("device_page_size", 0, id="device-page-size-zero"),
+        pytest.param("device_page_size", -5, id="device-page-size-negative"),
+        pytest.param("device_page_size", True, id="device-page-size-bool"),
+        pytest.param("device_page_size", "abc", id="device-page-size-string"),
+        # A zero or negative budget would abort every move that needs one poll.
+        pytest.param("settle_timeout_s", 0, id="settle-timeout-zero"),
+        pytest.param("settle_timeout_s", -1.0, id="settle-timeout-negative"),
+        pytest.param("settle_timeout_s", True, id="settle-timeout-bool"),
+        pytest.param("settle_timeout_s", "abc", id="settle-timeout-string"),
+        # A negative tolerance can never be met, so it turns every move into a timeout.
+        pytest.param("settle_tolerance", -1e-9, id="settle-tolerance-negative"),
+        pytest.param("settle_tolerance", True, id="settle-tolerance-bool"),
+        pytest.param("settle_tolerance", "abc", id="settle-tolerance-string"),
+    ],
+)
+def test_a_numeric_bluesky_key_rejects_a_value_of_the_wrong_kind(key: str, value: Any) -> None:
     with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "bluesky": {"device_page_size": value}})
+        _parse_profile({"name": "x", "data": "data", "bluesky": {key: value}})
 
     message = str(excinfo.value)
-    assert "bluesky.device_page_size" in message
+    assert f"bluesky.{key}" in message
     assert repr(value) in message
 
 
@@ -140,28 +156,6 @@ def test_settle_keys_default_when_unstated() -> None:
     assert profile.bluesky is not None
     assert profile.bluesky.settle_timeout_s == BlueskyConfig.settle_timeout_s
     assert profile.bluesky.settle_tolerance == BlueskyConfig.settle_tolerance
-
-
-@pytest.mark.parametrize("value", [0, -1.0, True, "abc"])
-def test_settle_timeout_rejects_a_value_that_is_not_a_positive_number(value: Any) -> None:
-    """A zero or negative budget would abort every move that needs one poll."""
-    with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "bluesky": {"settle_timeout_s": value}})
-
-    message = str(excinfo.value)
-    assert "bluesky.settle_timeout_s" in message
-    assert repr(value) in message
-
-
-@pytest.mark.parametrize("value", [-1e-9, True, "abc"])
-def test_settle_tolerance_rejects_a_value_that_is_not_a_non_negative_number(value: Any) -> None:
-    """A negative tolerance can never be met, so it turns every move into a timeout."""
-    with pytest.raises(BuildProfileError) as excinfo:
-        _parse_profile({"name": "x", "data": "data", "bluesky": {"settle_tolerance": value}})
-
-    message = str(excinfo.value)
-    assert "bluesky.settle_tolerance" in message
-    assert repr(value) in message
 
 
 @pytest.mark.parametrize("key", ["live_max_runs", "live_max_rows_per_run"])
@@ -355,16 +349,14 @@ def test_every_bundled_preset_still_resolves() -> None:
 
 @pytest.fixture(scope="module")
 def exemplar_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The deployment ``control-assistant`` materializes, tiers included."""
+    """The deployment ``demo`` materializes, tiers included."""
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
     return build_exemplar_repo(tmp_path_factory.mktemp("exemplar") / "repo")
 
 
 @pytest.mark.parametrize("tier", [None, "readonly", "readwrite"])
-def test_control_assistant_family_keeps_its_bluesky_block(
-    exemplar_repo: Path, tier: str | None
-) -> None:
+def test_demo_family_keeps_its_bluesky_block(exemplar_repo: Path, tier: str | None) -> None:
     """The preset that actually carries a bluesky block resolves it intact,
     and every tier over its deployment inherits it whole.
 
@@ -372,7 +364,7 @@ def test_control_assistant_family_keeps_its_bluesky_block(
     deployment's port block — so what it resolves to is the layout's own pair.
     """
     if tier is None:
-        profile, _dir = resolve_build_profile(None, "control-assistant")
+        profile, _dir = resolve_build_profile(None, "demo")
     else:
         profile, _dir = resolve_build_profile(exemplar_repo / "tiers" / f"{tier}.yml", None)
 

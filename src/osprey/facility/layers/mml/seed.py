@@ -2,8 +2,9 @@
 
 The layer's records under ``imported/mml/`` are rewritten by every import. The
 files here are authored: a person owns them, and the import only writes one
-that does not exist yet, opening it with :data:`HEADER`. A file that exists is
-never rewritten, whoever wrote it.
+that does not exist yet, opening it with the facility import's header
+(:data:`osprey.facility.layers.HEADER`). A file that exists is never rewritten,
+whoever wrote it.
 
 What :func:`seed_once` writes, relative to ``data/facility/``:
 
@@ -51,6 +52,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from osprey.facility.layers import HEADER
 from osprey.facility.layers.mml.decks import FREQUENCY, KICK
 from osprey.facility.layers.mml.mapping import (
     LAYER_DIR,
@@ -72,7 +74,6 @@ if TYPE_CHECKING:  # the export services stay out of the import graph
 
 __all__ = [
     "CLASSES_FILE",
-    "HEADER",
     "IDENTITY_FILE",
     "LIMITS_FILE",
     "MEASUREMENT_DIR",
@@ -83,9 +84,6 @@ __all__ = [
     "band",
     "seed_once",
 ]
-
-#: The first line of every file the layer seeds.
-HEADER = "# Seeded once by the mml import; edit this file by hand."
 
 LIMITS_FILE = "limits.yaml"
 READOUT_FILE = "scenarios/readout.yaml"
@@ -253,10 +251,15 @@ def seed_once(
         seeded.lines.extend(carried_not)
 
     classes = facility_dir / CLASSES_FILE
+    rows = _class_rows(mapping)
     if not classes.exists():
-        rows = _class_rows(mapping)
         if rows:
             seeded.written.append(_write(classes, rows))
+    else:
+        held = {str(row.get("class")) for row in _load(classes) or ()}
+        missing = [row for row in rows if row["class"] not in held]
+        if missing:
+            seeded.written.append(_append(classes, missing))
 
     seeded.written.extend(_identity(mapping, facility_dir, seeded))
     return seeded
@@ -764,6 +767,20 @@ def _parse(text: str) -> Any:
     from osprey_connectors import yaml_loader
 
     return yaml_loader.safe_load(text)
+
+
+def _append(path: Path, rows: list[dict[str, str]]) -> Path:
+    """Append class rows to an existing ``classes.yaml``, leaving its rows and comments as they are."""
+    from osprey_connectors import yaml_loader
+
+    text = yaml_loader.safe_dump(
+        rows, sort_keys=False, default_flow_style=False, allow_unicode=True, width=100
+    )
+    held = path.read_text(encoding="utf-8")
+    if held and not held.endswith("\n"):
+        held += "\n"
+    path.write_text(held + text, encoding="utf-8")
+    return path
 
 
 def _write(path: Path, document: Any) -> Path:

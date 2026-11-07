@@ -2,16 +2,31 @@
 
 :func:`model_status` answers from the composite a connector serves in process.
 :func:`read_model_status` reads a model's status channel through any
-connector, the way a target served by a separate process reports it. The
-module imports nothing beyond the standard library, so a status lookup loads
-no model: the composite is reached through the connector when asked.
+connector, the way a target served by a separate process reports it.
+:data:`STATUS_OK` and :data:`STATUS_NO_DECK` are the two texts that are not
+an error. The module imports nothing beyond
+the standard library, so a status lookup loads no model: the composite is
+reached through the connector when asked.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["model_status", "read_model_status"]
+__all__ = [
+    "STATUS_NO_DECK",
+    "STATUS_OK",
+    "model_status",
+    "read_model_status",
+]
+
+#: A physics model's status while its engine serves it.
+STATUS_OK = "ok"
+
+#: The status of a model that names no deck and wires no channel. Nothing is
+#: built for it, by design: the facility describes the machine, and every
+#: channel of it is the texture's.
+STATUS_NO_DECK = "no deck"
 
 _COMPOSITE_ATTRIBUTE = "_composite"
 
@@ -25,8 +40,9 @@ def model_status(connector: Any, model: str) -> str:
         model: The name of a served physics model.
 
     Returns:
-        ``ok`` while the model's engine serves it; otherwise the engine's
-        error text, capped by the composite.
+        ``ok`` while the model's engine serves it, ``no deck`` for a model
+        built on purpose from nothing; otherwise the engine's error text,
+        capped by the composite.
 
     Raises:
         ValueError: ``model`` is not a served physics model, the message naming

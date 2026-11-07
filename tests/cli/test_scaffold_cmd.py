@@ -127,10 +127,25 @@ def pair(tmp_path) -> Pair:
 class TestResolveClaimTarget:
     """The name → (project path, profile slot) mapping."""
 
-    def test_markdown_artifact(self):
-        target = resolve_claim_target("rules/safety")
-        assert target.project_rel == ".claude/rules/safety.md"
-        assert target.profile_rel == "rules/safety.md"
+    @pytest.mark.parametrize(
+        ("name", "project_rel", "profile_rel"),
+        [
+            ("rules/safety", ".claude/rules/safety.md", "rules/safety.md"),
+            # A hook is known by its filename: ``settings.json`` wires it by name.
+            (
+                "hooks/osprey_cf_feedback_capture.py",
+                ".claude/hooks/osprey_cf_feedback_capture.py",
+                "hooks/osprey_cf_feedback_capture.py",
+            ),
+        ],
+        ids=["markdown-artifact", "hook-by-filename-not-by-stem"],
+    )
+    def test_a_single_file_artifact_resolves_to_its_project_and_profile_paths(
+        self, name, project_rel, profile_rel
+    ):
+        target = resolve_claim_target(name)
+        assert target.project_rel == project_rel
+        assert target.profile_rel == profile_rel
         assert not target.is_directory
 
     def test_nested_markdown_keeps_full_path(self):
@@ -139,31 +154,49 @@ class TestResolveClaimTarget:
         assert target.project_rel == ".claude/commands/osprey/scan.md"
         assert target.profile_rel == "commands/osprey/scan.md"
 
-    def test_skill_is_a_whole_directory(self):
-        target = resolve_claim_target("skills/orbit-check")
-        assert target.project_rel == ".claude/skills/orbit-check"
-        assert target.profile_rel == "skills/orbit-check"
-        assert target.is_directory
-
-    def test_service_is_a_whole_directory(self):
-        target = resolve_claim_target("services/postgresql")
-        assert target.project_rel == "services/postgresql"
-        assert target.profile_rel == "services/postgresql"
+    @pytest.mark.parametrize(
+        ("name", "project_rel", "profile_rel"),
+        [
+            ("skills/orbit-check", ".claude/skills/orbit-check", "skills/orbit-check"),
+            ("services/postgresql", "services/postgresql", "services/postgresql"),
+        ],
+        ids=["skill", "service"],
+    )
+    def test_a_directory_artifact_is_a_whole_directory(self, name, project_rel, profile_rel):
+        target = resolve_claim_target(name)
+        assert target.project_rel == project_rel
+        assert target.profile_rel == profile_rel
         assert target.is_directory
 
     def test_trailing_md_is_accepted(self):
         """Canonical names carry no suffix, but the spelling with one resolves."""
         assert resolve_claim_target("rules/safety.md") == resolve_claim_target("rules/safety")
 
-    def test_nested_name_under_a_directory_shape_errors(self):
+    @pytest.mark.parametrize(
+        ("name", "key"),
+        [
+            ("skills/orbit-check/SKILL", "skills/orbit-check"),
+            ("rules", "one rule at a time"),
+            # The clean break: these are generated FROM config, so config is where they
+            # change. Refusing is only half an answer — an operator who cannot claim
+            # ``settings.json`` needs to be told that ``claude_code.permissions`` is
+            # what they were reaching for.
+            ("claude-md", "claude_md_template"),
+            ("settings-json", "claude_code.permissions"),
+            ("mcp-json", "mcp_servers:"),
+        ],
+        ids=[
+            "nested-under-a-directory-shape",
+            "bare-convention-name",
+            "claude-md",
+            "settings-json",
+            "mcp-json",
+        ],
+    )
+    def test_a_name_that_cannot_be_claimed_says_what_to_use_instead(self, name, key):
         with pytest.raises(ScaffoldClaimError) as exc:
-            resolve_claim_target("skills/orbit-check/SKILL")
-        assert "skills/orbit-check" in str(exc.value)
-
-    def test_bare_convention_name_errors(self):
-        with pytest.raises(ScaffoldClaimError) as exc:
-            resolve_claim_target("rules")
-        assert "one rule at a time" in str(exc.value)
+            resolve_claim_target(name)
+        assert key in str(exc.value)
 
     @pytest.mark.parametrize(
         "name", ["", "   ", "..", "rules/../../etc/passwd", "rules/../safety", "skills/.."]
@@ -175,13 +208,6 @@ class TestResolveClaimTarget:
     def test_surrounding_slashes_and_space_are_tolerated(self):
         """Leniency, not an escape: the paths are rebuilt from the convention table."""
         assert resolve_claim_target(" /rules/safety/ ") == resolve_claim_target("rules/safety")
-
-    def test_hook_resolves_by_filename_not_by_stem(self):
-        """A hook is known by its filename: ``settings.json`` wires it by name."""
-        target = resolve_claim_target("hooks/osprey_cf_feedback_capture.py")
-        assert target.project_rel == ".claude/hooks/osprey_cf_feedback_capture.py"
-        assert target.profile_rel == "hooks/osprey_cf_feedback_capture.py"
-        assert not target.is_directory
 
     def test_a_hooks_catalog_canonical_resolves_to_the_same_artifact(self):
         """`scaffold list` prints the dashed canonical; the file has another name.
@@ -226,25 +252,6 @@ class TestResolveClaimTarget:
         target = resolve_claim_target("skills/session-report")
         assert target.project_rel == ".claude/skills/session-report"
         assert target.is_directory
-
-    @pytest.mark.parametrize(
-        ("name", "key"),
-        [
-            ("claude-md", "claude_md_template"),
-            ("settings-json", "claude_code.permissions"),
-            ("mcp-json", "mcp_servers:"),
-        ],
-    )
-    def test_a_config_generated_artifact_names_the_key_that_configures_it(self, name, key):
-        """The clean break: these are generated FROM config, so config is where they change.
-
-        Refusing is only half an answer — an operator who cannot claim
-        ``settings.json`` needs to be told that ``claude_code.permissions`` is
-        what they were reaching for.
-        """
-        with pytest.raises(ScaffoldClaimError) as exc:
-            resolve_claim_target(name)
-        assert key in str(exc.value)
 
     def test_unknown_name_lists_the_claimable_prefixes(self):
         with pytest.raises(ScaffoldClaimError) as exc:
@@ -517,10 +524,7 @@ class TestClaimRefusals:
         import osprey
 
         package_profile = (
-            Path(osprey.__file__).resolve().parent
-            / "profiles"
-            / "presets"
-            / "control-assistant.yml"
+            Path(osprey.__file__).resolve().parent / "profiles" / "presets" / "demo.yml"
         )
         assert package_profile.is_file(), "expected a bundled preset to point the manifest at"
         _write_manifest(pair.project, {"profile_path_abs": str(package_profile)})
@@ -693,17 +697,19 @@ class TestPromptsList:
         assert "hooks/error-guidance" in result.output
 
     @pytest.mark.usefixtures("project_dir")
-    def test_list_shows_framework_managed(self, repo_dir):
+    @pytest.mark.parametrize(
+        "shown",
+        [
+            "Framework-managed",
+            # rules/facility appears either as framework-managed or user-owned.
+            "rules/facility",
+        ],
+        ids=["framework-managed", "facility"],
+    )
+    def test_list_shows_the_ownership_entries(self, repo_dir, shown):
         runner = CliRunner()
         result = runner.invoke(scaffold, ["list", "--repo", str(repo_dir)])
-        assert "Framework-managed" in result.output
-
-    @pytest.mark.usefixtures("project_dir")
-    def test_list_shows_facility(self, repo_dir):
-        """rules/facility appears either as framework-managed or user-owned."""
-        runner = CliRunner()
-        result = runner.invoke(scaffold, ["list", "--repo", str(repo_dir)])
-        assert "rules/facility" in result.output
+        assert shown in result.output
 
     def test_list_shows_ownership_the_catalog_does_not_know(self, pair):
         """A profile's own skill is user-owned though no framework template renders it.

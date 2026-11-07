@@ -252,9 +252,8 @@ const STEPS = [
     place: 'right',
     title: 'The sidebar',
     body: () => [
-      strong('Workspace'),
-      ' holds the agent, its artifacts and its script runs; ',
-      strong('Tools'),
+      'The top of the sidebar holds the agent and its sessions; ',
+      strong('Apps'),
       ' holds the other panels. Hide the labels with this button or ',
       strong(sidebarChord()),
       ' to give the work more room.',
@@ -328,7 +327,7 @@ const STEPS = [
       strong(panelLabel('artifacts', 'Artifacts')),
       ', listed here in the sidebar, ready to open or download.',
     ],
-    foot: '＋ Add panel, under Tools, adds more panels.',
+    foot: '＋ Add panel, under Apps, adds more panels.',
   },
   {
     anchor: () => panelRow('okf'),
@@ -351,7 +350,7 @@ const STEPS = [
       strong(panelLabel('ariel', 'Ariel')),
       ' searches the electronic logbook. Ask the agent what happened on a shift, or search it yourself here.',
     ],
-    foot: 'Tip: right-click any sidebar row → “Pop out” to move the panel into its own window.',
+    foot: 'Tip: right-click any sidebar row → “Open in new window” to move the panel into its own window.',
   },
   {
     anchor: () => document.querySelector('#panel-feedback-btn'),

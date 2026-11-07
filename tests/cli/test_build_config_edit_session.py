@@ -95,6 +95,7 @@ def test_the_injectors_run_on_a_flushed_file(
         slack_bridge=None,
         bluesky=None,
         bluesky_web=None,
+        optimizer=None,
         virtual_accelerator=None,
         va_archiver=None,
     )

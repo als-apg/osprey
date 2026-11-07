@@ -7,7 +7,7 @@ Written into ``<render>/data/simulator/``::
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
     variables.json       {schema: osprey.facility.simulator/2, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
-    scenarios.json       {schema: osprey.facility.scenarios/2, scenarios: [...]}
+    scenarios.json       {schema: osprey.facility.scenarios/3, scenarios: [...]}
     scenarios/<name>/    a byte copy of each file a scenario's logbook entries attach
 
 ``models`` lists the served physics models sorted by name, then ``texture``;
@@ -36,9 +36,10 @@ is not writable.
 ``seeds.json`` maps each channel carrying a seed record to that record.
 ``scenarios.json`` lists every scenario, sorted by name, with each block it
 states carried verbatim; ``faults`` maps each faulted model to ``{writes}``,
-plus ``inactive: model not served`` when the render does not serve it; a
-scenario named ``still`` that stills every reading is listed when no file
-defines one. Each
+plus ``inactive: model not served`` when the render does not serve it;
+``still`` is the sorted list of float addresses its ``all``, addresses and
+selections resolve to; a scenario named ``still`` that stills every float
+reading is listed when no file defines one. Each
 file a logbook entry's ``attachments`` names, relative to the facility's
 ``scenarios/<name>/``, is copied to the same path under the view's
 ``scenarios/<name>/``, so the entries read back against the view's copy.
@@ -58,11 +59,11 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.facility import DEFAULT_ROLE, TEXTURE
-from osprey.facility.build import FacilityDocument
+from osprey.facility import DEFAULT_ROLE, STILL_ALL, TEXTURE
+from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
-from osprey_connectors.simulation import STILL_ALL, STILL_SCENARIO
+from osprey_connectors.simulation import STILL_SCENARIO
 from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
@@ -114,10 +115,10 @@ _SCENARIO_BLOCKS = (
     "overrides",
     "archiver",
     "logbook",
+    "sessions",
     "drivers",
     "couple",
     "noise",
-    "still",
     "channel_faults",
 )
 
@@ -147,17 +148,15 @@ _WIRING_ENTRY_KEYS = (
 )
 
 #: The channels and models last wired and each model's wiring of them, keyed on
-#: the model: every render of one build hands in the same document and asks for
-#: the same models from several views, so each model is wired once per build.
-#: Keyed on the two lists the wiring reads rather than on the document, because
-#: the pyAML view hands in a shallow copy of it, which shares them. Two slots: a
-#: render's views wire the build's document while its approval hook wires the
-#: render's own ``facility.json``, and the two alternate in every render.
+#: the model: every render of one build hands in the same document, and a render
+#: whose served set or configuration differs writes this view again, so each model
+#: is wired once per build. Keyed on the two lists the wiring reads, which every
+#: read model of one document shares. One slot: the view reads one build's document
+#: at a time.
 _wired: list[tuple[Any, Any, dict[str, list[dict[str, Any]]]]] = []
-_WIRED_SLOTS = 2
 
 
-def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, Any]]:
+def simulator_wiring(records: FacilityRecords, model: str) -> list[dict[str, Any]]:
     """The wiring entries of one model, in the facility file's record order.
 
     Each entry holds the keys of ``_WIRING_ENTRY_KEYS`` the wiring record
@@ -166,39 +165,34 @@ def simulator_wiring(facility: FacilityDocument, model: str) -> list[dict[str, A
     from its entry.
 
     Args:
-        facility: The in-memory facility file.
+        records: The facility file's records.
         model: The model's name.
 
     Returns:
         One entry per wiring record of the model; empty for a model without
-        wiring. The entries share no objects with ``facility``.
+        wiring. The entries share no objects with the facility file.
 
     Raises:
-        KeyError: ``facility`` has no model named ``model``.
+        KeyError: The facility file has no model named ``model``.
     """
-    for entry in facility.get("models", []):
-        if entry["name"] == model:
-            break
-    else:
-        raise KeyError(f"the facility file has no model {model!r}")
-    channels, models = facility.get("channels"), facility.get("models")
+    entry = records.require("model", model)
+    channels, models = records.document.get("channels"), records.document.get("models")
     slot = next((s for s in _wired if s[0] is channels and s[1] is models), None)
     if slot is None:
         slot = (channels, models, {})
-        _wired[:] = [slot, *_wired[: _WIRED_SLOTS - 1]]
+        _wired[:] = [slot]
     wiring = slot[2].get(model)
     if wiring is None:
-        wiring = slot[2][model] = _wire(facility, entry)
+        wiring = slot[2][model] = _wire(records, entry)
     return copy.deepcopy(wiring)
 
 
-def _wire(facility: FacilityDocument, entry: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _wire(records: FacilityRecords, entry: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Compute :func:`simulator_wiring` of ``entry`` without the per-build memo."""
-    channels = {str(channel["id"]): channel for channel in facility.get("channels", [])}
     return [
         {
             **{key: copy.deepcopy(record[key]) for key in _WIRING_ENTRY_KEYS if key in record},
-            **_waveform(channels.get(str(record["address"]), {})),
+            **_waveform(records.record("channel", str(record["address"])) or {}),
         }
         for record in entry.get("wiring", [])
     ]
@@ -256,13 +250,13 @@ def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
 def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     from osprey.facility.views.limits import limits_document
 
-    doc = inputs.doc
+    doc = inputs.records.document
     models = sorted(doc.get("models", []), key=lambda model: str(model["name"]))
     owners: dict[str, str] = {}
     for model in models:
         for record in model.get("wiring", []):
             owners.setdefault(str(record["address"]), str(model["name"]))
-    limits = limits_document(doc)
+    limits = limits_document(inputs.records)
     unlisted_writable = _unlisted_setpoints_writable(inputs.rendered_config)
 
     channels: list[dict[str, Any]] = []
@@ -304,7 +298,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
                 "served": model["name"] in inputs.served,
                 "settings": copy.deepcopy(model.get("settings") or {}),
                 "deck": served_deck_path(model),
-                "wiring": simulator_wiring(doc, str(model["name"])),
+                "wiring": simulator_wiring(inputs.records, str(model["name"])),
             }
             for model in models
         ],
@@ -312,7 +306,7 @@ def _variables_document(inputs: ViewInputs) -> dict[str, Any]:
     }
 
 
-def _seeds_document(doc: FacilityDocument) -> dict[str, Any]:
+def _seeds_document(doc: Mapping[str, Any]) -> dict[str, Any]:
     seeds = {
         str(channel["id"]): copy.deepcopy(channel["simulation"])
         for channel in doc.get("channels", [])
@@ -321,13 +315,83 @@ def _seeds_document(doc: FacilityDocument) -> dict[str, Any]:
     return {"schema": SEEDS_SCHEMA, "seeds": seeds}
 
 
+def _float_addresses(channels: Iterable[Mapping[str, Any]]) -> set[str]:
+    return {
+        str(channel["id"])
+        for channel in channels
+        if channel.get("value_type", DEFAULT_VALUE_TYPE) == DEFAULT_VALUE_TYPE
+    }
+
+
+def _resolved_still(records: FacilityRecords, scenario: Mapping[str, Any]) -> list[str]:
+    """The float addresses a scenario's ``still`` names, sorted, each once.
+
+    ``all`` is every float channel, an address is itself, and a selection is the
+    float channels its query matches, over every model of the file.
+
+    Args:
+        records: The facility file's records.
+        scenario: A scenario stating ``still``.
+
+    Returns:
+        The addresses the scenario stills.
+
+    Raises:
+        FacilityBuildError: ``value-invalid``: a selection matches no float
+            channel, or a resolved reading is one whose ``noise`` or ``couple``
+            the scenario sets.
+    """
+    from osprey.facility.errors import FacilityBuildError
+
+    name = str(scenario["name"])
+
+    def stop(detail: str, remedy: str) -> FacilityBuildError:
+        return FacilityBuildError(
+            "value-invalid",
+            name,
+            [f"{SCENARIOS_DIR}/{name}.yaml"],
+            remedy,
+            record_kind="scenario",
+            detail=detail,
+        )
+
+    still = scenario["still"]
+    resolved: set[str] = set()
+    if still == STILL_ALL:
+        resolved = _float_addresses(records.of_kind("channel"))
+    else:
+        for entry in still:
+            if isinstance(entry, str):
+                resolved.add(entry)
+                continue
+            matched = _float_addresses(records.select_channels(ChannelSelection(**entry)))
+            if not matched:
+                raise stop(
+                    f"`still` selection {dict(entry)!r} matches no float channel",
+                    "correct this selection in `still`",
+                )
+            resolved |= matched
+    for slot in ("noise", "couple"):
+        clashes = sorted(resolved.intersection(scenario.get(slot) or ()))
+        if clashes:
+            raise stop(
+                f"`{slot}.{clashes[0]}` sets the motion of a reading `still` stills",
+                "a scenario either stills a reading or sets its motion",
+            )
+    return sorted(resolved)
+
+
 def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
     scenarios: list[dict[str, Any]] = []
-    for scenario in sorted(inputs.doc.get("scenarios", []), key=lambda s: str(s["name"])):
+    for scenario in sorted(
+        inputs.records.document.get("scenarios", []), key=lambda s: str(s["name"])
+    ):
         entry: dict[str, Any] = {"name": scenario["name"]}
         for block in _SCENARIO_BLOCKS:
             if scenario.get(block) is not None:
                 entry[block] = copy.deepcopy(scenario[block])
+        if scenario.get("still") is not None:
+            entry["still"] = _resolved_still(inputs.records, scenario)
         faults = scenario.get("faults")
         if faults is not None:
             entry["faults"] = {}
@@ -338,7 +402,9 @@ def _scenarios_document(inputs: ViewInputs) -> dict[str, Any]:
                 entry["faults"][model] = fault
         scenarios.append(entry)
     if all(str(entry["name"]) != STILL_SCENARIO for entry in scenarios):
-        scenarios.append(copy.deepcopy(_BUILT_IN_STILL))
+        scenarios.append(
+            {**_BUILT_IN_STILL, "still": _resolved_still(inputs.records, _BUILT_IN_STILL)}
+        )
         scenarios.sort(key=lambda entry: str(entry["name"]))
     return {"schema": SCENARIOS_SCHEMA, "scenarios": scenarios}
 
@@ -353,7 +419,7 @@ def _copy_scenario_files(root: Path, inputs: ViewInputs) -> list[Path]:
     attach is copied, and listed, once.
     """
     copies: dict[Path, Path] = {}
-    for scenario in inputs.doc.get("scenarios", []):
+    for scenario in inputs.records.document.get("scenarios", []):
         name = str(scenario["name"])
         source = inputs.facility_dir / SCENARIOS_DIR / name
         scenario_logbook(scenario, source)
@@ -377,7 +443,7 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
     Returns:
         The files written, in the order they were written.
     """
-    doc = inputs.doc
+    doc = inputs.records.document
     code = str(doc["identity"]["code"])
     physics = [name for name in inputs.served if name != TEXTURE]
     documents = {

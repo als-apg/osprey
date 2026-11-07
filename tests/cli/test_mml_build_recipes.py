@@ -5,29 +5,24 @@ wrote, so each recipe here is the literal sequence an operator types --
 ``init``, ``facility import mml``, the ``osprey set`` lines, ``validate``,
 ``build`` -- and the assertions are the claims that sequence makes:
 
-* **hello-world, middle layer.** The export enters the facility description
-  past the stop ``osprey facility import mml`` makes over the preset's
-  authored record sources, so the build writes the middle-layer index and its
-  DuckDB copy from the imported groups. The export reads one corrector
-  readback for two setpoints, which the import pairs with neither, so the
-  build runs clean. The rendered config binds the index and its copy, and
-  ``run_sql`` answers from the copy. The set line never spells
+* **hello-world, middle layer.** The import replaces the preset's bundled
+  facility with the export, saying so in one line, so the build writes the
+  middle-layer index and its DuckDB copy from the imported groups. The export
+  reads one corrector readback for two setpoints, which the import pairs with
+  neither, so the build runs clean. The rendered config binds the index and its
+  copy, and ``run_sql`` answers from the copy. The set line never spells
   ``channel_finder.pipelines.*``: those keys are build-derived and ``validate``
   refuses a profile that states them.
-* **control-assistant, from a 2.0 export.** The recipe over an export that
-  carries a model, once per supported tree. ``osprey facility import mml``
-  stops over the preset's authored record sources and prints one ``rm`` line
-  per file, the recipe removes exactly those, installs the tree's reviewed
-  ``imported/mml/mapping.yaml`` and imports. The import then lists, as ``rm``
-  lines, the demo scenarios it leaves stale -- each names a channel or model
-  the imported facility does not have -- and the recipe removes exactly
-  those, since the build stops while one is left. The seeded ``limits.yaml``
-  holds each band as the export states it, so the build then stops
-  ``seed-invalid`` while a setpoint starts outside its band; ``facility
-  validate`` names each one, and the recipe widens exactly the records those
-  lines name before it builds. The claims are about what ``osprey build``
-  then published: the simulator view serves the import's channels and model,
-  and a second build changes no byte of it.
+* **demo, from a 2.0 export.** The recipe over an export that
+  carries a model, once per supported tree: ``init``, the tree's reviewed
+  ``imported/mml/mapping.yaml``, ``facility import mml``, which replaces the
+  preset's bundled facility, the ``osprey set`` lines, ``validate``, ``build``.
+  The seeded ``limits.yaml`` holds each band as the export states it, so the
+  build then stops ``seed-invalid`` while a setpoint starts outside its band;
+  ``facility validate`` names each one, and the recipe widens exactly the
+  records those lines name before it builds. The claims are about what ``osprey
+  build`` then published: the simulator view serves the import's channels and
+  model, and a second build changes no byte of it.
 
 Every number here is read off a real run of the real verbs. Nothing about the
 rendered tree is restated from a plan.
@@ -37,7 +32,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import shutil
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -48,6 +42,8 @@ import yaml
 from click.testing import CliRunner, Result
 
 from osprey.cli.main import cli
+from osprey.facility import DEFAULT_ROLE
+from osprey.facility.records import FacilityRecords
 from osprey_connectors import yaml_loader
 from tests.cli._lifecycle_build import rendered_config
 from tests.fixtures.mml._trees import names
@@ -74,6 +70,9 @@ MIDDLE_LAYER_SETTINGS = (
     "config.claude_code.servers.channel-finder.enabled=true",
 )
 
+#: The remedy of the stop a preset's start set meets once an import replaced its facility.
+NO_START_SET = "config.simulation.default_scenarios=[]"
+
 #: The supported trees ``osprey build`` is claimed to accept, from the registry.
 BUILT_TREES = names("builds")
 
@@ -86,42 +85,10 @@ ADDRESSES_FILE = "addresses.json"
 SERVED_MODELS_FILE = "served_models.json"
 
 
-#: The slots a facility scenario names a channel or a model in.
-_RESOLVING_SLOTS = ("overrides", "faults", "archiver", "couple", "noise")
-
-
-def _resolving_scenarios() -> tuple[str, ...]:
-    """The preset's facility scenarios that name a channel or a model, as repo paths.
-
-    Read off the packaged preset, so a demo scenario added later is counted
-    without a name being typed here. A scenario stating none of these slots
-    names nothing an import can take away. A scenario's folder of attached
-    files follows its file, as the import lists it.
-    """
-    found: list[str] = []
-    for path in sorted((PACKAGED_FACILITY / "scenarios").glob("*.yaml")):
-        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        if any(slot in document for slot in _RESOLVING_SLOTS):
-            found.append(f"data/facility/scenarios/{path.name}")
-            if path.with_suffix("").is_dir():
-                found.append(f"data/facility/scenarios/{path.stem}/")
-    return tuple(found)
-
-
-DEMO_RESOLVING_SCENARIOS = _resolving_scenarios()
-
 #: The facility description of a deployment, and the limits file an import
 #: seeds into it, both relative to the repo.
 FACILITY_DIR = "data/facility"
 FACILITY_LIMITS = f"{FACILITY_DIR}/limits.yaml"
-
-#: The first line of the stop ``facility import mml`` prints over authored
-#: record sources; one ``rm`` line per file follows it.
-AUTHORED_PRESENT = "import mml: authored-present: "
-
-#: The header line ``facility import mml`` prints over the scenario files a
-#: clean import leaves stale; one ``  rm`` line per file follows it.
-STALE_SCENARIOS = "these scenario files name channels that no longer exist:"
 
 #: The line a build stage prints for a setpoint that starts outside its band:
 #: the address, the nominal it starts at, the side it lies on and the edge of
@@ -170,38 +137,6 @@ def facility_mapping(fixture: Path) -> Path:
     return fixture / MAPPING_FILE
 
 
-def clear_authored(runner: CliRunner, repo: Path, exports: Sequence[str]) -> tuple[str, ...]:
-    """Obey the stop ``facility import mml`` makes over a preset's authored sources.
-
-    The verb stops before it reads an export while an authored record source is
-    present, and prints the ``rm`` line of each. Every path returned here was
-    named by one of those lines, one path per line. The preset's knowledge
-    pages link the records of the machine it ships, which the import replaces,
-    so they are removed with that machine; the ``knowledge`` directory stays,
-    empty, because the profile binds it.
-
-    Returns:
-        The paths the stop named and this removed, in the order they were printed.
-    """
-    stopped = runner.invoke(
-        cli, ["facility", "import", "mml", *exports, "--repo", str(repo)], catch_exceptions=False
-    )
-    assert stopped.exit_code == 1, stopped.output
-    lines = stopped.stderr.splitlines()
-    assert lines and lines[0].startswith(AUTHORED_PRESENT), stopped.stderr
-    assert all(line.startswith("rm ") for line in lines[1:]), stopped.stderr
-
-    removed: list[str] = []
-    for line in lines[1:]:
-        (named,) = remove_named(repo, line)
-        removed.append(named)
-    knowledge = repo / FACILITY_DIR / "knowledge"
-    if knowledge.is_dir():
-        shutil.rmtree(knowledge)
-        knowledge.mkdir()
-    return tuple(removed)
-
-
 def import_facility(runner: CliRunner, repo: Path, exports: Sequence[str], mapping: Path) -> Result:
     """Install the reviewed mapping and write the exports as the mml layer's sources.
 
@@ -213,44 +148,6 @@ def import_facility(runner: CliRunner, repo: Path, exports: Sequence[str], mappi
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(mapping, target)
     return invoke(runner, "facility", "import", "mml", *exports, "--repo", str(repo))
-
-
-def imported_probe(repo: Path) -> str:
-    """The first readback by address of the import's channels.
-
-    The rule the build's served-probe stop names its remedy by: a channel whose
-    role is ``readback`` or states none.
-    """
-    channels = yaml_loader.safe_load(
-        (repo / FACILITY_DIR / "imported/mml/channels.yaml").read_text(encoding="utf-8")
-    )
-    return min(
-        str(channel["id"]) for channel in channels if channel.get("role", "readback") == "readback"
-    )
-
-
-def remove_stale_scenarios(repo: Path, imported: Result) -> tuple[str, ...]:
-    """Remove exactly the scenario files a clean ``facility import mml`` listed.
-
-    Nothing here decides what to delete: every path removed was named by one
-    ``  rm`` line under the list's header (``rm -r`` for a scenario's folder of
-    attached files), one path per line.
-
-    Returns:
-        The removed paths, in the order they were printed; empty when the
-        import listed none.
-    """
-    lines = imported.stderr.splitlines()
-    if STALE_SCENARIOS not in lines:
-        return ()
-    listed = lines[lines.index(STALE_SCENARIOS) + 1 :]
-    assert listed and all(line.startswith("  rm ") for line in listed), imported.stderr
-
-    removed: list[str] = []
-    for line in listed:
-        (named,) = remove_named(repo, line.strip())
-        removed.append(named)
-    return tuple(removed)
 
 
 def seed_stops(stderr: str) -> dict[str, tuple[str, float]]:
@@ -397,25 +294,6 @@ def published(repo: Path) -> dict[str, bytes]:
     }
 
 
-def remove_named(repo: Path, line: str) -> list[str]:
-    """Delete exactly the paths *line* names, and report them.
-
-    Run as the operator would: the line is a shell command, so it is split as
-    one. Nothing else in the tree is touched, which is what makes the
-    assertions about what survived the refusal mean anything.
-    """
-    named = [word for word in shlex.split(line) if word not in ("rm", "-r")]
-    assert named, line
-    for relative in named:
-        target = repo / relative
-        assert target.exists(), f"{relative} was named but is not there"
-        if target.is_dir():
-            shutil.rmtree(target)
-        else:
-            target.unlink()
-    return named
-
-
 @pytest.fixture(scope="module")
 def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     """The hello-world middle-layer recipe, driven once.
@@ -431,8 +309,7 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
 
     invoke(runner, "init", str(repo), "--preset", "hello-world", "--no-git")
     exports = [str(export)]
-    clear_authored(runner, repo, exports)
-    import_facility(runner, repo, exports, facility_mapping(SOURCE))
+    imported = import_facility(runner, repo, exports, facility_mapping(SOURCE))
     invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
@@ -440,6 +317,7 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
 
     return {
         "repo": repo,
+        "imported": imported,
         "validate": validate.output,
         "build": build.output,
     }
@@ -447,7 +325,7 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
 
 @pytest.fixture(scope="module")
 def served_recipe(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], dict[str, Any]]:
-    """Each tree's control-assistant recipe, driven at most once in the module.
+    """Each tree's demo recipe, driven at most once in the module.
 
     Some cases narrow ``served_repo`` to a subset of the trees, and pytest orders
     those apart from the cases that take every tree, so the cases on one tree are
@@ -472,19 +350,17 @@ def served_recipe(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], d
 def served_repo(
     request: pytest.FixtureRequest, served_recipe: Callable[[str], dict[str, Any]]
 ) -> dict[str, Any]:
-    """The control-assistant recipe over a 2.0 export, for one supported tree."""
+    """The demo recipe over a 2.0 export, for one supported tree."""
     return served_recipe(request.param)
 
 
 def drive_served_recipe(tree: str, workdir: Path) -> dict[str, Any]:
-    """The control-assistant recipe over a 2.0 export, driven for one supported tree.
+    """The demo recipe over a 2.0 export, driven for one supported tree.
 
     The exports enter the facility description through ``facility import
-    mml``, past the stop it makes over the preset's authored sources. The
-    import lists the demo scenarios it leaves stale; one build runs while they
-    are still there, and the recipe then removes exactly those. The first
-    build after that runs into the ``seed-invalid`` stops the imported tree
-    carries; ``build_past_the_seed_stops`` applies their remedy.
+    mml``, which replaces the preset's bundled facility. The first build runs
+    into the ``seed-invalid`` stops the imported tree carries;
+    ``build_past_the_seed_stops`` applies their remedy.
 
     The build then runs twice. The second run is what says the published tree
     is a function of the import and not of the run that wrote it.
@@ -496,23 +372,9 @@ def drive_served_recipe(tree: str, workdir: Path) -> dict[str, Any]:
     runner = CliRunner()
     repo = workdir / "demo"
 
-    invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
-    cleared = clear_authored(runner, repo, exports)
+    invoke(runner, "init", str(repo), "--preset", "demo", "--no-git")
     imported = import_facility(runner, repo, exports, facility_mapping(fixture))
-    invoke(
-        runner,
-        "set",
-        "--repo",
-        str(repo),
-        f"config.control_system.connector.virtual_accelerator.probe_channel={imported_probe(repo)}",
-    )
-    scenario_stop = runner.invoke(
-        cli,
-        ["build", "--repo", str(repo), "--skip-deps", "--skip-lifecycle"],
-        catch_exceptions=False,
-    )
-    stale = remove_stale_scenarios(repo, imported)
-    invoke(runner, "set", "--repo", str(repo), *MIDDLE_LAYER_SETTINGS)
+    invoke(runner, "set", "--repo", str(repo), NO_START_SET, *MIDDLE_LAYER_SETTINGS)
 
     validate = invoke(runner, "validate", "--repo", str(repo), "--drift=warn")
     stopped, remedied, build = build_past_the_seed_stops(
@@ -525,9 +387,7 @@ def drive_served_recipe(tree: str, workdir: Path) -> dict[str, Any]:
     return {
         "fixture": tree,
         "repo": repo,
-        "cleared": cleared,
-        "scenario_stop": scenario_stop,
-        "stale_scenarios": stale,
+        "imported": imported,
         "stopped": stopped,
         "remedied": remedied,
         "validate": validate.output,
@@ -602,6 +462,15 @@ class TestHelloWorldMiddleLayer:
         )
 
 
+def test_the_rendered_probe_is_a_readback_of_the_imported_tree(served_repo: dict) -> None:
+    repo = served_repo["repo"]
+    config = yaml_loader.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))
+    probe = config["control_system"]["connector"]["virtual_accelerator"]["probe_channel"]
+    channels = json.loads((repo / "build" / "facility.json").read_text(encoding="utf-8"))
+    (channel,) = [record for record in channels["channels"] if record["id"] == probe]
+    assert channel.get("role", DEFAULT_ROLE) == "readback"
+
+
 class TestServedFromATwoZeroExport:
     """What ``osprey build`` publishes when the import brought a model.
 
@@ -643,51 +512,36 @@ class TestTheFacilityImportOfATwoZeroExport:
     Read off the ``served_repo`` recipe above.
     """
 
-    def test_the_import_stops_over_every_authored_record_source_of_the_preset(
+    def test_the_import_replaces_the_bundled_facility_of_the_preset_in_one_line(
         self, served_repo: dict
     ) -> None:
-        """One ``rm`` line per file, and never ``classes.yaml``.
+        """One line, and the preset's records are gone.
 
-        The preset ships no ``classes.yaml``, so the import seeds the tree's
-        own classes and the build reaches the limits records rather than
-        stopping on a class nothing declares.
+        The preset's ``classes.yaml`` goes with the rest of the bundled
+        facility, and the import seeds the tree's own classes in its place, so
+        the build reaches the limits records rather than stopping on a class
+        nothing declares.
         """
-        cleared = served_repo["cleared"]
         facility = served_repo["repo"] / FACILITY_DIR
+        lines = served_repo["imported"].stderr.splitlines()
+        packaged = [
+            path
+            for path in PACKAGED_FACILITY.rglob("*")
+            if path.is_file()
+            and not (
+                path.name == "index.md" and path.is_relative_to(PACKAGED_FACILITY / "knowledge")
+            )
+        ]
 
-        assert cleared == tuple(sorted(cleared))
-        assert f"{FACILITY_DIR}/records/channels.yaml" in cleared
-        assert all(path.startswith(f"{FACILITY_DIR}/") for path in cleared)
-        assert [path for path in cleared if path.startswith(f"{FACILITY_DIR}/scenarios/")] == []
-        assert not (PACKAGED_FACILITY / "classes.yaml").exists()
-        assert (facility / "classes.yaml").is_file()
+        assert (
+            lines[0] == f"import mml: replaced the bundled example facility ({len(packaged)} files)"
+        )
+        assert not (facility / "records").exists()
+        assert (PACKAGED_FACILITY / "classes.yaml").is_file()
+        assert (facility / "classes.yaml").read_text(encoding="utf-8") != (
+            PACKAGED_FACILITY / "classes.yaml"
+        ).read_text(encoding="utf-8")
         assert (facility / "imported" / "mml" / "channels.yaml").is_file()
-
-    def test_the_import_lists_the_stale_demo_scenarios_and_the_build_stops_until_they_are_gone(
-        self, served_repo: dict
-    ) -> None:
-        """The listed files are the demo's channel-naming ones, and only they stop the build.
-
-        ``nominal.yaml`` names nothing the import takes away, so it is never
-        listed and stays.
-        """
-        listed = served_repo["stale_scenarios"]
-        names = {Path(path).stem for path in listed}
-        scenario_stop = served_repo["scenario_stop"]
-        stops = [
-            line for line in scenario_stop.stderr.splitlines() if line.startswith("facility: ")
-        ]
-
-        assert listed == DEMO_RESOLVING_SCENARIOS
-        assert scenario_stop.exit_code != 0
-        assert stops and " scenario " in stops[0], scenario_stop.output
-        assert any(f" scenario {name} " in stops[0] for name in names), stops[0]
-        assert not [
-            line
-            for line in served_repo["stopped"].stderr.splitlines()
-            if line.startswith("facility: ") and " scenario " in line
-        ]
-        assert (served_repo["repo"] / FACILITY_DIR / "scenarios" / "nominal.yaml").is_file()
 
     @pytest.mark.parametrize("served_repo", ["spear3", "synthetic"], indirect=True)
     def test_the_build_stops_on_each_setpoint_outside_its_band_until_it_is_widened(
@@ -751,9 +605,9 @@ class TestTheFacilityImportOfATwoZeroExport:
         self, served_repo: dict, tmp_path: Path
     ) -> None:
         """A fresh import of the same exports differs only in the widened edges."""
+        from osprey.facility.layers import HEADER
         from osprey.facility.layers.mml.importer import import_mml
         from osprey.facility.layers.mml.mapping import MAPPING_FILE
-        from osprey.facility.layers.mml.seed import HEADER
 
         fixture = FIXTURES / served_repo["fixture"]
         fresh = tmp_path / FACILITY_DIR
@@ -794,7 +648,7 @@ class TestTheBandsOfAHarvestedTree:
         bands = json.loads((repo / "build" / "data" / LIMITS_FILE).read_text(encoding="utf-8"))
 
         assert records
-        assert bands == limits_document(facility)
+        assert bands == limits_document(FacilityRecords(facility))
         assert sorted(key for key in bands if not key.startswith("_")) == sorted(
             record["address"] for record in records
         )

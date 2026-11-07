@@ -6,11 +6,11 @@ n10s plugin.  Every other graphdb test mocks the driver, which can prove the
 call shapes but not the two things that decide whether the feature works: that
 ``n10s.graphconfig.init`` with :data:`~...graph_seeder.N10S_GRAPH_CONFIG`
 produces a graph the operator queries can traverse, and that the graph view the
-control-assistant build writes imports into exactly the corpus those queries
+demo build writes imports into exactly the corpus those queries
 were verified against.  So the assertions here are the four counts verified on
-that view (645 binding owners / 3339 bindings / 522 write-only + 2812 read-only
-/ 466 magnets rolled up through the class hierarchy), plus n10s's own
-``terminationStatus`` and its 28792 triples.
+that view (1017 binding owners / 4731 bindings / 674 write-only + 4052 read-only
+/ 480 magnets rolled up through the class hierarchy), plus n10s's own
+``terminationStatus`` and its 40928 triples.
 
 Counts only, never wall clock: seeding time depends on the host's disk and on
 whether the image was cold, and a timing assertion here would fail on a loaded
@@ -52,26 +52,27 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 
 
 # ---------------------------------------------------------------------------
-# Verified counts for the control-assistant build's graph view
+# Verified counts for the demo build's graph view
 # ---------------------------------------------------------------------------
 # The binding and direction counts are the Turtle census pinned in
-# tests/templates/test_control_assistant_demo_ttl.py; the magnet rollup and the
+# tests/templates/test_demo_ttl.py; the magnet rollup and the
 # triple count were verified against a live n10s import of the same file.
 
 #: Triples n10s reports loading from the view.
-EXPECTED_TRIPLES_LOADED = 28792
-#: Distinct resources carrying at least one channel binding: the 644 devices
-#: and the top place ``SR``, which carries the tune and chromaticity channels.
-EXPECTED_DEVICES = 645
+EXPECTED_TRIPLES_LOADED = 40928
+#: Distinct resources carrying at least one channel binding: the 1016 devices
+#: and the top place ``SR``, which carries the tune, chromaticity, user
+#: beam mode and operation-mode channels.
+EXPECTED_DEVICES = 1017
 #: ``(:ChannelBinding)`` nodes.
-EXPECTED_BINDINGS = 3339
-EXPECTED_WRITE_ONLY = 522
-EXPECTED_READ_ONLY = 2812
+EXPECTED_BINDINGS = 4731
+EXPECTED_WRITE_ONLY = 674
+EXPECTED_READ_ONLY = 4052
 #: Devices whose type rolls up to ``Magnet`` through ``rdfs:subClassOf`` —
 #: Dipole + Quadrupole + Sextupole + HCorrector + VCorrector + Septum + Kicker
-#: + Solenoid + BuckingCoil.
+#: + Solenoid + BuckingCoil + InsertionDevice.
 #: This is the count that proves the *hierarchy* imported, not just the nodes.
-EXPECTED_MAGNETS = 466
+EXPECTED_MAGNETS = 480
 
 #: Ontology root the magnet rollup walks up to.  A driver parameter here, where
 #: the prototype's Browser-oriented file inlines it as a literal.
@@ -134,15 +135,20 @@ def seeder_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
     Session-scoped: this module reads the store rather than wiping it, so one
     seeded container serves every test here. A read that gets no answer fails
     naming this store and the state its container was in.
+
+    A container of its own rather than the session's ``graphdb_session_store``:
+    the test below bootstraps a store nothing has touched, the store a first
+    deploy meets, before the wiped one a re-seed meets. On the shared store
+    both bootstraps would meet a wiped one.
     """
     with watched_graphdb_store(graphdb_plugin_dir, label=SEEDER_STORE_LABEL) as store:
         yield store
 
 
 @pytest.fixture(scope="session")
-def demo_ttl(built_control_assistant: BuiltProject) -> str:
-    """The graph view the control-assistant build writes, as the seeder reads it."""
-    view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+def demo_ttl(built_demo: BuiltProject) -> str:
+    """The graph view the demo build writes, as the seeder reads it."""
+    view = built_demo.build_dir / "data" / "graph" / "facility.ttl"
     return view.read_text(encoding="utf-8")
 
 

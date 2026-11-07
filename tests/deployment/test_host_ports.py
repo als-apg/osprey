@@ -1332,24 +1332,22 @@ class TestCheckoutAttribution:
         assert len(conflicts) == 1
         assert "other-postgres" in conflicts[0].holder
 
-    def test_a_matching_repo_id_is_our_own_container(self, monkeypatch, listening_port):
-        conflicts = self._preflight(
-            monkeypatch,
-            listening_port,
-            _ps_row("proj-postgres", "proj", repo_id="abc123"),
-            "abc123",
-        )
-        assert conflicts == []
-
-    def test_a_matching_repo_id_wins_over_a_project_name_that_disagrees(
-        self, monkeypatch, listening_port
+    @pytest.mark.parametrize(
+        ("container", "project"),
+        [
+            pytest.param("proj-postgres", "proj", id="our-own-container"),
+            # The label is what the destructive verbs select on, so a status that
+            # answered differently would describe a different set of containers.
+            pytest.param("renamed-postgres", "renamed", id="wins-over-a-disagreeing-project-name"),
+        ],
+    )
+    def test_a_matching_repo_id_is_our_own_container(
+        self, monkeypatch, listening_port, container, project
     ):
-        """The label is what the destructive verbs select on, so a status that
-        answered differently would describe a different set of containers."""
         conflicts = self._preflight(
             monkeypatch,
             listening_port,
-            _ps_row("renamed-postgres", "renamed", repo_id="abc123"),
+            _ps_row(container, project, repo_id="abc123"),
             "abc123",
         )
         assert conflicts == []

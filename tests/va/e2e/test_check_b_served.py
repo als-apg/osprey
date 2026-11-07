@@ -124,7 +124,8 @@ def harvested(
     built = boot.harvest_and_build(tree, tmp_path_factory.mktemp(f"check-b-{tree}"))
     model = _measured_model(built.repo)
     gm.set_measurement(built.repo, model, kinds=list(MEASUREMENTS))
-    probe = recipes.imported_probe(built.repo)
+    config = recipes.rendered_config(built.repo)
+    probe = config["control_system"]["connector"]["virtual_accelerator"]["probe_channel"]
     with gm.deployed(
         built.repo,
         lambda port, pva_port: gm.isolation_settings(port, pva_port, probe, approval=False),
@@ -140,7 +141,7 @@ def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Served]:
     """The example facility's deployment, built and served asking nobody."""
     from tests._builds import init_project
 
-    repo = init_project(tmp_path_factory.mktemp("check-b-example"), "control-assistant", "example")
+    repo = init_project(tmp_path_factory.mktemp("check-b-example"), "demo", "example")
     with gm.deployed(
         repo,
         lambda port, pva_port: gm.isolation_settings(port, pva_port, EXAMPLE_PROBE, approval=False),

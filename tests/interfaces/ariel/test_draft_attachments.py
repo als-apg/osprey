@@ -53,16 +53,16 @@ def test_get_draft_attachment_success(draft_client):
 
     # Write draft with attachment_paths
     write_draft(
-        "draft-test001",
+        "draft-000000000001",
         {
-            "draft_id": "draft-test001",
+            "draft_id": "draft-000000000001",
             "subject": "Test",
             "details": "Details",
             "attachment_paths": [str(img_file)],
         },
     )
 
-    resp = client.get("/api/drafts/draft-test001/attachments/plot.png")
+    resp = client.get("/api/drafts/draft-000000000001/attachments/plot.png")
     assert resp.status_code == 200
     assert resp.content == PNG
     assert resp.headers["content-type"] == "image/png"
@@ -71,21 +71,38 @@ def test_get_draft_attachment_success(draft_client):
     assert resp.headers["content-security-policy"] == "sandbox; default-src 'none'"
 
 
-def test_get_draft_attachment_not_in_draft(draft_client):
-    """Requesting an attachment not listed in draft returns 404."""
+@pytest.mark.parametrize(
+    ("draft_id", "attachment_path", "filename"),
+    [
+        # Requesting an attachment not listed in draft.
+        pytest.param(
+            "draft-000000000002", "/some/other/file.png", "unlisted.png", id="not-in-draft"
+        ),
+        # Attachment listed in draft but missing on disk.
+        pytest.param(
+            "draft-000000000005",
+            "/nonexistent/path/image.png",
+            "image.png",
+            id="file-missing-on-disk",
+        ),
+    ],
+)
+def test_get_draft_attachment_not_servable_returns_404(
+    draft_client, draft_id, attachment_path, filename
+):
     client, drafts_dir = draft_client
 
     write_draft(
-        "draft-test002",
+        draft_id,
         {
-            "draft_id": "draft-test002",
+            "draft_id": draft_id,
             "subject": "Test",
             "details": "Details",
-            "attachment_paths": ["/some/other/file.png"],
+            "attachment_paths": [attachment_path],
         },
     )
 
-    resp = client.get("/api/drafts/draft-test002/attachments/unlisted.png")
+    resp = client.get(f"/api/drafts/{draft_id}/attachments/{filename}")
     assert resp.status_code == 404
 
 
@@ -93,7 +110,7 @@ def test_get_draft_attachment_draft_not_found(draft_client):
     """Missing draft returns 404."""
     client, _ = draft_client
 
-    resp = client.get("/api/drafts/draft-missing/attachments/file.png")
+    resp = client.get("/api/drafts/draft-0000000dead0/attachments/file.png")
     assert resp.status_code == 404
 
 
@@ -102,16 +119,16 @@ def test_draft_response_includes_attachment_paths(draft_client):
     client, _ = draft_client
 
     write_draft(
-        "draft-test003",
+        "draft-000000000003",
         {
-            "draft_id": "draft-test003",
+            "draft_id": "draft-000000000003",
             "subject": "Test",
             "details": "Details",
             "attachment_paths": ["/path/to/image.png"],
         },
     )
 
-    resp = client.get("/api/drafts/draft-test003")
+    resp = client.get("/api/drafts/draft-000000000003")
     assert resp.status_code == 200
     data = resp.json()
     assert data["attachment_paths"] == ["/path/to/image.png"]
@@ -122,15 +139,15 @@ def test_draft_response_without_attachment_paths(draft_client):
     client, _ = draft_client
 
     write_draft(
-        "draft-test004",
+        "draft-000000000004",
         {
-            "draft_id": "draft-test004",
+            "draft_id": "draft-000000000004",
             "subject": "Test",
             "details": "Details",
         },
     )
 
-    resp = client.get("/api/drafts/draft-test004")
+    resp = client.get("/api/drafts/draft-000000000004")
     assert resp.status_code == 200
     data = resp.json()
     assert data["attachment_paths"] is None
@@ -141,9 +158,9 @@ def test_draft_response_includes_fields(draft_client):
     client, _ = draft_client
 
     write_draft(
-        "draft-fields1",
+        "draft-f1e1d5000001",
         {
-            "draft_id": "draft-fields1",
+            "draft_id": "draft-f1e1d5000001",
             "subject": "Test",
             "details": "Details",
             "fields": {"book": "physics", "beam_current": 401.5, "beam_on": False},
@@ -151,7 +168,7 @@ def test_draft_response_includes_fields(draft_client):
         },
     )
 
-    resp = client.get("/api/drafts/draft-fields1")
+    resp = client.get("/api/drafts/draft-f1e1d5000001")
     assert resp.status_code == 200
     data = resp.json()
     assert data["fields"] == {"book": "physics", "beam_current": 401.5, "beam_on": False}
@@ -162,9 +179,11 @@ def test_draft_response_without_fields(draft_client):
     """A draft without declared values returns null for fields."""
     client, _ = draft_client
 
-    write_draft("draft-fields2", {"draft_id": "draft-fields2", "subject": "T", "details": "D"})
+    write_draft(
+        "draft-f1e1d5000002", {"draft_id": "draft-f1e1d5000002", "subject": "T", "details": "D"}
+    )
 
-    resp = client.get("/api/drafts/draft-fields2")
+    resp = client.get("/api/drafts/draft-f1e1d5000002")
     assert resp.status_code == 200
     assert resp.json()["fields"] is None
 
@@ -181,24 +200,6 @@ def test_create_draft_does_not_store_fields(draft_client):
     draft_id = resp.json()["draft_id"]
     assert "fields" not in drafts_mod.read_draft(draft_id)
     assert client.get(f"/api/drafts/{draft_id}").json()["fields"] is None
-
-
-def test_get_draft_attachment_file_missing_on_disk(draft_client):
-    """Attachment listed in draft but missing on disk returns 404."""
-    client, _ = draft_client
-
-    write_draft(
-        "draft-test005",
-        {
-            "draft_id": "draft-test005",
-            "subject": "Test",
-            "details": "Details",
-            "attachment_paths": ["/nonexistent/path/image.png"],
-        },
-    )
-
-    resp = client.get("/api/drafts/draft-test005/attachments/image.png")
-    assert resp.status_code == 404
 
 
 def _write_draft_with(drafts_dir, draft_id: str, name: str, data: bytes) -> None:
@@ -221,9 +222,9 @@ def test_get_draft_attachment_sniffs_instead_of_guessing(draft_client):
     """A web page named like a picture is downloaded, never rendered inline."""
     client, drafts_dir = draft_client
     html = b"<!doctype html><html><body>login</body></html>"
-    _write_draft_with(drafts_dir, "draft-test006", "plot.png", html)
+    _write_draft_with(drafts_dir, "draft-000000000006", "plot.png", html)
 
-    resp = client.get("/api/drafts/draft-test006/attachments/plot.png")
+    resp = client.get("/api/drafts/draft-000000000006/attachments/plot.png")
 
     assert resp.status_code == 200
     assert resp.content == html
@@ -235,9 +236,9 @@ def test_get_draft_attachment_sniffs_instead_of_guessing(draft_client):
 def test_get_draft_attachment_pdf_is_a_download(draft_client):
     """A draft PDF is served as an octet-stream download."""
     client, drafts_dir = draft_client
-    _write_draft_with(drafts_dir, "draft-test007", "report.pdf", PDF)
+    _write_draft_with(drafts_dir, "draft-000000000007", "report.pdf", PDF)
 
-    resp = client.get("/api/drafts/draft-test007/attachments/report.pdf")
+    resp = client.get("/api/drafts/draft-000000000007/attachments/report.pdf")
 
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/octet-stream"
@@ -259,7 +260,7 @@ def _upload_service(has_copy_state: bool) -> AsyncMock:
     service.repository.get_entry = AsyncMock(
         return_value={
             "entry_id": "ariel-xyz",
-            "source_system": "ARIEL Web",
+            "source_system": "OSPREY Logbook Web",
             "timestamp": datetime.now(),
             "author": "Anonymous",
             "raw_text": "Test\n\nBody",
@@ -283,8 +284,8 @@ def test_draft_pdf_uploaded_as_octet_stream_is_stored_as_pdf(
     monkeypatch.setattr(prepare_module, "prepare_picture", unavailable)
 
     draft_http, drafts_dir = draft_client
-    _write_draft_with(drafts_dir, "draft-test008", "report.pdf", PDF)
-    served = draft_http.get("/api/drafts/draft-test008/attachments/report.pdf")
+    _write_draft_with(drafts_dir, "draft-000000000008", "report.pdf", PDF)
+    served = draft_http.get("/api/drafts/draft-000000000008/attachments/report.pdf")
     blob_type = served.headers["content-type"]
     assert blob_type == "application/octet-stream"
 

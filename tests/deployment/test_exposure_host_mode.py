@@ -283,15 +283,16 @@ class TestReconcileExposure:
         ]
         assert _reconcile_exposure({"services": _PAIR}, files) is False
 
-    def test_overridden_dispatcher_bind_arms_the_token_rules(self, tmp_path):
+    @pytest.mark.parametrize(
+        "bind",
+        [
+            pytest.param("0.0.0.0", id="overridden-bind"),
+            pytest.param("192.168.1.10", id="concrete-interface"),
+        ],
+    )
+    def test_a_dispatcher_bound_beyond_loopback_arms_the_token_rules(self, tmp_path, bind):
         compose = _write_service_compose(
-            tmp_path, "event_dispatcher", {"event-dispatcher": _dispatcher("0.0.0.0")}
-        )
-        assert _reconcile_exposure({"services": _PAIR}, [compose]) is True
-
-    def test_a_concrete_interface_counts_as_reachable(self, tmp_path):
-        compose = _write_service_compose(
-            tmp_path, "event_dispatcher", {"event-dispatcher": _dispatcher("192.168.1.10")}
+            tmp_path, "event_dispatcher", {"event-dispatcher": _dispatcher(bind)}
         )
         assert _reconcile_exposure({"services": _PAIR}, [compose]) is True
 

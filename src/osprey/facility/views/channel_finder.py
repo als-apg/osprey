@@ -119,6 +119,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import DEFAULT_ROLE
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views import PIPELINE_MODE_KEY, ViewInputs
 
 __all__ = [
@@ -174,18 +175,18 @@ def _row(channel: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def in_context_document(doc: Mapping[str, Any]) -> dict[str, Any]:
+def in_context_document(records: FacilityRecords) -> dict[str, Any]:
     """The in_context index of one facility file.
 
     Args:
-        doc: The facility file.
+        records: The facility file's records.
 
     Returns:
         ``{schema, count, channels}``, one row per channel tagged
         ``in_context`` when any is, else one per channel, sorted by address;
         ``count`` is the number of rows.
     """
-    channels = list(doc.get("channels", []))
+    channels = records.of_kind("channel")
     tagged = [channel for channel in channels if IN_CONTEXT_TAG in (channel.get("tags") or [])]
     rows = [_row(channel) for channel in tagged or channels]
     rows.sort(key=lambda row: row["address"])
@@ -243,7 +244,7 @@ def write_in_context(root: Path, inputs: ViewInputs) -> list[Path]:
     """
     from osprey.facility.views import view_bytes
 
-    document = in_context_document(inputs.doc)
+    document = in_context_document(inputs.records)
     if not document["channels"]:
         raise _mode_unsupported(
             f"selects {IN_CONTEXT_MODE} and the facility has no channel",
@@ -360,7 +361,7 @@ def _place_levels(places: Iterable[Mapping[str, Any]]) -> list[str]:
 
 def _place_keys(
     place_id: str | None,
-    places: Mapping[str, Mapping[str, Any]],
+    records: FacilityRecords,
     levels: Sequence[str],
 ) -> tuple[list[str], list[str | None]]:
     """The node key and the place id at each place level, for one place.
@@ -379,7 +380,7 @@ def _place_keys(
     last = -1
     for depth in range(1, len(segments) + 1):
         ancestor_id = "/".join(segments[:depth])
-        ancestor = places.get(ancestor_id)
+        ancestor = records.record("place", ancestor_id)
         if ancestor is None or ancestor.get("level") is None:
             continue
         position = index[str(ancestor["level"])]
@@ -401,7 +402,7 @@ def _place_keys(
     return keys, ids
 
 
-def _class_descriptions(doc: Mapping[str, Any]) -> dict[str, str]:
+def _class_descriptions(records: FacilityRecords) -> dict[str, str]:
     from osprey.facility.validate import vocabulary
 
     descriptions = {
@@ -409,7 +410,7 @@ def _class_descriptions(doc: Mapping[str, Any]) -> dict[str, str]:
         for row in vocabulary()["classes"]
         if row.get("description")
     }
-    for row in doc.get("classes") or []:
+    for row in records.document.get("classes") or []:
         if row.get("description"):
             descriptions[str(row["class"])] = str(row["description"])
     return descriptions
@@ -465,11 +466,11 @@ def _shared_leaf_key(
     )
 
 
-def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
+def hierarchical_document(records: FacilityRecords) -> dict[str, Any]:
     """The hierarchical index of one facility file.
 
     Args:
-        doc: The facility file.
+        records: The facility file's records.
 
     Returns:
         ``{schema, count, hierarchy, tree}``; ``count`` is the number of
@@ -482,27 +483,27 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
             a tree key begins with ``_``, or when two channels of one device
             node take one leaf key.
     """
-    places = {str(place["id"]): place for place in doc.get("places", [])}
-    devices = {str(device["id"]): device for device in doc.get("devices", [])}
-    place_levels = _place_levels(places.values())
+    place_levels = _place_levels(records.of_kind("place"))
     levels = [*place_levels, *TAIL_LEVELS]
 
     descriptions: dict[tuple[str, ...], str | None] = {}
     leaves: dict[tuple[str, ...], list[Mapping[str, Any]]] = defaultdict(list)
 
-    for channel in doc.get("channels", []):
+    for channel in records.of_kind("channel"):
         on = channel.get("on") or {}
-        device = devices.get(str(on["device"])) if on.get("device") else None
+        device = records.record("device", str(on["device"])) if on.get("device") else None
         place_id = device.get("place") if device is not None else on.get("place")
         keys, ids = _place_keys(
-            str(place_id) if place_id is not None else None, places, place_levels
+            str(place_id) if place_id is not None else None, records, place_levels
         )
         for position, word in enumerate(place_levels):
             place_node = tuple(keys[: position + 1])
             if place_node not in descriptions:
                 place_ref = ids[position]
                 descriptions[place_node] = (
-                    f"no {word}" if place_ref is None else places[place_ref].get("description")
+                    f"no {word}"
+                    if place_ref is None
+                    else records.require("place", place_ref).get("description")
                 )
         class_key = device_key = ABSENT
         if device is not None:
@@ -517,7 +518,7 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
             descriptions[device_node] = "no device"
         leaves[device_node].append(channel)
 
-    class_texts = _class_descriptions(doc)
+    class_texts = _class_descriptions(records)
     for class_node in {node[: len(place_levels) + 1] for node in leaves}:
         if class_node[-1] == ABSENT:
             descriptions[class_node] = "no class"
@@ -541,7 +542,9 @@ def hierarchical_document(doc: Mapping[str, Any]) -> dict[str, Any]:
         for channel, key in zip(channels, _leaf_keys(channels), strict=True):
             _checked_key(key, channel, "channel")
             if key in holders:
-                raise _shared_leaf_key(holders[key], channel, key, devices.get(device_node[-1]))
+                raise _shared_leaf_key(
+                    holders[key], channel, key, records.record("device", device_node[-1])
+                )
             holders[key] = channel
             leaf: dict[str, Any] = {"_channel_part": str(channel["id"])}
             if channel.get("description"):
@@ -577,7 +580,7 @@ def write_hierarchical(root: Path, inputs: ViewInputs) -> list[Path]:
     """
     from osprey.facility.views import view_bytes
 
-    document = hierarchical_document(inputs.doc)
+    document = hierarchical_document(inputs.records)
     root.mkdir(parents=True, exist_ok=True)
     target = root / HIERARCHICAL_FILE
     target.write_bytes(view_bytes(document))
@@ -642,7 +645,7 @@ def _system_of(device: Mapping[str, Any]) -> str:
     return str(place).split("/", 1)[0] if place else ABSENT
 
 
-def _families_by_system(doc: Mapping[str, Any]) -> dict[str, list[_Family]]:
+def _families_by_system(records: FacilityRecords) -> dict[str, list[_Family]]:
     """Each System's Families: its groups, then its derived (System, class) Families.
 
     A group is filed under the System of each member, the top place of the
@@ -651,13 +654,12 @@ def _families_by_system(doc: Mapping[str, Any]) -> dict[str, list[_Family]]:
     there all carry one class) files into the derived Family of its System and
     class, named by the class. Members are ordered by ``s``, then id.
     """
-    devices = {str(device["id"]): device for device in doc.get("devices", [])}
     split: dict[str, list[tuple[Mapping[str, Any], list[Mapping[str, Any]]]]] = defaultdict(list)
     covered: dict[str, set[str]] = defaultdict(set)
-    for group in doc.get("groups", []):
+    for group in records.of_kind("group"):
         by_system: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
         for member_id in group.get("members") or []:
-            device = devices.get(str(member_id))
+            device = records.record("device", str(member_id))
             if device is not None:
                 by_system[_system_of(device)].append(device)
         for system, members in by_system.items():
@@ -666,12 +668,12 @@ def _families_by_system(doc: Mapping[str, Any]) -> dict[str, list[_Family]]:
             if len(member_classes) == 1 and None not in member_classes:
                 covered[system].update(str(member["id"]) for member in members)
     derived: dict[str, dict[str, list[Mapping[str, Any]]]] = defaultdict(lambda: defaultdict(list))
-    for device_id, device in devices.items():
+    for device in records.of_kind("device"):
         system = _system_of(device)
-        if device.get("class") and device_id not in covered[system]:
+        if device.get("class") and str(device["id"]) not in covered[system]:
             derived[system][str(device["class"])].append(device)
 
-    class_texts = _class_descriptions(doc)
+    class_texts = _class_descriptions(records)
     out: dict[str, list[_Family]] = {}
     for system in dict.fromkeys([*split, *derived]):
         entries = split.get(system, [])
@@ -698,18 +700,18 @@ def _families_by_system(doc: Mapping[str, Any]) -> dict[str, list[_Family]]:
     return out
 
 
-def middle_layer_families(doc: Mapping[str, Any]) -> dict[str, list[tuple[str, str]]]:
+def middle_layer_families(records: FacilityRecords) -> dict[str, list[tuple[str, str]]]:
     """Each device class's families as the middle-layer index files and names them.
 
     Args:
-        doc: The facility file.
+        records: The facility file's records.
 
     Returns:
         Class name -> the ``(System, Family)`` pairs under which the index lists
         a member of that class, sorted; a class no family holds is absent.
     """
     out: dict[str, set[tuple[str, str]]] = defaultdict(set)
-    for system, families in _families_by_system(doc).items():
+    for system, families in _families_by_system(records).items():
         for family in families:
             for member in family.members:
                 if member.get("class"):
@@ -732,7 +734,7 @@ def _natural(text: str) -> tuple[tuple[int, int | str], ...]:
     )
 
 
-def _place_indices(doc: Mapping[str, Any]) -> dict[str, int]:
+def _place_indices(records: FacilityRecords) -> dict[str, int]:
     """Each place's 1-based index among its siblings, for a place that has siblings.
 
     The siblings of a place are the places with the same parent and the same
@@ -741,7 +743,7 @@ def _place_indices(doc: Mapping[str, Any]) -> dict[str, int]:
     with no positioned device follow in natural id order.
     """
     lowest: dict[str, float] = {}
-    for device in doc.get("devices", []):
+    for device in records.of_kind("device"):
         place, position = device.get("place"), device.get("s")
         if not place or position is None:
             continue
@@ -751,7 +753,7 @@ def _place_indices(doc: Mapping[str, Any]) -> dict[str, int]:
             if ancestor not in lowest or float(position) < lowest[ancestor]:
                 lowest[ancestor] = float(position)
     siblings: dict[tuple[str, str | None], list[str]] = defaultdict(list)
-    for place in doc.get("places", []):
+    for place in records.of_kind("place"):
         place_id = str(place["id"])
         if "/" not in place_id:
             continue
@@ -827,7 +829,7 @@ def _common_description(channels: Sequence[Mapping[str, Any]]) -> str | None:
 def _family_fields(
     system: str,
     family: _Family,
-    channels_of: Mapping[str, Sequence[Mapping[str, Any]]],
+    records: FacilityRecords,
     signal_texts: Mapping[str, str],
 ) -> tuple[dict[str, dict[str, Any]], int]:
     """A family's Fields under one System, and how many channels are keyed by address.
@@ -862,7 +864,7 @@ def _family_fields(
     per_member: list[dict[str | None, list[Mapping[str, Any]]]] = []
     for member in family.members:
         fields: dict[str | None, list[Mapping[str, Any]]] = defaultdict(list)
-        for channel in channels_of.get(str(member["id"]), ()):
+        for channel in records.channels_on(str(member["id"])):
             signal = channel.get("signal")
             fields[str(signal) if signal else None].append(channel)
         per_member.append(fields)
@@ -915,11 +917,11 @@ def _checked_system(system: str, place: Mapping[str, Any]) -> None:
     _checked_key(system, place, "place", _MIDDLE_LAYER_INDEX)
 
 
-def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, int]:
+def middle_layer_document(records: FacilityRecords) -> tuple[dict[str, Any], int, int]:
     """The middle-layer index of one facility file.
 
     Args:
-        doc: The facility file.
+        records: The facility file's records.
 
     Returns:
         ``{schema, count, <System>: {<Family>: {...}}}``; the number of
@@ -933,22 +935,15 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
             (``schema``, ``count``), or one channel's address is the signal
             another channel's Field in the same Family is keyed by.
     """
-    places = {str(place["id"]): place for place in doc.get("places", [])}
-    indices = _place_indices(doc)
-
-    channels_of: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
-    for channel in doc.get("channels", []):
-        owners = [(channel.get("on") or {}).get("device"), *(channel.get("endpoint_of") or [])]
-        for owner in dict.fromkeys(str(owner) for owner in owners if owner):
-            channels_of[owner].append(channel)
+    indices = _place_indices(records)
 
     signal_texts = _signal_descriptions()
     in_family: set[str] = set()
     listed: set[str] = set()
     document: dict[str, Any] = {"schema": CHANNEL_FINDER_SCHEMA}
     by_address = 0
-    for system, families in _families_by_system(doc).items():
-        place = places.get(system)
+    for system, families in _families_by_system(records).items():
+        place = records.record("place", system)
         if system != ABSENT:
             _checked_system(system, place or {"id": system})
         node: dict[str, Any] = {}
@@ -959,8 +954,8 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
         for entry in families:
             _checked_key(entry.name, entry.record, entry.record_kind, _MIDDLE_LAYER_INDEX)
             for member in entry.members:
-                in_family.update(str(c["id"]) for c in channels_of.get(str(member["id"]), ()))
-            fields, keyed = _family_fields(system, entry, channels_of, signal_texts)
+                in_family.update(str(c["id"]) for c in records.channels_on(str(member["id"])))
+            fields, keyed = _family_fields(system, entry, records, signal_texts)
             listed.update(address for field in fields.values() for address in field["ChannelNames"])
             by_address += keyed
             family: dict[str, Any] = {"_setup": _setup(entry.members, indices), **fields}
@@ -970,7 +965,9 @@ def middle_layer_document(doc: Mapping[str, Any]) -> tuple[dict[str, Any], int, 
         document[system] = node
     document["count"] = len(listed)
 
-    left_out = sum(1 for channel in doc.get("channels", []) if str(channel["id"]) not in in_family)
+    left_out = sum(
+        1 for channel in records.of_kind("channel") if str(channel["id"]) not in in_family
+    )
     return document, left_out, by_address
 
 
@@ -1031,7 +1028,7 @@ def write_middle_layer(root: Path, inputs: ViewInputs) -> list[Path]:
     from osprey.facility.views import report_note, view_bytes
     from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
 
-    document, left_out, by_address = middle_layer_document(inputs.doc)
+    document, left_out, by_address = middle_layer_document(inputs.records)
     if not document.keys() - DOCUMENT_KEYS:
         raise _mode_unsupported(
             f"selects {MIDDLE_LAYER_MODE} and no device of the facility is in a group "

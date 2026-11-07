@@ -1,38 +1,42 @@
 // @ts-check
+// @vitest-environment jsdom
 /**
- * Unit tests for the dock iframe adapter's PLACEMENT engine (dock-iframe.js):
+ * Unit tests for the dock iframe adapter's PLACEMENT seam (dock-iframe.js):
  *
  *   npx vitest run tests/interfaces/web_terminal/dock-iframe.test.mjs
  *
- * One panel per tile is a workspace invariant — the rail is the tab system.
- * These tests pin the placement rules that enforce it:
+ * Every open, prune and hide is one operation on the page's layout holder
+ * (dock-apply.js), which applies it to dockview. These tests run against the
+ * pinned real dockview-core in jsdom and a real holder, and pin:
  *
  *   - the first service placeholder docks LEFT of the terminal at the 60/40
  *     split;
- *   - an ACTIVATION ('replace' intent) takes over the target service tile:
- *     the previous occupant's placeholder is removed and its iframe concealed,
- *     a local vacate that leaves its rail membership alone;
- *   - the terminal is never evicted;
- *   - focusing a panel that already has a tile jumps to it — no new tile, no
- *     eviction;
- *   - a REDOCK after a layout rebuild ('beside' intent) re-materializes each
- *     visible panel as its own tile — they must not evict one another;
+ *   - a tile holds ONE panel: an OPEN takes the service tile the operator used
+ *     last, replacing the panel it showed — nothing resizes, the replaced
+ *     panel's iframe is concealed and kept, and its next open replaces back;
+ *   - the terminal's tile is never the target;
+ *   - focusing a panel that already has a tile activates it in place;
+ *   - after a WHOLE-LAYOUT apply, a visible panel the layout lacks is
+ *     concealed, never re-docked;
  *   - hidePanel drops a placeholder even with no managed entry (a tile
- *     restored from storage for a panel closed elsewhere);
+ *     restored from storage for a panel closed elsewhere), and leaves the
+ *     other tiles and their iframes as they were;
  *   - pruning removes placeholders of server-closed panels once the visible
  *     set is seeded, and leaves everything alone before that.
  *
- * dockview and dock-workspace are stubbed at the module boundary: getDockApi
- * yields the shared fake api (_dock-fake.mjs), whose addPanel/removePanel model
- * dockview's group bookkeeping. Each test re-imports
- * the adapter fresh (vi.resetModules) so its module state never leaks.
+ * dock-workspace is stubbed at the module boundary: getDockApi yields the real
+ * dockview mounted for the test. Each test re-imports the adapter and the
+ * holder fresh (vi.resetModules) so module state never leaks.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
-import { makeDockApi as makeApi, addTerminal, FakeResizeObserver } from './_dock-fake.mjs';
+import { MIN_PX, geometry, keysOf } from '/static/vendor/dock-engine.mjs';
+import { DEFAULT_PX, mountDock, settle, unmountDocks } from './_dock-real.mjs';
 
-const ADAPTER = '../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js';
+const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
+const ADAPTER = `${JS}/dock-iframe.js`;
+const DOCK_APPLY = `${JS}/dock-apply.js`;
 
 const { getDockApi, state, redock } = vi.hoisted(() => ({
   state: { api: /** @type {any} */ (null) },
@@ -43,66 +47,158 @@ getDockApi.mockImplementation(() => state.api);
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   getDockApi,
-  defaultServiceWidth: () => 600,
   setServiceRedock: (/** @type {() => void} */ fn) => {
     redock.fn = fn;
   },
+  applyingSessionLayout: () => false,
   onDragGesture: () => [],
 }));
-// The one question the adapter asks the pop-out seam: whether a panel lives
-// in its own window. The seam itself is popout.test.mjs's contract.
-const { isPoppedOut } = vi.hoisted(() => ({
-  isPoppedOut: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
-}));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({ isPoppedOut }));
-
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   getDockApi.mockImplementation(() => state.api);
   state.api = null;
   redock.fn = null;
-  vi.stubGlobal('ResizeObserver', FakeResizeObserver);
   document.body.innerHTML = '<div class="main-container"></div>';
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  unmountDocks();
+  state.api = null;
   document.body.innerHTML = '';
 });
+
+/** @param {string} id @param {string[]} tabs @param {string} [showing] */
+function tile(id, tabs, showing = tabs[0]) {
+  return { tile: id, tabs, showing };
+}
+
+/** @param {any[]} items */
+function row(...items) {
+  const size = 1 / items.length;
+  return { split: 'row', items: items.map((item) => ({ ...item, size })) };
+}
+
+const TERMINAL = tile('tt', ['terminal']);
+
+/** Every tile of a layout, in tree order. @param {any} node @returns {any[]} */
+function tiles(node) {
+  if (node === null) return [];
+  return 'tabs' in node ? [node] : node.items.flatMap(tiles);
+}
 
 function makeIframe() {
   return document.createElement('iframe');
 }
 
-/** @param {any} api */
-async function freshAdapter(api) {
+/**
+ * A real dock and a real holder showing `layout` (the terminal alone by
+ * default; null for an empty dock), then a fresh adapter over both.
+ * @param {any} [layout]
+ */
+async function freshAdapter(layout = TERMINAL) {
+  const { api } = mountDock();
   state.api = api;
+  const dockApply = await import(DOCK_APPLY);
+  const holder = dockApply.initLayoutHolder({
+    api,
+    guard: (/** @type {() => any} */ fn) => fn(),
+    dockPx: DEFAULT_PX,
+  });
+  if (layout !== null) expect(holder.restore(layout)).toBe(true);
   const mod = await import(ADAPTER);
   mod.initDockIframeAdapter({ fallbackHost: null });
-  return mod;
+  return { mod, api, holder };
+}
+
+/**
+ * Adopt a panel's iframe and show it, as panel-manager's activation does.
+ * @param {any} mod @param {string} id
+ */
+function open(mod, id) {
+  const iframe = makeIframe();
+  mod.adoptIframe(id, iframe, { title: id.toUpperCase() });
+  mod.focusPanel(id);
+  return iframe;
+}
+
+/**
+ * A person clicks in tile `tile`, which shows `key`: dockview activates its
+ * panel and the bar tells the holder (dock-workspace's wiring, stubbed here).
+ * @param {any} api @param {any} holder @param {string} tile @param {string} key
+ */
+function clickTile(api, holder, tile, key) {
+  api.getPanel(key === 'terminal' ? key : `iframe:${key}`).api.setActive();
+  holder.show(tile, key);
+}
+
+/**
+ * Lay the dock out as a browser would, which jsdom does not: each group's
+ * content container takes its tile's rect in the engine's geometry of the
+ * held layout. Everything else keeps jsdom's zero rect, so the overlay is the
+ * origin.
+ * @param {any} api @param {any} holder
+ */
+function layOut(api, holder) {
+  const zero = Element.prototype.getBoundingClientRect;
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+    /** @this {Element} */
+    function () {
+      if (!this.classList.contains('dv-content-container')) return zero.call(this);
+      const group = api.groups.find((/** @type {any} */ g) => g.element.contains(this));
+      const box = { x: 0, y: 0, ...DEFAULT_PX };
+      const rect = group ? geometry(holder.layout, box, MIN_PX).tiles[group.id] : undefined;
+      return rect ? new DOMRect(rect.x, rect.y, rect.width, rect.height) : zero.call(this);
+    }
+  );
+}
+
+/** Where an overlay iframe is drawn. @param {HTMLIFrameElement} iframe */
+function drawn(iframe) {
+  const { display, left, top, width, height } = iframe.style;
+  return { display, left, top, width, height };
+}
+
+/**
+ * Drawn over tile `id`'s content, in the held layout.
+ * @param {any} holder @param {string} id
+ */
+function over(holder, id) {
+  const r = geometry(holder.layout, { x: 0, y: 0, ...DEFAULT_PX }, MIN_PX).tiles[id];
+  const px = (/** @type {number} */ n) => `${Math.round(n)}px`;
+  return { display: '', left: px(r.x), top: px(r.y), width: px(r.width), height: px(r.height) };
+}
+
+/** Each dockview group's views, by tile id. @param {any} api */
+function groups(api) {
+  return Object.fromEntries(
+    api.groups.map((/** @type {any} */ g) => [g.id, g.panels.map((/** @type {any} */ p) => p.id)])
+  );
+}
+
+/** @param {HTMLIFrameElement} iframe */
+function inOverlay(iframe) {
+  return iframe.parentElement?.classList.contains('dock-iframe-overlay') ?? false;
 }
 
 describe('first placement — the classic 60/40 split', () => {
-  test('the first service placeholder docks LEFT of the terminal at the default width', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
+  test('the first service placeholder docks LEFT of the terminal at the service share', async () => {
+    const { mod, api, holder } = await freshAdapter();
 
-    mod.adoptIframe('artifacts', makeIframe(), { title: 'WORKSPACE' });
+    open(mod, 'artifacts');
 
-    expect(api._added).toHaveLength(1);
-    expect(api._added[0]).toMatchObject({
-      id: 'iframe:artifacts',
-      position: { referencePanel: 'terminal', direction: 'left' },
-      initialWidth: 600,
-    });
+    const [left, right] = tiles(holder.layout);
+    expect(left.tabs).toEqual(['artifacts']);
+    expect(right.tabs).toEqual(['terminal']);
+    expect(holder.layout.split).toBe('row');
+    expect(left.size).toBeCloseTo(0.6, 2);
+    expect(api.getPanel('iframe:artifacts')).toBeTruthy();
+    expect(api.getPanel('iframe:artifacts').title).toBe('ARTIFACTS');
   });
 
   test("the overlay iframe takes the card's surface and its bottom corners", async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
+    const { mod } = await freshAdapter();
     const iframe = makeIframe();
 
     mod.adoptIframe('artifacts', iframe, { title: 'Artifacts' });
@@ -110,167 +206,293 @@ describe('first placement — the classic 60/40 split', () => {
     expect(iframe.style.borderRadius).toContain('var(--radius-xl)');
     expect(iframe.style.background).toContain('var(--surface-card)');
   });
+
+  test('with no tile at all, the panel gets a tile of its own', async () => {
+    const { mod, api, holder } = await freshAdapter(null);
+
+    open(mod, 'artifacts');
+
+    expect(tiles(holder.layout).map((t) => t.tabs)).toEqual([['artifacts']]);
+    expect(api.getPanel('iframe:artifacts')).toBeTruthy();
+  });
 });
 
-describe("activation ('replace') — the new panel takes over the tile", () => {
-  test('the previous occupant is evicted; the tile holds exactly the new panel', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    mod.adoptIframe('artifacts', makeIframe(), { title: 'WORKSPACE' });
+/**
+ * Kirk saw both bugs in a browser with several panels in one tile: an open
+ * stacked a panel into the service tile used last, and removing a panel from
+ * the sidebar (the panel_visibility hide) had its fallback stack another one
+ * into a tile that still showed a panel. A crowded tile's header collapsed.
+ * Here no group ever holds more than one panel, and the tiles an action does
+ * not touch keep their panel and their iframe where they were.
+ */
+describe('one panel per tile — the regressions Kirk saw', () => {
+  const THREE = row(
+    tile('t1', ['artifacts']),
+    tile('t2', ['ariel']),
+    tile('t3', ['okf']),
+    TERMINAL
+  );
 
-    mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
+  /** @param {any} mod */
+  function openThree(mod) {
+    return { artifacts: open(mod, 'artifacts'), ariel: open(mod, 'ariel'), okf: open(mod, 'okf') };
+  }
 
-    const arielAdd = api._added.find((/** @type {any} */ o) => o.id === 'iframe:ariel');
-    expect(arielAdd.position.direction).toBe('within'); // joins the tile, then evicts
-    expect(api.getPanel('iframe:artifacts')).toBeNull();
-    const tile = api.getPanel('iframe:ariel').group;
-    expect(tile.panels.map((/** @type {any} */ p) => p.id)).toEqual(['iframe:ariel']);
+  test('hiding one of three panels leaves the other tiles and their shown iframes as they were', async () => {
+    const { mod, api, holder } = await freshAdapter(THREE);
+    layOut(api, holder);
+    const frames = openThree(mod);
+    expect(groups(api)).toEqual({
+      t1: ['iframe:artifacts'],
+      t2: ['iframe:ariel'],
+      t3: ['iframe:okf'],
+      tt: ['terminal'],
+    });
+
+    mod.hidePanel('ariel');
+    await settle();
+
+    expect(groups(api)).toEqual({ t1: ['iframe:artifacts'], t3: ['iframe:okf'], tt: ['terminal'] });
+    expect(drawn(frames.artifacts)).toEqual(over(holder, 't1'));
+    expect(drawn(frames.okf)).toEqual(over(holder, 't3'));
+    expect(frames.ariel.style.display).toBe('none');
+    expect(inOverlay(frames.ariel)).toBe(true);
   });
 
-  test('the evicted iframe is concealed but kept cached for a later re-activation', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    const artifactsFrame = makeIframe();
-    mod.adoptIframe('artifacts', artifactsFrame, { title: 'WORKSPACE' });
+  test('an open replaces the panel of the service tile used last; the panel it replaced comes back by its own open', async () => {
+    const { mod, api, holder } = await freshAdapter(THREE);
+    layOut(api, holder);
+    const frames = openThree(mod);
+    clickTile(api, holder, 't3', 'okf');
 
-    const arielFrame = makeIframe();
-    mod.adoptIframe('ariel', arielFrame, { title: 'ARIEL' });
-    expect(artifactsFrame.style.display).toBe('none');
-    expect(artifactsFrame.isConnected).toBe(true); // cached in the overlay, state intact
+    const lattice = open(mod, 'lattice');
+    await settle();
 
-    // Re-activating the evicted panel takes the tile back the same way.
-    mod.focusPanel('artifacts');
-    expect(api.getPanel('iframe:artifacts')).not.toBeNull();
-    expect(api.getPanel('iframe:ariel')).toBeNull();
-    expect(arielFrame.style.display).toBe('none');
+    expect(groups(api)).toEqual({
+      t1: ['iframe:artifacts'],
+      t2: ['iframe:ariel'],
+      t3: ['iframe:lattice'],
+      tt: ['terminal'],
+    });
+    expect(drawn(lattice)).toEqual(over(holder, 't3'));
+    // okf is concealed, not closed: its iframe stays cached in the overlay.
+    expect(frames.okf.style.display).toBe('none');
+    expect(inOverlay(frames.okf)).toBe(true);
+    // Nothing resized, and the other tiles kept their panel and their iframe.
+    expect(tiles(holder.layout).map((t) => t.size)).toEqual(tiles(THREE).map((t) => t.size));
+    expect(drawn(frames.artifacts)).toEqual(over(holder, 't1'));
+    expect(drawn(frames.ariel)).toEqual(over(holder, 't2'));
+
+    // Its row opens it again: it replaces lattice in the same tile, and the
+    // iframe drawn there is the one okf had.
+    mod.focusPanel('okf');
+    await settle();
+
+    expect(groups(api)).toEqual({
+      t1: ['iframe:artifacts'],
+      t2: ['iframe:ariel'],
+      t3: ['iframe:okf'],
+      tt: ['terminal'],
+    });
+    expect(drawn(frames.okf)).toEqual(over(holder, 't3'));
+    expect(lattice.style.display).toBe('none');
+    expect(inOverlay(lattice)).toBe(true);
   });
 
-  test('with the terminal focused, the take-over targets the last-focused service tile — never the terminal', async () => {
-    const api = makeApi();
-    const terminal = addTerminal(api);
-    const mod = await freshAdapter(api);
-    mod.adoptIframe('artifacts', makeIframe(), { title: 'WORKSPACE' });
+  test('with the Agent pane focused, an open still lands in the service tile used last', async () => {
+    const { mod, api, holder } = await freshAdapter(
+      row(tile('t1', ['artifacts']), tile('t2', ['ariel']), TERMINAL)
+    );
+    open(mod, 'artifacts');
+    open(mod, 'ariel');
+    clickTile(api, holder, 't2', 'ariel');
+    clickTile(api, holder, 'tt', 'terminal'); // the operator went back to the chat
 
-    api.activePanel = terminal; // operator clicked back into the chat
-    mod.adoptIframe('okf', makeIframe(), { title: 'KNOWLEDGE' });
+    open(mod, 'okf');
 
-    expect(api.getPanel('terminal')).not.toBeNull();
-    expect(api.getPanel('iframe:artifacts')).toBeNull(); // the service tile was taken over
+    expect(groups(api)).toEqual({ t1: ['iframe:artifacts'], t2: ['iframe:okf'], tt: ['terminal'] });
+  });
+
+  test('a whole-layout apply conceals a panel it lacks, and a later layout that docks it shows it', async () => {
+    const { mod, api, holder } = await freshAdapter(
+      row(tile('t1', ['artifacts']), tile('t2', ['ariel']), TERMINAL)
+    );
+    layOut(api, holder);
+    const applied = vi.fn();
+    mod.setPlaceholdersAppliedHandler(applied);
+    const artifacts = open(mod, 'artifacts');
+    const ariel = open(mod, 'ariel');
+    if (!redock.fn) throw new Error('the adapter never registered its whole-layout hook');
+
+    // A stored layout without ariel is applied whole (a reset, a restore).
+    expect(holder.restore(row(tile('t1', ['artifacts']), TERMINAL))).toBe(true);
+    redock.fn();
+    await settle();
+
+    expect(applied).toHaveBeenCalledTimes(1);
+    expect(keysOf(holder.layout)).toEqual(['artifacts', 'terminal']);
+    expect(groups(api)).toEqual({ t1: ['iframe:artifacts'], tt: ['terminal'] });
+    expect(drawn(artifacts)).toEqual(over(holder, 't1'));
+    expect(ariel.style.display).toBe('none');
+    expect(inOverlay(ariel)).toBe(true);
+
+    // Concealed while it has no tile, and shown as soon as a layout gives it
+    // one again: here a layout the holder takes directly, as an agent
+    // arrangement or a preset does, with no whole-layout hook after it. A tile
+    // the layout holds never stays a blank card.
+    expect(holder.restore(row(tile('t1', ['artifacts']), tile('t2', ['ariel']), TERMINAL))).toBe(
+      true
+    );
+    await settle();
+    expect(drawn(ariel)).toEqual(over(holder, 't2'));
+    expect(drawn(artifacts)).toEqual(over(holder, 't1'));
   });
 });
 
 describe('focusing an existing tile — jump, not move', () => {
   test('a panel that already has a tile is activated in place; other tiles are untouched', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    mod.adoptIframe('artifacts', makeIframe(), { title: 'WORKSPACE' });
-    // A second tile beside the first (the "+" add-menu path pre-creates it).
-    api.addPanel({ id: 'iframe:ariel', component: 'dock-iframe-placeholder', title: 'ARIEL' });
-    mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
-    const addsBefore = api._added.length;
+    const { mod, api, holder } = await freshAdapter(
+      row(tile('t1', ['artifacts']), tile('t2', ['ariel']), TERMINAL)
+    );
+    open(mod, 'artifacts');
+    open(mod, 'ariel');
+    const before = JSON.stringify(tiles(holder.layout).map((t) => [t.tile, t.tabs]));
 
     mod.focusPanel('artifacts');
 
-    expect(api._added).toHaveLength(addsBefore); // no new tile
-    expect(api.getPanel('iframe:artifacts').api.setActive).toHaveBeenCalled();
-    expect(api.getPanel('iframe:ariel')).not.toBeNull(); // no eviction
-  });
-});
-
-describe("redock after a layout rebuild ('beside') — tiles do not evict one another", () => {
-  test('each visible panel re-materializes as its own tile', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    mod.adoptIframe('artifacts', makeIframe(), { title: 'WORKSPACE' });
-    api.addPanel({ id: 'iframe:ariel', component: 'dock-iframe-placeholder', title: 'ARIEL' });
-    mod.adoptIframe('ariel', makeIframe(), { title: 'ARIEL' });
-
-    // A layout rebuild wiped the grid; only the terminal came back.
-    api.panels = [];
-    api.groups = [];
-    addTerminal(api);
-    api._added.length = 0;
-    if (!redock.fn) throw new Error('adapter never registered its redock hook');
-    redock.fn();
-
-    expect(api.getPanel('iframe:artifacts')).not.toBeNull();
-    expect(api.getPanel('iframe:ariel')).not.toBeNull();
-    // Beside, never within: neither re-materialized tile evicted the other.
-    expect(api.getPanel('iframe:ariel').group).not.toBe(api.getPanel('iframe:artifacts').group);
-    // First tile re-opens at the terminal split; the second splits beside it.
-    expect(api._added[0].position).toMatchObject({ referencePanel: 'terminal', direction: 'left' });
-    expect(api._added[1].position.direction).toBe('right');
-    expect(api._added[1].position.referenceGroup).toBe(api.getPanel('iframe:artifacts').group);
+    expect(JSON.stringify(tiles(holder.layout).map((t) => [t.tile, t.tabs]))).toBe(before);
+    expect(api.activePanel?.id).toBe('iframe:artifacts');
+    expect(api.getPanel('iframe:ariel')).toBeTruthy(); // no eviction
   });
 });
 
 describe('hidePanel — tiles never outlive their panel', () => {
   test('drops a placeholder even when the adapter never adopted the panel', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    api.addPanel({ id: 'iframe:ghost', component: 'dock-iframe-placeholder', title: 'GHOST' });
+    const { mod, api } = await freshAdapter(row(tile('tg', ['ghost']), TERMINAL));
+    expect(api.getPanel('iframe:ghost')).toBeTruthy();
 
     mod.hidePanel('ghost');
 
-    expect(api.getPanel('iframe:ghost')).toBeNull();
+    expect(api.getPanel('iframe:ghost')).toBeFalsy();
+  });
+
+  test('a hidden panel keeps its iframe cached and comes back on the next activation', async () => {
+    const { mod, api } = await freshAdapter();
+    const iframe = open(mod, 'artifacts');
+
+    mod.hidePanel('artifacts');
+    expect(api.getPanel('iframe:artifacts')).toBeFalsy();
+    expect(iframe.style.display).toBe('none');
+    expect(iframe.isConnected).toBe(true);
+
+    mod.focusPanel('artifacts');
+    expect(api.getPanel('iframe:artifacts')).toBeTruthy();
   });
 });
 
 describe('pruning — placeholders of server-closed panels', () => {
+  const LATTICE = row(tile('tl', ['lattice']), TERMINAL);
+
   test('a known but server-closed panel loses its restored tile', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    api.addPanel({ id: 'iframe:lattice', component: 'dock-iframe-placeholder', title: 'LATTICE' });
+    const { mod, api } = await freshAdapter(LATTICE);
 
     mod.setServerVisiblePanels(new Set(['artifacts']));
     mod.setKnownServicePanels(['artifacts', 'lattice']);
 
-    expect(api.getPanel('iframe:lattice')).toBeNull();
+    expect(api.getPanel('iframe:lattice')).toBeFalsy();
   });
 
   test('a server-visible panel keeps its restored tile', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    api.addPanel({ id: 'iframe:lattice', component: 'dock-iframe-placeholder', title: 'LATTICE' });
+    const { mod, api } = await freshAdapter(LATTICE);
 
     mod.setServerVisiblePanels(new Set(['lattice']));
     mod.setKnownServicePanels(['lattice']);
 
-    expect(api.getPanel('iframe:lattice')).not.toBeNull();
+    expect(api.getPanel('iframe:lattice')).toBeTruthy();
   });
 
   test('before the visible set is seeded, known placeholders are left alone', async () => {
     // An early layout restore must not drop every placeholder just because
     // panel-manager has not seeded the server-visible set yet.
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    api.addPanel({ id: 'iframe:lattice', component: 'dock-iframe-placeholder', title: 'LATTICE' });
+    const { mod, api } = await freshAdapter(LATTICE);
 
     mod.setKnownServicePanels(['lattice']);
 
-    expect(api.getPanel('iframe:lattice')).not.toBeNull();
+    expect(api.getPanel('iframe:lattice')).toBeTruthy();
+  });
+});
+
+describe('a pane in a window of its own', () => {
+  /** Whatever makes the adapter run a geometry pass. */
+  const geometryPass = () => window.dispatchEvent(new Event('resize'));
+
+  test('its frame is left alone: no geometry pass moves or hides it', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    const ariel = open(mod, 'ariel');
+    expect(holder.detach('ariel', null)).toBe(true);
+    expect(ariel.style.display).not.toBe('none');
+
+    ariel.style.left = '11px';
+    geometryPass();
+    expect(ariel.style.left).toBe('11px');
+    expect(ariel.style.display).not.toBe('none');
   });
 
-  test('a panel living in its own pop-out window loses its restored tile, visible or not', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    api.addPanel({ id: 'iframe:lattice', component: 'dock-iframe-placeholder', title: 'LATTICE' });
-    isPoppedOut.mockImplementation((/** @type {string} */ id) => id === 'lattice');
+  test('its not-answering notice does not stay behind over the hub', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    open(mod, 'ariel');
+    mod.setPanelReachable('ariel', false, '10:00');
+    const notice = /** @type {HTMLElement} */ (
+      document.querySelector('.dock-iframe-overlay > :not(iframe)')
+    );
+    expect(notice).not.toBeNull();
+    expect(notice.style.display).not.toBe('none');
 
+    holder.detach('ariel', null);
+    geometryPass();
+
+    expect(notice.style.display).toBe('none');
+  });
+
+  test('neither conceal path reaches it; once forgotten, a conceal does', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    const ariel = open(mod, 'ariel');
+    holder.detach('ariel', null);
+    mod.concealPanel('ariel');
+    mod.hidePanel('ariel');
+    expect(ariel.style.display).not.toBe('none');
+
+    holder.forget('ariel');
+    mod.concealPanel('ariel');
+    expect(ariel.style.display).toBe('none');
+  });
+
+  test('a frame adopted with no tile stays out of the dock and out of sight', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    const before = holder.layout;
+    const iframe = makeIframe();
+    mod.adoptIframe('ariel', iframe, { title: 'ARIEL', dock: false });
+    expect(holder.layout).toBe(before);
+    expect(iframe.isConnected).toBe(true);
+    expect(iframe.style.display).toBe('none');
+    expect(mod.managedIframe('ariel')?.iframe).toBe(iframe);
+  });
+
+  test('its frame back in the overlay is drawn in its tile again', async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    const ariel = open(mod, 'ariel');
+    ariel.style.left = '11px';
+    mod.panelReturned('ariel');
+    expect(ariel.style.left).not.toBe('11px');
+    expect(() => mod.panelReturned('ghost')).not.toThrow();
+  });
+
+  test('a panel with a restored tile that is detached has its tile pruned', async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tl', ['lattice']), TERMINAL));
+    holder.detach('lattice', null);
     mod.setServerVisiblePanels(new Set(['lattice']));
     mod.setKnownServicePanels(['lattice']);
-
-    expect(api.getPanel('iframe:lattice')).toBeNull();
-    isPoppedOut.mockImplementation(() => false);
+    expect(api.getPanel('iframe:lattice')).toBeFalsy();
   });
 });
 
@@ -289,11 +511,8 @@ describe('sash drags — dockview owns the iframe shield (#638)', () => {
    * gesture ends with the managed iframe interactive.
    */
   test('a full sash gesture leaves managed overlay iframes interactive', async () => {
-    const api = makeApi();
-    addTerminal(api);
-    const mod = await freshAdapter(api);
-    const iframe = makeIframe();
-    mod.adoptIframe('artifacts', iframe, { title: 'WORKSPACE' });
+    const { mod } = await freshAdapter();
+    const iframe = open(mod, 'artifacts');
     expect(iframe.style.pointerEvents).toBe('auto');
 
     const sash = document.createElement('div');
@@ -328,5 +547,154 @@ describe('sash drags — dockview owns the iframe shield (#638)', () => {
     document.dispatchEvent(new Event('pointerup', { bubbles: true }));
 
     expect(iframe.style.pointerEvents).toBe('auto');
+  });
+});
+
+describe('panelFocusAnchor — where a panel sits in the host tab order', () => {
+  test("dock mode: the placeholder group's content container, with the overlay to skip", async () => {
+    const { mod, api } = await freshAdapter(row(tile('t1', ['ariel']), TERMINAL));
+    const iframe = open(mod, 'ariel');
+    const found = mod.panelFocusAnchor(iframe.contentWindow);
+    const group = api.getPanel('iframe:ariel').group;
+    expect(found?.anchor).toBe(group.element.querySelector('.dv-content-container'));
+    expect(found?.skip(iframe)).toBe(true);
+    expect(found?.skip(group.element)).toBe(false);
+  });
+
+  test('a window that is no managed frame anchors nowhere', async () => {
+    const { mod } = await freshAdapter(row(tile('t1', ['ariel']), TERMINAL));
+    open(mod, 'ariel');
+    expect(mod.panelFocusAnchor(/** @type {any} */ ({}))).toBeNull();
+    expect(mod.panelFocusAnchor(null)).toBeNull();
+  });
+
+  test('fallback mount: the iframe itself', async () => {
+    const mod = await import(ADAPTER);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mod.initDockIframeAdapter({ fallbackHost: host });
+    const iframe = makeIframe();
+    mod.adoptIframe('ariel', iframe, { title: 'ARIEL' });
+    const found = mod.panelFocusAnchor(iframe.contentWindow);
+    expect(found?.anchor).toBe(iframe);
+    expect(found?.skip(iframe)).toBe(false);
+  });
+});
+
+describe('setPanelBodyState — a centred state over a tile body', () => {
+  /** @param {HTMLElement} host */
+  const paint = (host) => {
+    host.textContent = 'Starting…';
+  };
+  const stateEl = () =>
+    /** @type {HTMLElement | null} */ (document.querySelector('.tile-body-state'));
+
+  test("covers the panel's tile body, hides its frame, and gives it back when cleared", async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tj', ['jupyter']), TERMINAL));
+    const iframe = open(mod, 'jupyter');
+    layOut(api, holder);
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const el = /** @type {HTMLElement} */ (stateEl());
+    expect(el.textContent).toBe('Starting…');
+    expect(el.parentElement?.classList.contains('dock-iframe-overlay')).toBe(true);
+    const { display, left, top, width, height } = el.style;
+    expect({ display, left, top, width, height }).toEqual(over(holder, 'tj'));
+    expect(el.style.pointerEvents).toBe('auto');
+    expect(iframe.style.display).toBe('none');
+
+    mod.setPanelBodyState('jupyter', null);
+
+    expect(stateEl()).toBeNull();
+    expect(drawn(iframe)).toEqual(over(holder, 'tj'));
+  });
+
+  test('shows over a restored tile whose panel has no frame yet', async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tj', ['jupyter']), TERMINAL));
+    layOut(api, holder);
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const { display, left, top, width, height } = /** @type {HTMLElement} */ (stateEl()).style;
+    expect({ display, left, top, width, height }).toEqual(over(holder, 'tj'));
+  });
+
+  test('is hidden while the panel has no tile', async () => {
+    const { mod } = await freshAdapter();
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const el = stateEl();
+    expect(el === null || el.style.display === 'none').toBe(true);
+  });
+
+  test('the drag shield covers it as it covers the frames', async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tj', ['jupyter']), TERMINAL));
+    layOut(api, holder);
+    mod.setPanelBodyState('jupyter', paint);
+
+    mod.setIframePointerShield(true);
+    expect(/** @type {HTMLElement} */ (stateEl()).style.pointerEvents).toBe('none');
+    mod.setIframePointerShield(false);
+    expect(/** @type {HTMLElement} */ (stateEl()).style.pointerEvents).toBe('auto');
+  });
+
+  test('fallback mount: it covers the host while the host shows that panel', async () => {
+    const mod = await import(ADAPTER);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mod.initDockIframeAdapter({ fallbackHost: host });
+    mod.adoptIframe('jupyter', makeIframe(), { title: 'Jupyter' });
+    mod.adoptIframe('okf', makeIframe(), { title: 'OKF' });
+    mod.focusPanel('jupyter');
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const el = /** @type {HTMLElement} */ (stateEl());
+    expect(el.parentElement).toBe(host);
+    expect(el.style.display).toBe('');
+    mod.focusPanel('okf');
+    expect(el.style.display).toBe('none');
+  });
+});
+
+describe('reloadPanel — the tile ⋯ Reload row', () => {
+  test("reloads the panel's frame in place", async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    const iframe = makeIframe();
+    mod.adoptIframe('ariel', iframe, { title: 'ARIEL', dock: false });
+    const reload = vi.fn();
+    Object.defineProperty(iframe, 'contentWindow', { value: { location: { reload } } });
+    expect(mod.reloadPanel('ariel')).toBe(true);
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  test('a frame this page may not read is pointed at its own src', async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    const iframe = makeIframe();
+    iframe.setAttribute('src', '/lab');
+    mod.adoptIframe('jupyter', iframe, { title: 'Jupyter', dock: false });
+    const blocked = {
+      get location() {
+        throw new Error('cross-origin');
+      },
+    };
+    Object.defineProperty(iframe, 'contentWindow', { value: blocked });
+    /** @type {string[]} */
+    const writes = [];
+    Object.defineProperty(iframe, 'src', {
+      set: (v) => {
+        writes.push(v);
+      },
+      get: () => '/lab',
+    });
+    expect(mod.reloadPanel('jupyter')).toBe(true);
+    expect(writes).toEqual(['/lab']);
+  });
+
+  test('a panel with no frame reports false', async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    expect(mod.reloadPanel('ghost')).toBe(false);
   });
 });

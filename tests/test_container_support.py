@@ -16,10 +16,12 @@ import requests
 
 from tests import _container_support
 from tests._container_support import (
+    CONTAINER_STATE_TIMEOUT,
     ContainerExitedError,
     RuntimeContainer,
     container_state,
     docker_cli_unavailable_reason,
+    ensure_image,
     start_or_skip,
     wait_until_ready,
 )
@@ -268,6 +270,73 @@ def test_docker_probe_is_silent_when_the_cli_works(monkeypatch):
     assert docker_cli_unavailable_reason() is None
 
 
+_IMAGE = "example/image:1.0"
+
+
+def _image_presence(monkeypatch, *answers: bool) -> None:
+    """Answer ``is_image_present`` from *answers*, one per call, in order."""
+    remaining = list(answers)
+    monkeypatch.setattr(_container_support, "is_image_present", lambda _ref: remaining.pop(0))
+
+
+def _recording_run(monkeypatch, result) -> list[tuple[list[str], dict]]:
+    """Replace ``subprocess.run``: record each call, then return or raise *result*."""
+    calls: list[tuple[list[str], dict]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+    monkeypatch.setattr(_container_support.subprocess, "run", fake_run)
+    return calls
+
+
+def test_ensure_image_leaves_a_present_image_alone(monkeypatch):
+    _image_presence(monkeypatch, True)
+    calls = _recording_run(monkeypatch, _completed(0))
+
+    ensure_image(_IMAGE)
+
+    assert calls == []
+
+
+def test_ensure_image_pulls_an_absent_image_once(monkeypatch):
+    _image_presence(monkeypatch, False, True)
+    calls = _recording_run(monkeypatch, _completed(0))
+
+    ensure_image(_IMAGE, budget=42.0)
+
+    assert [argv for argv, _ in calls] == [["docker", "pull", _IMAGE]]
+    assert calls[0][1]["timeout"] == 42.0
+
+
+def test_ensure_image_names_the_pull_and_its_elapsed_time_on_failure(monkeypatch):
+    _image_presence(monkeypatch, False)
+    stderr = "Pulling from library/example\nError response from daemon: manifest unknown\n"
+    _recording_run(monkeypatch, _completed(1, stderr))
+
+    with pytest.raises(AssertionError) as raised:
+        ensure_image(_IMAGE)
+
+    message = str(raised.value)
+    assert message.startswith(f"pulling {_IMAGE} failed after ")
+    assert message.endswith("Error response from daemon: manifest unknown")
+
+
+def test_ensure_image_names_the_budget_when_the_pull_times_out(monkeypatch):
+    _image_presence(monkeypatch, False)
+    _recording_run(monkeypatch, subprocess.TimeoutExpired(["docker", "pull", _IMAGE], 7.0))
+
+    with pytest.raises(AssertionError) as raised:
+        ensure_image(_IMAGE, budget=7.0)
+
+    message = str(raised.value)
+    assert message.startswith(f"pulling {_IMAGE} failed after ")
+    assert "7s pull budget" in message
+
+
 # ---------------------------------------------------------------------------
 # wait_until_ready
 # ---------------------------------------------------------------------------
@@ -297,20 +366,19 @@ class CountingProbe:
             raise self.error
 
 
-def test_a_probe_that_answers_at_once_is_called_once():
-    probe = CountingProbe(failures=0)
+@pytest.mark.parametrize(
+    ("failures", "calls"),
+    [
+        pytest.param(0, 1, id="answers-at-once"),
+        pytest.param(2, 3, id="answers-on-the-third-try"),
+    ],
+)
+def test_a_probe_is_called_until_it_answers(failures, calls):
+    probe = CountingProbe(failures=failures)
 
     wait_until_ready(probe, "mongodb", interval=0.0)
 
-    assert probe.calls == 1
-
-
-def test_a_probe_that_answers_on_the_third_try_returns_after_three_calls():
-    probe = CountingProbe(failures=2)
-
-    wait_until_ready(probe, "mongodb", interval=0.0)
-
-    assert probe.calls == 3
+    assert probe.calls == calls
 
 
 def test_a_probe_that_never_answers_fails_with_the_label_and_the_last_cause():
@@ -339,6 +407,9 @@ class FakeStartedContainer:
     is read the same way and can be changed mid-run to stop the container.
     """
 
+    #: The id the daemon knows it by; :func:`started_daemon` serves it back.
+    id = "c0ffee"
+
     def __init__(self, log_lines: list[bytes], status: str = "running"):
         self.log_lines = list(log_lines)
         self.status = status
@@ -363,7 +434,39 @@ class FakeStartedContainer:
         return self
 
 
-def test_a_container_that_keeps_logging_outlives_the_quiet_budget():
+@pytest.fixture
+def started_daemon(monkeypatch):
+    """Serve a :class:`FakeStartedContainer` back from the daemon by its id.
+
+    The wait reads liveness on a docker client of its own, asking it for the
+    container by id; this answers that lookup with the very double the test
+    built, so the test still spells out what the container does line by line.
+
+    Returns:
+        A callable that takes the double, registers it, and returns it.
+    """
+    served: dict[str, FakeStartedContainer] = {}
+
+    class _Daemon:
+        def __init__(self) -> None:
+            self.containers = self
+
+        def get(self, container_id: str) -> FakeStartedContainer:
+            return served[container_id]
+
+        def close(self) -> None:
+            pass
+
+    monkeypatch.setattr("docker.from_env", lambda *, timeout: _Daemon())
+
+    def serve(container: FakeStartedContainer) -> FakeStartedContainer:
+        served[container.id] = container
+        return container
+
+    return serve
+
+
+def test_a_container_that_keeps_logging_outlives_the_quiet_budget(started_daemon):
     """The regression this whole signal exists for.
 
     The probe fails for far more rounds than ``timeout`` alone would allow, but
@@ -372,16 +475,16 @@ def test_a_container_that_keeps_logging_outlives_the_quiet_budget():
     would have failed on a slow machine while the subject was still working.
     """
     probe = CountingProbe(failures=10, error=ConnectionRefusedError("connection refused"))
-    container = FakeStartedContainer([f"line {n}".encode() for n in range(20)])
+    container = started_daemon(FakeStartedContainer([f"line {n}".encode() for n in range(20)]))
 
     wait_until_ready(probe, "mongodb", timeout=0.05, interval=0.0, container=container)
 
     assert probe.calls == 11
 
 
-def test_a_quiet_container_still_gives_up_after_the_quiet_budget():
+def test_a_quiet_container_still_gives_up_after_the_quiet_budget(started_daemon):
     probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
-    container = FakeStartedContainer([b"the one and only line"])
+    container = started_daemon(FakeStartedContainer([b"the one and only line"]))
 
     with pytest.raises(AssertionError) as caught:
         wait_until_ready(probe, "mongodb", timeout=0.05, interval=0.0, container=container)
@@ -389,10 +492,10 @@ def test_a_quiet_container_still_gives_up_after_the_quiet_budget():
     assert "without visible progress" in str(caught.value)
 
 
-def test_a_container_that_exited_fails_at_once_with_its_exit_code():
+def test_a_container_that_exited_fails_at_once_with_its_exit_code(started_daemon):
     """A dead subject must not be reported in the words of a slow one."""
     probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
-    container = FakeStartedContainer([b"crashing"], status="exited")
+    container = started_daemon(FakeStartedContainer([b"crashing"], status="exited"))
 
     with pytest.raises(AssertionError) as caught:
         wait_until_ready(probe, "mongodb", timeout=30.0, interval=0.0, container=container)
@@ -403,19 +506,19 @@ def test_a_container_that_exited_fails_at_once_with_its_exit_code():
     assert probe.calls == 1
 
 
-def test_an_exited_container_is_its_own_failure_type():
+def test_an_exited_container_is_its_own_failure_type(started_daemon):
     """The one ending a caller can act on: only a fresh container can differ."""
     probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
-    container = FakeStartedContainer([b"crashing"], status="exited")
+    container = started_daemon(FakeStartedContainer([b"crashing"], status="exited"))
 
     with pytest.raises(ContainerExitedError):
         wait_until_ready(probe, "mongodb", timeout=30.0, interval=0.0, container=container)
 
 
-def test_a_running_container_that_never_answers_is_not_reported_as_exited():
+def test_a_running_container_that_never_answers_is_not_reported_as_exited(started_daemon):
     """Rebuilding the same live container would change nothing, so the type says so."""
     probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
-    container = FakeStartedContainer([b"the one and only line"])
+    container = started_daemon(FakeStartedContainer([b"the one and only line"]))
 
     with pytest.raises(AssertionError) as caught:
         wait_until_ready(probe, "mongodb", timeout=0.05, interval=0.0, container=container)
@@ -423,10 +526,10 @@ def test_a_running_container_that_never_answers_is_not_reported_as_exited():
     assert not isinstance(caught.value, ContainerExitedError)
 
 
-def test_a_running_container_that_never_answers_names_its_log_tail():
+def test_a_running_container_that_never_answers_names_its_log_tail(started_daemon):
     """Its own last words are where a reader looks next, whether it exited or not."""
     probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
-    container = FakeStartedContainer([b"loading embedder on cpu"])
+    container = started_daemon(FakeStartedContainer([b"loading embedder on cpu"]))
 
     with pytest.raises(AssertionError) as caught:
         wait_until_ready(probe, "qmd sidecar", timeout=0.05, interval=0.0, container=container)
@@ -437,10 +540,10 @@ def test_a_running_container_that_never_answers_names_its_log_tail():
     assert "exit code" not in message
 
 
-def test_a_chatty_container_that_never_answers_still_hits_the_ceiling():
+def test_a_chatty_container_that_never_answers_still_hits_the_ceiling(started_daemon):
     """Progress may extend the wait, never remove its end."""
     probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
-    container = FakeStartedContainer([f"line {n}".encode() for n in range(10_000)])
+    container = started_daemon(FakeStartedContainer([f"line {n}".encode() for n in range(10_000)]))
 
     with pytest.raises(AssertionError) as caught:
         wait_until_ready(
@@ -631,4 +734,29 @@ def test_container_state_says_what_the_daemon_says_in_one_line(monkeypatch, stat
     assert container_state(container, timeout=4.0) == expected
     assert client.asked == ["c0ffee"]
     assert timeouts == [4.0]
+    assert client.closed
+
+
+def test_a_liveness_read_is_bounded_by_the_state_timeout(monkeypatch):
+    """The wait reads liveness on a client bounded like :func:`container_state`'s.
+
+    A daemon that does not answer in time costs one bounded read and leaves the
+    wait on the probe alone, as an unreadable container does.
+    """
+    client = _FakeDockerClient(error=requests.exceptions.ReadTimeout("read timed out"))
+    timeouts: list[float] = []
+
+    def from_env(*, timeout):
+        timeouts.append(timeout)
+        return client
+
+    monkeypatch.setattr("docker.from_env", from_env)
+    container = SimpleNamespace(get_wrapped_container=lambda: SimpleNamespace(id="c0ffee"))
+    probe = CountingProbe(failures=2)
+
+    wait_until_ready(probe, "mongodb", timeout=30.0, interval=0.0, container=container)
+
+    assert probe.calls == 3
+    assert timeouts == [CONTAINER_STATE_TIMEOUT]
+    assert client.asked == ["c0ffee", "c0ffee"]
     assert client.closed

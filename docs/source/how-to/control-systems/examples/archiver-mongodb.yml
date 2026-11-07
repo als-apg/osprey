@@ -1,0 +1,12 @@
+archiver:
+  type: mongodb_archiver
+  settings:
+    host: mongodb.facility.edu
+    port: 27017
+    name: archiver_db
+    collection: pv_data
+    auth:
+      source: admin
+      username: readonly
+      password_env: MONGODB_READONLY_PASSWORD
+    timeout_s: 60     # seconds, default 60

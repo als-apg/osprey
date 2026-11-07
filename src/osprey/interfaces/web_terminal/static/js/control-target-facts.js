@@ -259,6 +259,40 @@ export function statePhrase(word) {
 }
 
 /**
+ * What is said after a machine's state word while a program's write
+ * authorization of this login is in force there (`program_hold`): ` · program`,
+ * else nothing. The word itself stays this login's switch, so `off · program`
+ * reads as what it is — the switch off, a program allowed to write.
+ * @param {any} row
+ * @returns {string}
+ */
+export function programQualifier(row) {
+  return row?.program_hold === true ? ' · program' : '';
+}
+
+/** What a machine a program's authorization holds says on hover, beside its off control. */
+export const PROGRAM_HOLD_SENTENCE =
+  'A program holds an approved write authorization here. Turning writes off revokes it: its next write is refused.';
+
+/**
+ * Who holds a machine's authorizations, for the row's hover title: holder,
+ * label and steps of each, or `null` when none is in force.
+ * @param {any} row
+ * @returns {string|null}
+ */
+export function programHolders(row) {
+  const programs = Array.isArray(row?.programs) ? row.programs : [];
+  if (row?.program_hold !== true || programs.length === 0) return null;
+  const each = programs.map(
+    (/** @type {any} */ p) =>
+      `${String(p.holder)}${p.label ? ` (${String(p.label)})` : ''}, ` +
+      (p.used == null ? `${Number(p.steps)} steps` : `${Number(p.used)}/${Number(p.steps)} steps`) +
+      (p.self_issued === true ? ', self-issued at allowed' : '')
+  );
+  return `${PROGRAM_HOLD_SENTENCE} Held by ${each.join('; ')}.`;
+}
+
+/**
  * Refusal code → the short phrase the operator reads.
  *
  * The route publishes the switch tool's machine codes so the popover and the
@@ -285,7 +319,6 @@ export const REASON_PHRASES = {
   connector_not_switchable: 'switching not supported',
   target_unresolvable: 'unavailable',
   operator_ack_missing: 'needs gateway ack',
-  archive_belongs_to_standin: 'archive conflict',
   invented_history: 'no archive',
   standin_not_deployed: 'stand-in not deployed',
   reaches_live_machine: 'points at the live machine',
@@ -537,6 +570,13 @@ export function identTitle(row) {
 }
 
 /**
+ * Said by a move to `allowed` only: at `allowed` a program (an optimizer run)
+ * issues its own write authorization, with no request for this login to approve.
+ */
+export const PROGRAMS_SELF_ISSUE_SENTENCE =
+  'Programs, such as an optimizer run, then authorize themselves here without a request.';
+
+/**
  * Everything a widening's confirm says, for a move to *to*. Only a widening
  * asks — a narrowing removes reach and is undone by a click; a widening is the
  * gesture after which a write the agent makes can land, or land unprompted.
@@ -546,7 +586,8 @@ export function identTitle(row) {
  * The scope line is the first thing it says, because a switch is one login's:
  * moving it here moves it for every session, notebook and agent run of the
  * signed-in login — and for nobody else's. Then whether writes to this machine
- * will still prompt, the one thing the two positions differ on, then the
+ * will still prompt, the one thing the two positions differ on (and, at
+ * `allowed`, that programs then authorize themselves), then the
  * turn-on sentence (C-WORDS): runs already going keep the state they started
  * with. The move's start adds nothing: off→allowed and asked→allowed arrive at
  * the same place.
@@ -567,6 +608,7 @@ export function turnOnConfirm(row, kind, to = 'asked') {
       allowed
         ? ['Writes to ', { em: name }, ' will run with ', { em: 'no prompt' }, '.']
         : ['Writes to ', { em: name }, ' will ', { em: 'still prompt' }, ' before each one runs.'],
+      ...(allowed ? [[PROGRAMS_SELF_ISSUE_SENTENCE]] : []),
       [TURN_ON_SENTENCE],
     ],
     live: hardwareNote(kind),

@@ -1,0 +1,35 @@
+{
+  "canopy": "166989aade14853aeefaa8b34ce760ea4d68ed37",
+  "copies": [
+    {
+      "canopy_path": "tests/canopy_mcp/fixtures/ir-map.json",
+      "osprey_path": "tests/integrations/canopy/fixtures/ir-map.json",
+      "blob": "c4622daded7a18e287a00fee9e2a69c63a11e9e5"
+    },
+    {
+      "canopy_path": "tests/canopy_mcp/fixtures/grammar-vectors.json",
+      "osprey_path": "tests/integrations/canopy/fixtures/grammar-vectors.json",
+      "blob": "2176ca34855dd4e3d4f10ce39ddb09de135a50bc"
+    },
+    {
+      "canopy_path": "tests/canopy_mcp/fixtures/listing-vectors.json",
+      "osprey_path": "tests/integrations/canopy/fixtures/listing-vectors.json",
+      "blob": "95318eb3f99305d25ccb1a7156f3fadcee5811c0"
+    },
+    {
+      "canopy_path": "tests/canopy_mcp/fixtures/collections/match-vectors.json",
+      "osprey_path": "tests/integrations/canopy/fixtures/match-vectors.json",
+      "blob": "9a2e4573d46fd618297b8e32f4cfa64510ae63a3"
+    },
+    {
+      "canopy_path": "src/canopy_mcp/skill/SKILL.md",
+      "osprey_path": "src/osprey/templates/claude_code/claude/skills/canopy-panel-builder/SKILL.md",
+      "blob": "9e42d5fbd9eca5a2e7df682987d8ef83aa7c78cb"
+    },
+    {
+      "canopy_path": "src/canopy_mcp/skill/operator/SKILL.md",
+      "osprey_path": "src/osprey/templates/claude_code/claude/skills/canopy-operator/SKILL.md",
+      "blob": "3a4a26c2c88b44ac0858e7e5203d2c51bf08f1de"
+    }
+  ]
+}

@@ -17,7 +17,7 @@ agent, and the ARIEL search descriptors, are written for any control system.
 They name no protocol (``PV``, ``EPICS``) and no demo address prefix (``SR:``).
 The same guard reads what a build renders
 for the agent: ``CLAUDE.md`` and the markdown under ``.claude/`` of every
-render root of the control-assistant preset. The words and the texts that still carry them
+render root of the demo preset. The words and the texts that still carry them
 live in :mod:`tests._vocabulary`, with ``PENDING_REWORDING`` holding the texts
 whose wording has not changed yet. The
 rendered texts are masked per render root: the strings that root received from
@@ -59,6 +59,7 @@ MCP_SERVERS: tuple[str, ...] = (
     "facility_knowledge",
     "graph",
     "health",
+    "optimizer",
     "phoebus",
     "python_executor",
     "workspace",
@@ -226,14 +227,14 @@ def agent_facing_texts(server_tools, ariel_search_descriptors) -> dict[TextKey, 
 
 
 @pytest.fixture(scope="module")
-def rendered_texts(built_control_assistant) -> dict[TextKey, str]:
+def rendered_texts(built_demo) -> dict[TextKey, str]:
     """The markdown each render root hands the agent, keyed by its path under the root.
 
     Each text is masked with the facility strings of its own render root. A path
     rendered differently across roots carries every distinct rendering.
     """
     renderings: dict[str, set[str]] = {}
-    build_dir = built_control_assistant.build_dir
+    build_dir = built_demo.build_dir
     for claude_dir in sorted(build_dir.rglob(".claude")):
         root = claude_dir.parent
         strings = render_root_facility_strings(root)

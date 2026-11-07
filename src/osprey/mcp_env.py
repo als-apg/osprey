@@ -53,26 +53,17 @@ def load_dotenv_from_project(*, include_sensitive: bool = False) -> None:
     The first of those holding any chain file wins outright; the chain is never
     stitched together across two of them.
 
-    **Why this loader reads the chain backwards.** The chain's precedence is
-    ascending everywhere in OSPREY — ``.env.shared`` defaults below the
-    host-local ``.env``, so a key set in both resolves to the ``.env`` value.
-    Every other delivery mechanism realizes that by putting the *lower*
-    precedence file first: a compose ``env_file:`` list is
-    ``[.env.shared, .env]`` and the ``override=True`` loaders load shared then
-    local, because in both the last write to a key wins. This loader is
-    ``override=False`` — an already-set variable is left alone, so the *first*
-    file to supply a key is the one that sticks. Under first-wins semantics the
-    same precedence requires the opposite file order, so we load ``.env``
-    first and ``.env.shared`` second. Same contract, inverted mechanics; the
-    file order here is not a bug to be "fixed" into agreement with the compose
-    lists.
+    Shell exports outrank both files, ``.env`` outranks ``.env.shared``, and
+    the shell-only launch variables are never applied
+    (:func:`osprey_connectors.config.apply_env_chain` with ``override=False``).
 
-    ``override=False`` also means a variable the shell already exports outranks
-    both files, which is the property the empty-string clearing below protects:
+    That a variable the shell already exports outranks both files is the
+    property the empty-string clearing below protects:
     empty-string env vars (set by Claude Code's ``${VAR:-}`` when the shell
     variable is unset) are cleared first, so they read as absent rather than as
     a shell value that shadows the whole chain.
     """
+    from osprey_connectors.config import apply_env_chain
     from osprey_connectors.dotenv import chain_files
     from osprey_connectors.workspace import repo_root_for_config
 
@@ -83,8 +74,6 @@ def load_dotenv_from_project(*, include_sensitive: bool = False) -> None:
     else:
         roots = [Path.cwd()]
 
-    # chain_files() returns ascending precedence (.env.shared, .env); this
-    # loader consumes it reversed — see the docstring.
     chain = []
     for root in roots:
         chain = chain_files(root)
@@ -93,20 +82,13 @@ def load_dotenv_from_project(*, include_sensitive: bool = False) -> None:
     if not chain:
         return
 
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
-
     # Claude Code passes ${VAR:-} as VAR="" when the shell variable is
     # unset.  Clear these so dotenv can fill them from the chain.
     empty_keys = [k for k, v in os.environ.items() if v == ""]
     for key in empty_keys:
         os.environ.pop(key)
 
-    already_set = set(os.environ)
-    for env_file in reversed(chain):
-        load_dotenv(env_file, override=False)
+    written = apply_env_chain(os.environ, chain, override=False)
     if include_sensitive:
         return
 
@@ -116,5 +98,5 @@ def load_dotenv_from_project(*, include_sensitive: bool = False) -> None:
     # exactly the loader every other key goes through. Only names this load
     # set are removed: a value the shell exported outranks the chain here as
     # everywhere, and stripping it is the spawning hand-off's job.
-    for key in [k for k in os.environ if k not in already_set and is_sensitive(k)]:
+    for key in [k for k in written if is_sensitive(k)]:
         os.environ.pop(key)

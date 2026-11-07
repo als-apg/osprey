@@ -205,6 +205,8 @@ __all__ = [
     "unchanged_detail",
     "write_record",
     "write_terminus",
+    "held_epoch",
+    "RecordUnavailable",
 ]
 
 #: The payload version. There is exactly one, and a payload that does not
@@ -992,6 +994,7 @@ def set_switch(
     *,
     epoch: int | None = None,
     path: Path | None = None,
+    by: str | None = None,
 ) -> ControlContext | None:
     """The person's switch gesture — the one writer of ``switch``. Rule 3.
 
@@ -1019,6 +1022,24 @@ def set_switch(
     Only a stop moves an existing epoch; a gesture on an epoch-less record
     stamps a fresh ``time.time_ns()``. Every other field is kept as on disk.
 
+    A stop also ends every program authorization (a grant of
+    :mod:`~osprey_connectors.write_authorization`) on the machines it names,
+    or on every machine for ``"all"``: inside the same hold of the record lock,
+    after the record is stored, each grant in the ``authorizations`` directory
+    beside the record is marked revoked, so the holder's next write refuses.
+    ``"all"`` also moves the epoch, which ends every grant issued under the
+    old one whatever its file says. The marks are written even when no record
+    is there.
+
+    A stop fails closed on its marks: when they cannot be written (the grants
+    directory locked past the wait, a lock or a grant file this process cannot
+    open), a stop of named machines moves the epoch as well, in the same hold,
+    so every grant on every machine of this record ends — wider than asked,
+    never narrower — and the stop is taken. Raising instead would report the
+    stop not taken with the switch already stored and the grant still in
+    force; revoking before storing would leave the switch on as well. A stop
+    with no record needs no fallback: no grant stands without an epoch.
+
     Args:
         targets: The machines, or ``"all"``.
         state: ``"off"``, ``"asked"`` or ``"allowed"``; the legacy ``"on"``
@@ -1026,10 +1047,12 @@ def set_switch(
         epoch: The epoch the gesture was begun against. Ignored when nothing
             widens.
         path: Write this file instead of :func:`record_path`.
+        by: Whose stop a revocation names; ``None`` is this process's
+            :func:`~osprey_connectors.identity.acting_identity`.
 
     Returns:
         The record as stored, or ``None`` when a non-widening gesture found no
-        usable record — nothing is on, so nothing was written.
+        usable record — nothing is on, so no record was written.
 
     Raises:
         ValueError: ``"all"`` with anything but ``"off"``, an unknown *state*,
@@ -1060,6 +1083,8 @@ def set_switch(
         if current is None:
             if state != _SWITCH_OFF:
                 raise StoppedSince(epoch=None)
+            # No record, no epoch: no grant stands without one, marked or not.
+            _try_revoke_on_stop(target_path, names, by)
             return None
         on_disk_epoch = current.switch_epoch
         if names is None:
@@ -1086,7 +1111,96 @@ def set_switch(
                 switch_epoch=time.time_ns() if on_disk_epoch is None else on_disk_epoch,
             )
         _write_record_unlocked(stored, target_path)
+        marked = state != _SWITCH_OFF or _try_revoke_on_stop(target_path, names, by)
+        if not marked and names is not None:
+            # The marks could not be written, so the stop falls back on the
+            # epoch, which ends every grant issued under the old one on every
+            # machine of this record: wider than asked, never narrower. A stop
+            # of every machine has moved it already.
+            stored = replace(
+                stored, switch_epoch=max((stored.switch_epoch or 0) + 1, time.time_ns())
+            )
+            _write_record_unlocked(stored, target_path)
     return stored
+
+
+class RecordUnavailable(Exception):
+    """The record is there and cannot be read, so nothing can be stood on it."""
+
+
+@contextlib.contextmanager
+def held_epoch(path: Path, target: str) -> Iterator[int]:
+    """Hold the record lock at *path* and yield the record's ``switch_epoch``. Rule 3.
+
+    For a writer that issues something standing on the epoch — an approval of a
+    program's authorization — and must not have a stop land between reading it
+    and writing what it stamps: the block runs inside the lock, and any lock
+    the block takes comes after this one. A record that is not there is
+    created on *target* with every switch off and a fresh epoch, and an
+    epoch-less record is given one, so that a later stop of every machine has
+    an epoch to move past.
+
+    Raises:
+        RecordUnavailable: The record is there and cannot be read.
+        RuntimeError: The record stayed locked past the bounded wait.
+        OSError: The stamp could not be written.
+    """
+    with _record_lock(path):
+        current, status = _read(path)
+        if status == "unreadable":
+            raise RecordUnavailable(f"The control-context record at {path} cannot be read")
+        epoch = None if current is None else current.switch_epoch
+        if epoch is None:
+            epoch = time.time_ns()
+            base = ControlContext(target=target, generation=0) if current is None else current
+            _write_record_unlocked(replace(base, switch_epoch=epoch), path)
+        yield epoch
+
+
+def _revoke_on_stop(record_file: Path, names: list[str] | None, by: str | None) -> None:
+    """Mark every program authorization on the stopped machines revoked. Rule 3.
+
+    The stop's second half: the grants beside the record, in its
+    ``authorizations`` directory, on *names* (``None`` is every machine), get
+    ``revoked: {at_ns, by}``, so the holder's next write refuses
+    ``auth_revoked``. The caller holds the record lock; the grants directory's
+    own lock is taken inside it — the one lock order every writer of both
+    keeps. A self-issued grant sits in its holder's directory, out of reach
+    here; it lapses on its own once the switch has left ``allowed``.
+
+    Imported here, upward across the layers by one named edge, because the
+    grant format belongs to :mod:`~osprey_connectors.write_authorization`,
+    which reads this module.
+
+    Raises:
+        RuntimeError: The grants directory stayed locked.
+        OSError: It is not a plain directory, or a mark could not be written.
+    """
+    from osprey_connectors import write_authorization
+
+    write_authorization.revoke_grants(
+        by=by or acting_identity(),
+        targets=names,
+        directory=record_file.parent / write_authorization.AUTHORIZATIONS_DIR_NAME,
+    )
+
+
+def _try_revoke_on_stop(record_file: Path, names: list[str] | None, by: str | None) -> bool:
+    """:func:`_revoke_on_stop`, ``False`` (logged) when the marks could not be written.
+
+    A stop never reports itself not taken over its marks: the caller ends the
+    grants through the epoch instead (fail-closed, see :func:`set_switch`).
+    """
+    try:
+        _revoke_on_stop(record_file, names, by)
+    except (OSError, RuntimeError):
+        logger.warning(
+            "A stop could not mark the grants beside %s revoked; it ends them by the epoch",
+            record_file,
+            exc_info=True,
+        )
+        return False
+    return True
 
 
 # -- process liveness -------------------------------------------------------

@@ -81,7 +81,7 @@ from tests.deployment.web_terminals._nginx import (
 #: The per-user family bases these renders run on. Nothing in the configs below
 #: moves them, so they are the layout's own — derived here so a cookie name or a
 #: proxy_pass target asserted further down follows a slot that moves.
-_BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel", "lattice")}
+_BASE_PORTS = {slot: default_port(slot) for slot in ("web", "artifact", "ariel")}
 
 
 def _config(users: list) -> dict:
@@ -150,7 +150,7 @@ def _asset_exemption_location(user: str) -> str:
     return (
         f"~ ^/u/{user}/(?:design-system/|static/fonts/|"
         "panel/[A-Za-z0-9][A-Za-z0-9._-]*/(?:design-system|static/fonts)/|"
-        "panel/artifacts/static/(?:js|css)/)"
+        "panel/artifacts/static/(?:js|css)/|panel/artifacts/viewers/[^/]+\\.js$)"
     )
 
 
@@ -511,26 +511,23 @@ def test_every_proxying_location_claims_every_identity_header_without_a_login_wa
         )
 
 
-def test_the_internal_verify_target_clears_every_identity_header() -> None:
-    """Called out on its own because the reason is not the same as everywhere
-    else: an auth subrequest INHERITS the parent request's headers, so without
-    a clear here a client's forged subject arrives at the sidecar looking like
-    something the perimeter established."""
+@pytest.mark.parametrize(
+    "location",
+    [
+        # Called out on its own because the reason is not the same as everywhere
+        # else: an auth subrequest INHERITS the parent request's headers, so without
+        # a clear here a client's forged subject arrives at the sidecar looking like
+        # something the perimeter established.
+        pytest.param("= /_osprey_auth/alice", id="internal-verify-target"),
+        # `/auth/` is the one location deliberately outside `auth_request` — it is
+        # where a session comes from. That makes it reachable by anyone, so it is the
+        # one an unauthenticated client would forge into.
+        pytest.param("/auth/", id="public-auth-prefix"),
+    ],
+)
+def test_the_unvouched_locations_clear_every_identity_header(location: str) -> None:
     # Arrange / Act
-    body = _location_body(render_nginx(_auth_config(_ONE_USER)), "= /_osprey_auth/alice")
-
-    # Assert
-    assert _clear(SUBJECT_HEADER) in body
-    assert _clear(ROLE_HEADER) in body
-    assert _clear(ROLE_SOURCE_HEADER) in body
-
-
-def test_the_public_auth_prefix_clears_every_identity_header() -> None:
-    """`/auth/` is the one location deliberately outside `auth_request` — it is
-    where a session comes from. That makes it reachable by anyone, so it is the
-    one an unauthenticated client would forge into."""
-    # Arrange / Act
-    body = _location_body(render_nginx(_auth_config(_ONE_USER)), "/auth/")
+    body = _location_body(render_nginx(_auth_config(_ONE_USER)), location)
 
     # Assert
     assert _clear(SUBJECT_HEADER) in body

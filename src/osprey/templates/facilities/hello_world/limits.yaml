@@ -1,3 +1,4 @@
+# Bundled with OSPREY: the hello_world facility. Delete this line to make the file yours.
 # The limits hook checks every write against these records. A channel not
 # listed here follows control_system.limits_checking.mode; hello-world runs
 # optional, so a channel with no record is written with no limits and listing

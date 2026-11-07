@@ -77,6 +77,7 @@ from osprey.deployment import subprocess_capture
 from osprey.jupyter_kernel import JUPYTER_SHARED_SUBTREE
 from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter
 from osprey.mcp_server.sandbox_env import drop_sandbox_denied_env
+from osprey.profiles.sidecar_panels import JUPYTER_PANEL_ID, SIDECAR_PANELS
 
 logger = logging.getLogger(__name__)
 
@@ -222,7 +223,18 @@ def starter_read_channel(config: Mapping[str, Any]) -> str | None:
 _STDERR_TAIL_LINES = 20
 
 _PREFLIGHT_TIMEOUT = 30.0
-_STOP_GRACE = 5.0
+
+
+def _stop_grace() -> float:
+    """Seconds :meth:`JupyterSidecar.stop` waits between SIGTERM and SIGKILL.
+
+    The panel's registry entry declares it (``SidecarPanel.stop_grace_s``), and
+    the deployment sizes the compose service's ``stop_grace_period`` from the
+    same number, so the two cannot disagree about how long this stop takes.
+    Read at call time, so a test that shortens it in the registry is honoured.
+    """
+    return float(SIDECAR_PANELS[JUPYTER_PANEL_ID].stop_grace_s)
+
 
 #: How long a straggling kernel is given to take SIGTERM before it is killed.
 _REAP_GRACE = 3.0
@@ -455,6 +467,11 @@ class JupyterSidecar:
     @property
     def auth_headers(self) -> dict[str, str]:
         return {"authorization": f"Bearer {self._token}"}
+
+    @property
+    def token(self) -> str | None:
+        """The per-launch token, so a caller can scrub it from text it shows."""
+        return self._token
 
     @property
     def url(self) -> str:
@@ -762,7 +779,7 @@ class JupyterSidecar:
         if process is not None:
             # The sidecar leads its group, so its pid names it; the stop is the
             # one reaper of the sidecar, whether it is running or has exited.
-            outcome = subprocess_capture.stop_child(process, grace=_STOP_GRACE)
+            outcome = subprocess_capture.stop_child(process, grace=_stop_grace())
             if not outcome.gone:
                 logger.warning("%s: %s", _NAME, outcome.describe())
             # The stderr pipe is left to the tail thread: closing it here
@@ -806,7 +823,7 @@ def _reap_stragglers(runtime_dir: str) -> None:
 
     Kernels are started in their own session, so the group signal that stops
     the server never reaches them. jupyter-server closes its kernels on its own
-    shutdown, but on a loaded host that shutdown can exceed ``_STOP_GRACE`` and
+    shutdown, but on a loaded host that shutdown can exceed the stop grace and
     the server is killed first — leaving a kernel running, with the control
     target and write posture it launched with, and no terminal above it.
 

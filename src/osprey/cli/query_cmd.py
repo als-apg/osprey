@@ -40,7 +40,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 import click
-import yaml  # type: ignore[import-untyped]
+import yaml
 
 from osprey.agent_runner import (
     EXIT_USAGE,
@@ -77,19 +77,16 @@ def _overlay_repo_env(repo_root: Path) -> None:
     The chain is loaded in ascending precedence — ``.env.shared`` then ``.env``,
     each with ``override=True`` — so the host-local file wins over the committed
     defaults, and both win over a stale shell export. That is the precedence
-    every other launch path applies. Every key is copied, not a declared subset:
+    every other launch path applies. Every key is copied, except the shell-only
+    launch variables, not a declared subset:
     the agent expands ``.mcp.json`` ``${VAR}`` references (Channel Access
     addressing among them) out of this environment, so a narrowed copy would
     silently mis-address the control system rather than fail.
     """
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
+    from osprey_connectors.config import apply_env_chain
     from osprey_connectors.dotenv import chain_files
 
-    for env_file in chain_files(repo_root):
-        load_dotenv(env_file, override=True)
+    apply_env_chain(os.environ, chain_files(repo_root))
 
 
 def _report_drift(repo_root: Path, build_dir: Path) -> None:
@@ -228,9 +225,11 @@ def query(ctx: click.Context, prompt: str, as_json: bool, repo: Path | None) -> 
         # Who this session is, to the ledger: the one name the build recorded.
         from osprey.agent_record.credentials import export_built_host_identity
         from osprey.build.claude_code_telemetry import export_host_terminal_session
+        from osprey.stores.artifact_scope import export_cli_launch
 
         export_built_host_identity(os.environ, repo_root)
         export_host_terminal_session(os.environ)
+        export_cli_launch(os.environ)
 
         # The agent record, held until the query returns and handed to the
         # agent and its MCP servers through this environment.

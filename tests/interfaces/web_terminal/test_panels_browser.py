@@ -7,30 +7,31 @@ turns human dock gestures into the same server POSTs the agent's MCP calls make.
 These tests drive that stack through a real browser and a live SSE stream — the
 parts the FastAPI TestClient cannot reach.
 
-One panel per tile is a workspace invariant: the rail is the tab system, so an
-activation REPLACES the focused service tile's panel (the evicted panel closes
-server-side and dims on the rail), the "+" add menu and the rail entry's
-"Open in a new tile" are the verbs that open a NEW tile beside the current one,
-and no drop geometry may stack tabs.
+An open — a rail click, the "+" add menu, an agent focus — replaces the panel
+of the service tile used last, so nothing resizes; the replaced panel keeps
+its rail entry and its cached iframe. The rail entry's "Open in a new tile" is
+the one verb that opens a NEW tile beside the current one. A tile holds one
+panel: the dock engine (``dock-drop.js``) decides every drop, an edge splits a
+tile, and a tile's header or centre takes nothing.
 
 What is proven here, grouped:
 
   * SSE / rail flows materialize as dockview panels: focusing a service panel
-    docks a placeholder whose overlay iframe tracks the group geometry — taking
-    the focused tile over from its previous panel; hiding a panel removes its
-    placeholder; register appends a rail entry WITHOUT auto-docking.
+    docks a placeholder whose overlay iframe tracks the group geometry — in
+    the focused service tile, in place of the panel it showed; hiding a panel
+    removes its placeholder; register appends a rail entry WITHOUT auto-docking.
   * The echo guard (``dock-sync.js``): a human dock-tab focus POSTs setPanelFocus
     exactly once, a human tab-close POSTs visibility(false), and a server-driven
     SSE focus is applied WITHOUT POSTing back (no feedback loop).
   * Drag rearrange via real Playwright drags — a tile moves to a new edge
-    position, and a drop that would stack (onto another tile's tab bar) is
-    vetoed — asserted with getBoundingClientRect geometry, and the overlay
-    iframe re-following the dragged panel's new rectangle.
+    position, and a tile's header or centre is no drop target — asserted
+    with getBoundingClientRect geometry, and the overlay iframe re-following
+    the dragged panel's new rectangle.
   * Layout persistence keyed by project_key: an arrangement survives a
     reload, two project cwds keep distinct layouts on one origin, reset restores
     the default, and a corrupt stored value falls back cleanly.
   * The "+" add menu: unclipped geometry beside the rail, URL-row gating, reveal a
-    hidden panel INTO A NEW TILE beside the active one, register from URL, and
+    hidden panel into the active service tile, register from URL, and
     inline register errors.
   * Tile header-bar contributions (the embed contract): a panel's own nav, search
     and overflow items render in ITS bar only, actions round-trip into the iframe,
@@ -58,6 +59,7 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import threading
 import time
@@ -76,8 +78,14 @@ from osprey.interfaces._serving import run_app_server
 # call sites reading as they did.
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
+from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._hub import hub_app
-from tests.interfaces._panel_launch import UNSERVED, Unserved, publish_artifact_url
+from tests.interfaces._panel_launch import (
+    UNSERVED,
+    Unserved,
+    publish_artifact_url,
+    unserved_url,
+)
 from tests.interfaces.web_terminal._surface import arm_terminal_tab
 
 # ---------------------------------------------------------------------------
@@ -107,6 +115,16 @@ _CUSTOM_DATA_VIZ: dict = {
     "url": "http://data-viz.internal:8080",
     "healthEndpoint": None,
     "path": "/",
+}
+
+# A third immediately-healthy panel, for tests that need two rail entries
+# beside the artifacts panel, which has none (its artifacts are in the
+# session tree).
+_CUSTOM_OPS: dict = {
+    **_CUSTOM_DATA_VIZ,
+    "id": "ops",
+    "label": "OPS",
+    "url": "http://ops.internal:8080",
 }
 
 
@@ -147,7 +165,9 @@ def _stub_backend(hits: list[str] | None = None, *, down: threading.Event | None
             pass
 
     server = HTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -300,16 +320,16 @@ def _title_case(label: str) -> str:
 
 
 def _service_tab(page: Page, label: str):
-    """A dockview tile-strip whose accessible name equals ``label`` exactly.
+    """A dockview tile bar whose accessible name equals ``label`` exactly.
 
-    The strip has no visible text, so the name is the handle. Matched as a raw
-    attribute (not ``get_by_label``, which only resolves labelable form
-    controls, never an aria-label on a plain div) and exactly, so one service
-    label like "Artifacts" cannot substring-match a longer one. The name is the
-    title-cased label the page renders (see ``_title_case``).
+    The name is the handle. Matched as a raw attribute (not ``get_by_label``,
+    which only resolves labelable form controls, never an aria-label on a
+    plain div) and exactly, so one service label like "Artifacts" cannot
+    substring-match a longer one. The name is the title-cased label the page
+    renders (see ``_title_case``).
     """
-    strip = page.locator(f'.tile-tab[aria-label="{_title_case(label)}"]')
-    return page.locator(".dv-tab").filter(has=strip)
+    bar = page.locator(f'.tile-tab[aria-label="{_title_case(label)}"]')
+    return page.locator(".dv-tab").filter(has=bar)
 
 
 def _focus_service_tab(page: Page, label: str) -> None:
@@ -381,9 +401,10 @@ def _command_posts(posts: list[str]) -> list[str]:
     invariant these tests guard is what a gesture *commands* (focus/visibility,
     the calls that move every client's workspace), so reports are filtered out
     before the assertion. A report is safe here precisely because the server
-    stores it last-writer-wins and broadcasts nothing.
+    stores it last-writer-wins and broadcasts nothing. ``/api/panel-op-result``
+    is the page's answer to an op the server relayed to it, not a command.
     """
-    return [p for p in posts if p != "panel-layout"]
+    return [p for p in posts if p not in ("panel-layout", "panel-op-result")]
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +432,16 @@ def _context_menu(page: Page):
     return page.locator(_RAIL_MENU)
 
 
+def _pick_tile_menu_row(page: Page, tab, label: str) -> None:
+    """Open the tile's ⋯ and run the row labelled ``label``; the menu closes."""
+    tab.locator(".tile-tab-more").click()
+    menu = _context_menu(page)
+    expect(menu).to_be_visible(timeout=5_000)
+    # The first match: "This panel" lists the panel's rows above the Tile verbs.
+    menu.locator(_RAIL_MENU_ITEM, has_text=label).first.click()
+    expect(menu).to_have_count(0, timeout=5_000)
+
+
 def _menu_labels(page: Page) -> list[str]:
     return page.evaluate(_MENU_LABELS_JS)
 
@@ -434,14 +465,25 @@ def _open_rail_menu(page: Page, panel_id: str):
     return menu
 
 
+def _open_agent_header_menu(page: Page):
+    """Right-click the Agent tile's header bar and wait for its context menu.
+
+    The press lands on the bar's bare spacer: the session label beside it is
+    the session switcher, an interactive child the bar's menu yields to.
+    """
+    _terminal_tab(page).locator(".agent-bar-spacer:visible").first.click(button="right")
+    menu = _context_menu(page)
+    expect(menu).to_have_count(1, timeout=5_000)
+    return menu
+
+
 def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> None:
     """Open ``panel_id`` as a SECOND tile beside the current one from its menu.
 
-    A rail click would REPLACE the focused tile's panel (one panel per tile), so
-    tests that need two service tiles side by side use the entry's context-menu
-    row "Open in a new tile" — the open-beside verb, whose hover ⊞ corner is
-    gone. ``base_url`` is unused (kept so call sites read uniformly with the old
-    add-menu dance).
+    A rail click replaces the panel the focused service tile shows, so tests
+    that need two service tiles side by side use the entry's context-menu row
+    "Open in a new tile" — the one open that splits. ``base_url`` is unused
+    (kept so call sites read uniformly with the old add-menu dance).
     """
     del base_url  # the menu path is purely client-side
     _open_rail_menu(page, panel_id)
@@ -485,15 +527,15 @@ def _dock_locked(page: Page) -> bool:
 # ===========================================================================
 
 
-def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_browser):
-    """A rail click REPLACES the focused tile's panel; the overlay tracks the tile.
+def test_focus_replaces_the_service_tile_panel_with_overlay_geometry(tmp_path, chromium_browser):
+    """A rail click puts the panel in the focused service tile, in place of the one it showed.
 
-    A rail click on data-viz takes over the tile artifacts occupied (one panel
-    per tile — the rail is the tab system): data-viz's overlay iframe becomes
-    visible and its rectangle aligns to the dock group's content area (the
-    adapter's follow contract), while the evicted artifacts panel loses its dock
-    tab entirely and its overlay is concealed — a purely LOCAL vacate: its rail
-    entry stays in place at full brightness, one click from taking the tile back.
+    A rail click on data-viz lands it in the tile artifacts occupies: data-viz's
+    overlay iframe becomes visible and its rectangle aligns to the dock group's
+    content area (the adapter's follow contract), while artifacts leaves the
+    tile with its overlay hidden. A rail click on ops then replaces data-viz the
+    same way, and data-viz's rail entry brings it back into the same tile, in
+    the same iframe. Nothing resizes. Artifacts has no rail entry at any point.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -501,39 +543,64 @@ def test_focus_docks_service_panel_with_overlay_geometry(tmp_path, chromium_brow
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
-        custom_panels=[_CUSTOM_DATA_VIZ],
+        custom_panels=[_CUSTOM_DATA_VIZ, _CUSTOM_OPS],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
+        artifacts_rail = page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
 
-        # Artifacts is auto-activated at boot: its dock tab + overlay iframe exist.
+        # Artifacts is auto-activated at boot: its dock tile + overlay iframe exist.
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
+        expect(artifacts_rail).to_have_count(0)
+        before = _dock_groups(page)
 
-        # Act — focus data-viz from the rail; it docks and becomes the active tab.
+        # Act — focus data-viz from the rail; it takes artifacts' place in the tile.
         _focus_service_panel(page, "data-viz", "DATA VIZ")
         expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
         # Assert — the data-viz overlay iframe aligns to its dock group content.
         geo = page.evaluate(_ALIGN_JS, "data-viz")
         assert geo is not None, "data-viz placeholder/overlay iframe missing"
-        assert geo["active"] is True, f"data-viz is not the active dock tab: {geo}"
+        assert geo["active"] is True, f"data-viz is not its tile's panel: {geo}"
         assert geo["display"] != "none", f"data-viz overlay iframe hidden: {geo}"
         assert abs(geo["iframeLeft"] - geo["contentLeft"]) <= 2, geo
         assert abs(geo["iframeTop"] - geo["contentTop"]) <= 2, geo
         assert abs(geo["iframeW"] - geo["contentW"]) <= 2, geo
         assert abs(geo["iframeH"] - geo["contentH"]) <= 2, geo
 
-        # The evicted artifacts panel: overlay concealed, dock tab gone — but
-        # its rail entry survives untouched (eviction is local occupancy, not a
-        # membership change) — the tile holds exactly one panel again.
+        # The replaced artifacts panel: overlay hidden, its tile gone.
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
-        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
-        expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-            timeout=5_000
-        )
+        expect(_service_tab(page, "Artifacts")).to_have_count(0)
+        expect(artifacts_rail).to_have_count(0)
         groups = _dock_groups(page)
         service_groups = [g for g in groups if "Agent" not in g["tabs"]]
-        assert all(len(g["tabs"]) == 1 for g in service_groups), groups
+        assert [g["tabs"] for g in service_groups] == [["Data Viz"]], groups
+        # The same tiles at the same rectangles: an open never resizes.
+        assert [(g["x"], g["y"], g["w"], g["h"]) for g in groups] == [
+            (g["x"], g["y"], g["w"], g["h"]) for g in before
+        ], (before, groups)
+
+        # Mark the data-viz iframe element, so its return can be told from a rebuild.
+        _overlay_iframe(page, "data-viz").evaluate("(f) => { f.dataset.kept = 'yes'; }")
+
+        # Ops replaces data-viz; data-viz keeps its rail entry.
+        _focus_service_panel(page, "ops", "OPS")
+        expect(_overlay_iframe(page, "data-viz")).to_be_hidden(timeout=5_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(0)
+        expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_be_attached(
+            timeout=5_000
+        )
+
+        # Data-viz's rail entry brings it back into the same tile, in the same iframe.
+        page.locator('button.panel-rail-button[data-panel-id="data-viz"]').click()
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
+        expect(_overlay_iframe(page, "data-viz")).to_have_attribute("data-kept", "yes")
+        expect(_overlay_iframe(page, "ops")).to_be_hidden(timeout=5_000)
+        groups = _dock_groups(page)
+        assert [g["tabs"] for g in groups if "Agent" not in g["tabs"]] == [["Data Viz"]], groups
+        assert [(g["x"], g["y"], g["w"], g["h"]) for g in groups] == [
+            (g["x"], g["y"], g["w"], g["h"]) for g in before
+        ], (before, groups)
 
         page.close()
 
@@ -569,8 +636,20 @@ def test_hide_active_panel_removes_dock_tab_and_expands_terminal(tmp_path, chrom
         expect(_overlay_iframe(page, "artifacts")).to_be_hidden(timeout=5_000)
 
         # Assert — the terminal is the sole remaining group and fills the dock.
+        # The wait reads the width the assert below reads: the dock's, less the
+        # gutter the sole group's view computes.
         page.wait_for_function(
-            "() => document.querySelectorAll('.dv-groupview').length === 1", timeout=5_000
+            """() => {
+              const groups = document.querySelectorAll('.dv-groupview');
+              const dock = document.getElementById('dock-root');
+              const view = document.querySelector('.dock-root .dv-view:has(> .dv-groupview)');
+              if (groups.length !== 1 || !dock || !view) return false;
+              const css = getComputedStyle(view);
+              const room = dock.getBoundingClientRect().width
+                - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight);
+              return Math.abs(groups[0].getBoundingClientRect().width - room) <= 2;
+            }""",
+            timeout=5_000,
         )
         groups = _dock_groups(page)
         assert groups[0]["tabs"] == ["Agent"], groups
@@ -632,8 +711,8 @@ def test_visibility_hide_and_show_toggles_rail_entry(tmp_path, chromium_browser)
 def test_register_appends_rail_entry_without_docking(tmp_path, chromium_browser):
     """CF-2/CC-3: panel_register adds a rail entry but does NOT auto-dock it.
 
-    CF-2: exactly one rail entry is appended (non-destructive; the artifacts
-          entry keeps its active state).
+    CF-2: exactly one rail entry is appended (non-destructive; artifacts stays
+          the active panel).
     CC-3: the new panel is not auto-activated — no dock placeholder tab appears
           for it and its rail entry is not marked active (its URL may not be
           ready; the user docks it when they choose).
@@ -648,9 +727,9 @@ def test_register_appends_rail_entry_without_docking(tmp_path, chromium_browser)
         allow_runtime=True,
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
-        ).to_be_attached(timeout=10_000)
+        # Artifacts has no rail entry; the client's active stamp shows the focus.
+        artifacts_active = page.locator('#right-panel[data-active-panel="artifacts"]')
+        expect(artifacts_active).to_have_count(1, timeout=10_000)
         initial_tab_count = page.locator(".panel-rail-button").count()
 
         with patch(
@@ -672,9 +751,7 @@ def test_register_appends_rail_entry_without_docking(tmp_path, chromium_browser)
         monitor_rail = page.locator('button.panel-rail-button[data-panel-id="monitor"]')
         expect(monitor_rail).to_be_visible(timeout=5_000)
         assert page.locator(".panel-rail-button").count() == initial_tab_count + 1
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
-        ).to_be_attached(timeout=2_000)
+        expect(artifacts_active).to_have_count(1, timeout=2_000)
 
         # CC-3 — the registered panel is NOT docked and NOT active.
         expect(monitor_rail).not_to_have_class(re.compile(r"\bactive\b"))
@@ -686,9 +763,10 @@ def test_register_appends_rail_entry_without_docking(tmp_path, chromium_browser)
 def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
     """Closing the only panel then reopening it re-docks a live iframe, not a blank.
 
-    Close the sole artifacts panel → its dock tab is gone and the terminal is
+    Close the sole data-viz panel → its dock tab is gone and the terminal is
     the only group; reopen it from the "+" menu → its dock tab and overlay
-    iframe return beside the terminal.
+    iframe return beside the terminal. Artifacts reports no URL, so it never
+    claims the slot and data-viz is the only service panel.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -696,11 +774,12 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
-        custom_panels=[],
+        custom_panels=[_CUSTOM_DATA_VIZ],
+        artifact_url=None,
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        artifacts_rail = page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
-        expect(artifacts_rail).to_be_visible(timeout=10_000)
+        data_viz_rail = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        expect(data_viz_rail).to_be_visible(timeout=10_000)
         # Wait for the panel to actually be DOCKED before closing it — the
         # premise of this test is that a panel is open. `_open_page` only waits
         # for the rail entry and the first dockview group, and the rail renders
@@ -709,7 +788,7 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
         # disappear is instead created after the fact — so the assertion below
         # sees 1 for its whole timeout and reads as a product regression. Every
         # other test in this file asserts the same precondition first.
-        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=10_000)
 
         # Close the only panel via its rail menu's "Remove from rail" → terminal
         # is the sole group.
@@ -729,24 +808,22 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
         # the echo arrived and was applied; the tile assertion after it is then
         # about the handler's work, not about the network. Both at the 10s budget
         # this file already uses for round trips that must survive suite load.
-        # The Artifacts row is page-owned: a non-member is parked hidden, not
-        # removed (panel-rail.js), so "out of the rail" is "not in view".
-        _open_rail_menu(page, "artifacts")
+        _open_rail_menu(page, "data-viz")
         _menu_row(page, "Remove from rail").click()
-        expect(artifacts_rail).to_be_hidden(timeout=10_000)
-        assert "artifacts" not in _rail_order(page)
-        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=10_000)
+        expect(data_viz_rail).to_have_count(0, timeout=10_000)
+        assert "data-viz" not in _rail_order(page)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=10_000)
         page.wait_for_function(
             "() => document.querySelectorAll('.dv-groupview').length === 1", timeout=5_000
         )
 
         # Reopen from the "+" menu.
         page.locator("#panel-add-btn").click()
-        page.locator('.panel-add-item[data-panel-id="artifacts"]').click()
+        page.locator('.panel-add-item[data-panel-id="data-viz"]').click()
 
         # The dock tab + overlay iframe are back beside the terminal.
-        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=5_000)
-        expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
         assert len(_dock_groups(page)) == 2, _dock_groups(page)
 
         page.close()
@@ -760,8 +837,8 @@ def test_reopen_after_empty_state_redocks_panel(tmp_path, chromium_browser):
 def test_dock_tab_focus_posts_setfocus_once(tmp_path, chromium_browser):
     """A human dock-tab focus POSTs setPanelFocus exactly once — no echo loop.
 
-    With the two service panels in side-by-side tiles (via the "+" menu — a rail
-    click would replace, not add), clicking the inactive artifacts dock tab
+    With the two service panels in side-by-side tiles (via "Open in a new tile"
+    — a rail click would replace artifacts, not add a tile), clicking the inactive artifacts tile
     fires one panel-focus POST. The server's SSE echo is applied under the echo
     guard, so it does not POST focus back again.
     """
@@ -854,7 +931,7 @@ def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
         expect(tab.locator(".tile-tab-grip")).to_have_count(0)
         expect(tab.locator(".tile-tab-title")).to_have_text(_title_case("DATA VIZ"))
         expect(tab.locator(".tile-tab-close")).to_have_count(1)
-        expect(tab.locator(".tile-tab-popout")).to_have_count(1)
+        expect(tab.locator(".tile-tab-window")).to_have_count(1)
         page.wait_for_timeout(600)
 
         posts = _track_panel_posts(page)
@@ -896,9 +973,9 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
         _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
         # Focus the artifacts tile so data-viz's own tile is NOT the active one.
         _focus_service_tab(page, "Artifacts")
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
-        ).to_have_count(1, timeout=5_000)
+        expect(page.locator('#right-panel[data-active-panel="artifacts"]')).to_have_count(
+            1, timeout=5_000
+        )
         groups_before = len(_dock_groups(page))
 
         # Act — "Open in a new tile" on the already-open data-viz entry.
@@ -922,10 +999,10 @@ def test_open_beside_moves_docked_panel_instead_of_duplicating(tmp_path, chromiu
 # onUnhandledDragOver (accepted by rail-drag.js) and then onDidDrop. The drop
 # only registers once a dragover has been PROCESSED — dockview settles its
 # overlay state asynchronously and needs more than one dragover to resolve a
-# target — so each attempt polls for dockview's own drop-target overlay before
-# dropping rather than sleeping a fixed budget: a drop dispatched before that
-# overlay exists is silently ignored, a no-op the assertions can only report
-# as a missing tab. How long the whole gesture takes is load-dependent, so it
+# target — so each attempt polls for the drop bridge's split highlight before
+# dropping rather than sleeping a fixed budget: a drop dispatched before the
+# bridge has hit-tested the point is a no-op the assertions can only report as
+# a missing tab. How long the whole gesture takes is load-dependent, so it
 # is also RETRIED until the dock actually happened. The landing signal is the
 # tile bar dock-tab.js stamps for the placeholder
 # (`.tile-tab[data-panel-id="iframe:<id>"]`), the same DOM the caller's tab
@@ -942,34 +1019,32 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
         g.querySelector('.tile-tab-terminal'));
     const content = term.querySelector('.dv-content-container');
     const r = content.getBoundingClientRect();
-    // Just inside the grid's bottom edge band → dockview resolves
-    // { target: 'edge', position: 'bottom' } — a split against the grid edge
-    // (the group-targeted variant is covered by the ⊞ tests + unit suite;
-    // points deeper inside the content resolve 'center', which is refused).
+    // Just inside the dock's bottom strip → the engine resolves an outer
+    // bottom target: a new tile along the dock's bottom (points deeper inside
+    // the content are the tile's edge band or its centre, which a row never
+    // lands on).
     const x = r.left + r.width / 2;
     const y = r.bottom - 5;
     const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
                    clientX: x, clientY: y };
     const target = document.elementFromPoint(x, y) ?? content;
-    // dockview paints .dv-drop-target-selection once it has resolved the drop
-    // position; the '-bottom' modifier is the edge split this drag intends, so
-    // gating each drop on it proves the geometry resolved the way the test
-    // claims. 20 attempts with a 500ms overlay budget each — an unloaded
+    // The bridge paints its split highlight once it has hit-tested the point,
+    // so gating each drop on it proves the geometry resolved the way the test
+    // claims. 20 attempts with a 500ms highlight budget each — an unloaded
     // machine lands on the first attempt in ~150ms, a loaded one gets an order
     // of magnitude more slack than any single hardcoded wait could give it.
     const ATTEMPTS = 20;
     const OVERLAY_BUDGET_MS = 500;
     const SETTLE_MS = 80;
-    const overlay = () => document.querySelector(
-        '.dv-drop-target-selection.dv-drop-target-bottom');
+    const overlay = () => document.querySelector('.dock-drop-preview__rect--split');
     const landed = () => !!document.querySelector(
         `.dv-groupview .dv-tab .tile-tab[data-panel-id="iframe:${panelId}"]`);
     let tries = 0;
     while (tries < ATTEMPTS && !landed()) {
         tries += 1;
-        // dockview clears its drop target on drop, so each attempt re-arms it
-        // with a fresh dragenter, then holds the dragover until dockview has
-        // painted the bottom-edge overlay before dispatching the drop.
+        // The bridge clears its highlight on drop, so each attempt re-arms it
+        // with a fresh dragenter, then holds the dragover until the split
+        // highlight is painted before dispatching the drop.
         target.dispatchEvent(new DragEvent('dragenter', opts));
         const deadline = performance.now() + OVERLAY_BUDGET_MS;
         while (!overlay() && performance.now() < deadline) {
@@ -986,8 +1061,8 @@ _RAIL_DRAG_DROP_JS = """async (panelId) => {
     if (!landed()) {
         throw new Error(
             `RailDropNeverSettled: no tile appeared for 'iframe:${panelId}' after ` +
-            `${tries} overlay-gated drop attempts — the rail drop was never ` +
-            `accepted by dockview.`);
+            `${tries} highlight-gated drop attempts — the rail drop was never ` +
+            `accepted by the drop bridge.`);
     }
     return tries;
 }"""
@@ -997,9 +1072,9 @@ def test_drag_rail_entry_to_tile_edge_opens_split(tmp_path, chromium_browser):
     """Dragging a rail entry onto a tile edge opens the panel as a new tile there.
 
     The precise half of the open-beside verb (rail-drag.js): the entry's HTML5
-    drag carries the panel id; dropping it near the bottom edge of the terminal
-    tile splits that tile and the panel fills the new half, then the normal
-    reveal tail focuses it.
+    drag carries the panel id; dropping it in the dock's bottom strip under the
+    terminal tile opens the panel as a new tile along the dock's bottom, then
+    the normal reveal tail focuses it.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1065,16 +1140,16 @@ def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
-    ops = {**_CUSTOM_DATA_VIZ, "id": "ops", "label": "OPS", "url": "http://ops.internal:8080"}
 
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
-        custom_panels=[_CUSTOM_DATA_VIZ, ops],
+        custom_panels=[_CUSTOM_DATA_VIZ, _CUSTOM_OPS],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         other = _open_page(chromium_browser, base_url)
-        before = ["terminal", "artifacts", "data-viz", "ops"]
+        # Artifacts is off the rail: its artifacts are in the session tree.
+        before = ["terminal", "data-viz", "ops"]
         for client in (page, other):
             expect(client.locator('#panel-rail [data-panel-id="ops"]')).to_have_count(1)
             assert _rail_order(client) == before
@@ -1082,7 +1157,7 @@ def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
         marked = page.evaluate(_RAIL_REORDER_JS, ["ops", "data-viz"])
         assert marked == "data-viz"
 
-        after = ["terminal", "artifacts", "ops", "data-viz"]
+        after = ["terminal", "ops", "data-viz"]
         for client in (page, other):
             client.wait_for_function(
                 """(want) => JSON.stringify([...document.querySelectorAll(
@@ -1103,14 +1178,13 @@ def test_drag_along_the_rail_reorders_it_for_every_client_and_survives_reload(
 
 
 def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_browser):
-    """A server-originated panel_focus re-activates an already-docked panel silently.
+    """An agent's open of an already-docked panel brings it forward silently.
 
-    Posting /api/panel-focus directly (as an agent MCP call would) drives the SSE
-    handler, which applies the focus through the echo guard. When the target is
-    already docked (its placeholder exists), the applied focus is a pure setActive
-    the guard suppresses — the client emits no POST of its own. (First-dock of a
-    panel legitimately emits one benign idempotent focus POST as its placeholder
-    is created; that quirk is isolated out here by pre-docking data-viz.)
+    Posting /api/panel-op/open directly (as the agent's ``open_panel`` does)
+    relays a ``panel_op`` frame to this page, which shows the panel and answers
+    the op (/api/panel-op-result, the op's own answer). It commands nothing of
+    its own: the surfaced focus runs under the echo guard, so no focus POST
+    goes back out.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1121,7 +1195,7 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        # Pre-dock data-viz as a SECOND tile (a rail click would replace), then
+        # Pre-dock data-viz as a SECOND tile (a rail click would replace artifacts), then
         # make artifacts active again, so the later server focus only has to
         # re-activate an existing placeholder.
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
@@ -1134,13 +1208,14 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         page.wait_for_timeout(800)
 
         posts = _track_panel_posts(page)
-        # Server-driven focus back to the already-docked data-viz. The source
-        # tag is what makes the server broadcast at all — a source-less human
-        # report is mirrored without a frame.
+        # The agent's open of the already-docked data-viz: relayed to this page
+        # as an op, answered with the layout it shows.
         r = requests.post(
-            f"{base_url}/api/panel-focus", json={"panel": "data-viz", "source": "agent"}
+            f"{base_url}/api/panel-op/open",
+            json={"request_id": "panels-open-1", "member": "data-viz"},
+            timeout=10,
         )
-        assert r.status_code == 200
+        assert r.status_code == 200, r.text
 
         # It is applied — data-viz's tile takes the active focus (artifacts keeps
         # its own tile and overlay: side-by-side tiles are both on screen)...
@@ -1148,9 +1223,9 @@ def test_server_sse_focus_is_applied_without_posting_back(tmp_path, chromium_bro
         expect(
             page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
         ).to_have_count(1, timeout=5_000)
-        # ...with zero POSTs echoed back out (the guard suppressed the setActive).
+        # ...with zero POSTs commanded back out (the guard suppressed the setActive).
         page.wait_for_timeout(600)
-        assert _command_posts(posts) == [], f"server-driven focus POSTed back: {posts}"
+        assert _command_posts(posts) == [], f"an agent open POSTed a command back: {posts}"
 
         page.close()
 
@@ -1194,9 +1269,9 @@ def test_agent_hide_of_active_panel_posts_no_focus(tmp_path, chromium_browser):
 
         # The active panel retires and the server-order fallback (artifacts) takes over.
         expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
-        ).to_have_count(1, timeout=5_000)
+        expect(page.locator('#right-panel[data-active-panel="artifacts"]')).to_have_count(
+            1, timeout=5_000
+        )
         expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
 
         # The client emitted NO focus POST for the auto-activated neighbor.
@@ -1216,8 +1291,7 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
 
     The artifacts tile starts left of the terminal. Dragging its tab to the
     right edge of the terminal group moves the tile to the far right; its
-    overlay iframe re-follows to the new rectangle. (Edge drops are the only
-    accepted drop geometry — see the veto test below.)
+    overlay iframe re-follows to the new rectangle.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1269,21 +1343,18 @@ def test_drag_moves_tile_to_new_edge_position(tmp_path, chromium_browser):
         page.close()
 
 
-# Hold an HTML5 drag of one service tab over three targets and report what
-# dockview painted. The drag starts on the source tab's real dragstart handler
-# (dockview records the panel being dragged there). The first target is the
-# terminal group's right-edge band: an accepted split, so dockview paints its
-# `.dv-drop-target-selection` overlay — the proof that the synthetic drag is
-# one dockview recognises at all. The other two are the stacking geometries
-# on the target service tile: its tab title (the old restack gesture) and the
-# centre of its content. The stacking veto (dock-workspace.js
-# wireStackingVeto) must keep the overlay from painting on either, and the
-# drop dispatched on the title must not move anything. Each target is held
-# with repeated dragovers for a fixed budget, because dockview resolves its
-# overlay only after a dragover has been processed. Events go to the element
-# under the pointer, as a real drag would deliver them: dockview's tab drop
-# target does not answer events dispatched on the outer `.dv-tab`.
-_TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
+# Hold an HTML5 drag of one service tile over three targets and report what the
+# drop bridge (dock-drop.js) painted. The drag starts on the source bar's real
+# dragstart handler (dockview's own header drag, which the bridge records as
+# the tile). The first target is the terminal group's right-edge band: a split,
+# so the bridge paints its `.dock-drop-preview__rect--split` highlight — the
+# proof that the synthetic drag is one the bridge recognises at all. The other
+# two are the target service tile's title and the centre of its content: a tile
+# holds one panel, so neither is a target and nothing is painted, and the drop
+# dispatched on the title changes nothing. Each target is held with repeated
+# dragovers for a fixed budget. Events go to the element under the pointer, as
+# a real drag would deliver them.
+_HEADER_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const tabOf = (label) => [...document.querySelectorAll('.dv-tab')].find(t =>
         t.querySelector(`.tile-tab[aria-label="${label}"]`));
     const src = tabOf(source);
@@ -1294,17 +1365,20 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const dt = new DataTransfer();
     src.dispatchEvent(new DragEvent('dragstart',
         { bubbles: true, cancelable: true, dataTransfer: dt }));
-    const overlay = () => !!document.querySelector('.dv-drop-target-selection');
+    const kind = () => {
+        const box = document.querySelector('.dock-drop-preview__rect');
+        return box ? [...box.classList].find((c) => c.startsWith('dock-drop-preview__rect--'))?.slice(25) ?? null : null;
+    };
     const hold = async (el, x, y) => {
         const opts = { bubbles: true, cancelable: true, dataTransfer: dt,
                        clientX: x, clientY: y };
         el.dispatchEvent(new DragEvent('dragenter', opts));
-        let painted = false;
+        let painted = null;
         const deadline = performance.now() + 600;
         while (performance.now() < deadline) {
             el.dispatchEvent(new DragEvent('dragover', opts));
             await new Promise((res) => setTimeout(res, 50));
-            painted = painted || overlay();
+            painted = kind() ?? painted;
         }
         return { painted, opts };
     };
@@ -1313,9 +1387,9 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
     const ex = c.right - 5, ey = c.top + c.height / 2;
     const edgeEl = document.elementFromPoint(ex, ey) ?? content;
     const edge = await hold(edgeEl, ex, ey);
-    edgeEl.dispatchEvent(new DragEvent('dragleave', edge.opts));
+    edgeEl.dispatchEvent(new DragEvent('dragleave', { ...edge.opts, relatedTarget: document.body }));
     await new Promise((res) => setTimeout(res, 100));
-    const clearedAfterEdge = !overlay();
+    const clearedAfterEdge = kind() === null;
     const at = async (el) => {
         const r = el.getBoundingClientRect();
         const x = r.left + r.width / 2, y = r.top + r.height / 2;
@@ -1323,8 +1397,6 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
         return { hit, ...(await hold(hit, x, y)) };
     };
     const centre = await at(dst.closest('.dv-groupview').querySelector('.dv-content-container'));
-    centre.hit.dispatchEvent(new DragEvent('dragleave', centre.opts));
-    await new Promise((res) => setTimeout(res, 100));
     // The artifacts tile hides its title behind the shell's breadcrumb root.
     const titleEl = [...dst.querySelectorAll('.osprey-crumb-root, .tile-tab-title')]
         .find((el) => el.getClientRects().length > 0);
@@ -1336,14 +1408,13 @@ _TAB_DRAG_PROBE_JS = r"""async ({ source, target }) => {
 }"""
 
 
-def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
-    """A drop that would stack two panels into one tile is vetoed.
+def test_a_tile_header_or_centre_is_no_drop_target(tmp_path, chromium_browser):
+    """A tile dragged over another service tile's header or centre gets nothing.
 
-    One panel per tile: dragging the data-viz tab onto the artifacts tile's tab
-    (the old restack gesture) or its centre never paints a drop target, and
-    the drop leaves every tile holding exactly one panel. The same drag held
-    over the terminal's right edge DOES paint one, so a drag dockview never
-    recognised cannot pass as a veto.
+    Dragging the data-viz tile over the artifacts tile's title or its centre
+    paints no highlight, and the drop on the title leaves both tiles exactly
+    where they were: a tile holds one panel. The same drag held over the
+    terminal's right edge paints a split, so the bridge did recognise the drag.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1360,25 +1431,22 @@ def test_drag_onto_tab_bar_is_vetoed_no_stack(tmp_path, chromium_browser):
         before = _dock_groups(page)
         assert all(len(g["tabs"]) == 1 for g in before), before
 
-        # Act — the restack gesture, with an accepted edge target as contrast.
+        # Act — the header and centre drops, with a split target as contrast.
         probe = page.evaluate(
-            _TAB_DRAG_PROBE_JS, {"source": _title_case("DATA VIZ"), "target": "Artifacts"}
+            _HEADER_DRAG_PROBE_JS, {"source": _title_case("DATA VIZ"), "target": "Artifacts"}
         )
         assert "error" not in probe, probe
-        assert probe["edgePainted"] is True, f"dockview never recognised the drag: {probe}"
+        assert probe["edgePainted"] == "split", f"the bridge never recognised the drag: {probe}"
         assert probe["clearedAfterEdge"] is True, probe
-        assert probe["centrePainted"] is False, f"a tile centre painted a drop overlay: {probe}"
-        assert probe["titlePainted"] is False, f"a tab title painted a drop overlay: {probe}"
-        page.wait_for_timeout(500)
+        assert probe["centrePainted"] is None, f"a tile centre painted a highlight: {probe}"
+        assert probe["titlePainted"] is None, f"a tile title painted a highlight: {probe}"
 
-        # Assert — vetoed: no group holds two tabs, arrangement unchanged.
+        # Assert — the drop on the title changed nothing.
+        page.wait_for_timeout(500)
         after = _dock_groups(page)
-        assert all(len(g["tabs"]) == 1 for g in after), (
-            f"a drop stacked two panels into one tile: {after}"
-        )
-        assert sorted(t for g in after for t in g["tabs"]) == sorted(
-            t for g in before for t in g["tabs"]
-        ), (before, after)
+        assert after == before, (before, after)
+        expect(_overlay_iframe(page, "artifacts")).to_be_visible()
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible()
 
         page.close()
 
@@ -1474,8 +1542,7 @@ def _reset_layout_from_palette(page: Page) -> None:
 
 def _reset_layout_from_terminal_menu(page: Page) -> None:
     """Run "Reset layout" from the terminal tile header's right-click menu."""
-    page.locator(".tile-tab-terminal .op-session-label").click(button="right")
-    expect(_context_menu(page)).to_have_count(1, timeout=5_000)
+    _open_agent_header_menu(page)
     _menu_row(page, "Reset layout").click()
     expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
@@ -1618,8 +1685,8 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
     """Clicking a hidden panel in the "+" menu un-hides its rail entry and docks it.
 
     data-viz starts visible, is hidden via the API, then revealed from the menu —
-    which docks it as a NEW tile beside the active group (the add menu is the
-    grow-the-layout verb; a rail click would replace) and POSTs the reveal.
+    which puts it in the active service tile in place of the panel it showed,
+    like every other open, and POSTs the reveal.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1777,9 +1844,9 @@ def test_add_menu_shows_register_error(tmp_path, chromium_browser):
 
         page.locator("#panel-add-btn").click()
         page.locator('.panel-add-menu input[name="url"]').fill("http://x.internal:3000")
-        # Label "Lattice" derives id "lattice", which collides with a built-in →
+        # Label "Ariel" derives id "ariel", which collides with a built-in →
         # the server 422s and the menu must display the reason, not fail silently.
-        page.locator('.panel-add-menu input[name="label"]').fill("Lattice")
+        page.locator('.panel-add-menu input[name="label"]').fill("Ariel")
         page.locator(".panel-add-submit").click()
 
         error = page.locator(".panel-add-url-error")
@@ -1831,8 +1898,8 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
             expect(_service_tab(page, "DATA VIZ")).to_have_count(1, timeout=5_000)
             expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
-            # The hidden default never surfaced itself: no rail entry in view (it
-            # is not a member, and its page-owned row stays parked), no dock tab.
+            # The hidden default never surfaced itself: no rail entry in view
+            # (artifacts is off the rail), no dock tab.
             expect(
                 page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
             ).to_be_hidden()
@@ -1872,7 +1939,7 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
 
             page = chromium_browser.new_page()
             page.goto(base_url, wait_until="domcontentloaded")
-            expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
+            expect(page.locator('button[data-panel-id="terminal"]')).to_be_attached(timeout=10_000)
 
             # The premise: data-viz's health poll really reaches the live stub
             # and goes healthy, which is the transition the buggy fallback
@@ -2013,13 +2080,13 @@ def test_terminal_rail_entry_close_and_reopen(tmp_path, chromium_browser):
         page.close()
 
 
-def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
-    """An evicted panel's rail entry survives and one click takes the tile back.
+def test_rail_click_on_a_replaced_panel_brings_it_back(tmp_path, chromium_browser):
+    """A replaced panel keeps its rail entry, and one click puts it back in the tile.
 
-    A rail click on data-viz evicts artifacts from the tile (local vacate —
-    membership untouched); the artifacts entry stays in the rail, and clicking
-    it re-docks artifacts by taking the tile over from data-viz in turn. No
-    visibility POST fires in either direction: occupancy is per-client state.
+    A rail click on data-viz replaces artifacts in its tile, and one on ops
+    replaces data-viz; clicking the data-viz entry replaces ops with data-viz
+    again, in place. Every entry stays; no visibility POST fires in either
+    direction: which panel a tile shows is per-client state.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -2027,30 +2094,38 @@ def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
-        custom_panels=[_CUSTOM_DATA_VIZ],
+        custom_panels=[_CUSTOM_DATA_VIZ, _CUSTOM_OPS],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        artifacts_rail = page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
-        expect(artifacts_rail).to_be_visible(timeout=10_000)
+        data_viz_rail = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        ops_rail = page.locator('button.panel-rail-button[data-panel-id="ops"]')
+        expect(data_viz_rail).to_be_visible(timeout=10_000)
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
+        _focus_service_panel(page, "data-viz", "DATA VIZ")
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
 
         posts = _track_panel_posts(page)
 
-        # Evict artifacts by activating data-viz (one panel per tile).
-        _focus_service_panel(page, "data-viz", "DATA VIZ")
-        expect(_service_tab(page, "Artifacts")).to_have_count(0, timeout=5_000)
-        expect(artifacts_rail).to_be_attached()
+        # Replace data-viz by activating ops.
+        _focus_service_panel(page, "ops", "OPS")
+        expect(_overlay_iframe(page, "data-viz")).to_be_hidden(timeout=5_000)
+        expect(_service_tab(page, "DATA VIZ")).to_have_count(0)
+        expect(data_viz_rail).to_be_attached()
 
-        # Take the tile back through the surviving entry.
-        artifacts_rail.click()
-        expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=5_000)
-        expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
-        expect(_service_tab(page, "DATA VIZ")).to_have_count(0, timeout=5_000)
+        # Bring data-viz back through its entry.
+        data_viz_rail.click()
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
+        expect(_overlay_iframe(page, "ops")).to_be_hidden(timeout=5_000)
+        expect(_service_tab(page, "OPS")).to_have_count(0)
+        expect(ops_rail).to_be_attached()
+        groups = _dock_groups(page)
+        assert [g["tabs"] for g in groups if "Agent" not in g["tabs"]] == [["Data Viz"]], groups
 
-        # Focus POSTs only (the docking flow may report focus more than once —
-        # pre-existing, benign) — evictions never touch server visibility.
-        page.wait_for_timeout(600)
-        assert "panel-visibility" not in posts, f"eviction must stay local, got {posts}"
+        # Focus POSTs only — which panel a tile shows never touches server visibility.
+        expect(page.locator('#right-panel[data-active-panel="data-viz"]')).to_have_count(
+            1, timeout=5_000
+        )
+        assert "panel-visibility" not in posts, f"a panel switch must stay local, got {posts}"
         assert set(_command_posts(posts)) == {"panel-focus"}, f"expected only focus POSTs: {posts}"
 
         page.close()
@@ -2059,8 +2134,8 @@ def test_evicted_panel_entry_click_redocks_it(tmp_path, chromium_browser):
 def test_rail_click_on_open_panel_jumps_without_moving_it(tmp_path, chromium_browser):
     """Clicking the rail entry of an OPEN panel focuses its tile — no move, no replace.
 
-    With artifacts and data-viz in side-by-side tiles (data-viz active), clicking
-    the artifacts rail entry activates the artifacts tile in place: both tiles
+    With data-viz and ops in side-by-side tiles (ops active), clicking the
+    data-viz rail entry activates the data-viz tile in place: both tiles
     survive, nothing is evicted, and both rail entries stay lit (open).
     """
     workspace = tmp_path / "_agent_data"
@@ -2069,25 +2144,26 @@ def test_rail_click_on_open_panel_jumps_without_moving_it(tmp_path, chromium_bro
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
-        custom_panels=[_CUSTOM_DATA_VIZ],
+        custom_panels=[_CUSTOM_DATA_VIZ, _CUSTOM_OPS],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=10_000)
-        _open_second_tile(page, base_url, "data-viz", "DATA VIZ")
-        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
+        _focus_service_panel(page, "data-viz", "DATA VIZ")
+        _open_second_tile(page, base_url, "ops", "OPS")
+        expect(_overlay_iframe(page, "ops")).to_be_visible(timeout=5_000)
         before = _dock_groups(page)
 
-        # Act — rail click on the OPEN (but unfocused) artifacts panel.
-        page.locator('button.panel-rail-button[data-panel-id="artifacts"]').click()
+        # Act — rail click on the OPEN (but unfocused) data-viz panel.
+        page.locator('button.panel-rail-button[data-panel-id="data-viz"]').click()
 
-        # Assert — artifacts is active and visible in ITS OWN tile; the layout
-        # is untouched and data-viz keeps its tile and its lit rail entry.
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
-        ).to_have_count(1, timeout=5_000)
-        expect(_overlay_iframe(page, "artifacts")).to_be_visible(timeout=5_000)
-        expect(_service_tab(page, "DATA VIZ")).to_have_count(1)
-        expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_be_attached()
+        # Assert — data-viz is active and visible in ITS OWN tile; the layout
+        # is untouched and ops keeps its tile and its lit rail entry.
+        expect(page.locator('#right-panel[data-active-panel="data-viz"]')).to_have_count(
+            1, timeout=5_000
+        )
+        expect(_overlay_iframe(page, "data-viz")).to_be_visible(timeout=5_000)
+        expect(_service_tab(page, "OPS")).to_have_count(1)
+        expect(page.locator('button.panel-rail-button[data-panel-id="ops"]')).to_be_attached()
         assert _dock_groups(page) == before, "a jump-to-open-panel changed the layout"
 
         page.close()
@@ -2153,7 +2229,7 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
             ws.locator(".osprey-crumb-root:visible, .tile-tab-title:visible").first
         ).to_have_text("Artifacts")
         expect(ws.locator(".tile-tab-close")).to_have_count(1)
-        expect(ws.locator(".tile-tab-popout")).to_have_count(1)
+        expect(ws.locator(".tile-tab-window")).to_have_count(1)
 
         # Same bar height as the terminal's — one header system, one size.
         svc_h = _strip_height(page, terminal=False)
@@ -2229,7 +2305,7 @@ def test_overlay_iframe_follows_live_sash_drag(tmp_path, chromium_browser):
 #
 # An embedded panel contributes its toolbar controls INTO the tile bar via
 # postMessage (design_system/js/header-contrib.js → tile-header-contrib.js);
-# clicks round-trip back as osprey-header-action. Proven here with a custom
+# clicks round-trip back as canopy-host-header-action. Proven here with a custom
 # panel whose (proxied, same-origin) page contributes a nav + a button on
 # load and records incoming actions — the full pipeline the unit suites can
 # only cover in halves.
@@ -2238,12 +2314,12 @@ _CONTRIB_PANEL_HTML = b"""<!doctype html>
 <html><body><script>
   window.__actions = [];
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'osprey-header-action') {
+    if (e.data && e.data.type === 'canopy-host-header-action') {
       window.__actions.push([e.data.id, e.data.value ?? null]);
     }
   });
   parent.postMessage({
-    type: 'osprey-header-contribution',
+    type: 'canopy-host-header-contribution',
     version: 1,
     items: [
       { kind: 'nav', id: 'view', priority: 1, items: [
@@ -2289,7 +2365,9 @@ def _contrib_panel_backend():
             pass
 
     server = HTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -2304,7 +2382,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
 
     The custom panel's page (reverse-proxied same-origin) posts a nav + button
     contribution on load; the bar must render them beside the tile title, a
-    bar click must deliver osprey-header-action back into the iframe, and the
+    bar click must deliver canopy-host-header-action back into the iframe, and the
     artifacts tile (which contributes nothing) must keep an empty region.
     """
     workspace = tmp_path / "_agent_data"
@@ -2336,7 +2414,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             tab = _service_tab(page, "CONTRIB")
             expect(tab.locator(".contrib-nav-link")).to_have_count(2, timeout=10_000)
             expect(tab.locator(".contrib-nav-link").first).to_be_visible()
-            expect(tab.locator(".contrib-overflow-btn")).to_have_count(0)
+            expect(tab.locator(".contrib-hidden")).to_have_count(0)
             expect(tab.locator(".contrib-nav-link.active")).to_have_text("Browse")
             expect(tab.locator(".contrib-btn")).to_have_text("Refresh")
             expect(tab.locator(".tile-tab-contrib.has-items")).to_have_count(1)
@@ -2347,7 +2425,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             expect(ws.locator(".contrib-nav-link")).to_have_count(0)
             expect(ws.locator(".contrib-btn")).to_have_count(0)
 
-            # Round-trip: bar clicks land in the panel as osprey-header-action.
+            # Round-trip: bar clicks land in the panel as canopy-host-header-action.
             tab.locator(".contrib-nav-link", has_text="New Entry").click()
             tab.locator(".contrib-btn", has_text="Refresh").click()
             frame = page.frame_locator('.dock-iframe-overlay iframe[data-panel-id="contrib-demo"]')
@@ -2438,7 +2516,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
   window.__actions = [];
   function contribution() {
     return {
-      type: 'osprey-header-contribution',
+      type: 'canopy-host-header-contribution',
       version: 1,
       items: [
         // Higher priority survives a narrow tile longer: the filter outranks
@@ -2452,7 +2530,7 @@ _SEARCH_MENU_PANEL_HTML = b"""<!doctype html>
     };
   }
   window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'osprey-header-action') {
+    if (e.data && e.data.type === 'canopy-host-header-action') {
       window.__actions.push([e.data.id, e.data.value ?? null]);
       // A real panel reacts and re-sends the WHOLE contribution.
       parent.postMessage(contribution(), window.location.origin);
@@ -2477,7 +2555,9 @@ def _search_menu_panel_backend():
             pass
 
     server = HTTPServer(("127.0.0.1", 0), _Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -2539,19 +2619,286 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
             focused = page.evaluate("() => document.activeElement?.className ?? ''")
             assert "contrib-search-input" in focused, focused
 
-            # Overflow menu: opens body-level, and an entry click round-trips.
-            tab.locator(".contrib-menu-btn").click()
-            popover = page.locator(".contrib-menu-popover")
-            expect(popover).to_be_visible(timeout=5_000)
-            expect(popover.locator(".contrib-menu-item")).to_have_count(2)
-
-            popover.locator(".contrib-menu-item", has_text="Refresh").click()
-            expect(page.locator(".contrib-menu-popover")).to_have_count(0)
+            # The contributed menu is the tile ⋯'s "This panel" section, and an
+            # entry click round-trips.
+            tab.locator(".tile-tab-more").click()
+            menu = _context_menu(page)
+            expect(menu).to_be_visible(timeout=5_000)
+            headings = menu.locator(".rail-context-heading")
+            expect(headings).to_have_text(["This panel", "Tile"])
+            menu.locator(_RAIL_MENU_ITEM, has_text="Refresh").click()
+            expect(menu).to_have_count(0)
 
             actions = _poll_actions(page, frame, 2)
             assert actions and actions[-1] == ["more", "refresh"], actions
 
             page.close()
+
+
+# CANOPY is not a custom panel: it is a SIDECAR, so its URL comes from
+# app.state.canopy_server_url and its same-origin standing from the sidecar's
+# own entry pages (sidecar_panels.py), not from a config marker. This stub
+# stands in for the sidecar at the real mount: it answers /health, and the
+# shell at / moves itself to one embedded page under /embed/ — an entry page,
+# so served unsandboxed — which posts a header contribution and records every
+# action the hub routes back.
+#
+# Under header protocol v1 the hub renders exactly the controls a panel
+# contributes, so each CANOPY page shape shows every control once. CANOPY
+# still sends an inert ``text`` item (its subtitle); the hub drops it, since
+# the tile bar carries the tile's name and controls only. Two shapes are
+# pinned, each in its own hub boot:
+#
+#   * a one-tile SCREEN: subtitle, the screen verbs (Print, Export PNG),
+#     Search, ⋯ and Save view;
+#   * the WORKSPACE page, at a distinct /embed/workspace/… path: a summary
+#     text, Search as a ``button`` at priority 1, and ⋯ with Reset layout,
+#     Show sub-screens and Collections.
+#
+# Priorities follow the fold ladder: the tile ⋯ lowest, verbs one higher than
+# their right neighbour, Save view above the verbs.
+_CANOPY_PAGES = {
+    "screen": {
+        "path": "/embed/demo/overview",
+        "items": [
+            {"kind": "text", "id": "subtitle", "text": "Trace · 2 curves · live", "priority": 5},
+            {"kind": "button", "id": "print", "label": "Print", "priority": 3},
+            {"kind": "button", "id": "export-png", "label": "Export PNG", "priority": 2},
+            {"kind": "button", "id": "search", "label": "Search ⌘K", "priority": 1},
+            {
+                "kind": "menu",
+                "id": "more",
+                "priority": 0,
+                "items": [
+                    {"id": "menu:reset-layout", "label": "Reset layout"},
+                    {"id": "tool:export-csv", "label": "Export CSV"},
+                ],
+            },
+            {
+                "kind": "button",
+                "id": "save-view",
+                "label": "Save view",
+                "title": "Save view (⌘S)",
+                "tone": "accent",
+                "priority": 4,
+            },
+        ],
+    },
+    "workspace": {
+        "path": "/embed/workspace/demo",
+        "items": [
+            {"kind": "text", "id": "summary", "text": "3 screens · 2 collections", "priority": 5},
+            {"kind": "button", "id": "search", "label": "Search ⌘K", "priority": 1},
+            {
+                "kind": "menu",
+                "id": "more",
+                "priority": 0,
+                "items": [
+                    {"id": "menu:reset-layout", "label": "Reset layout"},
+                    {"id": "menu:show-sub-screens", "label": "Show sub-screens"},
+                    {"id": "menu:collections", "label": "Collections"},
+                ],
+            },
+        ],
+    },
+}
+
+
+def _canopy_shell_html(embed_path: str) -> bytes:
+    """The sidecar root: move to ``embed_path`` beneath the panel's mount."""
+    return (
+        b"""<!doctype html>
+<html><body><script>
+  // The hub frames the panel's root; move to an embedded page beneath it.
+  const base = location.pathname.replace(/\\/?$/, '/');
+  location.replace(base + """
+        + json.dumps(embed_path.lstrip("/")).encode()
+        + b""" + location.search);
+</script></body></html>"""
+    )
+
+
+def _canopy_embed_html(items: list[dict]) -> bytes:
+    """An embed page that contributes ``items`` and records routed actions."""
+    return (
+        b"""<!doctype html>
+<html><body><script>
+  window.__actions = [];
+  window.addEventListener('message', (e) => {
+    if (e.source === window.parent && e.data && e.data.type === 'canopy-host-header-action') {
+      window.__actions.push([e.data.id, e.data.value ?? null]);
+    }
+  });
+  parent.postMessage({
+    type: 'canopy-host-header-contribution',
+    version: 1,
+    items: """
+        + json.dumps(items).encode()
+        + b""",
+  }, window.location.origin);
+</script></body></html>"""
+    )
+
+
+@contextmanager
+def _canopy_sidecar_stub(page_name: str):
+    """Serve a stand-in CANOPY sidecar whose shell redirects to ``page_name``.
+
+    Both embed pages are routed — ``/embed/workspace/…`` to the workspace page,
+    any other ``/embed/…`` to the screen — so the redirect alone picks the page.
+    """
+    shell = _canopy_shell_html(_CANOPY_PAGES[page_name]["path"])
+    workspace = _canopy_embed_html(_CANOPY_PAGES["workspace"]["items"])
+    screen = _canopy_embed_html(_CANOPY_PAGES["screen"]["items"])
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            path = self.path.split("?", 1)[0]
+            if path == "/health":
+                body, ctype = b'{"status":"ok"}', "application/json"
+            elif path.startswith("/embed/workspace/"):
+                body, ctype = workspace, "text/html"
+            elif path.startswith("/embed/"):
+                body, ctype = screen, "text/html"
+            elif path == "/":
+                body, ctype = shell, "text/html"
+            else:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), _Handler)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+@contextmanager
+def _canopy_hub(tmp_path, chromium_browser, page_name: str):
+    """Boot a hub whose CANOPY sidecar serves ``page_name``; yield (page, base_url)."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _canopy_sidecar_stub(page_name) as stub_url:
+
+        async def _publish_stub(app, enabled_panels):
+            # What _launch_sidecar publishes once a real sidecar answers. CANOPY
+            # takes no operator secret, so no panel_auth_headers entry is owed.
+            assert "canopy" in enabled_panels
+            app.state.canopy_server_url = stub_url
+
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._launch_enabled_sidecars",
+                new=AsyncMock(side_effect=_publish_stub),
+            ),
+            _live_server(
+                workspace,
+                enabled_panels={"artifacts", "canopy"},
+                # Keep artifacts dead by construction, as the neighbour above.
+                artifact_url=unserved_url(),
+            ) as (base_url, _app),
+        ):
+            page = _open_page(chromium_browser, base_url)
+            try:
+                _open_second_tile(page, base_url, "canopy", "CANOPY")
+                yield page, base_url
+            finally:
+                page.close()
+
+
+_CANOPY_IFRAME = '.dock-iframe-overlay iframe[data-panel-id="canopy"]'
+
+
+def _canopy_activate(page: Page, tab, label: str) -> None:
+    """Click the control labelled ``label`` wherever the bar put it.
+
+    On a wide tile it is a button in the bar; a menu entry, or a button the
+    ladder folded on a narrow tile, is a row of the tile ⋯. Either way it
+    dispatches the same action, so the round-trip is width-independent.
+    """
+    button = tab.locator(".contrib-btn:visible", has_text=label)
+    if button.count():
+        button.click()
+        return
+    _pick_tile_menu_row(page, tab, label)
+
+
+@pytest.mark.parametrize("page_name", ["screen", "workspace"])
+def test_canopy_header_contribution_renders_exactly_and_round_trips(
+    tmp_path, chromium_browser, page_name
+):
+    """Each CANOPY page shape renders exactly its contributed control set.
+
+    CANOPY's subtitle ``text`` item is part of what the stub sends and none of
+    what the bar shows.
+
+    The sidecar is replaced by a stub published at ``app.state.canopy_server_url``
+    (what a started sidecar publishes), so the iframe is CANOPY's real mount,
+    ``/panel/canopy/embed/…`` through the panel proxy. The hub must render one
+    element per contributed item but the retired ``text`` — counted by
+    ``[data-contrib-key]``, folded ones included, so the count does not depend
+    on the tile's width — with the tile's one ⋯, and every button and every ⋯
+    entry must reach the
+    frame as ``canopy-host-header-action`` carrying CANOPY's ids: a button sends
+    ``{id}``, a menu entry ``{id: "more", value: <entry id>}``.
+    """
+    spec = _CANOPY_PAGES[page_name]
+    # The bar shows no subtitle: a `text` item is dropped like an unknown kind.
+    items = [it for it in spec["items"] if it["kind"] != "text"]
+    expected_keys = sorted(f"{it['kind']}:{it['id']}" for it in items)
+
+    with _canopy_hub(tmp_path, chromium_browser, page_name) as (page, base_url):
+        tab = _service_tab(page, "CANOPY")
+        keyed = tab.locator("[data-contrib-key]")
+        expect(keyed).to_have_count(len(items), timeout=10_000)
+        expect(tab.locator(".contrib-text")).to_have_count(0)
+
+        # Exactly the contributed set: no item dropped, none duplicated.
+        keys = keyed.evaluate_all("(els) => els.map((el) => el.dataset.contribKey)")
+        assert sorted(keys) == expected_keys, keys
+        # One ⋯ only, the tile's: a contributed menu renders no button.
+        expect(tab.locator(".tile-tab-more")).to_have_count(1)
+        expect(tab.locator("[data-contrib-key^='menu:']:visible")).to_have_count(0)
+
+        # The frame sits at this page's path under CANOPY's mount, same origin.
+        frame_url = page.locator(_CANOPY_IFRAME).evaluate("(el) => el.contentWindow.location.href")
+        assert frame_url.startswith(f"{base_url}/panel/canopy{spec['path']}"), frame_url
+
+        save = [it for it in items if it["id"] == "save-view"]
+        if save:
+            accent = tab.locator(".contrib-btn.contrib-btn-accent")
+            expect(accent).to_have_count(1)
+            expect(accent).to_have_text(save[0]["label"])
+            expect(accent).to_have_attribute("title", save[0]["title"])
+
+        expected_actions = []
+        for item in items:
+            if item["kind"] == "button":
+                _canopy_activate(page, tab, item["label"])
+                expected_actions.append([item["id"], None])
+            elif item["kind"] == "menu":
+                for entry in item["items"]:
+                    _canopy_activate(page, tab, entry["label"])
+                    expected_actions.append([item["id"], entry["id"]])
+
+        frame = page.frame_locator(_CANOPY_IFRAME)
+        actions = _poll_actions(page, frame, len(expected_actions))
+        assert actions == expected_actions, actions
 
 
 # The drag ghost dockview builds for a tab is a deep clone of that tab, parented
@@ -2600,7 +2947,7 @@ _GHOST_ICON_PROBE = """
     const r = el.getBoundingClientRect();
     return { w: Math.round(r.width), h: Math.round(r.height) };
   };
-  const icons = [...ghost.querySelectorAll('.bar-icon')].map((el) => ({
+  const icons = [...ghost.querySelectorAll('.bar-icon, svg.osprey-ic')].map((el) => ({
     cls: el.getAttribute('class'),
     ...box(el),
     parent: el.parentElement.getAttribute('class') || el.parentElement.tagName,
@@ -2663,8 +3010,8 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
             assert probe["live"] == {"w": 12, "h": 12}, probe["live"]
 
             icons = probe["icons"]
-            # The bar always renders a close ×, and this panel adds a search
-            # magnifier — a ghost with no icons would be a vacuous pass.
+            # The bar always renders its ⋯ and close ×, and this panel adds a
+            # search magnifier — a ghost with no icons would be a vacuous pass.
             assert len(icons) >= 2, icons
             assert any("search" in i["cls"] for i in icons), icons
 
@@ -2728,8 +3075,9 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
         assert _menu_labels(page) == [
             "Focus Data Viz",
             "Open in a new tile",
-            "Pop out",
-            "Move to Workspace",
+            "Open in new window",
+            "Move to Sessions",
+            "Move to System",
             "Move to new group…",
             "Remove from rail",
         ], _menu_labels(page)
@@ -2740,7 +3088,7 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
         expect(menu.locator(f"{_RAIL_MENU_ITEM}.danger")).to_have_text(
             re.compile(r"Remove from rail")
         )
-        # data-viz's URL resolved at boot, so the popout row is live.
+        # data-viz's URL resolved at boot, so the window row is live.
         expect(menu.locator(f'{_RAIL_MENU_ITEM}[aria-disabled="true"]')).to_have_count(0)
 
         placement = page.evaluate(
@@ -2868,33 +3216,32 @@ def test_remove_from_rail_undo_restores_the_entry_at_its_old_position(tmp_path, 
 
 
 def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromium_browser):
-    """The Pop out row renders inert while the panel has no standalone URL.
+    """The Open in new window row renders inert while the panel has no frame to move.
 
     A panel's URL and its health arrive together at boot (one with no URL never
     polls, so it never enables), which is why the entry is force-enabled here:
     the menu's enabled gate is a DOM-class question, and taking the class off is
-    the only way to reach an entry that HAS a menu while its popout target is
-    still unresolved — the state an operator meets when a companion server is
-    slow to answer.
+    the only way to reach an entry that HAS a menu while its frame does not exist
+    yet — the state an operator meets when a companion server is slow to answer.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
     with _live_server(
         workspace,
-        enabled_panels={"artifacts"},
-        artifact_url=None,
+        enabled_panels={"artifacts", "ariel"},
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        entry = _rail_entry(page, "artifacts")
+        # ARIEL's server publishes no URL, so its entry never enables.
+        entry = _rail_entry(page, "ariel")
         expect(entry).to_have_class(re.compile(r"\bdisabled\b"), timeout=10_000)
         page.evaluate(
             "() => document.querySelector('button.panel-rail-button"
-            "[data-panel-id=\"artifacts\"]').classList.remove('disabled')"
+            "[data-panel-id=\"ariel\"]').classList.remove('disabled')"
         )
 
-        menu = _open_rail_menu(page, "artifacts")
-        popout = _menu_row(page, "Pop out")
+        menu = _open_rail_menu(page, "ariel")
+        popout = _menu_row(page, "Open in new window")
         expect(popout).to_have_attribute("aria-disabled", "true")
         # Every other row stays live — the gate is per-verb, not per-menu.
         expect(menu.locator(f'{_RAIL_MENU_ITEM}[aria-disabled="true"]')).to_have_count(1)
@@ -2930,11 +3277,11 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
 
     with _live_server(
         workspace,
-        enabled_panels={"artifacts"},
-        artifact_url=None,
+        enabled_panels={"artifacts", "ariel"},
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        entry = _rail_entry(page, "artifacts")
+        # ARIEL's server publishes no URL, so its entry never enables.
+        entry = _rail_entry(page, "ariel")
         expect(entry).to_have_class(re.compile(r"\bdisabled\b"), timeout=10_000)
 
         # The press, delivered to the entry itself: `pointer-events: none`
@@ -2955,22 +3302,28 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
 
 
 def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser):
-    """In chat the two PTY verbs would act on a surface the operator cannot see."""
+    """In chat the PTY verb would act on a surface the operator cannot see.
+
+    The Agent tile header keeps Open in new window, Export conversation and the layout
+    rows; the Agent rail row holds the session rows.
+    """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
     with _live_server(
         workspace,
         enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
 
-        _open_rail_menu(page, "artifacts")
+        _open_rail_menu(page, "data-viz")
         assert _menu_labels(page) == [
-            "Focus Artifacts",
+            "Focus Data Viz",
             "Open in a new tile",
-            "Pop out",
-            "Move to Tools",
+            "Open in new window",
+            "Move to Sessions",
+            "Move to System",
             "Move to new group…",
             "Remove from rail",
         ], _menu_labels(page)
@@ -2978,8 +3331,24 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         page.keyboard.press("Escape")
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
+        _open_agent_header_menu(page)
+        labels = _menu_labels(page)
+        # "This panel": the chat's own rows (Export conversation, Desktop
+        # notifications); "Tile": the window and layout rows, no PTY verb.
+        # The notifications row names a browser that blocks them; headless may.
+        assert labels[0] == "Export conversation", labels
+        assert labels[1].startswith("Desktop notifications"), labels
+        assert labels[2:] == ["Open in new window", "Reset layout", "Close Agent pane"], labels
+
+        page.keyboard.press("Escape")
+        expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+
         _open_rail_menu(page, "terminal")
-        assert _menu_labels(page) == ["Reset layout", "Close Agent pane"], _menu_labels(page)
+        assert _menu_labels(page) == [
+            "New session",
+            "Collapse all",
+            "Show pinned sessions",
+        ], _menu_labels(page)
 
         page.close()
 
@@ -3004,11 +3373,15 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         arm_terminal_tab(page)
         page.goto(base_url, wait_until="domcontentloaded")
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
+        # The Agent tile's header is re-parented while the dock boots; a press
+        # landing between the two moves opens no menu.
+        wait_for_dock_settled(page)
 
-        _open_rail_menu(page, "terminal")
-        assert _menu_labels(page) == [
+        _open_agent_header_menu(page)
+        # The pane's "This panel" rows come first; the Tile rows close the menu.
+        assert _menu_labels(page)[-4:] == [
+            "Open in new window",
             "Restart terminal",
-            "New session",
             "Reset layout",
             "Close Agent pane",
         ], _menu_labels(page)
@@ -3027,6 +3400,34 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         page.evaluate("() => document.dispatchEvent(new Event('scroll'))")
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
+        page.close()
+
+
+def test_agent_header_menu_opens_while_the_panel_list_is_still_loading(tmp_path, chromium_browser):
+    """The Agent tile is on screen before ``/api/panels`` answers, and so is its menu.
+
+    The dock boots beside the panel manager, which then waits on the panel list.
+    Under load that wait is seconds long, and a right-click in it must not fall
+    through to the browser's own menu: the Agent's verbs need no panel list.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(workspace, enabled_panels={"artifacts"}) as (base_url, _app):
+        page = chromium_browser.new_page()
+        held = []
+        page.route("**/api/panels", lambda route: held.append(route))
+        arm_terminal_tab(page)
+        page.goto(base_url, wait_until="domcontentloaded")
+        expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
+        assert held, "the panel list was answered before the menu could be tried"
+
+        _open_agent_header_menu(page)
+        assert "Reset layout" in _menu_labels(page), _menu_labels(page)
+
+        page.keyboard.press("Escape")
+        for route in held:
+            route.continue_()
         page.close()
 
 
@@ -3059,19 +3460,23 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
             page.wait_for_timeout(500)
             expect(_context_menu(page)).to_have_count(0)
 
-            # The bar itself is a menu surface, with the same verbs the rail
-            # entry offers.
+            # The bar itself is a menu surface: the same menu as its ⋯, the
+            # panel's own rows over the tile verbs.
             tab.locator(".tile-tab-title").click(button="right")
             menu = _context_menu(page)
             expect(menu).to_have_count(1, timeout=5_000)
             expect(menu).to_have_attribute("aria-label", "Searchy actions")
             assert _menu_labels(page) == [
-                "Focus Searchy",
+                "All sessions",
+                "Refresh",
                 "Open in a new tile",
-                "Pop out",
-                "Move to Workspace",
+                "Move to Sessions",
+                "Move to System",
                 "Move to new group…",
+                "Open in new window",
+                "Reload",
                 "Remove from rail",
+                "Reset layout",
             ], _menu_labels(page)
 
             page.close()
@@ -3138,19 +3543,20 @@ def test_context_menu_closes_when_a_click_lands_in_a_panel_iframe(tmp_path, chro
 #   * FR8 - the Panels rows. The registry unit tests prove the row set from
 #     injected getters; these prove the LIVE getters produce it: ARIEL's
 #     standalone URL really resolved through /api/ariel-server, and the active
-#     panel really is included in the popout source and excluded from the
+#     panel really is included in the window source and excluded from the
 #     new-tile source.
-#   * FR8 - the popout verb end to end: `window.open` opens a real page on the
-#     proxied, same-origin /panel/<id> URL.
+#   * FR8 - the window verb end to end: `window.open` opens the hub's shell page,
+#     and the panel's own frame moves into it, on the proxied, same-origin
+#     /panel/<id> URL.
 #   * FR9 - Recent. Real localStorage, and the section really renders first on
 #     an empty query and survives a reload.
 #
 # ARIEL is the panel under test because it is the one the synonym table has
-# domain vocabulary for ("logbook"/"elog"). It is enabled as a built-in panel
+# domain vocabulary for ("elog"). It is enabled as a built-in panel
 # with its companion server URL published post-startup - the catalog entry
 # carries no healthEndpoint, so it is healthy the moment its config fetch
 # resolves, and the stub backend behind it lets the proxied /panel/ariel URL
-# answer for real when a popout navigates to it.
+# answer for real when its frame loads in the window.
 
 _PALETTE_OVERLAY = ".command-palette-overlay.visible"
 _PALETTE_INPUT = ".command-palette-input"
@@ -3199,7 +3605,7 @@ def _palette_live_server(workspace):
     ``_launch_panel_server`` is stubbed to publish only the gallery URL, so
     ARIEL's is set here - after startup, before any page load, which is when
     the browser first fetches /api/ariel-server. It points at the always-200
-    stub so the proxied ``/panel/ariel`` a popout navigates to answers for real
+    stub so the proxied ``/panel/ariel`` its frame loads answers for real
     instead of erroring behind the proxy.
 
     Yields:
@@ -3255,12 +3661,13 @@ def _open_palette(page: Page, *, hotkey: bool = False) -> None:
     carries ``.visible`` - the class the focus call shares a frame with, so a
     caller may type immediately afterwards without a further wait.
 
-    The hotkey path first focuses a rail entry: off macOS the shortcut
-    deliberately yields to readline's Ctrl+K while focus is inside the
-    terminal, so the gesture has to start where the operator's would.
+    The hotkey path first focuses a rail entry (ARIEL's, which the palette
+    server always enables): off macOS the shortcut deliberately yields to
+    readline's Ctrl+K while focus is inside the terminal, so the gesture has
+    to start where the operator's would.
     """
     if hotkey:
-        page.locator('button.panel-rail-button[data-panel-id="artifacts"]').focus()
+        _rail_entry(page, "ariel").focus()
         page.keyboard.press("Meta+k" if page.evaluate(_IS_MAC_JS) else "Control+k")
     else:
         page.locator("#command-palette-btn").click()
@@ -3287,9 +3694,7 @@ def _palette_reload(page: Page) -> None:
     would race the rebuild rather than the behaviour it means to assert.
     """
     page.reload(wait_until="domcontentloaded")
-    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-        timeout=10_000
-    )
+    expect(_rail_entry(page, "terminal", enabled_only=True)).to_be_attached(timeout=10_000)
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
 
 
@@ -3335,7 +3740,7 @@ def test_palette_hotkey_opens_with_input_focused_and_types_immediately(tmp_path,
 
         # Assert - the keystrokes landed AND re-filtered the list.
         expect(_palette_input(page)).to_have_value("ariel")
-        expect(_palette_row(page, "Pop out Ariel")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Open Logbook in new window")).to_have_count(1, timeout=5_000)
         expect(_palette_row(page, "Open Settings")).to_have_count(0)
 
         page.close()
@@ -3346,8 +3751,9 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
 
     The two "Open ..." verbs draw on different sources, and the live getters
     are what this proves: ``getPopoutPanels`` includes the ACTIVE panel
-    (popping out what you are looking at is the verb's commonest use, and it
-    needed ARIEL's standalone URL to have resolved through /api/ariel-server),
+    (moving what you are looking at to a window is the verb's commonest use, and
+    it needed ARIEL's frame to exist, once its URL resolved through
+    /api/ariel-server),
     while ``getVisiblePanels`` - the new-tile source - excludes it, because
     opening a panel beside itself is a no-op. The second query proves the
     new-tile verb is present at all, so ARIEL's missing
@@ -3359,34 +3765,34 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _wait_for_ariel_ready(page)
-        _focus_service_panel(page, "ariel", "ARIEL")
+        _focus_service_panel(page, "ariel", "LOGBOOK")
 
         _open_palette(page)
         _palette_query(page, "ariel")
 
-        expect(_palette_row(page, "Pop out Ariel")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Open Logbook in new window")).to_have_count(1, timeout=5_000)
         # The query really narrowed the list, so the absences below mean the
         # rows do not exist rather than that everything is still on screen.
         expect(_palette_row(page, "Open Settings")).to_have_count(0)
-        expect(_palette_row(page, "Open Ariel in a new tile")).to_have_count(0)
+        expect(_palette_row(page, "Open Logbook in a new tile")).to_have_count(0)
         # Focus is the same story as the new tile: the active panel is not
         # offered a verb that would do nothing.
-        expect(_palette_row(page, "Focus Ariel")).to_have_count(0)
+        expect(_palette_row(page, "Focus Logbook")).to_have_count(0)
 
         # The new-tile verb itself is alive here - it just skips the active panel.
         _palette_query(page, "tile")
         expect(_palette_row(page, "Open Artifacts in a new tile")).to_have_count(1, timeout=5_000)
-        expect(_palette_row(page, "Open Ariel in a new tile")).to_have_count(0)
+        expect(_palette_row(page, "Open Logbook in a new tile")).to_have_count(0)
 
         page.close()
 
 
-def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
-    """FR8: "logbook" - the domain word, not the label - finds the ARIEL rows.
+def test_palette_elog_synonym_matches_logbook(tmp_path, chromium_browser):
+    """FR8: "elog" - the domain word, not the label - finds the Logbook rows.
 
-    ARIEL's rail label says nothing about logbooks, so an operator who types
-    what the panel IS gets nothing unless the synonym tokens really reach the
-    live rows' searchText.
+    The rail label is not the only word an operator reaches for, so one who
+    types "elog" gets nothing unless the synonym tokens really reach the live
+    rows' searchText.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3395,9 +3801,9 @@ def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
         _wait_for_ariel_ready(page)
         _open_palette(page)
-        _palette_query(page, "logbook")
+        _palette_query(page, "elog")
 
-        expect(_palette_row(page, "Pop out Ariel")).to_have_count(1, timeout=5_000)
+        expect(_palette_row(page, "Open Logbook in new window")).to_have_count(1, timeout=5_000)
         # A word ARIEL's own rows are the only ones carrying: Artifacts, the
         # other rail member, is filtered out entirely.
         expect(_palette_row(page, "Artifacts")).to_have_count(0)
@@ -3405,15 +3811,14 @@ def test_palette_logbook_synonym_matches_ariel(tmp_path, chromium_browser):
         page.close()
 
 
-def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_browser):
-    """FR8: running the Pop out row opens a real page on same-origin /panel/ariel.
+def test_palette_window_row_moves_the_panel_frame_on_its_proxied_url(tmp_path, chromium_browser):
+    """FR8: running the Open in new window row moves the panel's frame into a hub window.
 
     happy-dom can only prove ``window.open`` was called with some string. What
-    matters to the operator is the page that opens: the proxied, root-relative
-    standalone URL resolved against the terminal's own origin - never the
-    panel's internal address, which the browser cannot reach - carrying the
-    pop-out params (``popout=true`` and the theme) and never
-    ``embedded``, so the page keeps its own chrome and reports to the hub.
+    matters to the operator is what shows: the hub's own shell page, holding the
+    panel's frame on the proxied, root-relative URL resolved against the terminal's
+    origin - never the panel's internal address, which the browser cannot reach -
+    and the tile gone from the dock.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3421,22 +3826,26 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _wait_for_ariel_ready(page)
+        _focus_service_panel(page, "ariel", "LOGBOOK")
         _open_palette(page)
         _palette_query(page, "ariel window")
-        row = _palette_row(page, "Pop out Ariel")
+        row = _palette_row(page, "Open Logbook in new window")
         expect(row).to_have_count(1, timeout=5_000)
 
         with page.context.expect_page() as popup_info:
             row.click()
         popup = popup_info.value
-        popup.wait_for_url(re.compile(r"/panel/ariel\?.*popout=true"), timeout=10_000)
+        frame = popup.locator('iframe.panel-iframe[data-panel-id="ariel"]')
+        expect(frame).to_be_visible(timeout=10_000)
 
-        opened = urlsplit(popup.url)
+        assert urlsplit(popup.url).path == "/static/attached-window.html"
+        opened = urlsplit(frame.get_attribute("src") or "")
         query = parse_qs(opened.query)
         assert f"{opened.scheme}://{opened.netloc}{opened.path}" == f"{base_url}/panel/ariel"
-        assert query.get("popout") == ["true"], popup.url
-        assert "embedded" not in query, popup.url
-        assert "theme" in query, popup.url
+        assert query.get("embedded") == ["true"], opened
+        assert "theme" in query, opened
+        assert "popout" not in query, opened
+        expect(_service_tab(page, "LOGBOOK")).to_have_count(0)
 
         popup.close()
         page.close()

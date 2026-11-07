@@ -1,0 +1,1 @@
+The web terminal sidebar has a third built-in group, **System**, after Tools. By default it holds the Events and Health rows instead of Events sitting in Workspace. A layout already stored in a browser keeps its groups and placements and gains System at the end.

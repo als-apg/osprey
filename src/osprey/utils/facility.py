@@ -41,12 +41,10 @@ SET_FACILITY_ZONE = (
 
 
 class FacilityFileError(ValueError):
-    """A render's facility file is present but names no usable identity.
+    """A render's facility file is present but cannot be used.
 
-    Only an absent file falls back to the project name: a file that is there
-    and cannot be read, is not JSON, or names no identity code is a broken
-    render, and a reader that labelled it with the project name would hide
-    that.
+    It is unreadable, not JSON, not an object, or (for the identity read) names
+    no identity code. Only an absent file is ever an absence.
     """
 
 

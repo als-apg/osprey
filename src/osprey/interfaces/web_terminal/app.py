@@ -17,7 +17,7 @@ from collections import deque
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
 import yaml
@@ -36,7 +36,9 @@ from osprey.interfaces.common_middleware import (
     resolve_storage_scope,
 )
 from osprey.interfaces.vendor import vendor_url
+from osprey.interfaces.web_terminal import scenario_sessions, session_meta
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
+from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.feedback_destination import (
     DEFAULT_DOCS_URL,
     osprey_version,
@@ -51,6 +53,7 @@ from osprey.interfaces.web_terminal.file_watcher import (
 )
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.ownership import OwnershipStoreError
+from osprey.interfaces.web_terminal.presets import preset_refusal, prune_preset_layout
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
 from osprey.interfaces.web_terminal.routes import router
 from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_BUFFER_MAX
@@ -59,6 +62,7 @@ from osprey.interfaces.web_terminal.routes.safety_switches import router as safe
 from osprey.interfaces.web_terminal.routes.watchdog import make_notifier
 from osprey.interfaces.web_terminal.routes.watchdog import router as watchdog_router
 from osprey.interfaces.web_terminal.safety_switches import (
+    CODE_REVIEW_SWITCH,
     WATCHDOG_SWITCH,
     SafetySwitches,
     feature_is_on,
@@ -80,8 +84,10 @@ from osprey.profiles.web_panels import (
     UNIVERSAL_PANELS,
     panel_id_refusal,
     panel_spec_enabled,
+    sidecar_panel_descriptors,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
+from osprey.services.session_naming import SessionNamer
 from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.utils.seconds import positive_seconds
 from osprey.utils.workspace import session_hold_dir
@@ -262,14 +268,29 @@ async def _launch_sidecar(app: FastAPI, panel_id: str) -> None:
     _record_sidecar_status(app, panel_id, SidecarStatus.starting())
     sidecar = None
     try:
-        from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
+        from osprey.interfaces.web_terminal.operator_session import (
+            resolve_agent_data_root,
+            session_hold_root_of,
+        )
+        from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys
 
-        module_path, _, attribute = SIDECAR_PANELS[panel_id].factory_path.partition(":")
+        entry = SIDECAR_PANELS[panel_id]
+        module_path, _, attribute = entry.factory_path.partition(":")
         factory = getattr(importlib.import_module(module_path), attribute)
+        # A sidecar that writes for the terminal's sessions is held with them.
+        session_context: dict[str, Any] = (
+            {
+                "hold_root": session_hold_root_of(app),
+                "live_sessions": lambda: live_session_keys(app),
+            }
+            if entry.session_writes
+            else {}
+        )
         sidecar = factory(
             Path(resolve_agent_data_root(app)),
             compute_url_prefix(),
             getattr(app.state, "web_theme_mode", None),
+            **session_context,
         )
         app.state.sidecars[panel_id] = sidecar
         await asyncio.to_thread(sidecar.preflight)
@@ -899,25 +920,32 @@ def _load_panel_runtime_config(
 def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> list[dict]:
     """Read ``web.presets`` and resolve each named layout against the live panel set.
 
-    A preset is a facility-curated, named list of panel ids a human applies in one
-    click (the "Layouts" section of the "+" popover). This resolves the raw config
-    into the shape the frontend consumes, mirroring how :func:`_load_panel_config`
-    turns ``web.panels`` into concrete ids.
+    A preset is a facility-curated, named arrangement a human applies in one click
+    (the "Layouts" section of the "+" popover) or the agent applies by name. Its
+    value is a dock layout in collection form, each tile naming one panel id in
+    its ``tabs`` (:mod:`osprey.interfaces.web_terminal.presets`). This resolves
+    the raw config into the shape the frontend and the arrangement op consume,
+    mirroring how :func:`_load_panel_config` turns ``web.panels`` into concrete ids.
 
-    Each preset's members are intersected with the set of known ids (enabled
-    built-ins plus custom panel ids); unknown members are dropped with a warning
-    (a typo or a disabled panel must not strand the user), and a preset that
-    resolves to no known members is dropped entirely. Config insertion order is
-    preserved (pyyaml keeps mapping order on 3.7+), so config order == menu order.
+    A value that is not a valid preset (the retired list form and a tile naming
+    several panels included) is skipped with a warning. Each preset's panels are
+    pruned to the known ids (enabled built-ins plus custom panel ids) with a
+    warning per dropped id (a typo or a disabled panel must not strand the user),
+    their tiles leave the tree, and the result is normalised; a preset with no
+    known panel left is dropped entirely. Config insertion order is preserved
+    (pyyaml keeps mapping order on 3.7+), so config order == menu order.
 
     Args:
         enabled_panels: Enabled built-in panel ids (from :func:`_load_panel_config`).
         custom_panels: Custom panel dicts (from :func:`_load_panel_config`).
 
     Returns:
-        A list of ``{"name": str, "panels": [id, ...]}`` dicts in config order — a
-        list (not a dict) so JSON serialization preserves ordering in the
-        ``GET /api/panels`` payload. Fails open to ``[]`` on any config-read error.
+        A list of ``{"name": str, "panels": [id, ...], "layout": dict}`` dicts in
+        config order — a list (not a dict) so JSON serialization preserves ordering
+        in the ``GET /api/panels`` payload. ``layout`` is the pruned, normalised
+        preset (panel ids, fractions, every ``showing`` filled in) and
+        ``panels`` the panels it places, in reading order. Fails open to ``[]`` on any
+        config-read error.
     """
     known: set[str] = set(enabled_panels) | {cp["id"] for cp in custom_panels}
     presets: list[dict] = []
@@ -931,22 +959,21 @@ def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> 
     if not isinstance(raw_presets, dict):
         return []
 
-    for name, members in raw_presets.items():
-        if not isinstance(members, list):
-            logger.warning("web.presets[%r] is not a list of panel ids; skipping.", name)
+    for name, layout in raw_presets.items():
+        refusal = preset_refusal(layout)
+        if refusal is not None:
+            logger.warning("web.presets[%r] %s; skipping.", name, refusal)
             continue
-        resolved: list[str] = []
-        for member in members:
-            if member in known:
-                resolved.append(member)
-            else:
+        for key in layout_keys(layout):
+            if key not in known:
                 logger.warning(
-                    "web.presets[%r] references unknown panel id %r; dropping it.", name, member
+                    "web.presets[%r] references unknown panel id %r; dropping it.", name, key
                 )
-        if resolved:
-            presets.append({"name": str(name), "panels": resolved})
-        else:
+        pruned = prune_preset_layout(layout, lambda key: key in known)
+        if pruned is None:
             logger.warning("web.presets[%r] has no known panel members; dropping the preset.", name)
+            continue
+        presets.append({"name": str(name), "panels": layout_keys(pruned), "layout": pruned})
     return presets
 
 
@@ -1175,7 +1202,7 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
     switches = switches_of(app)
     if switches is None:
         switches = app.state.safety_switches = SafetySwitches()
-    switches.register(WATCHDOG_SWITCH, "Safety watchdog")
+    switches.register(WATCHDOG_SWITCH, "Safety watchdog", "Open holds stay open.")
     app.state.watchdog_runner = WatchdogRunner(
         definitions,
         hold_root=root,
@@ -1183,6 +1210,49 @@ def _start_watchdogs(app: FastAPI, config_file: Path | None) -> None:
         config=config,
         build_dir=build_dir,
         may_hold=lambda: feature_is_on(app, WATCHDOG_SWITCH),
+    )
+
+
+async def _serve_code_review_switch(app: FastAPI, config_file: Path | None) -> None:
+    """Make code review switchable when the rendered config turns it on, and serve the switch.
+
+    Its consumers run in the agent's processes and read the switch from the socket this
+    terminal serves (:mod:`~osprey.interfaces.web_terminal.code_review_switch`). A section
+    that cannot be read registers nothing: every review refuses then, and there is nothing
+    to turn off. Nor does a terminal that cannot serve the socket, which would show an off
+    switch while every review still ran. A socket an outer terminal published is never
+    passed on, so a session started here asks this terminal or nobody.
+    """
+    from osprey.services.code_review.switch import SWITCH_SOCKET_ENV
+
+    os.environ.pop(SWITCH_SOCKET_ENV, None)
+    app.state.code_review_switch_listener = None
+    if config_file is None:
+        return
+    from osprey.services.code_review.settings import (
+        ReviewConfigError,
+        load_review_settings,
+        read_review_config,
+    )
+
+    try:
+        enabled = load_review_settings(read_review_config(config_file)).enabled
+    except ReviewConfigError:
+        return
+    switches = switches_of(app)
+    if not enabled or switches is None:
+        return
+    from osprey.interfaces.web_terminal.code_review_switch import serve_switch
+
+    try:
+        app.state.code_review_switch_listener = await serve_switch(app)
+    except OSError as exc:
+        logger.warning("code review cannot be switched off here: its socket failed (%s)", exc)
+        return
+    switches.register(
+        CODE_REVIEW_SWITCH,
+        "Code review",
+        "Meanwhile the agent's Python and notebook code runs unreviewed.",
     )
 
 
@@ -1298,6 +1368,12 @@ def _create_lifespan(
         # user badge / logout control is rendered.
         app.state.terminal_user = os.environ.get("OSPREY_TERMINAL_USER", "").strip()
         app.state.landing_url = os.environ.get("OSPREY_TERMINAL_LANDING_URL", "").strip()
+        # A hub serves one identity: its per-operator session stores are filed
+        # under the acting identity, so a terminal user that differs from it
+        # would read and write another operator's sessions. Refused here, then
+        # the session meta (titles, last-active, naming_since) is read once.
+        session_meta.check_identity(app.state.terminal_user)
+        await asyncio.to_thread(session_meta.load, app)
         # Whether the render zone (``config.yml`` + ``.claude/``) is read-only to
         # this process. In a privilege-split container the render zone is
         # root-owned and the root entrypoint performs the regen and the scaffold
@@ -1350,6 +1426,22 @@ def _create_lifespan(
             except Exception as exc:  # never block startup on this
                 logger.warning("Could not restore user-owned artifacts from the volume: %s", exc)
 
+            # Mark the render trusted for Claude Code, as the container entrypoint
+            # does before the server starts: an untrusted render has the CLI drop
+            # its permissions.allow list, sending every read-only tool to the
+            # approval card. Only this render's path, and no other first-run key.
+            from osprey.agent_runner.claude_state import seed_workspace_trust
+
+            try:
+                if seed_workspace_trust(Path(app.state.project_cwd)):
+                    logger.info("Marked %s trusted for Claude Code", app.state.project_cwd)
+            except Exception as exc:  # never block startup on this
+                logger.warning(
+                    "Could not mark %s trusted for Claude Code (%s); its allow list will not apply",
+                    app.state.project_cwd,
+                    exc,
+                )
+
         # Resolve and store config_path for the settings API
         resolved_config_path: Path | None = None
         for config_candidate in [
@@ -1362,10 +1454,18 @@ def _create_lifespan(
                 break
         app.state.config_path = resolved_config_path
         # Built before any feature registers into it; a restart starts it empty.
-        # Registered: the watchdog (_start_watchdogs). Code review is not yet:
-        # its hook runs in the agent sandbox and needs the state through the state zone.
         app.state.safety_switches = SafetySwitches()
         _start_watchdogs(app, resolved_config_path)
+        await _serve_code_review_switch(app, resolved_config_path)
+        # Automatic session names (Decision 8): `GET /api/sessions` hands its
+        # rows to this scheduler, which names them in the background through
+        # the project's provider. Without a project config there is no provider
+        # to ask, and the rows keep their first-prompt titles.
+        app.state.session_namer = (
+            SessionNamer(app, project_dir=resolved_config_path.parent)
+            if resolved_config_path is not None
+            else None
+        )
 
         # ── Web theme (SSR no-FOUC attribute) ──
         # Resolved once at startup and server-rendered onto <html data-theme>
@@ -1510,9 +1610,20 @@ def _create_lifespan(
             format_managed_policy_conflicts,
             inject_provider_env,
             load_provider_spec,
+            personal_login_allowed,
+            personal_login_present,
+            withhold_provider_env,
         )
 
         _spec = None
+        # Whether this terminal's user may, and does, run on a personal
+        # Claude login (claude_code.allow_personal_login + a completed
+        # /login in this container's CLAUDE_CONFIG_DIR). Published for the
+        # browser's nudge; decided once, here, where the environment the
+        # agent launches with is settled.
+        app.state.personal_login_allowed = False
+        app.state.personal_login_present = False
+        app.state.personal_login = False
         if app.state.config_path:
             from osprey_connectors.workspace import repo_root_for_config
 
@@ -1529,7 +1640,28 @@ def _create_lifespan(
             # answers with the same call.
             _env_dir = repo_root_for_config(app.state.config_path)
             _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
-            if _spec:
+            from osprey_connectors.workspace import load_osprey_config as _load_config
+
+            app.state.personal_login_allowed = personal_login_allowed(_load_config() or {})
+            app.state.personal_login_present = personal_login_present(os.environ)
+            if _spec and app.state.personal_login_allowed and app.state.personal_login_present:
+                # The deployment lets its users bring their own subscription,
+                # and this one has: the provider env is withheld rather than
+                # injected -- Claude Code's credential precedence puts a
+                # subscription login last, so the only way to reach it is for
+                # every provider variable to be absent -- and no translation
+                # proxy is started. The deployment never holds the credential:
+                # it stays in the user's own config volume, unread.
+                withheld = withhold_provider_env(os.environ, _env_dir)
+                app.state.personal_login = True
+                logger.info(
+                    "Terminal for %s runs on a personal Claude login: the deployment "
+                    "provider %s is withheld from this session (%s)",
+                    app.state.terminal_user or "the operator",
+                    _spec.provider,
+                    ", ".join(withheld) if withheld else "nothing to scrub",
+                )
+            elif _spec:
                 # The SPEC is read from the render; the ENV is read from the
                 # repo. inject_provider_env's bulk `.env` passthrough is given
                 # the repo root for the same reason load_provider_spec is given
@@ -1698,6 +1830,16 @@ def _create_lifespan(
         # What the terminal recorded about each sidecar's start, read back by
         # `osprey health` from this same root.
         app.state.panel_status_root = shared_data_root
+        # The session ledger's one-time seeding from pre-feature state, when no
+        # ledger file exists yet; it reads the transcript map, the transcripts
+        # on disk and the artifact store under this root. Never raises.
+        await asyncio.to_thread(session_meta.backfill_ledger, app)
+        # Seeded scenario sessions, laid down after the backfill so a missing
+        # ledger is seeded from real sessions first. Never fatal.
+        try:
+            await asyncio.to_thread(scenario_sessions.lay_down_scenario_sessions, app)
+        except Exception:
+            logger.warning("The scenario-session lay-down failed", exc_info=True)
         app.state.panel_status_dir = shared_data_root / PANEL_STATUS_DIRNAME
         # Workspace-relative form of the store: the *file watcher's* form,
         # used below to drop change events for writes into it. The file
@@ -1883,6 +2025,13 @@ def _create_lifespan(
 
         await app.state.control_context_task.stop()
 
+        # In-flight and queued namings end with the hub; ``pending`` is memory only.
+        if app.state.session_namer is not None:
+            await app.state.session_namer.shutdown()
+
+        if app.state.code_review_switch_listener is not None:
+            await app.state.code_review_switch_listener.close()
+
         reaper_task.cancel()
         with suppress(asyncio.CancelledError):
             await reaper_task
@@ -2066,11 +2215,18 @@ def create_app(
                 "control_target_available": bool(
                     getattr(request.app.state, "control_target_picker_available", True)
                 ),
+                # The documentation root the tile ⋯ Help row opens a panel's
+                # page under (panel-help.js). "" when web.docs_url is blank,
+                # and the template then leaves the attribute out.
+                "docs_url": getattr(request.app.state, "docs_url", "") or "",
                 # The registry's own labels for the built-in panels, stamped so
                 # panel-catalog.js can read them at module load. /api/panels
                 # answers for the ENABLED panels only and resolves after that
                 # module's array is built, so it cannot seed the roster.
                 "builtin_panel_labels": BUILTIN_PANEL_LABELS,
+                # The sidecar panels' descriptors, from the same registry: the
+                # catalog builds one row and tab per entry, so it lists none itself.
+                "sidecar_panels": sidecar_panel_descriptors(),
             },
         )
 
@@ -2106,6 +2262,7 @@ def create_app(
                 # words panel actions with, so the pop-out page carries the
                 # same roster stamp the index does.
                 "builtin_panel_labels": BUILTIN_PANEL_LABELS,
+                "sidecar_panels": sidecar_panel_descriptors(),
             },
         )
 

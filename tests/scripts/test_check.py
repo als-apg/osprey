@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import ast
 import dataclasses
+import fnmatch
 import functools
-import importlib.util
 import json
 import os
 import re
@@ -27,32 +27,51 @@ import sys
 import tomllib
 from collections.abc import Sequence
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
 import yaml
 
+from tests import _canopy_contract, _wallclock_files
+from tests.scripts import _check_script
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
-
-def _load(relative: str, name: str) -> ModuleType:
-    # import-time required because scripts/ is not a package: each module is
-    # loaded by path, under a name no import uses, and registered in
-    # sys.modules before exec so @dataclass can resolve annotations through
-    # cls.__module__.
-    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / relative)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-check = _load("scripts/check.py", "_check_by_path")
+check = _check_script.check
 fw = check.FRAMEWORK
 kit = check.kit
+canopy_contract = _canopy_contract
+
+#: The CANOPY integration's checks module.
+CANOPY_MODULE = "src/osprey/integrations/canopy/repo_checks.py"
+canopy = check.DECLARED.modules[CANOPY_MODULE]
+proven = canopy._proven()
+
+PINS = proven.PROVEN_COMMITS
+#: The line a run of the contract against the proven pair ends with.
+ATTESTED = (
+    f"CANOPY contract proven against canopy {PINS['canopy']}, "
+    f"PyDMConverter {PINS['PyDMConverter']} on {proven.venue()}"
+)
+ATTESTED_FAILED = ATTESTED.replace("proven against", "failed against", 1)
+#: What the probe prints for each installed state, as the pin module words it.
+PROBE_PROVEN = (
+    f"CANOPY at the proven commits: canopy {PINS['canopy']}, PyDMConverter {PINS['PyDMConverter']}"
+)
+PROVEN_SHORT = (
+    f"this OSPREY is proven against canopy {PINS['canopy'][:12]}, "
+    f"PyDMConverter {PINS['PyDMConverter'][:12]}"
+)
+PROBE_ABSENT = f"CANOPY contract not run here: CANOPY is not installed; {PROVEN_SHORT}"
+PROBE_UNPROVEN = (
+    "CANOPY contract proves nothing here: canopy editable, records no commit, "
+    f"PyDMConverter not installed; {PROVEN_SHORT}"
+)
+CANOPY_INSTALL = (
+    f"install canopy {PINS['canopy']} and PyDMConverter {PINS['PyDMConverter']} "
+    "from git, PyDMConverter also as a uv pip --override"
+)
 
 BY_ID = {c.id: c for c in check.CHECKS}
 
@@ -161,21 +180,25 @@ def test_the_check_ids_are_the_public_names() -> None:
         "eslint",
         "prettier",
         "actionlint",
+        "hand-typed-sweeps",
         "pytest",
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-wallclock-unit",
         "readonly-warmups-py314",
         "live-ca",
         "vitest",
-        "dock-engine-tests",
-        "dock-engine-bundle",
         "docs",
         "linkcheck",
         "package",
+        "connectors-public-names",
+        "canopy-marker",
+        "canopy-contract",
     ]
     assert [c.id for c in check.CHECKS if "quick" not in c.tiers] == [
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-wallclock-unit",
         "readonly-warmups-py314",
         "live-ca",
         "docs",
@@ -194,19 +217,67 @@ _ROOT_WALKERS = frozenset({"text_files"})
 _Value = tuple[str, Any]
 
 
+def _import_names(node: ast.Import | ast.ImportFrom, here: tuple[str, ...]) -> list[str]:
+    """The dotted names one import statement in the module at repo-relative parts *here* binds.
+
+    A relative import resolves against the module's own package; ``from X import a``
+    names both ``X`` and ``X.a``, since ``a`` may be a module or a name in ``X``.
+    """
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    package = list(here[:-1])[: len(here) - node.level] if node.level else []
+    base = ".".join([*package, *([node.module] if node.module else [])])
+    return [base, *(f"{base}.{alias.name}" for alias in node.names)]
+
+
+def _module_file(name: str, root: Path) -> Path | None:
+    """The file under *root* that the ``tests`` module *name* loads, or None."""
+    if name != "tests" and not name.startswith("tests."):
+        return None
+    parts = name.split(".")
+    for candidate in (
+        root.joinpath(*parts).with_suffix(".py"),
+        root.joinpath(*parts, "__init__.py"),
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _imported_modules(
+    source: str, here: tuple[str, ...], *, root: Path = REPO_ROOT, follow: bool = False
+) -> frozenset[str]:
+    """Every dotted name *source*, the module at repo-relative parts *here*, imports.
+
+    With *follow*, the names each imported ``tests`` module under *root* imports
+    are added too, transitively; a module already read is not read again, so a
+    cycle ends.
+    """
+    names: set[str] = set()
+    visited: set[Path] = set()
+    pending: list[tuple[str, tuple[str, ...]]] = [(source, here)]
+    while pending:
+        text, parts = pending.pop()
+        for node in ast.walk(ast.parse(text)):
+            if not isinstance(node, (ast.Import, ast.ImportFrom)):
+                continue
+            for name in _import_names(node, parts):
+                names.add(name)
+                if not follow or (path := _module_file(name, root)) is None or path in visited:
+                    continue
+                visited.add(path)
+                pending.append((path.read_text(encoding="utf-8"), path.relative_to(root).parts))
+    return frozenset(names)
+
+
 def _imports_a_tree_reader(tree: ast.Module, here: tuple[str, ...]) -> bool:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            if any(alias.name in _TREE_READER_MODULES for alias in node.names):
-                return True
-        elif isinstance(node, ast.ImportFrom):
-            package = list(here[:-1])[: len(here) - node.level] if node.level else []
-            base = ".".join([*package, *([node.module] if node.module else [])])
-            if base in _TREE_READER_MODULES:
-                return True
-            if any(f"{base}.{alias.name}" in _TREE_READER_MODULES for alias in node.names):
-                return True
-    return False
+    """Whether *tree* imports a tree-reader module itself; a helper that does is not followed."""
+    return any(
+        name in _TREE_READER_MODULES
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for name in _import_names(node, here)
+    )
 
 
 def _resolve(node: ast.expr, env: dict[str, _Value | None], here: tuple[str, ...]) -> _Value | None:
@@ -404,9 +475,26 @@ def _reads_the_tests_tree(path: Path) -> bool:
     )
 
 
+#: Every module's invariant tests: each owner lists the tree readers it owns.
+INVARIANT_TESTS = tuple(
+    path
+    for module in check.DECLARED.modules.values()
+    for path in getattr(module, "INVARIANT_TESTS", ())
+)
+
+
 def test_every_invariant_test_exists() -> None:
-    assert [p for p in fw.INVARIANT_TESTS if not (REPO_ROOT / p).is_file()] == []
+    assert [p for p in INVARIANT_TESTS if not (REPO_ROOT / p).is_file()] == []
     assert "tests/scripts/test_check.py" in fw.INVARIANT_TESTS
+    assert "tests/integrations/canopy/test_contract_marker.py" in canopy.INVARIANT_TESTS
+
+
+def test_every_invariant_test_runs_in_its_owners_invariant_check() -> None:
+    """Each module's invariant tests are the files of an invariant check it declares."""
+    for path, module in check.DECLARED.modules.items():
+        listed = set(getattr(module, "INVARIANT_TESTS", ()))
+        run = {arg for c in module.CHECKS if c.kind == "invariant" for arg in c.argv}
+        assert listed <= run, path
 
 
 @functools.cache
@@ -433,12 +521,164 @@ def test_every_module_that_reads_the_tests_tree_is_an_invariant_test() -> None:
     """A test that reads the whole tests tree can break on a change anywhere in
     it, so the invariant-tests check, which no change selection leaves out,
     runs it."""
-    assert _tree_readers_outside(fw.INVARIANT_TESTS) == []
+    assert _tree_readers_outside(INVARIANT_TESTS) == []
 
 
-def test_a_tree_reader_left_out_of_the_invariant_tests_is_named() -> None:
-    reader = "tests/test_no_legacy_symbols.py"
-    assert _tree_readers_outside(tuple(p for p in fw.INVARIANT_TESTS if p != reader)) == [reader]
+@pytest.mark.parametrize(
+    "reader",
+    ["tests/test_no_legacy_symbols.py", "tests/integrations/canopy/test_contract_marker.py"],
+)
+def test_a_tree_reader_left_out_of_the_invariant_tests_is_named(reader: str) -> None:
+    assert _tree_readers_outside(tuple(p for p in INVARIANT_TESTS if p != reader)) == [reader]
+
+
+#: The container starters every recipe calls; a helper module that spells one
+#: of them is a container recipe.
+CONTAINER_STARTERS = ("start_or_skip(", "start_or_fail(")
+
+#: The markers that say a test needs a container engine. Their source is
+#: ``[tool.pytest.ini_options].markers`` in ``pyproject.toml``.
+ENGINE_MARKERS = ("dockerbuild", "e2e_services")
+
+
+def _container_recipes() -> frozenset[str]:
+    """The dotted names of the helper modules under ``tests/`` that start a container."""
+    found = set()
+    for path in (REPO_ROOT / "tests").rglob("_*.py"):
+        if "__pycache__" in path.parts or path.name.startswith("__"):
+            continue
+        if any(starter in path.read_text(encoding="utf-8") for starter in CONTAINER_STARTERS):
+            found.add(".".join(path.relative_to(REPO_ROOT).with_suffix("").parts))
+    return frozenset(found)
+
+
+def _is_engine_marker(node: ast.AST) -> bool:
+    """Whether *node* is ``pytest.mark.<engine marker>``."""
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr in ENGINE_MARKERS
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "pytest"
+    )
+
+
+def _engine_reaches(
+    source: str,
+    recipes: frozenset[str] | None = None,
+    *,
+    here: tuple[str, ...] = ("tests", "test_sample.py"),
+    root: Path = REPO_ROOT,
+) -> list[str]:
+    """Every place *source*, the module at repo-relative parts *here*, reaches a
+    container engine: an import of a recipe, directly, relatively or through a
+    ``tests`` helper that imports one, or an engine marker."""
+    recipes = _container_recipes() if recipes is None else recipes
+    reaches = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Attribute) and _is_engine_marker(node):
+            reaches.append(f"line {node.lineno}: applies pytest.mark.{node.attr}")
+            continue
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        for name in _import_names(node, here):
+            if name in recipes:
+                reaches.append(f"line {node.lineno}: imports {name}")
+            elif (path := _module_file(name, root)) is not None:
+                closure = _imported_modules(
+                    path.read_text(encoding="utf-8"),
+                    path.relative_to(root).parts,
+                    root=root,
+                    follow=True,
+                )
+                reaches.extend(
+                    f"line {node.lineno}: imports {name}, which imports {recipe}"
+                    for recipe in sorted(closure & recipes)
+                )
+    return sorted(reaches)
+
+
+def test_no_invariant_test_reaches_a_container_engine() -> None:
+    """The invariant-tests check runs on every host, so a file it names imports no
+    container recipe and carries no engine marker."""
+    recipes = _container_recipes()
+    reaching = {
+        path: found
+        for path in fw.INVARIANT_TESTS
+        if (
+            found := _engine_reaches(
+                (REPO_ROOT / path).read_text(encoding="utf-8"), recipes, here=Path(path).parts
+            )
+        )
+    }
+    assert reaching == {}
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import tests._mongo_container\n",
+        "from tests import _graphdb_container\n",
+        "import pytest\n\n@pytest.mark.dockerbuild\ndef test_x():\n    pass\n",
+    ],
+    ids=["imports-a-recipe", "imports-a-recipe-from-its-package", "carries-an-engine-marker"],
+)
+def test_a_source_that_reaches_a_container_engine_is_named(source: str) -> None:
+    assert _engine_reaches(source) != []
+
+
+@pytest.mark.parametrize(
+    ("source", "reaches"),
+    [
+        ("from .. import _rec\n", True),
+        ("import tests._helper\n", True),
+        ("from .._helper import x\n", True),
+        ("import tests._cycle_a\n", True),
+        ("import tests._plain\n", False),
+    ],
+    ids=[
+        "relative-import-of-a-recipe",
+        "helper-that-imports-a-recipe",
+        "relative-helper",
+        "helper-cycle",
+        "helper-without-a-recipe",
+    ],
+)
+def test_a_relative_or_helper_import_of_a_recipe_is_named(
+    tmp_path: Path, source: str, reaches: bool
+) -> None:
+    tests = tmp_path / "tests"
+    (tests / "sub").mkdir(parents=True)
+    modules = {
+        "__init__.py": "",
+        "sub/__init__.py": "",
+        "_rec.py": "start_or_skip(None)\n",
+        "_helper.py": "from tests import _rec\n",
+        "_cycle_a.py": "import tests._cycle_b\n",
+        "_cycle_b.py": "import tests._cycle_a\nimport tests._rec\n",
+        "_plain.py": "import json\n",
+    }
+    for name, text in modules.items():
+        (tests / name).write_text(text)
+    found = _engine_reaches(
+        source, frozenset({"tests._rec"}), here=("tests", "sub", "test_x.py"), root=tmp_path
+    )
+    assert (found != []) is reaches
+    assert all("tests._rec" in line for line in found)
+
+
+def test_an_engine_marker_spelled_as_text_reaches_nothing() -> None:
+    assert _engine_reaches('NEEDLE = "pytest.mark.dockerbuild"\n') == []
+
+
+def test_each_engine_marker_is_declared() -> None:
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = {
+        line.split(":", 1)[0].split("(", 1)[0].strip()
+        for line in pyproject["tool"]["pytest"]["ini_options"]["markers"]
+    }
+    assert set(ENGINE_MARKERS) <= declared
 
 
 def test_the_need_probes_of_the_new_toolchains_name_their_install(
@@ -514,6 +754,18 @@ def test_the_tree_reader_rule_follows_where_a_name_is_bound(body: str, reads: bo
     assert _source_reads_the_tests_tree(_PREAMBLE + body, ("tests", "test_sample.py")) is reads
 
 
+def test_the_tree_reader_question_reads_direct_imports_only(tmp_path: Path) -> None:
+    """Importing a helper that imports the tree reader does not walk the tree: only
+    the test's own import of the reader marks it (``tests._text_sweep``)."""
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "__init__.py").write_text("")
+    (tmp_path / "tests" / "_helper.py").write_text("import tests._tree_scan\n")
+    source = "import tests._helper\n"
+    here = ("tests", "test_x.py")
+    assert "tests._tree_scan" in _imported_modules(source, here, root=tmp_path, follow=True)
+    assert not _imports_a_tree_reader(ast.parse(source), here)
+
+
 def test_every_literal_scope_path_exists() -> None:
     scopes = (
         *(c.scope for c in check.CHECKS),
@@ -531,9 +783,9 @@ def test_every_ignored_path_exists_and_has_a_host() -> None:
 
 
 def test_an_ignore_whose_host_is_gone_is_reported() -> None:
-    without = tuple(lane for lane in check.LANES if lane.job != "channel-finder-benchmarks")
+    without = tuple(lane for lane in check.LANES if lane.job != "build-boot-smoke")
     assert unhosted(fw.UNIT_SELECTION, check.CHECKS, without) == [
-        "tests/services/channel_finder/graph_index/test_scale.py"
+        "tests/integration/test_build_boot.py"
     ]
 
 
@@ -591,7 +843,6 @@ SWEEP_IGNORES = [
     "--ignore=tests/e2e",
     "--ignore=tests/va/test_apply_fault.py",
     "--ignore=tests/va/test_lume_pva_seam.py",
-    "--ignore=tests/services/channel_finder/graph_index/test_scale.py",
     "--ignore=tests/integration/test_build_boot.py",
     "--ignore=tests/integration/test_preset_static.py",
     "--ignore=tests/integration/test_preset_build.py",
@@ -599,21 +850,45 @@ SWEEP_IGNORES = [
 
 #: The sweep each shard selects: its paths, then everything it ignores.
 SHARD_SELECTIONS = {
-    "cli": ["tests/cli", *SWEEP_IGNORES],
-    "rest-a": ["tests/facility", "tests/mcp_server", "tests/deployment", *SWEEP_IGNORES],
+    "cli-a": ["tests/cli", "--ignore-glob=tests/cli/test_[!a-h]*", *SWEEP_IGNORES],
+    "cli-b": [
+        "tests/cli",
+        "--ignore=tests/cli/templates",
+        "--ignore-glob=tests/cli/test_[a-h]*",
+        *SWEEP_IGNORES,
+    ],
+    "rest-a": ["tests/facility", "tests/deployment", *SWEEP_IGNORES],
     "rest-b": [
         "tests/",
         "packages/osprey-connectors/tests",
         "--ignore=tests/cli",
         "--ignore=tests/facility",
-        "--ignore=tests/mcp_server",
         "--ignore=tests/deployment",
+        "--ignore=tests/interfaces",
+        "--ignore=tests/mcp_server",
+        "--ignore=tests/scripts",
+        "--ignore=tests/hooks",
+        "--ignore=tests/agent_record",
+        "--ignore=tests/infrastructure",
+        "--ignore=tests/docs",
+        "--ignore=tests/templates",
+        *SWEEP_IGNORES,
+    ],
+    "rest-c": [
+        "tests/interfaces",
+        "tests/mcp_server",
+        "tests/scripts",
+        "tests/hooks",
+        "tests/agent_record",
+        "tests/infrastructure",
+        "tests/docs",
+        "tests/templates",
         *SWEEP_IGNORES,
     ],
 }
 
 #: The sweep's marker expression in the full tier.
-SWEEP_MARKER = ["-m", "not pty and not wallclock"]
+SWEEP_MARKER = ["-m", "not pty and not wallclock and not canopy"]
 
 
 def pytest_report(check_id: str, reports: str = "{reports}") -> list[str]:
@@ -669,11 +944,6 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     assert run("tsc") == [["npm", "run", "typecheck"]] and "typecheck" in scripts
     assert run("eslint") == [["npm", "run", "lint"]] and "lint" in scripts
     assert run("vitest") == [["npx", *shlex.split(scripts["test:js"]), *VITEST_REPORT]]
-    engine_report = [flag.replace("/vitest/", "/dock-engine-tests/") for flag in VITEST_REPORT]
-    assert run("dock-engine-tests") == [
-        ["npx", *shlex.split(scripts["test:dock-engine"]), *engine_report]
-    ]
-    assert run("dock-engine-bundle") == [shlex.split(scripts["check:dock-engine"])]
 
     for shard, selection in SHARD_SELECTIONS.items():
         (sweep,) = run("pytest", "--shard", shard, "--", *CI_UNIT_EXEC_FLAGS)
@@ -683,7 +953,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
             *selection,
             *SWEEP_MARKER,
             *CI_UNIT_EXEC_FLAGS,
-            *("--dist", "loadgroup"),
+            *fw.UNIT_SELECTION.dist,
             *pytest_report("pytest"),
         ]
     (pty,) = run("pytest-pty", "--", "-v", "--tb=short")
@@ -703,6 +973,16 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         *("pytest", "tests/integration", "-m", "wallclock"),
         *pytest_report("pytest-wallclock"),
     ]
+    (wallclock_unit,) = run("pytest-wallclock-unit")
+    marked = fw.wallclock_unit_files()
+    assert "tests/scripts/test_run_bounded.py" in marked, marked
+    assert after_bound(wallclock_unit) == [
+        *fw.UV_RUN,
+        "pytest",
+        *marked,
+        *("-m", "wallclock"),
+        *pytest_report("pytest-wallclock-unit"),
+    ]
     assert run("live-ca") == [[*fw.UV_RUN, "python", "scripts/va/live_ca/gate.py", "--pva"]]
 
     assert run("docs") == [[*fw.UV_RUN, "make", "html", "SPHINXOPTS=-W --keep-going"]]
@@ -713,6 +993,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
     assert (REPO_ROOT / fw.DOCS_HTML).parent.parent == REPO_ROOT / BY_ID["docs"].workdir
 
     lean, pyaml = "{scratch}/lean/bin/python", "{scratch}/pyaml/bin/python"
+    optimizer = "{scratch}/optimizer/bin/python"
     assert run("package") == [
         ["uv", "build"],
         ["uvx", "twine", "check", "dist/*"],
@@ -720,7 +1001,13 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ["uv", "venv", "{scratch}/lean", "--python", "3.11"],
         ["uv", "pip", "install", "--python", lean, "dist/osprey_connectors-*.whl"],
         [lean, "-I", fw.LEAN_IMPORT_WALK],
-        ["python3", "-c", fw.DOCK_ENGINE_WHEEL_PROBE, "dist/osprey_framework-*.whl"],
+        ["uv", "build", "--package", "osprey-optimizer"],
+        ["uv", "venv", "{scratch}/optimizer", "--python", "3.11"],
+        [
+            *("uv", "pip", "install", "--python", optimizer, "dist/osprey_connectors-*.whl"),
+            "dist/osprey_optimizer-*.whl",
+        ],
+        [optimizer, "-c", fw.OPTIMIZER_BASE_PROBE],
         ["uv", "build", "--package", "pyaml-cs-osprey"],
         ["uv", "venv", "{scratch}/pyaml", "--python", "3.11"],
         [
@@ -729,6 +1016,119 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
         ],
         [pyaml, "-c", fw.PYAML_WHEEL_PROBE],
     ]
+
+
+# The image-free wall-clock budgets collect only the files a scan of the tree
+# finds, not the whole tree. A scan can miss a marker applied out of sight, so
+# the root conftest stops any run that collects a marked test in a file the scan
+# does not name, and the scanned files are held to hold a marked test each.
+
+wallclock_files = _wallclock_files
+
+
+def test_the_wallclock_scan_reads_each_way_a_file_applies_the_marker() -> None:
+    def read(source: bytes) -> bool:
+        # The marker is filled in here, so this file is no carrier to the scans
+        # that read the tree.
+        mark = b"pytest.mark." + wallclock_files.MARKER.encode()
+        return wallclock_files.MARK_RE.search(source.replace(b"MARK", mark)) is not None
+
+    assert read(b"@MARK\ndef test_x(): ...\n")
+    assert read(b"    @MARK\n    def test_x(self): ...\n")
+    assert read(b"pytestmark = MARK\n")
+    assert read(b"pytestmark = [pytest.mark.slow, MARK]\n")
+    assert read(b"pytestmark = [\n    pytest.mark.slow,\n    MARK,\n]\n")
+    # Spelled in a string or a comment, the marker applies to nothing.
+    assert not read(b'src = "pytestmark = [MARK]"\n')
+    assert not read(b"# carries @MARK elsewhere\n")
+    assert not read(b"@MARK_free\n")
+
+
+def test_the_wallclock_scan_finds_exactly_the_files_that_mark_a_test() -> None:
+    """Each file the scan names holds a test pytest gives the marker. Collected
+    by the check's own selection, alone, so it costs the scanned files only.
+    ``-qq`` against addopts' ``-v`` prints one node id per line."""
+    marked = fw.wallclock_unit_files()
+    assert marked, "the scan finds no wallclock file; the marker or the scan is gone"
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-qq", "-p", "no:cacheprovider"]
+        + [*marked, "-m", "wallclock"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert out.returncode == 0, out.stdout + out.stderr
+    selected = {line.split("::", 1)[0] for line in out.stdout.splitlines() if "::" in line}
+    assert selected == set(marked)
+
+
+def _item(path: Path, marked: bool) -> Any:
+    marker = getattr(pytest.mark, wallclock_files.MARKER).mark if marked else None
+
+    class Item:
+        keywords: dict[str, object] = {}
+
+        def __init__(self) -> None:
+            self.path = path
+
+        def get_closest_marker(self, name: str) -> object:
+            return marker if name == "wallclock" else None
+
+    return Item()
+
+
+@pytest.fixture()
+def root_conftest(pytestconfig: pytest.Config) -> Any:
+    """The root conftest pytest loaded, taken from the plugin manager rather
+    than imported: an import here would be a second copy of its module."""
+    path = REPO_ROOT / "tests" / "conftest.py"
+    (plugin,) = [
+        p
+        for p in pytestconfig.pluginmanager.get_plugins()
+        if getattr(p, "__file__", None) == str(path)
+    ]
+    return plugin
+
+
+def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses(root_conftest: Any) -> None:
+    """The root conftest's collection hook reads the marks pytest applied,
+    before ``-m`` deselects them, so the sweep that hands the marker away is
+    where a marker applied out of the scan's sight is caught."""
+    carrier = REPO_ROOT / "tests/scripts/test_run_bounded.py"
+    root_conftest.pytest_collection_modifyitems_wallclock_guard(
+        [_item(carrier, True), _item(CI_YML, False)]
+    )
+
+
+def test_a_run_stops_on_a_marked_test_the_wallclock_scan_misses__mutation_marks_out_of_sight(
+    root_conftest: Any,
+) -> None:
+    unscanned = Path(__file__).resolve()
+    assert not wallclock_files.carries_marker(unscanned), "this file carries it; stale"
+    with pytest.raises(pytest.UsageError, match=r"tests/scripts/test_check\.py holds a wallclock"):
+        root_conftest.pytest_collection_modifyitems_wallclock_guard([_item(unscanned, True)])
+
+
+def test_a_run_stops_on_a_marked_test__the_excluded_trees_are_left_to_their_checks(
+    root_conftest: Any,
+) -> None:
+    sidecar = REPO_ROOT / "tests/integration/test_suite_exit_bound.py"
+    elsewhere = REPO_ROOT / "packages/osprey-connectors/tests/conftest.py"
+    root_conftest.pytest_collection_modifyitems_wallclock_guard(
+        [_item(sidecar, True), _item(elsewhere, True)]
+    )
+
+
+def test_the_wallclock_guard_is_a_collection_hook_pytest_calls(
+    pytestconfig: pytest.Config, root_conftest: Any
+) -> None:
+    """The guard has a name of its own, so it is wired by ``specname``; without
+    it pytest would never call the guard and the tests above would still pass."""
+    hook = pytestconfig.pluginmanager.hook.pytest_collection_modifyitems
+    called = [impl.function for impl in hook.get_hookimpls() if impl.plugin is root_conftest]
+    assert root_conftest.pytest_collection_modifyitems_wallclock_guard in called, called
+    assert root_conftest.pytest_collection_modifyitems in called, called
 
 
 def test_a_dropped_ignore_changes_the_sweep() -> None:
@@ -752,10 +1152,24 @@ def test_the_shards_cover_the_sweep_roots_exactly_once() -> None:
             name
             for name, (paths, ignores) in unit.shards.items()
             if any(relative == p.rstrip("/") or relative.startswith(p) for p in paths)
-            and not any(relative == i or relative.startswith(i + "/") for i in ignores)
+            and not any(
+                relative == i or relative.startswith(i + "/") or fnmatch.fnmatch(relative, i)
+                for i in ignores
+            )
         ]
 
-    assert {top: owners(top) for top in tops if len(owners(top)) != 1} == {}
+    # A directory two shards split by file name holds each of its test files once.
+    split = {top for top in tops if len(owners(top)) > 1}
+    files = [
+        path.as_posix()
+        for top in split
+        for path in Path(top).rglob("test_*.py")
+        if "__pycache__" not in path.parts
+    ]
+    assert "tests/cli" in {Path(top).relative_to(REPO_ROOT).as_posix() for top in split}
+    assert {
+        path: owners(path) for path in [*files, *(set(tops) - split)] if len(owners(path)) != 1
+    } == {}
     assert fw.unit_argv("full") == [*unit.roots, *SWEEP_IGNORES, *SWEEP_MARKER]
 
 
@@ -770,9 +1184,9 @@ def test_the_shards_cover_the_sweep_roots__mutation_drops_an_ignore() -> None:
     assert "--ignore=tests/cli" not in selection
 
 
-#: Files the macOS trim must keep, with what each exercises that ubuntu
-#: cannot answer for. Not the whole kept set: the slow ones a later trim is
-#: most likely to reach for.
+#: Files the macOS subset must run, whole or in part, with what each exercises
+#: that ubuntu cannot answer for. Not the whole list: the slow ones a later
+#: cut is most likely to reach for.
 MACOS_KEEPS = {
     "tests/test_offline_build_env.py": "the one real venv install (arm64 wheels)",
     "tests/connectors/ipc/test_pool.py": "child spawn, SIGKILL and replace",
@@ -794,120 +1208,235 @@ MACOS_KEEPS = {
 }
 
 
-def test_the_macos_trim_is_the_whole_sweep_minus_its_files() -> None:
+def test_the_macos_subset_runs_its_list_alone() -> None:
     unit = fw.UNIT_SELECTION
-    trimmed = [f"--ignore={path}" for path in unit.trims["macos"]]
     assert fw.unit_argv("full", shard="macos") == [
-        *unit.roots,
-        *trimmed,
+        *unit.subsets["macos"],
         *SWEEP_IGNORES,
         *SWEEP_MARKER,
     ]
+    # A path would replace the list, not narrow it.
+    with pytest.raises(ValueError, match="takes no paths"):
+        fw.unit_argv("full", ["tests/cli"], shard="macos")
 
 
-def test_the_macos_trim_names_existing_test_files_the_sweep_runs() -> None:
-    # pytest silently accepts an --ignore of a missing path, so a rename would
-    # void the entry unnoticed; a directory would trim files nobody read.
-    unit = fw.UNIT_SELECTION
-    trimmed = unit.trims["macos"]
+#: The function and class names pytest collects, as pyproject declares them.
+COLLECTED = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"][
+    "pytest"
+]["ini_options"]
+
+
+def _collects(option: str, name: str) -> bool:
+    return any(name.startswith(p) or fnmatch.fnmatchcase(name, p) for p in COLLECTED[option])
+
+
+def _tests(source: str) -> dict[str, ast.AST]:
+    """Every test function, class and method pytest collects from a module, by
+    the name its node ID spells."""
+    tests: dict[str, ast.AST] = {}
+
+    def walk(body: list[ast.stmt], prefix: str) -> None:
+        for node in body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                if _collects("python_functions", node.name):
+                    tests[prefix + node.name] = node
+            elif isinstance(node, ast.ClassDef) and _collects("python_classes", node.name):
+                tests[prefix + node.name] = node
+                walk(node.body, f"{prefix}{node.name}::")
+
+    walk(ast.parse(source).body, "")
+    return tests
+
+
+def _unresolved(entries: Sequence[str], unit: Any = fw.UNIT_SELECTION) -> list[str]:
+    """The entries that name no collected test file under the roots, or a test it
+    does not hold."""
     swept = {path for path, _lane in unit.ignores}
-    assert len(set(trimmed)) == len(trimmed)
-    assert [p for p in trimmed if not (REPO_ROOT / p).is_file()] == []
-    assert [p for p in trimmed if not Path(p).name.startswith("test_")] == []
-    assert [p for p in trimmed if p in swept or p.startswith("tests/e2e/")] == []
+    roots = tuple(root.rstrip("/") + "/" for root in unit.roots)
+    missing = []
+    for entry in entries:
+        path, _, name = entry.partition("::")
+        file = REPO_ROOT / path
+        if (
+            not path.startswith(roots)
+            or not file.is_file()
+            or not fw._is_pytest_file(file.name)
+            or fw._hosted_outside_sweep(path)
+            or path in swept
+            or (name and name not in _tests(file.read_text(encoding="utf-8")))
+        ):
+            missing.append(entry)
+    return missing
 
 
-def _trimmed_keeps(unit: Any) -> dict[str, str]:
-    """The keeps the macOS selection of *unit* leaves out, with why each matters."""
-    selection = fw.unit_argv("full", shard="macos", unit=unit)
-    return {p: why for p, why in MACOS_KEEPS.items() if f"--ignore={p}" in selection}
+def _parents(entry: str) -> list[str]:
+    """The file and classes whose selection selects *entry*."""
+    parts = entry.split("::")
+    return ["::".join(parts[:i]) for i in range(1, len(parts))]
 
 
-def test_the_macos_trim_keeps_what_macos_can_answer() -> None:
+def _covered_twice(entries: Sequence[str]) -> list[str]:
+    """The entries another entry already selects: a file's or a class's own tests."""
+    listed = set(entries)
+    return [entry for entry in entries if listed.intersection(_parents(entry))]
+
+
+def test_the_macos_subset_names_tests_that_exist() -> None:
+    # pytest refuses a node ID it cannot find, but only once the cell runs on
+    # macOS; a file or class and its own tests both listed would run them twice.
+    listed = fw.UNIT_SELECTION.subsets["macos"]
+    assert len(set(listed)) == len(listed)
+    assert [e for e in listed if "[" in e] == []
+    assert _covered_twice(listed) == []
+    assert _unresolved(listed) == []
+
+
+def test_the_macos_subset_names_tests_that_exist__mutation_renames_a_test() -> None:
+    pool = "tests/connectors/ipc/test_pool.py"
+    unit = fw.UNIT_SELECTION
+    entries = (pool, f"{pool}::test_no_such_test", f"{pool}::spawns", "tests/test_no_such_file.py")
+    assert _unresolved(entries) == list(entries[1:])
+    connectors = (
+        "packages/osprey-connectors/tests/osprey_connectors_tests/test_write_authorization.py"
+    )
+    assert _unresolved((connectors,)) == []
+    assert _unresolved((connectors,), dataclasses.replace(unit, roots=("tests/",))) == [connectors]
+    stores = (
+        "tests/stores/test_artifact_two_file_entries.py::TestOutsideStoreDirectoryIsNeverUnlinked"
+    )
+    method = f"{stores}::test_symlinked_companion_escaping_the_store_survives"
+    assert _covered_twice((stores, method, pool, f"{pool}::test_x")) == [method, f"{pool}::test_x"]
+
+
+def _dropped_keeps(unit: Any) -> dict[str, str]:
+    """The keeps the macOS selection of *unit* runs no test of, with why each matters."""
+    paths = {entry.partition("::")[0] for entry in fw.unit_argv("full", shard="macos", unit=unit)}
+    return {p: why for p, why in MACOS_KEEPS.items() if p not in paths}
+
+
+def test_the_macos_subset_keeps_what_macos_can_answer() -> None:
     assert [p for p in MACOS_KEEPS if not (REPO_ROOT / p).is_file()] == []
-    assert _trimmed_keeps(fw.UNIT_SELECTION) == {}
+    assert _dropped_keeps(fw.UNIT_SELECTION) == {}
 
 
-def test_the_macos_trim_keeps_what_macos_can_answer__mutation_trims_a_keep() -> None:
+def test_the_macos_subset_keeps_what_macos_can_answer__mutation_drops_a_keep() -> None:
     unit = fw.UNIT_SELECTION
     pool = "tests/connectors/ipc/test_pool.py"
-    narrowed = dataclasses.replace(unit, trims={"macos": (*unit.trims["macos"], pool)})
-    assert _trimmed_keeps(narrowed) == {pool: MACOS_KEEPS[pool]}
+    kept = tuple(e for e in unit.subsets["macos"] if e.partition("::")[0] != pool)
+    narrowed = dataclasses.replace(unit, subsets={"macos": kept})
+    assert _dropped_keeps(narrowed) == {pool: MACOS_KEEPS[pool]}
 
 
-#: Uses whose outcome can depend on the OS. Matched in the syntax tree, so a
-#: comment or a string that names one is not a use.
-OS_SENSITIVE_USES = frozenset(
-    {
-        "os.kill",
-        "os.killpg",
-        "os.getppid",
-        "os.setsid",
-        "os.setpgrp",
-        "os.mkfifo",
-        "os.symlink",
-        "os.link",
-        "sys.platform",
-        "platform.system",
-        "subprocess.Popen",
-        "asyncio.create_subprocess_exec",
-        "asyncio.create_subprocess_shell",
-        "socket.socket",
-        "signal.*",
-        "start_new_session",
-        "symlink_to",
-        "hardlink_to",
-    }
-)
-
-#: Trimmed files read and judged OS-independent despite these uses.
-MACOS_TRIM_VETTED = {
-    # A symlinked checkout resolves to one repo identity on any POSIX host.
-    "tests/deployment/test_up_as_built.py": ("symlink_to",),
-    # A child is killed with SIGKILL, in teardown and to make a dead child the
-    # supervisor replaces; the assertions are on the envelope's frames. A dead
-    # connector-host child is detected by tests/connectors/ipc/test_pool.py,
-    # kept on macOS.
-    "tests/mcp_server/test_error_envelope_ipc.py": ("asyncio.create_subprocess_exec", "os.kill"),
-}
+#: The platform's name for macOS, outside the guard's comparisons so it does not match itself.
+DARWIN = frozenset({"darwin"})
 
 
-def _os_sensitive_uses(source: str) -> set[str]:
-    found: set[str] = set()
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Attribute):
-            found.add(node.attr)
-            if isinstance(node.value, ast.Name):
-                found |= {f"{node.value.id}.{node.attr}", f"{node.value.id}.*"}
-        elif isinstance(node, ast.keyword) and node.arg:
-            found.add(node.arg)
-    return found & OS_SENSITIVE_USES
+def _darwin_branches(source: str | ast.AST) -> list[int]:
+    """The lines where *source* compares a value to darwin: a skip unless or
+    except on macOS, or a branch macOS alone takes. Matched in the syntax
+    tree, so faking the platform (an assignment, a parametrized value) or a
+    comment that names it is not a branch."""
 
-
-def _unvetted_trims(trims: Sequence[str]) -> dict[str, list[str]]:
-    """The trimmed files that gained an OS-sensitive use nobody has judged."""
-    return {
-        path: sorted(uses)
-        for path in trims
-        if (
-            uses := _os_sensitive_uses((REPO_ROOT / path).read_text(encoding="utf-8"))
-            - set(MACOS_TRIM_VETTED.get(path, ()))
+    def darwin(node: ast.AST) -> bool:
+        return any(
+            isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.lower() in DARWIN
+            for n in ast.walk(node)
         )
-    }
+
+    tree = ast.parse(source) if isinstance(source, str) else source
+    return sorted(
+        node.lineno
+        for node in ast.walk(tree)
+        if (isinstance(node, ast.Compare) and darwin(node))
+        or (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "startswith"
+            and any(darwin(arg) for arg in node.args)
+        )
+    )
 
 
-def test_the_macos_trim_holds_no_unread_os_sensitive_use() -> None:
-    # A trimmed file that gains a signal, link or platform branch would stay
-    # off macOS silently: read it, then keep it on macOS or vet the use here.
-    trimmed = fw.UNIT_SELECTION.trims["macos"]
-    assert [p for p in MACOS_TRIM_VETTED if p not in trimmed] == []
-    assert _unvetted_trims(trimmed) == {}
+def _darwin_unlisted(path: str, source: str, listed: Sequence[str]) -> list[str]:
+    """What of the test file at *path* branches on darwin and *listed* leaves out:
+    the file, when no entry names it; else each test whose body or decorators,
+    or whose class's decorators, compare to darwin and no entry selects."""
+    entries = set(listed)
+    if path in entries:
+        return []
+    if not any(entry.partition("::")[0] == path for entry in entries):
+        return [path] if _darwin_branches(source) else []
+    tests = _tests(source)
+    marked = [
+        f"{name}::"
+        for name, node in tests.items()
+        if isinstance(node, ast.ClassDef) and any(map(_darwin_branches, node.decorator_list))
+    ]
+    darwin = [
+        name
+        for name, node in tests.items()
+        if not isinstance(node, ast.ClassDef)
+        and (_darwin_branches(node) or name.startswith(tuple(marked)))
+    ]
+    node_ids = (f"{path}::{name}" for name in darwin)
+    return [n for n in node_ids if n not in entries and not entries.intersection(_parents(n))]
 
 
-def test_the_macos_trim_holds_no_unread_os_sensitive_use__mutation_trims_a_keep() -> None:
-    pool = "tests/connectors/ipc/test_pool.py"
-    assert _unvetted_trims((pool,)) == {pool: ["os.kill", "signal.*", "subprocess.Popen"]}
-    assert _os_sensitive_uses("# os.kill is not the signal here\nx = 'socket.socket'\n") == set()
+def test_a_test_file_that_branches_on_darwin_is_in_the_macos_subset() -> None:
+    # Ubuntu never takes a darwin branch, so a test's outcome there says
+    # nothing about it; off the list, nothing would run it.
+    unit = fw.UNIT_SELECTION
+    listed = unit.subsets["macos"]
+    unlisted = []
+    for root in unit.roots:
+        for file in sorted((REPO_ROOT / root).rglob("*.py")):
+            path = file.relative_to(REPO_ROOT).as_posix()
+            if fw._is_pytest_file(file.name) and not fw._hosted_outside_sweep(path):
+                unlisted += _darwin_unlisted(path, file.read_text("utf-8"), listed)
+    assert unlisted == []
+
+
+def test_a_test_file_that_branches_on_darwin__mutation_skips_unless_darwin() -> None:
+    source = (
+        "import platform, sys\n"
+        "@pytest.mark.skipif(sys.platform != 'darwin', reason='macOS only')\n"
+        "def test_a(): ...\n"
+        "def test_b():\n"
+        "    if platform.system() == 'Darwin': ...\n"
+        "    assert sys.platform.startswith('darwin')\n"
+    )
+    assert _darwin_branches(source) == [2, 5, 6]
+    faked = (
+        "# sys.platform == 'darwin' is not read here\n"
+        "def test_c(monkeypatch):\n"
+        "    monkeypatch.setattr(sys, 'platform', 'darwin')\n"
+        "    mock_sys.platform = 'darwin'\n"
+    )
+    assert _darwin_branches(faked) == []
+
+
+def test_a_test_file_that_branches_on_darwin__mutation_adds_a_darwin_test() -> None:
+    listed = fw.UNIT_SELECTION.subsets["macos"]
+    worker = "tests/imaging/test_render_worker.py"
+    source = (REPO_ROOT / worker).read_text("utf-8")
+    added = "\ndef test_added():\n    if sys.platform == 'darwin': ...\n"
+    assert _darwin_unlisted(worker, source, listed) == []
+    assert _darwin_unlisted(worker, source + added, listed) == [f"{worker}::test_added"]
+    path = "tests/test_x.py"
+    source = (
+        "@pytest.mark.skipif(sys.platform != 'darwin', reason='macOS only')\n"
+        "class TestK:\n"
+        "    def test_k(self): ...\n"
+        "class TestL:\n"
+        "    def test_l(self):\n"
+        "        if sys.platform == 'darwin': ...\n"
+        "def _helper():\n"
+        "    if sys.platform == 'darwin': ...\n"
+    )
+    assert _darwin_unlisted(path, source, (f"{path}::TestL",)) == [f"{path}::TestK::test_k"]
+    assert _darwin_unlisted(path, source, (f"{path}::TestK::test_k", f"{path}::TestL")) == []
+    assert _darwin_unlisted(path, source, (path,)) == []
+    assert _darwin_unlisted(path, source, ()) == [path]
 
 
 def test_the_tiers_bound_their_pytest_runs() -> None:
@@ -915,8 +1444,17 @@ def test_the_tiers_bound_their_pytest_runs() -> None:
         script = "scripts/run_bounded.py"
         return [argv[argv.index(script) + 1] for argv in check.resolve([tier]) if script in argv]
 
-    assert bounds("quick") == ["1800"]
-    assert bounds("full") == ["5400", "600", "900", "900"]
+    assert bounds("quick") == ["1800", "1800"]
+    assert bounds("full") == ["5400", "600", "900", "900", "900", "1800"]
+
+
+def test_both_tiers_deselect_the_canopy_contract() -> None:
+    for tier in check.TIERS:
+        (sweep,) = [argv for argv in check.resolve([tier]) if "--dist" in argv]
+        marker = sweep[sweep.index("-m") + 1]
+        assert canopy_contract.deselects_canopy(marker), marker
+    assert "not slow" in fw.UNIT_SELECTION.quick_marker
+    assert "not slow" not in fw.UNIT_SELECTION.marker
 
 
 # ---------------------------------------------------------------------------
@@ -996,19 +1534,33 @@ def test_a_module_in_an_interface_without_tests_widens_to_every_test() -> None:
 
 
 @pytest.mark.parametrize(
-    "path",
+    ("path", "tool"),
     [
-        "vitest.config.js",
-        "tests/vitest.setup.mjs",
-        "package.json",
-        "package-lock.json",
-        TW + "panel-labels-fixture.mjs",
-        "src/osprey/interfaces/design_system/static/js/tokens.js",
-        WT + "vendor/xterm.js",
+        # A shared JavaScript input widens vitest to every test.
+        ("vitest.config.js", "vitest"),
+        ("tests/vitest.setup.mjs", "vitest"),
+        ("package.json", "vitest"),
+        ("package-lock.json", "vitest"),
+        (TW + "panel-labels-fixture.mjs", "vitest"),
+        ("src/osprey/interfaces/design_system/static/js/tokens.js", "vitest"),
+        (WT + "vendor/xterm.js", "vitest"),
+        # What the mapping cannot place widens pytest to the sweep.
+        ("tests/conftest.py", "pytest"),
+        ("tests/cli/conftest.py", "pytest"),
+        ("tests/_shared_contract.py", "pytest"),
+        ("src/osprey/lonely/thing.py", "pytest"),
+        ("src/osprey/__init__.py", "pytest"),
+        ("packages/osprey-connectors/src/osprey_connectors/errors.py", "pytest"),
+        ("pyproject.toml", "pytest"),
+        ("uv.lock", "pytest"),
+        # A script without a mirror widens pytest too.
+        ("scripts/_tier_db_common.py", "pytest"),
     ],
 )
-def test_a_shared_javascript_input_widens_vitest_to_every_test(path: str) -> None:
-    assert selected("quick", path)["vitest"].state == check.WHOLE
+def test_a_path_the_mapping_cannot_place_widens_its_tool_to_every_test(
+    path: str, tool: str
+) -> None:
+    assert selected("quick", path)[tool].state == check.WHOLE
 
 
 @needs_mapping
@@ -1036,21 +1588,40 @@ def test_a_source_file_selects_its_mirrored_tests() -> None:
         assert selected("quick", path)["pytest"] == check.Selection(check.PATHS, ("tests/cli",))
 
 
+_PACKAGE = [
+    "src/osprey/pkg/__init__.py",
+    "src/osprey/pkg/sub/__init__.py",
+    "src/osprey/pkg/sub/mod.py",
+    "src/osprey/pkg/gap/inner/__init__.py",
+    "src/osprey/pkg/gap/inner/mod.py",
+    "src/osprey/top.py",
+    "tests/pkg/test_a.py",
+]
+
+
 @pytest.mark.parametrize(
-    "path",
+    ("path", "tests", "expected"),
     [
-        "tests/conftest.py",
-        "tests/cli/conftest.py",
-        "tests/_shared_contract.py",
-        "src/osprey/lonely/thing.py",
-        "src/osprey/__init__.py",
-        "packages/osprey-connectors/src/osprey_connectors/errors.py",
-        "pyproject.toml",
-        "uv.lock",
+        ("src/osprey/pkg/sub/mod.py", [], ("tests/pkg",)),
+        ("src/osprey/top.py", [], None),
+        (
+            "src/osprey/pkg/sub/mod.py",
+            ["tests/pkg/sub/__init__.py", "tests/pkg/sub/data.json"],
+            ("tests/pkg",),
+        ),
+        ("src/osprey/pkg/sub/mod.py", ["tests/pkg/sub/test_b.py"], ("tests/pkg/sub",)),
+        ("src/osprey/pkg/gap/inner/mod.py", [], ("tests/pkg",)),
     ],
+    ids=["climbs-to-ancestor", "top-level-widens", "skips-testless-mirror", "nearest-wins", "gap"],
 )
-def test_what_the_mapping_cannot_place_widens_pytest_to_the_sweep(path: str) -> None:
-    assert selected("quick", path)["pytest"].state == check.WHOLE
+def test_a_source_file_selects_its_nearest_ancestor_mirror(
+    path: str, tests: list[str], expected: tuple[str, ...] | None
+) -> None:
+    files = _PACKAGE + tests
+    want = (
+        check.Selection(check.WHOLE) if expected is None else check.Selection(check.PATHS, expected)
+    )
+    assert fw._select_pytest([path], files) == want
 
 
 def test_a_helper_script_selects_only_its_mirror() -> None:
@@ -1076,10 +1647,6 @@ def test_a_file_under_a_tests_directory_selects_that_directory() -> None:
 def test_a_file_under_a_tests_directory_without_test_modules_widens() -> None:
     assert not any(name.startswith("tests/fixtures/") for name in FILES)
     assert selected("quick", "tests/fixtures/config.yml")["pytest"].state == check.WHOLE
-
-
-def test_a_script_without_a_mirror_widens() -> None:
-    assert selected("quick", "scripts/_tier_db_common.py")["pytest"].state == check.WHOLE
 
 
 def test_a_new_check_naming_a_script_makes_it_shaping(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1129,6 +1696,15 @@ def test_a_range_names_the_ci_lanes_it_touches() -> None:
     } <= set(plan.lanes)
     assert "plugin-smoke" not in plan.lanes
     assert check.select("quick", ["README.md"], (), FILES).lanes == ()
+
+
+def test_a_spending_lane_names_its_prefix() -> None:
+    lane = kit.Lane("agentic", kit.SPENDS, ("tests/e2e/**",), "Agentic E2E")
+    assert kit.spending([lane, kit.Lane("plain", "containers", ())]) == {"agentic": "Agentic E2E"}
+    with pytest.raises(ValueError, match="agentic"):
+        kit.Lane("agentic", kit.SPENDS, ("tests/e2e/**",))
+    with pytest.raises(ValueError, match="plain"):
+        kit.Lane("plain", "containers", (), "Plain E2E")
 
 
 def test_a_named_vitest_file_alone_is_accepted_and_routed_to_vitest() -> None:
@@ -1339,7 +1915,7 @@ class Recorder:
         #: Line text to the report body the runner writes when that line runs.
         self.reports: dict[str, str] = {}
         #: What every install probe answers: its exit status and its line.
-        self.install: tuple[int, str] = (0, "the install the check proves against")
+        self.install: tuple[int, str] = (0, PROBE_PROVEN)
 
     def __call__(self, argv: Any, cwd: Path | None = None) -> int:  # noqa: ARG002
         argv = list(argv)
@@ -1360,12 +1936,28 @@ class Recorder:
         return any(text in shlex.join(argv) for argv in self.calls)
 
 
+#: The connectors checks module. Its ``connectors-public-names`` check is a
+#: ``builtin=``, so a ``check.main`` run calls it in process (``recorder`` does
+#: not stand in for it), and it sweeps the real tree from the module's own
+#: ``ROOT``, not ``kit.ROOT``.
+_connectors_checks = check.DECLARED.modules["packages/osprey-connectors/repo_checks.py"]
+#: The sweep, run once per worker for each root: every ``check.main`` here
+#: is about the runner, and the real tree does not change during a session.
+_cached_stray_exports = functools.cache(_connectors_checks.stray_exports)
+
+
+@pytest.fixture(autouse=True)
+def _one_public_names_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_connectors_checks, "stray_exports", _cached_stray_exports)
+
+
 @pytest.fixture
 def recorder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Recorder:
-    """An empty root, every need met, the venue met, every install proven, and
-    no process started."""
+    """An empty root with no sweep exception, every need met, the venue met,
+    every install proven, and no process started."""
     recorder = Recorder()
     monkeypatch.setattr(kit, "ROOT", tmp_path)
+    monkeypatch.setattr(fw, "SWEEP_LINE_EXCEPTIONS", {})
     monkeypatch.setattr(kit, "run", recorder)
     monkeypatch.setattr(check, "probe_install", lambda install: recorder.install)
     monkeypatch.setattr(kit, "capture", lambda argv: (0, ""))
@@ -1394,7 +1986,7 @@ def test_a_clean_full_run_names_what_it_did_not_run(
         assert recorder.ran(text), text
     verdict = last_line(capsys)
     assert verdict.startswith(
-        "check: clean; "
+        f"check: clean; {ATTESTED}; "
         "not run, no base given: changelog, plugin-version, gitleaks; "
         "run on CI, never run here: dependency-floor, "
     )
@@ -1411,7 +2003,7 @@ def test_every_check_runs_after_a_failure_and_the_verdict_names_them(
     assert f"check: ruff: failed (exit 1; fix: {check.FIX_HINT})" in out
     assert "check: mypy: ran" in out
     assert out[-1] == (
-        f"check: not clean: failed: ruff (fix: {check.FIX_HINT}), vitest; "
+        f"check: not clean: failed: ruff (fix: {check.FIX_HINT}), vitest; {ATTESTED}; "
         "not run, no base given: changelog, plugin-version, gitleaks"
     )
 
@@ -1610,12 +2202,9 @@ def test_a_refusal_names_every_unmet_need(
         f"check: eslint: refused ({node})",
         f"check: prettier: refused ({node})",
         f"check: vitest: refused ({node})",
-        f"check: dock-engine-tests: refused ({node})",
-        f"check: dock-engine-bundle: refused ({node})",
         f"check: docs: refused ({docs})",
         f"check: linkcheck: refused ({docs})",
-        f"check: refused: tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle "
-        f"({node}); "
+        f"check: refused: tsc, eslint, prettier, vitest ({node}); "
         f"refused: docs, linkcheck ({docs})",
     ]
 
@@ -1995,7 +2584,7 @@ def test_a_tier_without_node_is_refused_and_names_the_install(
     monkeypatch.setattr(kit, "run", recorder)
     assert check.main(["quick"]) == 2
     install = "the Node toolchain is not installed: install Node, then run npm ci"
-    refused = "tsc, eslint, prettier, vitest, dock-engine-tests, dock-engine-bundle"
+    refused = "tsc, eslint, prettier, vitest"
     assert f"check: refused: {refused} ({install})" in capsys.readouterr().err
     probes = {shlex.join(argv[1:]) for argv in _declared_argvs() if argv[:1] == ("uv",)}
     log = tmp_path / "uv.log"
@@ -2279,7 +2868,8 @@ def test_run_passes_execution_flags_to_the_pytest_checks_only(recorder: Recorder
     assert check.main(["run", "ruff", "pytest", "--", *flags]) == 0
     ruff, sweep = recorder.calls
     assert ruff == [*fw.UV_RUN, "ruff", "check", "."]
-    assert sweep[:-3][-len(flags) - 2 :] == [*flags, "--dist", "loadgroup"]
+    dist = fw.UNIT_SELECTION.dist
+    assert sweep[:-3][-len(flags) - len(dist) :] == [*flags, *dist]
     assert sweep[-3].endswith("/pytest/junit.xml") and sweep[-2:] == ["-o", "junit_family=xunit1"]
     assert check.main(["run", "ruff", "--", "-v"]) == 2
 
@@ -2359,6 +2949,71 @@ def test_a_redirect_without_its_stub_page_is_reported(tmp_path: Path) -> None:
     (tmp_path / "guides").mkdir()
     (tmp_path / "guides" / "old.html").write_text("", encoding="utf-8")
     assert fw.missing_redirect_stubs(["guides/old", "guides/lost"], tmp_path) == ["guides/lost"]
+
+
+def test_a_hand_typed_parallel_sweep_is_named_with_its_line() -> None:
+    text = "# Tests\nuv run pytest tests/ -n 4 --dist loadgroup\n"
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
+        "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
+    ]
+
+
+def test_a_serial_line_a_check_py_line_and_flag_prose_pass() -> None:
+    text = (
+        "pytest tests/x.py -v\n"
+        "uv run python scripts/check.py run pytest -- -n 4\n"
+        "A test that flakes under `-n 4` shares state.\n"
+    )
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == []
+
+
+def test_a_continued_sweep_command_is_read_as_one_line() -> None:
+    text = "intro\npython -m pytest tests/ \\\n  --ignore=tests/e2e \\\n  -n auto\n"
+    assert fw.hand_typed_sweeps({"doc.md": text}, exceptions={}) == [
+        "doc.md:2: a hand-typed parallel sweep; name scripts/check.py (quick, full, run pytest)"
+    ]
+
+
+def test_an_exception_that_matches_no_line_is_named() -> None:
+    held = "pytest tests/e2e/ -n 4 --dist loadfile"
+    exceptions = {("doc.md", held): "the e2e lane", ("doc.md", "pytest gone -n 2"): "stale"}
+    assert fw.hand_typed_sweeps({"doc.md": f"It runs `{held}`.\n"}, exceptions=exceptions) == [
+        "stale exception: doc.md: pytest gone -n 2"
+    ]
+
+
+def test_an_exception_whose_document_is_gone_is_named() -> None:
+    exceptions = {("gone.md", "pytest tests/e2e/ -n 4"): "the e2e lane"}
+    assert fw.hand_typed_sweeps({"doc.md": "prose\n"}, exceptions=exceptions) == [
+        "stale exception: gone.md: pytest tests/e2e/ -n 4"
+    ]
+
+
+def test_a_document_that_is_not_utf8_is_named(tmp_path: Path) -> None:
+    (tmp_path / "good.md").write_text("prose\n", encoding="utf-8")
+    (tmp_path / "bad.rst").write_bytes("caf\xe9\n".encode("latin-1"))
+    texts, unreadable = fw.read_doc_texts(["bad.rst", "good.md"], tmp_path)
+    assert texts == {"good.md": "prose\n"}
+    assert unreadable == ["bad.rst"]
+
+
+def test_the_sweep_guard_reads_documents_only() -> None:
+    assert selected("quick", "src/osprey/cli/main.py")["hand-typed-sweeps"].state == (
+        check.NOT_TOUCHED
+    )
+    assert selected("quick", "tests/README.md")["hand-typed-sweeps"].state != check.NOT_TOUCHED
+    assert selected("quick", "docs/source/index.rst")["hand-typed-sweeps"].state != (
+        check.NOT_TOUCHED
+    )
+
+
+def test_the_tree_has_no_hand_typed_sweep() -> None:
+    read = fw.tracked_doc_texts()
+    assert read is not None, "git ls-files failed"
+    texts, unreadable = read
+    assert texts, "no tracked *.md or *.rst file was read"
+    assert unreadable == []
+    assert fw.hand_typed_sweeps(texts) == []
 
 
 @pytest.mark.usefixtures("recorder")
@@ -2450,7 +3105,8 @@ def test_the_package_check_builds_into_an_empty_dist(
     assert check.main(["run", "package"]) == 0
     assert seen == [False]
     build, twine, connectors, venv, install, probe, *rest = recorder.calls
-    wheel_probe, pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
+    optimizer_build, optimizer_venv, optimizer_install, optimizer_probe, *rest = rest
+    pyaml_build, pyaml_venv, pyaml_install, pyaml_probe = rest
     assert twine == [
         "uvx",
         "twine",
@@ -2471,17 +3127,19 @@ def test_the_package_check_builds_into_an_empty_dist(
         "dist/osprey_connectors-1.0-py3-none-any.whl",
     ]
     assert probe == [python, "-I", fw.LEAN_IMPORT_WALK]
-    # A glob no built file matches is passed on as written, for the step to fail on.
-    assert wheel_probe == [
-        "python3",
-        "-c",
-        fw.DOCK_ENGINE_WHEEL_PROBE,
-        "dist/osprey_framework-*.whl",
-    ]
     assert pyaml_build == ["uv", "build", "--package", "pyaml-cs-osprey"]
     pyaml_python = f"{pyaml_venv[2]}/bin/python"
     assert pyaml_install[:5] == ["uv", "pip", "install", "--python", pyaml_python]
+    # A glob no built file matches is passed on as written, for the step to fail on.
+    assert "dist/osprey_framework-*.whl" in pyaml_install
     assert pyaml_probe == [pyaml_python, "-c", fw.PYAML_WHEEL_PROBE]
+    assert optimizer_build == ["uv", "build", "--package", "osprey-optimizer"]
+    optimizer_python = f"{optimizer_venv[2]}/bin/python"
+    assert Path(optimizer_venv[2]).parent == Path(venv[2]).parent
+    # The base wheel is installed beside the connectors wheel alone, never the framework's.
+    assert "dist/osprey_connectors-1.0-py3-none-any.whl" in optimizer_install
+    assert not any("osprey_framework" in part for part in optimizer_install)
+    assert optimizer_probe == [optimizer_python, "-c", fw.OPTIMIZER_BASE_PROBE]
 
 
 def test_the_package_check_stops_at_the_first_failing_step(recorder: Recorder) -> None:
@@ -2517,13 +3175,14 @@ def test_list_json_round_trips(capsys: pytest.CaptureFixture[str]) -> None:
     derived = {
         item["id"]: item["scope"] for item in data["checks"] if BY_ID[item["id"]].derive_scope
     }
-    assert derived == {}
+    assert derived == {"canopy-contract": list(canopy.contract_scope(check.repository_files()))}
     declared = [{**item, "scope": []} if item["id"] in derived else item for item in data["checks"]]
     assert tuple(rebuilt(item) for item in declared) == check.CHECKS
     assert "touched" not in data
-    assert tuple(check.Lane(i["job"], i["why"], tuple(i["scope"])) for i in data["lanes"]) == (
-        check.LANES
+    lanes = tuple(
+        check.Lane(i["job"], i["why"], tuple(i["scope"]), i["prefix"]) for i in data["lanes"]
     )
+    assert lanes == check.LANES
     assert data["tiers"] == ["quick", "full"]
     unit = data["unit_selection"]
     assert [tuple(pair) for pair in unit["ignores"]] == list(fw.UNIT_SELECTION.ignores)
@@ -2547,6 +3206,20 @@ def test_list_changed_names_the_checks_and_lanes_a_range_touches(
     assert check.main(["list", "--changed", "B"]) == 0
     assert capsys.readouterr().out.splitlines()[-1] == f"touched: {', '.join(touched)}"
     assert check.resolve(["list", "--changed", "B"]) == []
+
+
+@pytest.mark.usefixtures("any_base")
+def test_list_changed_names_the_path_that_widened_a_runner(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A root-level tests/ helper has no mirror, so the unit sweep runs whole;
+    the listing says which changed path did that."""
+    changed = ["tests/test_wait_ceilings.py", "tests/_live.py"]
+    monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: changed)
+    assert check.main(["list", "--changed", "B", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["widened"] == {"pytest": "tests/_live.py"}
+    assert check.main(["list", "--changed", "B"]) == 0
+    assert "widened: pytest runs whole because of tests/_live.py" in capsys.readouterr().out
 
 
 @pytest.mark.usefixtures("repo")
@@ -2620,18 +3293,6 @@ def test_the_docs_build_refuses_without_graphviz(
     assert recorder.calls == []
     monkeypatch.setattr(fw.shutil, "which", lambda name: f"/usr/bin/{name}")
     assert check.main(["run", "docs"]) == 0
-
-
-def test_the_dock_engine_steps_run_in_both_tiers() -> None:
-    for check_id in ("dock-engine-bundle", "dock-engine-tests"):
-        declared = BY_ID[check_id]
-        assert declared.tiers == check.BOTH and declared.needs == ("node",)
-        assert fw.DOCK_ENGINE in declared.scope
-    assert fw.DOCK_ENGINE in fw.TSC_SCOPE
-    got = selected("quick", "packages/dock-engine/src/rules.ts")
-    assert got["dock-engine-bundle"].state == got["dock-engine-tests"].state == check.WHOLE
-    got = selected("quick", "src/osprey/cli/main.py")
-    assert got["dock-engine-bundle"].state == got["dock-engine-tests"].state == check.NOT_TOUCHED
 
 
 # ---------------------------------------------------------------------------
@@ -2810,8 +3471,318 @@ def test_the_connectors_package_declares_its_own_lanes() -> None:
     """The lanes that install the connectors on their own are the package's,
     declared beside it and collected after the framework's."""
     connectors = "packages/osprey-connectors/repo_checks.py"
-    assert list(check.DECLARED.modules) == [check.FRAMEWORK_MODULE, connectors]
+    assert list(check.DECLARED.modules) == [check.FRAMEWORK_MODULE, connectors, CANOPY_MODULE]
     own = {lane.job for lane in check.DECLARED.modules[connectors].LANES}
     assert own == {"connectors-standalone", "connectors-compat-plan", "connectors-compat"}
     assert own <= {lane.job for lane in check.LANES}
     assert not own & {lane.job for lane in fw.LANES}
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["quick"], ["full"], ["run", "pytest", "--", "-n", "4"]],
+    ids=["quick", "full", "run"],
+)
+def test_every_sweep_ends_when_a_worker_dies(recorder: Recorder, argv: list[str]) -> None:
+    assert check.main(argv) == 0
+    markers = {fw.UNIT_SELECTION.marker, fw.UNIT_SELECTION.quick_marker}
+    sweeps = [call for call in recorder.calls if markers.intersection(call)]
+    assert sweeps, recorder.calls
+    for sweep in sweeps:
+        assert "--max-worker-restart=0" in sweep, sweep
+
+
+# ---------------------------------------------------------------------------
+# The CANOPY contract: a derived scope, an install, an attested verdict
+
+
+def _repository_scope() -> tuple[str, ...]:
+    return canopy.contract_scope(check.repository_files())
+
+
+#: Modules the CANOPY code reaches one import away, the write path among them.
+CONTRACT_HOP = (
+    "src/osprey/runtime/session.py",
+    "src/osprey/runtime/raw_put_block.py",
+    "src/osprey/runtime/budget.py",
+    "src/osprey/services/python_executor/execution/wrapper.py",
+)
+
+
+def test_the_contract_is_the_canopy_integrations_own() -> None:
+    """The contract and the marker's rules are declared beside the CANOPY code,
+    and the framework's module names neither."""
+    assert check.DECLARED.owners["canopy-contract"] == CANOPY_MODULE
+    assert check.DECLARED.owners["canopy-marker"] == CANOPY_MODULE
+    assert check.CALLER_JOBS[-1] == "canopy-contract"
+    assert not {"canopy-contract", "canopy-marker"} & {c.id for c in fw.CHECKS}
+
+
+def test_the_contract_scope_holds_what_the_canopy_code_imports() -> None:
+    scope = _repository_scope()
+    assert scope[: len(canopy.CANOPY_CONTRACT_ROOTS)] == canopy.CANOPY_CONTRACT_ROOTS
+    assert [path for path in CONTRACT_HOP if path not in scope] == []
+    assert "tests/runtime/_patch_restore.py" in scope
+    assert "src/osprey/integrations/__init__.py" not in scope, "a parent package is not a hop"
+    assert [p for p in scope if "*" not in p and not (REPO_ROOT / p).is_file()] == []
+
+
+def _module_level_imports(tree: ast.Module) -> list[ast.Import | ast.ImportFrom]:
+    """The import statements of *tree* outside any function body."""
+    found: list[ast.Import | ast.ImportFrom] = []
+    pending: list[ast.AST] = [tree]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            found.append(node)
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node is tree:
+            pending.extend(ast.iter_child_nodes(node))
+    return found
+
+
+def test_the_canopy_code_reaches_the_write_path_from_a_function_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CANOPY code imports the write path inside a function, so a walk of
+    module-level imports alone would leave it out of the scope."""
+    monkeypatch.setattr(canopy, "CANOPY_IMPORTING_ROOTS", canopy.CANOPY_CONTRACT_ROOTS[:1])
+    assert "src/osprey/runtime/raw_put_block.py" in _repository_scope()
+    monkeypatch.setattr(canopy, "_import_nodes", _module_level_imports)
+    assert "src/osprey/runtime/raw_put_block.py" not in _repository_scope()
+
+
+def test_the_contract_scope__mutation_drops_the_tests_roots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    roots = tuple(r for r in canopy.CANOPY_CONTRACT_ROOTS if not r.startswith("tests/"))
+    monkeypatch.setattr(canopy, "CANOPY_CONTRACT_ROOTS", roots)
+    monkeypatch.setattr(canopy, "CANOPY_IMPORTING_ROOTS", roots[:1])
+    assert "tests/runtime/_patch_restore.py" not in _repository_scope()
+
+
+@pytest.mark.parametrize(
+    ("source", "imported"),
+    [
+        ("from osprey.runtime import budget\n", "src/osprey/runtime/budget.py"),
+        ("from osprey.runtime.budget import Budget\n", "src/osprey/runtime/budget.py"),
+        (
+            "import osprey_connectors.config\n",
+            "packages/osprey-connectors/src/osprey_connectors/config.py",
+        ),
+        ("class K:\n    import osprey.port_layout\n", "src/osprey/port_layout.py"),
+        ("def f():\n    from .proven import judge\n", "src/osprey/integrations/canopy/proven.py"),
+        ("from tests.runtime import _patch_restore\n", "tests/runtime/_patch_restore.py"),
+    ],
+)
+def test_an_import_resolves_to_the_file_it_loads(source: str, imported: str) -> None:
+    known = set(check.repository_files())
+    importer = "src/osprey/integrations/canopy/x.py"
+    assert canopy._imported_files(importer, ast.parse(source), known) == {imported}
+
+
+def test_a_third_party_import_is_not_followed() -> None:
+    known = set(check.repository_files())
+    tree = ast.parse("import json\nfrom canopy import x\n")
+    assert canopy._imported_files("tests/integrations/canopy/x.py", tree, known) == set()
+
+
+def test_the_contract_runs_in_both_tiers_as_whole_directories() -> None:
+    contract = BY_ID["canopy-contract"]
+    assert contract.tiers == check.BOTH and contract.scope == ()
+    (line,) = check.resolve(["run", "canopy-contract", "--", "-v"])
+    assert line[:7] == [
+        *("uv", "run", "--frozen", "--no-sync", "python", "scripts/run_bounded.py", "1800")
+    ]
+    assert line[line.index("--") + 1 :] == [
+        *(
+            "uv",
+            "run",
+            "--frozen",
+            "--no-sync",
+            "pytest",
+            "tests/integrations/canopy",
+            "tests/templates/canopy",
+        ),
+        *("-p", "no:randomly", "--timeout=600", "-v"),
+    ]
+    assert "-m" not in line and "-k" not in line
+
+
+def _contract_range(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str) -> Any:
+    """The quick tier's plan over a real repository whose one commit *change*s
+    the CANOPY code: ``delete`` a module of it, or ``move`` one out of it."""
+    code = tmp_path / "src" / "osprey" / "integrations" / "canopy"
+    code.mkdir(parents=True)
+    (code / "kept.py").write_text("x = 1\n", encoding="utf-8")
+    (code / "leaving.py").write_text("y = 1\n", encoding="utf-8")
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "index.rst").write_text("x\n", encoding="utf-8")
+    git(tmp_path, "init", "--initial-branch", "base")
+    git(tmp_path, "add", "-A")
+    git(tmp_path, "commit", "--no-gpg-sign", "-m", "base")
+    git(tmp_path, "checkout", "-b", "work")
+    if change == "delete":
+        git(tmp_path, "rm", "-q", "src/osprey/integrations/canopy/leaving.py")
+    else:
+        git(tmp_path, "mv", "src/osprey/integrations/canopy/leaving.py", "docs/leaving.py")
+    git(tmp_path, "commit", "--no-gpg-sign", "-m", change)
+    monkeypatch.setattr(kit, "ROOT", tmp_path)
+    _replace(monkeypatch, "vitest", selector=lambda *_: check.Selection(check.NOT_TOUCHED))
+    files = check.repository_files()
+    return check.select(
+        "quick", check.touched("base"), (), files, check.touched("base", scope=True)
+    )
+
+
+@pytest.mark.parametrize("change", ["delete", "move"])
+def test_a_module_that_leaves_the_canopy_code_touches_the_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    plan = _contract_range(tmp_path, monkeypatch, change)
+    assert plan.selections["canopy-contract"].state == check.WHOLE
+    left = "src/osprey/integrations/canopy/leaving.py"
+    assert left not in plan.selections["pytest"].paths
+
+
+def test_a_range_outside_the_contract_scope_leaves_it_not_touched() -> None:
+    plan = check.select("quick", ["docs/index.rst"], (), FILES)
+    assert plan.selections["canopy-contract"].state == check.NOT_TOUCHED
+    plan = check.select("quick", ["src/osprey/runtime/budget.py"], (), check.repository_files())
+    assert plan.selections["canopy-contract"].state == check.WHOLE
+
+
+@pytest.mark.parametrize(
+    "dependency", ["uv.lock", "pyproject.toml", "packages/osprey-connectors/pyproject.toml"]
+)
+def test_a_dependency_only_range_touches_the_contract(dependency: str) -> None:
+    """The contract proves the code and the environment it runs in: a range
+    that changes only what gets installed selects it."""
+    plan = check.select("quick", [dependency], (), check.repository_files())
+    assert plan.selections["canopy-contract"].state == check.WHOLE
+
+
+#: One row per probe answer: (verb, probe status, probe line, exit status, last line).
+INSTALL_ROWS = [
+    (["quick"], 0, PROBE_PROVEN, 0, f"check: clean; {ATTESTED}; not run, no base given: "),
+    (["run", "canopy-contract"], 0, PROBE_PROVEN, 0, f"check: clean; {ATTESTED}"),
+    (
+        ["quick"],
+        2,
+        PROBE_ABSENT,
+        0,
+        f"check: clean; not run here: canopy-contract ({PROBE_ABSENT}); not run, no base given: ",
+    ),
+    (
+        ["run", "canopy-contract"],
+        2,
+        PROBE_ABSENT,
+        2,
+        f"check: refused: canopy-contract ({PROBE_ABSENT}: {CANOPY_INSTALL})",
+    ),
+    (
+        ["quick"],
+        1,
+        PROBE_UNPROVEN,
+        2,
+        f"check: refused: canopy-contract ({PROBE_UNPROVEN}: {CANOPY_INSTALL})",
+    ),
+    (
+        ["full"],
+        1,
+        PROBE_UNPROVEN,
+        2,
+        f"check: refused: canopy-contract ({PROBE_UNPROVEN}: {CANOPY_INSTALL})",
+    ),
+    (
+        ["run", "canopy-contract"],
+        1,
+        PROBE_UNPROVEN,
+        2,
+        f"check: refused: canopy-contract ({PROBE_UNPROVEN}: {CANOPY_INSTALL})",
+    ),
+]
+
+
+@pytest.mark.parametrize(("verb", "status", "said", "code", "last"), INSTALL_ROWS)
+def test_the_contract_runs_only_against_the_proven_install(
+    recorder: Recorder,
+    capsys: pytest.CaptureFixture[str],
+    verb: list[str],
+    status: int,
+    said: str,
+    code: int,
+    last: str,
+) -> None:
+    recorder.install = (status, said)
+    assert check.main(verb) == code
+    captured = capsys.readouterr()
+    line = (captured.err if code == 2 else captured.out).strip().splitlines()[-1]
+    assert line.startswith(last) if last.endswith(": ") else line == last
+    assert recorder.ran("pytest tests/integrations/canopy tests/templates/canopy -p") is (
+        status == 0
+    )
+    if code == 2:
+        assert recorder.calls == []
+
+
+@pytest.mark.usefixtures("recorder")
+def test_an_absent_install_is_probed_only_once_its_toolchain_is_there(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def unprobed(install: Any) -> tuple[int, str]:
+        raise AssertionError(f"{install.probe} ran without uv")
+
+    monkeypatch.setattr(check, "probe_install", unprobed)
+    monkeypatch.setitem(check.NEED_PROBES, "uv", lambda: "uv is not on PATH")
+    assert check.main(["run", "canopy-contract"]) == 2
+    assert "canopy-contract (uv is not on PATH)" in capsys.readouterr().err
+
+
+def test_the_canopy_probe_is_the_package_command() -> None:
+    """The check judges the install with the command the docs name, the
+    package's own, inside the project's environment as it stands."""
+    assert canopy.CANOPY_PROBE == (
+        *("uv", "run", "--frozen", "--no-sync", "python", "-m", "osprey.integrations.canopy"),
+    )
+    assert BY_ID["canopy-contract"].install is canopy.CANOPY_INSTALL
+    assert (REPO_ROOT / "src/osprey/integrations/canopy/__main__.py").is_file()
+
+
+def test_a_probe_that_says_nothing_is_named_by_its_command(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(kit, "capture", lambda argv: (1, ""))
+    install = canopy.CANOPY_INSTALL
+    assert check.probe_install(install) == (1, f"{shlex.join(canopy.CANOPY_PROBE)} exited 1")
+    monkeypatch.setattr(kit, "capture", lambda argv: (2, f"noise\n{PROBE_ABSENT}\n"))
+    assert check.probe_install(install) == (2, PROBE_ABSENT)
+
+
+def _assert_attested(recorder: Recorder, capsys: pytest.CaptureFixture[str]) -> None:
+    assert check.main(["run", "canopy-contract", "--", "-v"]) == 0
+    assert last_line(capsys) == f"check: clean; {ATTESTED}"
+    recorder.failing = {"tests/integrations/canopy": 1}
+    assert check.main(["run", "canopy-contract"]) == 1
+    assert last_line(capsys) == f"check: not clean: failed: canopy-contract; {ATTESTED_FAILED}"
+
+
+def test_a_run_of_the_contract_ends_with_the_pair_it_ran_against(
+    recorder: Recorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert "failed against canopy" in ATTESTED_FAILED
+    recorder.install = (0, PROBE_PROVEN)
+    _assert_attested(recorder, capsys)
+
+
+def test_a_run_of_the_contract__mutation_drops_the_attestation(
+    recorder: Recorder, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    silent = dataclasses.replace(canopy.CANOPY_INSTALL, attestation=lambda passed: "")
+    _replace(monkeypatch, "canopy-contract", install=silent)
+    recorder.install = (0, PROBE_PROVEN)
+    with pytest.raises(AssertionError):
+        _assert_attested(recorder, capsys)
+
+
+def test_the_attestation_is_the_pin_modules_line() -> None:
+    assert canopy._canopy_attestation(True) == ATTESTED
+    assert canopy._canopy_attestation(False) == ATTESTED_FAILED
+    assert canopy._canopy_install() == CANOPY_INSTALL

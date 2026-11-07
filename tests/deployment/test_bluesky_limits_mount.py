@@ -24,6 +24,7 @@ from osprey.deployment.compose_generator import (
     resolve_limits_mount,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey_connectors.control_system import LimitsValidator, mapping_config_lookup
 from osprey_connectors.types import tier_limits_database_targets
 from tests.deployment.test_lane_compose import (
     BLUESKY_PORT,
@@ -240,6 +241,44 @@ def test_an_allowed_render_with_the_file_present_is_mounted(tmp_path: Path) -> N
         "source": "./build/data/channel_limits.json",
         "target": "/app/project/data/channel_limits.json",
     }
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param(None, id="absent"),
+        pytest.param("", id="empty"),
+        pytest.param("   ", id="blank"),
+        pytest.param(5, id="not-a-string"),
+        pytest.param("data/channel_limits.json", id="relative"),
+        pytest.param("  data/channel_limits.json  ", id="padded"),
+    ],
+)
+def test_the_mount_reads_the_path_the_validator_reads(tmp_path: Path, raw: Any) -> None:
+    """Compose and the connector take one reading of ``database_path``: a key
+    the validator resolves to a file is mounted from that file, and a key it
+    resolves to nothing is refused as naming no path."""
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "channel_limits.json").write_text("{}")
+    section = _section("allowed")
+    if raw is None:
+        del section["limits_checking"]["database_path"]
+    else:
+        section["limits_checking"]["database_path"] = raw
+    config = _config(tmp_path, section)
+    resolved = LimitsValidator.configured_database_path(
+        config_lookup=mapping_config_lookup(config), config_path=str(tmp_path / "config.yml")
+    )
+
+    if resolved is None:
+        with pytest.raises(DeploymentPreconditionError, match="names no path"):
+            resolve_limits_mount(config, str(tmp_path), "build")
+    else:
+        assert Path(resolved).is_file()
+        assert resolve_limits_mount(config, str(tmp_path), "build") == {
+            "source": "./build/data/channel_limits.json",
+            "target": "/app/project/data/channel_limits.json",
+        }
 
 
 def test_the_tier_arms_limits_for_every_reachable_target() -> None:

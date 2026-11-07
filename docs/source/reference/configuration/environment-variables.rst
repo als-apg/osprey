@@ -100,9 +100,40 @@ deployment, which is why none of them is a config key.
 **build arguments** at once: the Dockerfiles in
 :doc:`/how-to/deploy-project/project-image` declare an ARG of each name, and
 ``osprey up`` supplies each one from the host variable, or from the
-``images.*`` key behind it. One spelling for one setting, whether the build is
-managed or a hand-run ``docker build``. What they configure is the build — a
-container that is already running reads nothing from them.
+``images.*`` key behind it. The ``PIP_*`` names come from your shell or that
+key, never from ``.env`` or ``.env.shared``: a line there is ignored with a
+warning, like every launch variable (see
+:ref:`launch variables <deployment-env-launch-variables>`). One spelling for
+one setting, whether the build is managed or a hand-run ``docker build``.
+What they configure is the build — a container that is already running reads
+nothing from them.
+
+CANOPY payload
+==============
+
+A deployment that shows the CANOPY panel builds its images from a prebuilt
+CANOPY payload (:doc:`/how-to/web-terminal/canopy`). Two variables steer the
+``canopy-payload`` pre-build step that stages it.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Variable
+     - What it does
+   * - ``OSPREY_CANOPY_PAYLOAD``
+     - The payload directory the canopy repository's
+       ``scripts/build-payload.sh`` wrote. Read from the shell first, then
+       from the deployment's ``.env.shared`` and ``.env``. ``osprey build``
+       copies it into the deployment as ``canopy_payload/``; a directory that
+       is missing or not a finished payload stops the build. The payload must
+       be built at the CANOPY and PyDMConverter commits this OSPREY is proven
+       against; a payload built at any other commit stops the build.
+       :ref:`canopy-upgrading` covers moving to a new CANOPY.
+   * - ``OSPREY_CANOPY_PAYLOAD_CHECK``
+     - ``0`` skips the staging step, for a build that needs no CANOPY, such
+       as a test. It does not skip the check that the screen library still
+       matches its report.
 
 Virtual accelerator source
 ==========================

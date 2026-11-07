@@ -1,0 +1,2 @@
+archiver:
+  type: mock_archiver

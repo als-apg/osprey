@@ -191,23 +191,33 @@ class TestHonestyAboutTheSnapshot:
     def test_list_plans_is_named_however_the_index_resolved(self, index):
         assert "`list_plans`" in render(index)
 
-    def test_list_plans_is_required_before_set_draft(self):
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            pytest.param(
+                "`list_plans` is the authority",
+                "`set_draft`",
+                id="list-plans-is-required-before-set-draft",
+            ),
+            pytest.param(
+                "metadata-level",
+                "quarantined",
+                id="listing-is-metadata-level-and-a-plan-may-be-quarantined",
+            ),
+            pytest.param(
+                "authored during this session",
+                "`bluesky.plan_module`",
+                id="names-the-absent-sources",
+            ),
+        ],
+    )
+    def test_each_caveat_is_stated(self, first, second):
         text = render(full_index())
-        assert "`list_plans` is the authority" in text
-        assert "`set_draft`" in text
+        assert first in text
+        assert second in text
 
     def test_says_the_listing_is_a_build_time_snapshot(self):
         assert "snapshot taken at build time" in render(full_index())
-
-    def test_says_the_listing_is_metadata_level_and_a_plan_may_be_quarantined(self):
-        text = render(full_index())
-        assert "metadata-level" in text
-        assert "quarantined" in text
-
-    def test_names_the_absent_sources(self):
-        text = render(full_index())
-        assert "authored during this session" in text
-        assert "`bluesky.plan_module`" in text
 
     def test_says_the_deployed_bridge_may_run_a_different_image(self):
         assert "pinned image" in render(full_index())
@@ -240,6 +250,12 @@ class TestRouting:
         text = unwrapped(render(full_index()))
         assert "`queue_stop` halts the queue after the running item finishes" in text
         assert "`stop_run` aborts the plan already in motion" in text
+
+    def test_a_plan_fits_only_when_one_run_takes_the_whole_measurement(self):
+        """Several chained runs of a registered plan are not that plan covering it."""
+        text = unwrapped(render(full_index()))
+        assert "only when one run of it takes the whole measurement" in text
+        assert "split across several runs" in text
 
     def test_description_shares_no_long_phrase_with_a_sibling(self):
         """A shared 6-word phrase would steal triggers from a skill that can act."""

@@ -152,6 +152,20 @@ class TestEnhancedEntryFromRow:
             "updated_at": datetime(2024, 1, 15, 11, 0, tzinfo=UTC),
         }
 
+    def test_a_row_without_references_checked_keeps_none(self, sample_row: dict) -> None:
+        entry = enhanced_entry_from_row({**sample_row, "facility_refs": None})
+
+        assert "facility_refs" in entry
+        assert entry["facility_refs"] is None
+
+    def test_a_row_with_references_carries_them(self, sample_row: dict) -> None:
+        spans = [{"start": 0, "end": 4, "target": "Test", "kinds": ["channel"]}]
+
+        assert (
+            enhanced_entry_from_row({**sample_row, "facility_refs": spans})["facility_refs"]
+            == spans
+        )
+
     def test_basic_conversion(self, sample_row: dict) -> None:
         """Test basic row to entry conversion."""
         entry = enhanced_entry_from_row(sample_row)
@@ -183,15 +197,25 @@ class TestEnhancedEntryFromRow:
         assert entry["attachment_text"] == "[picture a1] a plot"
         assert entry["attachment_captions"] == captions
 
-    def test_null_attachment_columns_are_omitted(self, sample_row: dict) -> None:
-        """NULL attachment columns leave the optional keys out, like the other fields."""
-        sample_row["attachment_text"] = None
-        sample_row["attachment_captions"] = None
+    @pytest.mark.parametrize(
+        ("first", "second"),
+        [
+            # NULL attachment columns leave the optional keys out, like the other fields.
+            pytest.param("attachment_text", "attachment_captions", id="attachment-columns"),
+            pytest.param("summary", "keywords", id="enhancement-fields"),
+        ],
+    )
+    def test_null_optional_columns_are_omitted(
+        self, sample_row: dict, first: str, second: str
+    ) -> None:
+        """NULL optional columns leave their keys out of the entry."""
+        sample_row[first] = None
+        sample_row[second] = None
 
         entry = enhanced_entry_from_row(sample_row)
 
-        assert "attachment_text" not in entry
-        assert "attachment_captions" not in entry
+        assert first not in entry
+        assert second not in entry
 
     def test_missing_optional_fields(self, sample_row: dict) -> None:
         """Test conversion with missing optional fields."""
@@ -203,15 +227,6 @@ class TestEnhancedEntryFromRow:
         assert entry["author"] == ""
         assert entry["attachments"] == []
         assert entry["metadata"] == {}
-
-    def test_none_enhancement_fields_excluded(self, sample_row: dict) -> None:
-        """Test that None enhancement fields are excluded."""
-        sample_row["summary"] = None
-        sample_row["keywords"] = None
-
-        entry = enhanced_entry_from_row(sample_row)
-        assert "summary" not in entry
-        assert "keywords" not in entry
 
 
 class TestResolveTimeRange:

@@ -814,8 +814,8 @@ export function buildExportMarkdown(input) {
   lines.push('   into the name the theme switcher should show, and drop it when it does.');
   lines.push('');
   lines.push('3. **`tokens/interfaces/*.json`** — check `$extensions.inherits` in each of');
-  lines.push('   the five interface documents (`ariel.json`, `artifacts.json`,');
-  lines.push('   `channel_finder.json`, `lattice_dashboard.json`, `web_terminal.json`).');
+  lines.push('   the four interface documents (`ariel.json`, `artifacts.json`,');
+  lines.push('   `channel_finder.json`, `web_terminal.json`).');
   lines.push('   Add the new ids wherever the same-mode base groups fit:');
   lines.push('');
   lines.push('   ```json');

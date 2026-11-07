@@ -2,6 +2,11 @@
 
 import contextlib
 import logging
+import os
+import socket
+import struct
+import sys
+import time
 
 logger = logging.getLogger("osprey.mcp_server.http")
 
@@ -202,7 +207,7 @@ def post_json(url: str, payload: dict, *, timeout: int = 3) -> None:
     call.  That deliberately covers a ``401``: a credential regression makes
     panel notifications go quiet rather than crashing the tool that emitted
     them, and nothing here retries.
-    Used by focus tools and panel-focus notifications.
+    Used by focus tools and rail-visibility notifications.
     """
     import json as _json
     import urllib.request
@@ -270,16 +275,14 @@ def fetch_panels(timeout: int = 3) -> dict | None:
 
     The read counterpart of the ``notify_*`` helpers, and the one place MCP
     tools go for live panel state: rail membership (``visible``), the active
-    panel, the configured presets, and the layout-report fields ``open_tiles``,
-    ``open_tiles_age_s`` and ``open_tiles_dock`` that say what is actually on
-    screen and how stale that knowledge is.
+    panel, the configured presets, the dock's ``layout`` and its ``rev``, and
+    ``layout_age_s`` and ``layout_dock``, which say how stale that knowledge is.
 
     The three layout-report fields carry three distinct states, and a caller
     must not collapse them: all-``null`` means no client has ever reported;
-    ``open_tiles: null`` with a numeric age and ``open_tiles_dock: false``
-    means a client is watching but runs without the dock shell and cannot
-    report tile order; a list (including ``[]``, a genuinely empty workspace)
-    with ``open_tiles_dock: true`` is a real occupancy report.
+    ``layout: null`` with a numeric age and ``layout_dock: false`` means a
+    client is watching but runs without the dock shell and cannot report
+    tiles; a tree with ``layout_dock: true`` is a real occupancy report.
 
     .. warning::
         This performs a **blocking** HTTP call (bounded by ``timeout``).
@@ -317,10 +320,116 @@ def fetch_panels(timeout: int = 3) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def fetch_code_review_switch(timeout: float = 2) -> dict | None:
+    """Read code review's runtime switch from the web terminal that started this session.
+
+    Only the socket the terminal published (``SWITCH_SOCKET_ENV``) names that terminal, with no
+    fallback: a session no terminal started is under no terminal's switch.
+
+    An answer counts only when the kernel says it was served by a process of this account that
+    is this process's own ancestor (:func:`_served_by_an_ancestor`). The agent's code runs as
+    the same account and can bind a socket at that path whenever the terminal is not on it;
+    what it cannot do is become an ancestor of the hook or the executor asking. The check reads pids only, never
+    another process's ``/proc`` entries, so a terminal that hides its memory still counts.
+
+    .. warning::
+        A **blocking** call bounded by ``timeout`` from the dial to the last byte read,
+        however the answer trickles in; async callers run it in a thread.
+
+    Returns:
+        The parsed JSON object, or ``None`` when no terminal is named, it cannot be reached,
+        is not this session's ancestor, or answers with anything but a JSON object.
+    """
+    import json as _json
+
+    from osprey.services.code_review.switch import SWITCH_ANSWER_LIMIT, SWITCH_SOCKET_ENV
+
+    path = os.environ.get(SWITCH_SOCKET_ENV, "").strip()
+    if not os.path.isabs(path) or not hasattr(socket, "AF_UNIX"):
+        return None
+    deadline = time.monotonic() + timeout
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            sock.connect(path)
+            if not _served_by_an_ancestor(sock):
+                logger.warning("code review switch answered by a process outside this session")
+                return None
+            body = b""
+            while chunk := _recv_by(sock, deadline, SWITCH_ANSWER_LIMIT + 1 - len(body)):
+                body += chunk
+                if len(body) > SWITCH_ANSWER_LIMIT:
+                    raise ValueError("the code review switch answer is too long")
+        data = _json.loads(body)
+    except Exception as exc:
+        logger.warning("code review switch read failed: %s", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _recv_by(sock: socket.socket, deadline: float, nbytes: int) -> bytes:
+    """Up to *nbytes* from *sock*, waiting only for what is left until *deadline*.
+
+    A socket timeout bounds each receive alone, so a server dripping one byte at a time
+    would keep the reader waiting as long as it liked.
+    """
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("the code review switch read ran out of time")
+    sock.settimeout(remaining)
+    return sock.recv(nbytes)
+
+
+def _served_by_an_ancestor(sock: socket.socket) -> bool:
+    """Whether the process serving *sock* runs as this account and is one of our ancestors.
+
+    The terminal spawns every session, so the session's hooks and MCP servers descend
+    from it; whatever the agent starts is a descendant of the session, never an ancestor
+    of them. Never raises; a peer or process table that cannot be read is no proof.
+    """
+    try:
+        peer = _peer(sock)
+        if peer is None or peer[1] != os.getuid():
+            return False
+        import psutil
+
+        return peer[0] in {p.pid for p in psutil.Process().parents()}
+    except Exception:
+        logger.warning("could not check who answered the code review switch", exc_info=True)
+        return False
+
+
+def _peer(sock: socket.socket) -> tuple[int, int] | None:
+    """The ``(pid, uid)`` the kernel recorded for the listening end of *sock*, or ``None``.
+
+    Linux reads ``SO_PEERCRED`` (``struct ucred``); macOS reads ``LOCAL_PEERPID`` and the uid
+    from ``LOCAL_PEERCRED`` (``struct xucred``). Any other platform names no peer.
+    """
+    if sys.platform == "linux":
+        ucred = struct.Struct("3i")
+        pid, uid, _gid = ucred.unpack(
+            sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, ucred.size)
+        )
+        return pid, uid
+    if sys.platform == "darwin":
+        (pid,) = struct.unpack("i", sock.getsockopt(_SOL_LOCAL, _LOCAL_PEERPID, 4))
+        version, uid = struct.unpack_from("2I", sock.getsockopt(_SOL_LOCAL, _LOCAL_PEERCRED, 76))
+        return (pid, uid) if version == _XUCRED_VERSION else None
+    return None
+
+
+#: ``SOL_LOCAL``, ``LOCAL_PEERCRED``, ``LOCAL_PEERPID`` and ``XUCRED_VERSION`` from macOS
+#: ``<sys/un.h>`` and ``<sys/ucred.h>``; 76 is ``sizeof(struct xucred)``.
+_SOL_LOCAL = 0
+_LOCAL_PEERCRED = 0x001
+_LOCAL_PEERPID = 0x002
+_XUCRED_VERSION = 0
+
+
 def notify_panel_visibility(panel: str, visible: bool) -> None:
     """Fire-and-forget POST to show or hide a panel in the Web Terminal.
 
-    Mirrors :func:`notify_panel_focus`.  Non-fatal if the web terminal is not
+    Non-fatal if the web terminal is not
     running (CLI-only mode).  Show/hide is always permitted server-side so
     there is no status to surface.
 
@@ -332,25 +441,6 @@ def notify_panel_visibility(panel: str, visible: bool) -> None:
     post_json(
         f"{base}/api/panel-visibility",
         {"panel": panel, "visible": visible, "source": "agent"},
-        timeout=2,
-    )
-
-
-def notify_panel_close(panel: str) -> None:
-    """Fire-and-forget POST to close a panel's tile in the Web Terminal.
-
-    The on-screen half of the panel vocabulary, and deliberately separate from
-    :func:`notify_panel_visibility`: closing a tile leaves rail membership
-    alone, so the operator can reopen the panel in one click. Non-fatal if the
-    web terminal is not running (CLI-only mode).
-
-    Args:
-        panel: Panel identifier string.
-    """
-    base = web_terminal_url()
-    post_json(
-        f"{base}/api/panel-close",
-        {"panel": panel, "source": "agent"},
         timeout=2,
     )
 
@@ -407,79 +497,98 @@ def notify_panel_register(
     return {"ok": False, "status": status, "detail": detail}
 
 
-def notify_panel_arrange(
-    tiles: list[str] | None = None,
-    preset: str | None = None,
-    focus: str | None = None,
-) -> dict:
-    """Request a workspace tile arrangement and return the server's verdict.
+#: The write route of each dock op on the web terminal.
+PANEL_OP_ROUTES: dict[str, str] = {
+    "drop": "/api/panel-op/drop",
+    "close": "/api/panel-op/close",
+    "open": "/api/panel-op/open",
+    "open_set": "/api/panel-op/open-set",
+    "open_arrangement": "/api/panel-op/open-arrangement",
+}
 
-    Like :func:`notify_panel_register`, and unlike the fire-and-forget
-    ``notify_*`` helpers, this captures the real HTTP response: the arrange
-    route validates the tile ids, the preset name and the focus target
-    server-side, so a rejection carries a detail string the calling tool must
-    show the agent rather than swallow.  ``source: "agent"`` is always sent so
-    the UI can flash the agent glow on the affected rail entries.
+#: Socket timeout of :func:`panel_op`. Longer than the route's own 5 s wait for
+#: the dock client, so a silent dock comes back as the route's named
+#: ``no_dock_answer`` (outcome unknown) rather than as a dropped connection.
+PANEL_OP_TIMEOUT_S = 8
 
-    Exactly one of ``tiles`` and ``preset`` is expected.  Supplying both or
-    neither is left to the route to reject, so the agent sees one authoritative
-    validation message instead of two divergent ones.
+#: Reason :func:`panel_op` reports when the web terminal cannot be reached.
+NO_WEB_TERMINAL = "no_web_terminal"
+
+
+def panel_op(op: str, args: dict, *, base_rev: int | None = None) -> dict:
+    """Run one dock op through the web terminal and return its outcome.
+
+    The one agent dock-write path: every MCP caller that opens, moves or closes
+    panels (workspace tools, ARIEL, Phoebus) comes through here. The helper
+    mints the ``request_id``; the route relays the op to the current dock client
+    and answers once that client has applied (or refused) it.
+
+    .. warning::
+        This performs a **blocking** HTTP call of up to
+        :data:`PANEL_OP_TIMEOUT_S` seconds. Async tools MUST call it via
+        ``await anyio.to_thread.run_sync(...)``.
 
     Args:
-        tiles: Panel ids to leave open, in left-to-right order.
-        preset: Name of a configured layout (``web.presets``) to apply instead
-            of an explicit tile list.
-        focus: Optional panel to focus; the route requires it to be one of the
-            resulting tiles.  Omitted from the body when ``None``.
+        op: One of :data:`PANEL_OP_ROUTES` (``drop``, ``close``, ``open``,
+            ``open_set``, ``open_arrangement``).
+        args: The op's arguments, e.g. ``{"member": "ariel", "url": u}``
+            for ``open``; ``open_set`` and ``open_arrangement`` spell ``as`` as is.
+        base_rev: The ``rev`` of the agent's last read, for ``drop``, the one op
+            that names tile ids; omitted from the body when ``None``.
 
     Returns:
-        A dict with the following keys:
+        ``{"ok": True, "status": 200, "layout": {...}, "popouts": [...], "rev":
+        <int>}`` when the dock applied the op, else ``{"ok": False, "status": <int|None>,
+        "reason": <str>, "detail": <str>}`` (plus ``rev`` when the server gave
+        one). ``reason`` is the route's named refusal (``stale_base``,
+        ``no_dock_client``, ``terminal_not_agent_movable``, ...) or
+        ``no_dock_answer`` (the dock did not answer in time and may still apply
+        the op), ``invalid_request`` for a body the route could not parse, or
+        :data:`NO_WEB_TERMINAL` when the terminal is unreachable.
 
-        * ``ok`` (bool) — ``True`` on HTTP 200, ``False`` otherwise.
-        * ``status`` (int | None) — HTTP status code, or ``None`` when the web
-          terminal was unreachable.
-        * ``data`` (dict) — Parsed response body on success (``ok=True`` only):
-          the applied ``tiles``, ``focus``, ``preset`` and ``prune_rail``.
-        * ``detail`` (str) — Rejection text (``ok=False`` only): the server's
-          ``"detail"``, or ``"Web Terminal is not running."`` when unreachable.
-          Always text — FastAPI's own body-validation 422s carry a list of
-          error dicts, which is stringified here.
+    Raises:
+        ValueError: For an ``op`` that is not a dock op.
     """
-    base = web_terminal_url()
-    payload: dict = {"source": "agent"}
-    if tiles is not None:
-        payload["tiles"] = tiles
-    if preset is not None:
-        payload["preset"] = preset
-    if focus is not None:
-        payload["focus"] = focus
+    import uuid
 
+    route = PANEL_OP_ROUTES.get(op)
+    if route is None:
+        raise ValueError(f"Unknown panel op: {op!r}")
+    payload: dict = {**args, "request_id": uuid.uuid4().hex}
+    if base_rev is not None:
+        payload["base_rev"] = base_rev
     try:
-        status, body = _post_json_with_response(f"{base}/api/panel-arrange", payload, timeout=5)
+        status, body = _post_json_with_response(
+            f"{web_terminal_url()}{route}", payload, timeout=PANEL_OP_TIMEOUT_S
+        )
     except Exception as exc:
-        logger.warning("panel arrange POST failed (web terminal unreachable): %s", exc)
-        return {"ok": False, "status": None, "detail": "Web Terminal is not running."}
-
+        logger.warning("panel op %s failed (web terminal unreachable): %s", op, exc)
+        return {
+            "ok": False,
+            "status": None,
+            "reason": NO_WEB_TERMINAL,
+            "detail": "Web Terminal is not running.",
+        }
+    body = body if isinstance(body, dict) else {}
     if status == 200:
-        return {"ok": True, "status": 200, "data": body}
-    detail = body.get("detail", "") if isinstance(body, dict) else body
-    return {
-        "ok": False,
-        "status": status,
-        "detail": detail if isinstance(detail, str) else str(detail),
-    }
-
-
-def notify_panel_focus(panel_id: str, url: str | None = None) -> None:
-    """Fire-and-forget POST to switch the Web Terminal's active panel.
-
-    Non-fatal if the web terminal is not running (CLI-only mode).
-    """
-    base = web_terminal_url()
-    payload: dict = {"panel": panel_id, "source": "agent"}
-    if url is not None:
-        payload["url"] = url
-    post_json(f"{base}/api/panel-focus", payload, timeout=2)
+        return {
+            "ok": True,
+            "status": 200,
+            "layout": body.get("layout"),
+            "popouts": body.get("popouts", []),
+            "rev": body.get("rev"),
+        }
+    out: dict = {"ok": False, "status": status}
+    if body.get("status") == "refused":
+        out["reason"] = str(body.get("reason", ""))
+        out["detail"] = str(body.get("detail", ""))
+    else:
+        detail = body.get("detail", "")
+        out["reason"] = "invalid_request"
+        out["detail"] = detail if isinstance(detail, str) else str(detail)
+    if "rev" in body:
+        out["rev"] = body["rev"]
+    return out
 
 
 def resolve_activity_target() -> str | None:

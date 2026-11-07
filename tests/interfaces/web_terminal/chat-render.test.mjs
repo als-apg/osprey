@@ -273,6 +273,27 @@ describe('tool vocabulary', () => {
     ).toBe('Saving a logbook picture…');
   });
 
+  test('listing CANOPY collections has its own phrase', () => {
+    expect(TOOL_PHRASES.list_collections).toBe('listing collections');
+    expect(
+      activityLabel({ type: 'tool_use', tool_name_raw: 'mcp__canopy__list_collections' })
+    ).toBe('Listing collections…');
+    expect(activityLabel({ type: 'tool_use', tool_name: 'List Collections' })).toBe(
+      'Listing collections…'
+    );
+  });
+
+  test('the agent closing a panel reads as one verb; the two close tools it replaced have no phrase', () => {
+    expect(
+      activityLabel({ type: 'tool_use', tool_name_raw: 'mcp__osprey_workspace__close_panel' })
+    ).toBe('Closing a panel…');
+    for (const retired of ['close_panel_tab', 'close_panel_tile']) {
+      expect(
+        toolPhrase({ type: 'tool_use', tool_name_raw: `mcp__osprey_workspace__${retired}` })
+      ).toBeNull();
+    }
+  });
+
   test('an unmapped tool has no phrase and keeps its raw name', () => {
     const event = /** @type {const} */ ({
       type: 'tool_use',
@@ -609,6 +630,28 @@ describe('createChatRenderer', () => {
       r.addUserMessage('again');
       r.handleEvent({ type: 'session_reset' }); // shown
       expect(container.querySelectorAll('.op-system').length).toBe(1);
+    });
+
+    test('a reset just before the result of a moving turn divides it from the earlier exchange', () => {
+      // A conversation that moves inside a live chat is marked where the move
+      // is seen: the reset arrives just before the result closing that turn.
+      const r = createChatRenderer(container);
+      r.addUserMessage('read the beam current');
+      r.handleEvent({ type: 'text', content: 'The beam current is 500 mA.' });
+      r.handleEvent({ type: 'result', is_error: false });
+      r.addUserMessage('/clear');
+      r.handleEvent({ type: 'thinking' });
+      r.handleEvent({ type: 'session_reset' });
+      r.handleEvent({ type: 'result', is_error: false });
+
+      const dividers = container.querySelectorAll('.op-system');
+      expect(dividers.length).toBe(1);
+      expect(dividers[0].textContent).toBe('session reset');
+      const children = Array.from(container.children);
+      const earlier = qs(container, '.op-entry.assistant');
+      expect(children.indexOf(dividers[0])).toBeGreaterThan(children.indexOf(earlier));
+      // The turn finished: no activity line is left showing.
+      expect(container.querySelector('.op-processing.active')).toBeNull();
     });
   });
 

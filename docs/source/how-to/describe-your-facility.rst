@@ -10,7 +10,7 @@ A deployment describes its facility once, as source files under
 channel finder's index, the limits database, the simulator's channel list, the
 knowledge graph. Nothing else in the deployment lists a channel.
 
-This page walks the tree a fresh ``osprey init --preset control-assistant``
+This page walks the tree a fresh ``osprey init --preset demo``
 writes, file by file, then the three ways records get into it: by hand, from
 an importer, and through a fix. What the build writes from the result is in
 :doc:`/architecture/facility-file`.
@@ -40,8 +40,8 @@ The tree
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
-control-assistant preset ships all of them except ``classes.yaml``,
-``fixes.yaml`` and ``imported/``; the hello-world preset ships
+demo preset ships all of them except ``fixes.yaml`` and
+``imported/``; the hello-world preset ships
 ``identity.yaml``, ``records/channels.yaml``, ``limits.yaml`` and
 ``seeds.yaml``.
 
@@ -162,7 +162,8 @@ address means anything to OSPREY. What a channel is comes from its fields:
    * - ``precision``
      - Optional, on float channels only: an integer from 0 to 17, the number
        of decimals a display shows. The simulator serves it as the channel's
-       display precision on both Channel Access and PVAccess.
+       display precision on both Channel Access and PVAccess, and serves a
+       float channel that states none with 4.
    * - ``former_addresses``, ``attributes``
      - Addresses the channel was known by, and a free map carried verbatim.
 
@@ -253,10 +254,8 @@ rewritten by every run; ``mapping.yaml`` is yours and is only drafted when
 absent. The import also creates ``limits.yaml``, ``seeds.yaml``,
 ``identity.yaml``, ``classes.yaml``, ``measurement/<model>.yaml`` and
 ``scenarios/readout.yaml`` when they do not exist, and never rewrites them
-afterwards. It refuses to run while
-authored record sources are present: every file of ``records/`` and
-``decks/``, ``models.yaml``, and a ``limits.yaml``, ``seeds.yaml``,
-``identity.yaml`` or measurement file it did not create itself.
+afterwards. It replaces a bundled facility, saying so in one line, and refuses
+only hand-written records of the kinds it writes, naming each file.
 
 A channel list
 --------------
@@ -276,9 +275,9 @@ address per line.
 The files under ``imported/list/`` belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
 into ``fixes.yaml``. A run whose list states no ``s`` leaves no
-``devices.yaml``. The list import runs beside authored records and merges with
-them field by field, where the mml import refuses while authored record
-sources are present.
+``devices.yaml``. The list import runs the same step as every format: it
+replaces a bundled facility and refuses only hand-written channel and device
+lists, so it still positions a list against your own deck, models and places.
 
 Fixes
 =====
@@ -345,7 +344,7 @@ channel with no record is the deployment's choice,
 ``control_system.limits_checking.mode``: under ``exclusive`` the limits file
 is the complete list of writable channels and a channel without a record is
 refused; under ``optional`` a channel without a record is written with no
-limits. The hello-world and control-assistant presets ship ``optional``.
+limits. The hello-world and demo presets ship ``optional``.
 
 Seeds
 =====
@@ -407,6 +406,30 @@ The build checks both keys and stops with ``value-invalid`` when:
 
 A ``pulse`` or ``gate`` input that names no channel stops the build with
 ``reference-missing``.
+
+``topoff`` makes a float channel a stored current under top-off: it starts
+each ``period_s`` at ``ceiling`` and decays with the lifetime ``lifetime_h``
+until the next refill. ``topoff_lifetime`` makes a channel read that lifetime,
+named by the channel that carries the ``topoff`` seed, so current and lifetime
+always agree.
+
+.. code-block:: yaml
+
+   SR:DIAG:DCCT:01:CURRENT:RB:
+     topoff:
+       ceiling: 500.0
+       lifetime_h: 7.0
+       period_s: 31.0
+   SR:DIAG:DCCT:01:LIFETIME:RB:
+     topoff_lifetime:
+       of: SR:DIAG:DCCT:01:CURRENT:RB
+
+The channel holds the sawtooth's mean, which is what its limits and the
+archive's start state see. The build stops with ``value-invalid`` when
+``topoff`` sits on a channel that is not float or ``lifetime_h`` or
+``period_s`` is not above zero, and with ``seed-invalid`` when ``topoff`` has
+a ``nominal`` beside it or ``topoff_lifetime.of`` names no channel with a
+``topoff`` seed. Live reads and the archive show the same sawtooth.
 
 At run time the ``gate`` acts on the channel's held value, after a ``linear``
 sum; ``drift`` and ``noise`` are added on top and ``clamp`` applied. A gated

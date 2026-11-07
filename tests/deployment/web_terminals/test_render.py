@@ -147,7 +147,7 @@ def _render_reuses_parsed_templates_and_tokens():
 _OVERRIDE_PORT_BASE = 20000
 _CONFIGURED_BASE_PORTS = {
     family: default_port(family, 0, base=_OVERRIDE_PORT_BASE)
-    for family in ("web", "artifact", "ariel", "lattice")
+    for family in ("web", "artifact", "ariel")
 }
 # No test config in this module sets `deployment.port_base`, so the render
 # resolves the layout's default base and the unconfigured families land on their
@@ -184,7 +184,6 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
         "web_base_port": _CONFIGURED_BASE_PORTS["web"],
         "artifact_base_port": _CONFIGURED_BASE_PORTS["artifact"],
         "ariel_base_port": _CONFIGURED_BASE_PORTS["ariel"],
-        "lattice_base_port": _CONFIGURED_BASE_PORTS["lattice"],
         "users": users,
         "default_tier": "assistant",
         "renders": {"assistant": tier_render("assistant", "dls_controls-assistant")},
@@ -974,18 +973,28 @@ def test_deployment_origin_carries_the_string_deployment_external_origin_returns
     assert origin.origin == deployment_external_origin(config)
 
 
-def test_deployment_origin_reads_scheme_and_host_off_a_configured_external_origin() -> None:
-    """A configured origin is split once; the string itself stays verbatim."""
+@pytest.mark.parametrize(
+    ("external_origin", "scheme"),
+    [
+        # A configured origin is split once; the string itself stays verbatim.
+        pytest.param("https://Terminals.Example.org:8443", "https", id="https"),
+        # A configured http origin carries the http scheme it names.
+        pytest.param("http://Terminals.Example.org:8080", "http", id="http"),
+    ],
+)
+def test_deployment_origin_reads_scheme_and_host_off_a_configured_external_origin(
+    external_origin: str, scheme: str
+) -> None:
     # Arrange
-    config = _with_external_origin(_MULTI_USER_CONFIG, "https://Terminals.Example.org:8443")
+    config = _with_external_origin(_MULTI_USER_CONFIG, external_origin)
 
     # Act
     origin = deployment_origin(config)
 
     # Assert
     assert origin == DeploymentOrigin(
-        origin="https://Terminals.Example.org:8443",
-        scheme="https",
+        origin=external_origin,
+        scheme=scheme,
         host="terminals.example.org",
     )
 
@@ -1019,22 +1028,6 @@ def test_a_derived_origin_keeps_the_fqdn_spelling_and_reads_its_parts_off_it(
         origin=f"{expected_scheme}://Ops.Example.org{suffix}",
         scheme=expected_scheme,
         host="ops.example.org",
-    )
-
-
-def test_deployment_origin_reads_an_http_scheme_off_a_configured_external_origin() -> None:
-    """A configured http origin carries the http scheme it names."""
-    # Arrange
-    config = _with_external_origin(_MULTI_USER_CONFIG, "http://Terminals.Example.org:8080")
-
-    # Act
-    origin = deployment_origin(config)
-
-    # Assert
-    assert origin == DeploymentOrigin(
-        origin="http://Terminals.Example.org:8080",
-        scheme="http",
-        host="terminals.example.org",
     )
 
 
@@ -1204,30 +1197,30 @@ def test_render_missing_companion_base_port_uses_layout_default() -> None:
     panel existed) must render with the layout default, not fail."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
-    del config["modules"]["web_terminals"]["lattice_base_port"]
+    del config["modules"]["web_terminals"]["ariel_base_port"]
 
     # Act
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — lattice family renders from its layout band for every user.
-    default_base = framework_web_port_default("lattice_dashboard", base=DEFAULT_PORT_BASE)
+    # Assert — the ariel family renders from its layout band for every user.
+    default_base = framework_web_port_default("ariel", base=DEFAULT_PORT_BASE)
     for index, user in enumerate(["alice", "bob", "carol"]):
         env = compose["services"][f"web-{user}"]["environment"]
-        assert f"OSPREY_LATTICE_DASHBOARD_PORT={default_base + index}" in env
+        assert f"OSPREY_ARIEL_PORT={default_base + index}" in env
 
 
 def test_render_derives_every_family_from_port_base_20000() -> None:
     """The pin: with `deployment.port_base: 20000` and a stanza naming no port at
-    all, user 0's seven families land on the 20000 block — 20100 (terminal),
-    20200 (gallery), 20300 (ARIEL), 20400 (lattice), 20500 (channel finder),
+    all, user 0's six families land on the 20000 block — 20100 (terminal),
+    20200 (gallery), 20300 (ARIEL), 20500 (channel finder),
     20600 (OKF), 20700 (system health). This is the whole feature in one
     assertion: one knob moves the deployment, and nothing here reads a default
     base."""
     # Arrange — strip every base-port key, then set the block's base.
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
-    for family in ("web", "artifact", "ariel", "lattice"):
+    for family in ("web", "artifact", "ariel"):
         web_terminals.pop(f"{family}_base_port", None)
     config["deployment"] = {"port_base": 20000}
 
@@ -1241,7 +1234,6 @@ def test_render_derives_every_family_from_port_base_20000() -> None:
     assert int(env_map["OSPREY_WEB_PORT"]) == 20100
     assert int(env_map[PANEL_ENV_VARS["artifact"]]) == 20200
     assert int(env_map[PANEL_ENV_VARS["ariel"]]) == 20300
-    assert int(env_map[PANEL_ENV_VARS["lattice"]]) == 20400
     assert int(env_map[PANEL_ENV_VARS["channel_finder"]]) == 20500
     assert int(env_map[PANEL_ENV_VARS["okf"]]) == 20600
     assert int(env_map[PANEL_ENV_VARS["system_health"]]) == 20700
@@ -1403,32 +1395,60 @@ def _service_env(compose: dict, service: str) -> dict[str, str]:
     )
 
 
-def test_display_name_emits_app_name_env_line_only_for_the_user_that_sets_it() -> None:
-    """A user's `display_name` renders an `OSPREY_WEB_APP_NAME` env line for that
-    service; a user without one omits the line entirely (app falls back to config
-    web.app_name)."""
+@pytest.mark.parametrize(
+    ("user", "env_name", "value"),
+    [
+        # A user's `display_name` renders an `OSPREY_WEB_APP_NAME` env line for that
+        # service; a user without one omits the line entirely (app falls back to config
+        # web.app_name).
+        pytest.param(
+            {"name": "alice", "index": 0, "display_name": "Operations"},
+            "OSPREY_WEB_APP_NAME",
+            "Operations",
+            id="display-name",
+        ),
+        # A user's `theme` renders an `OSPREY_WEB_THEME` env line for that service; a
+        # user without one omits the line entirely (app falls back to config web.theme).
+        pytest.param(
+            {"name": "alice", "index": 0, "theme": "desy-light"},
+            "OSPREY_WEB_THEME",
+            "desy-light",
+            id="theme",
+        ),
+    ],
+)
+def test_per_user_field_emits_its_env_line_only_for_the_user_that_sets_it(
+    user: dict, env_name: str, value: str
+) -> None:
     # Arrange
-    config = copy.deepcopy(
-        _config([{"name": "alice", "index": 0, "display_name": "Operations"}, "bob"])
-    )
+    config = copy.deepcopy(_config([user, "bob"]))
 
     # Act
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
     # Assert
-    assert _service_env(compose, "web-alice")["OSPREY_WEB_APP_NAME"] == "Operations"
-    assert "OSPREY_WEB_APP_NAME" not in _service_env(compose, "web-bob")
+    assert _service_env(compose, "web-alice")[env_name] == value
+    assert env_name not in _service_env(compose, "web-bob")
 
 
-def test_no_display_name_anywhere_emits_no_app_name_env_line() -> None:
-    """The common (bare-string) roster emits no OSPREY_WEB_APP_NAME line at all —
-    the seam is inert until a user opts in."""
+@pytest.mark.parametrize(
+    "env_name",
+    [
+        # The common (bare-string) roster emits no OSPREY_WEB_APP_NAME line at all —
+        # the seam is inert until a user opts in.
+        pytest.param("OSPREY_WEB_APP_NAME", id="display-name"),
+        # The common (bare-string) roster emits no OSPREY_WEB_THEME line at all — the
+        # seam is inert until a user opts in.
+        pytest.param("OSPREY_WEB_THEME", id="theme"),
+    ],
+)
+def test_no_per_user_field_anywhere_emits_no_env_line(env_name: str) -> None:
     # Act
     artifacts = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG))
 
     # Assert
-    assert "OSPREY_WEB_APP_NAME" not in artifacts["docker-compose.web.yml"]
+    assert env_name not in artifacts["docker-compose.web.yml"]
 
 
 def test_display_name_with_spaces_and_colon_is_yaml_quoted_and_round_trips() -> None:
@@ -1510,25 +1530,27 @@ def test_landing_honors_a_pinned_mode_with_no_media_query() -> None:
     assert "color-scheme: dark;" not in style
 
 
-def test_landing_defaults_to_the_main_family_when_web_theme_is_absent() -> None:
-    """No `web` section at all still themes the page — from the main family."""
+@pytest.mark.parametrize(
+    ("theme", "expected_marker"),
+    [
+        # No `web` section at all still themes the page — from the main family.
+        pytest.param(None, "--bg-primary: #f4f5f5;", id="web-theme-absent"),
+        # A typo must not leave the page unstyled — it resolves like the terminals do,
+        # to the main family, and pins nothing.
+        pytest.param(
+            "no-such-theme", "@media (prefers-color-scheme: light)", id="unknown-web-theme"
+        ),
+    ],
+)
+def test_landing_resolves_to_the_main_family_when_web_theme_is_not_a_known_one(
+    theme: str | None, expected_marker: str
+) -> None:
     # Act
-    style = _landing_style(_themed_config(None))
+    style = _landing_style(_themed_config(theme))
 
     # Assert — main family's canvases, and still both modes
     assert "--bg-primary: #111217;" in style
-    assert "--bg-primary: #f4f5f5;" in style
-
-
-def test_landing_falls_back_on_an_unknown_web_theme() -> None:
-    """A typo must not leave the page unstyled — it resolves like the terminals do,
-    to the main family, and pins nothing."""
-    # Act
-    style = _landing_style(_themed_config("no-such-theme"))
-
-    # Assert
-    assert "--bg-primary: #111217;" in style
-    assert "@media (prefers-color-scheme: light)" in style
+    assert expected_marker in style
 
 
 def test_landing_carries_no_hardcoded_pre_token_palette() -> None:
@@ -1595,31 +1617,6 @@ def test_landing_render_fails_loudly_on_a_renamed_token() -> None:
 # ---------------------------------------------------------------------------
 # theme -> OSPREY_WEB_THEME (per-user default theme seam)
 # ---------------------------------------------------------------------------
-
-
-def test_theme_emits_theme_env_line_only_for_the_user_that_sets_it() -> None:
-    """A user's `theme` renders an `OSPREY_WEB_THEME` env line for that service; a
-    user without one omits the line entirely (app falls back to config web.theme)."""
-    # Arrange
-    config = copy.deepcopy(_config([{"name": "alice", "index": 0, "theme": "desy-light"}, "bob"]))
-
-    # Act
-    artifacts = render_web_terminals(config)
-    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
-
-    # Assert
-    assert _service_env(compose, "web-alice")["OSPREY_WEB_THEME"] == "desy-light"
-    assert "OSPREY_WEB_THEME" not in _service_env(compose, "web-bob")
-
-
-def test_no_theme_anywhere_emits_no_theme_env_line() -> None:
-    """The common (bare-string) roster emits no OSPREY_WEB_THEME line at all — the
-    seam is inert until a user opts in."""
-    # Act
-    artifacts = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG))
-
-    # Assert
-    assert "OSPREY_WEB_THEME" not in artifacts["docker-compose.web.yml"]
 
 
 def test_theme_and_display_name_are_independent_per_user() -> None:
@@ -1709,6 +1706,8 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
         "./var/simulator:/app/dls-gui/var/simulator",
         "./var/guarded_run:/app/dls-gui/var/guarded_run",
+        "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+        "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
@@ -1726,16 +1725,18 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         ),
         "./var/simulator:/app/dls_controls-assistant/var/simulator",
         "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
+        "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+        "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
     ]
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A render with no `extra_mounts` emits exactly the eight
+    """A render with no `extra_mounts` emits exactly the
     framework per-user volume lines — claude-config, the transcripts volume
     nested in it, agent-data, this user's own
     spool and state subdirectories, its own control-context record directory, the simulator
-    logs of its mock target and the guarded-run directory — and the extra_mounts
-    loop adds nothing."""
+    logs of its mock target, the guarded-run directory, and the programs' write
+    requests and write ledger — and the extra_mounts loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1757,6 +1758,8 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
             ),
             "./var/simulator:/app/dls_controls-assistant/var/simulator",
             "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
+            "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+            "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
         ]
 
 
@@ -1786,17 +1789,40 @@ def test_agent_data_volume_mounts_where_the_container_resolves_its_agent_data_ro
         assert f"{user}-agent-data:{expected}" in compose["services"][f"web-{user}"]["volumes"]
 
 
-def test_a_relocated_agent_data_base_dir_moves_the_volume_mount_with_it() -> None:
-    """Relocating `agent_data.base_dir` moves the mount, because the agent moves too.
-
-    The failure this guards is silent in exactly one direction: a project that
-    relocates its agent-data root keeps rendering a mount at the OLD path, so
-    the volume survives while holding nothing and the live data has no volume
-    behind it.
-    """
+@pytest.mark.parametrize(
+    ("base_dir", "volume_path", "stray"),
+    [
+        # Relocating `agent_data.base_dir` moves the mount, because the agent moves too.
+        #
+        # The failure this guards is silent in exactly one direction: a project that
+        # relocates its agent-data root keeps rendering a mount at the OLD path, so
+        # the volume survives while holding nothing and the live data has no volume
+        # behind it.
+        pytest.param(
+            "state/agent",
+            "/app/dls_controls-assistant/state/agent",
+            "var/agent_data",
+            id="relocated",
+        ),
+        # An absolute `base_dir` names the same absolute path on both sides.
+        #
+        # ``anchored_path`` returns an absolute configured path unchanged, so the
+        # container writes to it verbatim; concatenating it after the project
+        # directory would mount the volume at a path nothing writes to.
+        pytest.param(
+            "/srv/osprey-agent-data",
+            "/srv/osprey-agent-data",
+            "/app/dls_controls-assistant/srv",
+            id="absolute-not-re-anchored",
+        ),
+    ],
+)
+def test_the_agent_data_volume_mount_follows_the_configured_base_dir(
+    base_dir: str, volume_path: str, stray: str
+) -> None:
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
-    config["agent_data"] = {"base_dir": "state/agent"}
+    config["agent_data"] = {"base_dir": base_dir}
 
     # Act
     artifacts = render_web_terminals(config)
@@ -1805,30 +1831,8 @@ def test_a_relocated_agent_data_base_dir_moves_the_volume_mount_with_it() -> Non
     # Assert
     for user in config["modules"]["web_terminals"]["users"]:
         volumes = compose["services"][f"web-{user}"]["volumes"]
-        assert f"{user}-agent-data:/app/dls_controls-assistant/state/agent" in volumes
-        assert not any("var/agent_data" in mount for mount in volumes)
-
-
-def test_an_absolute_agent_data_base_dir_is_not_re_anchored_under_the_project_dir() -> None:
-    """An absolute `base_dir` names the same absolute path on both sides.
-
-    ``anchored_path`` returns an absolute configured path unchanged, so the
-    container writes to it verbatim; concatenating it after the project
-    directory would mount the volume at a path nothing writes to.
-    """
-    # Arrange
-    config = copy.deepcopy(_MULTI_USER_CONFIG)
-    config["agent_data"] = {"base_dir": "/srv/osprey-agent-data"}
-
-    # Act
-    artifacts = render_web_terminals(config)
-    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
-
-    # Assert
-    for user in config["modules"]["web_terminals"]["users"]:
-        volumes = compose["services"][f"web-{user}"]["volumes"]
-        assert f"{user}-agent-data:/srv/osprey-agent-data" in volumes
-        assert not any("/app/dls_controls-assistant/srv" in mount for mount in volumes)
+        assert f"{user}-agent-data:{volume_path}" in volumes
+        assert not any(stray in mount for mount in volumes)
 
 
 def test_nginx_mounts_resolve_into_the_repos_build_zone(tmp_path) -> None:
@@ -4131,15 +4135,23 @@ def test_authored_oidc_scopes_reach_the_sidecar_service() -> None:
     assert "OSPREY_AUTH_OIDC_SCOPES=openid profile groups" in auth_env
 
 
-def test_unauthored_oidc_scopes_render_no_env_line() -> None:
-    """With no list authored the sidecar's own default is the only default."""
+@pytest.mark.parametrize(
+    "env_name",
+    [
+        # With no list authored the sidecar's own default is the only default.
+        pytest.param("OSPREY_AUTH_OIDC_SCOPES=", id="oidc-scopes"),
+        # Off is the sidecar's own default, so nothing restates it in the render.
+        pytest.param("OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN=", id="claims-in-id-token"),
+    ],
+)
+def test_unauthored_oidc_settings_render_no_env_line(env_name: str) -> None:
     # Act
     auth_env = _compose(_auth_config(method="oidc", oidc={"issuer": "https://sso.example.org"}))[
         "services"
     ]["auth"]["environment"]
 
     # Assert
-    assert not any(str(entry).startswith("OSPREY_AUTH_OIDC_SCOPES=") for entry in auth_env)
+    assert not any(str(entry).startswith(env_name) for entry in auth_env)
 
 
 def test_auth_context_reads_claims_in_id_token_as_a_plain_boolean() -> None:
@@ -4176,19 +4188,6 @@ def test_authored_claims_in_id_token_reaches_the_sidecar_service() -> None:
 
     # Assert
     assert "OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN=true" in auth_env
-
-
-def test_unauthored_claims_in_id_token_renders_no_env_line() -> None:
-    """Off is the sidecar's own default, so nothing restates it in the render."""
-    # Act
-    auth_env = _compose(_auth_config(method="oidc", oidc={"issuer": "https://sso.example.org"}))[
-        "services"
-    ]["auth"]["environment"]
-
-    # Assert
-    assert not any(
-        str(entry).startswith("OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN=") for entry in auth_env
-    )
 
 
 def test_auth_sidecar_service_healthcheck_probes_its_own_health_route() -> None:
@@ -4903,7 +4902,7 @@ _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 #
 # `osprey up` mints the archiver store's password into the deploy `.env` under
 # the name the connector block reads (`archiver.<type>.auth.password_env`, which the
-# control-assistant preset spells MONGO_ROOT_PASSWORD); an archiver behind a
+# demo preset spells MONGO_ROOT_PASSWORD); an archiver behind a
 # bearer token names its variable under `auth.token_env`. The agent inside a web
 # terminal authenticates with exactly those variables, and `.env.users` excludes
 # service tokens by design -- so a container that is not handed them per-user
@@ -6426,17 +6425,6 @@ def test_control_identity_reaches_only_the_svc_of_the_user_that_sets_it() -> Non
     assert services["bob"]["control_identity"] is None
 
 
-def test_empty_control_identity_is_refused_rather_than_dropped() -> None:
-    """An empty identity is not an account name the container could apply, so the
-    render refuses it instead of silently carrying no identity."""
-    # Arrange
-    config = copy.deepcopy(_config([{"name": "alice", "index": 0, "control_identity": ""}]))
-
-    # Act / Assert
-    with pytest.raises(ValueError, match="web_terminals.invalid_user_control_identity"):
-        render_web_terminals(config)
-
-
 def test_control_identity_is_independent_of_the_other_svc_fields() -> None:
     """Setting the identity neither drags in nor displaces the other optional
     per-user fields."""
@@ -6497,6 +6485,9 @@ def test_compose_ctx_hands_the_template_the_control_identity_container_paths() -
     "value",
     [
         pytest.param(7, id="non-string"),
+        # An empty identity is not an account name the container could apply, so the
+        # render refuses it instead of silently carrying no identity.
+        pytest.param("", id="empty"),
         pytest.param("root", id="reserved-root"),
         pytest.param("osprey-dispatch-0", id="reserved-service"),
         pytest.param("backup", id="base-image-account"),

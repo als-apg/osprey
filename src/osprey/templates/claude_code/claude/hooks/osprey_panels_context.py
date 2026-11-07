@@ -2,7 +2,7 @@
 """
 ---
 name: Panels Context
-description: Injects the web surface (chat/terminal), panel inventory and open-tile state into the agent context at session start
+description: Injects the web surface (chat/terminal), panel inventory and open tiles (one panel each) into the agent context at session start
 summary: Agent learns which web UX it serves, what panels exist and what is on screen without a list_panels round-trip
 event: SessionStart
 ---
@@ -39,13 +39,14 @@ Injects three independent pieces of session context as ``additionalContext``:
    already on screen. Emitted even when the panel inventory is unavailable —
    the surface is known from the env alone.
 2. **Panel inventory** — fetched from the web terminal so the agent knows which
-   panels exist, their labels, rail membership, and the active tab — without a
-   ``list_panels`` tool round-trip.
-3. **Open tiles** — which panels are actually on screen, in spatial reading
-   order, e.g. ``Open tiles: [lattice, artifacts], active artifacts.`` Tiles are
-   reported by the browser, so the line is omitted entirely whenever occupancy
-   is *unknown* rather than empty (see below) — an unobserved workspace is never
-   described as an empty one.
+   panels exist, their labels, rail membership, and the active panel — without
+   a ``list_panels`` tool round-trip.
+3. **Open tiles** — every tile on screen in spatial reading order, each named
+   by the one panel it shows, the terminal's included, e.g.
+   ``Open tiles: [terminal], [okf], [artifacts]; active artifacts.``
+   Tiles are reported by the browser, so the line is omitted entirely whenever
+   occupancy is *unknown* rather than empty (see below) — an unobserved
+   workspace is never described as an empty one.
 
 ## Terminal-API authorization
 
@@ -65,21 +66,28 @@ moved between turns.  It is JSON at::
 
     os.path.join(tempfile.gettempdir(), f"osprey-workspace-{session_id}.json")
 
-with exactly three keys::
+with these keys::
 
     {
-      "tiles":   ["lattice", "artifacts"] | null,  # on-screen, reading order;
-                                                   # null = occupancy UNKNOWN
-      "active":  "artifacts" | null,               # active tab id
-      "visible": ["lattice", "artifacts", "bluesky"]  # launcher-rail membership
+      "tiles": [                                   # on-screen, reading order;
+        {"tile": "t1", "panel": "terminal"},       # each tile shows one panel
+        {"tile": "t2", "panel": "artifacts"}
+      ] | null,                                    # null = occupancy UNKNOWN
+      "popouts": ["ariel"],                        # panels in their own windows
+      "active":  "artifacts" | null,               # active panel id
+      "visible": ["okf", "artifacts", "bluesky"]  # launcher-rail membership
     }
 
-``tiles`` is null whenever the server's answer does not actually describe what
-is on screen — ``open_tiles`` absent, ``open_tiles_age_s`` null (nobody has ever
-reported), or ``open_tiles_dock`` false (the reporting client has no dock, so it
-knows the rail but not the tiles, and its report carries a *numeric* age).
-Unknown and empty are different claims, and only one of them is honest.  Both
-hooks apply this rule identically — see :func:`_occupancy_is_known`.
+``tiles`` is the server's ``layout`` (the current dock client's dock layout tree)
+flattened depth-first, each tile reduced to its id and the panel it shows; sizes
+and split directions are dropped.  It is null whenever the server's
+answer does not actually describe what is on screen — ``layout`` null or absent
+(no dock client has reported), ``layout_dock`` false (the reporting client
+has no dock, so it knows the rail but not the tiles), or a layout of the wrong
+shape (a tile listing anything but one panel included).  Unknown and empty are
+different claims, and only one of them is honest.
+Both hooks apply this rule identically — see :func:`_occupancy_is_known` and
+:func:`_layout_tiles`.
 
 The seed is **unconditional**: SessionStart re-fires on a resume under the same
 session id, and a snapshot left from before it would make the first delta line
@@ -132,7 +140,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
-    _safety_file = None
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 #: Characters a session id may contain before it is joined into a file name.
 _SESSION_ID_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -184,27 +192,83 @@ def _snapshot_path(session_id):
     return os.path.join(tempfile.gettempdir(), f"osprey-workspace-{session_id}.json")
 
 
-def _occupancy_is_known(data):
-    """True when the payload's tile list really describes what is on screen.
+#: Deepest split nesting the hook will walk. A real dock is a few levels deep;
+#: anything past this is a payload of the wrong shape, read as unknown.
+_MAX_LAYOUT_DEPTH = 32
 
-    There are three ways occupancy is unknown, and none of them may be reported
-    as an empty workspace:
 
-    * ``open_tiles`` absent or not a list — a web terminal predating the field.
-    * ``open_tiles_age_s`` explicitly null — the field exists, but no client has
-      ever reported a layout.
-    * ``open_tiles_dock`` false — the reporting client has no dock, so it knows
-      the launcher rail but cannot see tiles. This case carries a *numeric* age,
-      so the age check alone would read it as a trustworthy empty workspace.
+def _layout_tiles(layout):
+    """Flatten a dock layout tree into its tiles in reading order.
 
-    A missing or null ``open_tiles_dock`` says nothing either way and is left to
-    the other two checks; only an explicit ``false`` forces unknown.
+    A layout node is a tile ``{tile, tabs, showing, ...}`` or a split ``{split,
+    items, ...}``; tiles are read depth-first, each split's items in order — the
+    order ``dock_engine.layout_keys`` uses on the server. A tile shows one
+    panel, the one its ``tabs`` lists; the terminal's tile (key ``"terminal"``)
+    is kept like any other.
+
+    Args:
+        layout: The ``layout`` value of a ``GET /api/panels`` response.
+
+    Returns:
+        A list of ``{"tile": id|None, "panel": key}`` dicts, or None when
+        ``layout`` is not a well-formed tree (a non-dict, a tile whose ``tabs``
+        is not a list of one non-empty string, a split without items, nesting past
+        :data:`_MAX_LAYOUT_DEPTH`). The server refuses a tile listing several
+        panels, so such a tile is a payload of the wrong shape as well. Sizes,
+        split directions and ``showing`` are dropped: the context lines name
+        what is where, not how big it is. The tile id is kept for the delta
+        hook, which reads a tile that kept its id while its panel changed as a
+        replacement; ids are reused after a close, so it is never shown.
     """
-    if not isinstance(data.get("open_tiles"), list):
+    tiles = []
+
+    def walk(node, depth):
+        if depth > _MAX_LAYOUT_DEPTH or not isinstance(node, dict):
+            return False
+        if "split" in node:
+            items = node.get("items")
+            if not isinstance(items, list) or not items:
+                return False
+            return all(walk(item, depth + 1) for item in items)
+        tabs = node.get("tabs")
+        if not isinstance(tabs, list) or len(tabs) != 1:
+            return False
+        panel = tabs[0]
+        if not isinstance(panel, str) or not panel:
+            return False
+        tile = node.get("tile")
+        tiles.append({"tile": tile if isinstance(tile, str) else None, "panel": panel})
+        return True
+
+    return tiles if walk(layout, 0) else None
+
+
+def _occupancy_is_known(data):
+    """True when the payload's layout really describes what is on screen.
+
+    The web terminal publishes the current dock client's dock layout as
+    ``layout`` (None when no dock reports). Occupancy is unknown, and must never
+    be reported as an empty workspace, when:
+
+    * ``layout`` is absent or not an object — nobody has reported a dock layout,
+      or a web terminal predating the field answered.
+    * ``layout_dock`` is false — the reporting client has no dock, so it
+      knows the launcher rail but cannot see tiles.
+
+    A missing or null ``layout_dock`` says nothing either way; only an
+    explicit ``false`` forces unknown. A layout that is present but malformed is
+    caught one step later, by :func:`_layout_tiles` returning None.
+
+    One null layout is known: a ``layout_dock: true`` report. That dock said it
+    is empty (its panes in windows of their own, named by ``popouts``, or
+    closed), which is a workspace, not silence.
+    """
+    layout = data.get("layout")
+    if layout is None:
+        return data.get("layout_dock") is True
+    if not isinstance(layout, dict):
         return False
-    if "open_tiles_age_s" in data and data.get("open_tiles_age_s") is None:
-        return False
-    return data.get("open_tiles_dock") is not False
+    return data.get("layout_dock") is not False
 
 
 def _workspace_state(data):
@@ -214,13 +278,17 @@ def _workspace_state(data):
         data: Decoded ``GET /api/panels`` response.
 
     Returns:
-        A dict with ``tiles`` (on-screen ids in reading order, or None when
-        occupancy is unknown per :func:`_occupancy_is_known`), ``active``
-        (active tab id or None) and ``visible`` (launcher-rail membership).
-        Every field is defended against a payload of the wrong shape.
+        A dict with ``tiles`` (each tile's id and the panel it shows, in
+        reading order, terminal included — see :func:`_layout_tiles` — or None
+        when occupancy is unknown per :func:`_occupancy_is_known`), ``popouts``
+        (the panels in windows of their own, sorted), ``active`` (the active
+        panel id or None) and ``visible`` (launcher-rail membership). Every
+        field is defended against a payload of the wrong shape.
     """
-    tiles = data.get("open_tiles")
-    tiles = [t for t in tiles if isinstance(t, str)] if _occupancy_is_known(data) else None
+    tiles = None
+    if _occupancy_is_known(data):
+        tiles = [] if data.get("layout") is None else _layout_tiles(data.get("layout"))
+    popouts = _popout_list(data.get("popouts")) if tiles is not None else []
 
     visible = data.get("visible")
     visible = [v for v in visible if isinstance(v, str)] if isinstance(visible, list) else []
@@ -229,7 +297,14 @@ def _workspace_state(data):
     if not isinstance(active, str):
         active = None
 
-    return {"tiles": tiles, "active": active, "visible": visible}
+    return {"tiles": tiles, "popouts": popouts, "active": active, "visible": visible}
+
+
+def _popout_list(popouts):
+    """The pop-out panel ids a payload names, sorted; anything else is none."""
+    if not isinstance(popouts, list):
+        return []
+    return sorted({key for key in popouts if isinstance(key, str) and key})
 
 
 def _write_snapshot(path, state):
@@ -251,8 +326,24 @@ def _write_snapshot(path, state):
     return True
 
 
+def _render_tile(tile):
+    """One tile as ``[panel]``: the one panel it shows."""
+    return f"[{tile['panel']}]"
+
+
+def _render_tiles(tiles):
+    """Every tile in reading order, comma-separated (see :func:`_render_tile`)."""
+    return ", ".join(_render_tile(tile) for tile in tiles)
+
+
 def _build_tile_line(state):
     """Describe what is on screen, or None when no client has reported tiles.
+
+    One line naming every tile in reading order by the panel it shows — the
+    terminal's included — and the panels the operator moved into windows of
+    their own::
+
+        Open tiles: [terminal], [okf], [artifacts]; pop-outs: ariel; active artifacts.
 
     Silence is the honest answer for an unreported workspace: the browser may
     not have connected yet, and "no tiles are open" would be a claim the server
@@ -261,12 +352,14 @@ def _build_tile_line(state):
     tiles = state.get("tiles")
     if tiles is None:
         return None
+    popouts = state.get("popouts") or []
+    if not tiles and not popouts:
+        return "Open tiles: none (nothing on screen)."
     active = state.get("active")
-    if not tiles:
-        return "Open tiles: [] (nothing on screen besides the terminal)."
-    listed = ", ".join(tiles)
-    active_part = f"active {active}" if active else "no active tile"
-    return f"Open tiles: [{listed}], {active_part}."
+    active_part = f"active {active}" if active else "no active panel"
+    popout_part = f"pop-outs: {', '.join(popouts)}; " if popouts else ""
+    rendered = _render_tiles(tiles) if tiles else "none"
+    return f"Open tiles: {rendered}; {popout_part}{active_part}."
 
 
 def _build_ux_context(ux):
@@ -316,15 +409,17 @@ def _build_inventory(data):
         return None
 
     panel_list = ", ".join(parts)
-    active_part = f"Active tab: {active}." if active else "No active tab."
+    active_part = f"Active panel: {active}." if active else "No active panel."
     return (
-        f"Web terminal panels (right pane tabs): {panel_list}. "
+        f"Web terminal panels: {panel_list}. "
         f"{active_part} "
-        "open_panel(id) puts one on screen and leaves it on the rail in one "
-        "step, close_panel(id) takes it off; add_panel_to_rail(id)/"
-        "remove_panel_from_rail(id) move only whether it is one click away, "
-        "and register_panel(...) adds an ad-hoc URL tab. Those three ask the "
-        "operator to approve the call unless the deployment says otherwise."
+        "Each tile shows one panel. open_panel(id) puts one on screen and on the "
+        "rail in one step, replacing the panel in the service tile used last "
+        "(that panel stays on the rail); close_panel(id) takes it off screen; "
+        "add_panel_to_rail(id)/remove_panel_from_rail(id) move only whether it "
+        "is one click away, and register_panel(...) adds an ad-hoc URL panel. "
+        "Those three ask the operator to approve the call unless the deployment "
+        "says otherwise."
     )
 
 

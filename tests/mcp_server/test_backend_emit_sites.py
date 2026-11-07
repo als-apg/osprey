@@ -60,7 +60,6 @@ _ARIEL_PUBLISH_MOD = "osprey.mcp_server.ariel.tools.publish"
 _PHOEBUS_MOD = "osprey.mcp_server.phoebus.tools.bridge_tools"
 _EXECUTE_MOD = "osprey.mcp_server.python_executor.tools.python_execute"
 _EXECUTE_FILE_MOD = "osprey.mcp_server.python_executor.tools.python_execute_file"
-_LATTICE_MOD = "osprey.mcp_server.workspace.tools.lattice_tools"
 _SETUP_MOD = "osprey.mcp_server.workspace.tools.setup"
 _SCREEN_MOD = "osprey.mcp_server.workspace.tools.screen_capture"
 
@@ -511,7 +510,7 @@ async def test_ariel_entry_create_direct_does_not_steal_focus(_ariel_context):
     with (
         _patch_ariel_service(mock_service),
         patch(f"{_ARIEL_ENTRY_MOD}.notify_agent_activity_async"),
-        patch("osprey.mcp_server.http.notify_panel_focus") as focus,
+        patch("osprey.mcp_server.http.panel_op") as focus,
     ):
         await _get_ariel_tool("entry", "entry_create")(
             subject="Beam lost", details="Injector trip at 03:12", draft=False
@@ -1278,129 +1277,6 @@ async def test_execute_deployment_writes_disabled_no_emit(tool_name, tmp_path, m
     notify.assert_not_called()
 
 
-# ── lattice dashboard mutators ──────────────────────────────────────────────
-#
-# The five mutators share one refusal shape: every failure arrives as an
-# exception out of ``_dashboard_request`` and every handler funnels into
-# ``make_error``, which raises before the emit can run. Both failure classes
-# the module handles by name — an unreachable dashboard and a non-2xx response
-# — are therefore exercised against all five rather than per-mutator variants.
-# The read-only tools share the same body minus the emit, so they are pinned
-# as a group too.
-
-_LATTICE_MUTATORS = [
-    ("lattice_set_param", {"family": "QF", "value": 1.25}),
-    ("lattice_refresh", {}),
-    ("lattice_set_baseline", {}),
-    ("lattice_update_settings", {"settings": {"da": {"n_angles": 25}}}),
-    ("lattice_clear_baseline", {}),
-]
-
-_LATTICE_READERS = [
-    ("lattice_state", {}),
-    ("lattice_get_figure", {"name": "optics"}),
-    ("lattice_get_data", {"name": "optics"}),
-    ("lattice_get_settings", {}),
-]
-
-
-def _get_lattice_tool(name: str):
-    from osprey.mcp_server.workspace.tools import lattice_tools
-
-    return get_tool_fn(getattr(lattice_tools, name))
-
-
-def _lattice_request(*, return_value=None, side_effect=None):
-    """Patch the dashboard HTTP boundary with a canned answer or failure."""
-    body = {"summary": {"energy": 2.0}, "families": {"QF": {}}}
-    return patch(
-        f"{_LATTICE_MOD}._dashboard_request",
-        new=AsyncMock(
-            return_value=body if return_value is None else return_value, side_effect=side_effect
-        ),
-    )
-
-
-def _lattice_unreachable():
-    import httpx
-
-    return httpx.ConnectError("connection refused")
-
-
-def _lattice_http_error(status: int = 400, text: str = "unknown family"):
-    import httpx
-
-    request = httpx.Request("POST", "http://dash/api")
-    return httpx.HTTPStatusError(
-        "bad status", request=request, response=httpx.Response(status, text=text, request=request)
-    )
-
-
-@pytest.mark.parametrize(
-    "tool_name,kwargs,detail",
-    [
-        ("lattice_set_param", {"family": "QF", "value": 1.25}, "QF = 1.25"),
-        ("lattice_refresh", {}, "recomputing fast figures"),
-        ("lattice_refresh", {"figure": "da"}, "recomputing da"),
-        ("lattice_set_baseline", {}, "baseline set"),
-        (
-            "lattice_update_settings",
-            {"settings": {"lma": {"n_steps": 8}, "da": {"n_angles": 25}}},
-            "settings: da, lma",
-        ),
-        ("lattice_clear_baseline", {}, "baseline cleared"),
-    ],
-)
-async def test_lattice_mutator_emits(tool_name, kwargs, detail):
-    """Each acknowledged mutation reports once against the 'lattice' panel."""
-    with (
-        _lattice_request(),
-        patch(f"{_LATTICE_MOD}.notify_agent_activity_async") as notify,
-    ):
-        result = await _get_lattice_tool(tool_name)(**kwargs)
-
-    assert extract_response_dict(result)
-    notify.assert_called_once_with(tool_name, "panel", panel="lattice", detail=detail)
-
-
-@pytest.mark.parametrize("tool_name,kwargs", _LATTICE_MUTATORS)
-async def test_lattice_mutator_unreachable_dashboard_no_emit(tool_name, kwargs):
-    """A dashboard that never answered changed nothing — emit nothing."""
-    with (
-        _lattice_request(side_effect=_lattice_unreachable()),
-        patch(f"{_LATTICE_MOD}.notify_agent_activity_async") as notify,
-    ):
-        with assert_raises_error(error_type="service_unavailable"):
-            await _get_lattice_tool(tool_name)(**kwargs)
-
-    notify.assert_not_called()
-
-
-@pytest.mark.parametrize("tool_name,kwargs", _LATTICE_MUTATORS)
-async def test_lattice_mutator_rejected_request_no_emit(tool_name, kwargs):
-    """A non-2xx answer means the dashboard refused the change — emit nothing."""
-    with (
-        _lattice_request(side_effect=_lattice_http_error()),
-        patch(f"{_LATTICE_MOD}.notify_agent_activity_async") as notify,
-    ):
-        with assert_raises_error(error_type="lattice_error"):
-            await _get_lattice_tool(tool_name)(**kwargs)
-
-    notify.assert_not_called()
-
-
-@pytest.mark.parametrize("tool_name,kwargs", _LATTICE_READERS)
-async def test_lattice_read_only_tool_never_emits(tool_name, kwargs):
-    """Reading state or a figure mutates nothing, so it stays out of the feed."""
-    with (
-        _lattice_request(return_value={"status": "ok"}),
-        patch(f"{_LATTICE_MOD}.notify_agent_activity_async") as notify,
-    ):
-        await _get_lattice_tool(tool_name)(**kwargs)
-
-    notify.assert_not_called()
-
-
 # ── setup_patch / manage_window ─────────────────────────────────────────────
 #
 # setup_patch edits the two files that hold the agent's credentials, so its
@@ -1567,23 +1443,23 @@ async def test_setup_patch_safety_prefix_is_exact_case():
     )
 
 
+@pytest.mark.parametrize(
+    ("file", "key_path", "value"),
+    [
+        # A file outside the whitelist was never opened — emit nothing.
+        pytest.param("settings.json", "permissions.deny", "[]", id="unpatchable-file"),
+        # A rejected key path changed nothing — emit nothing.
+        pytest.param("config.yml", "", "1", id="empty-key-path"),
+        pytest.param("config.yml", "../../etc/passwd", "1", id="traversal-key-path"),
+        pytest.param("config.yml", "/abs/path", "1", id="absolute-key-path"),
+        pytest.param("config.yml", "has space", "1", id="key-path-with-space"),
+    ],
+)
 @pytest.mark.usefixtures("setup_project")
-async def test_setup_patch_unpatchable_file_no_emit():
-    """A file outside the whitelist was never opened — emit nothing."""
+async def test_setup_patch_rejected_patch_no_emit(file, key_path, value):
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="validation_error"):
-            await _get_setup_patch()(file="settings.json", key_path="permissions.deny", value="[]")
-
-    notify.assert_not_called()
-
-
-@pytest.mark.parametrize("key_path", ["", "../../etc/passwd", "/abs/path", "has space"])
-@pytest.mark.usefixtures("setup_project")
-async def test_setup_patch_invalid_key_path_no_emit(key_path):
-    """A rejected key path changed nothing — emit nothing."""
-    with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
-        with assert_raises_error(error_type="validation_error"):
-            await _get_setup_patch()(file="config.yml", key_path=key_path, value="1")
+            await _get_setup_patch()(file=file, key_path=key_path, value=value)
 
     notify.assert_not_called()
 

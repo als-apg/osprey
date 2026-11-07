@@ -3,7 +3,7 @@
 ---
 name: Workspace Delta
 description: Tells the agent what moved in the web workspace since its last turn
-summary: One terse line when tiles, the active tab or rail membership changed — silence when nothing did
+summary: One terse line when tiles, the panels they show, the active panel or rail membership changed — silence when nothing did
 event: UserPromptSubmit
 ---
 
@@ -35,15 +35,25 @@ UserPromptSubmit ──► read stdin JSON ──► session_id (absent/malforme
 ## Details
 
 The SessionStart sibling (``osprey_panels_context.py``) tells the agent what the
-workspace looked like when the session began.  Between turns a human can close a
-tile, drag one somewhere else, or switch tabs — none of which the agent would
-otherwise see without spending a ``list_panels`` round-trip on every turn.  This
-hook spends nothing when nothing moved.
+workspace looked like when the session began.  Between turns a human can open a
+panel into a tile (replacing the panel it showed), close a tile, drag a panel or
+a tile to a new place, or make another panel the active one — none of which the
+agent would otherwise see without spending a ``list_panels`` round-trip on every
+turn.  This hook spends nothing when nothing moved.
 
 **Silence is the default.**  The hook writes to stdout only when the workspace
 genuinely differs from the snapshot, and then only one line naming what moved::
 
-    Workspace changed: lattice tile closed; active now artifacts.
+    Workspace changed: ariel replaced okf in its tile; active now ariel.
+
+Each tile shows one panel, and tiles are compared panel by panel, the
+terminal's included: a tile opened or closed (``bluesky tile opened``,
+``okf tile closed``), a tile that kept its id while its panel left the
+screen and another came on (``ariel replaced okf in its tile``), a panel
+now in a tile with another id (``okf moved to a new tile``), and — only
+when nothing else moved — a reordering.  Ids are reused after a close, so a
+tile closed and a new one opened under its id between two turns reads as a
+replacement too; see :func:`_describe_tiles`.
 
 Everything else exits 0 with byte-empty stdout: an unchanged workspace, a
 missing or corrupt snapshot (reseeded first, so the *next* turn diffs cleanly),
@@ -53,8 +63,8 @@ are different claims, and only one of them is honest here.
 
 The same applies to tiles specifically: the browser reports them, so occupancy
 may be unknown while the rail state is perfectly well known — nobody has ever
-reported (``open_tiles_age_s`` null), or the reporting client has no dock
-(``open_tiles_dock`` false) and can see the rail but not the tiles.  When tiles
+reported (``layout`` null), or the reporting client has no dock
+(``layout_dock`` false) and can see the rail but not the tiles.  When tiles
 go from known to unknown — the last dock-capable browser closed — the hook says
 nothing about tiles and keeps the last known list in the snapshot, so a
 returning browser reporting the same layout does not read as a change.
@@ -76,10 +86,13 @@ Reads and rewrites the file seeded by ``osprey_panels_context.py``::
     os.path.join(tempfile.gettempdir(), f"osprey-workspace-{session_id}.json")
 
     {
-      "tiles":   ["lattice", "artifacts"] | null,  # on-screen, reading order;
-                                                   # null = occupancy UNKNOWN
-      "active":  "artifacts" | null,               # active tab id
-      "visible": ["lattice", "artifacts", "bluesky"]  # launcher-rail membership
+      "tiles": [                                   # on-screen, reading order;
+        {"tile": "t1", "panel": "terminal"},       # each tile shows one panel
+        {"tile": "t2", "panel": "artifacts"}
+      ] | null,                                    # null = occupancy UNKNOWN
+      "popouts": ["ariel"],                        # panels in their own windows
+      "active":  "artifacts" | null,               # active panel id
+      "visible": ["okf", "artifacts", "bluesky"]  # launcher-rail membership
     }
 
 The schema is documented in full in the sibling hook, which owns it.  Both hooks
@@ -123,7 +136,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
-    _safety_file = None
+    _safety_file = None  # type: ignore[assignment]  # the sibling is absent
 
 #: Characters a session id may contain before it is joined into a file name.
 #: Must match ``osprey_panels_context.py`` — the two hooks share the file.
@@ -192,10 +205,29 @@ def _load_snapshot(path):
     return _normalize_state(data)
 
 
+def _normalize_tiles(tiles):
+    """Coerce a snapshot's ``tiles`` into the tile list, or None when unknown.
+
+    Anything but a list of well-formed ``{"tile", "panel"}`` tiles is unknown.
+    ``[]`` is an empty dock: every pane is in a window of its own.
+    """
+    if not isinstance(tiles, list):
+        return None
+    out = []
+    for tile in tiles:
+        if not isinstance(tile, dict):
+            return None
+        panel = tile.get("panel")
+        if not isinstance(panel, str) or not panel:
+            return None
+        tile_id = tile.get("tile")
+        out.append({"tile": tile_id if isinstance(tile_id, str) else None, "panel": panel})
+    return out
+
+
 def _normalize_state(data):
     """Coerce a snapshot or live payload into the three diffed facets."""
-    tiles = data.get("tiles")
-    tiles = [t for t in tiles if isinstance(t, str)] if isinstance(tiles, list) else None
+    tiles = _normalize_tiles(data.get("tiles"))
 
     visible = data.get("visible")
     visible = [v for v in visible if isinstance(v, str)] if isinstance(visible, list) else []
@@ -204,37 +236,116 @@ def _normalize_state(data):
     if not isinstance(active, str):
         active = None
 
-    return {"tiles": tiles, "active": active, "visible": visible}
+    popouts = data.get("popouts")
+    if isinstance(popouts, list):
+        popouts = sorted({key for key in popouts if isinstance(key, str) and key})
+    else:
+        popouts = None if tiles is None else []
+
+    return {"tiles": tiles, "popouts": popouts, "active": active, "visible": visible}
+
+
+#: Deepest split nesting the hook will walk. A real dock is a few levels deep;
+#: anything past this is a payload of the wrong shape, read as unknown.
+_MAX_LAYOUT_DEPTH = 32
+
+
+def _layout_tiles(layout):
+    """Flatten a dock layout tree into its tiles in reading order.
+
+    A layout node is a tile ``{tile, tabs, showing, ...}`` or a split ``{split,
+    items, ...}``; tiles are read depth-first, each split's items in order — the
+    order ``dock_engine.layout_keys`` uses on the server. A tile shows one
+    panel, the one its ``tabs`` lists; the terminal's tile (key ``"terminal"``)
+    is kept like any other.
+
+    Args:
+        layout: The ``layout`` value of a ``GET /api/panels`` response.
+
+    Returns:
+        A list of ``{"tile": id|None, "panel": key}`` dicts, or None when
+        ``layout`` is not a well-formed tree (a non-dict, a tile whose ``tabs``
+        is not a list of one non-empty string, a split without items, nesting past
+        :data:`_MAX_LAYOUT_DEPTH`). The server refuses a tile listing several
+        panels, so such a tile is a payload of the wrong shape as well. Sizes,
+        split directions and ``showing`` are dropped: the context lines name
+        what is where, not how big it is. The tile id is kept for the delta
+        hook, which reads a tile that kept its id while its panel changed as a
+        replacement; ids are reused after a close, so it is never shown.
+    """
+    tiles = []
+
+    def walk(node, depth):
+        if depth > _MAX_LAYOUT_DEPTH or not isinstance(node, dict):
+            return False
+        if "split" in node:
+            items = node.get("items")
+            if not isinstance(items, list) or not items:
+                return False
+            return all(walk(item, depth + 1) for item in items)
+        tabs = node.get("tabs")
+        if not isinstance(tabs, list) or len(tabs) != 1:
+            return False
+        panel = tabs[0]
+        if not isinstance(panel, str) or not panel:
+            return False
+        tile = node.get("tile")
+        tiles.append({"tile": tile if isinstance(tile, str) else None, "panel": panel})
+        return True
+
+    return tiles if walk(layout, 0) else None
 
 
 def _occupancy_is_known(data):
-    """True when the payload's tile list really describes what is on screen.
+    """True when the payload's layout really describes what is on screen.
 
     Kept identical to the sibling hook's copy — the two must agree or a session
     would be told about a "change" that is only a difference in how the two
-    hooks read the same server. Occupancy is unknown when ``open_tiles`` is
-    absent or not a list, when ``open_tiles_age_s`` is explicitly null (nobody
-    has ever reported), or when ``open_tiles_dock`` is false (the reporting
-    client has no dock, so it knows the rail but cannot see tiles — and its
-    report carries a *numeric* age, which the age check alone would trust).
+    hooks read the same server.
+
+    The web terminal publishes the current dock client's dock layout as
+    ``layout`` (None when no dock reports). Occupancy is unknown, and must never
+    be reported as an empty workspace, when:
+
+    * ``layout`` is absent or not an object — nobody has reported a dock layout,
+      or a web terminal predating the field answered.
+    * ``layout_dock`` is false — the reporting client has no dock, so it
+      knows the launcher rail but cannot see tiles.
+
+    A missing or null ``layout_dock`` says nothing either way; only an
+    explicit ``false`` forces unknown. A layout that is present but malformed is
+    caught one step later, by :func:`_layout_tiles` returning None.
+
+    One null layout is known: a ``layout_dock: true`` report. That dock said it
+    is empty (its panes in windows of their own, named by ``popouts``, or
+    closed), which is a workspace, not silence.
     """
-    if not isinstance(data.get("open_tiles"), list):
+    layout = data.get("layout")
+    if layout is None:
+        return data.get("layout_dock") is True
+    if not isinstance(layout, dict):
         return False
-    if "open_tiles_age_s" in data and data.get("open_tiles_age_s") is None:
-        return False
-    return data.get("open_tiles_dock") is not False
+    return data.get("layout_dock") is not False
 
 
 def _workspace_state(data):
     """Reduce a ``GET /api/panels`` response to the three snapshot facets.
 
-    ``tiles`` is None whenever occupancy is unknown per
-    :func:`_occupancy_is_known`. Unknown is not the same as empty, and the
-    difference decides whether this hook says anything about tiles at all.
+    ``tiles`` is the server's ``layout`` flattened by :func:`_layout_tiles`, or
+    None whenever occupancy is unknown per :func:`_occupancy_is_known`. Unknown
+    is not the same as empty, and the difference decides whether this hook says
+    anything about tiles at all.
     """
-    tiles = data.get("open_tiles") if _occupancy_is_known(data) else None
+    tiles = None
+    if _occupancy_is_known(data):
+        tiles = [] if data.get("layout") is None else _layout_tiles(data.get("layout"))
     return _normalize_state(
-        {"tiles": tiles, "active": data.get("active"), "visible": data.get("visible")}
+        {
+            "tiles": tiles,
+            "popouts": data.get("popouts") if tiles is not None else None,
+            "active": data.get("active"),
+            "visible": data.get("visible"),
+        }
     )
 
 
@@ -267,48 +378,109 @@ def _merge_state(previous, current):
     merged = dict(current)
     if merged["tiles"] is None:
         merged["tiles"] = previous.get("tiles")
+        merged["popouts"] = previous.get("popouts")
     return merged
 
 
 def _describe_tiles(previous, current):
-    """Describe how the on-screen tiles moved, in the order a reader wants them.
+    """Describe how tiles and the panels they show moved, in the order a reader wants them.
 
-    Returns a list of clause strings (possibly empty). Nothing is said when the
-    tile set is unknown on either side: a first report cannot be phrased as a
-    transition, and a workspace that stopped being reported has not changed —
-    it stopped being observed.
+    Each tile shows one panel. Clauses come as: tiles opened, panels that
+    replaced another in a tile that kept its id, panels moved to a new tile
+    (their tile's id changed), tiles closed, and — only when nothing else
+    changed — a reordering. A tile whose id names no tile on the other side is
+    opened or closed; the id is the only identity a tile has across turns, and
+    since ids are reused after a close, a tile closed and another opened under
+    its id reads as a replacement too. Returns a list of clause strings
+    (possibly empty). Nothing is said when the tiles are unknown on either
+    side: a first report cannot be phrased as a transition, and a workspace that
+    stopped being reported has not changed — it stopped being observed.
     """
     before, after = previous.get("tiles"), current.get("tiles")
     if after is None:
         return []
     if before is None:
-        listed = ", ".join(after) if after else "none"
-        return [f"tiles now [{listed}]"]
+        return [f"tiles now {_render_tiles(after) if after else 'none'}"]
 
-    before_set, after_set = set(before), set(after)
+    tile_before = {tile["panel"]: tile["tile"] for tile in before}
+    tile_after = {tile["panel"]: tile["tile"] for tile in after}
+    opened = [tile for tile in after if tile["panel"] not in tile_before]
+    closed = [tile for tile in before if tile["panel"] not in tile_after]
+
+    # A tile that kept its id while its panel left the screen and another came on.
+    left = {tile["tile"]: tile["panel"] for tile in closed if tile["tile"] is not None}
+    replaced = {}
+    for tile in opened:
+        if tile["tile"] in left:
+            replaced[tile["panel"]] = left.pop(tile["tile"])
+    gone = set(replaced.values())
+
+    new_tiles = [tile["panel"] for tile in opened if tile["panel"] not in replaced]
+    moved = [
+        tile["panel"]
+        for tile in after
+        if tile["panel"] in tile_before
+        and None not in (tile["tile"], tile_before[tile["panel"]])
+        and tile["tile"] != tile_before[tile["panel"]]
+    ]
+    gone_tiles = [tile["panel"] for tile in closed if tile["panel"] not in gone]
+
     clauses = []
-    opened = [t for t in after if t not in before_set]
-    closed = [t for t in before if t not in after_set]
-    if opened:
-        clauses.append(f"{', '.join(opened)} {_tile_noun(opened)} opened")
-    if closed:
-        clauses.append(f"{', '.join(closed)} {_tile_noun(closed)} closed")
-    if not clauses and before != after:
-        clauses.append(f"tiles rearranged to [{', '.join(after)}]")
+    if new_tiles:
+        clauses.append(f"{', '.join(new_tiles)} {_noun(new_tiles, 'tile')} opened")
+    clauses.extend(f"{new} replaced {old} in its tile" for new, old in replaced.items())
+    if moved:
+        clauses.append(f"{', '.join(moved)} moved to {_noun(moved, 'a new tile', 'new tiles')}")
+    if gone_tiles:
+        clauses.append(f"{', '.join(gone_tiles)} {_noun(gone_tiles, 'tile')} closed")
+
+    if not clauses and [t["panel"] for t in before] != [t["panel"] for t in after]:
+        clauses.append(f"tiles rearranged to {_render_tiles(after)}")
     return clauses
 
 
-def _tile_noun(ids):
-    return "tile" if len(ids) == 1 else "tiles"
+def _noun(items, noun, plural=None):
+    if len(items) == 1:
+        return noun
+    return plural if plural is not None else f"{noun}s"
+
+
+def _render_tile(tile):
+    """One tile as ``[panel]``: the one panel it shows."""
+    return f"[{tile['panel']}]"
+
+
+def _render_tiles(tiles):
+    """Every tile in reading order, comma-separated (see :func:`_render_tile`)."""
+    return ", ".join(_render_tile(tile) for tile in tiles)
+
+
+def _describe_popouts(previous, current):
+    """Describe panels that left for, or came back from, a window of their own.
+
+    Like the tiles, unknown on either side says nothing: a pop-out set is known
+    exactly when the tiles are.
+    """
+    before, after = previous.get("popouts"), current.get("popouts")
+    if before is None or after is None:
+        return []
+    clauses = []
+    out = [key for key in after if key not in before]
+    back = [key for key in before if key not in after]
+    if out:
+        clauses.append(f"{', '.join(out)} moved to {_noun(out, 'a window', 'windows')}")
+    if back:
+        clauses.append(f"{', '.join(back)} back from {_noun(back, 'its window', 'their windows')}")
+    return clauses
 
 
 def _describe_active(previous, current):
-    """Describe an active-tab change, or nothing when it held still."""
+    """Describe an active-panel change, or nothing when it held still."""
     before, after = previous.get("active"), current.get("active")
     if before == after:
         return []
     if after is None:
-        return ["no tile active now"]
+        return ["no panel active now"]
     return [f"active now {after}"]
 
 
@@ -333,6 +505,7 @@ def _build_delta_line(previous, current):
     """Build the one-line change summary, or None when nothing moved."""
     clauses = (
         _describe_tiles(previous, current)
+        + _describe_popouts(previous, current)
         + _describe_active(previous, current)
         + _describe_visible(previous, current)
     )

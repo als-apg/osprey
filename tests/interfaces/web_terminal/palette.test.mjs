@@ -95,7 +95,7 @@ function flushMicro() {
 function makeDeps(over = {}) {
   return {
     getHiddenPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
-    getVisiblePanels: () => [{ id: 'lattice', label: 'Lattice' }],
+    getVisiblePanels: () => [{ id: 'channel-finder', label: 'Channels' }],
     getPresets: () => [{ name: 'Focus', panels: ['ariel'] }],
     showPanel: vi.fn(),
     focusPanel: vi.fn(),
@@ -200,15 +200,15 @@ describe('filtering + highlight', () => {
   });
 
   test('a row found through its searchText alone renders its label un-highlighted', async () => {
-    // "optics" is a Lattice synonym carried only in searchText: it ranks the
-    // row, but no character of "Focus Lattice" is marked for it.
+    // "pv" is a Channels synonym carried only in searchText: it ranks the
+    // row, but no character of "Focus Channels" is marked for it.
     openPalette(makeDeps());
     await flushMicro();
-    typeQuery('optics');
+    typeQuery('pv');
     const labels = [...document.querySelectorAll('.command-palette-item-label')];
-    const lattice = labels.find((l) => l.textContent === 'Focus Lattice');
-    if (!lattice) throw new Error('no Focus Lattice row');
-    expect(lattice.querySelectorAll('.command-palette-match')).toHaveLength(0);
+    const channels = labels.find((l) => l.textContent === 'Focus Channels');
+    if (!channels) throw new Error('no Focus Channels row');
+    expect(channels.querySelectorAll('.command-palette-match')).toHaveLength(0);
   });
 
   test('a non-matching query renders the empty state', async () => {
@@ -227,6 +227,53 @@ describe('filtering + highlight', () => {
       (h) => h.textContent
     );
     expect(headings).toEqual(['Settings', 'Panels', 'Layouts', 'Actions']);
+  });
+});
+
+describe('a query that names a panel', () => {
+  /** Settings keys that all contain the panel id, as a deployment's ariel.* keys do. */
+  const ARIEL_SECTIONS = {
+    ariel: { database: { uri: 'x' }, web: { port: 1 }, search: { k: 2 } },
+    logbook: { name: 'ops' },
+    elog: { url: 'y' },
+  };
+
+  test('its old id lists the panel first, ahead of every setting that contains it', async () => {
+    answerConfig = () => Promise.resolve(configResponse({ sections: ARIEL_SECTIONS }));
+    openPalette(
+      makeDeps({
+        getHiddenPanels: () => [],
+        getVisiblePanels: () => [],
+        getPopoutPanels: () => [{ id: 'ariel', label: 'Logbook' }],
+        popoutPanel: vi.fn(),
+      })
+    );
+    await flushMicro();
+    typeQuery('ariel');
+
+    expect(headings()[0]).toBe('Panels');
+    expect(rowLabels()[0]).toBe('Open Logbook in new window');
+    const active = document.querySelector('.command-palette-item--active');
+    expect(active?.textContent).toContain('Open Logbook in new window');
+  });
+
+  test('its label and its domain words also lead with the panel', async () => {
+    answerConfig = () => Promise.resolve(configResponse({ sections: ARIEL_SECTIONS }));
+    openPalette(makeDeps({ getHiddenPanels: () => [{ id: 'ariel', label: 'Logbook' }] }));
+    await flushMicro();
+    for (const q of ['logbook', 'Logbook', 'elog']) {
+      typeQuery(q);
+      expect(headings()[0], q).toBe('Panels');
+    }
+  });
+
+  test('a partial word keeps the fixed group order', async () => {
+    answerConfig = () => Promise.resolve(configResponse({ sections: ARIEL_SECTIONS }));
+    openPalette(makeDeps({ getHiddenPanels: () => [{ id: 'ariel', label: 'Logbook' }] }));
+    await flushMicro();
+    typeQuery('ari');
+
+    expect(headings()[0]).toBe('Settings');
   });
 });
 
@@ -505,6 +552,153 @@ describe('recent commands', () => {
     } finally {
       if (real) Object.defineProperty(globalThis, 'localStorage', real);
     }
+  });
+});
+
+describe('CANOPY group', () => {
+  /**
+   * A deps bundle with a CANOPY provider stub. `rows` is what searchCanopy
+   * answers (null = still loading); `starts` collects each onChange handed to
+   * startCanopy.
+   * @param {any} rows
+   */
+  function canopyDeps(rows) {
+    /** @type {Array<() => void>} */
+    const starts = [];
+    const searchCanopy = vi.fn(() => rows);
+    const deps = makeDeps({
+      searchCanopy,
+      startCanopy: (/** @type {() => void} */ onChange) => starts.push(onChange),
+    });
+    return { deps, starts, searchCanopy };
+  }
+
+  /** @returns {string[]} the row labels under the CANOPY heading. */
+  function canopyLabels() {
+    return [...document.querySelectorAll('.command-palette-item--canopy')].map(
+      (r) => r.querySelector('.command-palette-item-label')?.textContent ?? ''
+    );
+  }
+
+  test('CANOPY renders after Actions; the four registry groups keep their order', async () => {
+    const run = vi.fn();
+    const { deps } = canopyDeps([{ label: 'Open screen Restart View', detail: 'library/rv', run }]);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('restart');
+    expect(headings()).toEqual(['Actions', 'CANOPY']);
+    typeQuery('e');
+    const order = headings();
+    expect(order[order.length - 1]).toBe('CANOPY');
+    const registry = order.filter((h) => h !== 'CANOPY');
+    const expected = ['Settings', 'Panels', 'Layouts', 'Actions'].filter((g) =>
+      registry.includes(g)
+    );
+    expect(registry).toEqual(expected);
+  });
+
+  test('rows render in returned order with no fuzzy filtering or highlight', async () => {
+    const rows = [
+      { label: 'Zzz unrelated label', detail: 'b/z', run: vi.fn() },
+      { label: 'Open screen GTLView', detail: 'library/gtl/GTLView', run: vi.fn() },
+    ];
+    const { deps, searchCanopy } = canopyDeps(rows);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('gtl');
+    expect(searchCanopy).toHaveBeenLastCalledWith('gtl');
+    // "Zzz unrelated label" does not fuzzy-match "gtl", yet it renders, first.
+    expect(canopyLabels()).toEqual(['Zzz unrelated label', 'Open screen GTLView']);
+    const marks = [
+      ...document.querySelectorAll('.command-palette-item--canopy .command-palette-match'),
+    ];
+    expect(marks).toEqual([]);
+  });
+
+  test('an empty query shows no CANOPY group and does not ask the provider', async () => {
+    const { deps, searchCanopy } = canopyDeps([{ label: 'Open screen GTLView', run: vi.fn() }]);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('');
+    expect(headings()).not.toContain('CANOPY');
+    typeQuery('   ');
+    expect(headings()).not.toContain('CANOPY');
+    expect(searchCanopy).not.toHaveBeenCalled();
+  });
+
+  test('every returned row renders: the provider owns the row cap', async () => {
+    const rows = Array.from({ length: 12 }, (_, i) => ({
+      label: `Open screen S${i}`,
+      run: vi.fn(),
+    }));
+    const { deps } = canopyDeps(rows);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('s');
+    expect(canopyLabels()).toEqual(rows.map((r) => r.label));
+  });
+
+  test('a null answer shows a non-navigable Loading… row', async () => {
+    const { deps } = canopyDeps(null);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('zzzq');
+    expect(headings()).toEqual(['CANOPY']);
+    const status = [...document.querySelectorAll('.command-palette-status')].map(
+      (s) => s.textContent
+    );
+    expect(status).toContain('Loading…');
+    expect(document.querySelector('.command-palette-empty')).toBeNull();
+  });
+
+  test('startCanopy runs on open and its settle repaints the current query', async () => {
+    /** @type {any} */
+    let rows = null;
+    const starts = /** @type {Array<() => void>} */ ([]);
+    const deps = makeDeps({
+      searchCanopy: () => rows,
+      startCanopy: (/** @type {() => void} */ onChange) => starts.push(onChange),
+    });
+    openPalette(deps);
+    await flushMicro();
+    expect(starts.length).toBe(1);
+    typeQuery('gtl');
+    expect(canopyLabels()).toEqual([]);
+    rows = [{ label: 'Open screen GTLView', run: vi.fn() }];
+    starts[0]();
+    expect(canopyLabels()).toEqual(['Open screen GTLView']);
+  });
+
+  test('a settle from an earlier open is dropped', async () => {
+    /** @type {any} */
+    let rows = null;
+    const starts = /** @type {Array<() => void>} */ ([]);
+    const deps = makeDeps({
+      searchCanopy: () => rows,
+      startCanopy: (/** @type {() => void} */ onChange) => starts.push(onChange),
+    });
+    openPalette(deps);
+    closePalette();
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('gtl');
+    rows = [{ label: 'Open screen GTLView', run: vi.fn() }];
+    starts[0]();
+    expect(canopyLabels()).toEqual([]);
+    starts[1]();
+    expect(canopyLabels()).toEqual(['Open screen GTLView']);
+  });
+
+  test('Enter on a CANOPY row runs it, closes, and leaves Recent alone', async () => {
+    const run = vi.fn();
+    const { deps } = canopyDeps([{ label: 'Open screen GTLView', run }]);
+    openPalette(deps);
+    await flushMicro();
+    typeQuery('zzzq');
+    pressKey('Enter');
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(isOpen()).toBe(false);
+    expect(storedRecent()).toEqual([]);
   });
 });
 

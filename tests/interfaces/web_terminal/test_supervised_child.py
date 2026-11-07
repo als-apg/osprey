@@ -71,7 +71,7 @@ CHILD = textwrap.dedent(
         # Leaves a member of its own group that ignores SIGTERM, then exits.
         import subprocess
         member = subprocess.Popen(
-            [sys.executable, "-c",
+            [sys.executable, "-S", "-c",
              "import signal, time\\n"
              "signal.signal(signal.SIGTERM, signal.SIG_IGN)\\n"
              "print(1, flush=True)\\n"
@@ -150,7 +150,9 @@ class Harness:
         self._children: list[SupervisedChild] = []
 
     def argv(self, mode: str, code: int = 0, *extra: str) -> list[str]:
-        return [sys.executable, str(self.script), str(self.held.fd), mode, str(code), *extra]
+        # ``-S``: the child is stdlib-only test code; without ``site`` it does not start
+        # coverage (~0.2 s a start under pyproject's subprocess patch, for no data).
+        return [sys.executable, "-S", str(self.script), str(self.held.fd), mode, str(code), *extra]
 
     def supervise(self, mode: str, code: int = 0, *extra: str, **kwargs: object) -> SupervisedChild:
         def argv_for() -> list[str]:
@@ -253,7 +255,7 @@ class TestHeldSocket:
             "    sys.exit(3)\n"
             "sys.exit(0)\n"
         )
-        argv = [sys.executable, "-c", probe, str(held.fd)]
+        argv = [sys.executable, "-S", "-c", probe, str(held.fd)]
         # close_fds=False is the widest inheritance Popen offers: the fd still
         # does not cross, because it is not inheritable.
         assert subprocess.run(argv, close_fds=False, check=False, timeout=60).returncode == 3
@@ -639,6 +641,71 @@ class TestExitedChild:
                 member = int(member_file.read_text())
             if member is not None and pid_alive(member):
                 os.kill(member, signal.SIGKILL)
+
+
+class TestRenderCallbacks:
+    """argv_for and env_for run outside the supervisor's lock, so they may call into it."""
+
+    @staticmethod
+    def _finishes(action: Callable[[], None], timeout: float = 10.0) -> bool:
+        worker = threading.Thread(target=action, daemon=True)
+        worker.start()
+        worker.join(timeout)
+        return not worker.is_alive()
+
+    def test_a_render_that_reads_the_supervisor_does_not_deadlock_it(
+        self, harness: Harness
+    ) -> None:
+        seen: list[tuple[int | None, int | None, bool, int]] = []
+        child: SupervisedChild
+
+        def env_for() -> dict[str, str]:
+            seen.append((child.pid, child.exit_status, child.running, child.starts))
+            return dict(os.environ)
+
+        child = SupervisedChild(
+            lambda: harness.argv("exit", 1),
+            env_for,
+            grace_s=5.0,
+            respawn_now_codes=(),
+            never_respawn_codes=(),
+            on_give_up=lambda: None,
+            backoff_s=(0.05,),
+            pass_fds=(harness.held.fd,),
+        )
+        # A deadlocked start holds the lock for good, and stop() would then
+        # hang too; no child exists at that point, so there is nothing to stop.
+        assert self._finishes(child.start), "start() deadlocked on its own render"
+        try:
+            wait_until(lambda: child.starts >= 2)
+        finally:
+            child.stop()
+        assert seen[0] == (None, None, True, 0)
+        assert seen[1][1] == 1, "the respawn's render saw its predecessor's exit"
+
+    def test_a_render_that_stops_the_supervisor_starts_no_child(self, harness: Harness) -> None:
+        child: SupervisedChild
+
+        def argv_for() -> list[str]:
+            child.stop()
+            return harness.argv("serve", 0)
+
+        child = SupervisedChild(
+            argv_for,
+            lambda: dict(os.environ),
+            grace_s=5.0,
+            respawn_now_codes=(),
+            never_respawn_codes=(),
+            on_give_up=lambda: None,
+            pass_fds=(harness.held.fd,),
+        )
+        assert self._finishes(child.start), "start() deadlocked on a render that stops it"
+        try:
+            assert child.starts == 0
+            assert child.pid is None
+            assert not child.running
+        finally:
+            child.stop()
 
 
 def test_the_held_socket_outlives_a_killed_child(harness: Harness) -> None:

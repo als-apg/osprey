@@ -226,8 +226,9 @@ def test_the_projected_keys_are_the_ones_the_injectors_and_remedies_name():
             "event-dispatcher",
             "mongodb",
             "history",
+            "optimizer",
         ):
-            continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path, a page only nginx dials
+            continue  # not a client-facing key: the worker base, a port only the bridge dials, panel URLs, the archive's own path, a page only nginx dials, a service with no client yet
         assert key in projected, (
             f"{compose_name}: {key} is a published port no attached render is told"
         )

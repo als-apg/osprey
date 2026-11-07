@@ -242,6 +242,29 @@ def regenerate_indexes(bundle_root: Path) -> list[Path]:
     return list(rendered.texts)
 
 
+def _settle_bundle(bundle_root: Path) -> Path | None:
+    """Regenerate *bundle_root*'s indexes and leave the root holding an index.
+
+    After it the bundle passes :func:`check_indexes`, and the root holds an
+    index: the rendered one, or the blank placeholder when the bundle holds no
+    page. The root is created when missing.
+
+    Args:
+        bundle_root: Path to the root directory of an OKF bundle.
+
+    Returns:
+        The blank placeholder's path when it was written, else ``None``.
+    """
+    bundle_root = Path(bundle_root)
+    bundle_root.mkdir(parents=True, exist_ok=True)
+    regenerate_indexes(bundle_root)
+    index = bundle_root / _INDEX_FILE
+    if index.exists():
+        return None
+    index.write_text("", encoding="utf-8")
+    return index
+
+
 # ---------------------------------------------------------------------------
 # Index validation helpers
 # ---------------------------------------------------------------------------

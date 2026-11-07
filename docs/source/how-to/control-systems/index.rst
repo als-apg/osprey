@@ -20,6 +20,14 @@ rehearsal, the real hardware for production.
       and where to register your own -- and simulator to production is a
       change of ``control_system.type``, not of code.
 
+   .. grid-item-card:: Use the Connectors Without the Framework
+      :link: use-connectors-standalone
+      :link-type: doc
+      :shadow: md
+
+      Read a control system and its archiver from a script of your own with
+      ``pip install osprey-connectors`` alone -- no agent, no built deployment.
+
    .. grid-item-card:: Use the Virtual Accelerator
       :link: use-virtual-accelerator
       :link-type: doc
@@ -57,6 +65,7 @@ rehearsal, the real hardware for production.
    :hidden:
 
    use-connectors
+   use-connectors-standalone
    use-virtual-accelerator
    switch-control-target
    phoebus-bridge

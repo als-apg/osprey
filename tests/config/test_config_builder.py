@@ -65,7 +65,7 @@ models:
         def _raise_permission_error(*args, **kwargs):
             raise PermissionError(13, "Permission denied")
 
-        monkeypatch.setattr("dotenv.load_dotenv", _raise_permission_error)
+        monkeypatch.setattr("dotenv.dotenv_values", _raise_permission_error)
 
         builder = ConfigBuilder(str(config_file))
 
@@ -314,21 +314,21 @@ class TestRequiredConfig:
 
 
 class TestConfigFileShape:
-    @pytest.mark.parametrize("body", ["- a\n- b\n", "just a string\n", "42\n"])
-    def test_a_config_file_that_is_not_a_mapping_is_refused(self, tmp_path, body):
+    @pytest.mark.parametrize(
+        ("body", "message"),
+        [
+            ("- a\n- b\n", "Configuration file must contain a dictionary/mapping"),
+            ("just a string\n", "Configuration file must contain a dictionary/mapping"),
+            ("42\n", "Configuration file must contain a dictionary/mapping"),
+            ("execution: subprocess\n", "'execution' in .* must be a mapping, got str"),
+        ],
+        ids=["list", "string", "number", "non-mapping-execution-section"],
+    )
+    def test_a_config_file_of_the_wrong_shape_is_refused(self, tmp_path, body, message):
         config_file = tmp_path / "config.yml"
         config_file.write_text(body)
 
-        with pytest.raises(
-            ValueError, match="Configuration file must contain a dictionary/mapping"
-        ):
-            ConfigBuilder(str(config_file))
-
-    def test_a_non_mapping_execution_section_is_refused(self, tmp_path):
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("execution: subprocess\n")
-
-        with pytest.raises(ValueError, match="'execution' in .* must be a mapping, got str"):
+        with pytest.raises(ValueError, match=message):
             ConfigBuilder(str(config_file))
 
 

@@ -116,20 +116,23 @@ class CoreConfig:
 
     retry_give_up: float = 172800.0
     """Age (s) past which a queued entry that still cannot dispatch is abandoned
-    (an alert issue is filed instead of retrying forever). Default 48h."""
+    (a give-up notice is posted to the chat instead of retrying forever).
+    Default 48h."""
 
     retry_lifetime_cap: float = 604800.0
     """Hard ceiling (s) on how long any entry may live in the store before the
     drain reaps it regardless of status. Default 7d."""
 
-    # --- GitLab alerts (give-up issue filing; opt-in) -----------------------
+    # --- GitLab alerts (health-gate alert check; opt-in) ---------------------
     gitlab_url: str = ""
-    """Base URL of the GitLab instance used to file give-up issues. Empty means
-    the site has no alert host: no issues are filed and the health gate skips
-    its alert-issue check entirely."""
+    """Base URL of the GitLab instance the health gate asks for open
+    ``osprey-alert`` issues; while one is open, queued questions are held.
+    Empty means the site has no alert host: the health gate skips its
+    alert-issue check entirely."""
 
     gitlab_project: str = ""
-    """Project path (namespace/name) that give-up issues are filed against."""
+    """Project path (namespace/name) whose open ``osprey-alert`` issues the
+    health gate reads."""
 
     gitlab_issues_token: str = ""
     """Token for the GitLab issues API. Unprefixed shared secret (like

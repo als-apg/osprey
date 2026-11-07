@@ -30,9 +30,9 @@ Do NOT ask follow-up questions after this unless the operator response is ambigi
 
 ## Phase 2 — Inventory & Structure
 
-### 2a. Call `session_summary`
+### 2a. Call `artifact_list(scope="session", last_n=200)`
 
-Use the `session_summary` MCP tool to get a compact inventory of all data context entries and artifacts in the workspace. This tells you exactly what data is available.
+It lists this session's artifacts: titles, forms, tools, and the `channels` each row carries — take the channels from those rows. If `omitted > 0`, the inventory is partial; say so in the report.
 
 ### 2b. Draft dynamic structure
 
@@ -63,7 +63,7 @@ If the structure includes charts and the inventory shows timeseries data, call `
 Spawn a **Task subagent** to generate the report. Pass it:
 
 1. **Intent** — the operator's chosen intent
-2. **Inventory** — the `session_summary` output
+2. **Inventory** — the `artifact_list` output
 3. **Structure** — your drafted report structure
 4. **Chart data** — any `archiver_downsample` results (if applicable)
 5. **Conversation context** — key observations and findings from this session

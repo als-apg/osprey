@@ -458,6 +458,7 @@ def test_equality_cannot_borrow_another_channels_provider(pvaccess):
     assert trusted.put(1.0) == "put-ok"
 
 
+@pytest.mark.usefixtures("earlier_garbage_frozen")
 def test_the_record_of_a_pva_channel_does_not_keep_it_alive(pvaccess):
     """Trust is held weakly: a script that drops its channels does not leak
     them into the block, and the identity check keeps a later object that
@@ -702,10 +703,11 @@ def test_armed_rejects_the_readonly_keywords():
         raw_put_block.install("armed", eager_targets=(), deferred_targets=(), refusal="x")
 
 
-def test_readonly_rejects_the_armed_keywords():
+@pytest.mark.parametrize("mode", ["readonly", "no_client"])
+def test_a_mode_without_a_client_rejects_the_armed_keywords(mode):
     with pytest.raises(TypeError):
         raw_put_block.install(
-            "readonly",
+            mode,
             blocked_targets=(),
             rpc_targets=(),
             refuse_rpc=False,
@@ -721,18 +723,6 @@ _NO_CLIENT_KEYWORDS = {
     "loader_targets": (),
     "marker": "x",
 }
-
-
-def test_no_client_rejects_the_armed_keywords():
-    with pytest.raises(TypeError):
-        raw_put_block.install(
-            "no_client",
-            blocked_targets=(),
-            rpc_targets=(),
-            refuse_rpc=False,
-            marker="x",
-            rpc_refusals={},
-        )
 
 
 def test_armed_rejects_the_no_client_keywords():

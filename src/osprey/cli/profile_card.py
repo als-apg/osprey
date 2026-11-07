@@ -417,16 +417,22 @@ def _render_config(profile: BuildProfile, delta: Mapping[str, Any] | None = None
 def _registry_context(profile: BuildProfile, rendered: Mapping[str, Any]) -> dict[str, Any]:
     """The context :func:`~osprey.registry.mcp.resolve_servers` gates on, for one render.
 
-    The two config-derived gates are the render's own predicates, imported
-    rather than restated, so the card and the render cannot disagree about
-    whether a render ships the ``graph`` or the ``event_dispatcher`` server.
+    The config-derived gates are the render's own predicates, imported rather
+    than restated, so the card and the render cannot disagree about whether a
+    render ships the ``graph`` or the ``event_dispatcher`` server, or a server
+    derived from a sidecar panel (listed when that render's ``web.panels``
+    block for the panel is enabled).
     """
-    from osprey.deployment.web_terminals.roster import config_needs_dispatcher_token
+    from osprey.deployment.web_terminals.roster import (
+        config_declares_panel,
+        config_needs_dispatcher_token,
+    )
 
     from .profile_conventions import library_selection
-    from .templates.claude_code import _graphdb_configured
+    from .templates.claude_code import _graphdb_configured, panel_declared_context
 
     ctx: dict[str, Any] = {
+        **panel_declared_context(lambda panel_id: config_declares_panel(rendered, panel_id)),
         "graphdb_configured": _graphdb_configured(dict(rendered)),
         "event_dispatcher_wired": config_needs_dispatcher_token(rendered),
     }

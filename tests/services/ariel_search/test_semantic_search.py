@@ -106,23 +106,37 @@ class TestSettings:
         assert settings.similarity_threshold == float(value)
         assert isinstance(settings.similarity_threshold, float)
 
-    @pytest.mark.parametrize("bad", ["0.8", None, [], {}])
-    def test_malformed_threshold_is_refused(self, bad):
-        with pytest.raises(
-            ValueError, match="search_modules.semantic.settings.similarity_threshold"
-        ):
-            SemanticSearchSettings.from_ariel_config(make_config({"similarity_threshold": bad}))
-
-    @pytest.mark.parametrize("bad", [True, False])
-    def test_boolean_threshold_is_refused(self, bad):
-        with pytest.raises(
-            ValueError, match="search_modules.semantic.settings.similarity_threshold"
-        ):
-            SemanticSearchSettings.from_ariel_config(make_config({"similarity_threshold": bad}))
-
-    @pytest.mark.parametrize("bad", [-0.1, 1.5, -1, 2])
-    def test_out_of_range_threshold_is_refused(self, bad):
-        with pytest.raises(ValueError, match=r"must be a float in \[0, 1\]"):
+    @pytest.mark.parametrize(
+        ("bad", "match"),
+        [
+            pytest.param(
+                "0.8",
+                "search_modules.semantic.settings.similarity_threshold",
+                id="malformed-string",
+            ),
+            pytest.param(
+                None, "search_modules.semantic.settings.similarity_threshold", id="malformed-none"
+            ),
+            pytest.param(
+                [], "search_modules.semantic.settings.similarity_threshold", id="malformed-list"
+            ),
+            pytest.param(
+                {}, "search_modules.semantic.settings.similarity_threshold", id="malformed-dict"
+            ),
+            pytest.param(
+                True, "search_modules.semantic.settings.similarity_threshold", id="boolean-true"
+            ),
+            pytest.param(
+                False, "search_modules.semantic.settings.similarity_threshold", id="boolean-false"
+            ),
+            pytest.param(-0.1, r"must be a float in \[0, 1\]", id="out-of-range-negative-float"),
+            pytest.param(1.5, r"must be a float in \[0, 1\]", id="out-of-range-high-float"),
+            pytest.param(-1, r"must be a float in \[0, 1\]", id="out-of-range-negative-int"),
+            pytest.param(2, r"must be a float in \[0, 1\]", id="out-of-range-high-int"),
+        ],
+    )
+    def test_an_unusable_threshold_is_refused(self, bad, match):
+        with pytest.raises(ValueError, match=match):
             SemanticSearchSettings.from_ariel_config(make_config({"similarity_threshold": bad}))
 
     def test_settings_are_frozen(self):
@@ -140,18 +154,29 @@ class TestThresholdResolution:
     """What :func:`semantic_search` hands the repository."""
 
     @pytest.mark.asyncio
-    async def test_explicit_argument_wins_over_config(
-        self, mock_repository, mock_embedder, search_calls
+    @pytest.mark.parametrize(
+        ("config_threshold", "explicit"),
+        [
+            pytest.param(0.8, 0.3, id="wins-over-config"),
+            # A caller that named the threshold never reaches the config block, so
+            # a malformed one does not fail a query that had no use for it. The
+            # deployment-wide answer to a malformed block is startup validation,
+            # not a per-query surprise on the one path that already has a value.
+            pytest.param("high", 0.4, id="short-circuits-a-malformed-config-block"),
+        ],
+    )
+    async def test_explicit_argument_is_what_reaches_the_repository(
+        self, mock_repository, mock_embedder, search_calls, config_threshold, explicit
     ):
         await semantic_search(
             "test",
             mock_repository,
-            make_wired_config({"similarity_threshold": 0.8}),
+            make_wired_config({"similarity_threshold": config_threshold}),
             mock_embedder,
-            similarity_threshold=0.3,
+            similarity_threshold=explicit,
             search_calls=search_calls,
         )
-        assert mock_repository.semantic_search.call_args.kwargs["similarity_threshold"] == 0.3
+        assert mock_repository.semantic_search.call_args.kwargs["similarity_threshold"] == explicit
 
     @pytest.mark.asyncio
     async def test_config_value_is_used_without_an_argument(
@@ -195,24 +220,6 @@ class TestThresholdResolution:
         mock_repository.semantic_search.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_explicit_argument_short_circuits_the_config_block(
-        self, mock_repository, mock_embedder, search_calls
-    ):
-        # A caller that named the threshold never reaches the config block, so
-        # a malformed one does not fail a query that had no use for it. The
-        # deployment-wide answer to a malformed block is startup validation,
-        # not a per-query surprise on the one path that already has a value.
-        await semantic_search(
-            "test",
-            mock_repository,
-            make_wired_config({"similarity_threshold": "high"}),
-            mock_embedder,
-            similarity_threshold=0.4,
-            search_calls=search_calls,
-        )
-        assert mock_repository.semantic_search.call_args.kwargs["similarity_threshold"] == 0.4
-
-    @pytest.mark.asyncio
     async def test_empty_query_returns_before_parsing(
         self, mock_repository, mock_embedder, search_calls
     ):
@@ -226,6 +233,79 @@ class TestThresholdResolution:
             search_calls=search_calls,
         )
         assert result == []
+
+
+class TestEntryFilter:
+    """The dimension filter is forwarded to SQL; the return shape is C-MODOUT."""
+
+    @staticmethod
+    def _filter():
+        from osprey.services.ariel_search.filters import BUILTIN_DIMENSIONS, EntryFilter
+
+        return EntryFilter.parse({"author": ["alice"]}, BUILTIN_DIMENSIONS)
+
+    @pytest.mark.asyncio
+    async def test_filter_reaches_the_repository_beside_legacy_filters(
+        self, mock_repository, mock_embedder, search_calls
+    ):
+        from osprey.services.ariel_search.search.base import ModuleOutput
+
+        flt = self._filter()
+        mock_repository.semantic_search = AsyncMock(return_value=[({"entry_id": "e1"}, 0.9)])
+
+        out = await semantic_search(
+            "test",
+            mock_repository,
+            make_wired_config(),
+            mock_embedder,
+            author="ali",
+            entry_filter=flt,
+            offset=0,
+            search_calls=search_calls,
+        )
+
+        kwargs = mock_repository.semantic_search.call_args.kwargs
+        assert kwargs["entry_filter"] is flt
+        assert kwargs["author"] == "ali"
+        assert isinstance(out, ModuleOutput)
+        assert out.filter_applied is True
+        assert out.entries == [({"entry_id": "e1"}, 0.9)]
+
+    @pytest.mark.asyncio
+    async def test_offset_alone_returns_module_output(
+        self, mock_repository, mock_embedder, search_calls
+    ):
+        from osprey.services.ariel_search.search.base import ModuleOutput
+
+        out = await semantic_search(
+            "test",
+            mock_repository,
+            make_wired_config(),
+            mock_embedder,
+            offset=0,
+            search_calls=search_calls,
+        )
+
+        assert isinstance(out, ModuleOutput)
+        assert out.filter_applied is False
+        assert "entry_filter" not in mock_repository.semantic_search.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_direct_call_keeps_the_bare_list(
+        self, mock_repository, mock_embedder, search_calls
+    ):
+        out = await semantic_search(
+            "test", mock_repository, make_wired_config(), mock_embedder, search_calls=search_calls
+        )
+
+        assert out == []
+
+    def test_descriptor_accepts_filter_and_offset(self):
+        from osprey.services.ariel_search.search.semantic import get_tool_descriptor
+
+        descriptor = get_tool_descriptor()
+        assert descriptor.accepts_entry_filter is True
+        assert descriptor.accepts_offset is True
 
 
 class TestEmbeddingTimeout:
@@ -261,12 +341,13 @@ class TestEmbeddingTimeout:
         self, monkeypatch, mock_repository, mock_embedder, search_calls
     ):
         from osprey.services.ariel_search.exceptions import SearchTimeoutError
-        from osprey.services.ariel_search.search import semantic
+        from osprey.services.ariel_search.search._offload import SearchCallPool
 
         async def saturated(*_args, **_kwargs):
             raise TimeoutError("search calls saturated: 4 calls still running")
 
-        monkeypatch.setattr(semantic, "run_search_call", saturated)
+        search_calls = SearchCallPool()
+        monkeypatch.setattr(search_calls, "run", saturated)
 
         with pytest.raises(SearchTimeoutError, match="search calls saturated") as raised:
             await semantic_search(

@@ -70,17 +70,19 @@ class TestMemberOf:
         ao = _ao(SR={"F": {"Value": _field(tags)}})
         assert vote_directions(ao)[("F", "Value")].direction == direction
 
-    def test_word_is_matched_whole_not_as_substring(self):
-        """``Monitoring`` is not the word ``Monitor``; the name grammar decides."""
-        ao = _ao(SR={"F": {"Setpoint": _field(["Monitoring"])}})
+    @pytest.mark.parametrize(
+        ("tags", "direction", "source"),
+        [
+            # ``Monitoring`` is not the word ``Monitor``; the name grammar decides.
+            pytest.param(["Monitoring"], "write", "grammar", id="word-matched-whole"),
+            # A ``Monitor`` tag on a field named ``...Setpoint`` reads.
+            pytest.param(["Monitor"], "read", "memberof", id="tags-win-over-field-name"),
+        ],
+    )
+    def test_the_vote_names_the_source_that_decided_it(self, tags, direction, source):
+        ao = _ao(SR={"F": {"Setpoint": _field(tags)}})
         vote = vote_directions(ao)[("F", "Setpoint")]
-        assert (vote.direction, vote.source) == ("write", "grammar")
-
-    def test_tags_win_over_field_name(self):
-        """A ``Monitor`` tag on a field named ``...Setpoint`` reads."""
-        ao = _ao(SR={"F": {"Setpoint": _field(["Monitor"])}})
-        vote = vote_directions(ao)[("F", "Setpoint")]
-        assert (vote.direction, vote.source) == ("read", "memberof")
+        assert (vote.direction, vote.source) == (direction, source)
 
     def test_conflicting_tags_do_not_fall_through_to_grammar(self):
         """Tags naming both directions stay undecided even when the name has a suffix."""

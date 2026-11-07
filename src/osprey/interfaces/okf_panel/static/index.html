@@ -15,6 +15,9 @@
   <!-- Design system tokens (shared across every OSPREY interface) -->
   <link rel="stylesheet" href="/design-system/css/tokens.css" />
   <link rel="stylesheet" href="/design-system/css/base.css" />
+  <!-- Primitives: the panel toolbar, its chip and search field, the panel
+       sidebar and the centred states (section "Panel chrome"). -->
+  <link rel="stylesheet" href="/design-system/css/primitives.css" />
 
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="/static/fonts/fonts.css" />
@@ -25,50 +28,73 @@
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <div id="app">
-    <aside id="sidebar">
-      <osprey-display-menu></osprey-display-menu>
-      <div id="search-box">
-        <form id="search-form" autocomplete="off">
-          <input
-            id="search-input"
-            type="search"
-            name="q"
-            placeholder="Search concepts…"
-            aria-label="Search concepts"
-          />
-        </form>
+  <!-- #app is the panel root: the size container the toolbar's search field
+       and the sidebar's narrow overlay query (data-panel-root). -->
+  <div id="app" data-panel-root>
+    <!-- The panel toolbar (js/toolbar.js): the contents toggle, the breadcrumb,
+         the bundle-health chip and the search field. -->
+    <header class="osprey-panel-toolbar okf-toolbar">
+      <div class="osprey-panel-toolbar__start">
+        <!-- js/contents.js (panel-sidebar.js) gives it its icon and state. -->
+        <button id="contents-toggle" class="osprey-icon-btn" type="button"
+                aria-controls="sidebar" aria-expanded="false"
+                aria-label="Show sidebar" title="Show sidebar"></button>
+        <nav id="crumb" class="osprey-crumb" aria-label="Breadcrumb">
+          <span class="osprey-crumb-leaf" aria-current="page">Browse</span>
+        </nav>
       </div>
-      <div id="structure-nav">
-        <a id="structure-link" class="structure-link" href="#__structure">
-          Knowledge Base
+      <div class="osprey-panel-toolbar__end">
+        <!-- Bundle health (osprey addition): the /api/bundle_health check of
+             the served bundle. It opens the issues behind its label. -->
+        <button id="bundle-health" class="osprey-chip osprey-chip--connecting"
+                type="button" title="Bundle health" aria-live="polite" disabled>
+          <span class="osprey-chip-label">Checking bundle</span>
+        </button>
+        <label class="osprey-search-field">
+          <input id="search-input" type="search" name="q" autocomplete="off"
+                 placeholder="Search concepts…" aria-label="Search concepts" />
+        </label>
+      </div>
+    </header>
+    <div class="okf-body">
+      <!-- The contents list (js/contents.js). data-open="false": the first
+           paint never shows a list the boot is about to hide; the overview
+           needs none, and a page opens it. -->
+      <aside id="sidebar" class="osprey-panel-sidebar" data-open="false"
+             aria-label="Contents">
+        <a id="structure-link" class="osprey-nav-row structure-link" href="#__structure">
+          <span class="structure-title">Knowledge Base</span>
           <span class="structure-sub">structure overview</span>
         </a>
-      </div>
-      <nav id="tree" aria-label="Concept tree"></nav>
-      <div id="search-results" hidden aria-label="Search results"></div>
-      <!-- Bundle-health status line (osprey addition): reflects /api/bundle_health
-           — broken cross-links / frontmatter issues for the served bundle. -->
-      <footer id="bundle-health" class="bundle-health" hidden aria-live="polite"></footer>
-    </aside>
-    <!-- Draggable splitter between sidebar and reader (js/resize.js). Same
-         grip-pill idiom as the hub's dockview sashes; Arrow keys nudge it. -->
-    <div id="sidebar-resizer" class="osprey-splitter" role="separator"
-         aria-orientation="vertical" aria-label="Resize sidebar"
-         tabindex="0"></div>
-    <main id="reader">
-      <div id="reader-content">
-        <p class="muted">Loading knowledge base…</p>
-      </div>
-    </main>
+        <nav id="tree" aria-label="Concept tree"></nav>
+        <div id="search-results" hidden aria-label="Search results"></div>
+      </aside>
+      <!-- The contents list's divider: the shared splitter, driven by
+           panel-sidebar.js. Arrow keys nudge it. -->
+      <div id="sidebar-resizer" class="osprey-splitter" role="separator"
+           aria-orientation="vertical" aria-label="Resize sidebar"
+           tabindex="0"></div>
+      <main id="reader">
+        <div id="reader-content">
+          <div class="osprey-state" role="status">
+            <p class="osprey-state-message">Loading the knowledge base</p>
+          </div>
+        </div>
+      </main>
+    </div>
   </div>
   <!-- marked must load before app.js (app.js calls marked.parse).
        Provenance: marked v12.0.2 (MIT), https://github.com/markedjs/marked —
        vendored verbatim; the pinned file carries its own license header. -->
   <script src="/static/vendor/marked.min.js"></script>
+  <!-- DOMPurify must load before app.js too: bundle markdown is files an agent
+       can write, so app.js writes marked's output only through
+       DOMPurify.sanitize. The CDN copy by default, the copy `osprey vendor
+       fetch` places in static/vendor/ when the deployment is offline. -->
+  <script src="{{ vendor_url('DOMPurify', '/static/vendor/purify.min.js') }}"></script>
   <!-- ES module: imports the theme-manager follower + shared dom helpers.
-       Deferred by nature, so it runs after the non-module marked script above
-       (marked stays a global). -->
+       Deferred by nature, so it runs after the non-module scripts above
+       (marked and DOMPurify stay globals). -->
   <script type="module" src="/static/js/app.js"></script>
 </body>
 </html>

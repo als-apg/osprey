@@ -123,13 +123,14 @@ def _result(
     total_cost_usd: float | None = 0.01,
     duration_ms: int = 1200,
     num_turns: int = 1,
+    session_id: str = "sdk-session",
 ) -> ResultEvent:
     return ResultEvent(
         subtype="success",
         is_error=is_error,
         num_turns=num_turns,
         duration_ms=duration_ms,
-        session_id="sdk-session",
+        session_id=session_id,
         total_cost_usd=total_cost_usd,
         usage=None,
         result=None,
@@ -202,6 +203,7 @@ class TestEventToWire:
         assert ev["total_cost_usd"] == 0.05
         assert ev["duration_ms"] == 3000
         assert ev["num_turns"] == 2
+        assert ev["session_id"] == "sdk-session"
 
     def test_frames_keep_their_key_order(self):
         frames = [
@@ -865,6 +867,29 @@ class TestOperatorSession:
 
         assert captured[0].setting_sources == ["project"]
         await session.stop()
+
+    @pytest.mark.asyncio
+    async def test_start_warns_loudly_when_the_cli_drops_the_allow_list(self, tmp_path, caplog):
+        """Still untrusted after the startup seed: every read-only tool would reach the card."""
+        session = OperatorSession(cwd=str(tmp_path))
+        with sdk_seam() as captured:
+            await session.start()
+        try:
+            sink = captured[0].stderr
+            assert sink is not None
+            caplog.clear()
+            with caplog.at_level(logging.WARNING):
+                sink("Some other CLI line")
+                sink(
+                    "Ignoring 98 permissions.allow entries from .claude/settings.json: this "
+                    "workspace has not been trusted. Run Claude Code interactively here once."
+                )
+            warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+            assert len(warnings) == 1
+            assert str(tmp_path) in warnings[0]
+            assert "hasTrustDialogAccepted" in warnings[0]
+        finally:
+            await session.stop()
 
     @pytest.mark.asyncio
     async def test_start_requires_sdk(self):
@@ -2422,6 +2447,7 @@ class TestOperatorChatLaunchParity:
             cli_path=STUB_AGENT_CLI,
             include_partial_messages=True,
             can_use_tool=session._can_use_tool,
+            stderr=session._record_stderr,
             # The stub CLI takes --thinking-display, so the launch passes the
             # default display.
             extra_args={"thinking-display": "summarized"},

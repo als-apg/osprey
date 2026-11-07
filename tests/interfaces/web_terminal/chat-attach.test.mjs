@@ -477,7 +477,7 @@ describe('sending', () => {
     const m = await mount();
     m.textarea.disabled = true;
     choose(m, [file('late.txt', 10, TEXT_TYPE)]);
-    expect(statusOf(m)).toMatch(/once the agent has finished/);
+    expect(statusOf(m)).toMatch(/once the session has switched here/);
 
     m.textarea.disabled = false;
     await flush();

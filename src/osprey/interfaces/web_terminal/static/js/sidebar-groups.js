@@ -1,24 +1,37 @@
 // @ts-check
 /* OSPREY Web Terminal — the sidebar's groups
  *
- * The sidebar sorts its panel rows into named groups. Two are built in,
- * `workspace` ("Workspace") and `tools` ("Tools"); an operator can rename
- * them, add groups of their own, move any group up or down the sidebar, and
- * delete the groups they added. Every row except the Agent row can move to
- * another group. The Agent row is always the first row of the first group,
- * because the Agent pane is the anchor of the workspace.
+ * The sidebar sorts its panel rows into named groups. Three are built in,
+ * `workspace` ("Sessions"), `tools` ("Apps") and `system` ("System"); an
+ * operator can rename Apps and System, add groups of their own, move those
+ * groups up or down the sidebar, and delete the groups they added. Every row
+ * except the Agent row can move to another group. The Agent row is always the
+ * first row of the first group, because the Agent pane is the anchor of the
+ * workspace.
+ *
+ * HEADLESS. The `workspace` group holds the Agent row and its session tree,
+ * and it has no heading: it is always the first group, it is never renamed,
+ * moved or folded, and nothing moves above it. Its name, "Sessions", is its
+ * accessible name and what the rows' "Move to" menus call it; a row moves
+ * into it from there, or by a drag above the next group's heading. A stored
+ * value that names it otherwise, or places it lower, is read with its name
+ * and place restored, without a version change: the next change stores it so.
  *
  * MODEL. The groups are the operator's own arrangement, so they live in this
  * browser, per user, and never on the server. One JSON value is stored under
  * `scopedStorageKey('osprey-sidebar-groups')`:
  *
- *   { version: 1,
+ *   { version: 3,
  *     groups: [{ id, label }, …],         in sidebar order; an id is
- *                                         `workspace`, `tools` or `g-<8 hex>`
+ *                                         `workspace`, `tools`, `system` or `g-<8 hex>`
  *     placement: { <panel id>: <group id> } }
  *
  * A panel with no placement sits where the sidebar has always put it:
- * Artifacts and Events in Workspace, every other panel in Tools. Within a
+ * Artifacts in Workspace, Events and Health in System, every other panel in
+ * Apps. A value of an older version has System added when it lacks it,
+ * and loses its placements of Events and Health: they were never placed with
+ * System to choose, so both go to System. Its other placements and groups
+ * stay, and a move made on the current version sticks. Within a
  * group the rows keep the server's rail order (panel-rail.js), so a group
  * filters the rail and never reorders it. A stored value without this shape
  * reads as the default, and the next change overwrites it. The value is read
@@ -30,30 +43,31 @@
  * listeners; panel-rail.js listens and moves the rows into their groups.
  *
  * HEADINGS. Each group's heading (`.osprey-section-label`) holds its name
- * (`span.sidebar-group-name`, also the group's accessible name) and a ⋯
- * button (`button.osprey-mini[data-group-menu]`, shown on hover and on focus)
- * that opens the group's menu: Rename, New group below, Move up, Move down,
- * and Delete group for a group the operator added. The menu is one
- * body-level `.osprey-popover[role=menu]` (`#sidebar-group-menu`), placed
- * beside the sidebar and dismissed by the design system's popover.js. Rename
+ * (`span.sidebar-group-name`, also the group's accessible name). A
+ * right-click anywhere across the heading's full width, or Shift+F10 / the
+ * menu key on its focused name, opens the group's menu: Rename, New group
+ * below, Move up, Move down, and Delete group for a group the operator added.
+ * The menu is the hub's shared context menu (panel-context-menu.js). Rename
  * swaps the name for a text field in place: Enter, or leaving the field,
  * keeps the new name; Escape keeps the old one, and so does an empty name.
  */
 
-import { icon } from '/design-system/js/icons.js';
-import { closePopover, openPopover } from '/design-system/js/popover.js';
+import { isContextMenuKey } from '/design-system/js/context-menu.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
+import { openContextMenu } from './panel-context-menu.js';
+
+/** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
 
 /**
  * @typedef {object} SidebarGroup
- * @property {string} id - `workspace`, `tools`, or `g-` and eight hex digits
+ * @property {string} id - `workspace`, `tools`, `system`, or `g-` and eight hex digits
  * @property {string} label - what the heading shows: 1 to 40 characters, trimmed
  */
 
 /**
  * @typedef {object} GroupsModel
- * @property {1} version
+ * @property {3} version
  * @property {SidebarGroup[]} groups - in sidebar order
  * @property {Record<string, string>} placement - panel id → group id
  */
@@ -64,25 +78,47 @@ export const GROUPS_STORAGE_KEY = 'osprey-sidebar-groups';
 /** The name a group made from a menu has until the operator renames it. */
 export const NEW_GROUP_LABEL = 'New group';
 
-const MODEL_VERSION = 1;
+const MODEL_VERSION = 3;
+
+/** The oldest version still read. Values older than the current one are
+ *  migrated once, on read; the next change writes the current version, and
+ *  from then on moves stick. Version 2 is migrated too, since builds wrote it
+ *  while Events and Health could still sit outside System by an old default. */
+const OLDEST_VERSION = 1;
 
 /** The longest group name, in characters. */
 const MAX_LABEL_LENGTH = 40;
 
 /** The built-in groups, in their default order. */
 const BUILTIN_GROUPS = Object.freeze([
-  Object.freeze({ id: 'workspace', label: 'Workspace' }),
-  Object.freeze({ id: 'tools', label: 'Tools' }),
+  Object.freeze({ id: 'workspace', label: 'Sessions' }),
+  Object.freeze({ id: 'tools', label: 'Apps' }),
+  Object.freeze({ id: 'system', label: 'System' }),
 ]);
 
+/** Built-ins added after version 1 shipped; a stored model without one gets it appended. */
+const ADDED_LATER = Object.freeze(['system']);
+
 /** Where a panel goes when nothing else places it, and where the panels of a deleted group go. */
-const FALLBACK_GROUP = 'tools';
+export const FALLBACK_GROUP = 'tools';
 
 /** The panels that sit in Workspace until the operator moves them. */
-const DEFAULT_WORKSPACE = Object.freeze(['artifacts', 'events']);
+const DEFAULT_WORKSPACE = Object.freeze(['artifacts']);
+
+/** The panels that sit in System until the operator moves them. */
+const DEFAULT_SYSTEM = Object.freeze(['events', 'system-health']);
 
 /** The id of a group the operator added. */
 const CUSTOM_ID = /^g-[0-9a-f]{8}$/;
+
+/** The group with no heading: always first, never renamed, moved or folded. */
+export const HEADLESS_GROUP = 'workspace';
+
+/** The name the headless group always has. */
+const HEADLESS_LABEL = 'Sessions';
+
+/** The tools group's default name before it was Apps; a saved layout may hold it. */
+const OLD_TOOLS_LABEL = 'Tools';
 
 // ---- Model ----
 
@@ -94,6 +130,15 @@ const CUSTOM_ID = /^g-[0-9a-f]{8}$/;
  */
 export function isBuiltinGroup(id) {
   return BUILTIN_GROUPS.some((group) => group.id === id);
+}
+
+/**
+ * Whether `id` names the group that has no heading (the Agent row's group).
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function isHeadlessGroup(id) {
+  return id === HEADLESS_GROUP;
 }
 
 /**
@@ -122,11 +167,12 @@ function emptyPlacement() {
  * @returns {string}
  */
 function defaultGroupOf(panelId) {
+  if (DEFAULT_SYSTEM.includes(panelId)) return 'system';
   return DEFAULT_WORKSPACE.includes(panelId) ? 'workspace' : FALLBACK_GROUP;
 }
 
 /**
- * The model of a first visit: the two built-in groups, and each named panel
+ * The model of a first visit: the three built-in groups, and each named panel
  * placed where the sidebar puts it by default. The Agent row has no
  * placement, since it is always first in the first group.
  * @param {string[]} [panelIds]
@@ -145,8 +191,8 @@ export function defaultModel(panelIds = []) {
 }
 
 /**
- * `value` as a model, or null when it is not one. A model is version 1; its
- * groups have unique, well-formed ids, clean names, and the two built-ins
+ * `value` as a model, or null when it is not one. A model is the current version, or an older one (migrated); its
+ * groups have unique, well-formed ids, clean names, and the built-ins (System is added when missing)
  * among them; every placement names one of those groups.
  * @param {unknown} value
  * @returns {GroupsModel | null} a fresh copy
@@ -154,7 +200,8 @@ export function defaultModel(panelIds = []) {
 function validModel(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const { version, groups, placement } = /** @type {Record<string, unknown>} */ (value);
-  if (version !== MODEL_VERSION || !Array.isArray(groups)) return null;
+  if (typeof version !== 'number' || !Number.isInteger(version)) return null;
+  if (version < OLDEST_VERSION || version > MODEL_VERSION || !Array.isArray(groups)) return null;
   /** @type {Set<string>} */
   const ids = new Set();
   /** @type {SidebarGroup[]} */
@@ -166,13 +213,27 @@ function validModel(value) {
     if (!isBuiltinGroup(id) && !CUSTOM_ID.test(id)) return null;
     if (typeof label !== 'string' || !label || cleanLabel(label) !== label) return null;
     ids.add(id);
-    copy.push({ id, label });
+    if (id === 'tools' && label === OLD_TOOLS_LABEL) copy.push({ id, label: 'Apps' });
+    else copy.push({ id, label: isHeadlessGroup(id) ? HEADLESS_LABEL : label });
   }
-  if (!BUILTIN_GROUPS.every((group) => ids.has(group.id))) return null;
+  for (const group of BUILTIN_GROUPS) {
+    if (ids.has(group.id)) continue;
+    if (!ADDED_LATER.includes(group.id)) return null;
+    ids.add(group.id);
+    copy.push({ id: group.id, label: group.label });
+  }
+  // The headless group heads the sidebar, wherever an older value put it.
+  const headless = copy.findIndex((group) => isHeadlessGroup(group.id));
+  copy.unshift(...copy.splice(headless, 1));
   if (!placement || typeof placement !== 'object' || Array.isArray(placement)) return null;
   const places = emptyPlacement();
+  // An older value placed Events and Health without System to choose (or
+  // with System not yet their default), so those placements are dropped and
+  // both panels follow the current default, System.
+  const migrate = version < MODEL_VERSION;
   for (const [panelId, groupId] of Object.entries(placement)) {
     if (typeof groupId !== 'string' || !ids.has(groupId)) return null;
+    if (migrate && DEFAULT_SYSTEM.includes(panelId)) continue;
     places[panelId] = groupId;
   }
   return { version: MODEL_VERSION, groups: copy, placement: places };
@@ -298,19 +359,24 @@ export function moveToGroup(panelId, groupId) {
   if (panelId === TERMINAL_RAIL_ID || groupOf(panelId) === groupId) return false;
   const model = loadGroups();
   if (!model.groups.some((group) => group.id === groupId)) return false;
-  model.placement[panelId] = groupId;
+  // Only a move away from the default is a choice worth storing, so a later
+  // change of default reaches a panel that sits where the default put it.
+  if (groupId === defaultGroupOf(panelId)) delete model.placement[panelId];
+  else model.placement[panelId] = groupId;
   commit(model);
   return true;
 }
 
 /**
  * Rename a group. The name is trimmed and cut to 40 characters, and a name
- * that is empty after the trim keeps the old one.
+ * that is empty after the trim keeps the old one. The headless group keeps
+ * its name.
  * @param {string} id
  * @param {string} label
  * @returns {boolean} whether the name changed
  */
 export function renameGroup(id, label) {
+  if (isHeadlessGroup(id)) return false;
   const model = loadGroups();
   const group = model.groups.find((g) => g.id === id);
   const clean = cleanLabel(label);
@@ -353,7 +419,7 @@ export function addGroup(label, afterId) {
 }
 
 /**
- * Delete a group the operator added. Its panels go back to Tools. A built-in
+ * Delete a group the operator added. Its panels go back to Apps. A built-in
  * group is never deleted.
  * @param {string} id
  * @returns {boolean} whether the group was deleted
@@ -372,7 +438,8 @@ export function removeGroup(id) {
 }
 
 /**
- * Move a group one place up or down the sidebar.
+ * Move a group one place up or down the sidebar. The headless group never
+ * moves, and no group moves above it.
  * @param {string} id
  * @param {'up' | 'down'} dir
  * @returns {boolean} whether the group moved (not past either end)
@@ -382,6 +449,7 @@ export function reorderGroup(id, dir) {
   const at = model.groups.findIndex((group) => group.id === id);
   const to = dir === 'up' ? at - 1 : at + 1;
   if (at < 0 || to < 0 || to >= model.groups.length) return false;
+  if (isHeadlessGroup(id) || isHeadlessGroup(model.groups[to].id)) return false;
   [model.groups[at], model.groups[to]] = [model.groups[to], model.groups[at]];
   commit(model);
   return true;
@@ -404,27 +472,20 @@ export function onGroupsChange(callback) {
 /** The class of a heading's name, which is also the group's accessible name. */
 const NAME_CLASS = 'sidebar-group-name';
 
-/** Marks the ⋯ button that opens a group's menu. */
-const MENU_BUTTON_ATTR = 'data-group-menu';
-
 /** The class of the field that renames a group in place. */
 const RENAME_CLASS = 'sidebar-group-rename';
 
-/** The body-level menu that every group's ⋯ button opens. */
-const MENU_ID = 'sidebar-group-menu';
-
-/** ⋯ buttons already wired, so a repaint never adds a second listener.
+/** Headings already wired, so a repaint never adds a second listener.
  *  @type {WeakSet<Element>} */
-const wiredMenuButtons = new WeakSet();
-
-/** The ⋯ button the group menu was last opened from. @type {Element | null} */
-let menuOpener = null;
+const wiredHeadings = new WeakSet();
 
 /**
  * Give a group element its heading: the `.osprey-section-label` that holds
- * the group's name and its ⋯ button. A heading the page shipped with both
- * parts is adopted as it is; any other heading gets both built. The group is
- * labelled by its name.
+ * the group's name. A heading the page shipped with its name is adopted as it
+ * is; any other heading gets one built. The group is labelled by its name;
+ * the headless group's heading is hidden, and names it all the same. A
+ * right-click anywhere on the heading, or Shift+F10 / the menu key while
+ * focus is in it, opens the group's menu.
  * @param {HTMLElement} groupEl - a `.sidebar-group[data-group]`
  * @param {SidebarGroup} group
  * @param {string} nameId - the id the name takes when it has none yet
@@ -441,55 +502,55 @@ export function paintGroupHeading(groupEl, group, nameId) {
   }
   heading.classList.add('sidebar-group-head');
   let name = /** @type {HTMLElement | null} */ (heading.querySelector(`.${NAME_CLASS}`));
-  let button = /** @type {HTMLButtonElement | null} */ (
-    heading.querySelector(`[${MENU_BUTTON_ATTR}]`)
-  );
-  if (!name || !button) {
+  if (!name) {
     name = document.createElement('span');
     name.className = NAME_CLASS;
-    button = buildMenuButton();
-    heading.replaceChildren(name, button);
+    heading.replaceChildren(name);
   }
   if (!name.id) name.id = nameId;
   name.textContent = group.label;
   groupEl.setAttribute('aria-labelledby', name.id);
-  button.setAttribute('aria-label', `${group.label} group options`);
-  button.setAttribute(
-    'data-tip-detail',
-    isBuiltinGroup(group.id) ? 'Rename or move this group' : 'Rename, move or delete this group'
-  );
-  if (!wiredMenuButtons.has(button)) {
-    wiredMenuButtons.add(button);
-    const opener = button;
-    opener.addEventListener('click', () => toggleGroupMenu(opener));
+  // A hidden name still names the group for assistive technology.
+  heading.hidden = isHeadlessGroup(group.id);
+  if (!wiredHeadings.has(heading)) {
+    wiredHeadings.add(heading);
+    wireHeading(heading);
   }
   return heading;
 }
 
-/** @returns {HTMLButtonElement} a group's ⋯ button, unlabelled */
-function buildMenuButton() {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'osprey-mini';
-  button.setAttribute(MENU_BUTTON_ATTR, '');
-  button.setAttribute('aria-haspopup', 'menu');
-  button.setAttribute('aria-expanded', 'false');
-  button.append(icon('more'));
-  return button;
-}
-
-/** @returns {HTMLElement} the group menu, made on first use */
-function groupMenu() {
-  let menu = document.getElementById(MENU_ID);
-  if (!menu) {
-    menu = document.createElement('div');
-    menu.id = MENU_ID;
-    menu.className = 'osprey-popover sidebar-group-menu';
-    menu.setAttribute('role', 'menu');
-    menu.hidden = true;
-    document.body.append(menu);
-  }
-  return menu;
+/**
+ * The group menu's listeners on a heading: a right-click anywhere on it, and
+ * Shift+F10 or the menu key while focus is in it (macOS fires no
+ * `contextmenu` for those keys, so they are handled here). A rename field
+ * keeps the browser's own menu, and so does the sidebar collapsed to icons,
+ * where a heading is a hairline.
+ * @param {HTMLElement} heading
+ */
+function wireHeading(heading) {
+  /** @param {Event} event @returns {{railEl: HTMLElement, id: string} | null} */
+  const targetOf = (event) => {
+    if (event.target instanceof Element && event.target.closest(`.${RENAME_CLASS}`)) return null;
+    if (document.documentElement.getAttribute('data-sidebar') === 'collapsed') return null;
+    const groupEl = heading.closest('.sidebar-group[data-group]');
+    const railEl = groupEl?.parentElement;
+    const id = groupEl?.getAttribute('data-group');
+    return railEl && id ? { railEl, id } : null;
+  };
+  heading.addEventListener('contextmenu', (event) => {
+    const at = targetOf(event);
+    if (at && openGroupMenu(at.railEl, at.id, event.clientX, event.clientY, heading)) {
+      event.preventDefault();
+    }
+  });
+  heading.addEventListener('keydown', (event) => {
+    if (!isContextMenuKey(event)) return;
+    const at = targetOf(event);
+    const rect = heading.getBoundingClientRect();
+    if (at && openGroupMenu(at.railEl, at.id, rect.left + 8, rect.bottom, heading)) {
+      event.preventDefault();
+    }
+  });
 }
 
 /**
@@ -505,124 +566,91 @@ function groupElement(railEl, groupId) {
 }
 
 /**
- * Put focus on a group's ⋯ button: after the menu changed that group, the
+ * Put focus on a group's name: after the menu changed that group, the
  * keyboard continues from the group it was working on.
  * @param {HTMLElement} railEl
  * @param {string} groupId
  */
-function focusMenuButton(railEl, groupId) {
+function focusGroupName(railEl, groupId) {
   /** @type {HTMLElement | null | undefined} */ (
-    groupElement(railEl, groupId)?.querySelector(`[${MENU_BUTTON_ATTR}]`)
+    groupElement(railEl, groupId)?.querySelector(`.${NAME_CLASS}`)
   )?.focus();
 }
 
 /**
- * Open the menu of the group that `button` heads, or close the menu when this
- * button opened it. A menu open from another group's button moves here.
- * @param {HTMLButtonElement} button
+ * Open a group's menu at a viewport position: Rename, New group below, Move
+ * up, Move down, and Delete group for a group the operator added. The
+ * headless group has no menu, and Move up stops below it.
+ * @param {HTMLElement} railEl - the rail the group's element is in
+ * @param {string} id
+ * @param {number} x
+ * @param {number} y
+ * @param {HTMLElement} [anchorEl] - the heading the menu belongs to
+ * @returns {boolean} whether the menu opened (not for an unknown or the headless group)
  */
-function toggleGroupMenu(button) {
-  const menu = groupMenu();
-  if (!menu.hidden && menuOpener === button) {
-    closePopover(menu);
-    return;
-  }
-  const groupEl = /** @type {HTMLElement | null} */ (button.closest('.sidebar-group[data-group]'));
-  const railEl = groupEl?.parentElement;
-  const id = groupEl?.getAttribute('data-group');
-  if (!railEl || !id) return;
+export function openGroupMenu(railEl, id, x, y, anchorEl) {
   const { groups } = loadGroups();
   const at = groups.findIndex((group) => group.id === id);
-  if (at < 0) return;
+  if (at < 0 || isHeadlessGroup(id)) return false;
 
-  /** @type {HTMLElement[]} */
-  const rows = [
-    menuItem('Rename', () => {
-      startGroupRename(railEl, id);
-    }),
-    menuItem('New group below', () => {
-      startGroupRename(railEl, addGroup(NEW_GROUP_LABEL, id));
-    }),
-    menuItem(
-      'Move up',
-      () => {
+  /** @type {MenuItem[]} */
+  const items = [
+    { label: 'Rename', run: () => startGroupRename(railEl, id) },
+    {
+      label: 'New group below',
+      run: () => startGroupRename(railEl, addGroup(NEW_GROUP_LABEL, id)),
+    },
+    {
+      label: 'Move up',
+      disabled: at === 0 || isHeadlessGroup(groups[at - 1].id),
+      run: () => {
         reorderGroup(id, 'up');
-        focusMenuButton(railEl, id);
+        focusGroupName(railEl, id);
       },
-      { disabled: at === 0 }
-    ),
-    menuItem(
-      'Move down',
-      () => {
+    },
+    {
+      label: 'Move down',
+      disabled: at === groups.length - 1,
+      run: () => {
         reorderGroup(id, 'down');
-        focusMenuButton(railEl, id);
+        focusGroupName(railEl, id);
       },
-      { disabled: at === groups.length - 1 }
-    ),
+    },
   ];
   if (!isBuiltinGroup(id)) {
-    const sep = document.createElement('div');
-    sep.className = 'osprey-popover-sep';
-    sep.setAttribute('role', 'separator');
-    rows.push(
-      sep,
-      menuItem(
-        'Delete group',
-        () => {
+    items.push(
+      { divider: true },
+      {
+        label: 'Delete group',
+        danger: true,
+        run: () => {
           removeGroup(id);
-          focusMenuButton(railEl, FALLBACK_GROUP);
+          focusGroupName(railEl, FALLBACK_GROUP);
         },
-        { danger: true }
-      )
+      }
     );
   }
-  menu.setAttribute('aria-label', `${groups[at].label} group`);
-  menu.replaceChildren(...rows);
-  menuOpener = button;
-  openPopover(menu, button, {
-    place: 'beside-right',
-    edge: button.closest('#sidebar') ?? railEl,
-  });
-}
-
-/**
- * One row of the group menu. The menu closes before the row's action runs,
- * so an action that moves focus (the rename field) keeps it.
- * @param {string} text
- * @param {() => void} run
- * @param {{disabled?: boolean, danger?: boolean}} [flags]
- * @returns {HTMLButtonElement}
- */
-function menuItem(text, run, { disabled = false, danger = false } = {}) {
-  const item = document.createElement('button');
-  item.type = 'button';
-  item.className = 'osprey-popover-item';
-  item.classList.toggle('danger', danger);
-  item.setAttribute('role', 'menuitem');
-  item.textContent = text;
-  item.disabled = disabled;
-  item.addEventListener('click', () => {
-    closePopover(groupMenu());
-    run();
-  });
-  return item;
+  openContextMenu({ x, y, anchorEl, ariaLabel: `${groups[at].label} group`, items });
+  return true;
 }
 
 /**
  * Swap a group's name for a text field that holds it, and focus the field.
  * Enter, or leaving the field, renames the group; Escape keeps the old name,
  * and so does an empty field. After Enter or Escape, focus goes to the
- * group's ⋯ button, where the keyboard was working; leaving the field with
+ * group's name, where the keyboard was working; leaving the field with
  * the pointer moves focus to wherever the pointer went.
  *
  * A collapsed sidebar shows no names, so it opens no field: a group made
- * there keeps its default name until the operator renames it.
+ * there keeps its default name until the operator renames it. The headless
+ * group shows no name, so it opens none either.
  * @param {HTMLElement} railEl - the rail the group's element is in
  * @param {string} groupId
  * @returns {boolean} whether the field opened
  */
 export function startGroupRename(railEl, groupId) {
   if (document.documentElement.getAttribute('data-sidebar') === 'collapsed') return false;
+  if (isHeadlessGroup(groupId)) return false;
   const groupEl = groupElement(railEl, groupId);
   const name = /** @type {HTMLElement | null | undefined} */ (
     groupEl?.querySelector(`.${NAME_CLASS}`)
@@ -650,7 +678,7 @@ export function startGroupRename(railEl, groupId) {
     field.remove();
     name.hidden = false;
     if (keep) renameGroup(groupId, value);
-    if (refocus) focusMenuButton(railEl, groupId);
+    if (refocus) focusGroupName(railEl, groupId);
   };
   field.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== 'Escape') return;

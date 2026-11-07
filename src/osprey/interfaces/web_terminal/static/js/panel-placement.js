@@ -1,51 +1,51 @@
 // @ts-check
 /* OSPREY Web Terminal — Panel Placement
  *
- * WHERE a panel lands in the workspace. The panel state machine now splits
- * three ways: panel-manager.js owns the core (tile occupancy, iframe
- * lifecycle, the active-panel policy), panel-lifecycle.js owns how a panel
- * comes to exist and stay alive, and panel-sse.js owns the server→client
- * frame dispatcher that drives this module's applyAgentSwitch and
- * applyArrange. This module owns the tile geometry those states are applied
- * onto — the open-beside verb behind the rail's ⊞ corner and drag-and-drop,
- * the polite agent switch, and the whole-workspace rebuild a `panel_arrange`
- * frame requests.
+ * WHERE a panel lands in the workspace. The panel state machine splits three
+ * ways: panel-manager.js owns the core (tile occupancy, iframe lifecycle, the
+ * active-panel policy), panel-lifecycle.js owns how a panel comes to exist and
+ * stay alive, and panel-sse.js owns the server→client frame dispatcher. This
+ * module owns the tile geometry: the person's "Open in a new tile" verb, the
+ * landing of a sidebar row's drop, and the op runner ({@link runPanelOp})
+ * that applies a `panel_op` frame — an agent's drop, close, open, set or
+ * arrangement, and a person's preset click, which the server relays the same
+ * way — to the layout holder. An open itself follows the open rule in
+ * dock-open.js (the service tile used last, replacing the panel it showed).
  *
  * It reaches the dock only through the existing seams: dock-sync's placement
- * verbs (dockPanelAt / dockPanelBesideActive) and echo guard, dock-iframe's
- * hidePanel and placeholder-id namespace. Everything it needs from
- * panel-manager's private state arrives as injected effects registered once at
- * init ({@link initPanelPlacement}), the same seam pattern the iframe adapter
- * and the tile-close handler use — so this module holds no panel state of its
- * own and stays unit-testable through panel-sse's own frame-dispatch surface.
+ * verbs (dockPanelBesideActive) and echo guard, dock-open.js (the open rule,
+ * the set and arrange composers), the dock engine (drops and closes), and the
+ * layout holder (dock-apply.js), which answers what the dock holds and applies
+ * every change. Everything it needs from panel-manager's private state arrives
+ * as injected effects registered once at init ({@link initPanelPlacement}), so
+ * this module holds no panel state of its own.
  *
- * TWO MUTATION CHANNELS (precedence)
- * ----------------------------------
- * `panel_visibility` and `panel_arrange` can both touch the same panel, so the
- * split is deliberate: a visibility HIDE keeps its existing meaning everywhere
- * (rail removal plus tile close, on every client), while an arrange only ever
- * ADDS membership for the tiles it lists — except on the preset path, where
- * `prune_rail` reproduces today's membership-exclusive preset semantics and
- * non-members leave the rail. An arrange therefore never silently un-shows a
- * panel the operator added, and a preset click keeps behaving as it always has.
+ * ONE MUTATION CHANNEL
+ * --------------------
+ * An agent changes the dock only through a `panel_op` frame addressed to this
+ * client: the runner checks it against the held layout, runs it on the holder
+ * and the frame handler POSTs the outcome. Rail membership stays the server's:
+ * it follows a recorded result with `panel_visibility` frames (opened panels
+ * join the rail; a preset prunes it to its members), so nothing here edits the
+ * rail. Fallback mode (no dock shell, no holder) refuses every op.
  *
- * MODE DEGRADATION
- * ----------------
- * The tile rebuild runs wherever there is a dock shell. Fallback mode (no dock
- * shell) has no tiles at all and skips the rebuild, letting the focus step take
- * the single surface over. Rail MEMBERSHIP is applied in every mode — the
- * launcher rail is not a dock feature, and a preset must prune it wherever it
- * is clicked.
+ * A panel living in its own pop-out window is in no tile: an `open` of it
+ * brings its window forward and leaves the layout alone, and every other op
+ * naming it is refused `popped_out` — the operator brings it back.
  */
 
+import { dockPanelBesideActive } from './dock-sync.js';
+import { getLayoutHolder, isDetached, TERMINAL_KEY } from './dock-apply.js';
 import {
-  withEchoSuppressed,
-  dockPanelAt,
-  dockPanelBesideActive,
-  serializeOpenTiles,
-} from './dock-sync.js';
-import { hidePanel, PLACEHOLDER_PREFIX } from './dock-iframe.js';
-import { getDockApi } from './dock-workspace.js';
+  arrange,
+  focusKey,
+  openPanel,
+  openPanelSet,
+  PANEL_UNHEALTHY,
+  TERMINAL_IN_LAYOUT,
+} from './dock-open.js';
+import { ONE_PANEL_PER_TILE } from './dock-policy.js';
+import { closeTab, findTile, keysOf, planDrop, tileOf } from '/static/vendor/dock-engine.mjs';
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
 
 /**
@@ -92,45 +92,24 @@ function ctx() {
 }
 
 /**
- * Whether a service panel currently occupies a dock tile — its placeholder
- * exists in the grid. False in fallback mode, where there are no tiles at all.
- * Resolved through the adapter's public placeholder-id namespace, the same way
- * dock-sync's placement verbs address them.
+ * Whether a service panel currently holds a tile in the dock, read off the
+ * layout holder. False with no holder (fallback mode has no tiles at all).
  * @param {string} panelId
  * @returns {boolean}
  */
 export function hasDockedTile(panelId) {
-  return !!getDockApi()?.getPanel(PLACEHOLDER_PREFIX + panelId);
+  return tileOf(getLayoutHolder()?.layout ?? null, panelId) !== null;
 }
 
 /**
- * Whether ANY service panel holds a tile right now — read straight off the live
- * panel list, not off the serialized layout.
- *
- * The polarity matters and is not symmetric with the rebuild's. There, a layout
- * that cannot be read means "drop nothing" — the safe direction. Here, a false
- * "no tiles" would send an agent switch down the plain-activation path, whose
- * placement REPLACES the tile the operator is watching: the one outcome this
- * verb exists to prevent. Reading the panel list directly removes the question,
- * since it stays answerable while a layout is mid-rebuild or refuses toJSON.
- * @returns {boolean}
- */
-function hasAnyServiceTile() {
-  const panels = getDockApi()?.panels;
-  return (Array.isArray(panels) ? panels : []).some(
-    (/** @type {any} */ p) => typeof p?.id === 'string' && p.id.startsWith(PLACEHOLDER_PREFIX)
-  );
-}
-
-/**
- * Shared reveal tail for every "open as a new tile" path (rail ⊞, rail drop): a
- * member panel is focused locally + reported (the activation no-ops while the
- * panel is unhealthy — the placeholder tile still appears and fills on the next
- * health settle); a non-member is revealed through the same visibility-POST path
- * the "+" menu uses. The exception is a non-member that already held a tile
- * before the move (a tile opened from a chat link or the palette and then
- * rearranged): moving it is layout, not a request to join the rail, so it is
- * focused without a POST and stays off it.
+ * Shared reveal tail for every "open as a new tile" path (the row menu, a rail
+ * drop): a member panel is focused locally + reported (the activation no-ops
+ * while the panel is unhealthy — the placeholder tile still appears and fills
+ * on the next health settle); a non-member is revealed through the same
+ * visibility-POST path the "+" menu uses. The exception is a non-member that
+ * already held a tile before the move (a tile opened from a chat link or the
+ * palette and then rearranged): moving it is layout, not a request to join the
+ * rail, so it is focused without a POST and stays off it.
  * @param {string} panelId
  * @param {boolean} wasOnScreen - the panel held a tile before this placement
  */
@@ -142,9 +121,10 @@ function revealOpenedPanel(panelId, wasOnScreen) {
 }
 
 /**
- * Open a panel as a NEW tile beside the active group — the rail ⊞ corner's
- * action. An already-open panel is MOVED beside the active tile (dockPanelAt's
- * move semantics), never duplicated. In fallback mode the placement no-ops in
+ * Open a panel as a NEW tile beside the active tile — the row menu's "Open in
+ * a new tile", the one open that splits instead of replacing. An
+ * already-open panel is MOVED beside the active tile (dockPanelAt's move
+ * semantics), never duplicated. In fallback mode the placement no-ops in
  * dock-sync and the reveal tail takes the single surface over like a rail click.
  * @param {string} panelId
  */
@@ -159,175 +139,234 @@ export function openPanelBeside(panelId) {
 }
 
 /**
- * Open (or move) a panel at an explicit drop position — the rail's
- * drag-and-drop landing, the precise half of the open-beside verb.
+ * Reveal a panel a sidebar row's drop has just placed (rail-drag.js's landing):
+ * the engine put its tile where the row was dropped and the holder has applied
+ * it; what is left is the activation tail every other open uses.
  * @param {string} panelId
- * @param {{referenceGroup?: any, direction: string} | null} position
+ * @param {{ wasOnScreen: boolean }} info  whether the panel held a tile before the drop
  */
-export function dropPanelAt(panelId, position) {
-  const wasOnScreen = hasDockedTile(panelId);
-  dockPanelAt(panelId, ctx().label(panelId), position);
+export function landDroppedPanel(panelId, { wasOnScreen }) {
   revealOpenedPanel(panelId, wasOnScreen);
 }
 
+// ---- The op runner: applies a relayed `panel_op` frame to the holder ----
+
+/** Refusals this runner names itself (snake_case, as /api/panel-op-result takes them). */
+export const STALE_BASE = 'stale_base';
+export const TERMINAL_NOT_AGENT_MOVABLE = 'terminal_not_agent_movable';
+export const POPPED_OUT = 'popped_out';
+export const UNKNOWN_KEY = 'unknown_key';
+export const UNKNOWN_TILE = 'unknown_tile';
+export const INVALID_SOURCE = 'invalid_source';
+export const INVALID_LAYOUT = 'invalid_layout';
+export const UNKNOWN_OP = 'unknown_op';
+export const NO_DOCK_CLIENT = 'no_dock_client';
+
 /**
- * Apply an agent open_panel: bring the panel into view without ever taking a
- * tile away from the operator. A panel that already holds a tile is simply
- * focused (no move); one without a tile opens as a NEW tile beside the active
- * group — the same placement the rail's ⊞ corner uses — so whatever the
- * operator was watching survives. A non-member gains its rail entry first: the
- * switch implies membership, and the server's own visibility broadcast then
- * lands on an already-current rail.
- *
- * The fallback-mode degradation falls out of the placement verb rather than a
- * branch here: dockPanelBesideActive no-ops with no dock shell, leaving exactly
- * the plain activation takeover it had before.
- * @param {string} panelId
+ * One `panel_op` frame as the server relays it (routes/panel_ops.py `_relay_op`).
+ * @typedef {object} PanelOpFrame
+ * @property {'panel_op'} type
+ * @property {string} request_id
+ * @property {string} target_client
+ * @property {string} op - drop | close | open | open_set | open_arrangement
+ * @property {Record<string, any>} args
+ * @property {number} [base_rev]
+ * @property {string} [source]
  */
-export function applyAgentSwitch(panelId) {
-  const c = ctx();
-  // Unknown id — a panel dropped from the deployment, or the terminal entry,
-  // which has no panel state. The activation would refuse it, so refuse before
-  // touching membership or the grid.
-  if (!c.isKnown(panelId)) return;
-  if (!c.isMember(panelId)) c.addMember(panelId);
-  // Only a panel that can fill a tile gets one: the activation refuses while
-  // unhealthy, and the tile it never claimed would linger empty. An unhealthy
-  // target stays the no-op it has always been (attention badge intact).
-  //
-  // "Beside" also needs something to be beside. With every service tile retired
-  // the active group is the TERMINAL's, so splitting off it would open the
-  // panel to the terminal's right at a default width — losing the first-tile
-  // rule (left of the terminal at the classic split) that the adapter applies
-  // on a plain activation. Nothing is open to evict in that state either, so
-  // the plain activation below is both correctly anchored and still polite.
-  if (c.isHealthy(panelId) && !hasDockedTile(panelId) && hasAnyServiceTile()) {
-    dockPanelBesideActive(panelId, c.label(panelId));
+
+/**
+ * What running an op came to: a named refusal (nothing changed), or the
+ * holder's result — with `popout` naming the panel whose own window an `open`
+ * brings forward instead of changing the layout.
+ * @typedef {{refusal: string, detail?: string} | {refusal?: undefined, result: import('./dock-apply.js').OpResult, popout?: string}} PanelOpOutcome
+ */
+
+/**
+ * Whether the tile `id` of `layout` holds the terminal.
+ * @param {any} layout
+ * @param {string} id
+ */
+function holdsTerminal(layout, id) {
+  return findTile(layout, id)?.tabs.includes(TERMINAL_KEY) ?? false;
+}
+
+/**
+ * A member-index collection layout (the frames' form) over panel ids.
+ * Null when an index names no member.
+ * @param {any} node
+ * @param {string[]} members
+ * @returns {any}
+ */
+function byMember(node, members) {
+  if (node === null || typeof node !== 'object') return null;
+  if (Array.isArray(node.items)) {
+    const items = node.items.map((/** @type {any} */ item) => byMember(item, members));
+    return items.includes(null) ? null : { ...node, items };
   }
-  c.activate(panelId);
+  if (!Array.isArray(node.tabs)) return null;
+  const tabs = node.tabs.map((/** @type {any} */ idx) => members[idx]);
+  if (tabs.some((/** @type {unknown} */ key) => typeof key !== 'string')) return null;
+  const out = { ...node, tabs };
+  if ('showing' in node) {
+    const showing = members[node.showing];
+    if (typeof showing !== 'string') return null;
+    out.showing = showing;
+  }
+  return out;
 }
 
 /**
- * Whether the service-tile region can be rebuilt: a dock shell must exist. The
- * ui view does not enter into it.
- * @returns {boolean}
+ * The tile ids an engine drop target names (a tile zone or edge, or a tile's
+ * border).
+ * @param {any} target
+ * @returns {string[]}
  */
-function canRebuildTiles() {
-  return !!getDockApi();
+function targetTiles(target) {
+  if (target && typeof target.tile === 'string') return [target.tile];
+  if (target && target.border && typeof target.border.tile === 'string')
+    return [target.border.tile];
+  return [];
 }
 
 /**
- * Rebuild the service-tile region to exactly `tiles`, left to right.
- *
- * Deterministic by construction rather than by diffing: every docked service
- * tile the arrangement does not list is dropped, then each requested tile is
- * docked in order — the first against the grid's left edge (so services sit
- * left of the terminal, as they always open), each next one to the RIGHT of the
- * one before it. dockPanelAt MOVES an already-docked placeholder rather than
- * duplicating it, so a tile that was already open simply slides into position.
- * Prior service-tile geometry (sash positions) is deliberately discarded — an
- * arrangement is a request for a layout, not for the operator's pixel widths.
- *
- * The whole rebuild runs inside the echo guard: every add/remove drives
- * dockview's active-panel change, and each one is a server-applied echo that
- * must not POST focus back. Surfacing each tile afterwards fills the
- * placeholders with their overlay iframes — a docked tile whose panel was never
- * activated has no iframe to show.
- * @param {string[]} tiles
+ * Check one op against the held layout and build the holder operation that
+ * runs it, or name why it is refused. The terminal invariant is enforced here
+ * a second time (the server checked it against its copy of the layout): the
+ * terminal, and its tile, is never an agent drop source or close target, and
+ * a set never names it. So is the one-panel-per-tile rule (dock-policy.js): a
+ * set opened as anything but side by side or a layout, and a drop into a
+ * tile's centre or header, are refused by the policy's name. So is the
+ * pop-out rule: a panel in its own window is never moved or closed by an op,
+ * and an `open` of it brings the window forward.
+ * @param {PanelOpFrame} frame
+ * @param {any} layout  the held layout
+ * @param {(key: string) => boolean} isHealthy
+ * @returns {{refusal: string, detail?: string} | {run: (layout: any, ctx: any) => any, popout?: string}}
  */
-function rebuildTiles(tiles) {
-  const c = ctx();
-  const api = getDockApi();
-  const wanted = new Set(tiles);
-  // A layout the serializer cannot read is not the same as an empty workspace:
-  // drop nothing rather than assert tiles that may still be there.
-  const open = serializeOpenTiles(api) ?? [];
-  withEchoSuppressed(() => {
-    for (const id of open) if (!wanted.has(id)) hidePanel(id);
-    /** @type {string | null} */
-    let prev = null;
-    for (const id of tiles) {
-      // Never OPEN a tile for a panel that cannot fill it — the same rule
-      // applyAgentSwitch applies. The activation below refuses while unhealthy,
-      // so the tile would stay empty for as long as anything else holds focus,
-      // and nothing would come back for it. Membership is applied regardless,
-      // so the panel stays one rail click away. A tile that already exists is
-      // still positioned: it is filled (its iframe outlives a health dip), and
-      // leaving it out of the walk would strand it outside the requested order.
-      if (!c.isHealthy(id) && !hasDockedTile(id)) continue;
-      const group = prev ? api.getPanel(PLACEHOLDER_PREFIX + prev)?.group : null;
-      dockPanelAt(
-        id,
-        c.label(id),
-        group ? { referenceGroup: group, direction: 'right' } : { direction: 'left' }
-      );
-      // Advance only for a tile that actually landed: a skipped panel — or a
-      // placement that threw — must not become the anchor the next one splits
-      // against, which is what could push a tile to the terminal's right.
-      if (hasDockedTile(id)) prev = id;
+function planOp(frame, layout, isHealthy) {
+  const args = frame.args ?? {};
+  /** @param {any} ctx */
+  const setCtx = (ctx) => ({ ...ctx, isHealthy });
+  switch (frame.op) {
+    case 'open': {
+      const member = args.member;
+      if (member === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
+      if (typeof member !== 'string') return { refusal: INVALID_SOURCE };
+      if (isDetached(member)) {
+        return { run: (l) => ({ layout: l, changed: false }), popout: member };
+      }
+      if (tileOf(layout, member)) return { run: (l) => focusKey(l, member) };
+      if (!isHealthy(member)) return { refusal: PANEL_UNHEALTHY };
+      return { run: (l, ctx) => openPanel(l, member, ctx) };
     }
-  });
-  for (const id of tiles) c.activate(id, { auto: true });
+    case 'open_set':
+    case 'open_arrangement': {
+      const members = Array.isArray(args.members) ? args.members : [];
+      if (members.includes(TERMINAL_KEY)) return { refusal: TERMINAL_IN_LAYOUT };
+      if (members.some((/** @type {string} */ key) => isDetached(key))) {
+        return { refusal: POPPED_OUT };
+      }
+      const given = args.layout === undefined ? undefined : byMember(args.layout, members);
+      if (given === null) return { refusal: INVALID_LAYOUT };
+      if (given !== undefined && keysOf(given).includes(TERMINAL_KEY)) {
+        return { refusal: TERMINAL_IN_LAYOUT };
+      }
+      const as = frame.op === 'open_set' ? args.as : (args.as ?? 'layout');
+      if (as === 'layout') {
+        if (given === undefined) return { refusal: INVALID_LAYOUT };
+        return { run: (l, ctx) => arrange(l, given, setCtx(ctx)) };
+      }
+      if (as !== 'side') return { refusal: ONE_PANEL_PER_TILE };
+      return { run: (l, ctx) => openPanelSet(l, members, 'side', undefined, setCtx(ctx)) };
+    }
+    case 'drop': {
+      const source = args.source ?? {};
+      /** @type {{new: string} | {tab: string} | {tile: string} | null} */
+      let engineSource = null;
+      if (source.new && typeof source.new.panel === 'string') {
+        const key = source.new.panel;
+        if (key === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
+        if (isDetached(key)) return { refusal: POPPED_OUT };
+        if (tileOf(layout, key) === null && !isHealthy(key)) return { refusal: PANEL_UNHEALTHY };
+        engineSource = tileOf(layout, key) ? { tab: key } : { new: key };
+      } else if (typeof source.tab === 'string') {
+        if (source.tab === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
+        if (isDetached(source.tab)) return { refusal: POPPED_OUT };
+        if (tileOf(layout, source.tab) === null) return { refusal: UNKNOWN_KEY };
+        engineSource = { tab: source.tab };
+      } else if (typeof source.tile === 'string') {
+        if (findTile(layout, source.tile) === null) return { refusal: UNKNOWN_TILE };
+        if (holdsTerminal(layout, source.tile)) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
+        engineSource = { tile: source.tile };
+      }
+      if (engineSource === null) return { refusal: INVALID_SOURCE };
+      if (targetTiles(args.target).some((id) => findTile(layout, id) === null)) {
+        return { refusal: UNKNOWN_TILE };
+      }
+      // A tile holds one panel: its centre and header are no target
+      // (dock-drop.js refuses a person's drop there too).
+      if ('zone' in (args.target ?? {})) return { refusal: ONE_PANEL_PER_TILE };
+      const src = engineSource;
+      return {
+        run: (l, ctx) => {
+          const out = planDrop(l, src, args.target, ctx.dock);
+          if (!out.changed) return out;
+          const shown =
+            'tile' in src
+              ? findTile(out.layout, src.tile)
+              : tileOf(out.layout, 'new' in src ? src.new : src.tab);
+          return shown ? { ...out, focus: shown.tile } : out;
+        },
+      };
+    }
+    case 'close': {
+      if (args.key === TERMINAL_KEY) return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
+      if (typeof args.key === 'string' && isDetached(args.key)) return { refusal: POPPED_OUT };
+      if (tileOf(layout, args.key) === null) return { refusal: UNKNOWN_KEY };
+      return { run: (l) => closeTab(l, args.key) };
+    }
+    default:
+      return { refusal: UNKNOWN_OP, detail: `unknown op ${String(frame.op)}` };
+  }
 }
 
 /**
- * Apply a `panel_arrange` frame: the declarative end state an `arrange_workspace`
- * call (or a preset click, which is the same server operation) asked for.
+ * Run one agent op (or a person's preset click, which the server relays the
+ * same way) against the layout holder.
  *
- * Order matters. Membership first, so a listed non-member already has its rail
- * entry when its tile appears and a pruned panel's entry is gone before the
- * region is rebuilt. Then the tile rebuild, where the dock shell allows one.
- * Focus last, by the shipped preset rule: the requested panel when it is
- * healthy, else the first healthy listed tile, else no focus change at all —
- * which falls out on its own, since an activation refuses an unhealthy panel.
+ * Refused, with nothing changed, when the op was written against a layout this
+ * dock no longer holds — `base_rev` present and different from the holder's
+ * acked rev, or the holder dirty since — or when it breaks the terminal or
+ * pop-out invariant. Opens, sets and arrangements go through dock-open.js (the
+ * open rule, the composers); drops and closes through the engine. The holder
+ * applies the result, holding the apply while a person's drag is live.
  *
- * @param {{tiles?: string[], focus?: string, prune_rail?: boolean, source?: string}} frame
+ * Rail membership is not touched here: the server puts opened panels on the
+ * rail (and prunes it for a preset) with `panel_visibility` frames once this
+ * dock's result has been recorded.
+ * @param {PanelOpFrame} frame
+ * @returns {PanelOpOutcome}
  */
-export function applyArrange({ tiles = [], focus, prune_rail: pruneRail = false, source }) {
-  const c = ctx();
-  // The server validates against the same inventory; filtering again keeps a
-  // stale client (a panel dropped from the deployment) from arranging a ghost.
-  const wanted = tiles.filter((id) => c.isKnown(id));
-  const wantedSet = new Set(wanted);
-
-  // MEMBERSHIP — every mode. A preset prunes to its members (today's exclusive
-  // semantics); a plain tiles request only adds. A pruned panel loses its tile
-  // here too: in fallback mode the rebuild below never runs, and its surface
-  // must not outlive its rail entry.
-  if (pruneRail) {
-    for (const id of c.members()) {
-      if (wantedSet.has(id)) continue;
-      c.dropMember(id);
-      withEchoSuppressed(() => hidePanel(id));
-    }
+export function runPanelOp(frame) {
+  const holder = getLayoutHolder();
+  if (!holder) return { refusal: NO_DOCK_CLIENT, detail: 'this page has no dock' };
+  if (
+    frame.base_rev !== undefined &&
+    frame.base_rev !== null &&
+    (frame.base_rev !== holder.ackedRev || holder.dirty)
+  ) {
+    return { refusal: STALE_BASE };
   }
-  for (const id of wanted) if (!c.isMember(id)) c.addMember(id);
-
-  if (canRebuildTiles()) rebuildTiles(wanted);
-
-  // FOCUS — healthy-fallback. {auto: true} keeps the health guard and the
-  // membership guard; both are satisfied for a target picked here, so it only
-  // documents that this is an applied policy, not a human's explicit pick.
-  const active = c.getActive();
-  const target = focus && c.isHealthy(focus) ? focus : wanted.find((id) => c.isHealthy(id));
-  if (target) {
-    c.activate(target, { auto: true });
-  } else if (active && !wantedSet.has(active)) {
-    // Nothing listed can be surfaced and the panel that held the view is not in
-    // the arrangement, so the accent is genuinely stale and always clears.
-    //
-    // The empty PANE is a separate question, and the honest one to ask is
-    // OCCUPANCY, not focusability: the rebuild above deliberately keeps an
-    // unhealthy panel's EXISTING tile (it is still filled — the overlay iframe
-    // outlives a health dip), so an arrangement listing only such a panel would
-    // otherwise paint "No panels visible" across a workspace that visibly still
-    // holds one. Occupancy is read from the live panel list, so a layout
-    // mid-rebuild still reports the tiles it holds; fallback mode has no tiles
-    // by construction and does paint, which is the case where a stale surface
-    // would otherwise linger behind the cleared accent.
-    c.clearActive();
-    if (!hasAnyServiceTile()) c.renderEmpty('No panels visible');
+  const plan = planOp(frame, holder.layout, ctx().isHealthy);
+  if ('refusal' in plan) return plan;
+  const result = holder.run(plan.run);
+  // An engine or dock-open refusal changed nothing; it is passed on by name.
+  const named = /** @type {{refusal?: unknown, notice?: unknown}} */ (result ?? {});
+  if (typeof named.refusal === 'string') {
+    return {
+      refusal: named.refusal,
+      ...(typeof named.notice === 'string' ? { detail: named.notice } : {}),
+    };
   }
-
-  if (source === 'agent') for (const id of wanted) c.glow(id);
+  return plan.popout === undefined ? { result } : { result, popout: plan.popout };
 }

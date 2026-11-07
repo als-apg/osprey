@@ -177,6 +177,11 @@ services:
       # DNS name rendered into a host-mode service is refused by the build's
       # cross-boundary check.
       BLUESKY_BRIDGE_URL: http://bluesky-bridge:10080
+      # The optimizer, by its in-network compose service key, for the same
+      # reason and under the same gate as the bridge URL above: left unset,
+      # the agent's optimizer server dials the published port on this
+      # container's own loopback.
+      OPTIMIZER_URL: http://optimizer:10082
 
       # `archiver-mongodb` is the store's network alias, pinned in the mongodb
       # template precisely so this name survives the per-project container_name;

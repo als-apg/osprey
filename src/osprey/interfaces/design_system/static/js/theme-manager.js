@@ -19,11 +19,6 @@
  *                pre-paint, and applies whatever the hub broadcasts --
  *                matched by origin, or by source (its parent) on an opaque
  *                page, where localStorage is unavailable and is skipped.
- *                A page the web terminal popped out into its own window
- *                (`?popout=true`, frame-params.js) is a follower too, whatever
- *                role it asks for: the hub that opened it keeps posting its
- *                theme to the window, and the stored preference the page
- *                first-painted from is that hub's own.
  *
  * Family model: a THEMES entry is `{id, label, mode, family}` -- a family
  * is a `{light, dark}` pair (e.g. the built-in 'main' family, or the
@@ -76,7 +71,6 @@
  */
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
-import { isPopout } from '/design-system/js/frame-params.js';
 
 import {
   DEFAULT_FAMILY as _EMITTED_DEFAULT_FAMILY,
@@ -215,9 +209,8 @@ function _familyOf(id) {
  * whose id does not title-case correctly -- 'desy' -> 'DESY', not 'Desy'.
  *
  * The single implementation for every family picker in the fleet: no picker
- * derives a label of its own -- <osprey-display-menu> and
- * <osprey-theme-switcher> both get it through `themeFamilies()` below -- so a
- * newly-labelled family can never render one way in one picker and another
+ * derives a label of its own -- they get it through `themeFamilies()` below --
+ * so a newly-labelled family can never render one way in one picker and another
  * way in the other.
  *
  * @param {string} family
@@ -240,10 +233,9 @@ export function familyLabel(family) {
  * function enforces.
  *
  * The single implementation for every family picker in the fleet, for the same
- * reason `familyLabel` is: both <osprey-display-menu> and
- * <osprey-theme-switcher> import this rather than deduping `THEMES`
- * themselves, so the two pickers can never offer a different set of families
- * (or a different order) after a token regeneration.
+ * reason `familyLabel` is: pickers import this rather than deduping `THEMES`
+ * themselves, so they can never offer a different set of families (or a
+ * different order) after a token regeneration.
  *
  * @returns {{id: string, label: string}[]}
  */
@@ -262,9 +254,8 @@ export function themeFamilies() {
  * `initTheme()` has resolved one.
  *
  * The single implementation for every theme control in the fleet, like
- * `familyLabel` and `themeFamilies` above: `<osprey-theme-switcher>` and
- * `<osprey-display-menu>` both reflect the active light/dark side off this
- * rather than each reading `THEMES` for itself.
+ * `familyLabel` and `themeFamilies` above: a control reflects the active
+ * light/dark side off this rather than reading `THEMES` for itself.
  *
  * @param {string|null} id
  * @returns {string|null}
@@ -565,9 +556,11 @@ function _handleMessage(event) {
   // A same-origin page takes the hub by origin. On an opaque page (sandboxed,
   // origin "null") an origin match proves nothing -- every opaque sender is
   // "null" too -- so it takes the message by its source alone: the frame's
-  // parent, which is the hub that embeds it.
+  // parent, which is the hub that embeds it. `self.origin` is the document's
+  // effective origin; `location.origin` comes from the URL and stays the
+  // server's on a page a CSP header sandboxes.
   const fromHub =
-    window.location.origin === 'null'
+    self.origin === 'null'
       ? window.parent !== window && event.source === window.parent
       : event.origin === window.location.origin;
   if (!fromHub) return;
@@ -622,7 +615,7 @@ function _attachMediaQueryListener() {
  * @param {{role?: 'hub'|'follower'}} [options]
  */
 export function initTheme({ role = 'follower' } = {}) {
-  _role = role === 'hub' && !isPopout() ? 'hub' : 'follower';
+  _role = role === 'hub' ? 'hub' : 'follower';
 
   const queryTheme = _readQueryTheme();
   const attrTheme = document.documentElement.getAttribute('data-theme');

@@ -36,7 +36,7 @@ def _enable_flags(channel_finder_mode: str) -> dict[str, bool]:
     graph`` plus the ``services.graphdb`` declaration is its whole
     configuration. Keeping the flag derived rather than special-casing it out
     holds this set to the registry, and
-    ``tests/templates/test_control_assistant_config.py`` pins both halves —
+    ``tests/templates/test_demo_config.py`` pins both halves —
     the flag is emitted, and no template under ``src/osprey/templates``
     mentions it.
     """
@@ -285,15 +285,6 @@ class TemplateManager:
         shutil.copytree(context_src, context_dst, dirs_exist_ok=True)
         logger.debug("Installed web-terminal context to %s", context_dst)
 
-        # 6b. Copy the mode's benchmark query set into place and drop the
-        # facility tree's channel-finder staging subtrees from the render. The
-        # data copy above lands before the Claude Code render below, which reads
-        # the rendered config.yml; the channel-finder indexes are the build's
-        # views, and the build's re-render embeds the hierarchical one.
-        channel_finder_mode = ctx.get("channel_finder_mode")
-        if channel_finder_mode is not None:
-            scaffolding.materialize_benchmark_queries(project_dir, channel_finder_mode)
-
         # 7. Create Claude Code integration files
         # Load rendered config.yml so conditional sections (confluence, etc.)
         # are available to Claude Code templates (mcp.json.j2, CLAUDE.md.j2).
@@ -360,7 +351,12 @@ class TemplateManager:
         ctx["deny_defaults"] = list(DENY_DEFAULTS)
 
         # Resolve servers and agents via the data-driven registry.
-        from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
+        from osprey.registry.mcp import (
+            mixed_read_write_tools,
+            plan_mode_denied_tools,
+            resolve_agents,
+            resolve_servers,
+        )
 
         ctx["servers"] = resolve_servers(cc_cfg, ctx)
         ctx["agents"] = resolve_agents(cc_cfg, ctx, project_dir, ctx["servers"])
@@ -375,6 +371,11 @@ class TemplateManager:
         # which is why nothing surfaced it — the Jinja environment is not strict, so
         # the difference is one safety file quietly saying "nothing is exempt".
         ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
+        # The plan-mode deny list, derived exactly as build_claude_code_context
+        # derives it, for the same reason.
+        ctx["plan_mode_denied_tools"] = plan_mode_denied_tools(
+            ctx["servers"], ctx.get("control_system_write_tools") or []
+        )
 
         # Resolve allowed outputs from THIS render's effective artifact selection —
         # `artifacts` above, already the caller's own selection where it supplied
@@ -631,7 +632,8 @@ class TemplateManager:
                 answer; see :func:`osprey.cli.templates.claude_code.build_claude_code_context`.
 
         Returns:
-            Dict with 'changed' and 'unchanged' keys
+            Dict with 'changed' and 'unchanged' keys. Unless *dry_run*, the
+            render's manifest ``file_checksums`` are re-taken afterwards.
 
         Note:
             The directory holding ``config.yml`` is not the project root. A
@@ -672,7 +674,7 @@ class TemplateManager:
             )
             if runtime_venv_dir is None:
                 runtime_venv_dir = project_dir
-        return claude_code.regenerate_claude_code(
+        result = claude_code.regenerate_claude_code(
             self.template_root,
             self.jinja_env,
             project_dir,
@@ -681,6 +683,12 @@ class TemplateManager:
             runtime_venv_dir=runtime_venv_dir,
             runtime_interpreter=runtime_interpreter,
         )
+        if not dry_run:
+            # Every regen rewrites `.claude/` and `.mcp.json`; the manifest's
+            # checksums must describe what it wrote, whoever called it (the
+            # build, or a launch-time regen_if_drift).
+            manifest.restamp_file_checksums(Path(project_dir))
+        return result
 
     def regen_if_drift(self, project_dir: Path) -> list[str]:
         """Regenerate Claude Code artifacts only if they have drifted from config.

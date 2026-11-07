@@ -85,6 +85,8 @@ _MATCH_ADDITIONS = (
     "entries[].matched_attachment_ids",
     "entries[].matched_attachment_ids[]*",
 )
+# Whether the panel confirmed the open (``status``/``reason`` only when it did not).
+_OPEN_OUTCOME = ("shown", "status", "reason")
 # The partial-answer map a batch read carries whether or not the view is on.
 _MISSING_MAP = ("missing", "missing.*")
 ALLOWED_ADDITIONS: dict[str, tuple[str, ...]] = {
@@ -102,7 +104,7 @@ ALLOWED_ADDITIONS: dict[str, tuple[str, ...]] = {
         "entry_fields_error",
     ),
     "status": (),
-    "entry_open": ("pictures", "pictures[]*"),
+    "entry_open": ("pictures", "pictures[]*", *_OPEN_OUTCOME),
     "attachment_to_artifact": (),
 }
 
@@ -337,7 +339,8 @@ async def run_tool(tool: str, harness: Any) -> str:
     if tool == "entry_open":
         from osprey.mcp_server.ariel.tools.entry import entry_open
 
-        with patch("osprey.mcp_server.http.notify_panel_focus"):
+        applied = {"ok": True, "status": 200, "layout": None, "popouts": [], "rev": 1}
+        with patch("osprey.mcp_server.http.panel_op", return_value=applied):
             return await get_tool_fn(entry_open)(
                 entry_id=KEYSET_ENTRY_ID, attachment_id=_keyset_picture_id()
             )
@@ -394,7 +397,10 @@ async def test_tool_keyset_equals_golden_with_view_off(tool, keyset_harness):
     golden = json.loads((KEYSET_DIR / f"{tool}.json").read_text())
     # The batch read's partial-answer paths do not depend on the view; the test
     # above compares them.
-    unrelated = ("found", "requested", *_MISSING_MAP) if tool == "entries_by_ids" else ()
+    unrelated = {
+        "entries_by_ids": ("found", "requested", *_MISSING_MAP),
+        "entry_open": _OPEN_OUTCOME,
+    }.get(tool, ())
     actual = {path: kind for path, kind in actual.items() if not _matches(path, unrelated)}
     golden = {path: kind for path, kind in golden.items() if not _matches(path, unrelated)}
     assert actual == golden, f"{tool} with the view off departs from B1's golden"

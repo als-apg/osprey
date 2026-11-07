@@ -14,6 +14,8 @@ Import-light on purpose: nothing of osprey is imported at module import.
 
 from __future__ import annotations
 
+import copy
+import functools
 import tempfile
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -83,11 +85,33 @@ def write_facility_file(
     return target
 
 
-def write_demo_facility_file(render: Path | str) -> Path:
-    """Write the facility file of the tree the control-assistant preset ships.
+@functools.cache
+def _demo_document() -> dict[str, Any]:
+    from osprey.facility.build import build_facility
+    from tests._preset_data import packaged_facility_dir
 
-    3339 channels: 522 setpoints, each paired with a readback, and 2817
-    readbacks.
+    return build_facility(packaged_facility_dir("demo"), project_name="demo")
+
+
+def demo_facility_document() -> dict[str, Any]:
+    """The facility document of the tree the demo preset ships.
+
+    Built once per process; each call returns its own copy, which the caller
+    may change. The tree ships ``identity.yaml``, so the project name a build
+    passes reaches nothing in the document: every project that builds this
+    tree gets this document.
+
+    Returns:
+        A copy of the document ``build_facility`` returns for the tree.
+    """
+    return copy.deepcopy(_demo_document())
+
+
+def write_demo_facility_file(render: Path | str) -> Path:
+    """Write the facility file of the tree the demo preset ships.
+
+    4731 channels: 674 setpoints, all but the 29 gauge trip resets paired with a
+    readback, and 4057 readbacks.
 
     Args:
         render: The render root, the directory holding ``config.yml``.
@@ -99,20 +123,16 @@ def write_demo_facility_file(render: Path | str) -> Path:
     from osprey.facility.render import FACILITY_FILE
 
     if _DEMO_BYTES is None:
-        from osprey.facility.build import build_facility
         from osprey.facility.render import facility_bytes
-        from tests._preset_data import packaged_facility_dir
 
-        _DEMO_BYTES = facility_bytes(
-            build_facility(packaged_facility_dir("control_assistant"), project_name="demo")
-        )
+        _DEMO_BYTES = facility_bytes(_demo_document())
     target = Path(render) / FACILITY_FILE
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(_DEMO_BYTES)
     return target
 
 
-def write_facility_views(render: Path | str, bundle: str = "control_assistant") -> list[Path]:
+def write_facility_views(render: Path | str, bundle: str = "demo") -> list[Path]:
     """Write the facility outputs a build writes into *render*, from *bundle*'s tree.
 
     The facility file and every view the render's ``config.yml`` asks for, by
@@ -138,7 +158,10 @@ def write_facility_views(render: Path | str, bundle: str = "control_assistant") 
     facility_dir = packaged_facility_dir(bundle)
     if not facility_dir.is_dir():
         return []
-    document = build_facility(
-        facility_dir, project_name=str(config.get("project_name", render.name))
-    )
+    if facility_dir == packaged_facility_dir("demo"):
+        document = demo_facility_document()
+    else:
+        document = build_facility(
+            facility_dir, project_name=str(config.get("project_name", render.name))
+        )
     return render_facility_outputs(render, document, config, facility_dir)

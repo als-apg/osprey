@@ -1,16 +1,18 @@
+// @ts-check
+// @vitest-environment node
 /**
- * Unit tests for the pure `reconcile(layout, registeredPanels)` used on every
- * dockview layout apply (storage load, mode restore, reset).
+ * Unit tests for the pure `reconcile(layout, registeredKeys)` run on a
+ * persisted dock layout before it is applied.
  *
  *   npx vitest run tests/interfaces/web_terminal/dock-reconcile.test.mjs
  *
- * reconcile repairs a persisted SerializedDockview against the panels the dock
- * can currently build: unknown ids are dropped, stacked groups are flattened to
- * one panel per tile, and only genuinely corrupt/unusable input falls back
- * (returns null). Panels absent from the layout are NOT appended — the callers
- * re-add them through the live api after the apply. The live persistence
- * plumbing (fromJSON apply, localStorage, project key) is exercised end-to-end
- * by the browser suite; here we pin the pure contract.
+ * reconcile repairs a dock layout (the dock engine's dock form) against the
+ * keys the dock can build: an invalid layout gives null, each unknown key is
+ * removed with the engine's removeTab, a tile stored with several panels (by
+ * the release that had tabs) keeps the one it showed, and the result is
+ * normalised. A layout the dockview-era shell stored (dockview's own
+ * serialization) is read into the dock form first. Keys absent from the
+ * layout are NOT appended.
  *
  * Imported by RELATIVE path — this module lives under web_terminal, so the
  * /design-system/js/* alias does not apply.
@@ -19,38 +21,66 @@
 import { test, expect, describe } from 'vitest';
 
 import { reconcile } from '../../../src/osprey/interfaces/web_terminal/static/js/dock-reconcile.js';
+import { crowdedTile } from '../../../src/osprey/interfaces/web_terminal/static/js/dock-policy.js';
+import { keysOf, normalize, removeTab, validateLayout } from '/static/vendor/dock-engine.mjs';
 
 /**
- * A single-group SerializedDockview holding the given panel ids in one leaf.
- * @param {string[]} ids
+ * Two services left of the terminal, each in a tile of its own: 0.3 / 0.3 / 0.4.
  * @returns {any}
  */
-function singleGroupLayout(ids) {
+function servicesAndTerminal() {
   return {
-    grid: {
-      root: {
-        type: 'leaf',
-        data: { views: [...ids], activeView: ids[0], id: 'group-1' },
-        size: 1000,
-      },
-      width: 1000,
-      height: 800,
-      orientation: 'HORIZONTAL',
-    },
-    panels: Object.fromEntries(ids.map((id) => [id, { id, contentComponent: id, title: id }])),
-    activeGroup: 'group-1',
+    split: 'row',
+    items: [
+      { tile: 't1', tabs: ['plots'], showing: 'plots', size: 0.3 },
+      { tile: 't3', tabs: ['logbook'], showing: 'logbook', size: 0.3 },
+      { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+    ],
   };
 }
 
 /**
- * A two-group (branch) SerializedDockview: `left` ids in one leaf, `right` in
- * another, split horizontally — the shape the default workspace|terminal
- * arrangement serializes to.
- * @param {string[]} left
- * @param {string[]} right
+ * Three tiles: a column of two service tiles beside the terminal.
  * @returns {any}
  */
-function twoGroupLayout(left, right) {
+function threeTiles() {
+  return {
+    split: 'row',
+    items: [
+      {
+        split: 'column',
+        size: 0.6,
+        items: [
+          { tile: 't1', tabs: ['plots'], showing: 'plots', size: 0.5 },
+          { tile: 't3', tabs: ['logbook'], showing: 'logbook', size: 0.5, from: 't1' },
+        ],
+      },
+      { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+    ],
+  };
+}
+
+/**
+ * A dock the release that had tabs stored: a services tile showing logbook
+ * in front of plots, left of the terminal at 0.6 / 0.4.
+ * @returns {any}
+ */
+function storedWithTabs() {
+  return {
+    split: 'row',
+    items: [
+      { tile: 't1', tabs: ['plots', 'logbook'], showing: 'logbook', size: 0.6 },
+      { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+    ],
+  };
+}
+
+/**
+ * The layout the dockview-era shell stored: dockview's own serialization, one
+ * group per tile, service placeholders under the `iframe:` prefix.
+ * @returns {any}
+ */
+function dockviewStore() {
   return {
     grid: {
       root: {
@@ -58,12 +88,12 @@ function twoGroupLayout(left, right) {
         data: [
           {
             type: 'leaf',
-            data: { views: [...left], activeView: left[0], id: 'group-left' },
+            data: { views: ['iframe:plots'], activeView: 'iframe:plots', id: 'g1' },
             size: 600,
           },
           {
             type: 'leaf',
-            data: { views: [...right], activeView: right[0], id: 'group-right' },
+            data: { views: ['terminal'], activeView: 'terminal', id: 'g2' },
             size: 400,
           },
         ],
@@ -73,187 +103,244 @@ function twoGroupLayout(left, right) {
       height: 800,
       orientation: 'HORIZONTAL',
     },
-    panels: Object.fromEntries(
-      [...left, ...right].map((id) => [id, { id, contentComponent: id, title: id }])
-    ),
-    activeGroup: 'group-left',
+    panels: {
+      'iframe:plots': { id: 'iframe:plots', contentComponent: 'dock-iframe-placeholder' },
+      terminal: { id: 'terminal', contentComponent: 'terminal' },
+    },
+    activeGroup: 'g1',
   };
-}
-
-/**
- * All panel ids referenced by any group in a layout's grid tree.
- * @param {any} layout
- * @returns {string[]}
- */
-function referencedIds(layout) {
-  /** @type {string[]} */
-  const ids = [];
-  /** @param {any} node */
-  const walk = (node) => {
-    if (!node) return;
-    if (node.type === 'leaf') ids.push(...node.data.views);
-    else if (node.type === 'branch') node.data.forEach(walk);
-  };
-  walk(layout.grid.root);
-  return ids;
 }
 
 describe('reconcile — clean layout pass-through', () => {
-  test('a layout whose panels all remain registered is returned intact', () => {
-    const layout = twoGroupLayout(['workspace'], ['terminal']);
-    const out = reconcile(layout, ['workspace', 'terminal']);
-    expect(out).not.toBeNull();
-    expect(Object.keys(out.panels).sort()).toEqual(['terminal', 'workspace']);
-    expect(referencedIds(out).sort()).toEqual(['terminal', 'workspace']);
-    expect(out.grid.root.type).toBe('branch');
-    expect(out.activeGroup).toBe('group-left');
+  test('a layout whose keys are all registered comes back normalised and equal', () => {
+    const layout = servicesAndTerminal();
+    expect(reconcile(layout, ['plots', 'logbook'])).toEqual(normalize(layout));
   });
 
   test('accepts a raw JSON string as well as a parsed object', () => {
-    const layout = twoGroupLayout(['workspace'], ['terminal']);
-    const out = reconcile(JSON.stringify(layout), ['workspace', 'terminal']);
-    expect(out).not.toBeNull();
-    expect(referencedIds(out).sort()).toEqual(['terminal', 'workspace']);
+    const layout = threeTiles();
+    expect(reconcile(JSON.stringify(layout), ['plots', 'logbook'])).toEqual(
+      reconcile(layout, ['plots', 'logbook'])
+    );
   });
 
-  test('does not mutate the input layout', () => {
-    const layout = twoGroupLayout(['workspace'], ['terminal']);
-    const snapshot = JSON.stringify(layout);
-    reconcile(layout, ['workspace']); // drops terminal in the copy, not the input
-    expect(JSON.stringify(layout)).toBe(snapshot);
-  });
-});
-
-describe('reconcile — unknown ids dropped', () => {
-  test('an id no longer registered is removed from panels and its group', () => {
-    const layout = twoGroupLayout(['workspace', 'stale-panel'], ['terminal']);
-    const out = reconcile(layout, ['workspace', 'terminal']);
-    expect(Object.keys(out.panels).sort()).toEqual(['terminal', 'workspace']);
-    expect(referencedIds(out)).not.toContain('stale-panel');
+  test('does not mutate the input layout, even one it migrates', () => {
+    for (const layout of [threeTiles(), storedWithTabs()]) {
+      const before = JSON.parse(JSON.stringify(layout));
+      reconcile(layout, ['plots']);
+      reconcile(layout, ['plots', 'logbook']);
+      expect(layout).toEqual(before);
+    }
   });
 
-  test('a group emptied of all its panels is pruned; the lone survivor re-wraps as a branch root', () => {
-    // The right group holds only a now-unknown panel; dropping it collapses the
-    // inner branch to one group. dockview's fromJSON requires a BRANCH root, so
-    // reconcile re-wraps that lone survivor rather than leaving a bare leaf root.
-    const layout = twoGroupLayout(['workspace'], ['stale-panel']);
-    const out = reconcile(layout, ['workspace']);
-    expect(out.grid.root.type).toBe('branch');
-    expect(out.grid.root.data).toHaveLength(1);
-    expect(out.grid.root.data[0].type).toBe('leaf');
-    expect(referencedIds(out)).toEqual(['workspace']);
+  test('the result is a valid dock layout', () => {
+    const out = reconcile(threeTiles(), ['logbook']);
+    expect(validateLayout(out).valid).toBe(true);
   });
 
-  test('a dropped activeView is replaced by a surviving one', () => {
-    const layout = singleGroupLayout(['stale-panel', 'workspace']);
-    const out = reconcile(layout, ['workspace']);
-    const leaf = out.grid.root.data[0];
-    expect(leaf.data.views).toEqual(['workspace']);
-    expect(leaf.data.activeView).toBe('workspace');
+  test('missing sizes are filled in by normalize', () => {
+    const layout = {
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['plots'], showing: 'plots' },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal' },
+      ],
+    };
+    const out = /** @type {any} */ (reconcile(layout, ['plots']));
+    expect(out.items.map((/** @type {any} */ i) => i.size)).toEqual([0.5, 0.5]);
   });
 });
 
-describe('reconcile — iframe placeholders always survive', () => {
-  // Service placeholders are created lazily (panel registration is async), so
-  // at apply time they are often not yet in the live dock's registered set.
-  // Pruning them would silently discard the stored arrangement of every
-  // service panel on each reload — the regression this pin guards against.
-  test('an unregistered iframe: placeholder keeps its stored position', () => {
-    const layout = twoGroupLayout(['terminal'], ['iframe:artifacts']);
-    const out = reconcile(layout, ['terminal']);
-    expect(out).not.toBeNull();
-    expect(Object.keys(out.panels).sort()).toEqual(['iframe:artifacts', 'terminal']);
-    expect(referencedIds(out).sort()).toEqual(['iframe:artifacts', 'terminal']);
+describe('reconcile — a tile stored with several panels keeps the one it showed', () => {
+  test('the showing panel keeps the tile, its id and size; the others leave the dock', () => {
+    expect(reconcile(storedWithTabs(), ['plots', 'logbook'])).toEqual({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['logbook'], showing: 'logbook', size: 0.6 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+      ],
+    });
   });
 
-  test('non-placeholder unknown ids are still dropped alongside kept placeholders', () => {
-    const layout = twoGroupLayout(['terminal', 'stale-panel'], ['iframe:artifacts']);
-    const out = reconcile(layout, ['terminal']);
-    expect(referencedIds(out).sort()).toEqual(['iframe:artifacts', 'terminal']);
-    expect(out.panels['stale-panel']).toBeUndefined();
-  });
-});
-
-describe('reconcile — one panel per tile (stacks flattened)', () => {
-  test('a stacked group keeps only its active view', () => {
-    const layout = singleGroupLayout(['iframe:artifacts', 'iframe:ariel', 'iframe:lattice']);
-    layout.grid.root.data.activeView = 'iframe:ariel';
-    const out = reconcile(layout, []);
-    expect(out.grid.root.type).toBe('branch');
-    const leaf = out.grid.root.data[0];
-    expect(leaf.data.views).toEqual(['iframe:ariel']);
-    expect(leaf.data.activeView).toBe('iframe:ariel');
+  test('every such tile of a nested tree is migrated; tiles of one panel are untouched', () => {
+    const layout = threeTiles();
+    layout.items[0].items[1].tabs = ['logbook', 'alarms'];
+    layout.items[0].items[1].showing = 'alarms';
+    layout.items[1].tabs = ['terminal', 'ariel'];
+    const out = reconcile(layout, ['plots', 'logbook', 'alarms', 'ariel']);
+    expect(keysOf(out)).toEqual(['plots', 'alarms', 'terminal']);
+    expect(crowdedTile(out)).toBeNull();
+    expect(/** @type {any} */ (out).items[0].items[0]).toEqual({
+      tile: 't1',
+      tabs: ['plots'],
+      showing: 'plots',
+      size: 0.5,
+    });
   });
 
-  test('flattened-away panels are dropped from the panels map too', () => {
-    const layout = singleGroupLayout(['iframe:artifacts', 'iframe:ariel']);
-    const out = reconcile(layout, []);
-    expect(Object.keys(out.panels)).toEqual(['iframe:artifacts']);
-  });
-
-  test('a stack whose active view was pruned keeps the first surviving view', () => {
-    const layout = singleGroupLayout(['stale-panel', 'iframe:artifacts', 'iframe:ariel']);
-    const out = reconcile(layout, []); // 'stale-panel' is unknown AND was the activeView
-    const leaf = out.grid.root.data[0];
-    expect(leaf.data.views).toEqual(['iframe:artifacts']);
-    expect(leaf.data.activeView).toBe('iframe:artifacts');
-  });
-
-  test('every leaf of a multi-group layout is flattened independently', () => {
-    const layout = twoGroupLayout(['iframe:artifacts', 'iframe:ariel'], ['terminal', 'iframe:okf']);
-    const out = reconcile(layout, ['terminal']);
-    const [left, right] = out.grid.root.data;
-    expect(left.data.views).toEqual(['iframe:artifacts']);
-    expect(right.data.views).toEqual(['terminal']);
-    expect(Object.keys(out.panels).sort()).toEqual(['iframe:artifacts', 'terminal']);
+  test('the terminal stored beside a service keeps the tile only when it was showing', () => {
+    const terminalShowing = { tile: 't1', tabs: ['plots', 'terminal'], showing: 'terminal' };
+    expect(reconcile(terminalShowing, ['plots'])).toEqual({
+      tile: 't1',
+      tabs: ['terminal'],
+      showing: 'terminal',
+    });
+    // Behind a service it leaves with the others; the workspace brings it back.
+    const serviceShowing = { ...terminalShowing, showing: 'plots' };
+    expect(reconcile(serviceShowing, ['plots'])).toEqual({
+      tile: 't1',
+      tabs: ['plots'],
+      showing: 'plots',
+    });
   });
 });
 
-describe('reconcile — panels absent from the layout are not appended', () => {
-  test('a registered panel the layout never referenced stays absent', () => {
-    // The live callers re-add missing panels through the api after the apply
-    // (dock-workspace re-adds the terminal, the iframe adapter re-docks visible
-    // services) — reconcile itself must not invent grid nodes for them.
-    const layout = twoGroupLayout(['workspace'], ['terminal']);
-    const out = reconcile(layout, ['workspace', 'terminal', 'newcomer']);
-    expect(referencedIds(out)).not.toContain('newcomer');
-    expect(out.panels.newcomer).toBeUndefined();
+describe('reconcile — unknown keys are removed with the engine', () => {
+  test('an unknown key behind the showing panel is removed; the showing one keeps the tile', () => {
+    const out = /** @type {any} */ (reconcile(storedWithTabs(), ['logbook']));
+    expect(out.items[0]).toMatchObject({ tile: 't1', tabs: ['logbook'], showing: 'logbook' });
+    expect(keysOf(out)).toEqual(['logbook', 'terminal']);
+  });
+
+  test('unknown keys go first: an unknown showing panel hands showing on, and the tile keeps that one', () => {
+    const layout = {
+      tile: 't1',
+      tabs: ['plots', 'logbook', 'alarms'],
+      showing: 'logbook',
+    };
+    expect(reconcile(layout, ['plots', 'alarms'])).toEqual({
+      tile: 't1',
+      tabs: ['alarms'],
+      showing: 'alarms',
+    });
+  });
+
+  test('a tile left with no panel closes by the leave rule', () => {
+    const out = reconcile(servicesAndTerminal(), []);
+    expect(out).toEqual(
+      normalize(
+        /** @type {any} */ (
+          removeTab(removeTab(servicesAndTerminal(), 'plots').layout, 'logbook').layout
+        )
+      )
+    );
+    expect(out).toMatchObject({ tile: 't2', tabs: ['terminal'], showing: 'terminal' });
+  });
+
+  test('a closed tile gives its space to its from tile and the split collapses', () => {
+    const out = /** @type {any} */ (reconcile(threeTiles(), ['plots']));
+    expect(keysOf(out)).toEqual(['plots', 'terminal']);
+    expect(out.split).toBe('row');
+    expect(out.items[0]).toMatchObject({ tile: 't1', tabs: ['plots'] });
+    expect(out.items[0].size).toBeCloseTo(0.6, 3);
+    expect(out.items[1].size).toBeCloseTo(0.4, 3);
+  });
+
+  test('equals removing every unknown key with removeTab in tree order, then normalize', () => {
+    const layout = {
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['plots'], showing: 'plots', size: 0.2 },
+        { tile: 't3', tabs: ['logbook'], showing: 'logbook', size: 0.2 },
+        { tile: 't4', tabs: ['alarms'], showing: 'alarms', size: 0.2 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+      ],
+    };
+    /** @type {any} */
+    let expected = layout;
+    for (const key of ['plots', 'alarms']) expected = removeTab(expected, key).layout;
+    expect(reconcile(layout, ['logbook'])).toEqual(normalize(expected));
+  });
+
+  test('terminal is always kept, registered or not', () => {
+    const out = reconcile(servicesAndTerminal(), ['plots', 'logbook']);
+    expect(keysOf(out)).toContain('terminal');
+  });
+
+  test('registered keys absent from the layout are not appended', () => {
+    const out = reconcile(servicesAndTerminal(), ['plots', 'logbook', 'never-opened']);
+    expect(keysOf(out)).not.toContain('never-opened');
   });
 });
 
-describe('reconcile — grid root invariant (dockview fromJSON requires a branch root)', () => {
-  test('a single surviving group is wrapped as a branch root', () => {
-    const layout = singleGroupLayout(['workspace', 'terminal']);
-    const out = reconcile(layout, ['workspace', 'terminal']);
-    expect(out.grid.root.type).toBe('branch');
-    expect(out.grid.root.data[0].type).toBe('leaf');
+describe('reconcile — a dockview serialization is read into the dock form', () => {
+  test('groups become tiles keyed by stripped ids, with their fractions', () => {
+    expect(reconcile(dockviewStore(), ['plots'])).toEqual({
+      split: 'row',
+      items: [
+        { tile: 'g1', tabs: ['plots'], showing: 'plots', size: 0.6 },
+        { tile: 'g2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+      ],
+    });
+  });
+
+  test('as a raw string too, and its unknown keys are removed like any other', () => {
+    expect(reconcile(JSON.stringify(dockviewStore()), [])).toEqual({
+      tile: 'g2',
+      tabs: ['terminal'],
+      showing: 'terminal',
+    });
+  });
+
+  test('a stored group holding several placeholders keeps the one it showed', () => {
+    const store = dockviewStore();
+    store.grid.root.data[0].data.views = ['iframe:plots', 'iframe:logbook'];
+    store.grid.root.data[0].data.activeView = 'iframe:logbook';
+    const out = /** @type {any} */ (reconcile(store, ['plots', 'logbook']));
+    expect(out.items[0]).toEqual({ tile: 'g1', tabs: ['logbook'], showing: 'logbook', size: 0.6 });
+    expect(keysOf(out)).toEqual(['logbook', 'terminal']);
+  });
+
+  test('a serialization with no grid tree left is unusable', () => {
+    const store = dockviewStore();
+    store.grid.root.data = [];
+    expect(reconcile(store, ['plots'])).toBeNull();
   });
 });
 
-describe('reconcile — activeGroup', () => {
-  test('repoints activeGroup when the referenced group did not survive the prune', () => {
-    // activeGroup is 'group-left'; dropping its only panel prunes it away, so
-    // activeGroup must repoint to a surviving group rather than dangle.
-    const layout = twoGroupLayout(['stale-panel'], ['terminal']);
-    const out = reconcile(layout, ['terminal']);
-    expect(out.activeGroup).toBe('group-right');
+describe('reconcile — registered keys', () => {
+  test('any iterable works (a Set)', () => {
+    const out = reconcile(servicesAndTerminal(), new Set(['plots']));
+    expect(keysOf(out)).toEqual(['plots', 'terminal']);
+  });
+
+  test('malformed entries are ignored', () => {
+    const out = reconcile(
+      servicesAndTerminal(),
+      /** @type {any} */ ([null, 42, '', { id: 'logbook' }, 'plots'])
+    );
+    expect(keysOf(out)).toEqual(['plots', 'terminal']);
+  });
+
+  test('a missing list keeps only the terminal', () => {
+    const out = reconcile(servicesAndTerminal(), /** @type {any} */ (undefined));
+    expect(keysOf(out)).toEqual(['terminal']);
   });
 });
 
-describe('reconcile — corrupt / unusable input falls back (null)', () => {
+describe('reconcile — unusable input falls back (null)', () => {
   test('unparseable JSON string returns null', () => {
-    expect(reconcile('{ not valid json', ['workspace'])).toBeNull();
+    expect(reconcile('{not json', ['plots'])).toBeNull();
   });
 
-  test('non-layout objects return null', () => {
-    expect(reconcile(null, ['workspace'])).toBeNull();
-    expect(reconcile(42, ['workspace'])).toBeNull();
-    expect(reconcile({ grid: { root: null }, panels: {} }, ['workspace'])).toBeNull();
-    expect(reconcile({ panels: {} }, ['workspace'])).toBeNull();
+  test('null, primitives and non-layout objects return null', () => {
+    expect(reconcile(null, ['plots'])).toBeNull();
+    expect(reconcile('null', ['plots'])).toBeNull();
+    expect(reconcile(42, ['plots'])).toBeNull();
+    expect(reconcile({ foo: 'bar' }, ['plots'])).toBeNull();
   });
 
-  test('a layout with no surviving panels returns null (full fallback)', () => {
-    const layout = singleGroupLayout(['gone-a', 'gone-b']);
-    expect(reconcile(layout, ['workspace', 'terminal'])).toBeNull();
+  test('a layout failing validateLayout returns null', () => {
+    expect(reconcile({ tile: 't1', tabs: [], showing: 'plots' }, ['plots'])).toBeNull();
+    expect(reconcile({ tile: 't1', tabs: ['plots'], showing: 'logbook' }, ['plots'])).toBeNull();
+    expect(
+      reconcile({ split: 'row', items: [{ tile: 't1', tabs: ['plots'], showing: 'plots' }] }, [
+        'plots',
+      ])
+    ).toBeNull();
+  });
+
+  test('a layout with no registered key left returns null', () => {
+    expect(reconcile({ tile: 't1', tabs: ['plots', 'logbook'], showing: 'plots' }, [])).toBeNull();
   });
 });

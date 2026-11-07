@@ -17,6 +17,7 @@ import pytest
 
 from osprey.services.facility_knowledge.okf.index import (
     OKFIndexError,
+    _settle_bundle,
     _synthesize_description,
     check_indexes,
     regenerate_indexes,
@@ -322,6 +323,44 @@ class TestEmptiedDirectory:
         assert {p: p.read_bytes() for p in root.rglob("*.md")} == before
 
 
+class TestSettleBundle:
+    """After a settle the bundle passes the check and its root holds an index."""
+
+    def test_a_missing_root_gets_the_blank_placeholder_once(self, tmp_path: Path) -> None:
+        root = tmp_path / "facility" / "knowledge"
+
+        written = _settle_bundle(root)
+
+        index = root / "index.md"
+        assert written == index
+        validate_index(index, bundle_root=root)
+        assert index.read_bytes() == b""
+        assert _settle_bundle(root) is None
+        assert index.read_bytes() == b""
+        assert check_indexes(root) == []
+
+    def test_a_root_holding_a_page_gets_its_rendered_index(self, tmp_path: Path) -> None:
+        root = tmp_path / "facility" / "knowledge"
+        _concept(root, "note.md", type_="Note", title="A note", desc="Kept.")
+
+        assert _settle_bundle(root) is None
+
+        assert "/note.md" in (root / "index.md").read_text(encoding="utf-8")
+        assert check_indexes(root) == []
+
+    def test_a_stale_root_index_becomes_the_blank_placeholder(self, tmp_path: Path) -> None:
+        root = tmp_path / "facility" / "knowledge"
+        _concept(root, "note.md", type_="Note", title="A note", desc="Gone.")
+        regenerate_indexes(root)
+        (root / "note.md").unlink()
+
+        written = _settle_bundle(root)
+
+        assert written == root / "index.md"
+        assert written.read_bytes() == b""
+        assert check_indexes(root) == []
+
+
 # ---------------------------------------------------------------------------
 # render_indexes
 # ---------------------------------------------------------------------------
@@ -480,17 +519,18 @@ class TestCheckIndexes:
 
 
 class TestValidateIndex:
-    def test_root_index_with_okf_version_passes(self, tmp_path):
+    @pytest.mark.parametrize(
+        "content",
+        [
+            pytest.param(
+                '---\nokf_version: "0.1"\n---\n\n# Device\n\n* [X](/x.md)\n', id="okf-version"
+            ),
+            pytest.param("# Device\n\n* [X](/x.md)\n", id="no-frontmatter"),
+        ],
+    )
+    def test_root_index_passes(self, tmp_path, content):
         idx = tmp_path / "index.md"
-        idx.write_text(
-            '---\nokf_version: "0.1"\n---\n\n# Device\n\n* [X](/x.md)\n', encoding="utf-8"
-        )
-
-        validate_index(idx, bundle_root=tmp_path)  # must not raise
-
-    def test_root_index_no_frontmatter_passes(self, tmp_path):
-        idx = tmp_path / "index.md"
-        idx.write_text("# Device\n\n* [X](/x.md)\n", encoding="utf-8")
+        idx.write_text(content, encoding="utf-8")
 
         validate_index(idx, bundle_root=tmp_path)  # must not raise
 

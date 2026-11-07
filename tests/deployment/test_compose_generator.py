@@ -84,7 +84,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
 
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
     kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
@@ -946,20 +946,27 @@ def test_control_tree_source_defaults_to_the_agent_data_root() -> None:
     assert source == f"./{DEFAULT_AGENT_DATA_BASE_DIR}/control_target"
 
 
-def test_control_tree_source_follows_a_relocated_agent_data_root() -> None:
-    """A project that moved its agent-data root moved the tree with it: the
-    writer resolves its record under that root, so a mount left on the default
-    would bind a directory nobody writes."""
-    source, _ = _tree_keys({"agent_data": {"base_dir": "./scratch-data"}})
+@pytest.mark.parametrize(
+    ("agent_data", "expected"),
+    [
+        # A project that moved its agent-data root moved the tree with it: the
+        # writer resolves its record under that root, so a mount left on the
+        # default would bind a directory nobody writes.
+        pytest.param(
+            {"base_dir": "./scratch-data"}, "./scratch-data/control_target", id="relocated"
+        ),
+        # An absolute root is already anchored — a `./` prefix would break it.
+        pytest.param(
+            {"base_dir": "/srv/osprey-state"}, "/srv/osprey-state/control_target", id="absolute"
+        ),
+    ],
+)
+def test_control_tree_source_follows_the_configured_agent_data_root(
+    agent_data: dict, expected: str
+) -> None:
+    source, _ = _tree_keys({"agent_data": agent_data})
 
-    assert source == "./scratch-data/control_target"
-
-
-def test_control_tree_source_accepts_an_absolute_agent_data_root() -> None:
-    """An absolute root is already anchored — a `./` prefix would break it."""
-    source, _ = _tree_keys({"agent_data": {"base_dir": "/srv/osprey-state"}})
-
-    assert source == "/srv/osprey-state/control_target"
+    assert source == expected
 
 
 def test_control_tree_directory_name_comes_from_the_writer() -> None:
@@ -1238,36 +1245,42 @@ def test_worker_agent_data_volume_honors_an_absolute_base_dir() -> None:
     )
 
 
-def test_worker_template_inactivity_defaults_to_120() -> None:
-    """With no inactivity_sec configured, the worker env pins the watchdog to the
-    built-in 120s default — older configs missing the field still render cleanly."""
+@pytest.mark.parametrize(
+    "expected",
+    [
+        # With no inactivity_sec configured, the worker env pins the watchdog to the
+        # built-in 120s default — older configs missing the field still render cleanly.
+        pytest.param('DISPATCH_INACTIVITY_SEC: "120"', id="inactivity"),
+        # With no max_turns configured the worker env pins the built-in default, so a
+        # project built before the key existed still renders a number the worker reads.
+        pytest.param('DISPATCH_MAX_TURNS: "25"', id="max-turns"),
+    ],
+)
+def test_worker_template_pins_the_built_in_default_when_none_is_configured(
+    expected: str,
+) -> None:
     rendered = _render_worker_template(env_present=True)
-    assert 'DISPATCH_INACTIVITY_SEC: "120"' in rendered
+    assert expected in rendered
 
 
-def test_worker_template_inactivity_reflects_injected_value() -> None:
-    """A configured services.dispatch_worker.inactivity_sec flows to the worker's
-    DISPATCH_INACTIVITY_SEC env, so a long single step is not cut off at 120s."""
+@pytest.mark.parametrize(
+    ("dispatch_worker", "expected"),
+    [
+        # A configured services.dispatch_worker.inactivity_sec flows to the worker's
+        # DISPATCH_INACTIVITY_SEC env, so a long single step is not cut off at 120s.
+        pytest.param({"inactivity_sec": 600}, 'DISPATCH_INACTIVITY_SEC: "600"', id="inactivity"),
+        # A configured services.dispatch_worker.max_turns flows to DISPATCH_MAX_TURNS,
+        # which is what a trigger naming no ceiling of its own is given.
+        pytest.param({"max_turns": 60}, 'DISPATCH_MAX_TURNS: "60"', id="max-turns"),
+    ],
+)
+def test_worker_template_reflects_an_injected_dispatch_worker_value(
+    dispatch_worker: dict, expected: str
+) -> None:
     rendered = _render_worker_template(
-        env_present=False, project_name="p", dispatch_worker={"inactivity_sec": 600}
+        env_present=False, project_name="p", dispatch_worker=dispatch_worker
     )
-    assert 'DISPATCH_INACTIVITY_SEC: "600"' in rendered
-
-
-def test_worker_template_max_turns_defaults_to_25() -> None:
-    """With no max_turns configured the worker env pins the built-in default, so a
-    project built before the key existed still renders a number the worker reads."""
-    rendered = _render_worker_template(env_present=True)
-    assert 'DISPATCH_MAX_TURNS: "25"' in rendered
-
-
-def test_worker_template_max_turns_reflects_injected_value() -> None:
-    """A configured services.dispatch_worker.max_turns flows to DISPATCH_MAX_TURNS,
-    which is what a trigger naming no ceiling of its own is given."""
-    rendered = _render_worker_template(
-        env_present=False, project_name="p", dispatch_worker={"max_turns": 60}
-    )
-    assert 'DISPATCH_MAX_TURNS: "60"' in rendered
+    assert expected in rendered
 
 
 def test_worker_command_unchanged() -> None:
@@ -1515,6 +1528,38 @@ def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None
     environment = _worker_service(rendered)["environment"]
 
     assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
+
+
+def test_worker_optimizer_link_names_the_optimizer_service_on_the_bridge() -> None:
+    """On the compose network the optimizer is reached by its service key.
+
+    Left unset, the agent's optimizer server dials the published port on the
+    worker container's own loopback, and every optimizer tool fails on connect.
+    """
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=["optimizer"],
+        services_extra={"optimizer": {"port": 10182}},
+    )
+    environment = _worker_service(rendered)["environment"]
+
+    assert environment["OPTIMIZER_URL"] == "http://optimizer:10182"
+
+
+@pytest.mark.parametrize(
+    ("deployed", "network"), [(["optimizer"], "host"), ([], None), ([], "host")]
+)
+def test_worker_optimizer_link_is_absent_on_the_host_or_without_an_optimizer(
+    deployed: list[str], network: str | None
+) -> None:
+    """Host mode reaches the published port on loopback; no optimizer, no link."""
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=deployed,
+        dispatch_worker={} if network is None else {"network": network},
+        services_extra={"optimizer": {"port": 10182}},
+    )
+    assert "OPTIMIZER_URL" not in rendered
 
 
 @pytest.mark.parametrize("key", list(SECOND_LANE_KEYS.values()))
@@ -2269,13 +2314,13 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 
     # -- Task 3.2 / CC-2: read-only config + limits mounts under /app/project -
-    # The control-assistant preset's root sets control_system.writes: asked
+    # The demo preset's root sets control_system.writes: asked
     # (this deploy config never overrides it to never), so the real,
     # fully-flattened render must mount both config.yml and channel_limits.json
     # under the same /app/project root the connector resolves project_root
     # against.
     assert config["control_system"]["writes"] == "asked", (
-        "this assertion block assumes the control-assistant preset's "
+        "this assertion block assumes the demo preset's "
         "control_system.writes: asked default -- if that default ever changes, this "
         "test's premise for asserting the channel_limits.json mount changes too"
     )
@@ -2329,7 +2374,7 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(
 
 
 def test_orm_stack_correctors_hold_the_sweep_span(orm_stack_render: Path) -> None:
-    """Every corrector the ORM lane sweeps holds ``+-SPAN_A`` on the model.
+    """Every corrector the ORM lane sweeps holds ``+-SPAN`` on the model.
 
     The lane sweeps one model's correctors, the model whose corrector a limits
     record bounds. A write the model cannot solve is refused and leaves the
@@ -2347,7 +2392,7 @@ def test_orm_stack_correctors_hold_the_sweep_span(orm_stack_render: Path) -> Non
     composite = Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
     for setpoint in sorted(correctors):
         before = composite.get(setpoint)
-        for value in (-test_orm_roundtrip.SPAN_A, test_orm_roundtrip.SPAN_A):
+        for value in (-test_orm_roundtrip.SPAN, test_orm_roundtrip.SPAN):
             try:
                 composite.set({setpoint: value})
             except WriteRefusedError as exc:
@@ -2405,7 +2450,7 @@ def test_setup_build_dir_stages_a_config_naming_no_interpreter(
         TemplateManager(),
         project_name="staged-no-interp",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
 
@@ -2456,7 +2501,7 @@ def test_setup_build_dir_stages_the_bytes_pyyaml_writes_for_the_config(
         TemplateManager(),
         project_name="staged-bytes",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     service_dir = project_dir / "services" / "worker"
@@ -2542,7 +2587,7 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
             manager,
             project_name="pep-fallback",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -2586,7 +2631,7 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
             manager,
             project_name="pep-host",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -3774,6 +3819,31 @@ _EXPECTED_STAGED_WHEELS = sorted(
 )
 
 
+def _write_fixture_optimizer_wheel(path: Path) -> None:
+    """Write a minimal valid osprey-optimizer wheel: a base requirement on the
+    connectors, one of its own, and a ``service`` extra the manifest must leave
+    to the wheel layer."""
+    import zipfile
+
+    metadata = (
+        "Metadata-Version: 2.1\n"
+        "Name: osprey-optimizer\n"
+        f"Version: {_FIXTURE_MEMBER_VERSION}\n"
+        "Requires-Dist: osprey-connectors>=2026.6.2\n"
+        "Requires-Dist: pydantic>=2.12.5\n"
+        'Requires-Dist: torch==2.13.0; extra == "service"\n'
+        "Provides-Extra: service\n"
+    )
+    with zipfile.ZipFile(path, "w") as whl:
+        whl.writestr(f"osprey_optimizer-{_FIXTURE_MEMBER_VERSION}.dist-info/METADATA", metadata)
+
+
+#: Members whose fixture wheel a test replaces with one carrying requirements of
+#: its own, by member name. Empty by default, so the framework's manifest
+#: contract reads the generic member wheels.
+_RICH_MEMBER_FIXTURES: dict[str, Any] = {}
+
+
 @pytest.fixture
 def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
     """Spy on the ``python -m build`` subprocess, faking a successful build.
@@ -3799,7 +3869,9 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
             # checkout root may itself share a member's basename.
             cwd = Path(str(kwargs.get("cwd", "")))
             member = cwd.name
-            if cwd.parent.name == "packages" and member in WORKSPACE_MEMBERS:
+            if cwd.parent.name == "packages" and member in _RICH_MEMBER_FIXTURES:
+                _RICH_MEMBER_FIXTURES[member](Path(outdir, _member_wheel_name(member)))
+            elif cwd.parent.name == "packages" and member in WORKSPACE_MEMBERS:
                 _write_fixture_member_wheel(Path(outdir, _member_wheel_name(member)), member)
             else:
                 _write_fixture_wheel(Path(outdir, "osprey_framework-0.0.0-py3-none-any.whl"))
@@ -3808,6 +3880,33 @@ def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
 
     monkeypatch.setattr(subprocess, "run", _fake_run)
     return calls
+
+
+def test_the_optimizer_context_is_handed_its_own_wheel_and_not_the_frameworks(
+    tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The optimizer image installs the optimizer package, not the framework, so
+    its dev build is handed the optimizer and connectors wheels only, and a
+    manifest of their base requirements: the workspace pair is satisfied by the
+    wheels themselves, and the ``service`` extra by the wheel layer."""
+    from osprey.deployment.compose_generator import _stage_dev_wheel_for_context
+
+    monkeypatch.setitem(_RICH_MEMBER_FIXTURES, "osprey-optimizer", _write_fixture_optimizer_wheel)
+
+    ctx = tmp_path / "optimizer"
+    ctx.mkdir()
+    (ctx / "Dockerfile").write_text("FROM scratch\n")
+
+    assert _stage_dev_wheel_for_context(str(ctx), dev_mode=True) is True
+
+    assert sorted(p.name for p in ctx.glob("*.whl")) == [
+        _member_wheel_name("osprey-connectors"),
+        _member_wheel_name("osprey-optimizer"),
+    ]
+    manifest = (ctx / "osprey-local-requirements.txt").read_text().splitlines()
+    assert "pydantic>=2.12.5" in manifest
+    assert not any(line.startswith(("osprey-connectors", "torch")) for line in manifest)
+    assert len(spy_wheel_build) == 2
 
 
 def test_dev_wheel_builds_once_across_service_and_project_staging(
@@ -3850,6 +3949,13 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
         assert (ctx / "osprey-local-requirements.txt").is_file(), (
             f"no local-requirements manifest staged next to the wheels in {ctx}"
         )
+    # The lock constraints too, the same bytes in every context: a byte that
+    # differed would give that image a deps layer of its own.
+    locks = {
+        (ctx / "osprey-lock-constraints.txt").read_bytes()
+        for ctx in (service_ctx, project_image_ctx, render_ctx)
+    }
+    assert len(locks) == 1 and next(iter(locks)), "the lock constraints differ between contexts"
 
 
 def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
@@ -3882,7 +3988,7 @@ def test_dev_wheel_staged_only_into_dockerfile_build_contexts(
 
     staged: list[str] = []
 
-    def _record_staging(out_dir: str) -> bool:
+    def _record_staging(out_dir: str, **_: object) -> bool:
         staged.append(out_dir)
         return True
 
@@ -3920,7 +4026,7 @@ def _rendered_dispatcher_build_args(
     monkeypatch.setattr(
         compose_generator,
         "_copy_local_framework_for_override",
-        lambda out_dir: staging_result,
+        lambda out_dir, **_: staging_result,
     )
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
@@ -3950,7 +4056,7 @@ def test_failed_wheel_staging_aborts_the_deploy(
     from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError
 
-    def _staging_fails(_out_dir):  # type: ignore[no-untyped-def]
+    def _staging_fails(_out_dir, **_):  # type: ignore[no-untyped-def]
         raise DevModeUnavailableError("staging failed", "fix it")
 
     monkeypatch.setattr(compose_generator, "_copy_local_framework_for_override", _staging_fails)
@@ -5529,14 +5635,20 @@ def test_teams_bridge_image_installs_the_teams_extra_over_the_shared_deps_layer(
         'uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION"'
     )
     extras_install = 'pip install "osprey-framework[teams]"'
+    # A source build installs the extra's own requirements there instead.
+    lock_extras_install = (
+        "pip install -c /opt/osprey/lock-constraints.txt "
+        "-r /tmp/extras-ctx/osprey-extra-requirements.txt"
+    )
     assert deps_install in dockerfile
     assert extras_install in dockerfile
     assert (
         dockerfile.index(deps_install)
+        < dockerfile.index(lock_extras_install)
         < dockerfile.index(extras_install)
         < dockerfile.index("# ── wheel layer ─")
     )
-    assert 'pip install "${whl}[teams]"' in dockerfile
+    assert 'pip install $lock "${whl}[teams]"' in dockerfile
     assert '"${whl}"' not in dockerfile
 
 

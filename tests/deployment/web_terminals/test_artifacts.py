@@ -1063,7 +1063,19 @@ def test_open_mode_passes_when_every_render_denies_the_whole_egress_set(tmp_path
     assert open_mode_offenders(_open_roster_config(tmp_path / "twin"), tmp_path / "twin") == set()
 
 
-@pytest.mark.parametrize("method", ["token", "password", "oidc"])
+@pytest.mark.parametrize(
+    "method",
+    [
+        "token",
+        "password",
+        "oidc",
+        # A method nothing supports renders no deployment at all — the render raises on
+        # it and lint reports it. Reporting it here as well would give the operator a
+        # second, confusing refusal about renders, and would put a raise inside the
+        # ask-only reader its callers are promised will not raise.
+        "sso",
+    ],
+)
 def test_a_walled_or_token_deployment_is_not_asked_the_open_question(tmp_path, method):
     """The gate is about what nginx vouches for, not about what a render may run.
     Under `token` the browser still has to present the per-user magic link, and
@@ -1184,18 +1196,6 @@ def test_the_render_seam_refuses_an_open_deployment_before_writing_anything(tmp_
         write_web_terminal_artifacts(config, tmp_path)
 
     assert not (tmp_path / "build").exists()
-
-
-def test_an_unknown_auth_method_is_not_treated_as_open(tmp_path):
-    """A method nothing supports renders no deployment at all — the render raises on
-    it and lint reports it. Reporting it here as well would give the operator a
-    second, confusing refusal about renders, and would put a raise inside the
-    ask-only reader its callers are promised will not raise."""
-    config = _open_roster_config(tmp_path, method="sso", deny=_without("Bash"))
-
-    check_open_mode_requirements(config, tmp_path)
-
-    assert open_mode_offenders(config, tmp_path) == set()
 
 
 def test_the_collect_all_preflight_reports_the_open_mode_refusal(tmp_path, monkeypatch):

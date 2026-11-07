@@ -1,12 +1,12 @@
 // @ts-check
 /**
- * One artifact listing of the sidebar (sidebar-artifact-listing.js):
+ * One artifact listing of the session tree (sidebar-artifact-listing.js):
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifact-listing.test.mjs
  *
- * A listing is the artifacts panel's `GET /api/artifacts` seen through the
- * hub's proxy: `run=` splits the Artifacts list from the Script runs list on
- * the server, so the total and the cursor are exact; the session scope is the
- * server's. These tests pin the URL it builds (through the per-user prefix),
+ * A listing is the artifacts panel's `POST /api/artifacts/session-list` seen
+ * through the hub's proxy: one session (or the active key),
+ * optionally one form, always `runs: "grouped"`, never the retired `run=`
+ * filter. These tests pin the request it builds (through the per-user prefix),
  * the page sequence (a first page replaces and supersedes, the next page
  * appends once, a failure keeps what is held) and the live edits that keep the
  * total honest.
@@ -41,15 +41,15 @@ let session;
 let onChange;
 
 /**
- * @param {boolean} [run]
+ * @param {import('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifact-listing.js').ListingScope} [scope]
  */
-function listing(run = false) {
-  return mod.createListing({ run, sessionId: () => session, onChange });
+function listing(scope = { session: /** @type {string} */ (session) }) {
+  return mod.createListing({ scope, onChange });
 }
 
-/** The query of the n-th request. @param {number} n */
-function query(n) {
-  return new URL(fetchMock.mock.calls[n][0], 'http://hub').searchParams;
+/** The body of the n-th request. @param {number} n */
+function sent(n) {
+  return JSON.parse(fetchMock.mock.calls[n][1].body);
 }
 
 beforeEach(async () => {
@@ -64,26 +64,28 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete window.__OSPREY_PREFIX__;
+  localStorage.clear();
 });
 
-describe('the listing URL', () => {
-  test('names the run filter and the session, and no limit', () => {
-    expect(listing(false).url()).toBe('/panel/artifacts/api/artifacts?run=false&session_id=sess-1');
-    expect(listing(true).url()).toBe('/panel/artifacts/api/artifacts?run=true&session_id=sess-1');
+describe('the listing request', () => {
+  test('a session, grouped runs, no run filter, a cursor riding along', () => {
+    expect(listing().body()).toEqual({ session: 'sess-1', runs: 'grouped' });
+    expect(listing({ key: 'k1', form: 'plots' }).body('abc+=')).toEqual({
+      key: 'k1',
+      form: 'plots',
+      runs: 'grouped',
+      cursor: 'abc+=',
+    });
+    expect(JSON.stringify(listing().body())).not.toMatch(/"run"|run_record/);
   });
 
-  test('all sessions drops the session; a cursor rides along', () => {
-    session = null;
-    expect(listing().url('abc+=')).toBe(
-      '/panel/artifacts/api/artifacts?run=false&cursor=abc%2B%3D'
-    );
-  });
-
-  test('goes through the per-user prefix', () => {
+  test('POSTs to session-list through the per-user prefix', async () => {
     window.__OSPREY_PREFIX__ = '/u/alice';
-    expect(listing().url()).toBe(
-      '/u/alice/panel/artifacts/api/artifacts?run=false&session_id=sess-1'
-    );
+    fetchMock.mockResolvedValue(reply({ artifacts: [], total: 0 }));
+    await listing().loadFirst();
+    expect(fetchMock.mock.calls[0][0]).toBe('/u/alice/panel/artifacts/api/artifacts/session-list');
+    expect(fetchMock.mock.calls[0][1].method).toBe('POST');
+    expect(sent(0)).toEqual({ session: 'sess-1', runs: 'grouped' });
   });
 });
 
@@ -104,7 +106,7 @@ describe('the page sequence', () => {
     expect(list.hasMore).toBe(true);
     expect(list.loaded).toBe(true);
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][1]).toEqual({ cache: 'no-store' });
+    expect(fetchMock.mock.calls[0][1].cache).toBe('no-store');
   });
 
   test('the next page appends what is new and follows its cursor', async () => {
@@ -126,7 +128,7 @@ describe('the page sequence', () => {
     const list = listing();
     await list.loadFirst();
     await list.loadNext();
-    expect(query(1).get('cursor')).toBe('c1');
+    expect(sent(1).cursor).toBe('c1');
     expect(list.entries.map((a) => a.id)).toEqual(['c', 'b', 'a']);
     expect(list.hasMore).toBe(false);
     await list.loadNext();
@@ -224,11 +226,18 @@ describe('the live edits', () => {
     expect(list.total).toBe(8);
   });
 
+  test('a run held by its exec_id is replaced by its new head, counted once', async () => {
+    const list = await loadedWith([entry('pre', '2026-10-30T01:00:00Z', { exec_id: 'x1' })]);
+    list.add(entry('res', '2026-10-30T02:00:00Z', { exec_id: 'x1' }));
+    expect(list.entries.map((a) => a.id)).toEqual(['res']);
+    expect(list.total).toBe(1);
+  });
+
   test('an update merges into the held entry; an unknown id is not held', async () => {
     const list = await loadedWith([entry('a', '2026-10-30T01:00:00Z')]);
-    expect(list.update({ id: 'a', pinned: true })).toBe(true);
-    expect(list.find('a')?.pinned).toBe(true);
-    expect(list.update({ id: 'nope', pinned: true })).toBe(false);
+    expect(list.update({ id: 'a', title: 'Renamed' })).toBe(true);
+    expect(list.find('a')?.title).toBe('Renamed');
+    expect(list.update({ id: 'nope', title: 'Renamed' })).toBe(false);
   });
 
   test('a delete drops a held entry and its count; an unheld id changes nothing', async () => {
@@ -282,6 +291,17 @@ describe('fetchFocusedId', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/u/alice/panel/artifacts/api/focus');
   });
 
+  test("asks for the operator's current session's slot", async () => {
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
+    pointer.setPointer('key/1');
+    fetchMock.mockResolvedValueOnce(
+      reply({ focused: true, artifact: entry('f1', '2026-10-30T01:00:00Z') })
+    );
+    expect(await mod.fetchFocusedId()).toBe('f1');
+    expect(fetchMock.mock.calls[0][0]).toBe('/panel/artifacts/api/focus?session_key=key%2F1');
+  });
+
   test("the panel's newest-artifact fallback is no focus, nor is a failure", async () => {
     fetchMock.mockResolvedValueOnce(
       reply({ focused: false, artifact: entry('n1', '2026-10-30T01:00:00Z') })
@@ -291,5 +311,16 @@ describe('fetchFocusedId', () => {
     expect(await mod.fetchFocusedId()).toBeNull();
     fetchMock.mockResolvedValueOnce(reply({ detail: 'down' }, 502));
     expect(await mod.fetchFocusedId()).toBeNull();
+  });
+});
+
+describe('fetchSummary', () => {
+  test('POSTs one page of session ids, null on failure', async () => {
+    fetchMock.mockResolvedValueOnce(reply({ counts: {}, owned_total: 0 }));
+    expect(await mod.fetchSummary(['t1', 't2'])).toMatchObject({ counts: {} });
+    expect(fetchMock.mock.calls[0][0]).toBe('/panel/artifacts/api/artifacts/session-summary');
+    expect(sent(0)).toEqual({ sessions: ['t1', 't2'] });
+    fetchMock.mockResolvedValueOnce(reply({}, 502));
+    expect(await mod.fetchSummary(['t1'])).toBeNull();
   });
 });

@@ -1,0 +1,7 @@
+{
+  "name": "validate-dock-not-object",
+  "rule": "layout-grammar",
+  "input": 42,
+  "reason": "not_layout",
+  "where": "layout"
+}

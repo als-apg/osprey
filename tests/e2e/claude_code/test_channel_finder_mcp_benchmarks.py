@@ -63,7 +63,6 @@ from tests.e2e.test_graph_mcp_smoke import (
 logger = logging.getLogger(__name__)
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.channel_finder_benchmark,
     pytest.mark.slow,
     pytest.mark.requires_als_apg,
@@ -80,9 +79,9 @@ JUDGE_MODEL = "claude-haiku-5-5"
 
 #: Channel bindings in the shipped demo corpus — what ``osprey up`` puts in
 #: the store and what the graph lane's census must find. It equals
-#: ``EXPECTED_BINDINGS`` in ``tests/templates/test_control_assistant_demo_ttl.py``,
+#: ``EXPECTED_BINDINGS`` in ``tests/templates/test_demo_ttl.py``,
 #: which owns the corpus-side pin; this is the benchmark-side one.
-GRAPH_CHANNEL_COUNT = 3339
+GRAPH_CHANNEL_COUNT = 4731
 
 
 def perfect_match_rate(run: BenchmarkRun) -> float:

@@ -99,6 +99,14 @@ PENDING_REWORDING: frozenset[TextKey] = frozenset(
         ("rendered", ".claude/agents/data-visualizer.md", "text"),
         ("rendered", ".claude/agents/facility-knowledge-graph.md", "text"),
         ("rendered", ".claude/agents/pyat-specialist.md", "text"),
+        # Byte copies of CANOPY's own skills (tests/integrations/canopy/fixtures/
+        # canopy-copies.json): their wording changes in CANOPY, not here.
+        ("rendered", ".claude/skills/canopy-panel-builder/SKILL.md", "text"),
+        ("rendered", ".claude/skills/canopy-operator/SKILL.md", "text"),
+        # Lists each screen's devices under the facility's own system prefix,
+        # which the example facility spells ``SR``, so its device lines read
+        # ``SR: <labels>``.
+        ("rendered", ".claude/skills/canopy-screens/SKILL.md", "text"),
         ("rendered", ".claude/output-styles/control-operator.md", "text"),
         ("rendered", ".claude/rules/control-system-safety.md", "text"),
         ("rendered", ".claude/rules/safety.md", "text"),
@@ -144,8 +152,15 @@ def facility_strings(*values: Any) -> frozenset[str]:
 
 
 def render_root_facility_strings(root: Path) -> frozenset[str]:
-    """The facility-sourced strings the build handed the templates of one render root."""
+    """The facility-sourced strings the build handed the templates of one render root.
+
+    Besides the :data:`FACILITY_CONTEXT_KEYS`, the CANOPY screens guide: its
+    titles, summaries, device labels and collections are read out of the
+    deployment's screen library and facility file, by the same producer the
+    build calls. The skill's own frame stays unmasked.
+    """
     from osprey.cli.templates.claude_code import config_derived_context
+    from osprey.integrations.canopy.screen_guide import screen_guide_context
 
     config_file = root / "config.yml"
     config = (
@@ -154,7 +169,10 @@ def render_root_facility_strings(root: Path) -> frozenset[str]:
         else {}
     )
     context = config_derived_context(config, root)
-    return facility_strings(*(context[key] for key in FACILITY_CONTEXT_KEYS))
+    return facility_strings(
+        *(context[key] for key in FACILITY_CONTEXT_KEYS),
+        screen_guide_context(config, root),
+    )
 
 
 def mask_facility_text(text: str, strings: Iterable[str]) -> str:

@@ -36,7 +36,8 @@ from osprey.agent_runner import (
     ToolUseEvent,
     agent_session,
 )
-from osprey.agent_runner.clean_env import build_clean_env
+from osprey.agent_runner.claude_state import is_untrusted_allow_rules_notice
+from osprey.agent_runner.clean_env import add_panel_token, build_clean_env
 from osprey.agent_runner.sdk_context import (
     PermissionResultAllow,
     PermissionResultDeny,
@@ -47,7 +48,7 @@ from osprey.agent_runner.write_tools import load_approval_prefixes, read_only_di
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.build.claude_code_telemetry import terminal_session_env
 from osprey.deployment.process_table import ProcessRow
-from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, get_web_credentials
+from osprey.interfaces.web_auth import get_web_credentials
 from osprey.interfaces.web_terminal import process_tree
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionPool
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup
@@ -276,7 +277,7 @@ def build_operator_child_env(
         )
 
     env = build_clean_env(project_cwd=project_cwd)
-    env[PANEL_TOKEN_ENV] = get_web_credentials().panel_token
+    add_panel_token(env, get_web_credentials().panel_token)
 
     # The audit pair, stamped after the strip (build_clean_env would drop it)
     # and outside the sandbox branch below — see the rules in the docstring.
@@ -1205,6 +1206,7 @@ class OperatorSession:
                 session_id=session_id,
                 await_mcp_servers=(),
                 can_use_tool=self._can_use_tool,
+                stderr=self._record_stderr,
                 include_partial_messages=True,
             )
         )
@@ -1214,6 +1216,20 @@ class OperatorSession:
         self._stream_ended = False
         self._pump_task = asyncio.create_task(self._pump())
         logger.info("OperatorSession started (cwd=%s)", self._cwd)
+
+    def _record_stderr(self, line: str) -> None:
+        """Log one CLI stderr line; loudly when the CLI dropped the render's allow list."""
+        if is_untrusted_allow_rules_notice(line):
+            logger.warning(
+                "Claude Code is ignoring the permissions.allow list of %s because it is "
+                "not a trusted workspace, so every read-only tool will ask for approval. "
+                'Set projects["%s"].hasTrustDialogAccepted: true in Claude Code\'s '
+                ".claude.json (the web terminal does this at startup on a host).",
+                self._cwd,
+                Path(self._cwd).resolve(),
+            )
+            return
+        logger.debug("Claude Code stderr: %s", line)
 
     # ---- Operator approvals ---- #
 
@@ -2241,6 +2257,10 @@ class OperatorRegistry:
 
     def get_chat_session(self, chat_id: str) -> OperatorSession | None:
         return self.chats.get(chat_id)
+
+    def session_keys(self) -> list[str]:
+        """Every operator session's id and every chat id the pool answers to now."""
+        return [*self._sessions, *self.chats.keys()]
 
     def has_chat_key(self, chat_id: str) -> bool:
         """Pass-through to :meth:`ChatSessionPool.has_key`.

@@ -175,7 +175,7 @@ Step 1 — Create the facility repository
 
 .. code-block:: bash
 
-   osprey init demo-facility --preset control-assistant
+   osprey init demo-facility --preset demo
    cd demo-facility
 
 The command writes the whole repository, runs ``git init`` at its root, and
@@ -204,7 +204,7 @@ it.
 Step 2 — Trim the profile to this facility's stack
 ==================================================
 
-Open ``profile.yml``. The ``control-assistant`` preset ships a fuller
+Open ``profile.yml``. The ``demo`` preset ships a fuller
 stack than Demo Facility runs, so the first edit is subtraction. Delete:
 
 * the top-level ``bluesky:``, ``bluesky_web:`` and ``dispatch:`` blocks. Each
@@ -749,7 +749,7 @@ anywhere inside the repository:
 
    osprey set connector=epics                      # your control system; or edit profile.yml by hand
    osprey set config.archiver.type=epics_archiver  # the archiver that records it
-   osprey set va_archiver=null                     # the recorded archive goes with the stand-in
+   osprey set va_archiver=null                     # that store records the simulator
    osprey build
    osprey up -d
 

@@ -235,8 +235,22 @@ def test_inject_bluesky_plan_dir_written_to_config(tmp_path: Path) -> None:
     assert config["services"]["bluesky"]["plan_dir"] == "/opt/facility/plans"
 
 
-def test_inject_bluesky_no_plan_dir_omits_key(tmp_path: Path) -> None:
-    """No plan_dir configured -> no plan_dir key at all (bridge-only deploy unchanged)."""
+@pytest.mark.parametrize(
+    "key",
+    [
+        # No plan_dir configured -> no plan_dir key at all (bridge-only deploy unchanged).
+        pytest.param("plan_dir", id="no-plan-dir"),
+        # Empty excluded_plans -> no excluded_plans key at all (omit-when-empty).
+        pytest.param("excluded_plans", id="no-excluded-plans"),
+        # An unstated device_page_size -> no key at all (omit-when-default).
+        #
+        # The regression pin: the bridge falls back to the same default when the env
+        # var is absent, so an unauthored page size must leave the rendered block
+        # exactly as it was before this key existed.
+        pytest.param("device_page_size", id="default-device-page-size"),
+    ],
+)
+def test_inject_bluesky_unstated_facility_plan_key_omits_it(tmp_path: Path, key: str) -> None:
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)
@@ -244,7 +258,7 @@ def test_inject_bluesky_no_plan_dir_omits_key(tmp_path: Path) -> None:
     _inject_bluesky(BlueskyConfig(), project_path)
 
     config = _read_config(project_path)
-    assert "plan_dir" not in config["services"]["bluesky"]
+    assert key not in config["services"]["bluesky"]
 
 
 def test_inject_bluesky_excluded_plans_written_to_config(tmp_path: Path) -> None:
@@ -259,18 +273,6 @@ def test_inject_bluesky_excluded_plans_written_to_config(tmp_path: Path) -> None
 
     config = _read_config(project_path)
     assert config["services"]["bluesky"]["excluded_plans"] == os.pathsep.join(["orm", "tune"])
-
-
-def test_inject_bluesky_no_excluded_plans_omits_key(tmp_path: Path) -> None:
-    """Empty excluded_plans -> no excluded_plans key at all (omit-when-empty)."""
-    project_path = tmp_path / "project"
-    project_path.mkdir()
-    _write_config(project_path)
-
-    _inject_bluesky(BlueskyConfig(), project_path)
-
-    config = _read_config(project_path)
-    assert "excluded_plans" not in config["services"]["bluesky"]
 
 
 # ---------------------------------------------------------------------------
@@ -294,23 +296,6 @@ def test_inject_bluesky_device_page_size_written_to_config(tmp_path: Path) -> No
 
     config = _read_config(project_path)
     assert config["services"]["bluesky"]["device_page_size"] == 200
-
-
-def test_inject_bluesky_default_device_page_size_omits_key(tmp_path: Path) -> None:
-    """An unstated device_page_size -> no key at all (omit-when-default).
-
-    The regression pin: the bridge falls back to the same default when the env
-    var is absent, so an unauthored page size must leave the rendered block
-    exactly as it was before this key existed.
-    """
-    project_path = tmp_path / "project"
-    project_path.mkdir()
-    _write_config(project_path)
-
-    _inject_bluesky(BlueskyConfig(), project_path)
-
-    config = _read_config(project_path)
-    assert "device_page_size" not in config["services"]["bluesky"]
 
 
 def test_inject_bluesky_device_page_size_authored_at_default_omits_key(
@@ -357,7 +342,17 @@ def test_inject_bluesky_device_page_size_written_to_both_lanes(tmp_path: Path) -
     assert config["services"]["bluesky_live"]["device_page_size"] == 250
 
 
-def test_plan_dir_mount_and_env_round_trip_through_compose(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("plan_dir", "source"),
+    [
+        ("/opt/facility/plans", "/opt/facility/plans"),
+        # A bare relative source would be a compose named volume.
+        ("plans/", "./plans/"),
+    ],
+)
+def test_plan_dir_mount_and_env_round_trip_through_compose(
+    tmp_path: Path, plan_dir: str, source: str
+) -> None:
     """A configured plan_dir renders both the read-only bind mount and the
     in-container BLUESKY_PLAN_DIRS env var the loader (plan_loader.py) reads
     — the host path must never leak into the container environment."""
@@ -365,15 +360,15 @@ def test_plan_dir_mount_and_env_round_trip_through_compose(tmp_path: Path) -> No
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/plans"), project_path)
+    _inject_bluesky(BlueskyConfig(plan_dir=plan_dir), project_path)
     config = _read_config(project_path)
     rendered = _render_copied_compose(project_path, config)
 
     bridge = rendered["services"]["bluesky-bridge"]
     assert bridge["environment"]["BLUESKY_PLAN_DIRS"] == "/app/project/plans"
-    assert "/opt/facility/plans:/app/project/plans:ro" in bridge["volumes"]
+    assert f"{source}:/app/project/plans:ro" in bridge["volumes"]
     # The host path never appears in the container's environment block.
-    assert "/opt/facility/plans" not in bridge["environment"].values()
+    assert source not in bridge["environment"].values()
 
 
 def test_plan_dir_absent_omits_mount_and_env(tmp_path: Path) -> None:
@@ -610,8 +605,22 @@ def test_settle_keys_round_trip_through_compose(tmp_path: Path) -> None:
     assert queueserver["environment"]["BLUESKY_SETTLE_TOLERANCE"] == "0.001"
 
 
-def test_default_settle_keys_omit_the_env(tmp_path: Path) -> None:
-    """An unauthored budget or tolerance renders neither key anywhere at all."""
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        # An unauthored budget or tolerance renders neither key anywhere at all.
+        pytest.param(
+            "BLUESKY_SETTLE_TIMEOUT_S", "BLUESKY_SETTLE_TOLERANCE", id="default-settle-keys"
+        ),
+        # An unauthored cap renders neither key anywhere at all.
+        pytest.param(
+            "BLUESKY_LIVE_MAX_RUNS",
+            "BLUESKY_LIVE_MAX_ROWS_PER_RUN",
+            id="default-live-buffer-caps",
+        ),
+    ],
+)
+def test_unauthored_settings_omit_their_env_keys(tmp_path: Path, first: str, second: str) -> None:
     import yaml as pyyaml
 
     project_path = tmp_path / "project"
@@ -622,8 +631,8 @@ def test_default_settle_keys_omit_the_env(tmp_path: Path) -> None:
     config = _read_config(project_path)
     text = pyyaml.safe_dump(_render_copied_compose(project_path, config))
 
-    assert "BLUESKY_SETTLE_TIMEOUT_S" not in text
-    assert "BLUESKY_SETTLE_TOLERANCE" not in text
+    assert first not in text
+    assert second not in text
 
 
 def test_zero_settle_tolerance_reaches_the_worker(tmp_path: Path) -> None:
@@ -682,19 +691,3 @@ def test_live_buffer_caps_round_trip_through_compose(tmp_path: Path) -> None:
     bridge = rendered["services"]["bluesky-bridge"]
     assert bridge["environment"]["BLUESKY_LIVE_MAX_RUNS"] == "4"
     assert bridge["environment"]["BLUESKY_LIVE_MAX_ROWS_PER_RUN"] == "200"
-
-
-def test_default_live_buffer_caps_omit_the_env(tmp_path: Path) -> None:
-    """An unauthored cap renders neither key anywhere at all."""
-    import yaml as pyyaml
-
-    project_path = tmp_path / "project"
-    project_path.mkdir()
-    _write_config(project_path)
-
-    _inject_bluesky(BlueskyConfig(), project_path)
-    config = _read_config(project_path)
-    text = pyyaml.safe_dump(_render_copied_compose(project_path, config))
-
-    assert "BLUESKY_LIVE_MAX_RUNS" not in text
-    assert "BLUESKY_LIVE_MAX_ROWS_PER_RUN" not in text

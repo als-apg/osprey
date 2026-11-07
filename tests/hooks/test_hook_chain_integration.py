@@ -391,35 +391,27 @@ def test_per_tool_chain_read_skip(tmp_path, hook_runner):
 # ============================================================================
 
 
-def test_hook_invalid_json_stdin_exits_cleanly(hook_runner_raw):
-    """Hook receiving invalid JSON on stdin exits with code 0 (fail-open).
-
-    All hooks wrap stdin parsing in try/except and call sys.exit(0) on failure,
-    which allows the tool to proceed. This is intentional -- a broken hook
-    should not block the entire system.
-    """
+@pytest.mark.parametrize(
+    ("hook", "stdin_override"),
+    [
+        # All hooks wrap stdin parsing in try/except and call sys.exit(0) on failure,
+        # which allows the tool to proceed. This is intentional -- a broken hook
+        # should not block the entire system.
+        pytest.param("osprey_writes_check.py", "this is not valid json {{{", id="invalid-json"),
+        pytest.param("osprey_approval.py", "", id="empty"),
+    ],
+)
+def test_hook_unusable_stdin_exits_cleanly(hook_runner_raw, hook, stdin_override):
+    """Hook receiving unusable stdin exits with code 0 (fail-open)."""
     returncode, stdout, stderr = hook_runner_raw(
-        "osprey_writes_check.py",
+        hook,
         tool_name="unused",
         tool_input={},
-        stdin_override="this is not valid json {{{",
+        stdin_override=stdin_override,
     )
 
     assert returncode == 0
     assert stdout.strip() == ""  # No output = allow
-
-
-def test_hook_empty_stdin_exits_cleanly(hook_runner_raw):
-    """Hook receiving empty stdin exits with code 0."""
-    returncode, stdout, stderr = hook_runner_raw(
-        "osprey_approval.py",
-        tool_name="unused",
-        tool_input={},
-        stdin_override="",
-    )
-
-    assert returncode == 0
-    assert stdout.strip() == ""
 
 
 # ============================================================================
@@ -534,3 +526,42 @@ def test_post_tool_use_hooks_independent(hook_runner, make_config):
     )
 
     assert nb_result is None  # channel_read has no notebook_path
+
+
+def test_plan_mode_channel_write_is_denied_once_and_asked_nowhere(tmp_path, hook_runner):
+    """In plan mode the whole PreToolUse chain yields one deny and no ask.
+
+    Every hook runs, as the harness runs them all and aggregates: the plan-mode
+    rule's deny would lose to an ask from the approval hook, so the approval
+    hook must stay silent where the rule denies.
+    """
+    config = _make_chain_config(
+        tmp_path,
+        writes="allowed",
+        channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
+        approval_default_policy="always",
+        approval_tools={"channel_write": "always"},
+    )
+    hook_config = {
+        **DEFAULT_CHAIN_CONFIG,
+        "write_tools": ["mcp__controls__channel_write"],
+        "plan_mode_denied_tools": ["mcp__controls__channel_write"],
+    }
+
+    decisions = []
+    for hook_name in ["osprey_plan_mode.py", *WRITE_HOOK_CHAIN]:
+        result = hook_runner(
+            hook_name,
+            "mcp__controls__channel_write",
+            {"operations": [{"channel": "TEST:PV", "value": 50.0}]},
+            config_path=config,
+            cwd=tmp_path,
+            hook_config=hook_config,
+            hook_input_extra={"hook_event_name": "PreToolUse", "permission_mode": "plan"},
+        )
+        if result is not None:
+            decision = result.get("hookSpecificOutput", {}).get("permissionDecision")
+            if decision is not None:
+                decisions.append((hook_name, decision))
+
+    assert decisions == [("osprey_plan_mode.py", "deny")]

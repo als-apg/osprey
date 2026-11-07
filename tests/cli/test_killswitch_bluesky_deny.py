@@ -60,7 +60,7 @@ def _base_project(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         facility_views=True,
         project_name="killswitch-bluesky-base",
         output_dir=tmp_path_factory.mktemp("killswitch-base"),
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     yield _BASE_PROJECT
@@ -370,7 +370,7 @@ _VA_CONNECTOR = "virtual_accelerator"
 def _switchable(**kwargs):
     """A two-target deployment: the built type is the live one and both blocks exist.
 
-    The control-assistant preset builds a ``mock`` and carries the two blocks
+    The demo preset builds a ``mock`` and carries the two blocks
     already, so naming ``epics`` as the type is all it takes to make ``live``
     and ``va`` both selectable — the deployment that used to render three ways.
     """

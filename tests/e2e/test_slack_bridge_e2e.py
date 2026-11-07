@@ -182,7 +182,7 @@ STRANGER_ID = "U0STRANGER"
 
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Init + build a control-assistant repo once per module. The provider never reaches
+    """Init + build a demo repo once per module. The provider never reaches
     an assertion: the endpoint is pinned to a loopback port nobody answers."""
     return build_repo(
         tmp_path_factory.mktemp("slack_bridge_build"),

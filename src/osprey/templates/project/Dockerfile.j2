@@ -23,13 +23,24 @@
 #                       override with a git+https URL or ==version to pin an
 #                       unreleased build). The deps layer primes this spec with
 #                       its dependencies, plus any local dependency delta staged
-#                       as osprey-local-requirements.txt on dev builds. If
+#                       as osprey-local-requirements.txt on dev builds, and
+#                       freezes the result to /opt/osprey/constraints.txt; the
+#                       profile's dependencies install under that file. If
 #                       `osprey up --dev` stages a local *.whl in the
 #                       build context, a later wheel layer force-reinstalls
 #                       osprey itself from that wheel on top of the primed deps.
+#                       A source build also stages
+#                       osprey-lock-constraints.txt (the checkout's uv.lock as
+#                       constraints); with it present nothing is primed from
+#                       OSPREY_PIP_SPEC, and every third-party package in every
+#                       install layer is held to the lock's version.
 #   OSPREY_DEV          "1" relaxes the deps layer: if the pinned OSPREY_PIP_SPEC
 #                       is unreleased and fails to install, fall back to the
 #                       latest published osprey-framework instead of failing.
+#                       It also skips that layer's `pip check`, which a
+#                       build mixing released and working-tree pins fails —
+#                       except on the lock-driven path, which primes no
+#                       release and so has no mismatch to excuse.
 #   OSPREY_PIP_PRE      "1" when OSPREY_PIP_SPEC pins a pre-release: the deps
 #                       layer then resolves with --prerelease=allow, since
 #                       the framework declares only floors on its workspace
@@ -176,9 +187,35 @@ ENV DISABLE_AUTOUPDATER=1
 # the git spec fails the build: falling through would resolve it by name from
 # PyPI, which a commit pin gives no reason to trust. Only a spec that cannot
 # carry the fragment (a PyPI release pin) resolves its members from the index,
-# where they are the releases paired with that framework version. The member
-# list is the framework's own, rendered in by `osprey build`.
-COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
+# which picks the newest member releases the framework's floors admit. The
+# member list is the framework's own, rendered in by `osprey build`.
+#
+# The profile's own `dependencies:` are not part of that primer. Once the
+# framework and the local delta are in, the resolved set is frozen to
+# /opt/osprey/constraints.txt and the profile dependencies install in a run of
+# their own under it: a profile adds packages, it never moves a version the
+# framework resolved, and one that would fails the build instead of shipping an
+# image whose framework runs against versions it was never resolved with. The
+# file stays in the image for the wheel layer below and for anything installed
+# later. `pip check` then closes the layer, except under OSPREY_DEV=1 — a dev
+# build primes a released framework and lays working-tree requirements over it,
+# so the two sets of pins legitimately disagree until the wheel layer has
+# replaced the framework, and that layer checks unconditionally.
+#
+# A build from an osprey source checkout (`osprey up --dev`) also stages
+# osprey-lock-constraints.txt, the checkout's uv.lock exported as constraints,
+# and the file's presence (not OSPREY_DEV) puts this layer on the lock-driven
+# install: nothing is primed from OSPREY_PIP_SPEC, the staged wheels' own
+# dependency list is installed with every third-party package held to the
+# version the lock holds, and the file is kept at
+# /opt/osprey/lock-constraints.txt for the wheel layer below. The lock's lines
+# are appended to the setuptools constraint file rather than replacing it, so
+# they also bound the profile's dependencies (installed under that file) and
+# uv's build environments, and a lock that pins setuptools>=84 fails the layer
+# loudly. With nothing primed from a release there is no mismatch to excuse,
+# so `pip check` runs on this path whatever OSPREY_DEV says. With no file
+# staged (a release build) the layer is exactly what it was.
+COPY .dockerignore osprey-local-requirements.tx[t] osprey-lock-constraints.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling
 # (CompileError escapes uncaught), which fails any source build of the EPICS
 # toolchain (pvxslibs/epicscorelibs/softioc) on platforms without a binary
@@ -227,23 +264,34 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && pip install "uv==0.12.21" \
-    && { case "$OSPREY_PIP_SPEC" in \
-           git+*) : \
+    && mkdir -p /opt/osprey \
+    && if [ -f /tmp/deps-ctx/osprey-lock-constraints.txt ]; then \
+           echo "Source build: installing the staged wheels' dependencies at the checkout's uv.lock versions" \
+           && cp /tmp/deps-ctx/osprey-lock-constraints.txt /opt/osprey/lock-constraints.txt \
+           && cat /opt/osprey/lock-constraints.txt >> /tmp/deps-ctx/pip-constraints.txt \
+           && uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt; \
+       else \
+           { case "$OSPREY_PIP_SPEC" in \
+               git+*) : \
 {%- for member in workspace_members %}
-                  ; uv pip install "{{ member }} @ ${OSPREY_PIP_SPEC}#subdirectory=packages/{{ member }}" \
-                  || { echo "ERROR: could not install {{ member }} from the git spec" >&2; exit 1; } \
+                      ; uv pip install "{{ member }} @ ${OSPREY_PIP_SPEC}#subdirectory=packages/{{ member }}" \
+                      || { echo "ERROR: could not install {{ member }} from the git spec" >&2; exit 1; } \
 {%- endfor %}
-                  ;; \
-         esac; } \
-    && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
-         || if [ "$OSPREY_DEV" = "1" ]; then \
-                echo "WARNING: pin unreleased, priming with latest" \
-                && uv pip install osprey-framework {{ pip_dependency_args | default("") }}; \
-            else exit 1; fi; } \
-    && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
-           uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt; \
+                      ;; \
+             esac; } \
+           && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "$OSPREY_PIP_SPEC" \
+                || if [ "$OSPREY_DEV" = "1" ]; then \
+                       echo "WARNING: pin unreleased, priming with latest" \
+                       && uv pip install osprey-framework; \
+                   else exit 1; fi; } \
+           && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
+                  uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt; \
+              fi; \
        fi \
-    && pip uninstall -y uv \
+    && pip freeze --exclude uv --exclude pip --exclude setuptools --exclude wheel > /opt/osprey/constraints.txt \
+{% if pip_dependency_args %}    && uv pip install -c /tmp/deps-ctx/pip-constraints.txt -c /opt/osprey/constraints.txt {{ pip_dependency_args }} \
+{% endif %}    && pip uninstall -y uv \
+    && if [ "$OSPREY_DEV" != "1" ] || [ -f /opt/osprey/lock-constraints.txt ]; then pip check; fi \
     && apt-get purge -y build-essential python3-dev \
     && apt-get autoremove -y \
     && rm -rf /tmp/deps-ctx
@@ -255,30 +303,45 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # shared path so that user finds it. The headless shell is all the converter
 # launches, so the full browser is not installed. It sits after the deps layer
 # because the playwright package it runs comes from there, and before the dev
-# wheel so that rebuilding with a local wheel does not fetch it again.
+# wheel so that rebuilding with a local wheel does not fetch it again. The
+# CANOPY panel's sidecar drives the same headless shell.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     python -m playwright install --with-deps --only-shell chromium
 
-# Dev wheel drop (wheel layer). `osprey up --dev` stages a locally-built
-# wheel in the build context; when present, reinstall osprey from it (deps
-# first, then a --no-deps --force-reinstall so the local build wins over the
-# primed copy) and `pip check` the result. With no wheel staged this RUN is a
-# no-op (exit 0) and the image is complete after the deps layer. The
-# `.dockerignore` sibling in the COPY glob guarantees the COPY always matches at
-# least one file, so it never fails when no wheel exists.
+# Wheel drop (wheel layer). `osprey up --dev` stages a locally-built wheel in
+# the build context; when one is present, install it with its dependencies under
+# the deps layer's frozen set, then reinstall it with --no-deps --force-reinstall
+# so the local build wins over the primed copy, and `pip check` the result. The
+# frozen set is read minus the lines naming the dropped wheels themselves — those
+# are the distributions this layer exists to replace — so a wheel may change its
+# own version and nothing else: a dependency of it that would move a framework
+# pin fails the build here. The filter (osprey.deployment.constraints) runs from
+# the dropped wheels themselves, put on PYTHONPATH, so it is the dropped
+# framework's copy and not the primed release's. The check carries no
+# OSPREY_DEV guard, because what it checks is the environment the image
+# actually ships. With no wheel staged this RUN is a no-op (exit 0) and the
+# image is complete after the deps layer. The `.dockerignore` sibling in the
+# COPY glob guarantees the COPY always matches at least one file, so it never
+# fails when no wheel exists.
 #
-# The overlay then asserts that the `pyaml` import package has exactly one
-# owning distribution (osprey.deployment.pyaml_owner): every pyAML distribution
-# writes the same `pyaml/` files, and neither the resolver nor `pip check` sees
-# two of them installed together. The manifest above is staged only beside these
-# wheels, so every build that installed it runs the assertion.
+# Before `pip check`, the overlay asserts that the `pyaml` import package has
+# exactly one owning distribution (osprey.deployment.pyaml_owner): every pyAML
+# distribution writes the same `pyaml/` files, and neither the resolver nor
+# `pip check` sees two of them installed together. The manifest above is staged
+# only beside these wheels, so every build that installed it runs the assertion.
+#
+# On the lock-driven path the install also runs under
+# /opt/osprey/lock-constraints.txt, so a dependency the frozen set does not
+# name is still held to the checkout's uv.lock.
 COPY .dockerignore *.wh[l] /tmp/ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
-        pip install /tmp/ctx/*.whl \
+        lock= && { [ ! -f /opt/osprey/lock-constraints.txt ] || lock="-c /opt/osprey/lock-constraints.txt" ; } \
+        && PYTHONPATH="$(ls /tmp/ctx/*.whl | paste -sd: -)" python -m osprey.deployment.constraints /opt/osprey/constraints.txt /tmp/ctx/*.whl > /tmp/ctx/constraints.txt \
+        && pip install -c /tmp/ctx/constraints.txt $lock /tmp/ctx/*.whl \
         && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
         && python -m osprey.deployment.pyaml_owner \
         && pip check; \
@@ -329,6 +392,15 @@ RUN mkdir -p /app/{{ project_name }}/var/agent_data \
              /app/{{ project_name }}/var/agent_data/config-backups \
              /app/{{ project_name }}/var/spool \
              /app/{{ project_name }}/var/state
+{%- if image_checks %}
+
+# Image checks. Each panel this profile selects may name commands that have to
+# pass before the image exists; they run from the deployment directory, on the
+# tree the COPY above just put there, and a failing one fails the build.
+{%- for check in image_checks %}
+RUN cd /app/{{ project_name }} && {{ check }}
+{%- endfor %}
+{%- endif %}
 
 # The privilege split.
 #

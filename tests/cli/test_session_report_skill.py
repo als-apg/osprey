@@ -16,17 +16,27 @@ class TestSessionReportRegistry:
     def registry(self):
         return BuildArtifactCatalog.default()
 
-    def test_session_report_registered(self, registry):
-        art = registry.get("skills/session-report")
+    @pytest.mark.parametrize(
+        ("name", "output_path", "template_path"),
+        [
+            (
+                "skills/session-report",
+                ".claude/skills/session-report/SKILL.md",
+                "claude/skills/session-report/SKILL.md",
+            ),
+            (
+                "skills/session-report/reference",
+                ".claude/skills/session-report/reference.md",
+                "claude/skills/session-report/reference.md",
+            ),
+        ],
+        ids=["skill", "reference"],
+    )
+    def test_session_report_artifact_registered(self, registry, name, output_path, template_path):
+        art = registry.get(name)
         assert art is not None
-        assert art.output_path == ".claude/skills/session-report/SKILL.md"
-        assert art.template_path == "claude/skills/session-report/SKILL.md"
-
-    def test_session_report_reference_registered(self, registry):
-        art = registry.get("skills/session-report/reference")
-        assert art is not None
-        assert art.output_path == ".claude/skills/session-report/reference.md"
-        assert art.template_path == "claude/skills/session-report/reference.md"
+        assert art.output_path == output_path
+        assert art.template_path == template_path
 
 
 class TestSessionReportTemplateExists:
@@ -64,7 +74,11 @@ class TestSessionReportSkillStructure:
             pytest.param("Delegate", id="phase3_delegate"),
             pytest.param("Register", id="phase4_register"),
             # The tools the phases name.
-            pytest.param("session_summary", id="references_session_summary"),
+            pytest.param(
+                'artifact_list(scope="session", last_n=200)', id="inventory_is_this_sessions_list"
+            ),
+            pytest.param("omitted > 0", id="reports_a_partial_inventory"),
+            pytest.param("`channels`", id="channels_from_rows"),
             pytest.param("archiver_downsample", id="references_archiver_downsample"),
             pytest.param("artifact_register", id="references_artifact_register"),
             pytest.param("reference.md", id="references_reference_file"),

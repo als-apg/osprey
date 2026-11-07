@@ -7,7 +7,7 @@ import ipaddress
 import json
 import threading
 import time
-from contextlib import nullcontext, suppress
+from contextlib import ExitStack, contextmanager, nullcontext, suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,7 +26,7 @@ from osprey.interfaces.web_terminal.app import (
 )
 from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.routes import panels as panels_module
-from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, SIDECAR_PANELS
+from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, JUPYTER_PANEL_ID, SIDECAR_PANELS
 from tests._live import wait_until
 from tests.interfaces.web_terminal._started_app import terminal_client
 
@@ -38,11 +38,30 @@ from .conftest import HOST_ADDRS_TARGET, StubWorkspaceWatcher
 _real_host_interface_addresses = panels_module._host_interface_addresses
 
 
-#: The panel id of the sidecar under test, and the dotted path of the class the
-#: lifespan imports for it. Both read off the registry so this module pins the
-#: launch path rather than a spelling.
-SIDECAR_ID = next(iter(sorted(SIDECAR_PANELS)))
+#: The panel id of the sidecar under test — the notebooks panel, the one that
+#: also answers on the older ``/api/<id>-server`` route these tests read — and
+#: the dotted path of the class the lifespan imports for it, read off the
+#: registry so this module pins the launch path rather than a spelling.
+SIDECAR_ID = JUPYTER_PANEL_ID
 _SIDECAR_FACTORY_TARGET = SIDECAR_PANELS[SIDECAR_ID].factory_path.replace(":", ".")
+
+#: Every other registered sidecar's class. A fixture that enables all builtin
+#: panels launches each of them, and none may start a real process here, so
+#: these are stubbed to fail preflight wherever the sidecar under test is.
+_OTHER_SIDECAR_FACTORY_TARGETS = sorted(
+    panel.factory_path.replace(":", ".")
+    for panel_id, panel in SIDECAR_PANELS.items()
+    if panel_id != SIDECAR_ID
+)
+
+
+@contextmanager
+def _other_sidecars_stubbed():
+    """Replace every other sidecar class with a stub that never launches."""
+    with ExitStack() as stack:
+        for target in _OTHER_SIDECAR_FACTORY_TARGETS:
+            stack.enter_context(patch(target, _stub_sidecar_class(SidecarScript())))
+        yield
 
 
 class SidecarScript:
@@ -166,6 +185,7 @@ def _make_client(
     )
     with (
         config_patch,
+        _other_sidecars_stubbed(),
         patch(_SIDECAR_FACTORY_TARGET, _stub_sidecar_class(sidecar_script or SidecarScript())),
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
@@ -230,14 +250,14 @@ class TestLoadPanelConfig:
                 "web": {
                     "panels": {
                         "ariel": {"enabled": True},
-                        "lattice": {"enabled": True},
+                        "okf": {"enabled": True},
                     }
                 }
             },
         ):
             enabled, custom, _default = _load_panel_config()
         assert "ariel" in enabled
-        assert "lattice" in enabled
+        assert "okf" in enabled
         assert "channel-finder" not in enabled
         # Universal panels are always present
         assert UNIVERSAL_PANELS <= enabled
@@ -250,14 +270,14 @@ class TestLoadPanelConfig:
                 "web": {
                     "panels": {
                         "ariel": {"enabled": False},
-                        "lattice": {"enabled": True},
+                        "okf": {"enabled": True},
                     }
                 }
             },
         ):
             enabled, custom, _default = _load_panel_config()
         assert "ariel" not in enabled
-        assert "lattice" in enabled
+        assert "okf" in enabled
 
     def test_domain_panel_bare_true(self):
         """A bare `true` value (not dict) enables the panel."""
@@ -346,7 +366,7 @@ class TestLoadPanelConfig:
         assert enabled == UNIVERSAL_PANELS
 
     def test_events_panel_is_url_backed_custom(self):
-        """The control-assistant EVENTS panel is URL-backed.
+        """The demo EVENTS panel is URL-backed.
 
         It must be emitted as a custom panel (carrying url/path/health) so the
         web terminal renders the iframe tab, not silently collapsed into the
@@ -528,40 +548,83 @@ class TestLoadPanelPresets:
             assert _load_panel_presets({"artifacts"}, []) == []
 
     def test_drops_unknown_members_keeps_known(self):
-        """Unknown member ids are dropped; the known members are kept in order."""
-        cfg = {"web": {"presets": {"Setup": ["artifacts", "ghost", "ariel"]}}}
+        """Unknown panels are pruned with their tiles; the known keep theirs, normalised."""
+        cfg = {
+            "web": {
+                "presets": {
+                    "Setup": {
+                        "split": "row",
+                        "items": [
+                            {"tabs": ["artifacts"], "size": 3},
+                            {"tabs": ["ghost"], "showing": "ghost"},
+                            {"tabs": ["ariel"]},
+                        ],
+                    }
+                }
+            }
+        }
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts", "ariel"}, [])
-        assert presets == [{"name": "Setup", "panels": ["artifacts", "ariel"]}]
+        assert presets == [
+            {
+                "name": "Setup",
+                "panels": ["artifacts", "ariel"],
+                "layout": {
+                    "split": "row",
+                    "items": [
+                        {"tabs": ["artifacts"], "showing": "artifacts", "size": 0.75},
+                        {"tabs": ["ariel"], "showing": "ariel", "size": 0.25},
+                    ],
+                },
+            }
+        ]
 
     def test_drops_preset_that_resolves_empty(self):
-        """A preset whose members are all unknown is dropped entirely."""
-        cfg = {"web": {"presets": {"Empty": ["ghost"], "Good": ["artifacts"]}}}
+        """A preset whose tabs are all unknown is dropped entirely."""
+        cfg = {"web": {"presets": {"Empty": {"tabs": ["ghost"]}, "Good": {"tabs": ["artifacts"]}}}}
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, [])
-        assert presets == [{"name": "Good", "panels": ["artifacts"]}]
+        assert presets == [
+            {
+                "name": "Good",
+                "panels": ["artifacts"],
+                "layout": {"tabs": ["artifacts"], "showing": "artifacts"},
+            }
+        ]
 
     def test_preserves_config_order(self):
         """Preset order follows config insertion order (pyyaml preserves it)."""
-        cfg = {"web": {"presets": {"B": ["artifacts"], "A": ["ariel"]}}}
+        cfg = {"web": {"presets": {"B": {"tabs": ["artifacts"]}, "A": {"tabs": ["ariel"]}}}}
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts", "ariel"}, [])
         assert [p["name"] for p in presets] == ["B", "A"]
 
     def test_custom_panel_ids_are_known_members(self):
-        """Custom panel ids (not just built-ins) count as known preset members."""
-        cfg = {"web": {"presets": {"Dash": ["my-dash", "artifacts"]}}}
+        """Custom panel ids (not just built-ins) count as known preset panels."""
+        layout = {"split": "row", "items": [{"tabs": ["my-dash"]}, {"tabs": ["artifacts"]}]}
+        cfg = {"web": {"presets": {"Dash": layout}}}
         custom = [{"id": "my-dash", "label": "DASH", "url": "http://x:9000"}]
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, custom)
-        assert presets == [{"name": "Dash", "panels": ["my-dash", "artifacts"]}]
+        assert [p["panels"] for p in presets] == [["my-dash", "artifacts"]]
 
-    def test_non_list_preset_value_skipped(self):
-        """A preset whose value is not a list is skipped, not crashed on."""
-        cfg = {"web": {"presets": {"Bad": "artifacts", "Good": ["artifacts"]}}}
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            pytest.param("artifacts", id="string"),
+            pytest.param(["artifacts"], id="retired-list-form"),
+            pytest.param({"tabs": ["terminal", "artifacts"]}, id="names-the-terminal"),
+            pytest.param({"tabs": ["artifacts", "ariel"]}, id="two-panels-in-a-tile"),
+            pytest.param({"tabs": [0]}, id="member-index"),
+            pytest.param({"slot": 0}, id="not-a-layout"),
+        ],
+    )
+    def test_a_value_that_is_not_a_preset_is_skipped(self, bad):
+        """A value that is not a dock layout over panel ids is skipped, never crashed on."""
+        cfg = {"web": {"presets": {"Bad": bad, "Good": {"tabs": ["artifacts"]}}}}
         with patch("osprey_connectors.workspace.load_osprey_config", return_value=cfg):
             presets = _load_panel_presets({"artifacts"}, [])
-        assert presets == [{"name": "Good", "panels": ["artifacts"]}]
+        assert [p["name"] for p in presets] == ["Good"]
 
 
 # ---- API endpoint tests ----
@@ -1230,10 +1293,19 @@ class TestSidecarReadyTimeout:
         assert ready_sidecar.waited == [240.0]
         assert url == ready_sidecar.url
 
-    def test_a_numeric_string_is_read_as_seconds(self, workspace_dir, ready_sidecar, caplog):
-        self._launch(workspace_dir, "90", ready_sidecar)
+    @pytest.mark.parametrize(
+        ("value", "waited"),
+        [
+            pytest.param("90", [90.0], id="numeric-string-is-read-as-seconds"),
+            pytest.param(None, [60.0], id="null-waits-the-default"),
+        ],
+    )
+    def test_a_quiet_value_sets_the_wait_without_a_warning(
+        self, workspace_dir, ready_sidecar, caplog, value, waited
+    ):
+        self._launch(workspace_dir, value, ready_sidecar)
 
-        assert ready_sidecar.waited == [90.0]
+        assert ready_sidecar.waited == waited
         assert self._warnings_naming_the_key(caplog) == []
 
     @pytest.mark.parametrize(
@@ -1260,12 +1332,6 @@ class TestSidecarReadyTimeout:
         warnings = self._warnings_naming_the_key(caplog)
         assert len(warnings) == 1
         assert repr(value) in warnings[0].getMessage()
-
-    def test_a_null_value_waits_the_default_quietly(self, workspace_dir, ready_sidecar, caplog):
-        self._launch(workspace_dir, None, ready_sidecar)
-
-        assert ready_sidecar.waited == [60.0]
-        assert self._warnings_naming_the_key(caplog) == []
 
     def test_a_config_read_that_raises_waits_the_default(
         self, workspace_dir, ready_sidecar, caplog
@@ -1517,7 +1583,9 @@ class TestSidecarCredentialThroughTheProxy:
                 """Keep the handler out of the test's stderr."""
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        )
         thread.start()
         try:
             state = client_all_panels.app.state

@@ -84,17 +84,19 @@ def test_explicit_interval_not_greater_than_suite_raises() -> None:
 
 
 @pytest.mark.parametrize(
-    "value",
+    ("key", "value"),
     [
-        pytest.param("soon", id="non_numeric"),
+        pytest.param("suite_timeout_s", "soon", id="suite_timeout_non_numeric"),
         # bool is an int subclass — must not be accepted as a numeric timeout.
-        pytest.param(True, id="bool"),
-        pytest.param(0, id="non_positive"),
+        pytest.param("suite_timeout_s", True, id="suite_timeout_bool"),
+        pytest.param("suite_timeout_s", 0, id="suite_timeout_non_positive"),
+        pytest.param("plugins", "my.mod", id="plugins_not_list"),
+        pytest.param("title", 123, id="title_non_string"),
     ],
 )
-def test_suite_timeout_rejected(value) -> None:
+def test_setting_of_the_wrong_shape_rejected(key, value) -> None:
     with pytest.raises(ConfigurationError):
-        parse_health_config({"suite_timeout_s": value})
+        parse_health_config({key: value})
 
 
 def test_on_demand_timeout_explicit_value() -> None:
@@ -107,11 +109,6 @@ def test_on_demand_timeout_explicit_value() -> None:
 def test_plugins_parsed() -> None:
     s = parse_health_config({"plugins": ["my.mod", "other.mod"]})
     assert s.plugins == ["my.mod", "other.mod"]
-
-
-def test_plugins_not_list_raises() -> None:
-    with pytest.raises(ConfigurationError):
-        parse_health_config({"plugins": "my.mod"})
 
 
 def test_plugins_non_string_items_raise() -> None:
@@ -150,11 +147,6 @@ def test_title_present_used() -> None:
 def test_title_explicit_none_defaults() -> None:
     # An explicit null in YAML falls back to the default rather than raising.
     assert parse_health_config({"title": None}).title == DEFAULT_HEALTH_TITLE
-
-
-def test_title_non_string_raises() -> None:
-    with pytest.raises(ConfigurationError):
-        parse_health_config({"title": 123})
 
 
 def test_title_does_not_affect_other_parsing() -> None:
@@ -380,7 +372,7 @@ def test_core_category_names_content() -> None:
     assert "providers" in CORE_CATEGORY_NAMES
     assert "claude_cli_pinned" in CORE_CATEGORY_NAMES
     assert "agent_record" in CORE_CATEGORY_NAMES
-    assert len(CORE_CATEGORY_NAMES) == 18
+    assert len(CORE_CATEGORY_NAMES) == 25
 
 
 # --- timeout resolution helpers ---------------------------------------------

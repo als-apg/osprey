@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Validation gate for the full Virtual Accelerator image.
 #
-# Stages a minimal build context (pyproject.toml, README.md, src/, packages/,
-# docker/virtual-accelerator/Containerfile -- never the repo root, which
-# also contains .venv/.git/worktrees), builds the image, boots a container
+# Stages a minimal build context (pyproject.toml, uv.lock, README.md, src/,
+# packages/, docker/virtual-accelerator/Containerfile -- never the repo root,
+# which also contains .venv/.git/worktrees), builds the image, boots a container
 # serving a simulator view, waits for it to report ready, and then drives both
 # served transports against it.
 #
@@ -241,17 +241,18 @@ trap cleanup EXIT
 "${RUNTIME}" rm -f "${CONTAINER}" >/dev/null 2>&1 || true
 
 echo "--- Staging minimal build context at ${STAGING_DIR} ---"
-cp "${WORKTREE_ROOT}/pyproject.toml" "${WORKTREE_ROOT}/README.md" "${STAGING_DIR}/"
+cp "${WORKTREE_ROOT}/pyproject.toml" "${WORKTREE_ROOT}/uv.lock" "${WORKTREE_ROOT}/README.md" \
+    "${STAGING_DIR}/"
 mkdir -p "${STAGING_DIR}/src" "${STAGING_DIR}/docker/virtual-accelerator"
 cp -R "${WORKTREE_ROOT}/src/." "${STAGING_DIR}/src/"
 cp -R "${WORKTREE_ROOT}/packages" "${STAGING_DIR}/packages"
 cp "${VA_DIR}/Containerfile" "${STAGING_DIR}/docker/virtual-accelerator/Containerfile"
 find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 
-# The serving stack needs no staging step: `lume-pva-apg[ca,pva]` is an exact
-# pin in osprey's `virtual-accelerator` extra, which the Containerfile installs
-# by name from PyPI along with everything else the extra carries. So the five
-# things copied above (packages/ holds every workspace member the
+# The serving stack needs no staging step: `lume-pva-apg[ca,pva]` is pinned in
+# uv.lock, whose export is the Containerfile's whole third-party install, so it
+# installs by name from PyPI along with everything else the lock carries. So
+# the six things copied above (packages/ holds every workspace member the
 # Containerfile installs from source) are the whole build-context contract,
 # the one tests/va/test_va_image_build_context.py checks against the
 # Containerfile.
@@ -290,6 +291,7 @@ if source:
     shutil.copytree(Path(source) / "simulator", view)
 else:
     from osprey.facility.build import build_facility
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view
@@ -301,14 +303,15 @@ else:
             "limits_checking": {"enabled": True, "mode": "optional"},
         }
     }
-    doc = build_facility(facility, project_name="control_assistant")
+    doc = build_facility(facility, project_name="demo")
+    records = FacilityRecords(doc)
     write_simulator_view(
         view,
         ViewInputs(
-            doc=doc,
+            records=records,
             rendered_config=config,
             facility_dir=facility,
-            served=resolve_served(config, doc),
+            served=resolve_served(config, records),
             reported=None,
         ),
     )

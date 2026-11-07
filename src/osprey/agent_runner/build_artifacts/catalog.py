@@ -197,7 +197,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="rules/facility",
             template_path="claude/rules/facility.md.j2",
             output_path=".claude/rules/facility.md",
-            description="Facility identity & context",
+            description="Operator guidance for the facility",
         ),
         BuildArtifact(
             canonical_name="rules/workflows",
@@ -241,7 +241,19 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_approval.py",
             output_path=".claude/hooks/osprey_approval.py",
             description="Human-approval gate hook",
-            requires=("hooks/hook-log", "hooks/safety-file", "hooks/target-state"),
+            requires=(
+                "hooks/hook-log",
+                "hooks/plan-mode",
+                "hooks/safety-file",
+                "hooks/target-state",
+            ),
+        ),
+        BuildArtifact(
+            canonical_name="hooks/plan-mode",
+            template_path="claude/hooks/osprey_plan_mode.py",
+            output_path=".claude/hooks/osprey_plan_mode.py",
+            description="Refuses the tools that act while the session is in plan mode",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/writes-check",
@@ -329,7 +341,10 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/focus-validate",
             template_path="claude/hooks/osprey_focus_validate.py",
             output_path=".claude/hooks/osprey_focus_validate.py",
-            description="UserPromptSubmit hook that strips stale artifact IDs from focus_state.txt",
+            description=(
+                "UserPromptSubmit hook that injects the prompting session's gallery focus"
+                " and pins, dropping stale artifact IDs"
+            ),
             requires=("hooks/hook-log",),
         ),
         BuildArtifact(
@@ -364,7 +379,8 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/turn-state",
             template_path="claude/hooks/osprey_turn_state.py",
             output_path=".claude/hooks/osprey_turn_state.py",
-            description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns",
+            description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns, and keeps a CLI launch's transcript pointer current",
+            requires=("hooks/hook-log", "hooks/safety-file"),
         ),
         BuildArtifact(
             canonical_name="hooks/watchdog-trigger",
@@ -434,6 +450,24 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Index of the plans this deployment can run. The template renders an index built from the operator's own plan directory, so this artifact's framework hash tracks that directory: a claimed copy reports drift whenever a plan's docstring changes, not only when the framework template does.",
         ),
         BuildArtifact(
+            canonical_name="skills/canopy-panel-builder",
+            template_path="claude/skills/canopy-panel-builder/SKILL.md",
+            output_path=".claude/skills/canopy-panel-builder/SKILL.md",
+            description="Build, port and check CANOPY screens. The file is CANOPY's own skill, copied byte for byte from the canopy_mcp package, so it is never edited here: a new CANOPY release replaces it.",
+        ),
+        BuildArtifact(
+            canonical_name="skills/canopy-operator",
+            template_path="claude/skills/canopy-operator/SKILL.md",
+            output_path=".claude/skills/canopy-operator/SKILL.md",
+            description="Open, arrange, zoom and close what the operator's CANOPY window shows. The file is CANOPY's own skill, copied byte for byte from the canopy_mcp package, so it is never edited here: a new CANOPY release replaces it.",
+        ),
+        BuildArtifact(
+            canonical_name="skills/canopy-screens",
+            template_path="claude/skills/canopy-screens/SKILL.md.j2",
+            output_path=".claude/skills/canopy-screens/SKILL.md",
+            description="Which CANOPY screen shows which device: an index built from the project's screen library, its devices, collections and the tools' default views; renders only with the CANOPY panel",
+        ),
+        BuildArtifact(
             canonical_name="skills/pyaml-tools",
             template_path="claude/skills/pyaml-tools/SKILL.md.j2",
             output_path=".claude/skills/pyaml-tools/SKILL.md",
@@ -444,7 +478,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="output-styles/control-operator",
             template_path="claude/output-styles/control-operator.md.j2",
             output_path=".claude/output-styles/control-operator.md",
-            description="Communication style for the control assistant",
+            description="Communication style for the demo",
         ),
         # ── Service compose templates ────────────────────────────────
         # Directory artifacts: copied verbatim from templates/services/ into
@@ -576,6 +610,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="bluesky_web",
             output_path="services/bluesky_web",
             description="Bluesky operator-facing web sidecar compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/optimizer",
+            template_path="optimizer",
+            output_path="services/optimizer",
+            description="Optimizer service compose template + image context",
             template_root="services",
             is_directory=True,
         ),

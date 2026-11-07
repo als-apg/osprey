@@ -241,7 +241,7 @@ def _block_web_terminal_posts(request, monkeypatch):
     filling the activity strip. Both posters are stubbed here to the outcome
     they already produce when the terminal is down: ``post_json`` swallows and
     returns ``None``; ``_post_json_with_response`` raises ``URLError`` so
-    ``notify_panel_register`` / ``notify_panel_arrange`` take their existing
+    ``notify_panel_register`` and ``panel_op`` take their existing
     unreachable branch. Patching only ``post_json`` would miss those two.
 
     Patched in the ``http`` module's own namespace, which is where the helpers
@@ -305,3 +305,109 @@ def mock_connector():
     connector = AsyncMock()
     connector.disconnect = AsyncMock()
     return connector
+
+
+# ---- session scope ----------------------------------------------------------
+
+#: The variables :func:`osprey.stores.artifact_scope.current_scope` reads. Both
+#: session fixtures clear all of them first, so a test run from an ``osprey chat``
+#: shell or a web terminal never resolves the developer's own session.
+_SCOPE_ENV = (
+    "OSPREY_SESSION_ID",
+    "OSPREY_DISPATCH_RUN_ID",
+    "OSPREY_DISPATCH_RUN",
+    "OSPREY_TERMINAL_SESSION",
+    "OSPREY_CLI_LAUNCH",
+    "OSPREY_TELEMETRY_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ID",
+)
+
+
+class WebSession:
+    """A web terminal session: a key with one ledger row naming its transcript."""
+
+    key = "11111111-1111-4111-8111-111111111111"
+
+    def __init__(self, state_dir):
+        self.state_dir = state_dir
+        self.transcript = self.key  # a key's first transcript id equals the key
+
+    def clear(self, transcript: str) -> None:
+        """Move the key to *transcript*, as the turn-state hook does on a ``/clear``."""
+        from osprey.stores import session_ledger
+        from osprey_connectors import posture_store
+
+        assert session_ledger.append(self.state_dir, self.key, transcript)
+        posture_store.invalidate_cache()
+        self.transcript = transcript
+
+
+class CliSession:
+    """An ``osprey chat`` launch whose CLI pointer names its conversation."""
+
+    launch = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+    terminal_session = "chat-ffffffff-ffff-4fff-8fff-ffffffffffff"
+
+    def __init__(self, root):
+        self.root = root
+        self.transcript = ""
+
+    @property
+    def pointer(self):
+        return self.root / "cli-transcripts" / self.launch
+
+    def clear(self, transcript: str) -> None:
+        """Rewrite the pointer to *transcript*, as the turn-state hook does on a ``/clear``."""
+        self.pointer.parent.mkdir(parents=True, exist_ok=True)
+        self.pointer.write_text(transcript + "\n", encoding="utf-8")
+        self.transcript = transcript
+
+
+@pytest.fixture
+def web_session(tmp_path, monkeypatch) -> WebSession:
+    """This process in a web terminal session, with a temp ledger bound.
+
+    ``OSPREY_SESSION_ID`` is the session's key and ``OSPREY_CONTROL_CONTEXT_DIR``
+    a temp state directory whose ledger maps the key to ``transcript``; call
+    ``clear(new_id)`` to move it.
+    """
+    from osprey.stores import session_ledger
+    from osprey_connectors import posture_store
+
+    for name in _SCOPE_ENV:
+        monkeypatch.delenv(name, raising=False)
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(exist_ok=True)
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
+    session = WebSession(state_dir)
+    assert session_ledger.append(state_dir, session.key, session.transcript, session_ledger.EPOCH)
+    monkeypatch.setenv("OSPREY_SESSION_ID", session.key)
+    posture_store.invalidate_cache()
+    yield session
+    posture_store.invalidate_cache()
+
+
+@pytest.fixture
+def cli_session(tmp_path, monkeypatch) -> CliSession:
+    """This process in an ``osprey chat`` launch, its pointer under ``tmp_path / "_agent_data"``.
+
+    The root is :func:`workspace_dir`'s, so a store built on that fixture tags
+    and lists from this pointer. ``CLAUDE_CODE_SESSION_ID`` keeps the launch's
+    first id, as the harness's MCP children do; ``clear(new_id)`` moves only the
+    pointer. An empty temp ledger is bound so nothing reads a real one.
+    """
+    from osprey_connectors import posture_store
+
+    for name in _SCOPE_ENV:
+        monkeypatch.delenv(name, raising=False)
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(exist_ok=True)
+    monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(state_dir))
+    session = CliSession(tmp_path / "_agent_data")
+    session.clear("dddddddd-dddd-4ddd-8ddd-dddddddddddd")
+    monkeypatch.setenv("OSPREY_TERMINAL_SESSION", session.terminal_session)
+    monkeypatch.setenv("OSPREY_CLI_LAUNCH", session.launch)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session.transcript)
+    posture_store.invalidate_cache()
+    yield session
+    posture_store.invalidate_cache()

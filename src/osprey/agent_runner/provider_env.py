@@ -34,7 +34,7 @@ from osprey.models.display import CLAUDE_CODE_ALIASES, claude_code_alias_candida
 from osprey.models.provider_registry import PROVIDER_API_KEYS, get_provider_registry
 from osprey.models.spend_attribution import apply_attribution_env, gateway_for
 from osprey_connectors import yaml_loader
-from osprey_connectors.config import is_unresolved_placeholder
+from osprey_connectors.config import apply_env_chain, is_unresolved_placeholder
 from osprey_connectors.dotenv import chain_files
 
 if TYPE_CHECKING:
@@ -383,9 +383,9 @@ def _load_dotenv(project_dir: Path) -> dict[str, str]:
     non-``None`` entries, or ``{}`` when no chain file is present or
     ``python-dotenv`` is not importable. Pure: it never touches ``os.environ``,
     applies no secret logic, and leaves the overlay, ``${VAR}`` expansion, and
-    auth handling to its callers. The single load shared by
-    :func:`inject_provider_env`, ``provider_env_for_project``, and
-    :func:`load_provider_spec`, so all three see the same chain the same way.
+    auth handling to its callers. The read-only view shared by
+    ``provider_env_for_project`` and :func:`load_provider_spec`, so both see
+    the same chain the same way.
 
     Each file is read with ``dotenv_values`` rather than the plain parser
     because these values reach a launched agent's environment, and the CLI's
@@ -497,8 +497,10 @@ def inject_provider_env(
     expands ``.mcp.json`` ``${VAR}`` references (``EPICS_CA_ADDR_LIST``,
     ``PHOEBUS_BRIDGE_URL``, ``BLUESKY_*``) from ``os.environ``, so this is a
     full host-propagation contract — narrowing it would silently break control-
-    system MCP addressing. The chain is merged local-over-shared before the
-    overlay, and the result wins over a stale shell export. An unparseable
+    system MCP addressing. The one exception is the shell-only launch
+    variables, which :func:`osprey_connectors.config.apply_env_chain` skips, so
+    they keep the shell's value. The chain is applied local-over-shared, and the
+    result wins over a stale shell export. An unparseable
     ``HTTP_PROXY`` (from the chain or the shell) is carried straight through
     but reported via :func:`_warn_on_invalid_proxy_env` — #352.
 
@@ -513,8 +515,7 @@ def inject_provider_env(
     # Overlay the full project env chain onto environ (host-propagation
     # contract — see docstring). The chain wins over stale shell exports.
     if project_dir is not None:
-        for key, value in _load_dotenv(project_dir).items():
-            environ[key] = value
+        apply_env_chain(environ, chain_files(Path(project_dir)))
 
     # After the overlay, so it sees the effective value regardless of whether
     # it came from .env or a shell export. This is the chokepoint shared by all
@@ -552,6 +553,70 @@ def inject_provider_env(
     apply_attribution_env(environ, spec.gateway)
 
     return sorted(spec.env_block.keys())
+
+
+#: The deployment config key that lets a terminal run on its user's own Claude
+#: subscription login instead of the deployment provider. Off by default.
+PERSONAL_LOGIN_KEY = "claude_code.allow_personal_login"
+
+#: The file Claude Code keeps a completed ``/login`` in, under the directory
+#: ``CLAUDE_CONFIG_DIR`` names. Its presence is the whole detection: the file
+#: is never opened.
+LOGIN_CREDENTIAL_FILE = ".credentials.json"
+
+
+def personal_login_allowed(config: Mapping[str, Any] | None) -> bool:
+    """Whether *config* lets a terminal run on its user's personal login.
+
+    Reads ``claude_code.allow_personal_login``; anything but a true boolean
+    is off, so a key spelled as a string stays the default rather than
+    quietly switching a deployment's billing route.
+    """
+    claude_code = (config or {}).get("claude_code") or {}
+    return (
+        claude_code.get("allow_personal_login") if isinstance(claude_code, Mapping) else None
+    ) is True
+
+
+def personal_login_present(environ: Mapping[str, str]) -> bool:
+    """Whether the terminal this process serves holds a completed ``/login``.
+
+    Per terminal container, from that user's own ``CLAUDE_CONFIG_DIR`` only:
+    the credential file's existence is checked and nothing of it is read. A
+    process with no ``CLAUDE_CONFIG_DIR`` holds no per-user login the
+    deployment could honour, so it answers False rather than looking in the
+    process owner's home.
+    """
+    config_dir = (environ.get("CLAUDE_CONFIG_DIR") or "").strip()
+    if not config_dir:
+        return False
+    try:
+        return (Path(config_dir) / LOGIN_CREDENTIAL_FILE).is_file()
+    except OSError:
+        return False
+
+
+def withhold_provider_env(
+    environ: MutableMapping[str, str], project_dir: Path | None = None
+) -> list[str]:
+    """Leave *environ* in the state a personal ``/login`` needs: no provider at all.
+
+    The first half of :func:`inject_provider_env` and not the second: the
+    project's env chain is still overlaid (the control-system MCP addressing
+    it carries is unrelated to who pays for the model), and every managed
+    variable is then scrubbed -- auth, base URL, model selectors, backend
+    flags -- so Claude Code's credential precedence falls through to the
+    subscription login. Nothing is injected and no translation proxy belongs
+    after this. Returns the managed names that were present and are gone,
+    for the launch log.
+    """
+    if project_dir is not None:
+        apply_env_chain(environ, chain_files(Path(project_dir)))
+    _warn_on_invalid_proxy_env(environ)
+    withheld = sorted(var for var in MANAGED_ENV_VARS if var in environ)
+    for var in MANAGED_ENV_VARS:
+        environ.pop(var, None)
+    return withheld
 
 
 def _without_unresolved_base_urls(api_providers: dict) -> dict:

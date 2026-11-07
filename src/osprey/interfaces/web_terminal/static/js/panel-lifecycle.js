@@ -31,9 +31,9 @@ import {
   titleCase,
 } from './panel-catalog.js';
 import { startHealthPolling as startPolling, stopHealthPolling } from './panel-health.js';
-import { buildEmbedSrc } from './panel-iframe-sync.js';
+import { buildEmbedSrc, isUrlWithinMount } from './panel-iframe-sync.js';
 import { railOptions, RAIL_MENU_HINT } from './panel-menu-policy.js';
-import { isPoppedOut } from './popout.js';
+import { isDetached } from './dock-apply.js';
 import {
   clockTime,
   createRail,
@@ -41,10 +41,11 @@ import {
   placeEntry,
   setActive,
   setEntryEnabled,
-  setEntryPoppedOut,
+  setEntryDetached,
   setEntryReachable,
   setEntryStatus,
 } from './panel-rail.js';
+import { paintAgentRow } from './sidebar.js';
 
 /** @typedef {import('./panel-catalog.js').Panel} Panel */
 /** @typedef {import('./panel-manager.js').PanelState} PanelState */
@@ -97,6 +98,7 @@ export function freshPanelState() {
     pollTimer: null,
     polling: false,
     configLoaded: false,
+    settled: false,
     misses: 0,
     missSince: null,
   };
@@ -112,6 +114,49 @@ export function freshPanelState() {
 export function publishPanelUrl(panelId, url) {
   ctx().panelState[panelId].url = url;
   setPanelServed(panelId, url !== null);
+}
+
+/** The load-time flags buildEmbedSrc stamps on a panel's address, which are
+ *  not part of the page it shows. */
+const EMBED_FLAGS = ['embedded', 'theme'];
+
+/**
+ * The page a panel's frame shows, as a root-relative address inside its own
+ * mount, or null when the hub cannot read it: no frame yet, or an opaque
+ * (sandboxed) or cross-origin panel, whose location the browser keeps from
+ * the hub. The embed flags are left off, so the address is the page alone.
+ * @param {string} panelId
+ * @returns {string | null}
+ */
+export function getPanelPage(panelId) {
+  const state = ctx().panelState[panelId];
+  if (!state?.iframe || !state.url) return null;
+  let url;
+  try {
+    url = new URL(String(state.iframe.contentWindow?.location.href));
+  } catch {
+    return null;
+  }
+  if (url.origin !== window.location.origin) return null;
+  for (const flag of EMBED_FLAGS) url.searchParams.delete(flag);
+  const page = url.pathname + url.search + url.hash;
+  return isUrlWithinMount(page, state.url) ? page : null;
+}
+
+/**
+ * Bring a panel back to a page it was on (a session's layout,
+ * session-layout.js) without surfacing it: nothing when it shows that page
+ * already, or for a panel not served or a page outside its mount. A panel not
+ * framed yet opens there when it is.
+ * @param {string} panelId
+ * @param {string} page  root-relative, as {@link getPanelPage} reads it
+ */
+export function restorePanelPage(panelId, page) {
+  const state = ctx().panelState[panelId];
+  if (!state?.url || !isUrlWithinMount(page, state.url)) return;
+  if (getPanelPage(panelId) === page) return;
+  state.pendingUrl = page;
+  ctx().navigatePending(panelId);
 }
 
 /**
@@ -151,7 +196,20 @@ export function renderRail() {
     railOptions()
   );
   setEntryEnabled(railEl, TERMINAL_RAIL_ID, true);
-  for (const id of ctx().memberSet) if (isPoppedOut(id)) setEntryPoppedOut(railEl, id, true);
+  for (const id of [TERMINAL_RAIL_ID, ...ctx().memberSet]) {
+    if (isDetached(id)) setEntryDetached(railEl, id, true);
+  }
+}
+
+/**
+ * A pane arrived in its window or came back from it: mark its row. The Sessions
+ * row's own painter has the last word on that row's tips.
+ * @param {string} id
+ * @param {boolean} detached
+ */
+export function markDetachedRow(id, detached) {
+  setEntryDetached(ctx().getRailEl(), id, detached);
+  if (id === TERMINAL_RAIL_ID) paintAgentRow();
 }
 
 /**
@@ -177,7 +235,7 @@ export function applyRailOrder(order) {
  * Re-apply a sidebar row's live state after addEntry (re)built or re-showed it
  * — enabled from the panel's health, the active accent when this panel is
  * the surfaced one (a "+"-menu reveal activates locally BEFORE the membership
- * echo adds the row), and the popped-out mark while its window is open.
+ * echo adds the row), and the detached mark while its window is open.
  * @param {string} panelId
  */
 function applyEntryState(panelId) {
@@ -191,7 +249,7 @@ function applyEntryState(panelId) {
   if (ps.failedMessage)
     setEntryStatus(c.getRailEl(), panelId, { failed: true, message: ps.failedMessage });
   if (c.getActive() === panelId) setActive(c.getRailEl(), panelId);
-  if (isPoppedOut(panelId)) setEntryPoppedOut(c.getRailEl(), panelId, true);
+  if (isDetached(panelId)) setEntryDetached(c.getRailEl(), panelId, true);
 }
 
 /**
@@ -310,6 +368,7 @@ export async function initPanel(panel) {
     // read: this one is unavailable until a retry is answered.
     if (!state.configLoaded) {
       state.configLoaded = true;
+      state.settled = true;
       c.ensureActive();
     }
     await new Promise((resolve) => setTimeout(resolve, delay));
@@ -327,6 +386,9 @@ export async function initPanel(panel) {
   if (config?.state === 'failed') showFailed(panel, config.message);
   else if (config?.state === 'starting') followStart(panel);
   else if (state.url) followLiveness(panel);
+  // No address and no start to follow: there is nothing to ask, so the first
+  // verdict is in.
+  else state.settled = true;
   // Re-evaluate on every settle, including the no-url case: this panel may be
   // the default that another panel's health poll was waiting on.
   c.ensureActive();
@@ -413,13 +475,15 @@ const MISSES_BEFORE_UNREACHABLE = 2;
  *
  * A panel that never answered keeps its `.disabled` boot state and is never
  * counted, and its tile, which never opens, carries no notice. Liveness
- * detail lives in the SYSTEM panel's `web_panels` category.
+ * detail lives in the Health panel's `web_panels` category.
  * @param {Panel} panel
  * @param {boolean} wasHealthy
  */
 function onHealthSettled(panel, wasHealthy) {
   const c = ctx();
   const state = c.panelState[panel.id];
+  // The first answer, healthy or not, is the verdict the landing waits on.
+  state.settled = true;
   if (state.healthy) {
     if (state.misses >= MISSES_BEFORE_UNREACHABLE) setEntryReachable(c.getRailEl(), panel.id, true);
     // Unconditional: showFailed resets misses while the tile keeps its notice,
@@ -468,6 +532,36 @@ export function startHealthPolling(panel) {
 // ---- Sidecar Start Recovery ----
 
 /**
+ * A sidecar's start outcome as this page follows it: `starting` while the
+ * config says so, `failed` with the server's sentence, `running` once the url
+ * is published again.
+ * @typedef {{ state: 'starting' | 'failed' | 'running', message: string | null }} StartState
+ */
+
+/** @type {Set<(panelId: string, start: StartState) => void>} */
+const startFollowers = new Set();
+
+/**
+ * Hear every start outcome of every sidecar panel from now on (the panel's
+ * tile draws its starting and failed states from it).
+ * @param {(panelId: string, start: StartState) => void} fn
+ * @returns {() => void} stops following
+ */
+export function onPanelStart(fn) {
+  startFollowers.add(fn);
+  return () => startFollowers.delete(fn);
+}
+
+/**
+ * @param {string} panelId
+ * @param {StartState['state']} state
+ * @param {string | null} message
+ */
+function tellStart(panelId, state, message) {
+  for (const fn of startFollowers) fn(panelId, { state, message });
+}
+
+/**
  * Show a sidecar's failed entry: dimmed, clickable, the server's sentence as
  * its tooltip. The message is kept on the state so a rebuilt entry shows it too.
  * @param {Panel} panel
@@ -477,11 +571,13 @@ function showFailed(panel, message) {
   const c = ctx();
   const state = c.panelState[panel.id];
   state.failedMessage = message;
+  state.settled = true;
   // The failed entry names the reason; an unreachable notice would hide it.
   if (state.misses >= MISSES_BEFORE_UNREACHABLE) setEntryReachable(c.getRailEl(), panel.id, true);
   state.misses = 0;
   state.missSince = null;
   setEntryStatus(c.getRailEl(), panel.id, { failed: true, message });
+  tellStart(panel.id, 'failed', message);
 }
 
 /**
@@ -519,6 +615,27 @@ function followStart(panel) {
 }
 
 /**
+ * Restart a running sidecar: POST `endpoint` (the server stops it and starts
+ * a fresh one), stop polling the old server, then follow the new start as a
+ * retry does. A refused POST throws and leaves the panel as it was.
+ * @param {Panel} panel
+ * @param {string} endpoint
+ */
+export async function restartPanelServer(panel, endpoint) {
+  const c = ctx();
+  const state = c.panelState[panel.id];
+  if (!state) return;
+  const answer = await apiRequest(endpoint, { errorPrefix: 'Could not restart the panel' });
+  stopHealthPolling(state);
+  // Not healthy until the new server answers: its first answer enables the
+  // entry again (onHealthSettled).
+  state.healthy = false;
+  state.failedMessage = null;
+  setEntryEnabled(c.getRailEl(), panel.id, false);
+  settleStart(panel, answer, null);
+}
+
+/**
  * Apply one config answer during a start, polling the config endpoint once a
  * second while it still says `starting`. `running` publishes the url, reloads
  * an open iframe (same proxy path, new backend) and starts health polling;
@@ -532,6 +649,7 @@ function settleStart(panel, answer, lastMessage) {
   const state = c.panelState[panel.id];
   if (answer?.state === 'starting') {
     setEntryStatus(c.getRailEl(), panel.id, { failed: false, message: answer.message ?? null });
+    tellStart(panel.id, 'starting', answer.message ?? null);
     setTimeout(() => {
       if (!panel.configEndpoint) return;
       fetchJSON(panel.configEndpoint).then(
@@ -551,6 +669,7 @@ function settleStart(panel, answer, lastMessage) {
     return;
   }
   publishPanelUrl(panel.id, answer.url);
+  tellStart(panel.id, 'running', null);
   if (state.iframe) state.iframe.src = buildEmbedSrc(answer.url);
   stopHealthPolling(state);
   startHealthPolling(panel);
@@ -567,5 +686,6 @@ function settleStart(panel, answer, lastMessage) {
 export function assumeHealthy(panel) {
   const c = ctx();
   c.panelState[panel.id].healthy = true;
+  c.panelState[panel.id].settled = true;
   setEntryEnabled(c.getRailEl(), panel.id, true);
 }

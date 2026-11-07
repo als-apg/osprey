@@ -283,6 +283,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
         "va_archiver",
         "watchdogs",
         "bluesky_web",
+        "optimizer",
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
@@ -353,10 +354,10 @@ def test_known_profile_keys_equals_the_partition_plus_inheritance_keys() -> None
 
 
 def test_emitted_profile_carries_the_provenance_header() -> None:
-    text = _emit("control-assistant")
+    text = _emit("demo")
     header = text.split("\nname:")[0]
 
-    assert "bundled `control-assistant` preset" in header
+    assert "bundled `demo` preset" in header
     assert "preset content hash: sha256:" in header
     assert "emitted by OSPREY" in header
 
@@ -401,9 +402,9 @@ def test_dropping_the_bundle_key_leaves_the_next_key_commented(preset: str) -> N
 
 
 def test_live_preset_blocks_emit_active() -> None:
-    """control-assistant really configures dispatch and bluesky — those must be
+    """demo really configures dispatch and bluesky — those must be
     active keys, not templates."""
-    parsed = yaml.safe_load(_emit("control-assistant"))
+    parsed = yaml.safe_load(_emit("demo"))
 
     assert isinstance(parsed["dispatch"], dict)
     assert isinstance(parsed["bluesky"], dict)
@@ -431,11 +432,11 @@ def test_every_config_key_carries_a_comment() -> None:
     profile.yml, a key with no prose above it is a value someone has to guess
     the meaning of from its name — and there are ~300 of them.
 
-    control-assistant is the preset asked because it is the widest: the other
+    demo is the preset asked because it is the widest: the other
     bundled presets configure subsets of the same surface.
     """
     undocumented = []
-    block = _config_block(_emit("control-assistant"))
+    block = _config_block(_emit("demo"))
     for i, line in enumerate(block):
         match = _CONFIG_KEY_RE.match(line)
         if match is None:
@@ -527,13 +528,13 @@ def test_a_marker_stops_covering_a_comment_out_of_reach() -> None:
 def test_the_refusal_names_the_marker_that_declares_a_port_foreign() -> None:
     """A rule is readable where it fires, or it is read nowhere.
 
-    The marker's shape is spelled in the pattern above, in the one bundled preset that uses
+    The marker's shape is spelled in the pattern above, in the only bundled preset that uses
     it and in the fixture that copies that preset byte for byte. The failure message is the
     only one of the four that a contributor editing a preset arrives at.
     """
     offender = f"# reachable at {DEFAULT_PORT_BASE}"
 
-    message = _layout_port_failure("control-assistant", [offender])
+    message = _layout_port_failure("demo", [offender])
 
     assert offender in message
     assert "# Not a deployment port: <n>" in message
@@ -541,7 +542,7 @@ def test_the_refusal_names_the_marker_that_declares_a_port_foreign() -> None:
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CHANNEL_FINDER_MODES))
-@pytest.mark.parametrize("preset", ("control-assistant",))
+@pytest.mark.parametrize("preset", ("demo",))
 def test_no_comment_freezes_the_channel_finder_mode(preset: str, mode: str) -> None:
     """Prose about the channel finder must hold whatever paradigm is selected.
 
@@ -552,7 +553,7 @@ def test_no_comment_freezes_the_channel_finder_mode(preset: str, mode: str) -> N
     carried, which described the mode as a fact and went stale the moment
     ``osprey set channel_finder_mode=`` moved it.
 
-    The two presets asked are the ones that spell the field. For a preset that
+    The presets asked are the ones that spell the field. For a preset that
     leaves it to the commented template, setting the mode retires that template,
     which is a difference in the offered keys rather than in frozen prose.
     """

@@ -26,9 +26,11 @@ from typing import Any
 import pytest
 
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
+from osprey.services.bluesky_bridge.queue_backend import (
+    REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
+    REASON_SESSION_PLAN_UNVALIDATED,
+)
 from osprey.services.bluesky_bridge.session_upload import (
-    REASON_NOT_IN_NAMESPACE,
-    REASON_UNVALIDATED,
     SESSION_PLAN_MODULE,
     SessionPlanEnvironmentBusyError,
     SessionPlanNotReadyError,
@@ -544,7 +546,7 @@ async def test_upload_refused_without_a_passing_record(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await uploader.upload_validated("sample_scan")
 
-    assert excinfo.value.reason == REASON_UNVALIDATED
+    assert excinfo.value.reason == REASON_SESSION_PLAN_UNVALIDATED
     assert backend.uploads == []
 
 
@@ -569,33 +571,26 @@ async def test_worker_failure_leaves_the_plan_uninstalled(
     assert uploader.uploaded_hashes() == {}
 
 
-async def test_upload_that_never_completes_fails_closed(
+@pytest.mark.parametrize(
+    ("task_status", "match"),
+    [
+        pytest.param("running", "did not complete", id="never-completes"),
+        pytest.param("not_found", "lost the result", id="expired-task-result"),
+    ],
+)
+async def test_upload_without_a_completed_task_result_fails_closed(
     tmp_path: Path,
     backend: FakeBackend,
     records: ValidationRecordStore,
     uploader: SessionPlanUploader,
+    task_status: str,
+    match: str,
 ) -> None:
     write_plan(tmp_path, "sample_scan")
     validate_plan(records, tmp_path, "sample_scan")
-    backend.task_status = "running"
+    backend.task_status = task_status
 
-    with pytest.raises(SessionPlanUploadError, match="did not complete"):
-        await uploader.upload_validated("sample_scan")
-
-    assert uploader.uploaded_hashes() == {}
-
-
-async def test_expired_task_result_fails_closed(
-    tmp_path: Path,
-    backend: FakeBackend,
-    records: ValidationRecordStore,
-    uploader: SessionPlanUploader,
-) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    backend.task_status = "not_found"
-
-    with pytest.raises(SessionPlanUploadError, match="lost the result"):
+    with pytest.raises(SessionPlanUploadError, match=match):
         await uploader.upload_validated("sample_scan")
 
     assert uploader.uploaded_hashes() == {}
@@ -670,10 +665,10 @@ async def test_plan_edited_after_upload_is_refused(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await uploader.check_ready("sample_scan")
 
-    assert excinfo.value.reason == REASON_UNVALIDATED
+    assert excinfo.value.reason == REASON_SESSION_PLAN_UNVALIDATED
     assert "Re-validate" in excinfo.value.detail
     assert excinfo.value.to_dict() == {
-        "reason": REASON_UNVALIDATED,
+        "reason": REASON_SESSION_PLAN_UNVALIDATED,
         "detail": excinfo.value.detail,
         "plan": "sample_scan",
     }
@@ -725,7 +720,7 @@ async def test_bridge_restart_refuses_a_redis_durable_item(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await after.check_ready("sample_scan")
 
-    assert excinfo.value.reason == REASON_UNVALIDATED
+    assert excinfo.value.reason == REASON_SESSION_PLAN_UNVALIDATED
     assert "restarted" in excinfo.value.detail
 
 
@@ -755,7 +750,7 @@ async def test_restart_that_also_lost_the_file_refuses_the_namespace_leftover(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await after.check_ready("sample_scan")
 
-    assert excinfo.value.reason == REASON_NOT_IN_NAMESPACE
+    assert excinfo.value.reason == REASON_SESSION_PLAN_NOT_IN_NAMESPACE
 
 
 async def test_environment_cycle_refuses_until_the_plan_is_back(
@@ -773,7 +768,7 @@ async def test_environment_cycle_refuses_until_the_plan_is_back(
     with pytest.raises(SessionPlanNotReadyError) as excinfo:
         await uploader.check_ready("sample_scan")
 
-    assert excinfo.value.reason == REASON_NOT_IN_NAMESPACE
+    assert excinfo.value.reason == REASON_SESSION_PLAN_NOT_IN_NAMESPACE
 
 
 # ---------------------------------------------------------------------------

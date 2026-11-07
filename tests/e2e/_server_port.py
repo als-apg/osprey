@@ -52,8 +52,14 @@ class _ChildSubject:
 
 
 def port_in(text: str, prefix: str) -> int | None:
-    """The port of the URL after *prefix* on the first line that names one, else ``None``."""
-    for line in text.splitlines():
+    """The port of the URL after *prefix* on the first line that names one, else ``None``.
+
+    Only a line that ends in a newline counts: the last line of a log the child
+    is still writing may be cut short in its port.
+    """
+    for line in text.splitlines(keepends=True):
+        if not line.endswith("\n"):
+            continue
         _, found, rest = line.partition(prefix)
         if found and rest.split():
             authority = rest.split()[0].split("://", 1)[-1].split("/", 1)[0]

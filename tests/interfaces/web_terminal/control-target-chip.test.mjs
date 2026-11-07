@@ -503,6 +503,28 @@ describe('state matrix', () => {
     }
   }
 
+  test('a program holding the machine keeps the switch word and adds a qualifier', async () => {
+    await boot(
+      viewOf({
+        targets: [rowOf({ ...STATES.off, program_hold: true, active: true, is_baseline: true })],
+      })
+    );
+    const chip = /** @type {HTMLButtonElement} */ (chipEl());
+    expect(chip.dataset.state).toBe('off');
+    expect(chip.dataset.program).toBe('true');
+    expect(stateText()).toBe('writes off · program');
+    // The qualifier is a span of its own (its ` · ` too), so the narrow
+    // sidebar pill can stack it under the word instead of squeezing the name.
+    const program = chip.querySelector('.ctc-state .ctc-state-program');
+    expect(program?.textContent).toBe(' · program');
+    expect(program?.querySelector('.ctc-state-program-sep')?.textContent).toBe(' · ');
+  });
+
+  test('no program span without a program in force', async () => {
+    await boot(viewOf({ targets: [rowOf({ ...STATES.allowed, active: true })] }));
+    expect(chipEl()?.querySelector('.ctc-state-program')).toBeNull();
+  });
+
   test('a stored allowed capped at asked reads writes asked', async () => {
     // The route answers `prompt: true` from the effective position: the word
     // says what the next write meets, and the stored position stays `allowed`.
@@ -593,6 +615,9 @@ describe('state matrix', () => {
     expect(wordOf({ ...STATES.asked, switch: undefined })).toBe('locked');
     // A row that does not publish `prompt` reads the louder word.
     expect(wordOf({ ...STATES.asked, prompt: undefined })).toBe('allowed');
+    // A program's authorization in force leaves this login's own word as it is.
+    expect(wordOf({ ...STATES.off, program_hold: true })).toBe('off');
+    expect(wordOf({ ...STATES.allowed, program_hold: true })).toBe('allowed');
     // Not even a row whose legacy mirror still says sandbox.
     for (const o of [
       { posture: 'sandbox', effective: false },
@@ -677,7 +702,8 @@ describe('refetch hints', () => {
   test('subscribes to the shared panel event stream, once', async () => {
     await boot();
     expect(FakeEventSource.opened).toHaveLength(1);
-    expect(FakeEventSource.opened[0].url).toBe('/api/files/events');
+    // The page's one events URL, tagged with its client id (api.js pageEventsUrl).
+    expect(FakeEventSource.opened[0].url).toMatch(/^\/api\/files\/events\?client_id=[^&]+$/);
     // A second init must not subscribe again: api.js would share the socket,
     // so what a second subscription costs is a second read per frame.
     chipModule.initControlTargetChip({ host: targetHost() });

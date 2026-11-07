@@ -304,8 +304,17 @@ def test_multiple_operations_any_violation_blocks(tmp_path, hook_runner):
 # -- Edge cases (gap fill) --
 
 
-def test_value_at_exact_maximum_passes(tmp_path, hook_runner):
-    """Value exactly equal to max_value should pass validation."""
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Value exactly equal to max_value.
+        pytest.param(100.0, id="maximum"),
+        # Value exactly equal to min_value.
+        pytest.param(0.0, id="minimum"),
+    ],
+)
+def test_value_at_an_exact_limit_passes(tmp_path, hook_runner, value):
+    """Value exactly equal to a limit should pass validation."""
     config = _make_limits_config(
         tmp_path,
         {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
@@ -314,25 +323,7 @@ def test_value_at_exact_maximum_passes(tmp_path, hook_runner):
     result = hook_runner(
         "osprey_limits.py",
         "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 100.0}]},
-        config_path=config,
-        cwd=tmp_path,
-    )
-
-    assert result is None  # Exact boundary should pass
-
-
-def test_value_at_exact_minimum_passes(tmp_path, hook_runner):
-    """Value exactly equal to min_value should pass validation."""
-    config = _make_limits_config(
-        tmp_path,
-        {"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
-    )
-
-    result = hook_runner(
-        "osprey_limits.py",
-        "mcp__controls__channel_write",
-        {"operations": [{"channel": "TEST:PV", "value": 0.0}]},
+        {"operations": [{"channel": "TEST:PV", "value": value}]},
         config_path=config,
         cwd=tmp_path,
     )

@@ -19,6 +19,7 @@ import numpy as np  # noqa: E402
 from lume_pyat.exceptions import OrbitSolveError  # noqa: E402
 
 from osprey.facility.errors import FacilityBuildError  # noqa: E402
+from osprey.facility.records import FacilityRecords  # noqa: E402
 from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
 from osprey.simulation.engines import pyat as engine  # noqa: E402
 from osprey.simulation.engines import pyat_faults  # noqa: E402
@@ -37,13 +38,13 @@ MONITOR_X = "SR:DIAG:BPM:01:POSITION:X"
 
 
 @pytest.fixture(scope="module")
-def demo(built_control_assistant: Any) -> dict[str, Any]:
+def demo(built_demo: Any) -> dict[str, Any]:
     """The SR model of the built demo: its wiring entries, deck and settings."""
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     (model,) = [entry for entry in facility["models"] if entry["name"] == MODEL]
     return {
-        "wiring": simulator_wiring(facility, MODEL),
-        "deck": built_control_assistant.facility_dir / model["deck"],
+        "wiring": simulator_wiring(FacilityRecords(facility), MODEL),
+        "deck": built_demo.facility_dir / model["deck"],
         "settings": model.get("settings"),
     }
 

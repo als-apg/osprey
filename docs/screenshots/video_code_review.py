@@ -1,7 +1,7 @@
 """The code review demo: its storyboard and the probes only it needs.
 
 The video opens on the Channels page, and the operator looks up the reviewer's instructions
-through ⌘K: they open under Settings → Safety, and the deployment's one rule is that a script
+through ⌘K: they open under Settings → Review, and the deployment's one rule is that a script
 moving a corrector first reads the beam mode. The operator asks for a corrector scan, which the
 agent writes without the check, since the rule is the reviewer's and not the agent's. The review
 blocks it before anyone is asked, the agent adds the check, and the corrected script reaches the
@@ -40,9 +40,7 @@ CORRECTOR = "SR:MAG:HCM:01:CURRENT:SP"
 BEAM_MODE = "SR:BEAM:USER_MODE"
 PROMPT_SCAN = f"Write a Python script that steps {CORRECTOR} from 0 to 1 in 10 steps, and run it."
 
-_PRESET = (
-    Path(__file__).parents[2] / "src" / "osprey" / "profiles" / "presets" / "control-assistant.yml"
-)
+_PRESET = Path(__file__).parents[2] / "src" / "osprey" / "profiles" / "presets" / "demo.yml"
 _PROFILE = yaml.safe_load(_PRESET.read_text(encoding="utf-8"))
 HOOKS = [*_PROFILE["hooks"], "code-review"]
 # No Bluesky on this stack: with it, a scan is a plan, which the reviewer does not read.
@@ -58,14 +56,14 @@ INIT_SETS = (
 )
 
 # The way to the reviewer's rules: ⌘K, a search, and the palette's row for them, which opens
-# Settings → Safety on the rules' detail view.
+# Settings → Review.
 PALETTE_INPUT = ".command-palette-input"
 PALETTE_ROW = ".command-palette-item"
 PALETTE_ACTIVE = ".command-palette-item--active"
 SEARCH = "code review"
 # A row's words, as ROWS_JS reads them: its label (the gallery card's name) and its detail.
-ROW_TEXT = "rules · Safety · code-review"
-RULE = "#tab-safety .prompts-detail-view .osprey-md-rendered li"
+ROW_TEXT = "Code review rules · Review"
+RULE = "#tab-review .code-review-rule"
 CLOSE_DRAWER = "#settings-drawer .drawer-close-btn"
 DRAWER_BUDGET_MS = 15_000
 PALETTE_BUDGET_MS = 10_000

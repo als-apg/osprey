@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,7 +22,7 @@ from osprey.agent_record.contract import RECORD_OFF_ENV, SPOOL_DIR_ENV, TELEMETR
 from osprey.agent_runner import primitives
 from osprey.agent_runner import runner as runner_module
 from osprey.agent_runner.errors import AgentCliUnavailableError
-from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
+from osprey.agent_runner.primitives import NO_SESSION_PERSISTENCE_FLAG, SDKWorkflowResult, ToolTrace
 from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
 from osprey.services.code_review import review
 from osprey.services.code_review.contract import (
@@ -30,7 +31,9 @@ from osprey.services.code_review.contract import (
     SURFACE_NOTEBOOK,
     ReviewFailure,
     ReviewRequest,
+    ReviewSwitchedOff,
     ReviewVerdict,
+    code_digest,
     render_request,
 )
 from osprey.services.code_review.review import (
@@ -40,6 +43,7 @@ from osprey.services.code_review.review import (
     decide,
     notice_text,
     review_code,
+    skip_switched_off,
 )
 from osprey.services.code_review.settings import (
     DEFAULT_PROMPT,
@@ -56,6 +60,9 @@ REQUEST = ReviewRequest(
     description="set x",
     mode="readwrite",
 )
+#: The short digest each record of a review of ``REQUEST`` carries.
+DIGEST = f"digest={code_digest(REQUEST.code)[:16]}"
+
 PASS_REPLY = json.dumps({"verdict": "pass", "reasons": []})
 CONCERN_REPLY = json.dumps({"verdict": "concern", "reasons": ["Writes without a limit check"]})
 BLOCK_REPLY = json.dumps({"verdict": "block", "reasons": ["Calls caput directly"]})
@@ -160,6 +167,7 @@ async def test_the_runner_gets_exactly_the_capped_options(repo: Path, render_dir
         "max_turns": 1,
         "max_budget_usd": 1.0,
         "model": None,
+        "persist_session": False,
     }
     assert cwd.parent == repo / REVIEW_STATE_DIR
     assert stub.cwd_existed
@@ -264,6 +272,20 @@ async def test_an_arbitrary_otel_variable_is_blanked_in_the_built_options(
     assert options.tools == []
     assert options.max_turns == 1
     assert options.max_budget_usd == 1.0
+
+
+async def test_the_reviewers_transcript_is_never_written(
+    repo: Path, render_dir: Path, built_options: list
+) -> None:
+    """A review runs under the operator's ``CLAUDE_CONFIG_DIR``, whose ``projects/``
+    the record's transcript tailer reads: a transcript written there would enter
+    the record as one of the operator's sessions, whatever the env overrides say.
+    """
+    outcome = await review_code(REQUEST, SETTINGS, repo_root=repo, render_dir=render_dir)
+
+    assert built_options, outcome.result
+    [options] = built_options
+    assert NO_SESSION_PERSISTENCE_FLAG in options.extra_args
 
 
 async def test_a_telemetry_block_from_the_routed_env_ends_switched_off(
@@ -445,6 +467,21 @@ async def test_a_missing_prompt_is_a_prompt_failure_under_the_level(
     assert not (repo / REVIEW_STATE_DIR).exists()
 
 
+@pytest.mark.parametrize(("level", "action"), [("flag", "proceed"), ("block", "refuse")])
+async def test_an_empty_prompt_is_a_prompt_failure_like_a_missing_one(
+    repo: Path, render_dir: Path, level: str, action: str
+) -> None:
+    (repo / DEFAULT_PROMPT).write_text(" \n\n", encoding="utf-8")
+    stub = StubRunner()
+
+    outcome = await _review(repo, render_dir, stub, replace(SETTINGS, level=level))
+
+    assert isinstance(outcome.result, ReviewFailure) and outcome.result.kind == "prompt"
+    assert "is empty" in outcome.result.message
+    assert outcome.action == action
+    assert not stub.args
+
+
 async def test_an_unusable_state_dir_is_a_runner_failure(repo: Path, render_dir: Path) -> None:
     (repo / REVIEW_STATE_DIR).parent.mkdir(parents=True)
     (repo / REVIEW_STATE_DIR).write_text("not a directory", encoding="utf-8")
@@ -540,7 +577,7 @@ def test_a_level_less_failure_always_refuses(kind: str) -> None:
     assert outcome.level is None
     fields = audit_fields(outcome, replace(REQUEST, mode=None))
     assert fields.decision == "refused"
-    assert fields.detail == f"review=failure kind={kind}"
+    assert fields.detail == f"review=failure kind={kind} {DIGEST}"
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +663,7 @@ def test_a_failure_at_flag_says_the_review_did_not_run() -> None:
 _NOTEBOOK_REQUEST = ReviewRequest(
     surface=SURFACE_NOTEBOOK, code="y = 2\n", subject="notebooks/scan.ipynb"
 )
+_NOTEBOOK_DIGEST = f"digest={code_digest(_NOTEBOOK_REQUEST.code)[:16]}"
 
 
 @pytest.mark.parametrize("level", ["flag", "block"])
@@ -684,15 +722,25 @@ def test_a_notice_carries_no_reasons_and_no_code() -> None:
 @pytest.mark.parametrize(
     ("result", "level", "decision", "detail"),
     [
-        (_PASS, "block", "allowed", "review=pass level=block mode=readwrite"),
-        (_PASS, "flag", "allowed", "review=pass level=flag mode=readwrite"),
-        (_CONCERN, "block", "allowed", "review=concern level=block mode=readwrite"),
-        (_CONCERN, "flag", "allowed", "review=concern level=flag mode=readwrite"),
-        (_BLOCK, "block", "refused", "review=block level=block mode=readwrite"),
-        (_BLOCK, "flag", "allowed", "review=block level=flag mode=readwrite"),
-        (_FAILURE, "block", "refused", "review=failure level=block kind=timeout mode=readwrite"),
-        (_FAILURE, "flag", "allowed", "review=failure level=flag kind=timeout mode=readwrite"),
-        (_FAILURE, None, "refused", "review=failure kind=timeout mode=readwrite"),
+        (_PASS, "block", "allowed", f"review=pass level=block mode=readwrite {DIGEST}"),
+        (_PASS, "flag", "allowed", f"review=pass level=flag mode=readwrite {DIGEST}"),
+        (_CONCERN, "block", "allowed", f"review=concern level=block mode=readwrite {DIGEST}"),
+        (_CONCERN, "flag", "allowed", f"review=concern level=flag mode=readwrite {DIGEST}"),
+        (_BLOCK, "block", "refused", f"review=block level=block mode=readwrite {DIGEST}"),
+        (_BLOCK, "flag", "allowed", f"review=block level=flag mode=readwrite {DIGEST}"),
+        (
+            _FAILURE,
+            "block",
+            "refused",
+            f"review=failure level=block kind=timeout mode=readwrite {DIGEST}",
+        ),
+        (
+            _FAILURE,
+            "flag",
+            "allowed",
+            f"review=failure level=flag kind=timeout mode=readwrite {DIGEST}",
+        ),
+        (_FAILURE, None, "refused", f"review=failure kind=timeout mode=readwrite {DIGEST}"),
     ],
 )
 def test_the_audit_fields_are_exact(result, level: str | None, decision: str, detail: str) -> None:
@@ -707,7 +755,7 @@ def test_the_audit_fields_are_exact(result, level: str | None, decision: str, de
 def test_the_notebook_surface_has_no_mode_in_its_detail() -> None:
     fields = audit_fields(decide(_CONCERN, "block"), _NOTEBOOK_REQUEST)
 
-    assert fields.detail == "review=concern level=block"
+    assert fields.detail == f"review=concern level=block {_NOTEBOOK_DIGEST}"
     assert fields.subject == _NOTEBOOK_REQUEST.subject
 
 
@@ -717,7 +765,9 @@ def test_the_audit_fields_carry_no_reasons_and_no_code() -> None:
 
     fields = audit_fields(decide(verdict, "block"), request)
 
-    assert fields.detail == "review=block level=block mode=readwrite"
+    assert fields.detail == (
+        f"review=block level=block mode=readwrite digest={code_digest(SECRET_CODE)[:16]}"
+    )
     joined = " ".join(fields)
     assert SECRET_REASON not in joined
     assert SECRET_CODE not in joined
@@ -728,4 +778,109 @@ def test_a_failure_message_stays_out_of_the_audit_fields() -> None:
 
     fields = audit_fields(decide(failure, "block"), REQUEST)
 
-    assert fields.detail == "review=failure level=block kind=unparseable mode=readwrite"
+    assert fields.detail == f"review=failure level=block kind=unparseable mode=readwrite {DIGEST}"
+
+
+# ---------------------------------------------------------------------------
+# A review the runtime switch left out
+# ---------------------------------------------------------------------------
+
+_OFF = ReviewSwitchedOff(off_by="alice", off_at=1700000000.0)
+
+
+@pytest.mark.parametrize("level", ["block", "flag", None])
+def test_a_switched_off_review_proceeds_at_every_level(level: str | None) -> None:
+    outcome = skip_switched_off(_OFF, level)
+
+    assert outcome.action == "proceed"
+    assert outcome.result is _OFF
+
+
+def test_a_switched_off_review_is_recorded_as_skipped_with_who() -> None:
+    fields = audit_fields(skip_switched_off(_OFF, "block"), REQUEST)
+
+    assert fields.decision == "allowed"
+    assert fields.reason == "code_review"
+    assert fields.detail == (
+        f"review=skipped level=block kind=switched_off by=alice mode=readwrite {DIGEST}"
+    )
+
+
+def test_a_switched_off_record_keeps_who_on_one_token() -> None:
+    off = ReviewSwitchedOff(off_by="Ada  Lovelace\nx", off_at=None)
+
+    detail = audit_fields(skip_switched_off(off, "flag"), _NOTEBOOK_REQUEST).detail
+
+    assert (
+        detail
+        == f"review=skipped level=flag kind=switched_off by=Ada_Lovelace_x {_NOTEBOOK_DIGEST}"
+    )
+
+
+def test_a_switched_off_record_without_who_says_only_switched_off() -> None:
+    detail = audit_fields(skip_switched_off(ReviewSwitchedOff(), "block"), _NOTEBOOK_REQUEST).detail
+
+    assert detail == f"review=skipped level=block kind=switched_off {_NOTEBOOK_DIGEST}"
+
+
+def test_a_switched_off_review_is_told_to_the_agent_and_the_feed_every_time() -> None:
+    outcome = skip_switched_off(_OFF, "block")
+    at = time.strftime("%Y-%m-%d %H:%M", time.localtime(1700000000.0))
+
+    assert agent_message(outcome) == (
+        f"The code review was skipped: switched off in this terminal by alice at {at}. "
+        "The code proceeded unreviewed."
+    )
+    assert notice_text(outcome, REQUEST) == (
+        f"Code review on execute: skipped (switched off in this terminal by alice at {at}), "
+        f"proceeded: {REQUEST.subject}"
+    )
+
+
+def test_a_skip_without_who_or_when_still_says_it_was_switched_off() -> None:
+    outcome = skip_switched_off(ReviewSwitchedOff(), "flag")
+
+    assert agent_message(outcome) == (
+        "The code review was skipped: switched off in this terminal. The code proceeded unreviewed."
+    )
+
+
+# ---------------------------------------------------------------------------
+# What the record carries for telemetry: the code's short digest and the time taken
+# ---------------------------------------------------------------------------
+
+
+async def test_a_review_carries_how_long_it_took_into_its_record(
+    repo: Path, render_dir: Path
+) -> None:
+    outcome = await _review(repo, render_dir, StubRunner())
+
+    assert outcome.elapsed is not None and outcome.elapsed >= 0
+    detail = audit_fields(outcome, REQUEST).detail
+    assert (
+        detail
+        == f"review=pass level=block mode=readwrite {DIGEST} ms={round(outcome.elapsed * 1000)}"
+    )
+
+
+async def test_a_review_that_failed_still_carries_its_time(repo: Path, render_dir: Path) -> None:
+    (repo / DEFAULT_PROMPT).unlink()
+
+    outcome = await _review(repo, render_dir, StubRunner())
+
+    assert outcome.elapsed is not None
+    assert audit_fields(outcome, REQUEST).detail.endswith(f" ms={round(outcome.elapsed * 1000)}")
+
+
+def test_an_outcome_no_run_produced_carries_no_time() -> None:
+    detail = audit_fields(decide(ReviewFailure("config", "x"), None), REQUEST).detail
+
+    assert "ms=" not in detail
+
+
+def test_the_digest_is_the_stamps_digest_cut_short_and_absent_without_code() -> None:
+    from osprey.services.code_review.stamp import code_digest as stamp_digest
+
+    assert DIGEST == f"digest={stamp_digest(REQUEST.code)[:16]}"
+    detail = audit_fields(decide(_PASS, "block"), replace(_NOTEBOOK_REQUEST, code="")).detail
+    assert "digest=" not in detail

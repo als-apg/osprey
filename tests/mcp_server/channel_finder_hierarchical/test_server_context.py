@@ -5,6 +5,7 @@ import textwrap
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     get_cf_hier_context,
     initialize_cf_hier_context,
@@ -61,14 +62,20 @@ def test_registry_loads_the_index_the_build_writes(tmp_path, monkeypatch):
     (index,) = write_hierarchical(
         tmp_path / "data" / "channel_finder",
         ViewInputs(
-            doc={
-                "places": [{"id": "SR", "level": "machine"}],
-                "devices": [{"id": "SR/Q1", "class": "Quadrupole", "place": "SR"}],
-                "channels": [
-                    {"id": addresses[0], "on": {"place": "SR"}},
-                    {"id": addresses[1], "on": {"device": "SR/Q1"}, "signal": "current_setpoint"},
-                ],
-            },
+            records=FacilityRecords(
+                {
+                    "places": [{"id": "SR", "level": "machine"}],
+                    "devices": [{"id": "SR/Q1", "class": "Quadrupole", "place": "SR"}],
+                    "channels": [
+                        {"id": addresses[0], "on": {"place": "SR"}},
+                        {
+                            "id": addresses[1],
+                            "on": {"device": "SR/Q1"},
+                            "signal": "current_setpoint",
+                        },
+                    ],
+                }
+            ),
             rendered_config={},
             facility_dir=tmp_path,
             served=[],

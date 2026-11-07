@@ -4,8 +4,8 @@ Multi-user deployments mount each user's Web Terminal container at
 ``/u/<user>/`` behind a shared nginx front door (see ``compute_url_prefix()``
 in ``osprey.interfaces.web_terminal.app``). Every panel URL the server hands
 to the browser — the seven ``*_server_config`` endpoints, the custom panel URLs in
-``GET /api/panels``, the ``panel_register`` broadcast, and the
-``panel_focus`` broadcast's optional ``url`` — must be prefixed with that same
+``GET /api/panels``, the ``panel_register`` broadcast, and the agent
+``open`` op's optional ``url`` — must be prefixed with that same
 constant so iframes and SSE-driven navigation resolve inside the user's own
 mount. An empty prefix (no ``OSPREY_TERMINAL_USER``) must reproduce the
 pre-prefix root-absolute paths byte-for-byte, and an already-absolute URL
@@ -57,7 +57,6 @@ def _set_user(monkeypatch, user: str | None) -> None:
         ("/api/artifact-server", "artifact_server_url", "artifacts"),
         ("/api/ariel-server", "ariel_server_url", "ariel"),
         ("/api/channel-finder-server", "channel_finder_server_url", "channel-finder"),
-        ("/api/lattice-server", "lattice_dashboard_server_url", "lattice"),
         ("/api/okf-server", "okf_server_url", "okf"),
         ("/api/jupyter-server", "jupyter_server_url", "jupyter"),
         ("/api/system-health-server", "system_health_server_url", "system-health"),
@@ -138,43 +137,12 @@ class TestRegisterPanelPrefix:
         assert event["url"] == f"{prefix}/panel/grafana"
 
 
-# ---- POST /api/panel-focus broadcast ----
-
-
-class TestSetPanelFocusPrefix:
-    def _client(self):
-        app = _make_app(
-            enabled_panels={"ariel"},
-            custom_panels=[],
-            active_panel=None,
-        )
-        return TestClient(app)
-
-    @pytest.mark.parametrize(
-        ("user", "url", "broadcast"),
-        [
-            # A root-absolute URL is prefixed under a user ...
-            pytest.param("alice", "/panel/ariel", "/u/alice/panel/ariel", id="root_absolute"),
-            # ... and an already-absolute one is never touched.
-            pytest.param(
-                "alice",
-                "https://grafana.lan:3000/d/abc",
-                "https://grafana.lan:3000/d/abc",
-                id="absolute",
-            ),
-            pytest.param("alice", "//evil.example/x", "//evil.example/x", id="protocol_relative"),
-            pytest.param(None, "/panel/ariel", "/panel/ariel", id="root_absolute_empty_prefix"),
-        ],
-    )
-    def test_broadcast_url(self, monkeypatch, user, url, broadcast):
-        _set_user(monkeypatch, user)
-        client = self._client()
-
-        resp = client.post(
-            "/api/panel-focus",
-            json={"panel": "ariel", "url": url, "source": "agent"},
-        )
-
-        assert resp.status_code == 200
-        event = client.app.state.broadcaster.broadcast.call_args[0][0]
-        assert event["url"] == broadcast
+# ---- POST /api/panel-op/open ``url`` ----
+#
+# The agent's navigating op prefixes a root-absolute ``url`` into the user's
+# mount on the relayed ``panel_op`` frame, passes an http(s) URL through and
+# refuses a protocol-relative one. Those cases need a dock client to answer the
+# relay, so they live with the navigation guard, where every case runs under an
+# empty prefix and under ``/u/alice``: ``test_panel_nav_guard.py::
+# TestPanelOpenGuard`` (``test_relative_path_still_opens_and_is_prefixed``,
+# ``test_http_url_opens_unprefixed``, ``test_hostile_url_is_refused_and_never_relayed``).

@@ -25,7 +25,8 @@ Cost classes and ``--full``
 
 Every category is either **poll** — cheap and side-effect-free, run on every
 ``osprey health`` — or **on_demand** — costly or externally-visible (a live
-model-chat completion, a package download), run *only* with ``--full``.
+model-chat completion, a package download), run with ``--full`` or when you
+re-probe a row or tile.
 Without ``--full`` an on_demand category is reported as a single ``skip`` row
 (which still counts toward exit code 0). ``--category NAME`` scopes which
 categories run but never elevates cost class:
@@ -47,21 +48,20 @@ tile on the web dashboard, graded against the bands you choose:
 
 .. code-block:: yaml
 
-   health:
-     categories:
-       control_system:
-         checks:
-           - name: beam_current
-             type: channel_read
-             address: SR:DCCT
-             ok_range: [1.0, 500.0]     # mA — below 1 mA warns (no stored beam)
-           - name: rf_frequency
-             type: channel_read
-             address: SR:RF:FREQ
-           - name: archiver_data
-             type: archiver_freshness
-             channel: SR:DCCT
-             max_age_s: 300             # the archiver must have a sample < 5 min old
+   # profile.yml
+   config:
+     health.categories.control_system.checks:
+       - name: beam_current
+         type: channel_read
+         address: SR:DCCT
+         ok_range: [1.0, 500.0]     # mA — below 1 mA warns (no stored beam)
+       - name: rf_frequency
+         type: channel_read
+         address: SR:RF:FREQ
+       - name: archiver_data
+         type: archiver_freshness
+         channel: SR:DCCT
+         max_age_s: 300             # the archiver must have a sample < 5 min old
 
 Reads go through the same connector the agent itself uses (selected by
 ``control_system.type``), so a green canary also proves the connector
@@ -85,23 +85,22 @@ grades a channel:
 
 .. code-block:: yaml
 
-   health:
-     categories:
-       host:                     # any name that is not a built-in category
-         checks:
-           - name: host_ioc      # no bands: the row grades reachability
-             type: channel_read
-             address: HOST01:CPU_CNT
-           - name: cpu_load
-             type: channel_read
-             address: HOST01:SYS_CPU_LOAD
-             ok_range: [0, 70]        # over 70 % busy is a warning
-             warn_range: [0, 90]      # over 90 % busy is an error
-             requires: [host_ioc]
-           - name: memory_free
-             type: channel_read
-             address: HOST01:MEM_FREE
-             requires: [host_ioc]
+   # profile.yml
+   config:
+     health.categories.host.checks:   # any name that is not a built-in category
+       - name: host_ioc      # no bands: the row grades reachability
+         type: channel_read
+         address: HOST01:CPU_CNT
+       - name: cpu_load
+         type: channel_read
+         address: HOST01:SYS_CPU_LOAD
+         ok_range: [0, 70]        # over 70 % busy is a warning
+         warn_range: [0, 90]      # over 90 % busy is an error
+         requires: [host_ioc]
+       - name: memory_free
+         type: channel_read
+         address: HOST01:MEM_FREE
+         requires: [host_ioc]
 
 Record names differ between facilities, so substitute the ones your host IOC
 publishes. The first check is the recipe's one piece of structure: it names a
@@ -147,7 +146,9 @@ Recipe: archive freshness, without declaring a check
 
 A project that deploys its own archive — one whose build profile carries a
 ``va_archiver:`` block (see :doc:`../build-profiles`) — can have the freshness
-check written for it. Name one canary channel and nothing else:
+check written for it. The build derives its canary channel from the facility
+file, the channel the simulator's probe reads; to watch another, name it and
+nothing else:
 
 .. code-block:: yaml
 
@@ -158,11 +159,11 @@ check written for it. Name one canary channel and nothing else:
 The build derives a complete ``archiver`` category from that, including the
 ``max_age_s`` you would otherwise have to choose: **three times the recorder's
 own sample cadence**, floored at 60 seconds, so the threshold follows the
-recorder with no second number to re-tune. Which channel is representative is
-the one thing only you know, so there is no default — a profile that names
-none derives no check. Declare the check yourself *or* name a
-``freshness_channel``, not both: a profile that does both is refused at build
-time, because the two would be one fact in two homes.
+recorder with no second number to re-tune. The channel is derived from the
+facility file; a stated value overrides it, and one the file does not hold is
+refused at build time (see :ref:`architecture-facility-settings`). Declare the
+check yourself *or* name a ``freshness_channel``, not both: a profile that does
+both is refused at build time, because the two would be one fact in two homes.
 
 .. note::
 
@@ -204,8 +205,9 @@ process that runs the suite, or a path to a ``.py`` file, which does not:
 
 .. code-block:: yaml
 
-   health:
-     plugins:
+   # profile.yml
+   config:
+     health.plugins:
        - ./health/facility_checks.py   # a file in your project
        - my_package.health_checks      # an installed module
 
@@ -216,28 +218,29 @@ health MCP server alike, with no ``PYTHONPATH`` to arrange. A plugin that will
 not load never takes the suite down: it reports one ``error`` row under the
 ``plugins`` category, naming the entry and what went wrong.
 
-The web dashboard (``SYSTEM`` panel)
-------------------------------------
+The web dashboard (Health panel)
+--------------------------------
 
 In a Web Terminal build that ships panels, the same **poll-class** results are
-served as a read-only browser dashboard — the ``SYSTEM`` tab. It never runs
-``on_demand`` checks, so a browser can never trigger a costly probe; those
-categories render as cards carrying a copyable ``osprey health --full`` hint.
+served as a browser dashboard — the Health tab — one band per layer of the
+deployment, one tile per component. The poll never runs ``on_demand`` checks
+or spawns MCP servers; a click does: re-probing a row or tile (on_demand
+included), a provider's ping (one small completion), or first opening the MCP
+tile.
 The tab appears only when ``system-health`` is in the build's ``web_panels``
-list, and its LED reflects sidecar liveness only — the pass/warn/fail status
-lives inside the panel.
+list; its LED reflects sidecar liveness only.
 
 Title, host, port, and auto-launch live under ``health.title`` and
 ``health.web`` (all optional):
 
 .. code-block:: yaml
 
-   health:
-     title: "Beamline Health"   # dashboard heading (default "System Health")
-     web:
-       host: 127.0.0.1          # default 127.0.0.1
-       port: 10700              # the port layout's slot for it
-       auto_launch: true        # default true
+   # profile.yml
+   config:
+     health.title: "Beamline Health"   # dashboard heading (default "System Health")
+     health.web.host: 127.0.0.1        # default 127.0.0.1
+     # health.web.port: 10700          # default: deployment.port_base + 700
+     health.web.auto_launch: true      # default true
 
 The sidecar re-reads ``config.yml`` and the project ``.env`` on each refresh,
 so most edits are picked up on the next poll without a restart. The exception

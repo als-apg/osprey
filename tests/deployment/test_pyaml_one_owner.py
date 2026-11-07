@@ -149,10 +149,15 @@ def test_this_environment_has_one_owner():
 # ── every image that installs the local-requirements manifest calls the check ──
 
 MANIFEST = "osprey-local-requirements.txt"
+#: Manifest images that install no framework, so neither the checking module
+#: nor a pyAML distribution is in them: the optimizer's installs only the
+#: optimizer and connectors wheels, and neither requires pyAML.
+NO_FRAMEWORK_IMAGES = {"services/optimizer/Dockerfile"}
 MANIFEST_IMAGES = sorted(
     p
     for p in [*TEMPLATES_DIR.rglob("Dockerfile"), *TEMPLATES_DIR.rglob("Dockerfile.j2")]
     if f"uv pip install -r /tmp/deps-ctx/{MANIFEST}" in p.read_text()
+    and str(p.relative_to(TEMPLATES_DIR)) not in NO_FRAMEWORK_IMAGES
 )
 SOURCE_IMAGES = [REPO_ROOT / "docker" / "virtual-accelerator" / "Containerfile"]
 
@@ -171,6 +176,14 @@ def _wheel_layer(text: str) -> str:
     match = re.search(r"^COPY [^\n]*\*\.wh\[l\][^\n]*\n(RUN .*?)(?:\n\n|\Z)", text, re.M | re.S)
     assert match, "no wheel layer found"
     return match.group(1)
+
+
+@pytest.mark.parametrize("name", sorted(NO_FRAMEWORK_IMAGES))
+def test_an_image_left_out_installs_neither_the_framework_nor_pyaml(name):
+    """The exemption holds only while the image stays without both."""
+    text = (TEMPLATES_DIR / name).read_text().lower()
+    assert "osprey_framework" not in text and "osprey-framework" not in text
+    assert "pyaml" not in text and "accelerator-middle-layer" not in text
 
 
 @pytest.mark.parametrize(

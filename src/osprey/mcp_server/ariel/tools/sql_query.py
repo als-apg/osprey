@@ -6,10 +6,17 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 
 import json
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 from fastmcp.exceptions import ToolError
 
-from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp
+from osprey.mcp_server.ariel.server import (
+    build_entry_url,
+    check_sql_tool_offered,
+    make_error,
+    mcp,
+)
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.search.sql_query import (
     format_sql_result,
@@ -20,6 +27,61 @@ from osprey.services.ariel_search.search.sql_query import (
 )
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.sql_query")
+
+# Marks an id whose sync status could not be resolved: such a row gets no URL.
+_UNRESOLVED = object()
+
+
+def _needs_lookup(row: dict[str, Any]) -> bool:
+    """Whether the row lacks what build_entry_url needs to tell a local-only entry."""
+    return "source_system" not in row or not isinstance(row.get("metadata"), Mapping)
+
+
+async def _add_entry_urls(service: Any, rows: list[Any]) -> None:
+    """Add ``entry_url`` to every row that selects an ``entry_id``.
+
+    A query may select ``entry_id`` without ``metadata`` or ``source_system``,
+    the two columns that tell a local-only entry from a facility one. The ids of
+    such rows are resolved in one batched lookup; when that lookup fails, those
+    rows get no URL rather than one that may point at a page that does not exist.
+    """
+    keyed = [row for row in rows if isinstance(row, dict) and row.get("entry_id")]
+    missing = list(dict.fromkeys(str(row["entry_id"]) for row in keyed if _needs_lookup(row)))
+
+    resolved: dict[str, Any] = {}
+    if missing:
+        try:
+            found = await service.repository.get_entries_by_ids(missing)
+        except Exception:
+            logger.warning(
+                "sql_query: could not resolve sync status for %d entries; their entry_url "
+                "is omitted",
+                len(missing),
+                exc_info=True,
+            )
+            resolved = dict.fromkeys(missing, _UNRESOLVED)
+        else:
+            resolved = {
+                str(entry["entry_id"]): entry
+                for entry in found
+                if isinstance(entry, Mapping) and entry.get("entry_id")
+            }
+
+    for row in keyed:
+        source_system = row.get("source_system")
+        metadata = row.get("metadata")
+        if _needs_lookup(row):
+            entry = resolved.get(str(row["entry_id"]))
+            if entry is _UNRESOLVED:
+                continue
+            if entry is not None:
+                if "source_system" not in row:
+                    source_system = entry.get("source_system")
+                if not isinstance(metadata, Mapping):
+                    metadata = entry.get("metadata")
+        entry_url = build_entry_url(row["entry_id"], source_system, metadata=metadata)
+        if entry_url is not None:
+            row["entry_url"] = entry_url
 
 
 @mcp.tool()
@@ -36,13 +98,18 @@ async def sql_query(
     Columns: entry_id (text PK), timestamp (timestamptz), author (text),
       source_system (text), raw_text (text), metadata (jsonb),
       summary (text), keywords (text[]), attachments (jsonb),
-      attachment_text (text), attachment_captions (jsonb),
+      attachment_text (text), attachment_captions (jsonb), facility_refs (jsonb),
       enhancement_status (jsonb), created_at (timestamptz), updated_at (timestamptz)
 
     attachment_text is the text read from an entry's attachments, and
     attachment_captions the captions of its pictures; both are NULL until the
     attachments are processed. Binary tables are not queryable: attachment_files
     holds the stored file bytes and is refused.
+
+    facility_refs lists each channel address or device id the text quotes as
+    {start, end, target, kinds} (code-point offsets into raw_text); NULL until the
+    entry is checked against the facility file. Tool results resolve it as
+    facility_references.
 
     metadata JSONB keys: logbook, tag, shift, activity_type, logbook_name,
       entry_type, references, event_time, facility_section
@@ -62,6 +129,8 @@ async def sql_query(
     Returns:
         JSON with query results as a list of row objects.
     """
+    check_sql_tool_offered()
+
     if not sql or not sql.strip():
         return make_error(
             "validation_error",
@@ -76,25 +145,32 @@ async def sql_query(
         registry = get_ariel_context()
         service = await registry.service()
 
-        # The SELECT-only role, where the deployment has one. `BEGIN READ ONLY`
-        # and the statement allowlist still apply underneath; what the role adds
-        # is the half neither can cover, since a transaction mode does not stop
-        # a server-side read and no pattern over query text enumerates every
-        # dangerous function. The fallback is a store whose data volume predates
-        # the role — the service logs one warning at start-up when it takes it.
-        # execute_sql_query re-validates internally
-        pool = service.readonly_pool or service.pool
+        # The SELECT-only login is the boundary. `BEGIN READ ONLY` and the
+        # statement allowlist still apply underneath; what the role adds is the
+        # half neither can cover, since a transaction mode does not stop a
+        # server-side read and no pattern over query text enumerates every
+        # dangerous function. So the query runs on that login or not at all,
+        # never on the ingestion pool. execute_sql_query re-validates internally.
+        pool = service.readonly_pool
+        if pool is None:
+            reason = service.readonly_pool_error
+            make_error(
+                "service_unavailable",
+                f"The SQL tool is unavailable: the database refused its read-only login ({reason})."
+                if reason
+                else "The SQL tool is unavailable: no read-only connection is open.",
+                [
+                    "An administrator can create the role as described in the how-to "
+                    "'Search Modes', section 'Read-only role for the SQL tool'."
+                ],
+            )
         rows = await execute_sql_query(pool, sql, max_rows=max_rows)
 
         # Egress: rows that select an entry_id column gain a canonical entry_url
-        # (config-driven). Rows without entry_id (aggregates, projections) and
-        # ARIEL-native entries are left untouched by build_entry_url. Injected
-        # before formatting so the text view carries the URL too.
-        for row in rows:
-            if isinstance(row, dict) and row.get("entry_id"):
-                entry_url = build_entry_url(row.get("entry_id"), row.get("source_system"))
-                if entry_url is not None:
-                    row["entry_url"] = entry_url
+        # (config-driven). Rows without entry_id (aggregates, projections) get
+        # none, and neither do ARIEL-only entries (native or saved local-only).
+        # Injected before formatting so the text view carries the URL too.
+        await _add_entry_urls(service, rows)
 
         formatted = format_sql_result(rows)
 

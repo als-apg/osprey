@@ -398,19 +398,18 @@ async def test_patch_rejects_traversal(project_dir):
 
 
 @pytest.mark.asyncio
-async def test_patch_rejects_absolute_path(project_dir):
-    """setup_patch rejects key_path starting with / or ~."""
+@pytest.mark.parametrize(
+    "key_path",
+    [
+        pytest.param("/etc/passwd", id="absolute-path"),
+        pytest.param("", id="empty"),
+    ],
+)
+async def test_patch_rejects_an_unusable_key_path(project_dir, key_path):
+    """setup_patch rejects a key_path that starts with / or ~, or is empty."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir), assert_raises_error(error_type="validation_error"):
-        await fn(file="config.yml", key_path="/etc/passwd", value="x")
-
-
-@pytest.mark.asyncio
-async def test_patch_rejects_empty_key_path(project_dir):
-    """setup_patch rejects empty key_path."""
-    fn = _get_setup_patch()
-    with _patch_config_path(project_dir), assert_raises_error(error_type="validation_error"):
-        await fn(file="config.yml", key_path="", value="x")
+        await fn(file="config.yml", key_path=key_path, value="x")
 
 
 @pytest.mark.asyncio
@@ -645,7 +644,7 @@ def test_a_key_name_is_read_for_secrets_by_its_words(key, expected):
         ({"password": None}, {"password": None}),
         # A sensitive key inside a plain sequence still masks.
         ({"servers": [{"api_key": "sk-s"}]}, {"servers": [{"api_key": "***"}]}),
-        # The ARIEL keyword block two shipped presets carry, reported as it is.
+        # The ARIEL keyword block the shipped presets carry, reported as it is.
         (
             {"keyword": {"enabled": True, "settings": {"patterns_enabled": True}}},
             {"keyword": {"enabled": True, "settings": {"patterns_enabled": True}}},

@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from osprey.deployment.subprocess_capture import observe_exit, stop_child
+from osprey.port_layout import BLOCK_SIZE
 from osprey_connectors_tests._harness import _ports
 from osprey_connectors_tests._harness._ports import (
     bound_socket,
@@ -26,6 +27,22 @@ from osprey_connectors_tests._harness._ports import (
     reserved_ports,
 )
 from tests._nested_pytest import with_harness_path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+#: The highest first port of an ephemeral range a test host is likely to run:
+#: IANA's dynamic range, macOS's default. Reservations are handed out below it.
+_HIGHEST_EPHEMERAL_START = 49152
+
+#: A pinned deployment block: ``port_base``, ``PORT_BASE`` or ``worker_port_base``
+#: set to a literal, in Python, YAML or an ``osprey set`` argument.
+_PINNED_BASE = re.compile(r"port_base\W{1,4}(\d{4,5})\b", re.IGNORECASE)
+
+#: A store's host port an e2e stack publishes at a literal, as a module constant.
+_PINNED_HOST_PORT = re.compile(r"^(?:MONGO\w*|QMD)_PORT\w*\s*=\s*(\d{4,5})\b", re.MULTILINE)
+
+#: The suites whose stacks publish those ports on the host.
+_STACK_SUITES = ("tests/e2e", "tests/va/e2e")
 
 #: Seconds a lock holder gets between SIGTERM and SIGKILL when it did not end.
 _HOLDER_GRACE_S = 1.0
@@ -53,32 +70,80 @@ def test_the_port_lies_below_the_ephemeral_range():
         assert _ports.PORT_FLOOR <= port < ephemeral_range_start()
 
 
-def test_a_reservation_never_lands_in_a_booked_block():
-    candidates = set(_ports._candidates(ephemeral_range_start()))
+def _pinned(port: int) -> bool:
+    return any(port in block for block in _ports.BOOKED_BLOCKS)
+
+
+def test_no_candidate_lies_in_a_pinned_block():
+    candidates = _ports._candidates(_HIGHEST_EPHEMERAL_START)
     assert candidates
-    for block in _ports.BOOKED_BLOCKS:
-        assert candidates.isdisjoint(block)
+    assert not any(_pinned(port) for port in candidates)
 
 
-def test_every_block_an_e2e_lane_books_is_kept_clear_of_reservations():
-    repo_tests = Path(__file__).resolve().parents[1]
-    booking = re.compile(r"""port_base["']?\s*[=:]\s*(\d{5})""")
-    found = {
-        int(base): path
-        for tree in ("e2e", "va/e2e")
-        for path in (repo_tests / tree).rglob("*.py")
-        for base in booking.findall(path.read_text(encoding="utf-8"))
-    }
-    assert found, "the scan read no bookings, so a pass here would mean nothing"
+def _pinned_bases() -> dict[int, list[str]]:
+    """Every literal deployment base a test file pins, with the files that pin it."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", "tests", "packages/osprey-connectors/tests"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+        timeout=60,
+    )
+    bases: dict[int, list[str]] = {}
+    for name in listed.stdout.decode("utf-8").split("\0"):
+        if not name.endswith((".py", ".yml", ".yaml")):
+            continue
+        path = REPO_ROOT / name
+        if not path.is_file():
+            continue
+        for match in _PINNED_BASE.finditer(path.read_text(encoding="utf-8")):
+            bases.setdefault(int(match.group(1)), []).append(name)
+    return bases
+
+
+def test_every_block_a_test_pins_is_skipped():
+    bases = _pinned_bases()
+    assert bases, "the scan found no pinned base at all; its pattern no longer matches"
     uncovered = {
-        base: str(path)
-        for base, path in found.items()
-        if base >= _ports.PORT_FLOOR
-        and not all(
-            any(port in block for block in _ports.BOOKED_BLOCKS) for port in (base, base + 999)
+        base: files
+        for base, files in sorted(bases.items())
+        if any(
+            not _pinned(port)
+            for port in range(
+                max(base, _ports.PORT_FLOOR), min(base + BLOCK_SIZE, _HIGHEST_EPHEMERAL_START)
+            )
         )
     }
-    assert not uncovered, f"add these blocks to _ports.BOOKED_BLOCKS: {uncovered}"
+    assert not uncovered, (
+        "test(s) pin a deployment block that reservations may hand out; widen "
+        f"_ports.BOOKED_BLOCKS to cover it: {uncovered}"
+    )
+
+
+def test_every_store_port_a_stack_pins_is_skipped():
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", *_STACK_SUITES],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+        timeout=60,
+    )
+    pinned: dict[int, list[str]] = {}
+    for name in listed.stdout.decode("utf-8").split("\0"):
+        if name.endswith(".py") and (REPO_ROOT / name).is_file():
+            text = (REPO_ROOT / name).read_text(encoding="utf-8")
+            for match in _PINNED_HOST_PORT.finditer(text):
+                pinned.setdefault(int(match.group(1)), []).append(name)
+    assert pinned, "the scan found no pinned store port at all; its pattern no longer matches"
+    uncovered = {
+        port: files
+        for port, files in sorted(pinned.items())
+        if _ports.PORT_FLOOR <= port < _HIGHEST_EPHEMERAL_START and not _pinned(port)
+    }
+    assert not uncovered, (
+        "e2e stack(s) publish a store port that reservations may hand out; widen "
+        f"_ports.BOOKED_BLOCKS to cover it: {uncovered}"
+    )
 
 
 def test_two_nested_reservations_never_share_a_port():
@@ -144,7 +209,7 @@ def test_a_port_already_bound_is_never_yielded(monkeypatch, kind):
 def test_the_lock_is_released_when_the_block_ends():
     with reserved_port() as port:
         pass
-    fd = os.open(lock_path(port), os.O_RDWR)
+    fd = os.open(lock_path(port), os.O_RDONLY)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     finally:

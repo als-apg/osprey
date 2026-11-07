@@ -70,9 +70,9 @@ claude_code:
         ask: []
 container_runtime: docker
 control_system:
-  channel_read_artifact_retention: 20
   connector:
     virtual_accelerator:
+      probe_channel: SR:BEAM:CURRENT
       serving: in_process
   limits_checking:
     database_path: data/channel_limits.json

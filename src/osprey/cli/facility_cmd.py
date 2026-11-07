@@ -27,24 +27,34 @@ does not. With an ID it prints that record, its provenance and the fixes
 applied to it. ``--json`` prints one document on stdout and every other line on
 stderr; an error leaves stdout empty.
 
+``osprey facility import`` runs one step before every format reads its source,
+:func:`_replace_or_refuse`, and that step is the one place a format's verb
+inspects ``data/facility/``:
+
+==========================================  ==========================================
+what the tree holds                         what the step does
+==========================================  ==========================================
+hand-written records of a kind the format   refuses, naming them; nothing changes
+writes
+bundled files                               replaces them and says so in one line
+anything else of the deployment's own       keeps it
+==========================================  ==========================================
+
+The knowledge indexes are then settled, and a blank index is left when no page
+remains.
+
 ``osprey facility import mml EXPORT...`` writes MML exports as the mml layer's
 sources under ``data/facility/imported/mml/`` and seeds each authored file that
-does not exist yet. An authored record source merges against the layer's
-records, so the verb stops before it reads an export while one is present and
-prints the ``rm`` line of each: every file of ``records/`` and ``decks/``,
-``models.yaml``, and each of ``seeds.yaml``, ``limits.yaml``, ``identity.yaml``
-and ``measurement/`` that does not open with the layer's own header line.
-``fixes.yaml``, ``classes.yaml``, ``scenarios/`` and ``knowledge/`` are never in
-the way. After the import it prints an ``rm`` line, on stderr, for each scenario
-file without the layer's header line that names something the imported facility
-does not have, and deletes none.
+does not exist yet. It writes channel, device, group, model, deck, seed, limit,
+identity and measurement records.
 ``--print-exporter`` prints the MATLAB exporter the layer ships and needs
 neither a repo nor an export.
 
 ``osprey facility import list FILE`` writes a CSV channel list as the list
 layer's sources, ``data/facility/imported/list/channels.yaml`` and, when a row
-states a device's ``s``, ``devices.yaml`` beside it, and seeds nothing. Every row the layer refuses prints one ``source-invalid`` line on
-stderr, and the verb then writes nothing and exits 1.
+states a device's ``s``, ``devices.yaml`` beside it. It writes channel and device
+records. Every row the layer refuses prints one ``source-invalid`` line on
+stderr, and the verb then writes no layer file and exits 1.
 
 Note: the facility package and the build's render are imported inside the
 command body, so ``osprey --help`` does not load them.
@@ -63,6 +73,8 @@ from .phase_reporter import current_reporter
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 if TYPE_CHECKING:
+    from osprey.facility.records import FacilityRecords
+
     from .build_profile_load import LoadedProfile
 
 
@@ -133,6 +145,7 @@ def _build_in_memory(
     from osprey_connectors.errors import BuildProfileError
 
     from .build_cmd import _render_project, _render_zones, _rendered_config, _SharedRenderInputs
+    from .build_environment import _plan_project_venv
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
         facility_mirror_violation,
@@ -181,7 +194,7 @@ def _build_in_memory(
         repo_root=repo_root,
         build_dir=build_dir,
         runtime_root=None,
-        project_deps=list(build_profile.dependencies or []),
+        project_deps=list(_plan_project_venv(build_profile, install=False).extra_deps),
         skip_deps=True,
         manager=TemplateManager(),
         graph_indexes={},
@@ -222,24 +235,16 @@ def _build_in_memory(
     )
 
 
-#: Each record kind of the facility file: its key in the file and its id field.
-_RECORD_KINDS: tuple[tuple[str, str, str], ...] = (
-    ("place", "places", "id"),
-    ("device", "devices", "id"),
-    ("channel", "channels", "id"),
-    ("group", "groups", "id"),
-    ("model", "models", "name"),
-)
-
-
-def _counts(document: dict[str, Any]) -> dict[str, Any]:
+def _counts(records: FacilityRecords) -> dict[str, Any]:
     """The records per kind, and the wiring records per model."""
+    from osprey.facility.records import RECORD_KINDS
+
     counts: dict[str, Any] = {
-        key: len(document.get(key) or []) for _kind, key, _id in _RECORD_KINDS[:4]
+        key: len(records.of_kind(kind)) for kind, key, _id in RECORD_KINDS[:4]
     }
     counts["wiring"] = {
         str(model["name"]): len(model.get("wiring") or [])
-        for model in sorted(document.get("models") or [], key=lambda model: str(model["name"]))
+        for model in sorted(records.of_kind("model"), key=lambda model: str(model["name"]))
     }
     return counts
 
@@ -250,9 +255,10 @@ def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
     ``reason`` is present only on a view the render does not carry.
     """
     from osprey.facility import views
+    from osprey.facility.records import FacilityRecords
 
     inputs = views.ViewInputs(
-        doc=built.document,
+        records=FacilityRecords(built.document),
         rendered_config=built.rendered_config,
         facility_dir=built.facility_dir,
         served=served,
@@ -273,42 +279,42 @@ def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
 
 def _overview(built: _InMemoryBuild) -> dict[str, Any]:
     """The ``facility show`` document of the whole facility."""
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.served import resolve_served
     from osprey.facility.views.facts import facts_document
 
-    served = resolve_served(built.rendered_config, built.document)
+    records = FacilityRecords(built.document)
+    served = resolve_served(built.rendered_config, records)
     project_name = built.rendered_config.get("project_name")
-    facts = facts_document(built.document, served, str(project_name) if project_name else None)
+    facts = facts_document(records, served, str(project_name) if project_name else None)
     return {
         "identity": facts["identity"],
-        "counts": _counts(built.document),
+        "counts": _counts(records),
         "models": facts["models"],
         "views": _views(built, served),
     }
 
 
-def _record(document: dict[str, Any], record_id: str) -> dict[str, Any] | str:
-    """The ``facility show ID`` document, or the line that says why there is none."""
-    found = [
-        (kind, record)
-        for kind, key, id_field in _RECORD_KINDS
-        for record in document.get(key) or []
-        if str(record.get(id_field)) == record_id
-    ]
+def _record(document: dict[str, Any], record_id: str) -> list[dict[str, Any]] | str:
+    """The ``facility show ID`` records, in ``RECORD_KINDS`` order, or the line that says why
+    there are none."""
+    from osprey.facility.records import FacilityRecords
+
+    found = FacilityRecords(document).find(record_id)
     if not found:
         return f"facility show: no record {record_id}"
-    if len(found) > 1:
-        kinds = [f"a {kind}" for kind, _record in found]
-        named = ", ".join(kinds[:-1]) + f" and {kinds[-1]}"
-        return f"facility show: {record_id} names {named}"
-    ((kind, record),) = found
-    provenance = dict(record.get("provenance") or {})
-    return {
-        "record": {key: value for key, value in record.items() if key != "provenance"},
-        "kind": kind,
-        "provenance": provenance,
-        "fixes_applied": list(provenance.get("fixes") or []),
-    }
+    entries = []
+    for each in found:
+        provenance = dict(each.record.get("provenance") or {})
+        entries.append(
+            {
+                "record": {key: value for key, value in each.record.items() if key != "provenance"},
+                "kind": each.kind,
+                "provenance": provenance,
+                "fixes_applied": list(provenance.get("fixes") or []),
+            }
+        )
+    return entries
 
 
 def _yaml_lines(value: Any) -> list[str]:
@@ -387,9 +393,9 @@ def show(ctx: click.Context, record_id: str | None, as_json: bool, repo: Path | 
     on an error. Without ID it prints the identity, the records per kind, the
     wiring per model, each model's engine, served flag and solve setting, and
     each view with its path and whether the main render carries it. With ID it
-    prints that record with its provenance and the fixes applied to it; an ID
-    that names no record, or more than one, exits 1. Under ``--json`` stdout
-    holds one document and every other line goes to stderr.
+    prints every record of that id, each under its kind, with its provenance and
+    the fixes applied to it; an ID that names no record exits 1. Under ``--json``
+    stdout holds one document and every other line goes to stderr.
     """
     import json
     from contextlib import nullcontext
@@ -405,27 +411,21 @@ def show(ctx: click.Context, record_id: str | None, as_json: bool, repo: Path | 
             if isinstance(found, str):
                 click.echo(found, err=True)
                 ctx.exit(1)
-            document = found
+            document = {"records": found}
     if as_json:
         click.echo(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False))
     elif record_id is None:
         _print_overview(document, _shown(built.primary_config, built.repo_root))
     else:
-        _print_record(document)
+        for index, entry in enumerate(document["records"]):
+            if index:
+                report("")
+            _print_record(entry)
 
 
 @facility.group("import")
 def import_group() -> None:
     """Write an export as sources under data/facility/imported/."""
-
-
-#: The authored files that merge against a layer's records whoever wrote them,
-#: relative to ``data/facility/``: single files, then directories taken whole.
-_RECORD_FILES = ("models.yaml",)
-_RECORD_DIRS = ("decks",)
-
-#: The directory of scenario sources, relative to ``data/facility/``.
-_SCENARIOS_DIR = "scenarios"
 
 
 def _main_profile(repo_root: Path) -> tuple[LoadedProfile, tuple[Path, ...]]:
@@ -461,27 +461,20 @@ def _facility_dir(resolved: LoadedProfile, repo_root: Path) -> Path:
     return data_root / "facility"
 
 
-def _files(directory: Path) -> list[Path]:
-    return sorted(path for path in directory.rglob("*") if path.is_file())
+def _shown(path: Path, repo_root: Path) -> str:
+    """A path as the verb prints it: relative to the repo when it is inside it."""
+    try:
+        return path.relative_to(repo_root).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
-def _mml_seeded(path: Path) -> bool:
-    """Whether a file opens with the header line the mml layer seeds files under."""
-    from osprey.facility.layers.mml.seed import HEADER
-
-    # Only the newline ends the first line: str.splitlines would also end it at
-    # a form feed or a Unicode line separator and pass a line that runs on.
-    first = path.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
-    return first == HEADER
+#: The line an import prints when it seeds the blank knowledge index.
+KNOWLEDGE_PLACEHOLDER_LINE = "Put your facility's documentation here: one page per topic."
 
 
-def _authored_record_sources(facility_dir: Path) -> list[Path]:
-    """The authored files that would merge against the mml layer's records, sorted.
-
-    Every file of ``records/`` and ``decks/`` and ``models.yaml`` count
-    whatever they hold; ``seeds.yaml``, ``limits.yaml``, ``identity.yaml`` and
-    the files of ``measurement/`` count unless the mml layer seeded them.
-    """
+def _writes() -> dict[str, tuple[tuple[str, str], ...]]:
+    """Per import verb, what it writes under ``data/facility/``: (file or directory, kind)."""
     from osprey.facility.layers.mml.seed import (
         IDENTITY_FILE,
         LIMITS_FILE,
@@ -489,26 +482,104 @@ def _authored_record_sources(facility_dir: Path) -> list[Path]:
         SEEDS_FILE,
     )
 
-    found = sorted((facility_dir / "records").glob("*.yaml"))
-    found += [facility_dir / name for name in _RECORD_FILES if (facility_dir / name).is_file()]
-    for name in _RECORD_DIRS:
-        found += _files(facility_dir / name)
-    seedable = [
-        facility_dir / name
-        for name in (SEEDS_FILE, LIMITS_FILE, IDENTITY_FILE)
-        if (facility_dir / name).is_file()
+    channels = ("records/channels.yaml", "channel")
+    devices = ("records/devices.yaml", "device")
+    return {
+        "mml": (
+            channels,
+            devices,
+            ("records/groups.yaml", "group"),
+            ("models.yaml", "model"),
+            ("decks", "deck"),
+            (SEEDS_FILE, "seed"),
+            (LIMITS_FILE, "limit"),
+            (IDENTITY_FILE, "identity"),
+            (MEASUREMENT_DIR, "measurement"),
+        ),
+        "list": (channels, devices),
+    }
+
+
+def _named_together(names: list[str]) -> str:
+    if len(names) == 1:
+        return names[0]
+    return ", ".join(names[:-1]) + f" and {names[-1]}"
+
+
+def _remove_bundled(facility_dir: Path, bundled: tuple[str, ...]) -> None:
+    """Remove the bundled files; their directories stay until :func:`_prune_empty`."""
+    for relative in bundled:
+        (facility_dir / relative).unlink()
+
+
+def _prune_empty(facility_dir: Path) -> None:
+    """Remove every empty directory under *facility_dir*, deepest first."""
+    directories = (path for path in facility_dir.rglob("*") if path.is_dir())
+    for directory in sorted(directories, key=lambda path: -len(path.parts)):
+        if not any(directory.iterdir()):
+            directory.rmdir()
+
+
+def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_root: Path) -> None:
+    """Make ``data/facility/`` ready for a format; every format under the group calls it first.
+
+    Refuses only on overlap: hand-written records of the kinds this verb writes
+    exit 1 with nothing changed, and files seeded under the former header are
+    named apart with the line that fixes them. Otherwise bundled files are replaced, and the
+    line that says so prints at once, so a later stop of the format never hides
+    the deletion. Everything else stays; the knowledge indexes are settled, and a
+    blank index is left when no page remains.
+    """
+    from osprey.facility.bundled import classify, under_former_header
+    from osprey.facility.layers import HEADER
+    from osprey.services.facility_knowledge.okf.index import _settle_bundle
+
+    from .templates.manager import TemplateManager
+
+    writes = _writes()[verb]
+    kinds = classify(facility_dir, Path(TemplateManager().template_root))
+    overlap = [
+        (path, kind)
+        for path in kinds.authored
+        for entry, kind in writes
+        if path == entry or path.startswith(f"{entry}/")
     ]
-    seedable += _files(facility_dir / MEASUREMENT_DIR)
-    found += [path for path in seedable if not _mml_seeded(path)]
-    return sorted(found)
-
-
-def _shown(path: Path, repo_root: Path) -> str:
-    """A path as the verb prints it: relative to the repo when it is inside it."""
-    try:
-        return path.relative_to(repo_root).as_posix()
-    except ValueError:
-        return path.as_posix()
+    if overlap:
+        former = [path for path, _kind in overlap if under_former_header(facility_dir / path)]
+        written = [(path, kind) for path, kind in overlap if path not in former]
+        lines = []
+        if written:
+            found = {kind for _path, kind in written}
+            named = _named_together([kind for _entry, kind in writes if kind in found])
+            lines += [
+                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
+                "records, which this import writes:",
+                *(_shown(facility_dir / path, repo_root) for path, _kind in written),
+                "move corrections into fixes.yaml and remove the record sources, "
+                "or start a new repo: osprey init <name> --preset demo",
+            ]
+        if former:
+            lines += [
+                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds files seeded under "
+                "the old header, which this import writes:",
+                *(_shown(facility_dir / path, repo_root) for path in former),
+                f"set line 1 of each to: {HEADER}",
+            ]
+        click.echo("\n".join(lines), err=True)
+        ctx.exit(1)
+    if kinds.bundled:
+        _remove_bundled(facility_dir, kinds.bundled)
+        click.echo(
+            f"import {verb}: replaced the bundled {kinds.name} facility "
+            f"({len(kinds.bundled)} files)",
+            err=True,
+        )
+    seeded = _settle_bundle(facility_dir / "knowledge")
+    if kinds.bundled:
+        _prune_empty(facility_dir)
+    if seeded is not None:
+        report(f"wrote {_shown(seeded, repo_root)}")
+        report(KNOWLEDGE_PLACEHOLDER_LINE)
 
 
 def _print_exporter(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
@@ -543,11 +614,11 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
     """Write MML exports as sources under data/facility/imported/mml/.
 
     EXPORT is an export's <stem>.ao.json file; its sibling files are read from
-    beside it. Exits 1 and writes no record while the mapping is a draft, has
-    an undecided slot, has the wrong structure or fails its check, while
-    an authored record source is present, or while the profile does not
-    resolve. After the import it lists each scenario file that names
-    something the facility no longer has, as rm lines, and deletes nothing.
+    beside it. First replaces a bundled facility, saying so in one line, and
+    refuses hand-written records of the kinds this import writes. Exits 1 and
+    writes no record while the mapping is a draft, has an undecided slot, has
+    the wrong structure or fails its check, or while the profile does not
+    resolve.
 
     The MATLAB exporter mml_export.m ships with OSPREY and writes the export
     this command reads; no facility writes its own.
@@ -585,30 +656,19 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
       - The sub-machine's simulator model loaded, so THERING holds its
         lattice; the export refuses without it.
     """
-    import shlex
-
     from osprey.facility.layers.mml.importer import MappingProblems
     from osprey.facility.layers.mml.importer import import_mml as run_import
     from osprey.facility.layers.mml.mapping import MAPPING_FILE, MappingError
-    from osprey.facility.validate import stale_scenarios
     from osprey_connectors.errors import BuildProfileError
 
     repo_root = find_repo_root(repo)
     try:
-        resolved = _main_profile(repo_root)[0]
-        project_name = _project_name(resolved, repo_root)
-        facility_dir = _facility_dir(resolved, repo_root)
+        facility_dir = _facility_dir(_main_profile(repo_root)[0], repo_root)
     except (BuildProfileError, ValueError, RuntimeError) as error:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
 
-    present = _authored_record_sources(facility_dir)
-    if present:
-        noun = "file" if len(present) == 1 else "files"
-        click.echo(f"import mml: authored-present: {len(present)} {noun}", err=True)
-        for path in present:
-            click.echo(f"rm {shlex.quote(_shown(path, repo_root))}", err=True)
-        ctx.exit(1)
+    _replace_or_refuse(ctx, "mml", facility_dir, repo_root)
 
     try:
         for path in run_import(list(exports), facility_dir):
@@ -619,23 +679,6 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
         mapping = _shown(facility_dir / MAPPING_FILE, repo_root)
         fail(f"{mapping} is not a valid mapping document.", str(error))
         ctx.exit(1)
-
-    stale = sorted(
-        path
-        for path in (
-            facility_dir / _SCENARIOS_DIR / f"{name}.yaml"
-            for name in stale_scenarios(facility_dir, project_name=project_name)
-        )
-        if not _mml_seeded(path)
-    )
-    if stale:
-        click.echo("these scenario files name channels that no longer exist:", err=True)
-        for path in stale:
-            lines = [f"  rm {shlex.quote(_shown(path, repo_root))}"]
-            attached = path.with_suffix("")
-            if attached.is_dir():
-                lines.append(f"  rm -r {shlex.quote(_shown(attached, repo_root) + '/')}")
-            click.echo("\n".join(lines), err=True)
 
 
 @import_group.command("list")
@@ -664,8 +707,9 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     A file without an address column holds one address per line.
 
     Each device a row states s for is written with its s and model to
-    devices.yaml beside the channels. Seeds no authored file. Exits 1 and
-    writes nothing when a row names both a device and a place, states an
+    devices.yaml beside the channels. First replaces a bundled facility, saying
+    so in one line, refuses hand-written channel and device records, and seeds
+    the knowledge stub. Exits 1 and writes no layer file when a row names both a device and a place, states an
     unknown role, has no address or repeats one, states s or model with no
     device or an s that is not a number, when two rows state different
     positions for one device, when the header names an unknown column, or
@@ -680,5 +724,8 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     except (BuildProfileError, ValueError, RuntimeError) as error:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
+
+    _replace_or_refuse(ctx, "list", facility_dir, repo_root)
+
     for path in run_import(listing, facility_dir):
         report(f"wrote {_shown(path, repo_root)}")

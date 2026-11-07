@@ -12,7 +12,7 @@ kinds to costs is :data:`~osprey.cli.build_profile_drift.REFUSAL_KINDS` and
 :data:`~osprey.cli.build_profile_drift.NOTE_KINDS`, exercised end to end in
 tests/cli/test_drift_refusal.py.
 
-The fixture is a real ``osprey init`` of the ``control-assistant`` preset,
+The fixture is a real ``osprey init`` of the ``demo`` preset,
 made once per module and copied per test: the first assertion of the suite is
 that a fresh materialization reports nothing, and every other test edits that
 repo the way an operator would.
@@ -42,9 +42,9 @@ READONLY = Path(TIERS_DIRNAME) / "readonly.yml"
 
 @pytest.fixture(scope="module")
 def materialized(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """One real materialization of the control-assistant preset."""
+    """One real materialization of the demo preset."""
     root = tmp_path_factory.mktemp("materialized") / "demo"
-    result = CliRunner().invoke(init, [str(root), "--preset", "control-assistant", "--no-git"])
+    result = CliRunner().invoke(init, [str(root), "--preset", "demo", "--no-git"])
     assert result.exit_code == 0, result.output
     return root
 
@@ -102,7 +102,7 @@ def test_header_stamp_and_lint_share_one_hash(repo: Path) -> None:
     profile = repo / PROFILE
     header_hash = _header_hash(profile)
 
-    assert header_hash == compute_preset_hash("control-assistant")
+    assert header_hash == compute_preset_hash("demo")
     assert f"preset_hash: {header_hash}" in profile.read_text(encoding="utf-8")
     tier_hash = _header_hash(repo / READONLY)
     assert tier_hash == compute_preset_hash(f"{TIERS_DIRNAME}/readonly")
@@ -151,8 +151,8 @@ def test_member_the_preset_selects_and_the_profile_lacks(repo: Path) -> None:
     assert report.unmarked[0].kind == "missing_member"
     rendered = report.unmarked[0].render()
     assert "profile.yml" in rendered
-    preset_line = _line_of(_presets_dir() / "control-assistant.yml", "- system-health")
-    assert f"control-assistant.yml:{preset_line}" in rendered
+    preset_line = _line_of(_presets_dir() / "demo.yml", "- system-health")
+    assert f"demo.yml:{preset_line}" in rendered
 
 
 def test_scalar_that_differs_names_both_values_and_both_lines(repo: Path) -> None:
@@ -167,8 +167,8 @@ def test_scalar_that_differs_names_both_values_and_both_lines(repo: Path) -> Non
     rendered = report.unmarked[0].render()
     assert "'dark'" in rendered and "'light'" in rendered
     assert f"profile.yml:{_line_of(profile, 'web.theme: dark')}" in rendered
-    preset_line = _line_of(_presets_dir() / "control-assistant.yml", "web.theme: light")
-    assert f"control-assistant.yml:{preset_line}" in rendered
+    preset_line = _line_of(_presets_dir() / "demo.yml", "web.theme: light")
+    assert f"demo.yml:{preset_line}" in rendered
 
 
 def test_member_the_profile_adds(repo: Path) -> None:
@@ -263,7 +263,7 @@ def test_absence_is_silenced_by_a_marker_that_names_it(repo: Path) -> None:
     """A line the profile lacks has nothing to write a marker above, so the
     marker names what is missing instead — anywhere in the file."""
     profile = repo / PROFILE
-    _edit(profile, "  - system-health   # SYSTEM tab, a framework health dashboard\n", "")
+    _edit(profile, "  - system-health   # Health tab, a framework health dashboard\n", "")
     with profile.open("a", encoding="utf-8") as fh:
         fh.write("\n# DEVIATION: facility — no system-health tab; the SYSTEM view is elsewhere\n")
 
@@ -288,8 +288,8 @@ def test_marker_tag_is_configurable(repo: Path) -> None:
     profile = repo / PROFILE
     _edit(
         profile,
-        "  preset: control-assistant\n",
-        "  preset: control-assistant\n  deviation_marker: SITE-DEVIATION\n",
+        "  preset: demo\n",
+        "  preset: demo\n  deviation_marker: SITE-DEVIATION\n",
     )
     _edit(
         profile,
@@ -334,14 +334,14 @@ def test_moved_preset_hash_is_noted_with_both_versions(repo: Path) -> None:
 
     assert report.note is not None
     assert "sha256:0000dead" in report.note
-    assert "control-assistant" in report.note
+    assert "demo" in report.note
     assert "OSPREY" in report.note
     assert report.unmarked == []
 
 
 def test_unbundled_preset_cannot_be_compared(repo: Path) -> None:
     profile = repo / PROFILE
-    _edit(profile, "  preset: control-assistant\n", "  preset: retired-preset\n")
+    _edit(profile, "  preset: demo\n", "  preset: retired-preset\n")
 
     report = _report(profile)
 
@@ -422,13 +422,23 @@ def test_a_tier_from_a_source_osprey_does_not_bundle_is_noted_once(repo: Path) -
 # ---------------------------------------------------------------------------
 
 
-def test_validate_refuses_unmarked_drift(repo: Path) -> None:
-    _edit(repo / PROFILE, "  - system-health", "  # - system-health")
+@pytest.mark.parametrize(
+    ("before", "after", "named"),
+    [
+        ("  - system-health", "  # - system-health", "web_panels: system-health"),
+        # A key the preset carries and this copy does not is the silent kind — it
+        # builds green forever — so it still refuses, and the refusal names the key.
+        ("  web.theme: light\n", "", "config.web.theme"),
+    ],
+    ids=["commented-out-entry", "preset-gained-key"],
+)
+def test_validate_refuses_unmarked_drift(repo: Path, before: str, after: str, named: str) -> None:
+    _edit(repo / PROFILE, before, after)
 
     result = CliRunner().invoke(validate, ["--repo", str(repo)])
 
     assert result.exit_code == 2, result.output
-    assert "web_panels: system-health" in result.output
+    assert named in result.output
     assert "# DEVIATION:" in result.output
 
 
@@ -458,21 +468,6 @@ def test_set_knob_then_validate_green(repo: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "preset drift: config.web.theme" in result.output
     assert "Profile is valid" in result.output
-
-
-def test_preset_gained_key_still_refused(repo: Path) -> None:
-    """The failure the lint exists for is untouched by that split.
-
-    A key the preset carries and this copy does not is the silent kind — it
-    builds green forever — so it still refuses, and the refusal names the key.
-    """
-    _edit(repo / PROFILE, "  web.theme: light\n", "")
-
-    result = CliRunner().invoke(validate, ["--repo", str(repo)])
-
-    assert result.exit_code == 2, result.output
-    assert "config.web.theme" in result.output
-    assert "# DEVIATION:" in result.output
 
 
 def test_validate_passes_a_fresh_materialization(repo: Path) -> None:

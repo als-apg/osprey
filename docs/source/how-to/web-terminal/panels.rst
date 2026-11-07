@@ -1,9 +1,9 @@
 Panels
 ======
 
-A **panel** is a self-contained, themed mini-app the Web Terminal shows as a tab
-beside the chat. OSPREY's own tools — Channel Finder, ARIEL, the lattice
-dashboard, the artifact gallery — are all panels, and you can add your own.
+A **panel** is a self-contained, themed mini-app the Web Terminal shows
+beside the chat. OSPREY's own tools — Channel Finder, the Logbook, the
+knowledge reader, the artifact gallery — are all panels, and you can add your own.
 A panel that takes its colors from the shared design tokens (:doc:`theming`)
 matches your theme automatically, in light and dark, with no extra work. A
 service that brings its own colors — most facility dashboards do — follows
@@ -18,7 +18,7 @@ Enable OSPREY's built-in panels in ``config.yml``:
      panels:
        ariel: true
        channel-finder: true
-       lattice: true
+       system-health: true
 
 Panels that need a section as well as a tick
 --------------------------------------------
@@ -44,26 +44,27 @@ saying the panel is unavailable.
      - ``facility_knowledge:``
      - ``bundle_path``, the compiled knowledge bundle the KNOWLEDGE tab serves.
 
-The lattice tab launches from the ``lattice: true`` tick alone; a
-``lattice_dashboard`` section (``host``, ``port``, ``auto_launch``) only moves
-where it listens. The shipped ``control-assistant`` preset ships that tick, and
-the sections for KNOWLEDGE and CHANNELS, which is why all three work out of the
-box. :doc:`lattice-dashboard` describes the tab.
+The shipped ``demo`` preset ships the sections for KNOWLEDGE and
+CHANNELS, which is why both work out of the box.
 
 Where the panels live
 ---------------------
 
 Panels have a row in the sidebar on the left of the window.
-**Artifacts** (and **Events**, when the deployment enables it) is in the
-**Workspace** section, with **Agent**. All other panels are in the **Tools**
-section, followed by **+ Add panel**. See :ref:`web-terminal-sidebar`.
+**Sessions** is the first row and has no heading. **Artifacts** has no row: its
+artifacts are in the session tree, and the palette opens the panel.
+**Events** (when the deployment enables it) and **Health** are in the
+**System** section. All other panels are in the **Apps** section, which ends
+with **+ Add panel**. See :ref:`web-terminal-sidebar`.
 
 Dragging sidebar rows
 ---------------------
 
-Drag a Tools row up or down to change the order. The order is the same for
+Drag a Apps row up or down to change the order. The order is the same for
 everyone on the same terminal, and it stays after a reload. Drag a row onto
-the work pane instead to open the panel as a new tile where you drop it.
+the work pane instead to open the panel as a new tile where you drop it: on a
+tile's edge, or along an edge of the work pane; a drop on a tile's header or
+centre does nothing (see :ref:`web-terminal-tiles`).
 
 Taking panels out of the sidebar
 --------------------------------
@@ -71,10 +72,9 @@ Taking panels out of the sidebar
 To remove a panel row, right-click it or use the **×** of the row. You can
 undo this for a few seconds.
 
-A panel can be open without a sidebar row. In the ``control-assistant`` preset
-SYSTEM starts that way (``web.panels.system-health.hidden: true``): open it
-from **+ Add panel** or the command palette, and right-click its tile to pin it
-to the sidebar.
+A panel can be open without a sidebar row (``web.panels.<id>.hidden: true``):
+open it from **+ Add panel** or the command palette, and right-click its tile
+to pin it to the sidebar.
 
 When a panel stops answering
 ----------------------------
@@ -89,7 +89,7 @@ because a slow backend often still serves what is loaded. Both clear on the
 next answer. A panel that has not answered since the page loaded keeps its
 greyed-out entry and does not open.
 
-This applies to panels that have a health check: Jupyter, SYSTEM, and any
+This applies to panels that have a health check: Jupyter, CANOPY, Health, and any
 URL-backed panel whose entry names a ``health_endpoint``.
 
 Clicking a dimmed entry closes its tile as usual, but the panel cannot be
@@ -103,7 +103,7 @@ Panels backed by a URL
 An entry under ``web.panels`` can also declare a **URL-backed panel** — a tab
 that shows another web service inside the terminal. This is how the EVENTS
 dashboard and the BLUESKY tab ship in the
-``control-assistant`` preset (a build that includes those stacks registers
+``demo`` preset (a build that includes those stacks registers
 the entries for you):
 
 .. code-block:: yaml
@@ -225,13 +225,54 @@ Two boundaries are worth saying out loud:
   note under `Adding your own panel`_. A service that authenticates its own
   callers that way cannot be driven as a panel, themed or not.
 
+Handing keyboard focus back
+---------------------------
+
+A frame cannot move focus in the page around it, so a panel whose own Tab
+order runs out would trap the keyboard inside it. A panel hands focus back by
+posting to its parent when Tab (or Shift+Tab) leaves its last (or first)
+element:
+
+.. code-block:: javascript
+
+   window.parent.postMessage(
+     { type: 'canopy-host-focus-exit', direction: 'forward' },  // or 'backward'
+     window.location.origin,
+   );
+
+The terminal also reads the older ``osprey-focus-exit`` for one release. It then
+focuses the next (or previous) element of its own page, in
+document order relative to the panel's tile — after ``backward``, that is the
+tile's header. It acts only on a message from its own origin and from the
+frame of a panel it shows.
+
+Controls in the tile bar
+------------------------
+
+An embedded panel draws no header of its own. It sends its tile-bar items with
+``contributeHeader(items)`` from the design system's ``header-contrib.js``
+and hears clicks with ``onHeaderAction(callback)``. Each send replaces the
+last. A panel sends two kinds:
+
+- ``{kind: 'icon', id, icon, title}``: an icon button in the bar. ``icon`` is
+  a name from ``icons.js``, and ``title`` is its tooltip. The bar shows at
+  most three. The rest, lowest ``priority`` first, become rows of the tile's
+  **⋯** menu.
+- ``{kind: 'menu', id, items: [{id, label}]}``: rows in the **This panel**
+  section of the tile's **⋯** menu. An entry can set ``checked``,
+  ``disabled``, ``danger`` (listed last) and ``separator`` (a line
+  above it).
+
+Everything else a panel needs goes in its own toolbar, inside the panel.
+
 The Bluesky panel
 -----------------
 
 One tab covers a plan end to end, served by the ``bluesky-web`` sidecar.
-**BLUESKY** (``/bluesky/``) has three views, and the queue's state stays on
-screen across all three as a badge in the status strip — with **Stop** and
-**Abort** beside it whenever a plan is moving or the state is in doubt:
+**BLUESKY** (``/bluesky/``) has three views behind the **Plans** | **Queue** |
+**Results** switch in its toolbar. The queue's state stays on screen in all
+three as a status chip in that toolbar, with **Stop** and **Abort** beside it
+whenever a plan is moving or the state is in doubt:
 
 **Plans** is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,
@@ -239,10 +280,12 @@ and a field you change by hand flows back to the agent. **Run** puts the
 exact revision on screen into the plan queue, and on an armed queue that runs
 it at once; on a stopped queue the button reads **Add to queue**.
 
-**Queue** is the control panel: **Start**, **Stop**, **Abort** and **Clear**
-in the strip, the waiting plans with their reorder/remove controls, and the
-runs that have finished, each removable. Picking any run opens it under
-Results. :doc:`/how-to/bluesky/queue` covers what those controls do.
+**Queue** is the control panel: **Start**, **Stop** and **Abort** in the
+toolbar, the waiting plans with their reorder/remove controls, and the runs
+that have finished, each removable. **Clear waiting plans** and **Clear
+history** are in the tile **⋯** menu; each asks you to confirm at the top of
+its card. Picking any run opens it under Results. :doc:`/how-to/bluesky/queue`
+covers what those controls do.
 
 **Results** shows the selected run's record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.
@@ -367,54 +410,92 @@ panel declares; panels OSPREY ships, and URL-backed panels declared under
 Panel layouts ("presets")
 -------------------------
 
-A **layout** is a named set of panels an operator applies in one click — "the
-machine-setup view is these four panels." Define them under ``web.presets``, where
-each key is the menu label and each value is the exact set of panels to show:
+A **layout** is a named arrangement of panels an operator applies in one click
+— "the machine-setup view is these panels, in these tiles." Define them under
+``web.presets`` (``panel_presets`` in a build profile), where each key is the
+menu label and each value is the tiles:
 
 .. code-block:: yaml
 
    web:
      presets:
-       "Machine setup": [channel-finder, lattice, artifacts, okf]
-       "Logbook review": [ariel, artifacts]
+       "Machine setup":
+         split: row
+         items:
+           - tabs: [channel-finder]
+             size: 2
+           - split: column
+             items:
+               - tabs: [system-health]
+               - tabs: [okf]
+       "Logbook review":
+         split: row
+         items:
+           - tabs: [ariel]
+           - tabs: [artifacts]
+
+A tile is ``tabs`` — the engine's field name, always a list of one panel id —
+with an optional ``size`` (a positive weight against its siblings); a tile
+shows its one panel, so ``showing`` may be omitted. A tile names one panel: to
+show several, put them side by side in tiles of their own. A tile that names
+several is refused, and the profile build says so (``puts several panels in
+one tile``). A split is ``split: row`` or ``split: column`` with ``items``,
+which are tiles or splits. A layout never names the Agent pane. The list form
+``"Logbook review": [ariel, artifacts]`` is not read: the profile build
+refuses it and says what to write instead.
 
 Each layout appears under a **Layouts** section at the top of the panel ``+``
-menu. Picking one is *exclusive*: its panels open and every other panel closes.
+menu. Picking one replaces the service tiles with the layout's and leaves the
+Agent pane where it is; every panel not in the layout leaves the sidebar.
 Members must be enabled built-in panels or custom panels you have declared; an
 unknown id is dropped with a warning, and a layout with no valid members is
 skipped. When no ``web.presets`` are configured — the default — the ``+`` menu is
 unchanged, so layouts never add clutter to a deployment that has not opted in.
 
-Layouts are just a shortcut over adding and removing rail entries, so the OSPREY
-agent can reach the same end state either way — but not with the same prompting.
-Applying a layout with ``arrange_workspace`` does not ask; the
-``add_panel_to_rail`` / ``remove_panel_from_rail`` tools ask the operator to
-approve each call on a stock build.
+The OSPREY agent applies the same layouts with ``arrange_workspace``, by name
+and without asking; the ``add_panel_to_rail`` / ``remove_panel_from_rail``
+tools ask the operator to approve each call on a stock build.
 ``list_panels`` reports the configured layouts so the agent can honor a request
 like "set up for machine setup."
 
 Panel tools the agent uses
 --------------------------
 
-The panel tools come in two kinds: the ones that say what is on screen, which
-are auto-allowed, and the ones that change rail membership, which ask the
-operator first.
+The agent changes the dock the way you do, with the same rules: every drop you
+can make, it can make. The panel tools come in two kinds: the ones that say
+what is on screen, which are auto-allowed, and the ones that add or remove a
+sidebar row, which ask the operator first.
 
 What is on screen:
 
-- ``list_panels`` — the panels this deployment has, which of them are on
-  screen, and the configured layouts.
-- ``open_panel`` — put a panel on screen; it joins the rail if it was off it.
-- ``close_panel`` — take a panel's tile off screen, leaving it on the rail.
-- ``arrange_workspace`` — state a whole layout: exactly these tiles, in this
-  order.
+- ``list_panels`` — the panels this deployment has, the dock's tiles with
+  the panel each shows (the terminal included), the panes in windows of
+  their own (the Agent pane included), and the configured layouts.
+- ``open_panel`` — put a panel on screen by the opening rule: it replaces the
+  panel in the service tile used last, which keeps its sidebar row. A panel
+  already open is brought forward where it is. It gets a sidebar row if it
+  had none.
+- ``open_panel_set`` — open several panels in one call, side by side in tiles
+  of their own.
+- ``arrange_workspace`` — apply a configured layout, or an exact one, in place
+  of the service tiles; the terminal keeps its place. A layout tile holds one
+  panel: one with several is refused ``one_panel_per_tile``.
+- ``drop_panel`` — drop a new panel, an open panel or a whole tile on a tile's
+  edge, along a whole side of the dock, or between two tiles. A drop on a
+  tile's centre is refused ``one_panel_per_tile``.
+- ``close_panel`` — close a panel's tile, leaving its sidebar row.
 
-Rail membership, each one approved by the operator:
+The agent never moves or closes the terminal, and never moves or closes a
+panel you put in a window of its own; ``open_panel`` brings that window
+forward.
 
-- ``add_panel_to_rail`` — make a panel launchable from the rail in one click.
-- ``remove_panel_from_rail`` — take a panel off the rail, and off screen with
-  it.
-- ``register_panel`` — add a rail entry at runtime for an upstream URL the
+Sidebar rows, each one approved by the operator (the tool names keep the
+older word *rail* for the row list):
+
+- ``add_panel_to_rail`` — give a panel a sidebar row, so one click opens it.
+- ``remove_panel_from_rail`` — take a panel's sidebar row away, and its tile
+  off screen with it.
+- ``register_panel`` — add a sidebar row at runtime for an upstream URL the
   terminal proxies.
 
 :doc:`/architecture/mcp-servers` lists these beside the rest of the workspace

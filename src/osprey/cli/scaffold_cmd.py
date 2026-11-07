@@ -558,10 +558,11 @@ def _escaping_symlinks(source: Path) -> list[str]:
     """Symlinks in ``source`` that a move into the profile would break.
 
     A profile must be self-contained to be reproducible, so
-    :func:`~osprey.cli.profile_conventions.validate_convention_sources` refuses
-    a convention directory that symlinks outside the profile. A claim that
-    moved such a link would report success and then fail *every* later build of
-    that profile — with the project copy already gone.
+    :func:`~osprey.cli.build_profile_merge.refuse_inputs_outside_repository`
+    refuses a convention directory holding a link that resolves outside the
+    repository. A claim that moved such a link would report success and then
+    fail *every* later build of that profile — with the project copy already
+    gone.
 
     The artifact itself being a link is always fatal: it cannot resolve inside
     itself. Inside a directory artifact, a relative link pointing at a sibling
@@ -806,7 +807,7 @@ def scaffold(ctx):
       osprey scaffold systemd                     # Write the boot unit
       osprey scaffold tiers                       # Write the tier files
       osprey scaffold apps                        # Write the app files
-      osprey scaffold pull control-assistant --list # Show what a preset offers
+      osprey scaffold pull demo --list # Show what a preset offers
       osprey scaffold list                        # Show all artifacts
       osprey scaffold claim agents/channel-finder # Move it into the profile
       osprey scaffold diff agents/channel-finder  # Compare yours vs framework
@@ -977,7 +978,7 @@ def tiers(repo: Path | None, from_preset: str | None, force: bool) -> None:
 
     \b
       $ osprey scaffold tiers
-      $ osprey scaffold tiers --from control-assistant
+      $ osprey scaffold tiers --from demo
       $ osprey scaffold tiers --force
     """
     _scaffold_layer_files(repo, from_preset, force, TIERS_DIRNAME)
@@ -1010,7 +1011,7 @@ def apps(repo: Path | None, from_preset: str | None, force: bool) -> None:
 
     \b
       $ osprey scaffold apps
-      $ osprey scaffold apps --from control-assistant
+      $ osprey scaffold apps --from demo
       $ osprey scaffold apps --force
     """
     _scaffold_layer_files(repo, from_preset, force, APPS_DIRNAME)
@@ -1038,9 +1039,9 @@ def apps(repo: Path | None, from_preset: str | None, force: bool) -> None:
 def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_content: bool) -> None:
     """Copy a preset's packaged content into this repo.
 
-    PRESET[:PATH] names what to copy: 'control-assistant' is the whole app
+    PRESET[:PATH] names what to copy: 'demo' is the whole app
     template with its facility under data/facility/,
-    'control-assistant:data/facility/knowledge' one subtree of it.
+    'demo:data/facility/knowledge' one subtree of it.
     Each file lands at the same path under this repo, where you edit it and
     commit it. Run --list first to see every path a preset offers.
 
@@ -1056,9 +1057,9 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
     Examples:
 
     \b
-      $ osprey scaffold pull control-assistant --list
-      $ osprey scaffold pull control-assistant:data/facility/knowledge
-      $ osprey scaffold pull control-assistant:web-terminal-context
+      $ osprey scaffold pull demo --list
+      $ osprey scaffold pull demo:data/facility/knowledge
+      $ osprey scaffold pull demo:web-terminal-context
       $ osprey scaffold pull hello-world:mcp_servers/example_server --force
     """
     # Imported here for the same reason `ci` and `tiers` do it: the
@@ -1875,7 +1876,7 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
     _reject_retired_config_option(config_path)
 
     from osprey.deployment.web_terminals.render import render_web_terminals
-    from osprey.deployment.web_terminals.roster import app_titles_in
+    from osprey.deployment.web_terminals.roster import app_titles_in, render_stop_grace
 
     repo_root = find_repo_root(repo)
     config = _load_config(repo_root / BUILD_OUTPUT_DIR)
@@ -1909,8 +1910,12 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
     # with no authored identity records; each app card is titled by its
     # apps/<name>.yml `name:`, as the deploy titles it.
     try:
+        # Not a credential, so this preview carries it: how long each service
+        # gets to stop is a fact of the compose file an operator reads here,
+        # read off the renders' rendered configs.
         artifacts = render_web_terminals(
             config,
+            stop_grace_renders=render_stop_grace(config, repo_root),
             facility_name=str(config.get("project_name") or ""),
             app_titles=app_titles_in(repo_root / APPS_DIRNAME),
         )

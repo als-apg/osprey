@@ -426,37 +426,27 @@ def test_login_reports_an_unusable_discovery_document_as_502(failure: Exception)
         "/u/alice/\\..\\..",
         "u/alice/",
         "/u/alice/\r\nSet-Cookie: x=y",
-    ],
-    ids=["absolute", "protocol-relative", "backslash-authority", "backslash", "relative", "crlf"],
-)
-def test_login_discards_an_off_origin_return_to(target: str) -> None:
-    """A tampered return-to sends the operator to their own terminal instead."""
-    with _client(_app(client=FakeOIDCClient(userinfo={"sub": ALICE_SUBJECT}))) as client:
-        client.get(LOGIN_PATH, params={"user": "alice", "next": target}, follow_redirects=False)
-        response = client.get(
-            CALLBACK_PATH, params={"code": "auth-code", "state": FLOW_STATE}, follow_redirects=False
-        )
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/u/alice/"
-
-
-@pytest.mark.parametrize(
-    "target",
-    [
+        # Both flows hold a return-to to one rule. An encoded separator (which
+        # this service, nginx and the browser each resolve differently) and a
+        # value past the cap (which becomes a ``Location`` header the proxy
+        # answers with a 502) are rejected on the OIDC leg exactly as they are
+        # on the password one.
         "/u/alice/artifacts%2f..%2f..%2fu%2fbob%2f",
         "/u/alice/" + "a" * MAX_RETURN_TO_LENGTH,
     ],
-    ids=["encoded-separator", "over-length"],
+    ids=[
+        "absolute",
+        "protocol-relative",
+        "backslash-authority",
+        "backslash",
+        "relative",
+        "crlf",
+        "encoded-separator",
+        "over-length",
+    ],
 )
-def test_login_discards_a_return_to_only_the_shared_rule_rejects(target: str) -> None:
-    """Both flows hold a return-to to one rule.
-
-    An encoded separator (which this service, nginx and the browser each resolve
-    differently) and a value past the cap (which becomes a ``Location`` header
-    the proxy answers with a 502) are rejected on the OIDC leg exactly as they
-    are on the password one.
-    """
+def test_login_discards_a_return_to_that_could_leave_the_origin(target: str) -> None:
+    """A tampered return-to sends the operator to their own terminal instead."""
     with _client(_app(client=FakeOIDCClient(userinfo={"sub": ALICE_SUBJECT}))) as client:
         client.get(LOGIN_PATH, params={"user": "alice", "next": target}, follow_redirects=False)
         response = client.get(
@@ -997,98 +987,103 @@ def test_token_gate_accepts_an_identity_from_the_hosted_domain() -> None:
     assert admission.reason == ""
 
 
-def test_token_gate_accepts_a_token_with_no_hosted_domain() -> None:
-    """Most providers never emit `hd`; its absence corroborates nothing and
-    refuses nothing."""
-    admission = token_admissible({"email": "alice@example.org"}, identity_claim="email")
+@pytest.mark.parametrize(
+    "claims",
+    [
+        # Most providers never emit `hd`; its absence corroborates nothing and
+        # refuses nothing.
+        pytest.param({"email": "alice@example.org"}, id="no-hosted-domain"),
+        # An absent claim is silence, not a denial: reading it as one would refuse
+        # every deployment whose IdP does not emit it.
+        pytest.param({"email": "alice@example.com"}, id="no-verification-claim"),
+    ],
+)
+def test_token_gate_accepts_a_token_that_is_silent_on_a_claim(claims: dict[str, Any]) -> None:
+    admission = token_admissible(claims, identity_claim="email")
 
     assert admission.admissible
 
 
 @pytest.mark.parametrize(
-    "hosted",
-    ["", None, 0, ["example.com"]],
-    ids=["empty", "null", "number", "array"],
+    "claims",
+    [
+        # A claim carrying no usable string asserts no hosted domain.
+        #
+        # The same reading `_claim_values` gives an unusable group claim: a shape this
+        # service cannot read is one the provider did not say anything in.
+        pytest.param({"email": "alice@example.org", "hd": ""}, id="hosted-empty"),
+        pytest.param({"email": "alice@example.org", "hd": None}, id="hosted-null"),
+        pytest.param({"email": "alice@example.org", "hd": 0}, id="hosted-number"),
+        pytest.param({"email": "alice@example.org", "hd": ["example.com"]}, id="hosted-array"),
+        # Case in either half is the same domain -- a provider that upper-cases one
+        # of them must not be read as a contradiction.
+        pytest.param({"email": "Alice@EXAMPLE.COM", "hd": "example.com"}, id="identity-uppercase"),
+        pytest.param({"email": "alice@example.com", "hd": "EXAMPLE.COM"}, id="hosted-uppercase"),
+        pytest.param({"email": "alice@ExAmPlE.cOm", "hd": "eXaMpLe.CoM"}, id="both-mixed"),
+        # The provider vouched for it.
+        pytest.param({"email": "alice@example.com", "email_verified": True}, id="verified"),
+        # Only a false says the address is unverified; every other shape says
+        # nothing, and nothing is not a denial.
+        pytest.param({"email": "alice@example.com", "email_verified": True}, id="verified-boolean"),
+        pytest.param(
+            {"email": "alice@example.com", "email_verified": "true"}, id="verified-string"
+        ),
+        pytest.param({"email": "alice@example.com", "email_verified": None}, id="verified-null"),
+        pytest.param({"email": "alice@example.com", "email_verified": 0}, id="verified-zero"),
+        pytest.param({"email": "alice@example.com", "email_verified": ""}, id="verified-empty"),
+        pytest.param({"email": "alice@example.com", "email_verified": "no"}, id="verified-word"),
+        pytest.param(
+            {"email": "alice@example.com", "email_verified": ["false"]}, id="verified-array"
+        ),
+    ],
 )
-def test_token_gate_reads_an_unusable_hosted_domain_as_absent(hosted: Any) -> None:
-    """A claim carrying no usable string asserts no hosted domain.
-
-    The same reading `_claim_values` gives an unusable group claim: a shape this
-    service cannot read is one the provider did not say anything in.
-    """
-    admission = token_admissible(
-        {"email": "alice@example.org", "hd": hosted}, identity_claim="email"
-    )
+def test_token_gate_accepts_a_token_nothing_in_which_contradicts_the_identity(
+    claims: dict[str, Any],
+) -> None:
+    admission = token_admissible(claims, identity_claim="email")
 
     assert admission.admissible
-
-
-@pytest.mark.parametrize(
-    "hosted",
-    ["@example.com", " example.com", "example.com "],
-    ids=["at-sign", "leading-space", "trailing-space"],
-)
-def test_token_gate_refuses_a_hosted_domain_it_cannot_read_as_a_domain(hosted: Any) -> None:
-    """A non-empty string `hd` this service cannot read as a domain is a
-    contradiction, not silence: the provider said something, and it does not
-    corroborate the address. Reading it as absent would admit an address from
-    any domain next to a garbage `hd`, which is the fail-open direction."""
-    admission = token_admissible(
-        {"email": "alice@example.com", "hd": hosted}, identity_claim="email"
-    )
-
-    assert not admission.admissible
-    assert admission.reason == REASON_HOSTED_DOMAIN_MISMATCH
-
-
-def test_token_gate_refuses_a_hosted_domain_the_identity_contradicts() -> None:
-    """One token, two answers about where its subject belongs."""
-    admission = token_admissible(
-        {"email": "alice@example.org", "hd": HOSTED_DOMAIN}, identity_claim="email"
-    )
-
-    assert not admission.admissible
-    assert admission.reason == REASON_HOSTED_DOMAIN_MISMATCH
-
-
-def test_token_gate_refuses_a_subdomain_of_the_hosted_domain() -> None:
-    """The comparison is exact, never by suffix: `lab.example.com` is a different
-    domain and often a differently delegated one."""
-    admission = token_admissible(
-        {"email": "alice@lab.example.com", "hd": HOSTED_DOMAIN}, identity_claim="email"
-    )
-
-    assert not admission.admissible
-    assert admission.reason == REASON_HOSTED_DOMAIN_MISMATCH
 
 
 @pytest.mark.parametrize(
     ("asserted", "hosted"),
     [
-        ("Alice@EXAMPLE.COM", "example.com"),
-        ("alice@example.com", "EXAMPLE.COM"),
-        ("alice@ExAmPlE.cOm", "eXaMpLe.CoM"),
+        # A non-empty string `hd` this service cannot read as a domain is a
+        # contradiction, not silence: the provider said something, and it does not
+        # corroborate the address. Reading it as absent would admit an address from
+        # any domain next to a garbage `hd`, which is the fail-open direction.
+        pytest.param("alice@example.com", "@example.com", id="at-sign"),
+        pytest.param("alice@example.com", " example.com", id="leading-space"),
+        pytest.param("alice@example.com", "example.com ", id="trailing-space"),
+        # Two spellings agreeing only outside A-Z are different domains here.
+        #
+        # The authored `domain:` value went through an ASCII-only fold at render time,
+        # and this comparison stays in step with it rather than inventing a
+        # translation between a Unicode-authored domain and a punycode-asserted one.
+        pytest.param("alice@MÜNCHEN.de", "münchen.de", id="folds-only-ascii"),
     ],
-    ids=["identity-uppercase", "hosted-uppercase", "both-mixed"],
 )
-def test_token_gate_folds_case_on_both_sides(asserted: str, hosted: str) -> None:
-    """Case in either half is the same domain — a provider that upper-cases one
-    of them must not be read as a contradiction."""
+def test_token_gate_refuses_a_hosted_domain_that_does_not_corroborate_the_address(
+    asserted: str, hosted: Any
+) -> None:
     admission = token_admissible({"email": asserted, "hd": hosted}, identity_claim="email")
 
-    assert admission.admissible
+    assert not admission.admissible
+    assert admission.reason == REASON_HOSTED_DOMAIN_MISMATCH
 
 
-def test_token_gate_folds_only_ascii() -> None:
-    """Two spellings agreeing only outside A-Z are different domains here.
-
-    The authored `domain:` value went through an ASCII-only fold at render time,
-    and this comparison stays in step with it rather than inventing a
-    translation between a Unicode-authored domain and a punycode-asserted one.
-    """
-    admission = token_admissible(
-        {"email": "alice@MÜNCHEN.de", "hd": "münchen.de"}, identity_claim="email"
-    )
+@pytest.mark.parametrize(
+    "email",
+    [
+        # One token, two answers about where its subject belongs.
+        pytest.param("alice@example.org", id="other-domain"),
+        # The comparison is exact, never by suffix: `lab.example.com` is a different
+        # domain and often a differently delegated one.
+        pytest.param("alice@lab.example.com", id="subdomain"),
+    ],
+)
+def test_token_gate_refuses_an_identity_outside_the_hosted_domain(email: str) -> None:
+    admission = token_admissible({"email": email, "hd": HOSTED_DOMAIN}, identity_claim="email")
 
     assert not admission.admissible
     assert admission.reason == REASON_HOSTED_DOMAIN_MISMATCH
@@ -1146,23 +1141,6 @@ def test_token_gate_reads_the_configured_identity_claim() -> None:
     assert not token_admissible(claims, identity_claim="sub").admissible
 
 
-def test_token_gate_accepts_a_verified_address() -> None:
-    """The provider vouched for it."""
-    admission = token_admissible(
-        {"email": "alice@example.com", "email_verified": True}, identity_claim="email"
-    )
-
-    assert admission.admissible
-
-
-def test_token_gate_accepts_a_token_that_says_nothing_about_verification() -> None:
-    """An absent claim is silence, not a denial: reading it as one would refuse
-    every deployment whose IdP does not emit it."""
-    admission = token_admissible({"email": "alice@example.com"}, identity_claim="email")
-
-    assert admission.admissible
-
-
 @pytest.mark.parametrize(
     "verified",
     [False, "false", "False", "FALSE", " false "],
@@ -1181,21 +1159,6 @@ def test_token_gate_refuses_an_explicitly_unverified_address(verified: Any) -> N
 
     assert not admission.admissible
     assert admission.reason == REASON_UNVERIFIED_EMAIL
-
-
-@pytest.mark.parametrize(
-    "verified",
-    [True, "true", None, 0, "", "no", ["false"]],
-    ids=["boolean", "string", "null", "zero", "empty", "word", "array"],
-)
-def test_token_gate_accepts_every_shape_that_is_not_an_explicit_false(verified: Any) -> None:
-    """Only a false says the address is unverified; every other shape says
-    nothing, and nothing is not a denial."""
-    admission = token_admissible(
-        {"email": "alice@example.com", "email_verified": verified}, identity_claim="email"
-    )
-
-    assert admission.admissible
 
 
 def test_token_gate_names_the_disagreement_when_both_checks_fail() -> None:

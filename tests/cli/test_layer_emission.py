@@ -53,13 +53,13 @@ def _new(runner: CliRunner, target: Path, preset: str, *extra: str):
 
 @pytest.fixture(scope="module")
 def exemplar_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """``osprey init --preset control-assistant`` into a folder named like the exemplar.
+    """``osprey init --preset demo`` into a folder named like the exemplar.
 
     The folder name is the deployment's display name ("Als Exemplar"), which
     each tier is titled after, so this is the init the exemplar reproduces.
     """
     target = tmp_path_factory.mktemp("init") / EXEMPLAR_DIRNAME
-    result = _new(CliRunner(), target, "control-assistant")
+    result = _new(CliRunner(), target, "demo")
     assert result.exit_code == 0, result.output
     return target
 
@@ -157,7 +157,7 @@ def test_exemplar_layer_texts_parse_to_deltas_keyed_by_render_name() -> None:
     reader (the composition card, the provider tally) asks for."""
     from osprey.cli.profile_cmd import _layer_profile_texts, _parsed_layer_deltas
 
-    resolved, _dir = resolve_build_profile(None, "control-assistant")
+    resolved, _dir = resolve_build_profile(None, "demo")
     texts = _layer_profile_texts(resolved, "Als Exemplar", "")
     expected = exemplar_source_files(with_ci=False)
 
@@ -212,7 +212,7 @@ def test_the_emitter_refuses_a_bundled_layer_that_declares_extends(
 
     def with_extends(name: str):
         raw, path = real(name)
-        return {**raw, "extends": "control-assistant"}, path
+        return {**raw, "extends": "demo"}, path
 
     monkeypatch.setattr(emit_mod, "_load_preset_raw", with_extends)
 
@@ -228,12 +228,12 @@ def test_the_emitter_refuses_a_bundled_layer_that_declares_extends(
 
 
 def _web_terminals_edit(**changes: object) -> tuple[str, ...]:
-    """A ``--set`` pair restating control-assistant's web-terminal block, changed.
+    """A ``--set`` pair restating demo's web-terminal block, changed.
 
     A ``--set`` pair replaces the value at the key it names, so the block is
     read back from the preset and stated in full with the named keys replaced.
     """
-    preset, _dir = resolve_build_profile(None, "control-assistant")
+    preset, _dir = resolve_build_profile(None, "demo")
     block = copy.deepcopy(preset.config["modules.web_terminals"])
     block.update(changes)
     return ("--set", "config.modules.web_terminals=" + json.dumps(block))
@@ -254,7 +254,7 @@ def test_only_the_tiers_and_apps_the_roster_names_are_written(
         shared=["logbook"],
     )
 
-    result = _new(runner, target, "control-assistant", *edit)
+    result = _new(runner, target, "demo", *edit)
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly"}
@@ -273,7 +273,7 @@ def test_the_default_tier_is_written_even_when_nobody_runs_on_it_yet(
         shared=[],
     )
 
-    result = _new(runner, target, "control-assistant", *edit)
+    result = _new(runner, target, "demo", *edit)
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly", "readwrite"}
@@ -318,10 +318,10 @@ def test_without_web_terminals_only_the_dispatch_tier_is_named() -> None:
     assert _roster_layers(config, None) == ([], [])
 
 
-def test_the_control_assistant_preset_runs_its_dispatch_workers_read_only() -> None:
+def test_the_demo_preset_runs_its_dispatch_workers_read_only() -> None:
     """A dispatched job has nobody to approve a write, so the shipped default is
     the read-only tier; a deployment that wants a writer says so."""
-    preset, _dir = resolve_build_profile(None, "control-assistant")
+    preset, _dir = resolve_build_profile(None, "demo")
 
     assert preset.dispatch is not None
     assert preset.dispatch.tier == "readonly"
@@ -337,7 +337,7 @@ def test_a_backend_only_deployment_writes_and_builds_its_dispatch_tier(
     result = _new(
         runner,
         target,
-        "control-assistant",
+        "demo",
         "--set",
         "config.modules.web_terminals.enabled=false",
     )
@@ -379,7 +379,7 @@ def test_a_tier_osprey_does_not_ship_is_refused_before_anything_is_written(
         users=[{"name": "bob", "index": 1, "tier": "ops"}], shared=["nonesuch"]
     )
 
-    result = _new(runner, target, "control-assistant", *edit)
+    result = _new(runner, target, "demo", *edit)
 
     assert result.exit_code == 2
     # Every problem named at once.
@@ -396,7 +396,7 @@ def test_a_name_that_is_both_a_tier_and_an_app_is_refused(runner: CliRunner, tmp
         users=[{"name": "bob", "index": 1, "tier": "logbook"}], shared=["logbook"]
     )
 
-    result = _new(runner, target, "control-assistant", *edit)
+    result = _new(runner, target, "demo", *edit)
 
     assert result.exit_code == 2
     assert "'logbook' is both a tier the roster names and an app in shared:" in result.output
@@ -413,7 +413,7 @@ def test_a_malformed_emitted_layer_is_reported_before_anything_is_written(
     target = tmp_path / "my-facility"
 
     with pytest.raises(BuildProfileError, match=r"Emitted layer (tiers|apps)/.*not valid YAML"):
-        _materialize_profile_directory(target, "control-assistant")
+        _materialize_profile_directory(target, "demo")
 
     assert not target.exists()
 
@@ -430,7 +430,7 @@ def _card_edit(access: object) -> tuple[str, ...]:
     and index 9 are clear of the preset's own names and ports. ``admin`` is the
     shipped stack's privileged tier — the setup tool and the web Config panel.
     """
-    preset, _dir = resolve_build_profile(None, "control-assistant")
+    preset, _dir = resolve_build_profile(None, "demo")
     roster = copy.deepcopy(preset.config["modules.web_terminals"]["users"])
     roster.append({"name": "dana", "index": 9, "tier": "admin", "access": access})
     return _web_terminals_edit(users=roster)
@@ -462,7 +462,7 @@ def test_a_shared_privileged_card_is_refused(
     set admits, so materialization refuses and quotes the value as authored."""
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", *_card_edit(access))
+    result = _new(runner, target, "demo", *_card_edit(access))
 
     assert result.exit_code == 2
     assert f"user 'dana' is a shared card ({phrase})" in result.output
@@ -477,7 +477,7 @@ def test_an_owner_only_card_on_the_same_tier_materializes(
 ) -> None:
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", *_card_edit(access))
+    result = _new(runner, target, "demo", *_card_edit(access))
 
     assert result.exit_code == 0, result.output
     assert (target / "tiers" / "admin.yml").is_file()
@@ -488,7 +488,7 @@ def test_a_privileged_default_tier_is_refused(runner: CliRunner, tmp_path: Path)
     tier — so it must not be the tier that edits the deployment."""
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", *_web_terminals_edit(default_tier="admin"))
+    result = _new(runner, target, "demo", *_web_terminals_edit(default_tier="admin"))
 
     assert result.exit_code == 2
     assert "would hand deployment editing to a terminal" in result.output
@@ -520,7 +520,7 @@ def test_an_app_that_opens_a_door_is_still_composed_without_it(
     _tampered_logbook(monkeypatch, "web.config_panel.enabled: true")
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant")
+    result = _new(runner, target, "demo")
 
     assert result.exit_code == 0, result.output
     assert "user 'logbook' is a shared card" not in result.output
@@ -537,7 +537,7 @@ def test_an_app_the_composer_refuses_is_refused_by_init(
     )
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant")
+    result = _new(runner, target, "demo")
 
     assert result.exit_code == 2
     assert "'logbook'" in result.output
@@ -551,7 +551,7 @@ def test_init_and_the_deploy_lint_refuse_the_shared_card_in_the_same_words(
     """The build-time brace and the deploy-time belt say ONE sentence: both
     import the rule from the renders module rather than stating it."""
     linted = tmp_path / "linted-facility"
-    assert _new(runner, linted, "control-assistant", *_card_edit("own")).exit_code == 0
+    assert _new(runner, linted, "demo", *_card_edit("own")).exit_code == 0
 
     profile_path = linted / "profile.yml"
     document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
@@ -564,7 +564,7 @@ def test_init_and_the_deploy_lint_refuse_the_shared_card_in_the_same_words(
     init_result = _new(
         runner,
         tmp_path / "refused-facility",
-        "control-assistant",
+        "demo",
         *_card_edit(["domain:example.com"]),
     )
 
@@ -581,7 +581,7 @@ def test_an_unreadable_access_value_is_refused_rather_than_raised(
     a traceback, and the privilege rule says nothing about that entry."""
     target = tmp_path / "my-facility"
 
-    result = _new(runner, target, "control-assistant", *_card_edit(["group:ops"]))
+    result = _new(runner, target, "demo", *_card_edit(["group:ops"]))
 
     assert result.exit_code == 2
     assert "entry 'dana' has an access member 'group:ops'" in result.output
@@ -620,8 +620,8 @@ def test_benchmark_results_in_a_source_checkout_are_not_materialized(
     runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A source checkout that has run the channel-finder benchmark holds
-    ``data/benchmarks/results/``; a wheel install never does (hatch excludes
-    it). Emission must be the same tree either way, so the copy drops it.
+    ``data/benchmarks/results/``; a wheel install never does. Emission must be
+    the same tree either way, so the copy drops it.
 
     The checkout is a copy of the shipped template tree: other tests read the
     real one while this runs beside them."""
@@ -633,14 +633,14 @@ def test_benchmark_results_in_a_source_checkout_are_not_materialized(
     shutil.copytree(
         TemplateManager().template_root, root, ignore=shutil.ignore_patterns("__pycache__")
     )
-    results = root / "apps" / "control_assistant" / "data" / "benchmarks" / "results"
+    results = root / "apps" / "demo" / "data" / "benchmarks" / "results"
     results.mkdir(parents=True, exist_ok=True)
     (results / "run-from-a-test.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(TemplateManager, "_get_template_root", lambda self: root)
 
     target = tmp_path / "my-facility"
-    assert _new(runner, target, "control-assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     assert not (target / "data" / "benchmarks" / "results").exists()
     # The sibling staging dir the bundle really ships still comes across.
-    assert (target / "data" / "benchmarks" / "cross_paradigm").is_dir()
+    assert (target / "data" / "facility" / "benchmarks" / "cross_paradigm").is_dir()

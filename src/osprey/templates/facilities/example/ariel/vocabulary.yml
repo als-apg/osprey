@@ -1,0 +1,191 @@
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
+# ============================================================
+# ARIEL facility vocabulary — the shorthand your operators type,
+# mapped to the words your logbook prose actually contains.
+# ============================================================
+#
+# WHAT THIS FILE DOES
+#   Logbook entries are written in full words ("troubleshot the beam position
+#   monitor offset"); searches are typed in shorthand ("t/s the bpm offset").
+#   Stemming cannot bridge the two. Before a search runs, ARIEL rewrites the
+#   query using the concepts below, so the shorthand spelling finds the prose
+#   spelling and vice versa. It is plain dictionary matching — no model, no
+#   network call, microseconds — and every rewrite is reported back to the
+#   operator and to the agent as `expanded_terms`, so a surprising hit always
+#   comes with the reason it appeared.
+#
+#   THIS FILE IS AN EXAMPLE: the example facility's concepts; your facility's
+#   vocabulary replaces this file. Nothing here is hard-coded anywhere in
+#   OSPREY — this file is the whole vocabulary.
+#
+# FORMAT
+#   One top-level key, `concepts`, holding a non-empty list. Each entry is:
+#
+#     - canonical: beam position monitor   # the words logbook prose uses
+#       kind: acronym                      # acronym | shorthand | synonym
+#       forms: [bpm, bpms]                 # what operators type instead
+#
+#   `canonical` must be written exactly as it appears in entry text — it is
+#   what a matched form is rewritten into, so if the prose says "beam position
+#   monitor", that is the canonical. Every canonical must be unique, and no
+#   form may repeat its own canonical. Unknown keys are refused, not ignored.
+#
+# THE THREE KINDS, AND WHAT THEY GATE
+#   Matching a form and adding its canonical is ALWAYS on: type `bpm`, and the
+#   search also finds "beam position monitor". The reverse direction — spelling
+#   the canonical out and also searching the shorthand — is gated per kind by
+#   two switches in `config.yml`:
+#
+#     kind: acronym    <- ariel.vocabulary.canonical_to_acronym   (default true)
+#     kind: shorthand  <- ariel.vocabulary.canonical_to_shorthand (default false)
+#     kind: synonym    <- neither switch; always on, in every direction
+#
+#   The defaults are deliberately asymmetric. An acronym is unambiguous, so a
+#   search for "beam position monitor" should also reach the entries that wrote
+#   "BPM". An ordinary word is not: expanding "calibration" into "cal" drags in
+#   far more noise than recall. Use `acronym` for a genuine initialism and
+#   `shorthand` for a clipped or slang spelling of an everyday word.
+#
+#   `synonym` is the third kind and it is not gated at all. Every member of a
+#   synonym concept reaches every other member, in both directions, whatever
+#   the two switches above are set to — the canonical reaches every form, each
+#   form reaches the canonical, and each form reaches its sibling forms. Use it
+#   for different PHRASINGS of one thing, where neither spelling is short for
+#   the other. "Beam loss", "lost beam" and "beam dump" are three ways of
+#   saying the same event, so a search for any one of them should find the
+#   entries that wrote any of the others:
+#
+#     - canonical: beam loss                 # the phrasing prose uses most
+#       kind: synonym                        # bidirectional, ungated
+#       forms: [lost beam, beam dump]        # the other phrasings, all equal
+#
+#   Do NOT reach for `synonym` when one spelling is simply the other written
+#   short: a clipped word is `shorthand` and an initialism is `acronym`. Those
+#   two are one thing written two ways, and their asymmetric gates exist for
+#   exactly that reason; a synonym is one thing SAID two ways, with no short
+#   side and nothing to gate.
+#
+# HOW TEXT IS NORMALIZED
+#   This file and the query are put through the same rule: lowercase, `-`
+#   becomes a space (so `Beam-Position Monitor` and `beam position monitor` are
+#   one phrase), `/` is KEPT (so `t/s` and `i/o` stay a single token), and runs
+#   of whitespace collapse to one. Nothing else is stripped, and no stemming
+#   happens here — PostgreSQL's stemmer runs afterwards, on the text this
+#   produces.
+#
+# AMBIGUOUS FORMS
+#   Binding one form to two concepts is legal: a query containing it expands to
+#   BOTH canonicals, widening the search. `vocab-check` warns about it so the
+#   widening is visible rather than accidental. This example ships none.
+#
+# VALIDATE AFTER EVERY EDIT
+#   osprey ariel vocab-check data/facility/ariel/vocabulary.yml
+#
+#   It lists every error in one pass, plus warnings for the traps that load
+#   fine but do not behave the way the author expects. A file that fails to
+#   load takes ARIEL's search with it — the panel starts in CONFIGURATION
+#   INVALID mode — so check before you deploy, not after.
+#
+# See data/facility/ariel/README.md for the longer walkthrough, and the
+# `ariel.vocabulary` block in config.yml for the switches named above.
+
+concepts:
+  # ── Diagnostics ─────────────────────────────────────────────
+  - canonical: beam position monitor
+    kind: acronym
+    forms: [bpm, bpms]
+
+  - canonical: beam loss monitor
+    kind: acronym
+    forms: [blm, blms]
+
+  # ── Radio frequency ─────────────────────────────────────────
+  - canonical: radio frequency
+    kind: acronym
+    forms: [rf]
+
+  - canonical: low level radio frequency
+    kind: acronym
+    forms: [llrf]
+
+  # ── Utilities and protection ────────────────────────────────
+  - canonical: low conductivity water
+    kind: acronym
+    forms: [lcw]
+
+  - canonical: dc current transformer
+    kind: acronym
+    forms: [dcct]
+
+  - canonical: machine protection system
+    kind: acronym
+    forms: [mps]
+
+  # ── Machine sections and devices ────────────────────────────
+  - canonical: storage ring
+    kind: acronym
+    forms: [sr]
+
+  - canonical: beam based alignment
+    kind: acronym
+    forms: [bba]
+
+  - canonical: linear accelerator
+    kind: acronym
+    forms: [linac]
+
+  # A screen is the same device whatever the control room calls it: the TV
+  # camera that views it or the paddle that drives it into the beam.
+  - canonical: screen
+    kind: synonym
+    forms: [tv, paddle]
+
+  # ── Orbit and optics ────────────────────────────────────────
+  - canonical: orbit response matrix
+    kind: acronym
+    forms: [orm]
+
+  - canonical: fast orbit feedback
+    kind: acronym
+    forms: [fofb]
+
+  - canonical: slow orbit feedback
+    kind: acronym
+    forms: [sofb]
+
+  # ── Clipped words operators type instead of writing them out ─
+  # These are `shorthand`, so by default expansion runs one way only: typing
+  # `quad` also searches "quadrupole", but a search that already says
+  # "quadrupole" is left alone. Flip ariel.vocabulary.canonical_to_shorthand
+  # if your logbook is written in shorthand and searched in prose.
+  - canonical: troubleshoot
+    kind: shorthand
+    forms: [ts, t/s]
+
+  - canonical: quadrupole
+    kind: shorthand
+    forms: [quad, quads]
+
+  - canonical: sextupole
+    kind: shorthand
+    forms: [sext, sexts]
+
+  - canonical: corrector
+    kind: shorthand
+    forms: [corr]
+
+  - canonical: injection
+    kind: shorthand
+    forms: [inj]
+
+  - canonical: vacuum
+    kind: shorthand
+    forms: [vac]
+
+  - canonical: temperature
+    kind: shorthand
+    forms: [temp]
+
+  - canonical: calibration
+    kind: shorthand
+    forms: [cal]

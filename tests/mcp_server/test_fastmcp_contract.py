@@ -86,7 +86,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
 
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
     kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
@@ -149,7 +149,7 @@ def _render_project(root: Path, *, servers: dict | None = None) -> Path:
         manager,
         project_name="build",
         output_dir=root,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"project_root": str(root), "channel_finder_mode": "hierarchical"},
     )
     if servers is not None:
@@ -813,34 +813,31 @@ class TestProjectEnvTransportIsHonored:
         assert stdio["env_transport_before_dotenv"] is None
         assert stdio["env_transport_after_dotenv"] is None
 
-    def test_the_predicate_reports_the_transport_the_project_env_asked_for(self, transport_probes):
-        assert transport_probes["http"]["predicate"] == "http"
-        assert transport_probes["stdio"]["predicate"] == startup.STDIO_TRANSPORT
-
-    def test_the_settings_snapshot_taken_at_server_import_already_has_it(self, transport_probes):
-        """Not a duplicate of the predicate: this is the value fastmcp froze.
-
-        ``fastmcp.settings.transport`` read inside the server module's own body
-        is the earliest moment the snapshot exists. Asserting it here pins that
-        the ``.env`` was loaded before that import, not merely before the
-        predicate call at the install site.
-        """
-        assert transport_probes["http"]["transport_at_server_module_import"] == "http"
-        assert (
-            transport_probes["stdio"]["transport_at_server_module_import"]
-            == startup.STDIO_TRANSPORT
-        )
-
-    def test_the_transport_server_run_actually_selects_is_the_same_value(self, transport_probes):
-        """``server.run()`` with no argument resolves the same settings object.
-
-        This is what makes the skip honest: a deployment whose env skips the
-        audit middleware is visibly not speaking stdio. If fastmcp ever stopped
-        defaulting ``run()``'s transport from ``settings``, the predicate and the
-        served transport would part company here and nowhere else.
-        """
-        assert transport_probes["http"]["served_transport"] == "http"
-        assert transport_probes["stdio"]["served_transport"] == startup.STDIO_TRANSPORT
+    @pytest.mark.parametrize(
+        "probe_key",
+        [
+            pytest.param("predicate", id="the-predicate"),
+            # Not a duplicate of the predicate: this is the value fastmcp froze.
+            # ``fastmcp.settings.transport`` read inside the server module's own body
+            # is the earliest moment the snapshot exists. Asserting it here pins that
+            # the ``.env`` was loaded before that import, not merely before the
+            # predicate call at the install site.
+            pytest.param(
+                "transport_at_server_module_import", id="the-settings-snapshot-at-server-import"
+            ),
+            # ``server.run()`` with no argument resolves the same settings object.
+            # This is what makes the skip honest: a deployment whose env skips the
+            # audit middleware is visibly not speaking stdio. If fastmcp ever stopped
+            # defaulting ``run()``'s transport from ``settings``, the predicate and the
+            # served transport would part company here and nowhere else.
+            pytest.param("served_transport", id="the-transport-server-run-selects"),
+        ],
+    )
+    def test_the_project_env_transport_is_reported_by_every_reading(
+        self, transport_probes, probe_key
+    ):
+        assert transport_probes["http"][probe_key] == "http"
+        assert transport_probes["stdio"][probe_key] == startup.STDIO_TRANSPORT
 
     def test_the_middleware_is_installed_for_stdio_and_skipped_for_http(self, transport_probes):
         assert "AuditMiddleware" in transport_probes["stdio"]["middleware"]

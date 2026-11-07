@@ -32,7 +32,7 @@ Overview
 ``osprey build`` renders each service's Jinja2 Docker Compose template and
 copies source and configuration into a per-service build directory; ``osprey
 up`` hands the result to Docker or Podman Compose. A deployment created from the
-``control-assistant`` preset deploys a full stack out of the box:
+``demo`` preset deploys a full stack out of the box:
 ``postgresql``, ``event_dispatcher`` and ``dispatch_worker``,
 ``bluesky`` (with its co-deployed Tiled data server), ``virtual_accelerator``,
 ``bluesky_web``, and the multi-user web-terminal stack. Every deployment, the
@@ -45,7 +45,7 @@ Service Configuration
 
 Services are declared under ``services:`` in ``config.yml`` and selected for
 deployment via ``deployed_services:``. A minimal example (one of the services
-the ``control-assistant`` preset ships with):
+the ``demo`` preset ships with):
 
 .. code-block:: yaml
 
@@ -82,7 +82,7 @@ build profiles that ship multiple applications.
 The graph store (``graphdb``)
 -----------------------------
 
-Alongside ``postgresql``, the ``control-assistant`` preset
+Alongside ``postgresql``, the ``demo`` preset
 deploys a ``graphdb`` service: a Neo4j store holding the facility's knowledge
 graph. Its ``services.graphdb`` block names the image, the bolt port the seeder
 and the health checks dial (``port_host``), the HTTP port of the Neo4j Browser an
@@ -152,9 +152,11 @@ The runtime is chosen once, by ``osprey build``, and recorded in
 ``build/config.yml`` as ``container_runtime: docker`` or ``podman``. With the
 default ``container_runtime: auto`` the build takes Docker when its daemon
 answers and Podman otherwise; an explicit ``docker`` or ``podman`` in the
-profile's ``config:`` block is taken as written. Every later verb — ``up``,
-``down``, ``restart``, ``reset``, the port preflight — reads the recorded
-runtime and talks only to it. If that runtime says it is not running, or does
+profile's ``config:`` block is taken as written; a tier or app file may not
+state one. Every render of the build (each tier, app and image copy) records
+the same answer, and a host where no runtime answers records ``auto``. Every
+later verb — ``up``, ``down``, ``restart``, ``reset``, the port preflight —
+reads the recorded runtime and talks only to it. If that runtime says it is not running, or does
 not answer within two minutes, the verb refuses and says which; it never
 switches to the other runtime, because a stack started under Docker is invisible
 from Podman and a ``down`` served there would report it stopped while it keeps
@@ -279,11 +281,12 @@ about the disagreement, are in :ref:`compose-interpolation-precedence`.
 
 .. _podman-network-backend:
 
-Podman's network backend (required by the Bluesky stack)
---------------------------------------------------------
+Podman's network backend (required by the Bluesky and optimizer stacks)
+-----------------------------------------------------------------------
 
 The ``bluesky`` service puts its bridge, RE Manager and Redis on an internal
-network and dual-homes the queueserver across two networks. Resolving one
+network and dual-homes the queueserver across two networks; the ``optimizer``
+service does the same with the optimizer and its Redis job store. Resolving one
 container by name from another is therefore load-bearing, and on Podman that
 depends on which networking backend the host runs:
 
@@ -291,14 +294,15 @@ depends on which networking backend the host runs:
   container-name DNS on every network a container is attached to. **Required.**
 * **cni** (the legacy backend, still configured on some RHEL 8 hosts) — has no
   aardvark-dns. A dual-homed container receives only its *first* network's
-  resolver, so ``bluesky-queueserver`` can never resolve ``bluesky-redis``.
+  resolver, so ``bluesky-queueserver`` can never resolve ``bluesky-redis``, nor
+  ``optimizer`` its ``optimizer-redis``.
 
-On ``cni`` the queueserver never becomes healthy and ``osprey up`` aborts before
-the web slice renders — the whole deployment is down, on a DNS fact nothing in
-the deploy output points at. So ``osprey up`` checks the backend up front and
-refuses, before touching a container, when ``bluesky`` is deployed on a ``cni``
-host. Only the Bluesky stack needs this; every other service here runs fine on
-either backend, and a Docker host is unaffected.
+On ``cni`` that container never becomes healthy and ``osprey up`` aborts — the
+whole deployment is down, on a DNS fact nothing in the deploy output points at.
+So ``osprey up`` checks the backend up front and refuses, before touching a
+container, when ``bluesky`` or ``optimizer`` is deployed on a ``cni`` host. Only
+those two stacks need this; every other service here runs fine on either
+backend, and a Docker host is unaffected.
 
 To switch a host over, install ``aardvark-dns`` and set the backend in
 ``containers.conf`` (``/etc/containers/containers.conf``, or
@@ -512,6 +516,25 @@ that package as ``0.0.postN``, which the framework's requirement on it refuses,
 and ``--dev`` stops before staging and says so. Run ``git fetch --tags``; a
 fork or an internal mirror must sync the ``osprey-connectors-v*`` tags as well
 as the ``v*`` ones.
+
+A dev build installs third-party packages at the versions the checkout's
+``uv.lock`` holds, not the newest the index has that day, so the images run
+your code against the dependency set the repo's own tests ran with. Each build
+context receives ``osprey-lock-constraints.txt``, the lock exported with
+``uv export --locked``, and every install layer in the image is held to it;
+nothing is installed as ``osprey-framework`` from the index. The same applies
+to the project venv ``osprey build`` creates when it installs an editable
+checkout. ``--dev`` therefore needs ``uv`` on the host and a current lock: with
+no ``uv.lock``, or one out of date with ``pyproject.toml``, it stops and tells
+you to run ``uv lock``. A release build stages no such file and resolves from
+the index as before.
+
+The optimizer image takes torch's CPU build from the PyTorch index
+(``OPTIMIZER_TORCH_INDEX_URL``), and the lock pins exactly that build
+(``torch==<version>+cpu``). A site that empties the variable and serves torch
+from its own mirror must mirror the ``+cpu`` build; a mirror carrying only
+PyPI's plain torch has no candidate the lock admits, and the dev build of that
+image fails.
 
 Troubleshooting
 ===============

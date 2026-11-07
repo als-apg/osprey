@@ -2,7 +2,7 @@
 
 Six verbs have a ``--json`` path: ``audit``, ``health``, ``query``,
 ``ariel status``, ``ariel search`` and ``facility show``, whose two documents
-(the facility, and one record under an ID) have a golden each; ``facility
+(the facility, and the records under an ID) have a golden each; ``facility
 show`` is captured in ``test_facility_show.py``, over a real build. The
 output-hierarchy work reroutes each verb's *human* output through a single
 renderer; none of it is allowed to move a key in the *machine* output. These
@@ -110,7 +110,7 @@ _NESTED: dict[str, tuple[str, ...]] = {
     ),
     "ariel_search": ("entries[]",),
     "facility_show": ("counts", "models[]"),
-    "facility_show_record": (),
+    "facility_show_record": ("records[]",),
 }
 
 
@@ -421,6 +421,8 @@ def build_ariel_status_repository(stats: dict[str, Any]) -> MagicMock:
     )
     repository.get_last_ingestion = AsyncMock(return_value=None)
     repository.has_input_key_column = AsyncMock(return_value=True)
+    repository.text_input_key_column = AsyncMock(return_value=True)
+    repository.get_enhancement_coverage = AsyncMock(return_value={})
     repository.get_embedding_build_counts = AsyncMock(return_value={"r1": 7})
     repository.schema_facts = AsyncMock(
         return_value=SchemaFacts(has_v2_fts=True, has_copy_state=True)

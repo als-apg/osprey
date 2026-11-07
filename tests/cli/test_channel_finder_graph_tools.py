@@ -15,7 +15,7 @@ Two claims, and the second is what makes the first worth asserting:
    lets the benchmark harness, the feedback hook and the permission validator
    treat the graph paradigm as a peer rather than a special case.
 
-The tests run on ``control_assistant``, which ships a ``services.graphdb``
+The tests run on ``demo``, which ships a ``services.graphdb``
 block: the ``graph`` server IS enabled on those renders, so "no ``mcp__graph__``
 entry in the frontmatter" is a claim about the agent template rather than a
 by-product of a project with no store. Both render paths are exercised, because
@@ -123,13 +123,13 @@ def _settings_permission_entries(project_dir: Path) -> list[str]:
     ]
 
 
-def _control_assistant(tmp_path: Path, name: str, mode: str, *, deploy_services: bool = True):
+def _demo(tmp_path: Path, name: str, mode: str, *, deploy_services: bool = True):
     manager = TemplateManager()
     project_dir = create_project_as_built(
         manager,
         project_name=name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={
             "channel_finder_mode": mode,
             "deploy_services": deploy_services,
@@ -151,7 +151,7 @@ def test_frontmatter_is_exactly_the_paradigm_vocabulary(tmp_path, mode):
     somewhere other than the paradigm's registry entry is the failure this
     catches, and a subset assertion would let it through.
     """
-    _manager, project_dir = _control_assistant(tmp_path, f"cf-vocab-{mode}", mode)
+    _manager, project_dir = _demo(tmp_path, f"cf-vocab-{mode}", mode)
 
     tools = _frontmatter_tools(project_dir)
     assert tools == _expected_frontmatter_tools(mode)
@@ -168,7 +168,7 @@ def test_no_paradigm_puts_the_graph_server_on_the_subagent(tmp_path, mode):
     frontmatter — the main agent can query the store; the channel-finder
     subagent is confined to its paradigm's tools.
     """
-    _manager, project_dir = _control_assistant(tmp_path, f"cf-nograph-{mode}", mode)
+    _manager, project_dir = _demo(tmp_path, f"cf-nograph-{mode}", mode)
 
     assert _graph_server_entries(_settings_permission_entries(project_dir)) == (
         _graph_server_permission_entries()
@@ -192,7 +192,7 @@ def test_graph_paradigm_renders_the_four_channel_finder_tools(tmp_path):
     here it is literal, so a registry edit that silently changed the graph
     paradigm's vocabulary has to be made deliberately in two places.
     """
-    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-paradigm", "graph")
+    _manager, project_dir = _demo(tmp_path, "cf-graph-paradigm", "graph")
 
     assert _frontmatter_tools(project_dir) == [
         "mcp__channel-finder__capabilities",
@@ -216,7 +216,7 @@ def test_graph_paradigm_renders_its_terminology_partial(tmp_path):
     have no idea what a ``ChannelBinding`` is — a render that looks complete and
     tells the subagent nothing about the corpus it has to query.
     """
-    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-terms", "graph")
+    _manager, project_dir = _demo(tmp_path, "cf-graph-terms", "graph")
 
     body = _agent_path(project_dir).read_text(encoding="utf-8")
     assert _GRAPH_TERMINOLOGY_MARKER in body, "the graph terminology partial was not included"
@@ -231,7 +231,7 @@ def test_graph_paradigm_renders_on_the_build_path(tmp_path):
     The rendered agent is deleted first, so what is asserted is what the build
     direction wrote and not a leftover from ``create_project``.
     """
-    manager, project_dir = _control_assistant(tmp_path, "cf-graph-build", "graph")
+    manager, project_dir = _demo(tmp_path, "cf-graph-build", "graph")
     _agent_path(project_dir).unlink()
 
     manager.regenerate_claude_code(project_dir)
@@ -251,7 +251,7 @@ def test_frontmatter_tools_are_backed_by_permissions(tmp_path, mode):
     on any error this returns, so an empty list is the difference between a
     paradigm shipping and the build aborting.
     """
-    _manager, project_dir = _control_assistant(tmp_path, f"cf-backed-{mode}", mode)
+    _manager, project_dir = _demo(tmp_path, f"cf-backed-{mode}", mode)
 
     assert validate_agent_tools_against_permissions(project_dir) == []
 
@@ -264,7 +264,7 @@ def test_disabling_the_graph_server_leaves_the_graph_paradigm_intact(tmp_path):
     server, the subagent is untouched: it keeps all four tools, they stay backed
     by permissions, and the build does not abort.
     """
-    manager, project_dir = _control_assistant(tmp_path, "cf-graph-server-off", "graph")
+    manager, project_dir = _demo(tmp_path, "cf-graph-server-off", "graph")
 
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
@@ -279,50 +279,38 @@ def test_disabling_the_graph_server_leaves_the_graph_paradigm_intact(tmp_path):
     assert validate_agent_tools_against_permissions(project_dir) == []
 
 
-def test_a_project_with_no_graph_store_still_renders_the_graph_paradigm(tmp_path):
-    """A project that declares no store at all still renders the paradigm.
-
-    The paradigm is a rendering decision and the store is a deployment one, so
-    the agent renders the same either way; what changes is whether the tools it
-    calls find anything at the other end. Pinned because the opposite wiring —
-    a frontmatter gated on ``graphdb_configured`` — would silently produce an
-    agent with no channel-finding tools whenever the store is external or
-    attached rather than deployed.
-
-    A deployment declares its store by spelling ``services.graphdb`` in its own
-    ``config:``, so taking the block back out of the rendered config is how
-    this fixture gets a project that runs none.
+@pytest.mark.parametrize(
+    ("name", "paradigm"),
+    [
+        # The paradigm is a rendering decision and the store is a deployment one, so
+        # the agent renders the same either way; what changes is whether the tools it
+        # calls find anything at the other end. Pinned because the opposite wiring —
+        # a frontmatter gated on ``graphdb_configured`` — would silently produce an
+        # agent with no channel-finding tools whenever the store is external or
+        # attached rather than deployed.
+        ("cf-graph-nostore", "graph"),
+        # Neither a store nor the graph paradigm.
+        ("cf-nostore-tools", "hierarchical"),
+    ],
+    ids=["graph-paradigm", "other-paradigm"],
+)
+def test_a_project_with_no_graph_store_renders_its_paradigm_and_no_graph_server(
+    tmp_path, name, paradigm
+):
+    """A deployment declares its store by spelling ``services.graphdb`` in its own
+    ``config:``, so taking the block back out of the rendered config is how this
+    fixture gets a project that runs none.
     """
     from osprey.utils.config_writer import config_delete_field
 
-    manager, project_dir = _control_assistant(
-        tmp_path, "cf-graph-nostore", "graph", deploy_services=False
-    )
+    manager, project_dir = _demo(tmp_path, name, paradigm, deploy_services=False)
     config_delete_field(project_dir / "config.yml", "services.graphdb")
     manager.regenerate_claude_code(project_dir)
 
     config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
     assert (config.get("services") or {}).get("graphdb") is None, "the render shape under test"
 
-    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("graph")
-    assert _graph_server_entries(_settings_permission_entries(project_dir)) == []
-    assert validate_agent_tools_against_permissions(project_dir) == []
-
-
-def test_a_project_with_no_store_renders_its_paradigm_and_no_graph_server(tmp_path):
-    """A project that declares neither a store nor the graph paradigm."""
-    from osprey.utils.config_writer import config_delete_field
-
-    manager, project_dir = _control_assistant(
-        tmp_path, "cf-nostore-tools", "hierarchical", deploy_services=False
-    )
-    config_delete_field(project_dir / "config.yml", "services.graphdb")
-    manager.regenerate_claude_code(project_dir)
-
-    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
-    assert (config.get("services") or {}).get("graphdb") is None, "the render shape under test"
-
-    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools("hierarchical")
+    assert _frontmatter_tools(project_dir) == _expected_frontmatter_tools(paradigm)
     assert _graph_server_entries(_settings_permission_entries(project_dir)) == []
     assert validate_agent_tools_against_permissions(project_dir) == []
 
@@ -336,7 +324,7 @@ def test_graph_paradigm_prompt_requires_a_definitive_channel_list(tmp_path):
     therefore carry the report contract: a final list holding exactly the
     addresses that answer the question, with context kept in prose above it.
     """
-    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-report", "graph")
+    _manager, project_dir = _demo(tmp_path, "cf-graph-report", "graph")
 
     body = _agent_path(project_dir).read_text(encoding="utf-8")
     assert "## Report Format" in body, "the graph arm must carry the report-format section"
@@ -358,7 +346,7 @@ def test_graph_paradigm_prompt_opens_on_the_search_index(tmp_path):
     rendered order, with the Cypher steps left standing for the structural
     questions the index cannot express.
     """
-    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-step0", "graph")
+    _manager, project_dir = _demo(tmp_path, "cf-graph-step0", "graph")
 
     arm = _graph_paradigm_instructions(_agent_path(project_dir).read_text(encoding="utf-8"))
     assert "### Step 0: Search by keyword" in arm, "the graph arm must name the keyword step"
@@ -383,7 +371,7 @@ def test_other_paradigms_never_name_the_search_index_tool(tmp_path, mode):
     The file-backed paradigms have no such index, so naming the tool in their
     prompt or their ``tools:`` list would advertise a call that cannot resolve.
     """
-    _manager, project_dir = _control_assistant(tmp_path, f"cf-nosearch-{mode}", mode)
+    _manager, project_dir = _demo(tmp_path, f"cf-nosearch-{mode}", mode)
 
     body = _agent_path(project_dir).read_text(encoding="utf-8")
     assert "search_channels" not in body
@@ -404,7 +392,7 @@ def test_graph_paradigm_prompt_carries_the_snapshot_placeholder(tmp_path):
     """
     from osprey.services.facility_knowledge.seeder import prompt_snapshot
 
-    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-snapshot", "graph")
+    _manager, project_dir = _demo(tmp_path, "cf-graph-snapshot", "graph")
     body = _agent_path(project_dir).read_text(encoding="utf-8")
 
     assert body.count(prompt_snapshot.SNAPSHOT_BEGIN) == 1
@@ -430,7 +418,7 @@ def test_the_rendered_agent_carries_no_hardcoded_vocabulary(tmp_path):
     routing and formatting rather than a claim about what this facility's
     device kinds are called.
     """
-    _manager, project_dir = _control_assistant(tmp_path, "cf-graph-vocab", "graph")
+    _manager, project_dir = _demo(tmp_path, "cf-graph-vocab", "graph")
     body = _agent_path(project_dir).read_text(encoding="utf-8")
 
     assert hardcoded_vocabulary_hits(_graph_paradigm_instructions(body)) == [], (
@@ -445,7 +433,7 @@ def test_other_paradigms_carry_no_snapshot_region(tmp_path, mode):
     """A file-backed paradigm has no store to snapshot, so it ships no markers."""
     from osprey.services.facility_knowledge.seeder import prompt_snapshot
 
-    _manager, project_dir = _control_assistant(tmp_path, f"cf-nosnap-{mode}", mode)
+    _manager, project_dir = _demo(tmp_path, f"cf-nosnap-{mode}", mode)
     body = _agent_path(project_dir).read_text(encoding="utf-8")
 
     assert prompt_snapshot.SNAPSHOT_BEGIN not in body

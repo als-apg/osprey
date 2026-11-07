@@ -22,7 +22,7 @@ that fails, run the way the entrypoint runs it:
 * a hand-written tree of names in two separator conventions, built through
   ``osprey build`` with no physics model -- the names are served verbatim and
   boot with no alarm;
-* the control-assistant demo, whose SR model is a pyAT child -- the
+* the demo, whose SR model is a pyAT child -- the
   write safety, the chromaticity left for the next tick, the model RPC's
   fault writes, and a child that fails to solve;
 * a hand-written view of stub children -- the alarm each kind of output
@@ -38,6 +38,7 @@ on any skip.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
 import math
@@ -153,6 +154,10 @@ SAFETY = {
     "clamp_writes": True,
     "control_pvs": False,
 }
+
+#: The display precision a float channel stating none is served, spelled out
+#: like :data:`SAFETY`.
+FLOAT_PRECISION = 4
 
 #: (severity, status) of an undefined output on each wire.
 CA_UDF = (3, 17)
@@ -953,8 +958,9 @@ def _assert_safety_config(
             assert entry.get("value_range") == band, address
         else:
             assert "value_range" not in entry, address
-        if channel.get("value_type", "float") == "float" and channel.get("precision") is not None:
-            assert entry["precision"] == channel["precision"], address
+        if channel.get("value_type", "float") == "float":
+            stated = channel.get("precision")
+            assert entry["precision"] == (FLOAT_PRECISION if stated is None else stated), address
         else:
             assert "precision" not in entry, address
 
@@ -1013,6 +1019,23 @@ class TestNamesServedVerbatim:
         echo = _ca(SR_READBACK)
         assert (echo["value"], (echo["severity"], echo["status"])) == (13.0, NO_ALARM)
 
+    def test_every_served_ca_record_has_a_value_at_attach(self, names_server: _Server) -> None:
+        """No Channel Access record is served undefined because nothing has posted it.
+
+        The CA server creates every record in the ``UDF``/``INVALID`` alarm
+        state and keeps it there until the record is posted once; a client
+        write posts it, and so does a value source, but a setpoint nobody
+        writes and its echoed readback have neither. The start-up pass is what
+        posts them. The set checked is every channel the view serves, not a
+        hand-picked list, so a channel added to the tree is held to this too;
+        ``BTS_SETPOINT`` and its readback are written by no test in this class.
+        """
+        assert names_server.channels, "the view serves no channel"
+        for address in names_server.channels:
+            reading = _ca(address)
+            assert reading["value"] is not None, address
+            assert (reading["severity"], reading["status"]) == NO_ALARM, address
+
     def test_the_applied_config_holds_the_safety_keys_and_the_limits_bands(
         self, names_server: _Server, names_build: BuiltProject
     ) -> None:
@@ -1033,8 +1056,8 @@ class TestNamesServedVerbatim:
 
 
 @pytest.fixture(scope="class")
-def demo_files(built_control_assistant: BuiltProject) -> dict[str, bytes]:
-    files: dict[str, bytes] = built_control_assistant.outputs[0].files
+def demo_files(built_demo: BuiltProject) -> dict[str, bytes]:
+    files: dict[str, bytes] = built_demo.outputs[0].files
     return files
 
 
@@ -1292,6 +1315,43 @@ class TestStubComposite:
         assert config["variables"][STUB_RANGE]["precision"] == STUB_PRECISION
         assert _ca_precision(STUB_RANGE) == STUB_PRECISION
         assert int(stub_server.pva_get(STUB_RANGE)["display.precision"]) == STUB_PRECISION
+        # A float channel stating no precision is served the default, not CA's 0.
+        assert _ca_precision(STUB_SETPOINT) == FLOAT_PRECISION
+
+    def test_a_child_failed_at_build_names_its_error_on_its_status_channel(
+        self, stub_server: _Server
+    ) -> None:
+        failed = f"{STUB_CODE}:SIM:F:STATUS"
+        serving = f"{STUB_CODE}:SIM:M:STATUS"
+
+        assert _ca_text(failed) == "the stub has no deck"
+        assert stub_server.pva_get(failed)["value"] == "the stub has no deck"
+        assert _ca_text(serving) == "ok"
+
+    def test_a_status_read_through_the_real_connector_names_the_failed_child(
+        self,
+        stub_server: _Server,  # noqa: ARG002 - the fixture is the server being read
+    ) -> None:
+        """The read ``sim status --target`` and the health category make, end to end."""
+        from osprey.simulation.status import read_in_child
+
+        port = int(CA_PORTS["stub"])
+        gateway = {"address": "127.0.0.1", "port": port, "use_name_server": False}
+        section = {
+            "type": "virtual_accelerator",
+            "connector": {
+                "virtual_accelerator": {"gateways": {"read_only": gateway, "write_access": gateway}}
+            },
+        }
+        addresses = {model: f"{STUB_CODE}:SIM:{model}:STATUS" for model in ("F", "M")}
+
+        statuses = asyncio.run(
+            read_in_child(
+                section, "va", ["F", "M"], addresses, config_path=None, timeout_s=CA_TIMEOUT_S * 2
+            )
+        )
+
+        assert statuses == {"F": "the stub has no deck", "M": "ok"}
 
     def test_a_failed_childs_bool_and_enum_outputs_are_invalid(self, stub_server: _Server) -> None:
         for address in (STUB_FLAG, STUB_MODE):

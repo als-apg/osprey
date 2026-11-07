@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "screen",
+  "id": "odd",
+  "metadata": {
+    "title": "Odd",
+    "source": {
+      "type": "hand-authored"
+    },
+    "size": {
+      "width": 100,
+      "height": 100
+    }
+  },
+  "root": {
+    "id": "odd-root",
+    "type": "absolute-canvas",
+    "props": {},
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 10,
+      "height": 10
+    },
+    "children": [
+      {
+        "id": "t1",
+        "type": "pv-toggle",
+        "props": {
+          "pv": "ODD:T"
+        },
+        "geometry": {
+          "x": 0,
+          "y": 0,
+          "width": 10,
+          "height": 10
+        }
+      }
+    ]
+  }
+}

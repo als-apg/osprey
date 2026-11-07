@@ -931,24 +931,20 @@ def test_local_mode_dev_build_of_the_auth_image_passes_the_dev_build_arg(monkeyp
     assert "OSPREY_DEV=1" in recorded[0]
 
 
-def test_local_mode_with_auth_image_builds_nothing(monkeypatch, tmp_path):
-    """auth.image pins an externally supplied image; building over that pin
-    would produce a tag nothing references."""
+@pytest.mark.parametrize(
+    "mode",
+    [
+        # auth.image pins an externally supplied image; building over that pin
+        # would produce a tag nothing references.
+        pytest.param("local", id="local-mode"),
+        pytest.param("registry", id="registry-mode"),
+    ],
+)
+def test_a_pinned_auth_image_is_never_built_locally(monkeypatch, tmp_path, mode):
     monkeypatch.chdir(tmp_path)
     recorded = _capture_build(monkeypatch)
 
-    provision.build_auth_sidecar_image(_sidecar_config("local", auth_image="reg/auth:1"), False, {})
-
-    assert recorded == []
-
-
-def test_registry_mode_builds_no_auth_image_locally(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    recorded = _capture_build(monkeypatch)
-
-    provision.build_auth_sidecar_image(
-        _sidecar_config("registry", auth_image="reg/auth:1"), False, {}
-    )
+    provision.build_auth_sidecar_image(_sidecar_config(mode, auth_image="reg/auth:1"), False, {})
 
     assert recorded == []
 

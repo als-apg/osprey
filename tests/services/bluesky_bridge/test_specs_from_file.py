@@ -191,17 +191,18 @@ def test_directory_path_yields_no_devices(tmp_path: Path) -> None:
     assert specs_from_file(tmp_path) == ([], [])
 
 
-def test_empty_file_yields_no_devices(tmp_path: Path) -> None:
-    """An empty file parses to ``None`` -- a valid, if useless, empty device set."""
+@pytest.mark.parametrize(
+    "text",
+    [
+        # An empty file parses to ``None`` -- a valid, if useless, empty device set.
+        pytest.param("", id="empty-file"),
+        # A YAML syntax error degrades to an empty device set, not an exception.
+        pytest.param("settables: [unclosed\n", id="unparseable-yaml"),
+    ],
+)
+def test_file_without_a_usable_document_yields_no_devices(tmp_path: Path, text: str) -> None:
     path = tmp_path / "devices.yml"
-    path.write_text("", encoding="utf-8")
-    assert specs_from_file(path) == ([], [])
-
-
-def test_unparseable_yaml_yields_no_devices(tmp_path: Path) -> None:
-    """A YAML syntax error degrades to an empty device set, not an exception."""
-    path = tmp_path / "devices.yml"
-    path.write_text("settables: [unclosed\n", encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
     assert specs_from_file(path) == ([], [])
 
 
@@ -359,6 +360,76 @@ def test_validate_accepts_a_relative_tolerance_and_a_motion_band() -> None:
             {"name": "r", "setpoint": "A:SP", "settle_tolerance": {"relative": 1e-4}},
             {"name": "b", "setpoint": "B:SP", "readback": "B:RB", "motion_band": 0.011},
         ]
+    }
+    assert validate_device_document(doc) == []
+
+
+# --- unit -------------------------------------------------------------------
+
+
+def test_a_device_carries_the_units_its_entry_states(tmp_path: Path) -> None:
+    """``unit`` and ``setpoint_unit`` are read onto the specs; absent leaves ``None``."""
+    path = _write(
+        tmp_path,
+        {
+            "settables": [
+                {
+                    "name": "p",
+                    "setpoint": "A:SP",
+                    "readback": "A:RB",
+                    "unit": "u1",
+                    "setpoint_unit": "u2",
+                },
+                {"name": "q", "setpoint": "B:SP", "unit": "u3"},
+                {"name": "r", "setpoint": "C:SP"},
+            ],
+            "readables": [{"name": "t", "pv": "T", "unit": "u4"}, {"name": "s", "pv": "S"}],
+        },
+    )
+    settables, readables = specs_from_file(path)
+    assert [(s.name, s.unit, s.setpoint_unit) for s in settables] == [
+        ("p", "u1", "u2"),
+        ("q", "u3", None),
+        ("r", None, None),
+    ]
+    assert [(r.name, r.unit) for r in readables] == [("t", "u4"), ("s", None)]
+
+
+_SETTABLE = {"name": "bad", "setpoint": "A:SP"}
+_READABLE = {"name": "bad", "pv": "A"}
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "bad"),
+    [
+        ("settables", "unit", 3),
+        ("settables", "unit", ""),
+        ("settables", "setpoint_unit", ["u"]),
+        ("readables", "unit", True),
+        ("readables", "unit", "  "),
+    ],
+)
+def test_a_bad_unit_skips_the_entry_and_is_a_validation_problem(
+    tmp_path: Path, caplog, section: str, key: str, bad: Any
+) -> None:
+    entry = _SETTABLE if section == "settables" else _READABLE
+    good = {**entry, "name": "ok"}
+    path = _write(tmp_path, {section: [{**entry, key: bad}, good]})
+    with caplog.at_level("WARNING"):
+        settables, readables = specs_from_file(path)
+    assert [s.name for s in (settables if section == "settables" else readables)] == ["ok"]
+    assert key in caplog.text
+    assert validate_device_document({section: [{**entry, key: bad}]}) == [
+        f"{section}[0]: {key!r} must be a non-empty string when present"
+    ]
+
+
+def test_validate_accepts_units() -> None:
+    doc = {
+        "settables": [
+            {"name": "p", "setpoint": "A:SP", "readback": "A:RB", "unit": "u", "setpoint_unit": "v"}
+        ],
+        "readables": [{"name": "t", "pv": "T", "unit": "u"}],
     }
     assert validate_device_document(doc) == []
 

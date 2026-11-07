@@ -26,7 +26,7 @@ INTERVIEW.md with its source, and its ledger row reads the facility's name.
 **Step 1, the skeleton.**
 
 ```
-osprey scaffold pull control-assistant:data/facility/knowledge
+osprey scaffold pull demo:data/facility/knowledge
 ```
 
 It writes six `index.md` files and reports `17 knowledge documents skipped (use
@@ -158,18 +158,17 @@ types none of them.
    that share the stem `<machine>.<submachine>`: `.lattice.mat`, `.ao.json`, `.ad.json`,
    `.va.json`, `.response.json` and `.model.json`. Repeating it per sub-machine
    overwrites nothing.
-3. **Clear the base's demo records.** The import refuses while `data/facility/` holds a
-   record source of its own: it prints `import mml: authored-present: <n> files` and
-   one `rm <path>` line per file. On a hello-world base those are the demo's
-   `records/channels.yaml`, `limits.yaml`, `seeds.yaml` and `identity.yaml`. Read each
-   line before running it — a file the facility authored is named there too, demo or
-   not. Run them, then import.
+3. **What the import does to the base's demo.** `osprey facility import mml` replaces the
+   bundled facility and says so in one line:
+   `import mml: replaced the bundled <name> facility (<n> files)`. It refuses only
+   hand-written records of the kinds it writes, naming each file with the new-repo
+   remedy. A file becomes hand-written when its bundled-origin line is deleted.
 4. **Draft the mapping.**
    `osprey facility import mml <machine>.<sub>.ao.json [<machine>.<sub2>.ao.json ...]`.
    Name the `.ao.json` files only; the files beside each one are read automatically,
    and the sub-machine name recorded in the file becomes the system name. The first run
    writes `data/facility/imported/mml/mapping.yaml` and stops with
-   `import mml: mapping-draft`. Nothing else is written. Every slot the export states a
+   `import mml: mapping-draft`. No record is written. Every slot the export states a
    fact for is pre-filled, every other slot is `null`. This file is the only place a
    decision about this facility is recorded.
 5. **Fill every `null`.** The import stops with `import mml: mapping-undecided` while
@@ -273,7 +272,7 @@ Middle Layer export (§3.1), or are authored by hand under `data/facility/record
 one file per kind. The reference example's records are the shape to follow:
 
 ```
-osprey scaffold pull control-assistant:data/facility/records
+osprey scaffold pull demo:data/facility/records
 ```
 
 What the pull brings describes the reference facility. It is a `pulled` row whose
@@ -319,8 +318,8 @@ not. An app is a second, complete agent beside the deployment's own, one file in
 `apps/`, opened from a shared landing card by everyone on the roster; the roster
 lists it by name under `shared:`.
 
-`osprey scaffold tiers --from control-assistant` writes every tier that preset's
-roster names, and `osprey scaffold apps --from control-assistant` writes every app
+`osprey scaffold tiers --from demo` writes every tier that preset's
+roster names, and `osprey scaffold apps --from demo` writes every app
 its `shared:` list names. Neither has a selection flag, so every deployment starts
 with all of them and prunes down.
 
@@ -346,7 +345,7 @@ context directory. Leave one behind and the next build either fails on the missi
 file or warns about context for a name not on the roster.
 
 The demo logins are removed, not renamed. In
-`src/osprey/profiles/presets/control-assistant.yml` they are the roster entries
+`src/osprey/profiles/presets/demo.yml` they are the roster entries
 `alice`, `bob` and `carol` under `modules.web_terminals.users`, plus
 `OSPREY_AUTH_PW_ALICE`, `OSPREY_AUTH_PW_BOB` and `OSPREY_AUTH_PW_CAROL` under
 `env.defaults`. Renaming a demo login keeps its password and its index. Delete
@@ -365,9 +364,9 @@ the devil's advocate walks the same list against the ledger afterwards.
 | `data/facility/knowledge/*/` documents other than the user's stubs | the demo facility's 17 documents |
 | `data/facility/records/`, `seeds.yaml` and `identity.yaml` nobody replaced | the demo facility's channels |
 | `data/facility/limits.yaml` with records nobody ported | the demo facility's limits |
-| `data/benchmarks/` | demo query sets |
+| `data/facility/benchmarks/` | demo query sets |
 | `data/facility/models.yaml`, `decks/`, `measurement/`, `scenarios/` nobody replaced | demo machine model |
-| `data/ariel/vocabulary.yml` | demo facility terms |
+| `data/facility/ariel/vocabulary.yml` | demo facility terms |
 | `data/landing/working-safely.md` | the demo product's safety notice |
 | `web-terminal-context/base.md` | opens by naming the demo product |
 | `profile.yml` roster entries `alice`, `bob`, `carol` | demo logins |

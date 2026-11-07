@@ -168,11 +168,18 @@ def test_writing_a_setpoint_echoes_into_its_readback():
     assert model.get(["T:HEAT:SP", "T:HEAT:RB"]) == {"T:HEAT:SP": 31.5, "T:HEAT:RB": 31.5}
 
 
-def test_a_paired_readback_starts_at_its_setpoints_nominal():
+@pytest.mark.parametrize(
+    ("channel", "default"),
+    [
+        pytest.param("T:HEAT:RB", 20.0, id="paired-readback-at-its-setpoints-nominal"),
+        pytest.param("P:IDLE:SP", 2.5, id="unserved-model-at-its-wiring-default"),
+    ],
+)
+def test_a_channel_starts_at_its_default_value(channel, default):
     model = _model()
 
-    assert model.get("T:HEAT:RB") == 20.0
-    assert model.supported_variables["T:HEAT:RB"].default_value == 20.0
+    assert model.get(channel) == default
+    assert model.supported_variables[channel].default_value == default
 
 
 def test_a_refused_echo_leaves_the_setpoint_unchanged():
@@ -282,13 +289,6 @@ def test_a_served_model_keeps_its_channels_and_texture_still_moves_them():
 
     assert "P:SERVED:RB" not in model.supported_variables
     assert model.motion("P:SERVED:RB", np.array([T0]))[0] != 0.0
-
-
-def test_an_unserved_model_falls_to_texture_with_its_wiring_default():
-    model = _model()
-
-    assert model.get("P:IDLE:SP") == 2.5
-    assert model.supported_variables["P:IDLE:SP"].default_value == 2.5
 
 
 def test_reset_returns_every_channel_to_its_nominal():
@@ -535,12 +535,12 @@ def test_a_stilled_reading_serves_its_held_value():
     assert model.has_motion("T:NOISY") is False
 
 
-def test_still_all_stills_every_float_reading():
+def test_a_still_list_stills_every_float_reading_it_names():
     model, clock = _clocked()
     model.set_motion(
         {"T:ZERO": [{"driver": "d1", "gain": 0.5, "drive": _DRIVE}]},
         {"T:HEAT:RB": {"absolute": 1.0}},
-        still_all=True,
+        still=frozenset({"T:NOISY", "T:CLAMPED", "T:ZERO", "T:HEAT:RB", "P:SERVED:RB"}),
     )
 
     for address in ("T:NOISY", "T:CLAMPED", "T:ZERO", "T:HEAT:RB", "P:SERVED:RB"):

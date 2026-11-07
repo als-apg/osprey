@@ -1149,6 +1149,6 @@ def test_the_target_to_type_mapping_is_public(reader):
 
 def test_a_dotted_custom_type_is_one_key_and_not_a_path(reader):
     """A custom connector's module path names a single block, dots and all."""
-    section = {"type": "mypackage.MoatConnector"}
+    section = {"type": "mypackage.SiteConnector"}
 
-    assert reader.target_type(section, "live") == "mypackage.MoatConnector"
+    assert reader.target_type(section, "live") == "mypackage.SiteConnector"

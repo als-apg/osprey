@@ -513,23 +513,25 @@ class TestNarrowingIsNeverRefused:
         assert post_switch(at_allowed, state="asked", epoch=None).status_code == 200
         assert switch_now() == {"standin": "asked"}
 
-    def test_it_lands_on_a_never_tier(self, at_allowed, tmp_path):
+    @pytest.mark.parametrize(
+        ("writes", "name"),
+        [
+            pytest.param("never", "n.yml", id="never-tier"),
+            # The way down from a stored ``allowed`` the ceiling has since capped.
+            pytest.param("asked", "a.yml", id="asked-ceiling"),
+        ],
+    )
+    def test_it_lands_under_a_tier_that_caps_the_stored_one(
+        self, at_allowed, tmp_path, writes, name
+    ):
         at_allowed.app.state.config_path = write_config(
-            tmp_path, control_system_section(writes="never"), name="n.yml"
+            tmp_path, control_system_section(writes=writes), name=name
         )
         assert post_switch(at_allowed, state="asked").status_code == 200
         assert switch_now() == {"standin": "asked"}
 
     def test_it_lands_on_a_readonly_run(self, at_allowed, monkeypatch):
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
-        assert post_switch(at_allowed, state="asked").status_code == 200
-        assert switch_now() == {"standin": "asked"}
-
-    def test_it_lands_under_an_asked_ceiling(self, at_allowed, tmp_path):
-        """The way down from a stored ``allowed`` the ceiling has since capped."""
-        at_allowed.app.state.config_path = write_config(
-            tmp_path, control_system_section(writes="asked"), name="a.yml"
-        )
         assert post_switch(at_allowed, state="asked").status_code == 200
         assert switch_now() == {"standin": "asked"}
 
@@ -811,11 +813,18 @@ class TestTheLoginsOwnTierLock:
     def test_an_allowed_render_locks_its_own_login_allowed(self, client):
         assert self._locks(client)["tier"] == "allowed"
 
-    def test_a_never_render_locks_its_own_login_never(self, client, tmp_path):
+    @pytest.mark.parametrize(
+        ("tier", "name"),
+        [
+            pytest.param("never", "never.yml", id="never-render"),
+            pytest.param("asked", "asked.yml", id="asked-render"),
+        ],
+    )
+    def test_a_render_locks_its_own_login_to_its_own_tier(self, client, tmp_path, tier, name):
         client.app.state.config_path = write_config(
-            tmp_path, control_system_section(writes="never"), name="never.yml"
+            tmp_path, control_system_section(writes=tier), name=name
         )
-        assert self._locks(client)["tier"] == "never"
+        assert self._locks(client)["tier"] == tier
 
     @pytest.mark.usefixtures("agent_data_root")
     @pytest.mark.parametrize("login", ["alice", "someone-else", ""])
@@ -854,12 +863,6 @@ class TestTheLoginsOwnTierLock:
     def test_a_map_free_render_answers_its_own_word(self, deployment):
         section = control_system_section(writes=deployment)
         assert websocket_routes._login_tier(section, "alice") == deployment
-
-    def test_an_asked_render_locks_its_own_login_asked(self, client, tmp_path):
-        client.app.state.config_path = write_config(
-            tmp_path, control_system_section(writes="asked"), name="asked.yml"
-        )
-        assert self._locks(client)["tier"] == "asked"
 
 
 # -- the epoch --------------------------------------------------------------

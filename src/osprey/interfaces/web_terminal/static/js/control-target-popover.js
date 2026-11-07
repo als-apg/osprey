@@ -83,6 +83,8 @@ import {
   bannerNote,
   SKIP_KEY_MOVE,
   SKIP_KEY_SWITCH,
+  SWITCH_APPLIED,
+  displayName,
   reasonPhrase,
   switchConfirm,
   TURN_ON_SENTENCE,
@@ -91,6 +93,7 @@ import {
 import { confirmSkipped, rememberConfirmSkip } from './confirm-skip.js';
 import { el, focusOption, focusedOption } from './control-target-popover-switch.js';
 import { dismissConfirm, isConfirmUp, showConfirm } from './posture-confirm.js';
+import { showToast } from './toast.js';
 import {
   closePopover as closeShellPopover,
   openPopover as openShellPopover,
@@ -100,6 +103,7 @@ import {
   CHIP_TOGGLE_EVENT,
   getChipElement,
   getState,
+  isPending,
   kindAttr,
   markPending,
   postSwitch,
@@ -110,6 +114,7 @@ import {
   targetRequest,
 } from './control-target-chip.js';
 import { renderCard, renderFoot, renderRow } from './control-target-rows.js';
+import { programsSection, refreshPrograms, resetPrograms } from './write-authorization-panel.js';
 
 /**
  * The `target` value that turns every machine in this login's record off at
@@ -144,6 +149,9 @@ let closeWatch = null;
  * @type {string|null}
  */
 let pendingTarget = null;
+/** The request id that switch was accepted under; its terminus settles it. */
+/** @type {string|null} */
+let pendingRequestId = null;
 
 /**
  * What the last gesture on a row did, when the ROUTE cannot say.
@@ -185,6 +193,9 @@ const DEADLINE_SENTENCE = 'No answer from the server. The re-read shows what the
  * @type {{target: string, position: 'asked'|'allowed'}|null}
  */
 let confirmingMove = null;
+
+/** Whether a re-read of the programs' listing is in flight ({@link rereadPrograms}). */
+let programsReading = false;
 
 /**
  * The handles a confirm hands to the gesture it raised — see
@@ -239,7 +250,12 @@ export function initControlTargetPopover() {
     wiredChip = chip;
   }
 
-  if (!unsubscribe) unsubscribe = subscribe(() => render());
+  if (!unsubscribe) {
+    unsubscribe = subscribe(() => {
+      render();
+      rereadPrograms();
+    });
+  }
   render();
   return { open: openPopover, close: closePopover, isOpen };
 }
@@ -263,8 +279,10 @@ export function teardownControlTargetPopover() {
   posting = false;
   queuedStop = null;
   pendingTarget = null;
+  pendingRequestId = null;
   confirmingMove = null;
   statusNote = null;
+  programsReading = false;
   gestureNotes.clear();
 }
 
@@ -292,6 +310,10 @@ function openPopover() {
   if (!popover || !chip || isOpen()) return;
   statusNote = null;
   render();
+  // The programs' section reads its own route; it joins the panel when it lands.
+  void refreshPrograms().then(() => {
+    if (isOpen()) render();
+  });
   const sidebar = chip.closest('#sidebar');
   openShellPopover(
     popover,
@@ -303,6 +325,24 @@ function openPopover() {
   firstControl()?.focus({ preventScroll: true });
 }
 
+/**
+ * Re-read the programs' listing while the popover is open, on the chip's own
+ * cadence: every chip read (the push, the 5 s idle tick) lands in the
+ * subscriber, so an approval, a run that ended or a step that moved shows
+ * without reopening. One read at a time, and none while a switch request is
+ * outstanding (the 500 ms fast tick is about the switch, not the programs).
+ * An open approve card is kept by the panel across a re-read, and
+ * {@link render} puts focus back where it was.
+ */
+function rereadPrograms() {
+  if (!isOpen() || programsReading || isPending()) return;
+  programsReading = true;
+  void refreshPrograms().then(() => {
+    programsReading = false;
+    if (isOpen()) render();
+  });
+}
+
 /** Hide the popover; {@link onClosed} takes any confirm it raised with it. */
 function closePopover() {
   if (popover && isOpen()) closeShellPopover(popover);
@@ -311,6 +351,7 @@ function closePopover() {
 /** What every close leaves behind: no confirm, no status line. */
 function onClosed() {
   statusNote = null;
+  resetPrograms();
   dismissConfirm();
 }
 
@@ -359,6 +400,35 @@ function rowContext() {
 /* ---- render ---- */
 
 /**
+ * The moment the switch this popover asked for stops being outstanding.
+ *
+ * The chip owns the wait (`isPending`: the record's terminus AND every live
+ * controls server at the new generation); once it is over, the record's
+ * `last_switch` names the request's terminus. A switch that LANDED
+ * (`applied` for the request this browser sent) is said once, under the chip:
+ * "Switched to <machine>" — the popover stays, re-rendered with the machine
+ * on its card. A refusal, a failure or an expiry leaves the outcome on the
+ * row (control-target-rows.js); either way the row stops reading
+ * `switching…`.
+ * @param {any} state
+ */
+function settleSwitch(state) {
+  const target = pendingTarget;
+  const last = state?.last_switch;
+  if (target === null || isPending() || !last || !pendingRequestId) return;
+  if (last.request_id !== pendingRequestId) return;
+  pendingTarget = null;
+  pendingRequestId = null;
+  if (last.status !== SWITCH_APPLIED) return;
+  const rows = Array.isArray(state.targets) ? state.targets : [];
+  const row = rows.find((/** @type {any} */ r) => r.target === target) ?? null;
+  const host = getChipElement()?.closest('.ctc-anchor');
+  if (host instanceof HTMLElement) {
+    showToast(host, `Switched to ${row ? displayName(row, kindAttr(row)) : target}`);
+  }
+}
+
+/**
  * Repaint the popover from the chip's current answer.
  *
  * Whole-subtree, on every render: the card and rows are a projection of one
@@ -375,6 +445,7 @@ function render() {
   const option = focusedOption(popover);
   const focused = option ? null : focusKey();
   const state = getState();
+  settleSwitch(state);
   popover.replaceChildren();
   if (!state) return;
   const rows = Array.isArray(state.targets) ? state.targets : [];
@@ -414,6 +485,12 @@ function render() {
     const status = el('div', 'ctc-outcome ctc-status', statusNote);
     status.dataset.status = 'notice';
     popover.append(status);
+  }
+
+  const programs = programsSection(state.session_id ?? null, render);
+  if (programs) {
+    popover.append(separator());
+    popover.append(programs);
   }
 
   popover.append(separator());
@@ -589,6 +666,12 @@ function setSwitch(target, to, state, ui, waived = false) {
     ui,
     () => {
       if (waived) statusNote = TURN_ON_SENTENCE;
+      // A stop revokes the programs' authorizations on the machine: re-read them.
+      if (to === 'off') {
+        void refreshPrograms().then(() => {
+          if (isOpen()) render();
+        });
+      }
     },
     (err) => switchRefusal(err, to),
     to === 'off'
@@ -596,8 +679,9 @@ function setSwitch(target, to, state, ui, waived = false) {
 }
 
 /**
- * Route one committed option: the stored position is a no-op, a widening goes
- * through its confirm, and anything else POSTs at once. `off` is always a
+ * Route one committed option: the stored position is a no-op (except `off`
+ * while a program holds the machine), a widening goes through its confirm,
+ * and anything else POSTs at once. `off` is always a
  * narrowing, including from a record nobody can read.
  * @param {any} row
  * @param {'off'|'asked'|'allowed'} to
@@ -605,7 +689,9 @@ function setSwitch(target, to, state, ui, waived = false) {
  * @param {boolean} [reshow]  Shift was held: show the dialog even when waived
  */
 function moveSwitch(row, to, state, reshow = false) {
-  if (to === row.switch) return;
+  // Off is never a no-op while a program's authorization holds the machine:
+  // the stop is what revokes it, whatever the switch beside it says.
+  if (to === row.switch && !(to === 'off' && row.program_hold === true)) return;
   if (to === 'off' || POSITIONS.indexOf(to) < POSITIONS.indexOf(row.switch)) {
     void setSwitch(row.target, to, state);
   } else {
@@ -641,9 +727,11 @@ function requestSwitch(row, state, ui) {
     const held = row.target === state.control_target;
     if (held && generation !== null && generation === state.generation) {
       pendingTarget = null;
+      pendingRequestId = null;
       return;
     }
     pendingTarget = row.target;
+    pendingRequestId = String(body?.request_id || '') || null;
     markPending(String(body?.request_id || ''), row.target, generation);
   });
 }

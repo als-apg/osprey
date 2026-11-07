@@ -295,7 +295,7 @@ def test_the_hook_spells_the_section_fault_like_the_build(section):
 def test_channel_read_skip_emits_allow_decision(tmp_path, hook_runner, make_config):
     """DETERMINISTIC contract pin for the e2e read test (test_safety_reads.py).
 
-    The default control_assistant config ships ``channel_read: skip``. This test
+    The default demo config ships ``channel_read: skip``. This test
     drives the approval hook directly (no LLM/SDK) and asserts the skip branch
     emits an explicit ``permissionDecision: 'allow'`` — that is the decision the
     SDK later surfaces through can_use_tool as a recorded `allow` hook event,
@@ -465,8 +465,19 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
 # ============================================================================
 
 
-def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_config):
-    """Tango write_attribute pattern triggers approval via framework detection."""
+@pytest.mark.parametrize(
+    "code",
+    [
+        # Tango write_attribute pattern.
+        pytest.param("device.write_attribute('MOTOR:POS', 100)", id="tango-write"),
+        # LabVIEW set_control pattern.
+        pytest.param("labview.set_control('temperature', 350)", id="labview-write"),
+        # EPICS .set_value() pattern.
+        pytest.param("pv.set_value(42.0)", id="set-value"),
+    ],
+)
+def test_framework_pattern_detection_triggers_approval(tmp_path, hook_runner, make_config, code):
+    """A write pattern triggers approval via framework detection."""
     config = make_config(
         {
             "approval": {"enabled": True, "default_policy": "selective"},
@@ -477,53 +488,7 @@ def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_con
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "device.write_attribute('MOTOR:POS', 100)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_framework_pattern_detection_labview_write(tmp_path, hook_runner, make_config):
-    """LabVIEW set_control pattern triggers approval via framework detection."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "labview.set_control('temperature', 350)", "execution_mode": "readonly"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-
-
-def test_framework_pattern_detection_set_value(tmp_path, hook_runner, make_config):
-    """EPICS .set_value() pattern triggers approval via framework detection."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {"code": "pv.set_value(42.0)", "execution_mode": "readonly"},
+        {"code": code, "execution_mode": "readonly"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -970,7 +935,20 @@ def test_fallback_regexes_match_pva_client_code(hook_module, code):
 # ============================================================================
 
 
-def test_selective_readwrite_asks_without_write_patterns(tmp_path, hook_runner, make_config):
+@pytest.mark.parametrize(
+    "code",
+    [
+        pytest.param("print('nothing to see')", id="no-write-pattern"),
+        # ``from epics import caput as _w`` evades every write regex.
+        pytest.param(
+            "from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)",
+            id="aliased-caput",
+        ),
+    ],
+)
+def test_selective_readwrite_asks_whatever_the_detector_sees(
+    tmp_path, hook_runner, make_config, code
+):
     """A readwrite run prompts even when the detector sees no write pattern.
 
     The agent asking for write mode is itself the signal: approval for
@@ -985,32 +963,7 @@ def test_selective_readwrite_asks_without_write_patterns(tmp_path, hook_runner, 
     result = hook_runner(
         "osprey_approval.py",
         "mcp__python__execute",
-        {"code": "print('nothing to see')", "execution_mode": "readwrite"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=DEFAULT_APPROVAL_CONFIG,
-    )
-
-    assert result is not None
-    assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
-
-
-def test_selective_readwrite_asks_for_aliased_caput(tmp_path, hook_runner, make_config):
-    """``from epics import caput as _w`` evades every write regex; readwrite still asks."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "selective"},
-            "control_system": {"writes": "allowed"},
-        }
-    )
-
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__python__execute",
-        {
-            "code": "from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)",
-            "execution_mode": "readwrite",
-        },
+        {"code": code, "execution_mode": "readwrite"},
         config_path=config,
         cwd=tmp_path,
         hook_config=DEFAULT_APPROVAL_CONFIG,
@@ -2722,3 +2675,338 @@ def test_an_ungoverned_render_keeps_the_policy_path(governed):
 
     assert _decision(result) == "allow"
     assert governed.stamp() is None
+
+
+# ── Plan mode: silent where the plan-mode rule denies ────────────────
+
+#: A render's hook config with the plan-mode list, in the shape the build writes.
+PLAN_MODE_HOOK_CONFIG = {
+    "server_prefixes": ["mcp__controls__", "mcp__bluesky__"],
+    "approval_prefixes": ["mcp__controls__", "mcp__bluesky__"],
+    "write_tools": ["mcp__controls__channel_write", "mcp__bluesky__queue_add"],
+    "plan_mode_denied_tools": ["mcp__controls__channel_write", "mcp__bluesky__queue_add"],
+}
+
+PLAN_MODE_APPROVAL_CONFIG = {
+    "approval": {
+        "enabled": True,
+        "default_policy": "always",
+        "tools": {"channel_write": "always", "stop_run": "always"},
+    },
+    "control_system": {"writes": "asked"},
+}
+
+PLAN_WRITE_INPUT = {"operations": [{"channel": "TEST:PV", "value": 1.0}]}
+
+
+def _plan_mode_run(hook_runner, make_config, tmp_path, tool, mode, hook_config=None, tid="t1"):
+    return hook_runner(
+        "osprey_approval.py",
+        tool,
+        PLAN_WRITE_INPUT if tool.endswith("channel_write") else {},
+        config_path=make_config(PLAN_MODE_APPROVAL_CONFIG),
+        cwd=tmp_path,
+        hook_config=PLAN_MODE_HOOK_CONFIG if hook_config is None else hook_config,
+        hook_input_extra={
+            "hook_event_name": "PreToolUse",
+            "permission_mode": mode,
+            "tool_use_id": f"toolu_{tid}",
+            "session_id": "conv-plan",
+        },
+    )
+
+
+@pytest.fixture
+def plan_stamp_dir(tmp_path, monkeypatch):
+    from osprey_connectors_tests._harness import pin_identity, state_dir_under
+
+    pin_identity(monkeypatch)
+    root = tmp_path / "agent_data"
+    state = state_dir_under(root)
+    state.mkdir(parents=True)
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    return state
+
+
+def test_plan_mode_leaves_a_denied_tool_to_the_plan_mode_rule(
+    tmp_path, hook_runner, make_config, monkeypatch, plan_stamp_dir
+):
+    """An ask here would win over the plan-mode deny, so the hook says nothing."""
+    monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
+
+    result = _plan_mode_run(
+        hook_runner, make_config, tmp_path, "mcp__controls__channel_write", "plan", tid="pm1"
+    )
+
+    assert result is None
+    from tests.hooks.conftest import hook_debug_records
+
+    approval_lines = hook_debug_records(tmp_path, hook="approval")
+    assert [rec["status"] for rec in approval_lines] == ["defer"]
+    assert "plan_mode" in approval_lines[0]["detail"]
+    assert sorted(plan_stamp_dir.glob("approval_ask_*.json")) == []
+
+
+def test_plan_mode_asks_for_an_unlisted_approval_gated_tool(tmp_path, hook_runner, make_config):
+    """A tool that stays callable while planning keeps exactly its default-mode prompt."""
+    planned = _plan_mode_run(hook_runner, make_config, tmp_path, "mcp__bluesky__stop_run", "plan")
+    default = _plan_mode_run(
+        hook_runner, make_config, tmp_path, "mcp__bluesky__stop_run", "default"
+    )
+
+    assert _decision(planned) == _decision(default) == "ask"
+
+
+@pytest.mark.parametrize(
+    "hook_config",
+    [
+        pytest.param(
+            {k: v for k, v in PLAN_MODE_HOOK_CONFIG.items() if k != "plan_mode_denied_tools"},
+            id="key-missing",
+        ),
+        pytest.param(
+            {**PLAN_MODE_HOOK_CONFIG, "plan_mode_denied_tools": "mcp__controls__channel_write"},
+            id="non-list",
+        ),
+    ],
+)
+def test_plan_mode_without_a_readable_list_asks_as_before(
+    tmp_path, hook_runner, make_config, hook_config
+):
+    result = _plan_mode_run(
+        hook_runner, make_config, tmp_path, "mcp__controls__channel_write", "plan", hook_config
+    )
+
+    assert _decision(result) == "ask"
+
+
+def test_plan_mode_with_an_unreadable_hook_config_asks_as_before(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """No list, no prefixes: the hook behaves exactly as with any unreadable config."""
+    broken = tmp_path / "hook_config.json"
+    broken.write_text("{not json")
+    monkeypatch.setenv("OSPREY_HOOK_CONFIG", str(broken))
+
+    planned = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        PLAN_WRITE_INPUT,
+        config_path=make_config(PLAN_MODE_APPROVAL_CONFIG),
+        cwd=tmp_path,
+        hook_input_extra={"hook_event_name": "PreToolUse", "permission_mode": "plan"},
+    )
+    default = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_write",
+        PLAN_WRITE_INPUT,
+        config_path=make_config(PLAN_MODE_APPROVAL_CONFIG),
+        cwd=tmp_path,
+        hook_input_extra={"hook_event_name": "PreToolUse", "permission_mode": "default"},
+    )
+
+    assert planned == default
+
+
+def test_plan_mode_without_the_sibling_rule_asks(
+    tmp_path, hook_module, make_config, monkeypatch, capsys
+):
+    """A render that ships no plan-mode rule gets no early exit: the hook asks."""
+    import io
+
+    approval = hook_module("osprey_approval")
+    monkeypatch.setattr(approval, "_plan_mode", None)
+    hook_config = tmp_path / "plan_hook_config.json"
+    hook_config.write_text(json.dumps(PLAN_MODE_HOOK_CONFIG))
+    monkeypatch.setenv("OSPREY_HOOK_CONFIG", str(hook_config))
+    config_path = make_config(PLAN_MODE_APPROVAL_CONFIG)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+    monkeypatch.setenv("CONFIG_FILE", str(config_path))
+    monkeypatch.setattr(sys, "argv", ["osprey_approval.py"])
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "mcp__controls__channel_write",
+        "tool_input": PLAN_WRITE_INPUT,
+        "permission_mode": "plan",
+        "cwd": str(tmp_path),
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    with pytest.raises(SystemExit) as exit_info:
+        approval.main()
+
+    assert exit_info.value.code == 0
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert _decision(result) == "ask"
+
+
+# ============================================================================
+# The automatic review-notebook focus names the session it belongs to
+# ============================================================================
+
+#: A canonical session UUID, as the harness sends ``session_id``.
+_FOCUS_SESSION = "33333333-3333-4333-8333-333333333333"
+
+#: Every variable the focus sender's session gate reads.
+_FOCUS_GATE_ENV = ("OSPREY_DISPATCH_RUN_ID", "OSPREY_DISPATCH_RUN", "OSPREY_TERMINAL_SESSION")
+
+
+@pytest.fixture
+def focus_posts(monkeypatch):
+    """The JSON bodies the hook POSTs to the gallery; nothing leaves the process."""
+    import urllib.request
+
+    for name in _FOCUS_GATE_ENV:
+        monkeypatch.delenv(name, raising=False)
+    bodies: list[dict] = []
+
+    def _urlopen(req, timeout=None):  # noqa: ARG001
+        assert req.full_url.endswith("/api/focus")
+        bodies.append(json.loads(req.data.decode()))
+
+    monkeypatch.setattr(urllib.request, "urlopen", _urlopen)
+    return bodies
+
+
+def test_approval_focus_carries_the_payload_session(approval, focus_posts):
+    approval._focus_artifact("http://127.0.0.1:1", "art-1", _FOCUS_SESSION)
+
+    assert focus_posts == [
+        {"artifact_id": "art-1", "automatic": True, "transcript_id": _FOCUS_SESSION}
+    ]
+
+
+@pytest.mark.parametrize(
+    "session_id",
+    [
+        pytest.param(None, id="none"),
+        pytest.param("", id="empty"),
+        pytest.param("not-a-session", id="non-canonical"),
+        pytest.param("ABCDEF01-ABCD-4ABC-8ABC-ABCDEF012345", id="uppercase"),
+        pytest.param(f"kernel:{_FOCUS_SESSION}", id="prefixed"),
+        pytest.param(f"{_FOCUS_SESSION}\n", id="trailing-newline"),
+        pytest.param(12345, id="not-a-string"),
+    ],
+)
+def test_approval_focus_without_a_canonical_session_is_unscoped(approval, focus_posts, session_id):
+    approval._focus_artifact("http://127.0.0.1:1", "art-1", session_id)
+
+    assert focus_posts == [{"artifact_id": "art-1", "automatic": True}]
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("OSPREY_DISPATCH_RUN_ID", "run-1"),
+        ("OSPREY_DISPATCH_RUN", "1"),
+        ("OSPREY_TERMINAL_SESSION", "watchdog-0123456789abcdef0123456789abcdef"),
+    ],
+    ids=["dispatch-run-id", "dispatch-run", "watchdog"],
+)
+def test_approval_focus_in_a_dispatch_or_watchdog_run_is_unscoped(
+    approval, focus_posts, monkeypatch, name, value
+):
+    monkeypatch.setenv(name, value)
+
+    approval._focus_artifact("http://127.0.0.1:1", "art-1", _FOCUS_SESSION)
+
+    assert focus_posts == [{"artifact_id": "art-1", "automatic": True}]
+
+
+def test_approval_focus_in_a_host_terminal_keeps_the_session(approval, focus_posts, monkeypatch):
+    """Only the watchdog prefix withholds the session; a chat terminal keeps it."""
+    monkeypatch.setenv("OSPREY_TERMINAL_SESSION", "chat-ffffffff-ffff-4fff-8fff-ffffffffffff")
+    monkeypatch.setenv("OSPREY_DISPATCH_RUN", "0")
+
+    approval._focus_artifact("http://127.0.0.1:1", "art-1", _FOCUS_SESSION)
+
+    assert focus_posts[0]["transcript_id"] == _FOCUS_SESSION
+
+
+def test_approval_focus_swallows_a_failing_gallery(approval, monkeypatch):
+    import urllib.request
+
+    def _refuse(req, timeout=None):  # noqa: ARG001
+        raise OSError("refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _refuse)
+
+    assert approval._focus_artifact("http://127.0.0.1:1", "art-1", _FOCUS_SESSION) is None
+
+
+def test_review_notebook_focus_carries_the_session(tmp_path, approval, focus_posts, monkeypatch):
+    """The notebook the prompt saves is focused in the session that asked."""
+    import osprey.infrastructure.server_launcher as launcher
+    from osprey_connectors.workspace import reset_config_cache
+
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(
+        f"project_root: {tmp_path}\ncontrol_system:\n  type: virtual_accelerator\n  connector:\n    virtual_accelerator:\n      serving: in_process\n"
+    )
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+    monkeypatch.setenv("CONFIG_FILE", str(config_path))
+    reset_config_cache()
+    monkeypatch.setattr(launcher, "ensure_web_server", lambda key: None)
+    monkeypatch.setattr(approval, "_gallery_base_url", lambda config: "http://127.0.0.1:1")
+
+    link, artifact_id = approval._create_pre_execution_notebook(
+        "epics.caput('PV', 1.0)", "readonly", {}, session_id=_FOCUS_SESSION
+    )
+
+    assert link == "http://127.0.0.1:1#focus"
+    assert focus_posts == [
+        {"artifact_id": artifact_id, "automatic": True, "transcript_id": _FOCUS_SESSION}
+    ]
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param(GUARDED_ALWAYS_CONFIG, id="ask-path"),
+        pytest.param(GUARDED_SELECTIVE_CONFIG, id="selective-path"),
+    ],
+)
+def test_both_execute_prompts_thread_the_payload_session(
+    tmp_path, approval, make_config, monkeypatch, capsys, config
+):
+    """Each execute prompt that saves a review notebook hands it the payload's session."""
+    import io
+
+    for name in _FOCUS_GATE_ENV:
+        monkeypatch.delenv(name, raising=False)
+    hook_config = tmp_path / "focus_hook_config.json"
+    hook_config.write_text(json.dumps(DEFAULT_APPROVAL_CONFIG))
+    monkeypatch.setenv("OSPREY_HOOK_CONFIG", str(hook_config))
+    config_path = make_config(config)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+    monkeypatch.setenv("CONFIG_FILE", str(config_path))
+    monkeypatch.setattr(sys, "argv", ["osprey_approval.py"])
+
+    calls: list[dict] = []
+
+    def _notebook(*args, **kwargs):
+        calls.append({"args": args, "kwargs": kwargs})
+        return None, None
+
+    monkeypatch.setattr(approval, "_create_pre_execution_notebook", _notebook)
+    payload = {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "mcp__python__execute",
+        "tool_input": {"code": "write_channel('PV', 1.0)", "execution_mode": "readwrite"},
+        "session_id": _FOCUS_SESSION,
+        "cwd": str(tmp_path),
+    }
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    with pytest.raises(SystemExit) as exit_info:
+        approval.main()
+
+    assert exit_info.value.code == 0
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert _decision(result) == "ask"
+    assert len(calls) == 1
+    passed = calls[0]
+    session = passed["kwargs"].get(
+        "session_id", passed["args"][5] if len(passed["args"]) > 5 else None
+    )
+    assert session == _FOCUS_SESSION

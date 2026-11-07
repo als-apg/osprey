@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from rdflib import RDF, Graph, Literal, Namespace, URIRef
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.render import facility_bytes
 from osprey.facility.validate import FACILITY_HEADER
 from osprey.facility.views import VIEWS, ViewInputs
@@ -126,17 +127,17 @@ def _value(graph: Graph, kind: str, raw: str, name: str) -> Any:
 
 def test_the_first_line_is_the_facility_file_sha256() -> None:
     doc = _doc()
-    first = graph_text(doc).split("\n", 1)[0]
+    first = graph_text(FacilityRecords(doc)).split("\n", 1)[0]
 
     assert first == HEADER_PREFIX + hashlib.sha256(facility_bytes(doc)).hexdigest()
 
 
 def test_equal_facility_files_give_equal_bytes() -> None:
-    assert graph_text(_doc()) == graph_text(_doc())
+    assert graph_text(FacilityRecords(_doc())) == graph_text(FacilityRecords(_doc()))
 
 
 def test_a_device_carries_its_identity_place_and_position() -> None:
-    graph = _graph(graph_text(_doc()))
+    graph = _graph(graph_text(FacilityRecords(_doc())))
     device = URIRef(iri("fx", "device", "M/BPM1"))
 
     assert set(graph.objects(device, RDF.type)) == {SEM.BeamPositionMonitor}
@@ -160,7 +161,7 @@ def test_a_device_carries_its_identity_place_and_position() -> None:
 
 
 def test_a_device_carries_its_top_place_and_family_descriptions() -> None:
-    graph = _graph(graph_text(_doc()))
+    graph = _graph(graph_text(FacilityRecords(_doc())))
 
     assert _value(graph, "device", "M/Q1", "systemDescription") == "The machine."
     assert _value(graph, "device", "M/Q1", "familyDescription") == "Diagnostics."
@@ -172,14 +173,14 @@ def test_a_device_in_no_described_group_has_no_family_description() -> None:
         {"id": "M/BPM", "description": "Monitors.", "members": ["M/BPM1"]},
         {"id": "M/QUADS", "members": ["M/Q1"]},
     ]
-    graph = _graph(graph_text(doc))
+    graph = _graph(graph_text(FacilityRecords(doc)))
 
     assert _value(graph, "device", "M/BPM1", "familyDescription") == "Monitors."
     assert _value(graph, "device", "M/Q1", "familyDescription") is None
 
 
 def test_a_device_without_s_has_no_position_or_ordinals() -> None:
-    graph = _graph(graph_text(_doc()))
+    graph = _graph(graph_text(FacilityRecords(_doc())))
 
     for name in ("sPositionM", "lengthM", "ordinalInPlace", "ordinalInModel"):
         assert _value(graph, "device", "M/Q1", name) is None, name
@@ -187,7 +188,7 @@ def test_a_device_without_s_has_no_position_or_ordinals() -> None:
 
 
 def test_a_place_carries_its_path_and_last_segment() -> None:
-    graph = _graph(graph_text(_doc()))
+    graph = _graph(graph_text(FacilityRecords(_doc())))
 
     assert _value(graph, "place", "M/S2", "placePath") == "M/S2"
     assert _value(graph, "place", "M/S2", "sectionCode") == "S2"
@@ -195,7 +196,7 @@ def test_a_place_carries_its_path_and_last_segment() -> None:
 
 
 def test_a_channel_is_a_binding_joined_to_its_signal_by_its_role() -> None:
-    graph = _graph(graph_text(_doc()))
+    graph = _graph(graph_text(FacilityRecords(_doc())))
 
     def channel(address: str) -> URIRef:
         return URIRef(iri("fx", "channel", address))
@@ -216,7 +217,7 @@ def test_a_channel_is_a_binding_joined_to_its_signal_by_its_role() -> None:
 
 
 def test_has_binding_joins_the_owner_and_every_endpoint_device() -> None:
-    graph = _graph(graph_text(_doc()))
+    graph = _graph(graph_text(FacilityRecords(_doc())))
     readback = URIRef(iri("fx", "channel", "M:Q1:RB"))
 
     owners = set(graph.subjects(P.hasBinding, readback))
@@ -232,7 +233,7 @@ def test_has_binding_joins_the_owner_and_every_endpoint_device() -> None:
 def test_the_device_class_and_those_above_it_are_declared() -> None:
     from rdflib import OWL, RDFS
 
-    graph = _graph(graph_text(_doc()))
+    graph = _graph(graph_text(FacilityRecords(_doc())))
 
     assert (SEM.BeamPositionMonitor, RDF.type, OWL.Class) in graph
     parents = set(graph.transitive_objects(SEM.BeamPositionMonitor, RDFS.subClassOf))
@@ -241,12 +242,14 @@ def test_the_device_class_and_those_above_it_are_declared() -> None:
 
 def test_the_view_writes_one_file(tmp_path: Path) -> None:
     doc = _doc()
-    inputs = ViewInputs(doc=doc, rendered_config={}, facility_dir=tmp_path, served=[])
+    inputs = ViewInputs(
+        records=FacilityRecords(doc), rendered_config={}, facility_dir=tmp_path, served=[]
+    )
 
     written = write_graph_view(tmp_path / "graph", inputs)
 
     assert written == [tmp_path / "graph" / GRAPH_FILE]
-    assert written[0].read_text(encoding="utf-8") == graph_text(doc)
+    assert written[0].read_text(encoding="utf-8") == graph_text(FacilityRecords(doc))
 
 
 def test_the_graph_view_is_always_written() -> None:
@@ -254,24 +257,24 @@ def test_the_graph_view_is_always_written() -> None:
 
     assert view.path == "graph"
     assert view.written_when(
-        ViewInputs(doc={}, rendered_config={}, facility_dir=Path(), served=[])
+        ViewInputs(records=FacilityRecords({}), rendered_config={}, facility_dir=Path(), served=[])
     ) == (True, "always written")
 
 
 @pytest.mark.slow
 class TestTheBuiltGraph:
     @pytest.fixture(scope="class")
-    def text(self, built_control_assistant: BuiltProject) -> str:
-        return (built_control_assistant.build_dir / GRAPH_VIEW).read_text(encoding="utf-8")
+    def text(self, built_demo: BuiltProject) -> str:
+        return (built_demo.build_dir / GRAPH_VIEW).read_text(encoding="utf-8")
 
     @pytest.fixture(scope="class")
     def graph(self, text: str) -> Graph:
         return _graph(text)
 
     def test_the_build_writes_the_view_under_its_header(
-        self, built_control_assistant: BuiltProject, text: str
+        self, built_demo: BuiltProject, text: str
     ) -> None:
-        digest = hashlib.sha256(built_control_assistant.facility_raw).hexdigest()
+        digest = hashlib.sha256(built_demo.facility_raw).hexdigest()
 
         assert text.split("\n", 1)[0] == HEADER_PREFIX + digest
 
@@ -279,9 +282,9 @@ class TestTheBuiltGraph:
         assert _narad_predicates(graph) == PREDICATES
 
     def test_every_setpoint_and_readback_with_a_signal_has_one_signal_edge(
-        self, built_control_assistant: BuiltProject, graph: Graph
+        self, built_demo: BuiltProject, graph: Graph
     ) -> None:
-        facility = built_control_assistant.facility
+        facility = built_demo.facility
         code = facility["identity"]["code"]
         edges = Counter(
             subject
@@ -303,11 +306,11 @@ class TestTheBuiltGraph:
         assert sum(edges.values()) == len(signalled)
 
     def test_the_septum_waveform_is_a_binding_of_a_septum(
-        self, built_control_assistant: BuiltProject, graph: Graph
+        self, built_demo: BuiltProject, graph: Graph
     ) -> None:
         from rdflib import OWL
 
-        code = built_control_assistant.facility["identity"]["code"]
+        code = built_demo.facility["identity"]["code"]
         wave = URIRef(iri(code, "channel", "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"))
         sek = URIRef(iri(code, "device", "SR/SEPTUM01"))
 
@@ -320,9 +323,9 @@ class TestTheBuiltGraph:
         assert (SEM.Septum, RDF.type, OWL.Class) in graph
 
     def test_every_device_carries_the_facility_code(
-        self, built_control_assistant: BuiltProject, graph: Graph
+        self, built_demo: BuiltProject, graph: Graph
     ) -> None:
-        facility = built_control_assistant.facility
+        facility = built_demo.facility
         code = facility["identity"]["code"]
 
         assert set(graph.subjects(P.facility, Literal(code))) == {

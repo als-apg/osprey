@@ -115,15 +115,15 @@ def test_origin_stub_adapter_with_file_source_url_has_no_origin():
     assert adapter.attachment_origins() == frozenset()
 
 
-def test_origin_als_adapter_answers_prefix_origin():
-    adapter = ALSLogbookAdapter(_config("/fake/path.jsonl"))
-    prefix = urlsplit(adapter.attachment_url_prefix)
-    assert prefix.scheme == "https"
-    assert adapter.attachment_origins() == frozenset({("https", prefix.hostname, 443)})
-
-
-def test_origin_als_adapter_http_source_still_answers_prefix_origin():
-    adapter = ALSLogbookAdapter(_config("http://localhost:9999/elog"))
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("/fake/path.jsonl", id="file-source"),
+        pytest.param("http://localhost:9999/elog", id="http-source"),
+    ],
+)
+def test_origin_als_adapter_answers_prefix_origin(source):
+    adapter = ALSLogbookAdapter(_config(source))
     prefix = urlsplit(adapter.attachment_url_prefix)
     assert prefix.scheme == "https"
     assert adapter.attachment_origins() == frozenset({("https", prefix.hostname, 443)})
@@ -430,20 +430,23 @@ async def test_fetch_head_still_applies_content_length_cap(server, adapter):
     assert out == FetchOutcome(code="size_cap", observed_size=1001)
 
 
-@pytest.mark.parametrize("code", [404, 410])
-async def test_fetch_gone_statuses_are_source_gone(server, adapter, code):
+@pytest.mark.parametrize(
+    ("code", "outcome"),
+    [
+        pytest.param(404, "source_gone", id="404-gone"),
+        pytest.param(410, "source_gone", id="410-gone"),
+        pytest.param(400, "source_refused", id="400-refused"),
+        pytest.param(401, "source_refused", id="401-refused"),
+        pytest.param(403, "source_refused", id="403-refused"),
+    ],
+)
+async def test_fetch_client_error_statuses_map_to_their_failure_code(
+    server, adapter, code, outcome
+):
     out = await fetch_attachment_bytes(
         _url(server, f"/status/{code}"), 1000, _origins(server), adapter
     )
-    assert out == FetchOutcome(code="source_gone")
-
-
-@pytest.mark.parametrize("code", [400, 401, 403])
-async def test_fetch_other_4xx_are_source_refused(server, adapter, code):
-    out = await fetch_attachment_bytes(
-        _url(server, f"/status/{code}"), 1000, _origins(server), adapter
-    )
-    assert out == FetchOutcome(code="source_refused")
+    assert out == FetchOutcome(code=outcome)
 
 
 @pytest.mark.parametrize("code", [408, 429, 500, 503])

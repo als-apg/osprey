@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import patch
@@ -189,8 +190,19 @@ _CUSTOM_DATA_VIZ: dict = {
 }
 
 
+# A second healthy rail member, for tests that hand the workspace tile away
+# from data-viz with a rail click (artifacts has no rail entry).
+_CUSTOM_TUNING: dict = {
+    "id": "tuning",
+    "label": "TUNING",
+    "url": "http://tuning.internal:8080",
+    "healthEndpoint": None,
+    "path": "/",
+}
+
+
 @contextmanager
-def _hub_server(workspace_dir: Path) -> Iterator[str]:
+def _hub_server(workspace_dir: Path, *extra_panels: dict) -> Iterator[str]:
     """Launch a real web-terminal hub with artifacts + the data-viz panel.
 
     The artifacts panel reports the standard fallback URL so it
@@ -199,7 +211,8 @@ def _hub_server(workspace_dir: Path) -> Iterator[str]:
     Yields:
         The hub's base URL.
     """
-    with hub_server(workspace_dir, custom_panels=[_CUSTOM_DATA_VIZ]) as (base_url, _app):
+    panels = [_CUSTOM_DATA_VIZ, *extra_panels]
+    with hub_server(workspace_dir, custom_panels=panels) as (base_url, _app):
         yield base_url
 
 
@@ -213,9 +226,7 @@ def _open_hub_page(browser: Browser, base_url: str) -> Page:
     page = browser.new_page()
     page.add_init_script(_PROBES_INIT_SCRIPT)
     page.goto(base_url, wait_until="domcontentloaded")
-    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-        timeout=10_000
-    )
+    expect(page.locator(_AGENT_RAIL_READY)).to_be_attached(timeout=10_000)
     expect(page.locator('button.panel-rail-button[data-panel-id="data-viz"]')).to_be_attached(
         timeout=10_000
     )
@@ -235,6 +246,30 @@ def _post_panel(base_url: str, path: str, body: dict) -> requests.Response:
     return resp
 
 
+def _post_agent_open(base_url: str, member: str, request_id: str) -> requests.Response:
+    """The agent's ``open`` op (``POST /api/panel-op/open``), required to succeed.
+
+    The op is relayed to the current dock client, which a page becomes only once
+    its first layout report lands; until then the route answers
+    ``no_dock_client``. That refusal is the readiness barrier, so it alone is
+    retried, briefly; any other answer is final.
+    """
+    deadline = time.monotonic() + 10
+    while True:
+        resp = requests.post(
+            f"{base_url}/api/panel-op/open",
+            json={"member": member, "request_id": request_id},
+            timeout=15,
+        )
+        if resp.status_code == 409 and resp.json().get("reason") == "no_dock_client":
+            if time.monotonic() < deadline:
+                time.sleep(0.1)
+                continue
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "ok", resp.text
+        return resp
+
+
 def _reload_hub_page(page: Page) -> None:
     """Reload an open hub page and re-establish its readiness barriers.
 
@@ -249,7 +284,7 @@ def _reload_hub_page(page: Page) -> None:
     restored dock layout varies with what the page did before reloading.
     """
     page.reload(wait_until="domcontentloaded")
-    expect(page.locator(_ARTIFACTS_RAIL)).to_be_attached(timeout=10_000)
+    expect(page.locator(_AGENT_RAIL_READY)).to_be_attached(timeout=10_000)
     _wait_for_sse_open(page, "/api/files/events")
 
 
@@ -275,7 +310,10 @@ _ATTENTION_RE = re.compile(r"\bagent-attention\b")
 _ACTIVE_RE = re.compile(r"\bactive\b")
 
 _DATA_VIZ_RAIL = 'button.panel-rail-button[data-panel-id="data-viz"]'
-_ARTIFACTS_RAIL = 'button.panel-rail-button[data-panel-id="artifacts"]'
+_TUNING_RAIL = 'button.panel-rail-button[data-panel-id="tuning"]'
+_AGENT_RAIL = 'button.panel-rail-button[data-panel-id="terminal"]'
+# The page ships the Agent row disabled; the rail render enables it.
+_AGENT_RAIL_READY = f"{_AGENT_RAIL}:not(.disabled)"
 
 
 # ---------------------------------------------------------------------------
@@ -306,9 +344,7 @@ def test_panel_activity_badges_rail_entry_and_activation_clears_it(tmp_path, chr
 
         # The persistent badge lands on exactly the targeted rail entry.
         expect(rail_btn).to_have_class(_ATTENTION_RE, timeout=5_000)
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
-        ).not_to_have_class(_ATTENTION_RE)
+        expect(page.locator(_AGENT_RAIL)).not_to_have_class(_ATTENTION_RE)
 
         # Activating the panel (a rail click) serves — and clears — the badge.
         rail_btn.click()
@@ -382,7 +418,7 @@ _PLAN_ARGS: dict[str, dict] = {
         "readbacks": ["BPM1"],
         "axes": [{"setpoint": "COR1", "start": 0.0, "stop": 1.0, "num_points": 3}],
     },
-    "orm": {"correctors": ["COR1"], "readbacks": ["BPM1"], "span_a": 1.0, "num": 3},
+    "orm": {"correctors": ["COR1"], "readbacks": ["BPM1"], "span": 1.0, "num": 3},
 }
 
 
@@ -559,15 +595,18 @@ def test_agent_switch_glows_the_tile_body_not_only_the_rail(tmp_path, chromium_b
         # attribution — nothing may flash, on the rail or over the tile.
         rail_btn.click()
         expect(rail_btn).to_have_class(_ACTIVE_RE, timeout=5_000)
-        # Bounded settle: glowPanel defers its flash into a requestAnimationFrame,
-        # so a wrongly-firing glow lands a frame after `.active`. Without this the
-        # control passes on the very regression it exists to catch.
-        page.wait_for_timeout(250)
+        # glowPanel defers its flash into a requestAnimationFrame, so a wrongly-firing
+        # glow lands a frame after `.active`. Two frames passing proves that frame has
+        # run; without it the control passes on the very regression it exists to catch.
+        page.evaluate(
+            "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+        )
         assert page.evaluate("(window.__flashLog || []).length") == 0
         expect(page.locator(".dock-iframe-overlay .tile-glow")).to_have_count(0)
 
-        # The agent switches to the very same panel.
-        _post_panel(base_url, "/api/panel-focus", {"panel": "data-viz", "source": "agent"})
+        # The agent switches to the very same panel, through its open op (the
+        # `source: "agent"` form of /api/panel-focus is retired).
+        _post_agent_open(base_url, "data-viz", "glow-tile-body")
 
         # The tile body glowed — the class is caught by the document-start
         # MutationObserver, since it self-cleans well before a poll could see it.
@@ -662,15 +701,14 @@ def test_acknowledged_badge_stays_cleared_across_reload_and_a_newer_one_returns(
     reload compares ring rows against what the operator actually cleared —
     never against a browser clock.
 
-    Focus is deliberately handed back to artifacts before each reload: a badge
-    restored onto the panel that is already surfaced needs two rail clicks to
-    clear (the first retires the tile), a known and accepted limit that this
-    test stays clear of rather than fights.
+    Focus is deliberately handed to another rail member before each reload, so
+    the badge under test is never restored onto the panel that is already
+    surfaced.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
 
-    with _hub_server(workspace) as base_url:
+    with _hub_server(workspace, _CUSTOM_TUNING) as base_url:
         page = _open_hub_page(chromium_browser, base_url)
         rail_btn = page.locator(_DATA_VIZ_RAIL)
 
@@ -689,10 +727,10 @@ def test_acknowledged_badge_stays_cleared_across_reload_and_a_newer_one_returns(
         assert ack is not None, "surfacing the panel did not record an acknowledgment"
         assert float(ack) > 0
 
-        # Hand the workspace back to artifacts so the reload does not land with
+        # Hand the workspace to tuning so the reload does not land with
         # data-viz surfaced (see the docstring's note on the two-click limit).
-        page.locator(_ARTIFACTS_RAIL).click()
-        expect(page.locator(_ARTIFACTS_RAIL)).to_have_class(_ACTIVE_RE, timeout=5_000)
+        page.locator(_TUNING_RAIL).click()
+        expect(page.locator(_TUNING_RAIL)).to_have_class(_ACTIVE_RE, timeout=5_000)
 
         # --- Reload: the served badge must not come back ---------------------
         _reload_hub_page(page)
@@ -742,6 +780,12 @@ def _data_viz_iframe(page: Page):
     return page.locator('iframe.panel-iframe[data-panel-id="data-viz"]')
 
 
+def _under_data_viz(tail: str) -> re.Pattern[str]:
+    """An iframe src under the data-viz mount ending in ``tail``: the mount, then
+    the opaque panel's cap segment when one is minted, then the path."""
+    return re.compile(r"^https?://[^/]+/panel/data-viz/(~c/[^/]+/)?" + re.escape(tail) + r"(\?|$)")
+
+
 def test_logbook_navigate_is_local_to_the_sending_client_and_unattributed(
     tmp_path, chromium_browser
 ):
@@ -765,14 +809,15 @@ def test_logbook_navigate_is_local_to_the_sending_client_and_unattributed(
     with _hub_server(workspace) as base_url:
         sender = _open_hub_page(chromium_browser, base_url)
         bystander = _open_hub_page(chromium_browser, base_url)
-        draft_url = "/ariel/logbook/draft/42"
+        draft_url = "/panel/data-viz/logbook/draft/42"
 
         sender.evaluate(_POST_NAVIGATE_JS, {"panel": "data-viz", "url": draft_url})
 
-        # The sender navigated the panel and surfaced it.
+        # The sender navigated the panel and surfaced it: the address is framed
+        # under the panel's mount (an opaque panel's cap sits between the two).
         expect(sender.locator(_DATA_VIZ_RAIL)).to_have_class(_ACTIVE_RE, timeout=5_000)
         expect(_data_viz_iframe(sender)).to_have_attribute(
-            "src", re.compile(re.escape(draft_url)), timeout=5_000
+            "src", _under_data_viz("logbook/draft/42"), timeout=5_000
         )
         # ...with no agent attribution of any kind.
         assert sender.evaluate("(window.__flashLog || []).length") == 0
@@ -798,14 +843,17 @@ def test_logbook_navigate_is_local_to_the_sending_client_and_unattributed(
 
 
 def test_logbook_navigate_ignores_javascript_and_protocol_relative_urls(tmp_path, chromium_browser):
-    """The host takes only root-relative urls, whatever the origin check said.
+    """The host takes only a url under the panel's own mount, whatever the
+    origin check said.
 
     Same-origin is necessary but not sufficient: the sender may be an
     agent-authored artifact rendered in a sandboxed panel, and this url ends
     up as an iframe src. ``javascript:alert(1)`` survives the embed-src
-    builder intact and would run in the HOST origin, and ``//evil.example/x``
-    resolves to a cross-origin document — so a leading-slash test alone would
-    be a hole, and both must be dropped.
+    builder intact and would run in the HOST origin, ``//evil.example/x``
+    resolves to a cross-origin document, and ``/ariel/logbook/draft/7`` is a
+    root-relative path that points this panel at another place on this origin
+    — so a leading-slash test alone would be a hole, and all three must be
+    dropped (the navigation guard's member rule, the twin of the server's).
 
     Rejection leaves no DOM trace, so the negative is anchored twice: the
     message log proves both messages were DELIVERED before anything is
@@ -818,9 +866,9 @@ def test_logbook_navigate_ignores_javascript_and_protocol_relative_urls(tmp_path
     with _hub_server(workspace) as base_url:
         page = _open_hub_page(chromium_browser, base_url)
 
-        for bad_url in ("javascript:alert(1)", "//evil.example/x"):
+        for bad_url in ("javascript:alert(1)", "//evil.example/x", "/ariel/logbook/draft/7"):
             page.evaluate(_POST_NAVIGATE_JS, {"panel": "data-viz", "url": bad_url})
-        page.wait_for_function("() => (window.__navMsgLog || []).length === 2", timeout=5_000)
+        page.wait_for_function("() => (window.__navMsgLog || []).length === 3", timeout=5_000)
         # Delivery is not handling: activation runs past health guards, so
         # give a wrongly-accepting regression time to manifest.
         page.wait_for_timeout(500)
@@ -828,13 +876,13 @@ def test_logbook_navigate_ignores_javascript_and_protocol_relative_urls(tmp_path
         expect(page.locator(_DATA_VIZ_RAIL)).not_to_have_class(_ACTIVE_RE)
         expect(_data_viz_iframe(page)).to_have_count(0)
 
-        # The very next message, root-relative, DOES land — so the two above
-        # were refused on their urls and not on a dead listener.
-        good_url = "/ariel/logbook/draft/7"
+        # The very next message, under the panel's mount, DOES land — so the
+        # three above were refused on their urls and not on a dead listener.
+        good_url = "/panel/data-viz/logbook/draft/7"
         page.evaluate(_POST_NAVIGATE_JS, {"panel": "data-viz", "url": good_url})
         expect(page.locator(_DATA_VIZ_RAIL)).to_have_class(_ACTIVE_RE, timeout=5_000)
         iframe = _data_viz_iframe(page)
-        expect(iframe).to_have_attribute("src", re.compile(re.escape(good_url)), timeout=5_000)
+        expect(iframe).to_have_attribute("src", _under_data_viz("logbook/draft/7"), timeout=5_000)
         src = iframe.get_attribute("src") or ""
         assert "evil.example" not in src and "javascript:" not in src, src
 
@@ -885,15 +933,22 @@ async ({ selector, tokens }) => {
 }
 """
 
-_READ_FLASH_JS = """
+# Reads the glow by seeking its animation, not by waiting on a clock: pause it,
+# sample box-shadow at offsets 0 and 0.5 of its duration, then finish() it, which
+# fires animationend so the class self-cleans.
+_SEEK_FLASH_JS = """
 (selector) => {
   const el = document.querySelector(selector);
-  const cs = getComputedStyle(el);
-  return {
-    background: cs.backgroundColor,
-    shadow: cs.boxShadow,
-    flashing: el.classList.contains('agent-flash'),
-  };
+  const anim = el.getAnimations().find((a) => a.animationName === 'agent-flash-glow');
+  if (!anim) throw new Error('no agent-flash-glow animation on ' + selector);
+  anim.pause();
+  const duration = anim.effect.getComputedTiming().duration;
+  const samples = [0, 0.5].map((offset) => {
+    anim.currentTime = offset * duration;
+    return getComputedStyle(el).boxShadow;
+  });
+  anim.finish();
+  return samples;
 }
 """
 
@@ -954,9 +1009,8 @@ def test_reduced_motion_holds_the_glow_ring_still_instead_of_decaying(tmp_path, 
         assert normal["animationDuration"] == "0.9s"
         # The base keyframes paint their own fill over the element.
         assert normal["background"] == normal["tokens"][_TINT_20], normal
-        page.wait_for_timeout(300)
-        normal_later = page.evaluate(_READ_FLASH_JS, selector)
-        assert normal_later["shadow"] != normal["shadow"], "the ring did not decay"
+        a, b = page.evaluate(_SEEK_FLASH_JS, selector)
+        assert a != b, "the ring did not decay"
         _await_flash_cleanup(page, selector)
 
         # --- Reduced motion: the hold ----------------------------------------
@@ -971,9 +1025,8 @@ def test_reduced_motion_holds_the_glow_ring_still_instead_of_decaying(tmp_path, 
         # A real ring is painted, from the accent token, and held constant.
         assert "0px 0px 0px 3px" in held["shadow"], held["shadow"]
         assert held["tokens"][_TINT_25] in held["shadow"], held
-        page.wait_for_timeout(300)
-        held_later = page.evaluate(_READ_FLASH_JS, selector)
-        assert held_later["shadow"] == held["shadow"], "the held ring moved"
+        a, b = page.evaluate(_SEEK_FLASH_JS, selector)
+        assert a == b == held["shadow"], "the held ring moved"
         # It still ENDS: the stepped animation fires animationend, so the
         # class self-cleans exactly as the decay does.
         _await_flash_cleanup(page, selector)

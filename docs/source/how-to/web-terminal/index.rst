@@ -2,7 +2,7 @@ Web Terminal
 ============
 
 The OSPREY Web Terminal is a browser-based cockpit for the OSPREY agent: a
-sidebar on the left, your live artifacts and themed panels for your
+sidebar on the left with your sessions and their artifacts, themed panels for your
 control-system tools in the middle, and the agent on the right. Launch it
 from any project directory:
 
@@ -22,7 +22,7 @@ created, and switch between companion tools without ever leaving the page.
    :align: center
    :width: 100%
 
-   The sidebar and its artifacts on the left, the plot the agent made in the
+   The sidebar and its session tree on the left, the plot the agent made in the
    middle, and the chat with the agent on the right. Captured with OSPREY
    |captured_web_terminal_hero|.
 
@@ -52,14 +52,6 @@ created, and switch between companion tools without ever leaving the page.
 
       Add your own tools as themed side panels that sit beside the chat.
 
-   .. grid-item-card:: Lattice dashboard
-      :link: lattice-dashboard
-      :link-type: doc
-      :shadow: md
-
-      Draw the optics of the models your simulator serves, and try a magnet
-      change before it is written.
-
    .. grid-item-card:: Notebooks
       :link: notebooks
       :link-type: doc
@@ -67,6 +59,14 @@ created, and switch between companion tools without ever leaving the page.
 
       Run JupyterLab in a tab, with kernels that read and write the control
       system through the session you already have open.
+
+   .. grid-item-card:: CANOPY
+      :link: canopy
+      :link-type: doc
+      :shadow: md
+
+      Control-room screens and archived history in a tab, which the agent
+      opens, arranges and builds with you — and a shared screen library.
 
    .. grid-item-card:: Multi-user
       :link: multi-user/index
@@ -82,7 +82,8 @@ created, and switch between companion tools without ever leaving the page.
    operate
    theming
    panels
-   lattice-dashboard
    notebooks
+   canopy
+   canopy-library
    send-feedback
    multi-user/index

@@ -141,10 +141,10 @@ def test_every_service_image_is_reported_once(cold_build):
     _, finished, _ = cold_build
 
     assert finished == [
-        "my-control-assistant-va:local",
-        "my-control-assistant-dispatch:local",
-        "my-control-assistant-bluesky-bridge:local",
-        "my-control-assistant-bluesky-web:local",
+        "osprey-demo-va:local",
+        "osprey-demo-dispatch:local",
+        "osprey-demo-bluesky-bridge:local",
+        "osprey-demo-bluesky-web:local",
     ]
 
 
@@ -154,10 +154,10 @@ def test_each_image_lands_on_the_service_that_built_it(cold_build):
     model, _, _ = cold_build
 
     rows = rows_by_service(model)
-    assert rows["virtual-accelerator"].finished == "my-control-assistant-va:local"
-    assert rows["event-dispatcher"].finished == "my-control-assistant-dispatch:local"
-    assert rows["bluesky-bridge"].finished == "my-control-assistant-bluesky-bridge:local"
-    assert rows["bluesky-web"].finished == "my-control-assistant-bluesky-web:local"
+    assert rows["virtual-accelerator"].finished == "osprey-demo-va:local"
+    assert rows["event-dispatcher"].finished == "osprey-demo-dispatch:local"
+    assert rows["bluesky-bridge"].finished == "osprey-demo-bluesky-bridge:local"
+    assert rows["bluesky-web"].finished == "osprey-demo-bluesky-web:local"
 
 
 def test_each_service_walks_its_own_dockerfile_steps(cold_build):
@@ -245,26 +245,40 @@ def test_filtering_captions_changes_no_row(cold_build):
     assert list(caption_trace(COLD_BUILD)) == [row.service for row in model.snapshot()]
 
 
-def test_the_vertex_stopwatch_is_not_part_of_the_caption():
-    """`#12 0.322 Hit:1 ...` is one caption with a timestamp in front of it, and
-    the timestamp is the vertex's, not the step's."""
+@pytest.mark.parametrize(
+    ("header", "output", "caption"),
+    [
+        # `#12 0.322 Hit:1 ...` is one caption with a timestamp in front of it, and
+        # the timestamp is the vertex's, not the step's.
+        (
+            "#12 [virtual-accelerator 5/8] RUN apt-get update",
+            "#12 0.322 Hit:1 https://deb.debian.org/debian trixie InRelease",
+            "Hit:1 https://deb.debian.org/debian trixie InRelease",
+        ),
+        # The stamp is per write, so a redrawn line carries one on every frame —
+        # including the last one, which is the only one anybody saw.
+        (
+            "#17 [virtual-accelerator 6/8] RUN pip install",
+            "#17 21.51 Collecting numpy\r21.52 Collecting scikit-learn",
+            "Collecting scikit-learn",
+        ),
+        # `dpkg` redraws one line in place, so a single captured line holds a
+        # dozen overwrites; only the last was ever on screen.
+        (
+            "#17 [va 6/8] RUN apt-get install",
+            "#17 8.494 (Reading database ... \r(Reading database ... 45%\r",
+            "(Reading database ... 45%",
+        ),
+    ],
+    ids=["vertex-stopwatch", "stopwatch-on-the-surviving-frame", "redrawn-progress-line"],
+)
+def test_a_caption_is_the_last_frame_without_the_vertex_stopwatch(header, output, caption):
     model = BuildModel()
 
-    model.feed("#12 [virtual-accelerator 5/8] RUN apt-get update", 0.0)
-    model.feed("#12 0.322 Hit:1 https://deb.debian.org/debian trixie InRelease", 1.0)
+    model.feed(header, 0.0)
+    model.feed(output, 1.0)
 
-    assert model.snapshot()[0].caption == "Hit:1 https://deb.debian.org/debian trixie InRelease"
-
-
-def test_the_stopwatch_is_stripped_from_the_frame_that_survived():
-    """The stamp is per write, so a redrawn line carries one on every frame —
-    including the last one, which is the only one anybody saw."""
-    model = BuildModel()
-
-    model.feed("#17 [virtual-accelerator 6/8] RUN pip install", 0.0)
-    model.feed("#17 21.51 Collecting numpy\r21.52 Collecting scikit-learn", 1.0)
-
-    assert model.snapshot()[0].caption == "Collecting scikit-learn"
+    assert model.snapshot()[0].caption == caption
 
 
 @pytest.mark.parametrize(
@@ -332,7 +346,7 @@ def test_a_status_echo_alone_opens_no_row():
 @pytest.fixture
 def project_image() -> tuple[BuildModel, list[str], list[dict[str, str | None]]]:
     finished: list[str] = []
-    model = BuildModel("my-control-assistant", on_finished_image=finished.append)
+    model = BuildModel("osprey-demo", on_finished_image=finished.append)
     return model, finished, replay(PROJECT_IMAGE, model)
 
 
@@ -341,7 +355,7 @@ def test_a_single_image_build_is_one_row_under_its_label(project_image):
     a service, so the label is the only thing that can name this row."""
     model, _, _ = project_image
 
-    assert [row.service for row in model.snapshot()] == ["my-control-assistant"]
+    assert [row.service for row in model.snapshot()] == ["osprey-demo"]
 
 
 def test_a_nameless_header_does_not_invent_a_service(project_image):
@@ -357,8 +371,8 @@ def test_a_nameless_header_does_not_invent_a_service(project_image):
 def test_the_single_image_reports_once_under_its_label(project_image):
     model, finished, _ = project_image
 
-    assert finished == ["my-control-assistant:local"]
-    assert model.snapshot()[0].finished == "my-control-assistant:local"
+    assert finished == ["osprey-demo:local"]
+    assert model.snapshot()[0].finished == "osprey-demo:local"
 
 
 def test_nameless_step_indices_bind_to_the_label(project_image):
@@ -367,7 +381,7 @@ def test_nameless_step_indices_bind_to_the_label(project_image):
     _, _, seen = project_image
 
     steps = steps_per_service(seen)
-    assert steps["my-control-assistant"] == {f"{n}/13" for n in range(1, 14)} | {
+    assert steps["osprey-demo"] == {f"{n}/13" for n in range(1, 14)} | {
         "auth",
         "internal",
         "exporting",
@@ -476,17 +490,6 @@ def test_a_repeated_infrastructure_header_stays_on_the_labelled_row():
     assert rows[0].started_at == 0.0
     # The `DONE` lines carry no caption, but they are still this row's output.
     assert rows[0].last_line_at == 5.0
-
-
-def test_a_redrawn_progress_caption_keeps_only_its_last_frame():
-    """`dpkg` redraws one line in place, so a single captured line holds a
-    dozen overwrites; only the last was ever on screen."""
-    model = BuildModel()
-
-    model.feed("#17 [va 6/8] RUN apt-get install", 0.0)
-    model.feed("#17 8.494 (Reading database ... \r(Reading database ... 45%\r", 1.0)
-
-    assert model.snapshot()[0].caption == "(Reading database ... 45%"
 
 
 def test_a_resumed_vertex_repeats_its_header_without_restarting_the_row():

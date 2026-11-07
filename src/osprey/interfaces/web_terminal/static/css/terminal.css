@@ -22,15 +22,17 @@
   overflow-x: hidden;
 }
 
-/* The resize handle (sidebar-resize.js): a 6 px hit area on the sidebar's
-   right edge, outside the flex flow, that shows a 2 px line on hover and an
-   accent line while focused or dragged. */
+/* The resize handle (sidebar-resize.js): a 12 px hit area along the sidebar's
+   right edge, outside the flex flow (the sidebar clips overflow, so the zone
+   sits inside the edge). The edge shows a 2 px accent line on hover and a 3 px
+   one while focused or dragged; the zone takes the col-resize cursor, and the
+   whole page does for the length of a drag. */
 .sidebar > .sidebar-resize {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 6px;
+  width: 12px;
   cursor: col-resize;
   touch-action: none;
   outline: none;
@@ -48,38 +50,49 @@
 }
 
 .sidebar-resize:hover::after {
-  background: var(--border-default);
+  background: var(--color-accent);
+  opacity: 0.55;
 }
 
 .sidebar-resize:focus-visible::after,
 .sidebar-resize.dragging::after {
+  width: 3px;
   background: var(--color-accent);
+  opacity: 1;
+}
+
+html[data-sidebar-resizing],
+html[data-sidebar-resizing] * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 
 /* Height budget: the head, the control-system block, search, the groups and
-   the footer never shrink, except for the one group that holds the
-   disclosing rows (Artifacts and Script runs, which always sit together, so
-   only one group ever holds them). In that group an open list shrinks below
-   its 8-row cap to a floor of two rows (row 28 + list padding 6 + two rows
-   52, + the filter 28 while it shows), then the group scrolls. #panel-rail
-   holds the groups and hands the shrink on to that one, keeping the others
-   whole. */
+   the footer never shrink, except for the one group that holds the Agent
+   row's session tree. In that group only an open session's artifact box
+   gives way, to min(its content, 3 rows); the rows keep their height and
+   past the floors (sidebar-divider.js adds them up) the group scrolls.
+   #panel-rail holds the groups and hands the shrink on to that one, keeping
+   the others whole. */
 .sidebar > * {
   flex: none;
 }
 
 .sidebar > .sidebar-sections {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .sidebar-sections > * {
   flex: none;
 }
 
-.sidebar-sections > .sidebar-group:first-child {
+.sidebar-sections > .sidebar-group:first-child,
+.sidebar-sections > .sidebar-pinned[hidden] + .sidebar-group {
   padding-top: var(--space-4);
 }
 
@@ -102,11 +115,7 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row:not([hidden])
   display: flex;
   flex-direction: column;
   flex: 0 1 auto;
-  min-height: 86px;
-}
-
-html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row:not([hidden]):has(> .sidebar-kids:not([hidden]) > [data-art-filter]:not([hidden])) {
-  min-height: 114px;
+  min-height: var(--sidebar-row-floor, 86px);
 }
 
 .sidebar-group > .sidebar-row > .osprey-nav-row {
@@ -120,13 +129,30 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
   min-height: 0;
 }
 
-.sidebar-group > .sidebar-row .sidebar-kids > :not(.sidebar-kids-list) {
+/* The tree is a column that gives way to its boxes, so a box scrolls once the
+   group's room runs out and otherwise takes its content's height. Only while
+   shown: the display would outrank the user-agent [hidden] rule, and a folded
+   Agent row would leave its tree on screen. */
+.sidebar-group > .sidebar-row > [data-session-tree]:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+}
+
+/* Its floor (sidebar-divider.js): every row whole, every box at its own. */
+html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > [data-session-tree]:not([hidden]) {
+  min-height: var(--sidebar-tree-floor, 52px);
+}
+
+/* Rows keep their height; a box keeps min(its content, 3 rows of 26 px and
+   its 2 px padding): up to three rows it never shrinks, past that 80 px. */
+.sidebar-group > .sidebar-row > [data-session-tree] > :not(.osprey-tree-box),
+.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:not(:has(> :nth-child(4))) {
   flex: none;
 }
 
-.sidebar-group > .sidebar-row .sidebar-kids-list {
-  flex: 0 1 auto;
-  min-height: 52px;
+.sidebar-group > .sidebar-row > [data-session-tree] > .osprey-tree-box:has(> :nth-child(4)) {
+  min-height: 80px;
 }
 
 /* A scrolled group fades at whichever edge has more (sidebar.js sets .fade /
@@ -202,14 +228,9 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
 
 /* ---- Group headings (sidebar-groups.js) ----
 
-   The group's name, then its ⋯ button, shown on hover and on focus (and
-   always on a screen with no hover). Rename swaps the name for a field in
+   The group's name, across the full width of the row: a right-click anywhere
+   on the heading opens the group's menu. Rename swaps the name for a field in
    place. */
-.sidebar-group-head {
-  gap: var(--space-1);
-  padding-right: var(--space-1);
-}
-
 .sidebar-group-name {
   flex: 1;
   min-width: 0;
@@ -217,20 +238,94 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
   text-overflow: ellipsis;
 }
 
-.sidebar-group-head [data-group-menu] {
-  opacity: 0;
-  transition: opacity var(--duration-fast);
+/* Folding (sidebar-fold.js): a double-click on the heading leaves only the
+   heading. */
+.sidebar-group-head .sidebar-group-name {
+  outline: none;
 }
 
-.sidebar-group-head:is(:hover, :focus-within) [data-group-menu],
-.sidebar-group-head [data-group-menu][aria-expanded="true"] {
+.sidebar-group-head .sidebar-group-name:focus-visible {
+  box-shadow: 0 0 0 2px var(--surface-focus);
+}
+
+html:not([data-sidebar="collapsed"]) .sidebar-group[data-folded] {
+  flex: none;
+  height: auto;
+  overflow: hidden;
+}
+
+html:not([data-sidebar="collapsed"]) .sidebar-group[data-folded] > :not(.sidebar-group-head) {
+  display: none;
+}
+
+/* The Workspace divider (sidebar-divider.js): a zero-height row between
+   groups, so it shifts nothing; a 1 px faint line with a 10 px hit zone
+   across it. As on the sidebar's edge handle, hover, focus and drag draw an
+   accent line. The group it sizes reads --sidebar-group-height. */
+.sidebar-divider {
+  position: relative;
+  height: 0;
+  outline: none;
+  z-index: 1;
+}
+
+.sidebar-divider::before {
+  content: "";
+  position: absolute;
+  inset: -5px 0;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.sidebar-divider::after {
+  content: "";
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  top: 0;
+  height: 1px;
+  background: var(--surface-hairline);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: background var(--duration-instant) ease;
+}
+
+.sidebar-divider:hover::after {
+  height: 2px;
+  background: var(--color-accent);
+  opacity: 0.55;
+}
+
+.sidebar-divider:focus-visible::after,
+.sidebar-divider.dragging::after {
+  height: 2px;
+  background: var(--color-accent);
   opacity: 1;
 }
 
-@media (hover: none) {
-  .sidebar-group-head [data-group-menu] {
-    opacity: 1;
-  }
+.sidebar-divider[hidden],
+html[data-sidebar="collapsed"] .sidebar-divider {
+  display: none;
+}
+
+html[data-sidebar-dividing],
+html[data-sidebar-dividing] * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+
+/* #panel-rail outranks the shrinking rule for the session tree's group above.
+   Automatic: as tall as its content, up to the cap; dragged: the set height. */
+html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-capped]:not([data-folded]) {
+  flex: none;
+  max-height: var(--sidebar-group-cap);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-sized]:not([data-folded]) {
+  height: var(--sidebar-group-height);
+  max-height: none;
 }
 
 .sidebar-group-rename {
@@ -249,7 +344,6 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > .sidebar-ki
 
 /* Icons only: no names to edit, and no empty line to read. */
 html[data-sidebar="collapsed"] .sidebar :is(
-  [data-group-menu],
   .sidebar-group-rename,
   .sidebar-group-empty,
   .osprey-nav-trail
@@ -271,6 +365,25 @@ html[data-sidebar="collapsed"] .sidebar :is(
 }
 
 /* ---- Panel rows: health and drag states (panel-rail.js) ---- */
+
+/* The surfaced panel: the session tree's selected look (sidebar-artifacts.css)
+   — a quiet tint, the accent icon and a thin accent bar; the label keeps its
+   resting colour and weight. */
+.sidebar .panel-rail-button[aria-current="page"] {
+  background: var(--accent-tint-06);
+  color: var(--text-secondary);
+}
+
+.sidebar .panel-rail-button[aria-current="page"]:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.sidebar .panel-rail-button[aria-current="page"]::before {
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+}
 
 .sidebar .panel-rail-button.disabled,
 .sidebar .panel-rail-button.unreachable,
@@ -297,8 +410,8 @@ html[data-sidebar="collapsed"] .sidebar :is(
   box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
-/* Popped out (panel-rail.js setEntryPoppedOut): the panel runs in its own
-   window, so the row carries a trailing window glyph and a quieter label. */
+/* Detached (rail-row-state.js setEntryDetached): the pane runs in its own
+   window, so the row carries a trailing reattach icon and a quieter label. */
 .sidebar .panel-rail-button .osprey-nav-trail {
   margin-left: auto;
   display: inline-flex;
@@ -310,7 +423,7 @@ html[data-sidebar="collapsed"] .sidebar :is(
   height: 14px;
 }
 
-.sidebar .panel-rail-button.popped-out .osprey-nav-label {
+.sidebar .panel-rail-button.detached .osprey-nav-label {
   color: var(--text-secondary);
 }
 
@@ -328,15 +441,7 @@ html[data-sidebar="collapsed"] .sidebar :is(
   background: var(--color-accent);
 }
 
-/* ---- The Agent row: open, closed, waiting ---- */
-
-.sidebar-agent-dot {
-  width: 6px;
-  height: 6px;
-  margin-left: auto;
-  margin-right: var(--space-1);
-  background: var(--color-success);
-}
+/* ---- The Sessions row: the Agent pane open, closed, waiting ---- */
 
 .sidebar-open-hint {
   display: none;
@@ -350,49 +455,45 @@ html[data-agent="closed"] #sidebar-agent-row .osprey-nav-icon {
   opacity: 0.45;
 }
 
+/* Expanded, the Sessions row is a heading and carries no icon; collapsed to
+   icons only, the row's icon is its only mark and shows. */
+html:not([data-sidebar="collapsed"]) #sidebar-agent-row .osprey-nav-icon {
+  display: none;
+}
+
 html[data-agent="closed"] #sidebar-agent-row .osprey-nav-label {
   color: var(--text-muted);
-}
-
-/* Closed is a shape (a hollow circle), not only a hue. */
-html[data-agent="closed"] #sidebar-agent-row .sidebar-agent-dot {
-  background: transparent;
-  box-shadow: inset 0 0 0 1.5px var(--text-muted);
-}
-
-html[data-agent="closed"] #sidebar-agent-row:is(:hover, :focus-visible) .sidebar-agent-dot {
-  display: none;
 }
 
 html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(:hover, :focus-visible) .sidebar-open-hint {
   display: inline;
 }
 
-/* ---- Rows that disclose a list: Artifacts, Script runs ---- */
+/* ---- The row that discloses a tree: the Sessions row and its sessions ---- */
 
 .sidebar-row {
   position: relative;
 }
 
-.sidebar-row-actions {
+/* The Sessions row's "+" (a new session) sits over the row's right end; the
+   row keeps that room clear for its Open hint and badge. Collapsed, the
+   sidebar shows the row's icon alone and no "+". */
+html:not([data-sidebar="collapsed"]) #sidebar-agent-row {
+  padding-right: 32px;
+}
+
+.sidebar-new-session {
   position: absolute;
-  top: 4px;
-  right: 26px;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--duration-fast);
+  top: 2px;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
 }
 
-.sidebar-row:is(:hover, :focus-within) > .sidebar-row-actions {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.sidebar-row:is(:hover, :focus-within) > .osprey-nav-row .osprey-nav-badge {
-  visibility: hidden;
+.sidebar-new-session .osprey-ic {
+  width: 14px;
+  height: 14px;
 }
 
 .sidebar-kids {
@@ -419,61 +520,20 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   margin-left: var(--space-2);
 }
 
-.sidebar-kids-filter {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 26px;
-  margin-bottom: 2px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--surface-hairline);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--surface-card) 60%, transparent);
-  color: var(--text-muted);
+/* The session tree draws its own indent ladder (sidebar-artifacts.css). */
+.sidebar-kids.osprey-tree {
+  padding-left: 0;
 }
 
-.sidebar-kids-filter[hidden] {
+.sidebar-kids.osprey-tree::before {
   display: none;
 }
 
-.sidebar-kids-filter:focus-within {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--surface-focus);
+.sidebar-kids.osprey-tree > * {
+  margin-left: 0;
 }
 
-.sidebar-kids-filter .osprey-ic {
-  width: 14px;
-  height: 14px;
-}
-
-.sidebar-kids-filter input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: none;
-  outline: none;
-  font: inherit;
-  font-size: var(--text-md);
-  color: var(--text-primary);
-}
-
-.sidebar-kids-filter input::placeholder {
-  color: var(--text-muted);
-}
-
-/* About eight rows, then the list scrolls inside itself with a fade. */
-.sidebar-kids-list {
-  max-height: calc(8 * 26px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}
-
-.sidebar-kids-list.fade {
-  mask-image: linear-gradient(to bottom, currentColor calc(100% - 28px), transparent);
-}
-
-/* The collapsed sidebar's Artifacts flyout: the same list beside it. */
+/* The collapsed sidebar's sessions flyout: the same tree beside it. */
 .sidebar-flyout {
   width: 320px;
   padding: var(--space-1) var(--space-1) var(--space-2);
@@ -493,13 +553,6 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   color: var(--text-primary);
 }
 
-.sidebar-flyout-head .sidebar-row-actions {
-  position: static;
-  margin-left: auto;
-  opacity: 1;
-  pointer-events: auto;
-}
-
 .sidebar-flyout .sidebar-kids {
   padding-left: 0;
 }
@@ -512,8 +565,13 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   margin-left: 0;
 }
 
-.sidebar-flyout .sidebar-kids-list {
+.sidebar-flyout [data-session-tree] {
+  display: flex;
+  flex-direction: column;
   max-height: calc(12 * 26px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 /* ---- Control-system block (sidebar-target.js around the chip) ----
@@ -576,12 +634,12 @@ html:not([data-control-target="off"]) .sidebar-target {
 
 /* Allowed on the live machine is the loudest state: nobody is asked before
    hardware moves, and it alone fills the block. */
-.sidebar-target .control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) {
+.sidebar-target .control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]) {
   border-color: var(--color-error);
   background: var(--error-tint-25);
 }
 
-.sidebar-target .control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) .ctc-state {
+.sidebar-target .control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]) .ctc-state {
   font-weight: var(--weight-semibold);
 }
 
@@ -647,8 +705,15 @@ html:not([data-control-target="off"]) .sidebar-target {
 /* The block's pill is short; the words stay for the chip's text and label. */
 .sidebar-target .ctc-sep,
 .sidebar-target .ctc-caret,
-.sidebar-target .ctc-state-lead {
+.sidebar-target .ctc-state-lead,
+.sidebar-target .ctc-state-program-sep {
   display: none;
+}
+
+/* A program in force stacks `program` under the switch word, so the pill is
+   no wider than its longer word and the machine's name keeps the room. */
+.sidebar-target .ctc-state-program {
+  display: block;
 }
 
 .sidebar-target .sidebar-health {
@@ -691,13 +756,11 @@ html[data-sidebar="collapsed"] #sidebar-toggle .osprey-ic {
 html[data-sidebar="collapsed"] :is(
   .sidebar-brand-word,
   .sidebar .osprey-nav-label,
-  .sidebar .osprey-nav-disc,
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
-  .sidebar-row > .sidebar-row-actions,
   .sidebar-row > .sidebar-kids,
   .sidebar-open-hint,
-  .sidebar-agent-dot
+  .sidebar-new-session
 ) {
   display: none;
 }
@@ -901,13 +964,6 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   justify-self: end;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-row-actions,
-  .sidebar-group-head [data-group-menu] {
-    transition: none;
-  }
-}
-
 /* ---- Control-target chip + its popover ----
 
    The one chip in the header that answers "if the agent writes now, where does
@@ -932,6 +988,46 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 
 .ctc-anchor[hidden] {
   display: none;
+}
+
+/* One short-lived line of feedback inside its host (toast.js). Text, tone and
+   fade live here; each host's own rule places it. */
+.osprey-toast {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-accent-light);
+  margin-left: var(--space-3);
+  animation: ospreyToastFade 2.5s ease-out forwards; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
+}
+
+.osprey-toast.error {
+  color: var(--color-error);
+}
+
+@keyframes ospreyToastFade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* The announcement of a landed switch: under the chip, where the popover was,
+   above everything the sidebar overlaps. */
+.ctc-anchor {
+  position: relative;
+}
+
+.ctc-anchor > .osprey-toast {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  z-index: var(--z-toast);
+  margin-left: 0;
+  padding: var(--space-1) var(--space-2);
+  white-space: nowrap;
+  color: var(--color-success);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-dropdown);
 }
 
 .control-target-chip {
@@ -985,25 +1081,34 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   --state-tone: var(--text-muted);
 }
 
-.control-target-chip:is([data-state="asked"], [data-state="allowed"]) {
+/* A program's approved authorization in force, whatever the switch word says:
+   no person is asked before its writes, inside the channels, ranges and steps
+   that were approved — the colour of allowed, with its own shape (the ring
+   below). */
+:is(.control-target-chip, .ctc-switchwrap)[data-program="true"] {
+  --state-tone: var(--color-error);
+}
+
+.control-target-chip:is([data-state="asked"], [data-state="allowed"], [data-program="true"]) {
   border-color: color-mix(in srgb, var(--state-tone) 40%, transparent);
 }
 
 /* Allowed on the live machine: nobody is asked before hardware moves. The one
-   loud cell in the matrix, at rest as well as on hover. */
-.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) {
+   loud cell in the matrix, at rest as well as on hover. A program's
+   authorization on the live machine writes just the same. */
+.control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]) {
   color: var(--text-primary);
   border-color: var(--color-error);
   background: var(--error-tint-15);
 }
 
-.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]):hover,
-.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"])[aria-expanded="true"] {
+.control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]):hover,
+.control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"])[aria-expanded="true"] {
   border-color: var(--color-error);
   background: var(--error-tint-25);
 }
 
-.control-target-chip[data-target-kind="real"][data-state="allowed"]:not([data-pending="true"]) .ctc-state {
+.control-target-chip[data-target-kind="real"]:is([data-state="allowed"], [data-program="true"]):not([data-pending="true"]) .ctc-state {
   font-weight: var(--weight-medium);
 }
 
@@ -1090,6 +1195,13 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
 [data-state="allowed"] > .ctc-dot,
 .ctc-dot[data-state="allowed"] {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--dot) 35%, transparent);
+}
+
+/* A program's authorization: a ring around a centre rather than the full dot —
+   on, with no person's gesture behind each write. */
+[data-program="true"] > .ctc-dot,
+.ctc-dot[data-program="true"] {
+  background: radial-gradient(circle, var(--dot) 30%, transparent 40%);
 }
 
 /* A switch request is out: the dot breathes until the answer lands. Motion is
@@ -1367,7 +1479,7 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   color: var(--state-tone, var(--text-muted));
 }
 
-[data-target-kind="real"] .ctc-switchwrap[data-state="allowed"] .ctc-switch-state {
+[data-target-kind="real"] .ctc-switchwrap:is([data-state="allowed"], [data-program="true"]) .ctc-switch-state {
   font-weight: var(--weight-medium);
 }
 
@@ -1546,6 +1658,87 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   color: var(--text-primary);
 }
 
+/* ---- Programs' write authorizations (write-authorization-panel.js) ---- */
+
+/* A request waiting on this login, or an authorization it approved, one line
+   each with its one action at the end. */
+.wa-request,
+.wa-held {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.wa-held .wa-what::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: var(--space-1);
+  border-radius: var(--radius-full);
+  background: radial-gradient(circle, var(--color-error) 30%, transparent 40%);
+  border: 1.5px solid var(--color-error);
+}
+
+.wa-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+}
+
+.wa-card-title {
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.wa-channels {
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+}
+
+.wa-channels th,
+.wa-channels td {
+  padding: 0 var(--space-2) 0 0;
+  text-align: left;
+}
+
+.wa-channel[data-problem] {
+  color: var(--color-error);
+}
+
+.wa-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 var(--space-2);
+  margin: 0;
+}
+
+.wa-facts dd {
+  margin: 0;
+}
+
+.wa-loading,
+.wa-note,
+.wa-status {
+  color: var(--text-muted);
+}
+
+.wa-refusal {
+  color: var(--color-error);
+}
+
+.wa-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
 /* ---- Rail / tile-header context menu ---- */
 
 /* The right-click popover of a sidebar row and of a tile header: the panel's
@@ -1719,11 +1912,10 @@ html[data-sidebar-resizing] {
   overflow: hidden;
 }
 
-/* Pointer-shield: while a dockview drag is active, neutralize pointer capture on
+/* Pointer-shield: while a dock drag is live, neutralize pointer capture on
    panel iframes so a separate-document iframe can't swallow the drag events
-   dockview needs for drop-target detection. dock-workspace.js toggles the class
-   on drag start/end; this mirrors the guarantee dockview already makes for its
-   own draggables across the whole gesture. */
+   the drop bridge needs for its hit test. dock-drop.js toggles the class at
+   the drag's start and end, for a header tab, a tile and a sidebar row alike. */
 .main-container.dock-dragging iframe {
   pointer-events: none;
 }
@@ -1786,6 +1978,31 @@ html[data-sidebar-resizing] {
   text-overflow: ellipsis;
 }
 
+/* ---- Attached pop-out window ----
+   The window's bar is the tile's own (dock-tab.js, dockview-overrides.css
+   .tile-tab), minus what the dock gives a tile's bar: its row, and a drag.
+   The pane fills the rest of the window edge to edge. */
+.attached-window-root > .tile-tab {
+  flex: 0 0 var(--wt-pane-head-height);
+  box-sizing: border-box;
+  height: var(--wt-pane-head-height);
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--surface-hairline);
+  cursor: default;
+}
+/* The Agent pane is the window's interior, as it is the tile's when docked
+   (dockview-overrides.css .dock-root .terminal-card): no inset, no second
+   border, the card surface. */
+.attached-window-root > .terminal-panel {
+  padding: 0;
+  background: var(--surface-card);
+}
+.attached-window-root .terminal-card {
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-card);
+}
+
 /* ---- Terminal panel ---- */
 
 .terminal-panel {
@@ -1811,109 +2028,6 @@ html[data-sidebar-resizing] {
   border: 1px solid var(--surface-hairline);
   border-radius: var(--radius-xl);
   overflow: hidden;
-}
-
-/* The terminal surface's header row (LED · label · selector · "+ New" · ⋯),
-   with the pane-head metrics. Fallback mode (no dockview) shows it as the
-   card's own header; docked, dock-tab.js adopts it into the tile bar. */
-.terminal-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: var(--wt-pane-head-height);
-  padding: 0 var(--space-2) 0 var(--space-4);
-  background: var(--surface-card);
-  border-bottom: 1px solid var(--surface-hairline);
-  flex-shrink: 0;
-}
-
-/* Inside the tile header bar (dock-tab.js adoption) the header IS the bar:
- * it fills the tab, drops its own card border/background (the strip's
- * chrome shows through), and tightens padding to the bar's height. The
- * un-scoped rules above remain the fallback-mode (no dockview) look. */
-.tile-tab .terminal-header {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  background: transparent;
-  border-bottom: none;
-}
-
-/* In the bar, the session label is the tile's IDENTITY and renders exactly
- * like every service tile's name (.tile-tab-title in dockview-overrides.css)
- * — the green LED, selector and "+ New" are what keep the terminal
- * recognizable, not a divergent type treatment. The un-scoped .terminal-label
- * above stays the fallback-mode look. */
-.tile-tab .terminal-label {
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  text-transform: none;
-  letter-spacing: normal;
-  color: var(--text-primary);
-}
-
-/* "+ New" joins the bar's 28 px control geometry (its chip fill stays). */
-.tile-tab .new-session-btn {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 9px;
-}
-
-.session-led {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.session-led.active {
-  background: var(--color-success);
-}
-
-/* "SESSION <hex>" — one of the shell's two always-visible orientation marks;
-   the other is which panel is open (.panel-rail-button.active). Both ride the
-   secondary accent, distinct from the primary accent that means "you can act
-   here". --color-accent-secondary-light is the text-safe slot of the pair (the
-   base is decorative-only and is not gated for body text). */
-.terminal-label {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  color: var(--color-accent-secondary-light);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-/* "+ New" chip — bg-elevated fill, hairline border, matching the frame's chip
-   idiom (not the old bordered mono button). */
-.new-session-btn {
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: var(--weight-regular);
-  color: var(--text-secondary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  padding: 3px 9px;
-  cursor: pointer;
-  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease,
-    background var(--duration-fast) ease;
-  margin-left: auto;
-}
-
-.new-session-btn:hover {
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
-  background: var(--accent-tint-08);
-}
-
-.new-session-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* Terminal body surface — the darker bg.terminal, distinct from the panel-bg

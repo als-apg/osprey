@@ -44,13 +44,19 @@ from osprey.services.ariel_search.models import (
     SearchDiagnostic,
     enhanced_entry_from_row,
 )
+from osprey.services.ariel_search.subject import derive_subject
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
+    from zoneinfo import ZoneInfo
+
     from psycopg import AsyncConnection
     from psycopg_pool import AsyncConnectionPool
 
+    from osprey.facility.records import FacilityRecords
     from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.enhancement.status import EnhancementContext
+    from osprey.services.ariel_search.filters import EntryFilter, FilterDimension
 
 logger = get_logger("ariel")
 
@@ -77,6 +83,63 @@ def _pattern_timeout_error(pattern_timeout_seconds: float | None) -> SearchTimeo
         timeout_seconds=pattern_timeout_seconds or 0,
         operation="keyword_search",
     )
+
+
+#: Matches counted for a search total (C-MODOUT); past this the total is inexact.
+SEARCH_COUNT_CAP = 1000
+
+# The most follow-ups one thread returns (A17). ``get_follow_ups`` fetches one
+# more than this so a caller can tell the thread was cut short.
+FOLLOW_UPS_LIMIT = 200
+
+
+class SearchRows(list):
+    """One page of search rows, plus the capped match count when it was asked for.
+
+    A plain ``list`` to every caller that ignores the count. With ``count=True``
+    a search function sets `total` to ``min(n, SEARCH_COUNT_CAP)`` over the
+    whole unpaged match set and `total_exact` to whether ``n`` stayed within
+    the cap; without it `total` is ``None``.
+    """
+
+    total: int | None = None
+    total_exact: bool = False
+
+
+async def _capped_count(
+    cur: Any, from_where_sql: str, params: Any, *, with_sql: str = ""
+) -> tuple[int, bool]:
+    """Count the rows of ``FROM ... WHERE ...`` up to one past the cap.
+
+    Args:
+        cur: Open cursor (any row factory).
+        from_where_sql: The ``FROM ... WHERE ...`` part of the search statement,
+            with its own placeholders.
+        params: Parameters for `with_sql` and `from_where_sql`, in order (or a
+            mapping for named placeholders).
+        with_sql: Optional ``WITH ...`` prefix the FROM part relies on.
+
+    Returns:
+        ``(total, exact)``: the count capped at `SEARCH_COUNT_CAP`, and whether
+        the true count is within the cap.
+    """
+    await cur.execute(
+        f"{with_sql} SELECT COUNT(*) AS n FROM (SELECT 1 {from_where_sql} "
+        f"LIMIT {SEARCH_COUNT_CAP + 1}) AS counted",
+        params,
+    )
+    row = await cur.fetchone()
+    if row is None:
+        return 0, True
+    n = int(row["n"] if isinstance(row, dict) else row[0])
+    return min(n, SEARCH_COUNT_CAP), n <= SEARCH_COUNT_CAP
+
+
+def _search_rows(rows: list[Any], counted: tuple[int, bool] | None) -> SearchRows:
+    page = SearchRows(rows)
+    if counted is not None:
+        page.total, page.total_exact = counted
+    return page
 
 
 #: One positional placeholder, or an escaped percent sign that must stay as it is.
@@ -170,6 +233,41 @@ MAX_ENHANCEMENT_ATTEMPTS = 3
 SCHEMA_FACTS_NEGATIVE_TTL_SECONDS = 60.0
 
 
+def _subject_upsert_sql(has_subject: bool, placeholder: str) -> tuple[str, str, str]:
+    """The column, value and update fragments that write the stored subject (C-SUBJ).
+
+    All three are empty on a schema without the ``subject`` column. An incoming
+    empty subject keeps the stored one.
+
+    Args:
+        has_subject: Whether ``enhanced_entries`` carries the ``subject`` column.
+        placeholder: The subject's bind placeholder in the caller's param style.
+    """
+    if not has_subject:
+        return "", "", ""
+    return (
+        ", subject",
+        f", {placeholder}",
+        ",\n    subject = COALESCE(NULLIF(EXCLUDED.subject, ''), enhanced_entries.subject)",
+    )
+
+
+#: The ON CONFLICT metadata update shared by both upserts. The incoming metadata
+#: replaces the stored one, except that a stored ``follows_up`` is kept when the
+#: incoming metadata has no such key: a facility read-back or re-ingest that cannot
+#: store the link must not erase the one ARIEL wrote. A present key, even ``null``,
+#: wins. Consequence: deleting the key upstream never clears a stored value.
+_METADATA_UPSERT_SQL = """metadata = CASE
+        WHEN jsonb_typeof(EXCLUDED.metadata) = 'object'
+            AND jsonb_typeof(enhanced_entries.metadata) = 'object'
+            AND NOT (EXCLUDED.metadata ? 'follows_up')
+            AND enhanced_entries.metadata ? 'follows_up'
+        THEN EXCLUDED.metadata
+            || jsonb_build_object('follows_up', enhanced_entries.metadata -> 'follows_up')
+        ELSE EXCLUDED.metadata
+    END"""
+
+
 class SchemaFacts(NamedTuple):
     """Optional schema objects a pool's database carries, probed once per pool.
 
@@ -179,10 +277,13 @@ class SchemaFacts(NamedTuple):
             when ``semantic_processor`` is enabled.
         has_copy_state: ``attachment_files.copy_status`` exists, so attachment copy
             state can be recorded.
+        has_subject: ``enhanced_entries.subject`` exists (``entry_subject_and_keyset``),
+            so the stored subject can be written and read.
     """
 
     has_v2_fts: bool
     has_copy_state: bool
+    has_subject: bool = False
 
 
 #: The ``enhancement_status`` keys of the modules whose input includes ``attachment_text``.
@@ -199,17 +300,28 @@ def attachment_text_md5(entry: Mapping[str, Any]) -> str:
     return hashlib.md5(text.encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
+def marker_kwargs(module_name: str, markers: Mapping[str, str | None] | None) -> dict[str, str]:
+    """The ``marker`` keyword of a complete or failed mark; none without a current marker."""
+    marker = (markers or {}).get(module_name)
+    return {} if marker is None else {"marker": marker}
+
+
 def text_mark_kwargs(
-    module_name: str, entry: Mapping[str, Any], has_copy_state: bool
+    module_name: str,
+    entry: Mapping[str, Any],
+    has_copy_state: bool,
+    markers: Mapping[str, str | None] | None = None,
 ) -> dict[str, str]:
     """Return the keyword arguments of :meth:`ARIELRepository.mark_enhancement_complete`.
 
     A text module on a store with copy state is marked under the md5 of the
-    ``attachment_text`` it read from ``entry``; every other mark takes no keyword.
+    ``attachment_text`` it read from ``entry``. A module with a current marker in
+    ``markers`` is marked under it too (``qmd_export`` may take both).
     """
+    kwargs = marker_kwargs(module_name, markers)
     if has_copy_state and module_name in TEXT_MD5_MODULES:
-        return {"md5": attachment_text_md5(entry)}
-    return {}
+        kwargs["md5"] = attachment_text_md5(entry)
+    return kwargs
 
 
 #: The ``enhancement_status`` keys of the two image modules. A picture whose
@@ -244,15 +356,65 @@ def image_not_done_sql(module_name: str, marker: str) -> str | None:
     return None
 
 
-#: The marker-aware "still owed" predicate over ``enhanced_entries e``: no key, a
-#: key written under another marker, or a pending or failed status not given up.
-#: Binds ``%(module)s`` and ``%(marker)s``.
-_MARKER_INCOMPLETE_SQL = (
-    "(NOT (e.enhancement_status ? %(module)s)"
-    " OR e.enhancement_status->%(module)s->>'marker' IS DISTINCT FROM %(marker)s"
-    " OR (e.enhancement_status->%(module)s->>'status' IN ('pending', 'failed')"
-    " AND NOT COALESCE((e.enhancement_status->%(module)s->>'gave_up')::boolean, false)))"
-)
+def _named_fragment(
+    fragment: str, values: Sequence[Any], names: Mapping[Any, str], params: dict[str, Any]
+) -> str:
+    """Rebind a positional (``%s``) SQL fragment to named parameters.
+
+    Each ``%s`` in ``fragment`` becomes ``%(<names[value]>)s`` and the value is
+    bound under that name in ``params``, so a fragment built for positional
+    binding can join a query bound by name. Two equal values may share a name,
+    because they bind identically. ``fragment`` must hold no other ``%``.
+    """
+    parts = fragment.split("%s")
+    if len(parts) != len(values) + 1:
+        raise ValueError("fragment placeholders do not match its values")
+    sql = parts[0]
+    for value, rest in zip(values, parts[1:], strict=True):
+        name = names[value]
+        params[name] = value
+        sql += f"%({name})s{rest}"
+    return sql
+
+
+def _marker_stale_named(
+    module: str,
+    marker: str,
+    alias: str,
+    *,
+    module_param: str,
+    marker_param: str,
+    params: dict[str, Any],
+) -> str:
+    """The shared "marker stale" fragment (``status.marker_stale_sql``), bound by name.
+
+    For an image module a missing stored marker is stale; for a text module it
+    is not, so a text status written before markers existed is never owed or
+    counted pending on its marker alone.
+    """
+    from osprey.services.ariel_search.enhancement.status import marker_stale_sql
+
+    fragment, values = marker_stale_sql(module, alias, marker=marker)
+    names = {module: module_param, marker: marker_param}
+    return _named_fragment(fragment, values, names, params)
+
+
+def _marker_incomplete_sql(module: str, marker: str, params: dict[str, Any]) -> str:
+    """The marker-aware "still owed" predicate over ``enhanced_entries e``.
+
+    No key, a stale marker (the shared fragment), or a pending or failed status
+    not given up. Binds ``%(module)s`` and ``%(marker)s`` into ``params``.
+    """
+    stale = _marker_stale_named(
+        module, marker, "e", module_param="module", marker_param="marker", params=params
+    )
+    return (
+        "(NOT (e.enhancement_status ? %(module)s)"
+        f" OR {stale}"
+        " OR (e.enhancement_status->%(module)s->>'status' IN ('pending', 'failed')"
+        " AND NOT COALESCE((e.enhancement_status->%(module)s->>'gave_up')::boolean, false)))"
+    )
+
 
 #: Entries the set-based image-module mark selects and locks per batch.
 IMAGE_MARK_BATCH_SIZE = 1000
@@ -445,7 +607,9 @@ async def schema_behind_diagnostics(repository: object) -> list[SearchDiagnostic
             awaitable ``schema_facts`` reports nothing.
 
     Returns:
-        One WARNING diagnostic while any schema fact is false, else an empty list.
+        One WARNING diagnostic while a fact search depends on (``has_v2_fts``,
+        ``has_copy_state``) is false, else an empty list. ``has_subject`` is not
+        one: search reads no stored subject.
     """
     probe = getattr(repository, "schema_facts", None)
     if probe is None:
@@ -455,7 +619,7 @@ async def schema_behind_diagnostics(repository: object) -> list[SearchDiagnostic
     except Exception as e:  # a store we cannot ask is not reported as behind.
         logger.debug(f"schema facts unavailable for the search diagnostic: {e}")
         return []
-    if not isinstance(facts, tuple) or all(facts):
+    if not isinstance(facts, tuple) or all(facts[:2]):
         return []
     return [
         SearchDiagnostic(
@@ -490,6 +654,15 @@ async def image_embedding_table_names(cur: Any) -> list[str]:
         {"n": len(_IMAGE_TABLE_PREFIX), "prefix": _IMAGE_TABLE_PREFIX},
     )
     return [row[0] for row in await cur.fetchall()]
+
+
+def _module_label(module: str) -> str:
+    """The registration's ``label`` for enhancement ``module``, else its name."""
+    from osprey.registry import get_registry
+
+    found = get_registry().get_ariel_enhancement_module(module)
+    reg = found[1] if found else None
+    return getattr(reg, "label", None) or module
 
 
 class CopyRendition(NamedTuple):
@@ -538,19 +711,31 @@ class ARIELRepository:
     Attributes:
         pool: Database connection pool
         config: ARIEL configuration
+        facility_records: The facility records entries are checked against, or
+            None when no facility file was read
     """
 
-    def __init__(self, pool: "AsyncConnectionPool", config: "ARIELConfig") -> None:
+    def __init__(
+        self,
+        pool: "AsyncConnectionPool",
+        config: "ARIELConfig",
+        *,
+        facility_records: "FacilityRecords | None" = None,
+    ) -> None:
         """Initialize the repository.
 
         Args:
             pool: Database connection pool
             config: ARIEL configuration
+            facility_records: The facility records entries are checked against
         """
         self.pool = pool
         self.config = config
+        self.facility_records = facility_records
         self._schema_facts: SchemaFacts | None = None
         self._schema_probed_at: float | None = None
+        #: ``table -> (has input_key, probed at)`` for :meth:`text_input_key_column`.
+        self._input_key_columns: dict[str, tuple[bool, float]] = {}
         #: Monotonic clock the negative-probe TTL is measured on; tests replace it.
         self._clock: Callable[[], float] = time.monotonic
 
@@ -613,7 +798,13 @@ class ARIELRepository:
                     WHERE table_schema = current_schema()
                     AND table_name = 'attachment_files'
                     AND column_name = 'copy_status'
-                ) AS has_copy_state
+                ) AS has_copy_state,
+                EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                    AND table_name = 'enhanced_entries'
+                    AND column_name = 'subject'
+                ) AS has_subject
         """
         try:
             async with self.pool.connection() as conn:
@@ -621,10 +812,18 @@ class ARIELRepository:
                 row = await result.fetchone()
         except Exception as e:  # a failed probe degrades to the old-schema path.
             logger.warning(f"Schema probe failed, treating optional schema as absent: {e}")
-            return SchemaFacts(has_v2_fts=False, has_copy_state=False)
+            return SchemaFacts(has_v2_fts=False, has_copy_state=False, has_subject=False)
         if not row:
-            return SchemaFacts(has_v2_fts=False, has_copy_state=False)
-        return SchemaFacts(has_v2_fts=bool(row[0]), has_copy_state=bool(row[1]))
+            return SchemaFacts(has_v2_fts=False, has_copy_state=False, has_subject=False)
+        return SchemaFacts(
+            has_v2_fts=bool(row[0]), has_copy_state=bool(row[1]), has_subject=bool(row[2])
+        )
+
+    async def _has_images_select(self) -> str:
+        """The ``has_images`` select expression over ``enhanced_entries e`` (C-ENH)."""
+        from osprey.services.ariel_search.enhancement.status import has_images_sql
+
+        return has_images_sql("e", has_copy_state=(await self.schema_facts()).has_copy_state)
 
     async def get_entry(self, entry_id: str) -> EnhancedLogbookEntry | None:
         """Get a single entry by ID.
@@ -638,12 +837,14 @@ class ARIELRepository:
         from psycopg.rows import dict_row
 
         try:
+            images = await self._has_images_select()
             async with (
                 self.pool.connection() as conn,
                 conn.cursor(row_factory=dict_row) as cur,
             ):
                 await cur.execute(
-                    "SELECT * FROM enhanced_entries WHERE entry_id = %s",
+                    f"SELECT e.*, {images} AS has_images"
+                    " FROM enhanced_entries e WHERE e.entry_id = %s",
                     [entry_id],
                 )
                 row = await cur.fetchone()
@@ -652,6 +853,50 @@ class ARIELRepository:
             raise DatabaseQueryError(
                 f"Failed to get entry {entry_id}: {e}",
                 query=f"SELECT entry_id={entry_id}",
+            ) from e
+
+    async def get_follow_ups(
+        self, entry_id: str, limit: int = FOLLOW_UPS_LIMIT
+    ) -> list[EnhancedLogbookEntry]:
+        """List the newest entries whose ``metadata.follows_up`` names ``entry_id``.
+
+        Selects the newest ``limit + 1`` follow-ups and returns them oldest first
+        (``timestamp``, then ``entry_id``), with the same columns as the entry
+        list; more than ``limit`` rows back means older follow-ups were left out.
+        An entry naming itself is not its own follow-up. The predicate matches
+        the ``follows_up_index`` expression index.
+
+        Args:
+            entry_id: The parent entry ID
+            limit: The most follow-ups the caller shows
+
+        Returns:
+            Up to ``limit + 1`` follow-ups, empty when there are none or the ID
+            is unknown
+
+        Raises:
+            DatabaseQueryError: If the query fails
+        """
+        from psycopg.rows import dict_row
+
+        try:
+            images = await self._has_images_select()
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(
+                    f"SELECT e.*, {images} AS has_images FROM enhanced_entries e"
+                    " WHERE e.metadata->>'follows_up' = %s AND e.entry_id <> %s"
+                    " ORDER BY e.timestamp DESC, e.entry_id DESC LIMIT %s",
+                    [entry_id, entry_id, max(limit, 0) + 1],
+                )
+                rows = await cur.fetchall()
+                return [enhanced_entry_from_row(row) for row in reversed(rows)]
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to get follow-ups of {entry_id}: {e}",
+                query=f"SELECT follows_up={entry_id}",
             ) from e
 
     async def get_entries_by_ids(self, entry_ids: list[str]) -> list[EnhancedLogbookEntry]:
@@ -669,12 +914,14 @@ class ARIELRepository:
             return []
 
         try:
+            images = await self._has_images_select()
             async with (
                 self.pool.connection() as conn,
                 conn.cursor(row_factory=dict_row) as cur,
             ):
                 await cur.execute(
-                    "SELECT * FROM enhanced_entries WHERE entry_id = ANY(%s)",
+                    f"SELECT e.*, {images} AS has_images"
+                    " FROM enhanced_entries e WHERE e.entry_id = ANY(%s)",
                     [entry_ids],
                 )
                 rows = await cur.fetchall()
@@ -684,6 +931,14 @@ class ARIELRepository:
                 f"Failed to get entries by IDs: {e}",
                 query=f"SELECT entry_ids=ANY([{len(entry_ids)} ids])",
             ) from e
+
+    def _facility_refs(self, raw_text: str) -> list[dict[str, Any]] | None:
+        """The ids ``raw_text`` quotes as stored JSON; None without facility records."""
+        if self.facility_records is None:
+            return None
+        from osprey.facility.references import find_facility_references
+
+        return [ref.to_json() for ref in find_facility_references(raw_text, self.facility_records)]
 
     async def upsert_entry(self, entry: EnhancedLogbookEntry) -> None:
         """Insert or update an entry.
@@ -697,7 +952,24 @@ class ARIELRepository:
             entry: The entry to upsert
         """
         incoming = entry.get("attachments") or []
+        facility_refs = self._facility_refs(entry["raw_text"])
+        entry["facility_refs"] = facility_refs
         try:
+            has_subject = (await self.schema_facts()).has_subject
+            subject_column, subject_value, subject_set = _subject_upsert_sql(has_subject, "%s")
+            params = [
+                entry["entry_id"],
+                entry["source_system"],
+                entry["timestamp"],
+                entry.get("author", ""),
+                entry["raw_text"],
+                json.dumps(entry.get("attachments", [])),
+                json.dumps(entry.get("metadata", {})),
+                json.dumps(entry.get("enhancement_status", {})),
+                None if facility_refs is None else json.dumps(facility_refs),
+            ]
+            if has_subject:
+                params.append(derive_subject(entry))
             async with self.pool.connection() as conn, conn.transaction():
                 previous = (
                     await self._lock_stored_attachments(conn, entry["entry_id"])
@@ -705,12 +977,12 @@ class ARIELRepository:
                     else None
                 )
                 await conn.execute(
-                    """
+                    f"""
                     INSERT INTO enhanced_entries (
                         entry_id, source_system, timestamp, author, raw_text,
-                        attachments, metadata, enhancement_status
+                        attachments, metadata, enhancement_status, facility_refs{subject_column}
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s{subject_value}
                     )
                     ON CONFLICT (entry_id) DO UPDATE SET
                         source_system = EXCLUDED.source_system,
@@ -729,18 +1001,10 @@ class ARIELRepository:
                             THEN enhanced_entries.attachments
                             ELSE EXCLUDED.attachments
                         END,
-                        metadata = EXCLUDED.metadata
+                        {_METADATA_UPSERT_SQL},
+                        facility_refs = EXCLUDED.facility_refs{subject_set}
                     """,
-                    [
-                        entry["entry_id"],
-                        entry["source_system"],
-                        entry["timestamp"],
-                        entry.get("author", ""),
-                        entry["raw_text"],
-                        json.dumps(entry.get("attachments", [])),
-                        json.dumps(entry.get("metadata", {})),
-                        json.dumps(entry.get("enhancement_status", {})),
-                    ],
+                    params,
                 )
                 if previous:
                     replaced = await self._delete_replaced_stand_ins(
@@ -832,12 +1096,14 @@ class ARIELRepository:
             conn: Optional caller connection; the transaction nests as a savepoint.
 
         Returns:
-            The stored ``attachments``, ``attachment_text`` and
-            ``attachment_captions`` after the write.
+            The stored ``attachments``, ``attachment_text``,
+            ``attachment_captions`` and ``facility_refs`` after the write.
         """
         from psycopg.rows import dict_row
 
         query = f"UPSERT RETURNING entry_id={entry['entry_id']}"
+        facility_refs = self._facility_refs(entry["raw_text"])
+        entry["facility_refs"] = facility_refs
         params = {
             "entry_id": entry["entry_id"],
             "source_system": entry["source_system"],
@@ -847,24 +1113,31 @@ class ARIELRepository:
             "attachments": json.dumps(entry.get("attachments", [])),
             "metadata": json.dumps(entry.get("metadata", {})),
             "enhancement_status": json.dumps(entry.get("enhancement_status", {})),
+            "facility_refs": None if facility_refs is None else json.dumps(facility_refs),
         }
         incoming = entry.get("attachments") or []
         replaced: list[str] = []
         try:
+            has_subject = (await self.schema_facts()).has_subject
+            subject_column, subject_value, subject_set = _subject_upsert_sql(
+                has_subject, "%(subject)s"
+            )
+            if has_subject:
+                params["subject"] = derive_subject(entry)
             async with self._connection(conn) as c, c.transaction():
                 previous = (
                     await self._lock_stored_attachments(c, entry["entry_id"]) if incoming else None
                 )
                 async with c.cursor(row_factory=dict_row) as cur:
                     await cur.execute(
-                        """
+                        f"""
                         INSERT INTO enhanced_entries (
                             entry_id, source_system, timestamp, author, raw_text,
-                            attachments, metadata, enhancement_status
+                            attachments, metadata, enhancement_status, facility_refs{subject_column}
                         ) VALUES (
                             %(entry_id)s, %(source_system)s, %(timestamp)s, %(author)s,
                             %(raw_text)s, %(attachments)s, %(metadata)s,
-                            %(enhancement_status)s
+                            %(enhancement_status)s, %(facility_refs)s{subject_value}
                         )
                         ON CONFLICT (entry_id) DO UPDATE SET
                             source_system = EXCLUDED.source_system,
@@ -893,8 +1166,9 @@ class ARIELRepository:
                                     )
                                 ), '[]'::jsonb)
                             END,
-                            metadata = EXCLUDED.metadata
-                        RETURNING attachments, attachment_text, attachment_captions
+                            {_METADATA_UPSERT_SQL},
+                            facility_refs = EXCLUDED.facility_refs{subject_set}
+                        RETURNING attachments, attachment_text, attachment_captions, facility_refs
                         """,
                         params,
                     )
@@ -927,7 +1201,53 @@ class ARIELRepository:
             "attachments": row["attachments"],
             "attachment_text": row["attachment_text"],
             "attachment_captions": row["attachment_captions"],
+            "facility_refs": row["facility_refs"],
         }
+
+    async def _entry_list_where(
+        self,
+        alias: str,
+        *,
+        start: datetime | None,
+        end: datetime | None,
+        author: str | None,
+        source_system: str | None,
+        entry_filter: "EntryFilter | None",
+    ) -> tuple[list[str], list[Any]]:
+        """The WHERE clauses :meth:`search_by_time_range` and :meth:`count_entries` share.
+
+        The legacy kwargs stay their own clauses -- ``timestamp`` bounds and the
+        literal, case-sensitive ``author = %s`` / ``source_system = %s`` -- and are
+        ANDed with ``entry_filter.to_sql`` (C-FILTER H2), so legacy callers see the
+        rows they always saw while a filter matches ignoring case.
+
+        Args:
+            alias: How the enclosing query names ``enhanced_entries``.
+            start: Legacy start of the time range (inclusive).
+            end: Legacy end of the time range (inclusive).
+            author: Legacy exact author.
+            source_system: Legacy exact source system.
+            entry_filter: The filter object, or None.
+
+        Returns:
+            ``(clauses, params)`` with positional ``%s`` placeholders.
+        """
+        conditions: list[str] = []
+        params: list[Any] = []
+        if start is not None:
+            conditions.append("timestamp >= %s")
+            params.append(start)
+        if end is not None:
+            conditions.append("timestamp <= %s")
+            params.append(end)
+        if author is not None:
+            conditions.append("author = %s")
+            params.append(author)
+        if source_system is not None:
+            conditions.append("source_system = %s")
+            params.append(source_system)
+        filter_clauses, filter_params = await self._entry_filter_sql(entry_filter, alias)
+        return conditions + filter_clauses, params + filter_params
 
     async def search_by_time_range(
         self,
@@ -937,52 +1257,65 @@ class ARIELRepository:
         offset: int = 0,
         author: str | None = None,
         source_system: str | None = None,
+        *,
+        entry_filter: "EntryFilter | None" = None,
+        after_cursor: str | None = None,
     ) -> list[EnhancedLogbookEntry]:
         """Get entries within a time range, optionally filtered and paginated.
+
+        Entries come newest first, ``timestamp DESC, entry_id DESC``, so equal
+        timestamps have a stable order and a keyset page neither repeats nor
+        skips one. Each entry carries ``has_images`` (C-ENH).
 
         Args:
             start: Start of time range (inclusive)
             end: End of time range (inclusive)
             limit: Maximum entries to return
             offset: Number of entries to skip (for pagination)
-            author: Restrict to a single author (exact match)
+            author: Restrict to a single author (exact, case-sensitive match)
             source_system: Restrict to a single source system (exact match)
+            entry_filter: Filter object ANDed with the legacy kwargs (C-FILTER)
+            after_cursor: Keyset cursor (:func:`~osprey.services.ariel_search.filters.encode_cursor`);
+                only entries strictly after it in the listing order are returned
 
         Returns:
             List of EnhancedLogbookEntry sorted by timestamp descending
+
+        Raises:
+            FilterValidationError: If ``after_cursor`` is malformed (field ``cursor``).
+            DatabaseQueryError: If the query fails.
         """
         from psycopg.rows import dict_row
 
+        from osprey.services.ariel_search.filters import decode_cursor
+
+        keyset = decode_cursor(after_cursor) if after_cursor is not None else None
+
         try:
+            conditions, params = await self._entry_list_where(
+                "e",
+                start=start,
+                end=end,
+                author=author,
+                source_system=source_system,
+                entry_filter=entry_filter,
+            )
+            if keyset is not None:
+                conditions.append("(e.timestamp, e.entry_id) < (%s, %s)")
+                params += list(keyset)
+            where_clause = " AND ".join(conditions) if conditions else "TRUE"
+            params += [limit, offset]
+            has_images = await self._has_images_select()
+
             async with (
                 self.pool.connection() as conn,
                 conn.cursor(row_factory=dict_row) as cur,
             ):
-                conditions = []
-                params: list[Any] = []
-
-                if start is not None:
-                    conditions.append("timestamp >= %s")
-                    params.append(start)
-                if end is not None:
-                    conditions.append("timestamp <= %s")
-                    params.append(end)
-                if author is not None:
-                    conditions.append("author = %s")
-                    params.append(author)
-                if source_system is not None:
-                    conditions.append("source_system = %s")
-                    params.append(source_system)
-
-                where_clause = " AND ".join(conditions) if conditions else "TRUE"
-                params.append(limit)
-                params.append(offset)
-
                 await cur.execute(
                     f"""
-                    SELECT * FROM enhanced_entries
+                    SELECT e.*, {has_images} AS has_images FROM enhanced_entries e
                     WHERE {where_clause}
-                    ORDER BY timestamp DESC
+                    ORDER BY e.timestamp DESC, e.entry_id DESC
                     LIMIT %s OFFSET %s
                     """,
                     params,
@@ -1001,39 +1334,35 @@ class ARIELRepository:
         end: datetime | None = None,
         author: str | None = None,
         source_system: str | None = None,
+        *,
+        entry_filter: "EntryFilter | None" = None,
     ) -> int:
         """Count entries, applying the same optional filters as ``search_by_time_range``.
 
-        Passing no filters counts every entry. The filters mirror
-        :meth:`search_by_time_range` so a paginated listing's ``total`` (and the
-        ``total_pages`` derived from it) matches the rows the filtered query
-        actually returns.
+        Passing no filters counts every entry. Both build their WHERE from
+        :meth:`_entry_list_where`, so a paginated listing's ``total`` matches the
+        rows the filtered query actually returns.
 
         Args:
             start: Start of time range (inclusive)
             end: End of time range (inclusive)
-            author: Restrict to a single author (exact match)
+            author: Restrict to a single author (exact, case-sensitive match)
             source_system: Restrict to a single source system (exact match)
+            entry_filter: Filter object ANDed with the legacy kwargs (C-FILTER)
 
         Returns:
             Number of entries matching the filters
         """
         try:
-            conditions: list[str] = []
-            params: list[object] = []
-            if start is not None:
-                conditions.append("timestamp >= %s")
-                params.append(start)
-            if end is not None:
-                conditions.append("timestamp <= %s")
-                params.append(end)
-            if author is not None:
-                conditions.append("author = %s")
-                params.append(author)
-            if source_system is not None:
-                conditions.append("source_system = %s")
-                params.append(source_system)
-
+            # Unaliased, so the filter qualifies its columns by the table name.
+            conditions, params = await self._entry_list_where(
+                "enhanced_entries",
+                start=start,
+                end=end,
+                author=author,
+                source_system=source_system,
+                entry_filter=entry_filter,
+            )
             where_clause = " AND ".join(conditions) if conditions else "TRUE"
 
             async with self.pool.connection() as conn:
@@ -1047,6 +1376,190 @@ class ARIELRepository:
             raise DatabaseQueryError(
                 f"Failed to count entries: {e}",
                 query="SELECT COUNT(*)",
+            ) from e
+
+    async def facet_counts(
+        self,
+        entry_filter: "EntryFilter",
+        dims: "Sequence[FilterDimension]",
+        *,
+        id_scope: Sequence[str] | None = None,
+        ctx: "EnhancementContext",
+        limit: int = 50,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Count the entries per value of each dimension (C-FACETS).
+
+        Each dimension is counted under ``entry_filter.without(dim)``, so a
+        dimension's own selection never narrows its counts (OR within a
+        dimension, AND across). A scalar dimension groups by ``lower(col)`` and
+        shows ``min(col)``; ``tags`` unnests ``metadata->'tags'`` when it is an
+        array and counts each entry once per lower-cased tag. ``enhancement``
+        counts ``<module>:failed`` and ``<module>:stale`` with one
+        ``COUNT(*) FILTER (WHERE enhancement_state_sql(...))`` per enabled module
+        and state, the same predicate the list filter uses, and keeps only
+        counts above zero. Blank and missing values are not counted: a filter
+        cannot select them.
+
+        Args:
+            entry_filter: The filter the list runs under.
+            dims: The dimensions to count (:func:`filter_dimensions`).
+            id_scope: Restrict every count to these entry ids (a query's matched
+                set), or None for no restriction.
+            ctx: The enhancement context the list filter uses.
+            limit: Most values per dimension, by descending count.
+
+        Returns:
+            ``{dimension name: [{"value", "count"}, ...]}`` in ``dims`` order,
+            each list sorted by count descending, then value.
+
+        Raises:
+            DatabaseQueryError: If a query fails.
+        """
+        from psycopg.rows import dict_row
+
+        def where(dim_name: str) -> tuple[str, list[Any]]:
+            clauses, params = entry_filter.without(dim_name).to_sql("e", ctx)
+            clauses = list(clauses)
+            params = list(params)
+            if id_scope is not None:
+                clauses.append("e.entry_id = ANY(%s)")
+                params.append(list(id_scope))
+            return (" AND ".join(clauses) if clauses else "TRUE"), params
+
+        counts: dict[str, list[dict[str, Any]]] = {}
+        try:
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                for dim in dims:
+                    where_sql, params = where(dim.name)
+                    if dim.kind == "enhancement":
+                        pairs: list[tuple[str, str]] = []
+                        selects: list[str] = []
+                        select_params: list[Any] = []
+                        for module in dim.values:
+                            if module not in ctx.enabled:
+                                continue
+                            for state in ("failed", "stale"):
+                                sql, state_params = ctx.state_sql(module, state, "e")
+                                if sql == "FALSE":
+                                    continue
+                                selects.append(f"COUNT(*) FILTER (WHERE {sql}) AS c{len(pairs)}")
+                                select_params += state_params
+                                pairs.append((module, state))
+                        values: list[dict[str, Any]] = []
+                        if selects:
+                            await cur.execute(
+                                f"SELECT {', '.join(selects)} FROM enhanced_entries e"
+                                f" WHERE {where_sql}",
+                                select_params + params,
+                            )
+                            row = await cur.fetchone() or {}
+                            for i, (module, state) in enumerate(pairs):
+                                n = int(row.get(f"c{i}") or 0)
+                                if n > 0:
+                                    values.append({"value": f"{module}:{state}", "count": n})
+                        values.sort(key=lambda v: (-v["count"], v["value"]))
+                        counts[dim.name] = values[:limit]
+                        continue
+                    column = f"e.{dim.column_sql}"
+                    if dim.multi:
+                        statement = (
+                            "SELECT min(tg.tag) AS value, COUNT(DISTINCT e.entry_id) AS count"
+                            " FROM enhanced_entries e CROSS JOIN LATERAL"
+                            f" jsonb_array_elements_text(CASE WHEN jsonb_typeof({column})"
+                            f" = 'array' THEN {column} ELSE '[]'::jsonb END) AS tg(tag)"
+                            f" WHERE {where_sql} AND btrim(tg.tag) <> ''"
+                            " GROUP BY lower(tg.tag)"
+                            " ORDER BY count DESC, value LIMIT %s"
+                        )
+                    else:
+                        statement = (
+                            f"SELECT min({column}) AS value, COUNT(*) AS count"
+                            f" FROM enhanced_entries e WHERE {where_sql}"
+                            f" AND ({column}) IS NOT NULL AND btrim({column}) <> ''"
+                            f" GROUP BY lower({column})"
+                            " ORDER BY count DESC, value LIMIT %s"
+                        )
+                    await cur.execute(statement, [*params, limit])
+                    rows = await cur.fetchall()
+                    counts[dim.name] = [
+                        {"value": row["value"], "count": int(row["count"])} for row in rows
+                    ]
+            return counts
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to count facets: {e}",
+                query=f"SELECT facet_counts dims=[{', '.join(d.name for d in dims)}]",
+            ) from e
+
+    async def day_histogram(
+        self,
+        entry_filter: "EntryFilter",
+        tz: "ZoneInfo | str",
+        *,
+        id_scope: Sequence[str] | None = None,
+        ctx: "EnhancementContext | None" = None,
+    ) -> list[dict[str, Any]]:
+        """Entries per facility-local day over the last 365 days (C-FACETS).
+
+        Counted under ``entry_filter.without("time")``, the window being the
+        365 local days ending today. Each entry is bucketed by
+        ``(timestamp AT TIME ZONE tz)::date``, so an entry written at 23:30
+        facility time lands on that facility day, the same day a ``time``
+        filter on that date selects it under.
+
+        Args:
+            entry_filter: The filter the list runs under.
+            tz: The facility zone, a ``ZoneInfo`` or an IANA name.
+            id_scope: Restrict the counts to these entry ids, or None.
+            ctx: The enhancement context; resolved from this repository's
+                configuration when None.
+
+        Returns:
+            ``[{"day": "YYYY-MM-DD", "count"}, ...]`` in ascending day order,
+            days with no entry left out.
+
+        Raises:
+            DatabaseQueryError: If the query fails.
+        """
+        from psycopg.rows import dict_row
+
+        zone = str(getattr(tz, "key", tz))
+        try:
+            flt = entry_filter.without("time")
+            if ctx is not None:
+                clauses, params = flt.to_sql("e", ctx)
+                clauses, params = list(clauses), list(params)
+            else:
+                clauses, params = await self._entry_filter_sql(flt, "e")
+            if id_scope is not None:
+                clauses.append("e.entry_id = ANY(%s)")
+                params.append(list(id_scope))
+            where_sql = " AND ".join(
+                [
+                    "e.timestamp >= (((now() AT TIME ZONE %s)::date - 364)::timestamp"
+                    " AT TIME ZONE %s)",
+                    *clauses,
+                ]
+            )
+            async with (
+                self.pool.connection() as conn,
+                conn.cursor(row_factory=dict_row) as cur,
+            ):
+                await cur.execute(
+                    "SELECT to_char((e.timestamp AT TIME ZONE %s)::date, 'YYYY-MM-DD') AS day,"
+                    " COUNT(*) AS count FROM enhanced_entries e"
+                    f" WHERE {where_sql} GROUP BY day ORDER BY day",
+                    [zone, zone, zone, *params],
+                )
+                rows = await cur.fetchall()
+                return [{"day": row["day"], "count": int(row["count"])} for row in rows]
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to count entries per day: {e}",
+                query=f"SELECT day_histogram tz={zone}",
             ) from e
 
     async def get_distinct_authors(self) -> list[str]:
@@ -1910,9 +2423,11 @@ class ARIELRepository:
                             AND {viewable_sql("f")}
                             AND {not_done}
                       )"""
+        params: dict[str, Any] = {"module": module_name, "marker": marker, "limit": limit}
+        incomplete = _marker_incomplete_sql(module_name, marker, params)
         sql = f"""
                     SELECT e.* FROM enhanced_entries e
-                    WHERE {_MARKER_INCOMPLETE_SQL}
+                    WHERE {incomplete}
                       {picture_clause}
                     ORDER BY {_EFFECTIVE_STATUS_SQL} = 'failed',
                              {_EFFECTIVE_ATTEMPTS_SQL},
@@ -1920,7 +2435,6 @@ class ARIELRepository:
                              e.entry_id
                     LIMIT %(limit)s
                     """
-        params: dict[str, Any] = {"module": module_name, "marker": marker, "limit": limit}
         if module_name == "image_caption":
             params["model"] = marker
         try:
@@ -2037,15 +2551,16 @@ class ARIELRepository:
         current_arms: list[str] = []
         for i, (module, marker) in enumerate(markers.items()):
             params[f"module_{i}"] = module
-            params[f"marker_{i}"] = marker
-            stale_arms.append(
-                f"WHEN status.key = %(module_{i})s"
-                f" AND status.value->>'marker' IS DISTINCT FROM %(marker_{i})s THEN 'pending'"
+            stale = _marker_stale_named(
+                module,
+                marker,
+                "enhanced_entries",
+                module_param=f"module_{i}",
+                marker_param=f"marker_{i}",
+                params=params,
             )
-            current_arms.append(
-                f"(status.key = %(module_{i})s"
-                f" AND status.value->>'marker' IS NOT DISTINCT FROM %(marker_{i})s)"
-            )
+            stale_arms.append(f"WHEN status.key = %(module_{i})s AND {stale} THEN 'pending'")
+            current_arms.append(f"(status.key = %(module_{i})s AND NOT {stale})")
         sql = f"""
                     WITH total AS (
                         SELECT COUNT(*) AS entries FROM enhanced_entries
@@ -2104,6 +2619,72 @@ class ARIELRepository:
             stats[module] = counts
         return stats
 
+    async def get_enhancement_coverage(
+        self, context: "EnhancementContext"
+    ) -> dict[str, dict[str, Any]]:
+        """Count the entries in each enhancement state, per enabled module.
+
+        One statement: every entry is crossed with one row per enabled module
+        carrying that module's state (:func:`enhancement_state_case_sql`, the
+        same decision table :func:`enhancement_view` applies to one entry), and
+        a single ``GROUP BY`` tallies the pairs. A module's counts therefore sum
+        to the number of entries, and equal the per-entry states the reader's
+        badge strip shows under the same ``context``.
+
+        Unlike :meth:`get_enhancement_stats`, which stays as it is for the
+        existing ``status`` fields, this reports ``stale`` and ``n/a`` and
+        lists a module before its first entry lands.
+
+        Args:
+            context: The enhancement context (:func:`store_enhancement_context`);
+                its ``enabled`` modules are counted, in that order.
+
+        Returns:
+            ``{module: {"label", "complete", "not_run", "pending", "stale", "failed",
+            "n/a"}}`` in execution order. ``label`` is the registration's label,
+            or the module name when it has none.
+
+        Raises:
+            DatabaseQueryError: If the query fails.
+        """
+        from osprey.services.ariel_search.enhancement.status import STATES
+
+        modules = list(context.enabled)
+        coverage: dict[str, dict[str, Any]] = {}
+        for module in modules:
+            coverage[module] = {"label": _module_label(module), **dict.fromkeys(STATES, 0)}
+        if not modules:
+            return coverage
+
+        rows_sql: list[str] = []
+        params: list[Any] = []
+        for index, module in enumerate(modules):
+            case, case_params = context.case_sql(module, "e")
+            rows_sql.append(f"({index}, {case})")
+            params += case_params
+
+        statement = (
+            "SELECT s.idx, s.state, COUNT(*) AS entries"
+            " FROM enhanced_entries e"
+            f" CROSS JOIN LATERAL (VALUES {', '.join(rows_sql)}) AS s(idx, state)"
+            " GROUP BY s.idx, s.state"
+        )
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(statement, params)
+                rows = await result.fetchall()
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to count enhancement coverage: {e}",
+                query="SELECT enhancement coverage",
+            ) from e
+
+        for idx, state, entries in rows:
+            counts = coverage[modules[int(idx)]]
+            if state in counts:
+                counts[state] += int(entries)
+        return coverage
+
     async def mark_enhancement_complete(
         self,
         entry_id: str,
@@ -2122,59 +2703,43 @@ class ARIELRepository:
             md5: The md5 of the ``attachment_text`` the module read (optional). When
                 given, the entry is marked only while its ``attachment_text`` still
                 hashes to it; otherwise nothing is written and the module stays owed.
-
-        Raises:
-            ValueError: If both ``marker`` and ``md5`` are given.
+                It combines with ``marker``: ``qmd_export`` completes under both on a
+                store with copy state.
         """
-        if md5 is not None:
-            if marker is not None:
-                raise ValueError("mark_enhancement_complete takes marker or md5, not both")
-            try:
-                async with self.pool.connection() as conn:
-                    await conn.execute(
-                        """
-                        UPDATE enhanced_entries
-                        SET enhancement_status = jsonb_set(
-                            enhancement_status,
-                            ARRAY[%(module)s::text],
-                            jsonb_build_object('status', 'complete', 'completed_at', NOW()::text)
-                        )
-                        WHERE entry_id = %(entry_id)s
-                          AND md5(COALESCE(attachment_text, '')) = %(md5)s
-                        """,
-                        {"module": module_name, "entry_id": entry_id, "md5": md5},
-                    )
-            except Exception as e:
-                raise DatabaseQueryError(
-                    f"Failed to mark enhancement complete: {e}",
-                    query=f"UPDATE entry_id={entry_id} module={module_name}",
-                ) from e
+        if marker is None and md5 is None:
+            await self._mark_complete_plain(entry_id, module_name)
             return
+        fields = "'status', 'complete', 'completed_at', NOW()::text"
+        params: dict[str, Any] = {"path": [module_name], "entry_id": entry_id}
         if marker is not None:
-            try:
-                async with self.pool.connection() as conn:
-                    await conn.execute(
-                        """
-                        UPDATE enhanced_entries
-                        SET enhancement_status = jsonb_set(
-                            enhancement_status,
-                            %(path)s::text[],
-                            jsonb_build_object(
-                                'status', 'complete',
-                                'completed_at', NOW()::text,
-                                'marker', %(marker)s::text
-                            )
-                        )
-                        WHERE entry_id = %(entry_id)s
-                        """,
-                        {"path": [module_name], "entry_id": entry_id, "marker": marker},
+            fields += ", 'marker', %(marker)s::text"
+            params["marker"] = marker
+        guard = ""
+        if md5 is not None:
+            guard = " AND md5(COALESCE(attachment_text, '')) = %(md5)s"
+            params["md5"] = md5
+        try:
+            async with self.pool.connection() as conn:
+                await conn.execute(
+                    f"""
+                    UPDATE enhanced_entries
+                    SET enhancement_status = jsonb_set(
+                        enhancement_status,
+                        %(path)s::text[],
+                        jsonb_build_object({fields})
                     )
-            except Exception as e:
-                raise DatabaseQueryError(
-                    f"Failed to mark enhancement complete: {e}",
-                    query=f"UPDATE entry_id={entry_id} module={module_name}",
-                ) from e
-            return
+                    WHERE entry_id = %(entry_id)s{guard}
+                    """,
+                    params,
+                )
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to mark enhancement complete: {e}",
+                query=f"UPDATE entry_id={entry_id} module={module_name}",
+            ) from e
+
+    async def _mark_complete_plain(self, entry_id: str, module_name: str) -> None:
+        """The complete mark with neither a marker nor an md5 guard."""
         try:
             async with self.pool.connection() as conn:
                 await conn.execute(
@@ -2194,6 +2759,80 @@ class ARIELRepository:
                 f"Failed to mark enhancement complete: {e}",
                 query=f"UPDATE entry_id={entry_id} module={module_name}",
             ) from e
+
+    async def stamp_baseline_markers(self, markers: Mapping[str, str | None]) -> dict[str, int]:
+        """Give text statuses written before markers existed the current marker, once.
+
+        For each text marker module in ``markers`` (image modules, ``text_embedding``
+        and None markers are ignored), every ``complete`` or ``failed`` status with no
+        stored marker gets ``marker``; a ``failed`` one also gets
+        ``gave_up = attempts >= MAX_ENHANCEMENT_ATTEMPTS``, so a legacy failure that
+        had used up its attempts is not re-queued. A later marker change then makes
+        the stamped statuses stale. Statuses that already carry a marker, and
+        ``pending`` ones, are untouched, so a second stamp writes nothing. All
+        modules are stamped in one transaction.
+
+        Args:
+            markers: The current marker per module (``current_markers``).
+
+        Returns:
+            The statuses stamped per text module stamped.
+
+        Raises:
+            DatabaseQueryError: If the stamp failed; nothing is written then.
+        """
+        from osprey.services.ariel_search.enhancement.status import (
+            IMAGE_MODULES,
+            MARKER_MODULES,
+        )
+
+        todo = {
+            module: marker
+            for module, marker in markers.items()
+            if marker is not None and module in MARKER_MODULES and module not in IMAGE_MODULES
+        }
+        stamped: dict[str, int] = {}
+        if not todo:
+            return stamped
+        try:
+            async with self.pool.connection() as conn, conn.transaction():
+                for module, marker in todo.items():
+                    result = await conn.execute(
+                        """
+                        UPDATE enhanced_entries
+                        SET enhancement_status = jsonb_set(
+                            enhancement_status,
+                            %(path)s::text[],
+                            (enhancement_status->%(module)s)
+                            || jsonb_build_object('marker', %(marker)s::text)
+                            || CASE WHEN enhancement_status->%(module)s->>'status' = 'failed'
+                                    THEN jsonb_build_object(
+                                        'gave_up',
+                                        CASE WHEN enhancement_status->%(module)s->>'attempts'
+                                                  ~ '^[0-9]{1,9}$'
+                                             THEN (enhancement_status->%(module)s->>'attempts')::int
+                                             ELSE 0 END >= %(max_attempts)s
+                                    )
+                                    ELSE '{}'::jsonb END
+                        )
+                        WHERE jsonb_typeof(enhancement_status->%(module)s) = 'object'
+                          AND enhancement_status->%(module)s->>'status' IN ('complete', 'failed')
+                          AND enhancement_status->%(module)s->>'marker' IS NULL
+                        """,
+                        {
+                            "path": [module],
+                            "module": module,
+                            "marker": marker,
+                            "max_attempts": MAX_ENHANCEMENT_ATTEMPTS,
+                        },
+                    )
+                    stamped[module] = result.rowcount
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to stamp baseline markers: {e}",
+                query=f"UPDATE baseline markers modules={sorted(todo)}",
+            ) from e
+        return stamped
 
     async def mark_image_module_complete(
         self,
@@ -2281,12 +2920,13 @@ class ARIELRepository:
         """
         completion = image_completion_sql(module_name, marker)
         params = {**image_mark_params(module_name, marker), "after": after, "limit": limit}
+        incomplete = _marker_incomplete_sql(module_name, marker, params)
         try:
             async with self._connection(conn) as c, c.transaction():
                 result = await c.execute(
                     f"""
                     SELECT e.entry_id FROM enhanced_entries e
-                    WHERE {_MARKER_INCOMPLETE_SQL}
+                    WHERE {incomplete}
                       AND {completion}
                       AND e.entry_id > %(after)s
                     ORDER BY e.entry_id
@@ -2526,6 +3166,102 @@ class ARIELRepository:
             ) from e
         return {str(key): int(count) for key, count in rows}
 
+    async def text_input_key_column(self, table: str) -> bool:
+        """Whether ``table`` has an ``input_key`` column, cached like :meth:`schema_facts`.
+
+        A positive answer stays for the life of the repository; a negative one
+        is re-probed at most once every :data:`SCHEMA_FACTS_NEGATIVE_TTL_SECONDS`.
+        A failed probe is logged and counts as negative, so the enhancement
+        context degrades to "never stale" rather than failing a read.
+
+        Args:
+            table: Text-embedding table name, e.g. ``text_embeddings_nomic``.
+        """
+        cached = self._input_key_columns.get(table)
+        now = self._clock()
+        if cached is not None and (
+            cached[0] or now - cached[1] < SCHEMA_FACTS_NEGATIVE_TTL_SECONDS
+        ):
+            return cached[0]
+        try:
+            present = await self.has_input_key_column(table)
+        except DatabaseQueryError as e:
+            logger.warning(f"input_key probe of {table} failed, treating it as absent: {e}")
+            present = False
+        self._input_key_columns[table] = (present, now)
+        return present
+
+    async def get_text_build_keys(self, table: str, entry_ids: Sequence[str]) -> dict[str, str]:
+        """Read the build key of each given entry's row in ``table``, in one query.
+
+        A NULL ``input_key`` reads as ``r1``, as in :meth:`get_embedding_build_counts`.
+        The caller has probed ``table`` for its ``input_key`` column
+        (:meth:`has_input_key_column`).
+
+        Args:
+            table: Text-embedding table name, e.g. ``text_embeddings_nomic``.
+            entry_ids: The entries of one page or one entry read.
+
+        Returns:
+            ``{entry_id: build_key}``; an entry with no row is absent.
+
+        Raises:
+            DatabaseQueryError: If the read fails.
+        """
+        from psycopg import sql
+
+        if not entry_ids:
+            return {}
+        query = sql.SQL(
+            "SELECT entry_id, COALESCE(input_key, 'r1') FROM {} WHERE entry_id = ANY(%s)"
+        ).format(sql.Identifier(table))
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(query, [list(entry_ids)])
+                rows = await result.fetchall()
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to read the build keys of {table}: {e}",
+                query=f"SELECT {table} input_key",
+            ) from e
+        return {str(entry_id): str(key) for entry_id, key in rows}
+
+    async def get_text_embedding(self, table: str, entry_id: str) -> list[float] | None:
+        """Read one entry's stored vector from the text-embedding table ``table``.
+
+        The vector is read as pgvector text, so no vector adapter is needed.
+
+        Args:
+            table: Text-embedding table name, e.g. ``text_embeddings_nomic``.
+            entry_id: The entry whose vector to read.
+
+        Returns:
+            The stored vector; None when the entry has no row, its row holds no
+            vector, or ``table`` does not exist.
+
+        Raises:
+            DatabaseQueryError: If the read fails for any other reason.
+        """
+        from psycopg import errors, sql
+
+        query = sql.SQL("SELECT embedding::text FROM {} WHERE entry_id = %s LIMIT 1").format(
+            sql.Identifier(table)
+        )
+        try:
+            async with self.pool.connection() as conn:
+                result = await conn.execute(query, [entry_id])
+                row = await result.fetchone()
+        except errors.UndefinedTable:
+            return None
+        except Exception as e:
+            raise DatabaseQueryError(
+                f"Failed to read the {table} vector of {entry_id}: {e}",
+                query=f"SELECT {table} embedding",
+            ) from e
+        if not row or row[0] is None:
+            return None
+        return [float(x) for x in json.loads(row[0])]
+
     async def get_image_embedding_tables(self) -> list[EmbeddingTableInfo]:
         """Discover every image-embedding table in the database.
 
@@ -2680,6 +3416,8 @@ class ARIELRepository:
         tsquery_params: list[Any] | None = None,
         pattern_timeout_seconds: float | None = None,
         v2: bool = False,
+        offset: int = 0,
+        count: bool = False,
     ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]]:
         """Execute keyword search using full-text search.
 
@@ -2703,9 +3441,13 @@ class ARIELRepository:
             v2: The ``has_v2_fts`` schema fact the caller built `where_clauses`
                 under, so ``ts_rank`` and ``ts_headline`` use the same expression
                 as the match.
+            offset: Rows to skip before the page (C-MODOUT). Ties break on
+                ``e.entry_id DESC`` so pages never overlap.
+            count: Also count the unpaged matches (capped, see `SearchRows`),
+                in the same connection and timeout envelope.
 
         Returns:
-            List of (entry, score, highlights) tuples
+            `SearchRows` of (entry, score, highlights) tuples
 
         Raises:
             ValueError: If `pattern_timeout_seconds` rounds down to 0 ms, which
@@ -2728,6 +3470,9 @@ class ARIELRepository:
                     f"{pattern_timeout_seconds} renders as 0ms, which disables the timeout"
                 )
             statement_timeout = f"{timeout_ms}ms"
+
+        has_images_select = await self._has_images_select()
+        page_sql, page_params = (" OFFSET %s", [offset]) if offset else ("", [])
 
         try:
             async with self.pool.connection() as conn, contextlib.AsyncExitStack() as stack:
@@ -2753,9 +3498,9 @@ class ARIELRepository:
                     # A pattern-only statement carries no tsquery, so every row
                     # ranks 0 and the tie needs breaking to stay reproducible.
                     order_by = (
-                        "rank DESC, timestamp DESC"
+                        "rank DESC, timestamp DESC, e.entry_id DESC"
                         if tsquery_sql is None and not search_text.strip()
-                        else "rank DESC"
+                        else "rank DESC, e.entry_id DESC"
                     )
                     if include_highlights:
                         query = f"""
@@ -2766,13 +3511,16 @@ class ARIELRepository:
                                    ) AS rank,
                                    ts_headline({FTS_CONFIG}, {headline_document}, {query_expression},
                                        'StartSel=<b>, StopSel=</b>, MaxFragments=3'
-                                   ) AS headline
+                                   ) AS headline,
+                                   {has_images_select} AS has_images
                             FROM enhanced_entries e
                             WHERE {where_sql}
                             ORDER BY {order_by}
-                            LIMIT %s
+                            LIMIT %s{page_sql}
                         """
-                        all_params = query_params + query_params + params + [max_results]
+                        all_params = (
+                            query_params + query_params + params + [max_results, *page_params]
+                        )
                     else:
                         query = f"""
                             SELECT e.*,
@@ -2780,18 +3528,26 @@ class ARIELRepository:
                                        {fts_expression},
                                        {query_expression}
                                    ) AS rank,
-                                   NULL AS headline
+                                   NULL AS headline,
+                                   {has_images_select} AS has_images
                             FROM enhanced_entries e
                             WHERE {where_sql}
                             ORDER BY {order_by}
-                            LIMIT %s
+                            LIMIT %s{page_sql}
                         """
-                        all_params = query_params + params + [max_results]
+                        all_params = query_params + params + [max_results, *page_params]
 
                     await cur.execute(query, all_params)
                     rows = await cur.fetchall()
+                    counted = (
+                        await _capped_count(
+                            cur, f"FROM enhanced_entries e WHERE {where_sql}", params
+                        )
+                        if count
+                        else None
+                    )
 
-                    results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
+                    results = _search_rows([], counted)
                     for row in rows:
                         # Row is now a dict, extract rank and headline, pass rest to factory
                         rank = float(row.pop("rank", 0.0) or 0.0)
@@ -3006,6 +3762,8 @@ class ARIELRepository:
         max_results: int = 10,
         include_highlights: bool = True,
         v2: bool = False,
+        offset: int = 0,
+        count: bool = False,
     ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]]:
         """Find entries holding most, but not necessarily all, of a query's words.
 
@@ -3032,9 +3790,12 @@ class ARIELRepository:
             include_highlights: Include highlighted snippets of the words.
             v2: The ``has_v2_fts`` schema fact the caller built `where_clauses`
                 under.
+            offset: Rows to skip before the page (C-MODOUT); ties break on
+                ``entry_id DESC``.
+            count: Also count the unpaged matches (capped, see `SearchRows`).
 
         Returns:
-            List of (entry, ``ts_rank`` score, highlights) tuples.
+            `SearchRows` of (entry, ``ts_rank`` score, highlights) tuples.
 
         Raises:
             ValueError: If `min_fraction` is outside ``(0, 1]``.
@@ -3054,6 +3815,7 @@ class ARIELRepository:
             return []
 
         fts_expression, headline_document = keyword_search_expressions(self.config, v2=v2)
+        has_images_select = await self._has_images_select()
         filters_sql, bound = (
             named_tsquery(" AND ".join(where_clauses), params, prefix="w")
             if where_clauses
@@ -3066,6 +3828,7 @@ class ARIELRepository:
             "term_queries": term_queries,
             "f": float(min_fraction),
             "limit": max_results,
+            "offset": offset,
         }
         legs: list[str] = []
         for index, form in enumerate(forms):
@@ -3084,22 +3847,25 @@ class ARIELRepository:
         # The index condition repeats the indexed expression; the lateral parses
         # each candidate's document once (OFFSET 0 keeps the planner from
         # inlining it back into every reference) for coverage and rank.
-        query = f"""
-            WITH {coverage.with_clause}
-            SELECT m.*, {coverage.counted} AS counted_terms, {headline} AS headline
-            FROM (
-                SELECT e.*, c.matched_terms, cardinality(c.matched_terms) AS coverage,
-                       ts_rank(d.doc, {any_word}) AS rank
+        from_where = f"""
                 FROM enhanced_entries e
                 CROSS JOIN LATERAL (SELECT {fts_expression} AS doc OFFSET 0) AS d
                 CROSS JOIN LATERAL (SELECT {coverage.matched("d.doc")} AS matched_terms) AS c
                 WHERE {fts_expression} @@ {any_word}
                   AND {filters_sql}
-                  AND {coverage.admits("c.matched_terms")}
-                ORDER BY coverage DESC, rank DESC, e.timestamp DESC
-                LIMIT %(limit)s
+                  AND {coverage.admits("c.matched_terms")}"""
+        query = f"""
+            WITH {coverage.with_clause}
+            SELECT m.*, {coverage.counted} AS counted_terms, {headline} AS headline
+            FROM (
+                SELECT e.*, c.matched_terms, cardinality(c.matched_terms) AS coverage,
+                       ts_rank(d.doc, {any_word}) AS rank,
+                       {has_images_select} AS has_images
+                {from_where}
+                ORDER BY coverage DESC, rank DESC, e.timestamp DESC, e.entry_id DESC
+                LIMIT %(limit)s{" OFFSET %(offset)s" if offset else ""}
             ) AS m
-            ORDER BY m.coverage DESC, m.rank DESC, m.timestamp DESC
+            ORDER BY m.coverage DESC, m.rank DESC, m.timestamp DESC, m.entry_id DESC
         """
 
         timeout_seconds = KeywordSearchSettings.from_ariel_config(
@@ -3120,6 +3886,13 @@ class ARIELRepository:
                 async with conn.cursor(row_factory=dict_row) as cur:
                     await cur.execute(query, named)
                     rows = await cur.fetchall()
+                    counted = (
+                        await _capped_count(
+                            cur, from_where, named, with_sql=f"WITH {coverage.with_clause}"
+                        )
+                        if count
+                        else None
+                    )
         except psycopg.errors.QueryCanceled as e:
             raise _pattern_timeout_error(timeout_seconds) from e
         except Exception as e:
@@ -3128,19 +3901,41 @@ class ARIELRepository:
                 query=f"PARTIAL KEYWORD SEARCH: {' '.join(words)}",
             ) from e
 
-        results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
+        results = _search_rows([], counted)
         for row in rows:
             row.pop("coverage", None)
             rank = float(row.pop("rank", 0.0) or 0.0)
             snippet = row.pop("headline", "") or ""
             matched = set(row.pop("matched_terms", None) or ())
-            counted = set(row.pop("counted_terms", None) or ())
+            counted_terms = set(row.pop("counted_terms", None) or ())
             entry = enhanced_entry_from_row(row)
             shaped = cast("dict[str, Any]", entry)
-            shaped["_matched_terms"] = [w for w in words if w in counted and w in matched]
-            shaped["_missing_terms"] = [w for w in words if w in counted and w not in matched]
+            shaped["_matched_terms"] = [w for w in words if w in counted_terms and w in matched]
+            shaped["_missing_terms"] = [w for w in words if w in counted_terms and w not in matched]
             results.append((entry, rank, [snippet] if snippet else []))
         return results
+
+    async def _entry_filter_sql(
+        self, entry_filter: "EntryFilter | None", alias: str = "e"
+    ) -> tuple[list[str], list[Any]]:
+        """The C-FILTER clauses of ``entry_filter`` over ``alias``, positional ``%s``.
+
+        Empty lists when there is no filter. The enhancement context is this
+        repository's configuration under its schema facts, the same picture
+        flag the reads select as ``has_images``.
+        """
+        if entry_filter is None or entry_filter.is_empty():
+            return [], []
+        from osprey.services.ariel_search.enhancement.status import (
+            filter_needs_build_keys,
+            store_enhancement_context,
+        )
+
+        context = await store_enhancement_context(
+            self.config, self, text_embedding=filter_needs_build_keys(entry_filter)
+        )
+        clauses, params = entry_filter.to_sql(alias, context)
+        return list(clauses), list(params)
 
     @requires_module("search", "keyword")
     async def fuzzy_search(
@@ -3152,6 +3947,9 @@ class ARIELRepository:
         end_date: datetime | None = None,
         *,
         v2: bool = False,
+        entry_filter: "EntryFilter | None" = None,
+        offset: int = 0,
+        count: bool = False,
     ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]]:
         """Execute fuzzy search using pg_trgm similarity.
 
@@ -3165,11 +3963,21 @@ class ARIELRepository:
                 better of its ``raw_text`` and its ``attachment_text`` similarity,
                 so a long caption never dilutes a ``raw_text`` match; when false
                 only ``raw_text`` exists to compare.
+            entry_filter: Dimension filter (C-FILTER) the results must match,
+                applied as ``EntryFilter.to_sql`` clauses over ``e``. The
+                legacy free-text author/source filters are not applied here.
+            offset: Rows to skip before the page (C-MODOUT); ties break on
+                ``e.entry_id DESC``.
+            count: Also count the unpaged matches (capped, see `SearchRows`).
 
         Returns:
-            List of (entry, score, highlights) tuples
+            `SearchRows` of (entry, score, highlights) tuples
         """
         from psycopg.rows import dict_row
+
+        filter_clauses, filter_params = await self._entry_filter_sql(entry_filter)
+        has_images_select = await self._has_images_select()
+        page_sql, page_params = (" OFFSET %s", [offset]) if offset else ("", [])
 
         try:
             async with (
@@ -3194,22 +4002,29 @@ class ARIELRepository:
                 if end_date:
                     where_clauses.append("timestamp <= %s")
                     params.append(end_date)
+                where_clauses.extend(filter_clauses)
+                params.extend(filter_params)
 
                 where_sql = " AND ".join(where_clauses)
 
                 query = f"""
-                        SELECT e.*, {sim_sql} AS sim
+                        SELECT e.*, {sim_sql} AS sim, {has_images_select} AS has_images
                         FROM enhanced_entries e
                         WHERE {where_sql}
-                        ORDER BY sim DESC
-                        LIMIT %s
+                        ORDER BY sim DESC, e.entry_id DESC
+                        LIMIT %s{page_sql}
                     """
-                all_params = sim_params + params + [max_results]
+                all_params = sim_params + params + [max_results, *page_params]
 
                 await cur.execute(query, all_params)
                 rows = await cur.fetchall()
+                counted = (
+                    await _capped_count(cur, f"FROM enhanced_entries e WHERE {where_sql}", params)
+                    if count
+                    else None
+                )
 
-                results: list[tuple[EnhancedLogbookEntry, float, list[str]]] = []
+                results = _search_rows([], counted)
                 for row in rows:
                     sim = float(row.pop("sim", 0.0) or 0.0)
                     entry = enhanced_entry_from_row(row)
@@ -3229,11 +4044,15 @@ class ARIELRepository:
         query_embedding: list[float],
         model_name: str,
         max_results: int = 10,
-        similarity_threshold: float = 0.5,
+        similarity_threshold: float | None = 0.5,
         start_date: datetime | None = None,
         end_date: datetime | None = None,
         author: str | None = None,
         source_system: str | None = None,
+        *,
+        entry_filter: "EntryFilter | None" = None,
+        offset: int = 0,
+        count: bool = False,
     ) -> list[tuple[EnhancedLogbookEntry, float]]:
         """Execute semantic similarity search using pgvector.
 
@@ -3241,14 +4060,20 @@ class ARIELRepository:
             query_embedding: Query embedding vector
             model_name: Model name for table lookup
             max_results: Maximum results to return
-            similarity_threshold: Minimum similarity threshold
+            similarity_threshold: Minimum similarity threshold; None applies none
             start_date: Filter entries after this time
             end_date: Filter entries before this time
             author: Filter by author name (ILIKE match)
             source_system: Filter by source system (exact match)
+            entry_filter: Dimension filter (C-FILTER) the results must match,
+                applied as ``EntryFilter.to_sql`` clauses over ``e`` beside the
+                legacy filters above.
+            offset: Rows to skip before the page (C-MODOUT); ties break on
+                ``e.entry_id DESC``.
+            count: Also count the unpaged matches (capped, see `SearchRows`).
 
         Returns:
-            List of (entry, similarity) tuples
+            `SearchRows` of (entry, similarity) tuples
         """
         from psycopg.rows import dict_row
 
@@ -3256,14 +4081,20 @@ class ARIELRepository:
 
         table_name = model_to_table_name(model_name)
         embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+        filter_clauses, filter_params = await self._entry_filter_sql(entry_filter)
+        has_images_select = await self._has_images_select()
+        page_sql, page_params = (" OFFSET %s", [offset]) if offset else ("", [])
 
         try:
             async with (
                 self.pool.connection() as conn,
                 conn.cursor(row_factory=dict_row) as cur,
             ):
-                where_clauses = ["1 - (emb.embedding <=> %s::vector) >= %s"]
-                params: list[Any] = [embedding_str, similarity_threshold]
+                where_clauses: list[str] = []
+                params: list[Any] = []
+                if similarity_threshold is not None:
+                    where_clauses.append("1 - (emb.embedding <=> %s::vector) >= %s")
+                    params.extend([embedding_str, similarity_threshold])
 
                 if start_date:
                     where_clauses.append("e.timestamp >= %s")
@@ -3277,24 +4108,37 @@ class ARIELRepository:
                 if source_system:
                     where_clauses.append("e.source_system = %s")
                     params.append(source_system)
+                where_clauses.extend(filter_clauses)
+                params.extend(filter_params)
 
-                where_sql = " AND ".join(where_clauses)
+                where_sql = " AND ".join(where_clauses) or "TRUE"
 
                 query = f"""
-                        SELECT e.*, 1 - (emb.embedding <=> %s::vector) AS similarity
+                        SELECT e.*, 1 - (emb.embedding <=> %s::vector) AS similarity,
+                               {has_images_select} AS has_images
                         FROM enhanced_entries e
                         JOIN {table_name} emb ON e.entry_id = emb.entry_id
                         WHERE {where_sql}
-                        ORDER BY similarity DESC
-                        LIMIT %s
+                        ORDER BY similarity DESC, e.entry_id DESC
+                        LIMIT %s{page_sql}
                     """
 
-                all_params = [embedding_str] + params + [max_results]
+                all_params = [embedding_str] + params + [max_results, *page_params]
 
                 await cur.execute(query, all_params)
                 rows = await cur.fetchall()
+                counted = (
+                    await _capped_count(
+                        cur,
+                        f"FROM enhanced_entries e JOIN {table_name} emb "
+                        f"ON e.entry_id = emb.entry_id WHERE {where_sql}",
+                        params,
+                    )
+                    if count
+                    else None
+                )
 
-                results: list[tuple[EnhancedLogbookEntry, float]] = []
+                results = _search_rows([], counted)
                 for row in rows:
                     similarity = float(row.pop("similarity", 0.0) or 0.0)
                     entry = enhanced_entry_from_row(row)

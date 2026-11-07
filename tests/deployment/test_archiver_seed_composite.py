@@ -35,7 +35,6 @@ from osprey_connectors.simulation.archive import (
 from osprey_connectors.simulation.composite import Composite
 from osprey_connectors.simulation.state import write_active_state
 from osprey_connectors.simulation.view import SimulatorView
-from osprey_connectors.standin import archive_belongs_to_standin
 from osprey_connectors.workspace import resolve_simulation_state_dir
 from tests._archive_composites import archives_closed
 from tests._simulator_view import write_texture_view
@@ -103,16 +102,44 @@ def _activate(root: Path, config: dict[str, Any], names: list[str], anchor: date
 
 
 @pytest.fixture
-def demo_render(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
+def demo_render(built_demo: BuiltProject, tmp_path: Path) -> Path:
     """A deployment repo whose render holds the demo's simulator view."""
     render = tmp_path / "build"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith("data/simulator/"):
             target = render / name
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
     (render / "config.yml").write_text("{}\n", encoding="utf-8")
     return tmp_path
+
+
+@pytest.mark.slow
+def test_a_seeded_monitor_sample_is_the_reading_the_simulator_serves(
+    demo_render: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no scenario active, a seeded monitor sample is the served reading.
+
+    A physics monitor reads the orbit its model solves, with its motion on top.
+    Its seeded history sits on that same orbit, so a seeded sample and a
+    recorded one at the same instant are the same number and a trend across
+    the seam between them shows no step.
+    """
+    monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
+    _activate(demo_render, {}, [], T0)
+    view = demo_render / "build" / "data" / "simulator"
+    state = resolve_simulation_state_dir({}, demo_render)
+    instants = T0.timestamp() - 3600.0 * np.arange(6, 0, -1)
+
+    archive = container_lifecycle._archiver_seed_inputs({}, demo_render)
+    documents = _synthesize_documents(archive, instants)
+
+    for document, instant in zip(documents, instants, strict=True):
+        served = Composite(view, state_dir=state, clock=lambda t=instant: t, model_log=False)
+        for plane in (BPM_X, BPM_Y):
+            assert document[plane] == served.get(plane)
+    # Not trivially equal: the readings move between the instants.
+    assert len({document[BPM_X] for document in documents}) > 1
 
 
 @pytest.mark.slow
@@ -144,7 +171,6 @@ def test_a_stand_in_deployment_seeds_the_history_a_sandbox_seeds(
         "services": {"live_standin": {"port": 5064}},
         "deployed_services": ["archiver_recorder"],
     }
-    assert archive_belongs_to_standin(standin)
     times = np.arange(T0.timestamp() - 300.0, T0.timestamp(), 10.0)
 
     with_standin = _synthesize_documents(

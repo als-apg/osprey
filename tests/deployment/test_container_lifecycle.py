@@ -1600,23 +1600,21 @@ def test_compose_build_selection_holds_a_service_whose_override_names_another_im
     assert selection.held == {"virtual-accelerator": ("OSPREY_VA_IMAGE", "reg.example.org/va:1")}
 
 
-def test_compose_build_selection_builds_a_service_whose_override_is_its_own_image(tmp_path):
+@pytest.mark.parametrize(
+    "override",
+    [
+        pytest.param("p-va:local", id="its-own-image"),
+        # ``:-`` substitutes the default for an empty value, so nothing is held.
+        pytest.param("", id="empty"),
+    ],
+)
+def test_compose_build_selection_builds_a_service_whose_override_leaves_its_own_image(
+    tmp_path, override
+):
     _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
 
     selection = container_lifecycle._compose_build_selection(
-        ["docker-compose.yml"], tmp_path, {"OSPREY_VA_IMAGE": "p-va:local"}
-    )
-
-    assert selection.build == ("event-dispatcher", "virtual-accelerator")
-    assert selection.held == {}
-
-
-def test_compose_build_selection_reads_an_empty_override_as_unset(tmp_path):
-    """``:-`` substitutes the default for an empty value, so nothing is held."""
-    _write_compose(tmp_path, _TWO_BUILDABLE_SERVICES)
-
-    selection = container_lifecycle._compose_build_selection(
-        ["docker-compose.yml"], tmp_path, {"OSPREY_VA_IMAGE": ""}
+        ["docker-compose.yml"], tmp_path, {"OSPREY_VA_IMAGE": override}
     )
 
     assert selection.build == ("event-dispatcher", "virtual-accelerator")
@@ -4978,7 +4976,7 @@ def _start_until_the_host(monkeypatch, tmp_path, *, web_terminals: bool = True):
         container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
     )
     monkeypatch.setattr(
-        container_lifecycle, "_preflight_bluesky_network_backend", lambda config: None
+        container_lifecycle, "_preflight_internal_network_backend", lambda config: None
     )
     monkeypatch.setattr(
         container_lifecycle,

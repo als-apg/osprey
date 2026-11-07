@@ -46,11 +46,8 @@ TESTS_JS_DIR = "js"
 #: this table in the change that adds its test or deletes the module; nothing
 #: is added except by an owner-approved change.
 WITHOUT_OWN_TEST: tuple[str, ...] = (
-    "src/osprey/interfaces/ariel/static/js/api.js",
     "src/osprey/interfaces/ariel/static/js/app.js",
     "src/osprey/interfaces/ariel/static/js/components.js",
-    "src/osprey/interfaces/ariel/static/js/dashboard.js",
-    "src/osprey/interfaces/ariel/static/js/entries-detail.js",
     "src/osprey/interfaces/ariel/static/js/entries-form.js",
     "src/osprey/interfaces/ariel/static/js/entries.js",
     "src/osprey/interfaces/ariel/static/js/search.js",
@@ -81,7 +78,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/channel_finder/static/js/state.js",
     "src/osprey/interfaces/channel_finder/static/js/utils.js",
     "src/osprey/interfaces/design_system/static/js/check-name.js",
-    "src/osprey/interfaces/design_system/static/js/components/osprey-display-menu.js",
     "src/osprey/interfaces/design_system/static/js/components/osprey-drawer.js",
     "src/osprey/interfaces/design_system/static/js/components/osprey-theme-switcher.js",
     "src/osprey/interfaces/design_system/static/js/platform.js",
@@ -91,11 +87,9 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/design_system/static/js/tokens.js",
     "src/osprey/interfaces/design_system/static/js/uuid.js",
     "src/osprey/interfaces/health/static/js/dashboard.js",
-    "src/osprey/interfaces/lattice_dashboard/static/js/app.js",
     "src/osprey/interfaces/okf_panel/static/js/app.js",
     "src/osprey/interfaces/web_terminal/static/js/activity-format.js",
     "src/osprey/interfaces/web_terminal/static/js/activity-history.js",
-    "src/osprey/interfaces/web_terminal/static/js/app.js",
     "src/osprey/interfaces/web_terminal/static/js/chat-activity.js",
     "src/osprey/interfaces/web_terminal/static/js/chat-blocks.js",
     "src/osprey/interfaces/web_terminal/static/js/chat-dom.js",
@@ -109,8 +103,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/web_terminal/static/js/confirm-skip.js",
     "src/osprey/interfaces/web_terminal/static/js/control-target-popover-switch.js",
     "src/osprey/interfaces/web_terminal/static/js/diff-utils.js",
-    "src/osprey/interfaces/web_terminal/static/js/dock-tab.js",
-    "src/osprey/interfaces/web_terminal/static/js/dock-workspace.js",
     "src/osprey/interfaces/web_terminal/static/js/logout.js",
     "src/osprey/interfaces/web_terminal/static/js/modal-overlay.js",
     "src/osprey/interfaces/web_terminal/static/js/palette-boot.js",
@@ -118,11 +110,7 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/web_terminal/static/js/panel-commands.js",
     "src/osprey/interfaces/web_terminal/static/js/panel-empty-state.js",
     "src/osprey/interfaces/web_terminal/static/js/panel-health.js",
-    "src/osprey/interfaces/web_terminal/static/js/panel-lifecycle.js",
-    "src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js",
-    "src/osprey/interfaces/web_terminal/static/js/panel-placement.js",
     "src/osprey/interfaces/web_terminal/static/js/panel-queries.js",
-    "src/osprey/interfaces/web_terminal/static/js/panel-sse.js",
     "src/osprey/interfaces/web_terminal/static/js/scaffold-gallery.js",
     "src/osprey/interfaces/web_terminal/static/js/scaffold/cards.js",
     "src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js",
@@ -134,7 +122,6 @@ WITHOUT_OWN_TEST: tuple[str, ...] = (
     "src/osprey/interfaces/web_terminal/static/js/settings-protected.js",
     "src/osprey/interfaces/web_terminal/static/js/svg-icons.js",
     "src/osprey/interfaces/web_terminal/static/js/terminal.js",
-    "src/osprey/interfaces/web_terminal/static/js/undo-notice.js",
 )
 
 

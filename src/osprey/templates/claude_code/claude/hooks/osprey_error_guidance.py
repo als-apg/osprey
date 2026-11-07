@@ -84,9 +84,16 @@ ERROR_CLASS_MAP = {
     # not answer, and the previous target is still active.
     "target_switch_failed": "Connection",
     "bluesky_bridge_unreachable": "Connection",
+    "optimizer_unreachable": "Connection",
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
+    # The panel tools' workspace is not there to answer: no Web Terminal is
+    # running, or no browser shows the dock. A browser that did not answer an
+    # op in time may still apply it: the agent reads the panels again.
+    "no_web_terminal": "Connection",
+    "no_dock_client": "Connection",
+    "no_dock_answer": "Connection",
     # The agent record did not answer, or could not yet serve the read in
     # full; the read comes back once it does.
     "record_unavailable": "Connection",
@@ -110,8 +117,15 @@ ERROR_CLASS_MAP = {
     "limits_violation": "Validation",
     # This deployment simply has no such target to switch to.
     "target_switch_unavailable": "Validation",
+    # The optimizer does not serve the target asked about; the detail lists
+    # the ones it does, and naming one changes which machine is described.
+    "optimizer_target_refused": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
+    # A panel url that is not a root-relative path or an http(s) URL: pass one.
+    "invalid_url": "Validation",
+    # A url for a panel driven by its own workspace tool: use that tool instead.
+    "agent_hop_panel_url": "Validation",
     "sql_error": "Validation",
     "file_too_large": "Validation",
     "conversion_not_supported": "Validation",
@@ -139,11 +153,15 @@ ERROR_CLASS_MAP = {
     "invalid_item": "Validation",
     # A page offset outside an earlier answer: the message names the range.
     "bad_offset": "Validation",
-    # A lattice figure that is not computed for the inputs on screen: the
-    # message names its status and the suggestion the step that fixes it.
-    "figure_not_current": "Validation",
-    # A lattice figure the selected model cannot draw: pick another figure.
-    "figure_unavailable": "Validation",
+    # Panel-tool refusals the agent fixes by changing the request: re-read the
+    # layout and retry with its rev, leave the terminal out of a layout, give
+    # an exact layout or open fewer panels, put one panel in each tile, or
+    # leave a panel in its own window alone.
+    "stale_base": "Validation",
+    "terminal_in_layout": "Validation",
+    "too_many_for_side": "Validation",
+    "one_panel_per_tile": "Validation",
+    "popped_out": "Validation",
     # The reviewer refused this code: revise it and resubmit.
     "review_blocked": "Validation",
     # ---- Data: a lookup that missed. Report what was asked for and that
@@ -167,7 +185,6 @@ ERROR_CLASS_MAP = {
     "nothing_answered": "Unanswered",
     # ---- Execution: the user's own code (or document source) is wrong.
     "execution_error": "Execution",
-    "lattice_error": "Execution",
     "compilation_error": "Execution",
     # ---- Safety: a gate said no. Explain the constraint; never work around
     # it, never touch its configuration. Falling through to Internal used to
@@ -188,12 +205,18 @@ ERROR_CLASS_MAP = {
     # route around the gate.
     "switch_in_progress": "Safety",
     "lane_mismatch": "Safety",
+    # The terminal, and a tile holding it, is never an agent drop source or
+    # close target: move or close service panels instead, never route around.
+    "terminal_not_agent_movable": "Safety",
     # This deployment cannot do what was asked (a connector that cannot
     # execute plans, a logbook adapter that cannot write): explain, do not
     # look for another path.
     "browse_only_connector": "Safety",
     "unsupported_connector": "Safety",
     "not_supported": "Safety",
+    # The session's target has no archive here: the deployment's archive holds
+    # other machines' past, and showing it would answer from the wrong machine.
+    "no_archive": "Safety",
     # An interrupted plan is back at the head of the queue; a human decides
     # whether to remove it (approval-gated), never the agent by retrying.
     "interrupted_item_in_queue": "Safety",
@@ -221,6 +244,10 @@ ERROR_CLASS_MAP = {
     # the operator, not a policy gate the agent should explain.
     "permission_denied": "Internal",
     "bluesky_bridge_error": "Internal",
+    # A 5xx (or other unclassed answer) from the optimizer; details.status and
+    # details.detail say which. A 404 or 422 is relayed as not_found or
+    # validation_error instead.
+    "optimizer_error": "Internal",
     "phoebus_error": "Internal",
     "phoebus_open_failed": "Internal",
     "gallery_error": "Internal",

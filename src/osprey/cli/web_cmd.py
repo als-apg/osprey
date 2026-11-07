@@ -30,7 +30,7 @@ import socket
 import subprocess
 import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, MutableMapping
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -546,7 +546,37 @@ def _resolve_render(repo: Path | None) -> tuple[Path, Path, Path]:
     from osprey.agent_record.credentials import export_built_host_identity
 
     export_built_host_identity(os.environ, repo_root)
+    _export_write_ledger_view(os.environ, repo_root)
     return repo_root, build_dir, config_path
+
+
+def _export_write_ledger_view(environ: MutableMapping[str, str], repo_root: Path) -> list[str]:
+    """Point a host terminal at the deployment's write ledger, as a container's binds do.
+
+    A web terminal in a container is handed ``var/write_ledger/requests`` and
+    ``var/write_ledger`` read-only, so it sees the requests and self-issued
+    grants of the programs in this deployment's containers. A terminal on the
+    host has no binds; without these it would see none of them, and a run
+    waiting on an approval could be approved only from the CLI. A variable
+    already set (a container's bind) is left as it is, and so is a directory the
+    deploy has not provisioned.
+
+    Returns:
+        The names of the variables set.
+    """
+    from osprey.deployment.compose_generator import write_ledger_relpath, write_requests_relpath
+    from osprey_connectors import write_authorization as wa
+
+    exported = []
+    for name, relpath in (
+        (wa.REQUESTS_DIR_ENV_VAR, write_requests_relpath()),
+        (wa.LEDGER_VIEW_DIR_ENV_VAR, write_ledger_relpath()),
+    ):
+        directory = repo_root / relpath
+        if name not in environ and directory.is_dir():
+            environ[name] = str(directory)
+            exported.append(name)
+    return exported
 
 
 def _preflight_vendor_check() -> None:
@@ -579,7 +609,6 @@ def _preflight_vendor_check() -> None:
 def _companion_roster_failure(
     key: str,
     name: str,
-    family: str,
     port: int,
     base: int,
     section_key: str,
@@ -594,10 +623,9 @@ def _companion_roster_failure(
     operator to ``lsof`` to rediscover their own deployment.
 
     Args:
-        key: Registry key of the companion server, e.g. ``"artifact"``.
+        key: Registry key of the companion server, e.g. ``"artifact"`` — also
+            the port family the clash sits in.
         name: The server's display name.
-        family: Port family the clash sits in — the registry key, or the
-            definition's ``port_family`` when it names a different one.
         port: The port a listener was found on.
         base: The port base this deployment resolved.
         section_key: Dotted config key that overrides this server's port.
@@ -611,7 +639,7 @@ def _companion_roster_failure(
         f"Companion panel '{key}' ({name}) port {port} is already in use: "
         "this deployment's multi-user roster (user 0) owns this port.\n"
         f"  modules.web_terminals.enabled is true in this repo, and {port} is the "
-        f"'{family}' family's index-0 slot at port base {base} — single-user "
+        f"'{key}' family's index-0 slot at port base {base} — single-user "
         "`osprey web` and roster user 0 share index 0, so the two cannot run "
         "side by side at one base.\n"
         f"  Move this panel:    set {section_key} in config.yml\n"
@@ -713,7 +741,6 @@ def _probe_companion_ports() -> list[str]:
                 _companion_roster_failure(
                     key,
                     defn.name,
-                    defn.port_family or key,
                     port,
                     base,
                     ".".join(
@@ -885,14 +912,17 @@ def _wait_for_announced_port(
 ) -> int | None:
     """The port a detached child names in its startup line, read from its log.
 
-    Returns ``None`` when the child exits, or the line does not appear within
-    *timeout*.
+    Only a whole line counts. Returns ``None`` when the child exits, or the line
+    does not appear within *timeout*.
     """
     deadline = time.monotonic() + timeout
     while True:
         with suppress(OSError):
-            for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
-                if line.startswith(f"{_STARTUP_LINE} "):
+            text = log_path.read_text(encoding="utf-8", errors="replace")
+            for line in text.splitlines(keepends=True):
+                # A line without its newline may still be being written, its
+                # port cut short.
+                if line.endswith("\n") and line.startswith(f"{_STARTUP_LINE} "):
                     # ``http://<host>:<port>``; the port follows the last colon
                     # whatever the host, an IPv6 literal included.
                     return int(line.split()[-1].rsplit(":", 1)[1])
@@ -1205,7 +1235,7 @@ def web(
 
     # -- foreground (original behavior) ------------------------------------
 
-    from osprey.interfaces._serving import listening_socket
+    from osprey.interfaces._serving import WEB_HOST_ENV, listening_socket
 
     # The server's own socket, bound before anything names a port: the URL,
     # OSPREY_WEB_PORT and the startup line all read the port from it.
@@ -1236,6 +1266,7 @@ def web(
     # --port differs — reporting success while the real terminal never hears
     # the event.
     os.environ["OSPREY_WEB_PORT"] = str(port)
+    os.environ[WEB_HOST_ENV] = host
 
     # The agent record, held until the server returns: every session this
     # terminal starts writes to it and reads from it.

@@ -276,6 +276,10 @@ STATE_DIR = STATE_DIR_NAME
 #: other by a test rather than by an import.
 _SYSTEMD_UNIT_ENTRY = "osprey.service"
 
+#: The deployment repo's own root ``.dockerignore``: the repo files it names
+#: are kept out of the deployment's images when the build stages them.
+REPO_DOCKERIGNORE_FILENAME = ".dockerignore"
+
 #: SOURCE zone: tracked, user-edited. ``profile.yml`` plus the material it
 #: names, and the files a deployment's scaffolding verbs emit into the root:
 #: the CI pair (``scripts/verify.sh`` beside ``ci-extra.yml``;
@@ -306,6 +310,8 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         "watchdogs",
         "ci-extra.yml",
         _SYSTEMD_UNIT_ENTRY,
+        # The deployment's own list of repo files kept out of its image.
+        REPO_DOCKERIGNORE_FILENAME,
     }
 )
 
@@ -343,7 +349,9 @@ KNOWN_ROOT_ENTRIES: frozenset[str] = (
 
 #: Name prefixes exempt from the unknown-root-entry warning. Dot-prefixed
 #: entries (``.git/``, ``.DS_Store``) and ``docs/`` are exempt too — a profile
-#: is a directory someone keeps in version control and documents.
+#: is a directory someone keeps in version control and documents. What the
+#: CANOPY ``pre_build`` step puts in the repo root is exempt as well; see
+#: :func:`_root_warning_exempt_prefixes`.
 _ROOT_WARNING_EXEMPT_PREFIXES = ("README", "LICENSE")
 _ROOT_WARNING_EXEMPT_NAMES = frozenset({"docs"})
 
@@ -1453,13 +1461,6 @@ def handwritten_limits_violation(data_root: Path, repo_root: Path) -> FacilityBu
     return None
 
 
-def _symlink_escapes(path: Path, profile_dir: Path) -> bool:
-    """True when ``path`` is a symlink resolving outside the profile directory."""
-    if not path.is_symlink():
-        return False
-    return not path.resolve().is_relative_to(profile_dir.resolve())
-
-
 def _validate_markdown_dir(convention: ConventionDir, root: Path) -> list[str]:
     errors: list[str] = []
     for path in _iter_files(root):
@@ -1563,9 +1564,8 @@ def validate_convention_sources(profile_dir: Path) -> None:
     """Validate every convention directory a profile carries, up front.
 
     Checks that each convention directory is a directory, that its entries have
-    the shape the destination expects, that no entry symlinks outside the
-    profile (a profile must be self-contained to be reproducible), and that the
-    ``project/`` mirror writes no build-owned path.
+    the shape the destination expects, and that the ``project/`` mirror writes
+    no build-owned path.
 
     Args:
         profile_dir: The profile root directory.
@@ -1586,17 +1586,6 @@ def validate_convention_sources(profile_dir: Path) -> None:
                 f"  Make it a directory, or rename the file."
             )
             continue
-
-        escaping = [
-            f"{convention.source}/{path.relative_to(root).as_posix()}"
-            for path in sorted(root.rglob("*"))
-            if _symlink_escapes(path, profile_dir)
-        ]
-        errors += [
-            f"{rel} is a symlink pointing outside the profile.\n"
-            f"  A profile must be self-contained — copy the target in instead."
-            for rel in escaping
-        ]
 
         if convention.shape is EntryShape.MARKDOWN:
             errors += _validate_markdown_dir(convention, root)
@@ -2084,11 +2073,26 @@ def unselected_convention_artifacts(profile_dir: Path, selected: Collection[str]
     return sorted(names - set(selected))
 
 
+def _root_warning_exempt_prefixes() -> tuple[str, ...]:
+    """:data:`_ROOT_WARNING_EXEMPT_PREFIXES` plus what the CANOPY stage step writes.
+
+    The step (:mod:`osprey.integrations.canopy.stage`) puts the two wheels the
+    image installs and the payload directory in the repo root; their names are
+    read from that module so the two cannot drift.
+    """
+    from osprey.integrations.canopy import PAYLOAD_DIRNAME
+    from osprey.integrations.canopy.stage import WHEEL_PREFIXES
+
+    return (*_ROOT_WARNING_EXEMPT_PREFIXES, *WHEEL_PREFIXES, PAYLOAD_DIRNAME)
+
+
 def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> list[str]:
     """Return profile-root entries that are neither known nor exempt.
 
     Exempt: dot-prefixed entries, ``README*``, ``LICENSE*``, and ``docs/`` — a
-    profile is a directory someone keeps in version control and documents.
+    profile is a directory someone keeps in version control and documents —
+    and the staged CANOPY payload (``canopy-*``, ``pydmconverter-*``,
+    ``canopy_payload``).
 
     Args:
         profile_dir: The profile root directory.
@@ -2105,7 +2109,7 @@ def unknown_root_entries(profile_dir: Path, extra_known: Iterable[str] = ()) -> 
         if entry.name not in known
         and not entry.name.startswith(".")
         and entry.name not in _ROOT_WARNING_EXEMPT_NAMES
-        and not entry.name.startswith(_ROOT_WARNING_EXEMPT_PREFIXES)
+        and not entry.name.startswith(_root_warning_exempt_prefixes())
     )
 
 

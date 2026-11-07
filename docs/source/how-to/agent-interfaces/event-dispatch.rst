@@ -18,7 +18,7 @@ an EPICS channel crossing a threshold) into headless OSPREY agent runs.
    - Which trigger sources ship, and what each one's ``source_config`` takes
    - How the two bearer tokens guard inbound and internal traffic
 
-   **Prerequisites:** A project built from the ``control-assistant`` preset
+   **Prerequisites:** A project built from the ``demo`` preset
    (or any profile with a ``dispatch:`` block). Docker/Podman only for the
    container path.
 
@@ -41,7 +41,7 @@ Both numbers are the deployment's port layout at its default base; move
 .. raw:: html
    :file: ../../_diagrams/event-dispatch.html
 
-The ``control-assistant`` preset ships this enabled, wired to four
+The ``demo`` preset ships this enabled, wired to four
 control-system-free **tutorial triggers** so you can exercise the full pipeline
 with a single ``curl``. ``osprey build`` writes ``triggers.yml``, both service
 compose templates, and the ``services.{event_dispatcher,dispatch_worker}``
@@ -181,7 +181,7 @@ in the **EVENTS** tab of ``osprey web``.
 The EVENTS Panel
 ================
 
-Projects built from the ``control-assistant`` preset surface this dashboard as
+Projects built from the ``demo`` preset surface this dashboard as
 an **EVENTS** tab inside the web terminal, so ``osprey web`` exposes it without a
 separate browser window. The tab health-gates itself: while the dispatcher is
 down the tab is disabled with an offline indicator rather than showing a broken
@@ -289,17 +289,20 @@ does that only for the events backend the configuration declares, and only when
 that backend answers on loopback — an EVENTS panel pointed at a dashboard
 elsewhere receives neither the bearer nor your name.
 
-A shell reaches the same route
-------------------------------
+A shell can still reach the route
+---------------------------------
 
-The panel token sits in the agent process's environment, so a tier whose
-file lifts the ``Bash`` deny — a build failure unless that file also
-declares its own ``PreToolUse`` gate covering the shell — can post to the proxy
-route from a shell command and fire a job with no approval prompt. What that
-skips is the prompt, not the rest: such a job still carries your name from the
-proxy, still meets your chip at every write, and still runs under the worker's
-denylist. Code running in a sandbox holds neither the panel token nor the
-terminal's port, so it cannot make this call.
+The panel token is meant for the agent's MCP tools and hooks. Claude Code
+starts every ``Bash`` and ``Monitor`` command with the token removed from its
+environment, but the agent process itself keeps it, and a shell running as the
+same user can read it from that process (``/proc/$PPID/environ`` on Linux). So
+a tier whose file lifts the ``Bash`` deny — a build failure unless that file
+also declares its own ``PreToolUse`` gate covering the shell — can fire a job
+from a shell command with no approval prompt. What that skips is the prompt,
+not the rest: such a job still carries your name from the proxy, still meets
+your chip at every write, and still runs under the worker's denylist. Code
+running in a sandbox holds neither the panel token nor the terminal's port, so
+it cannot make this call.
 
 Authoring Triggers
 ==================

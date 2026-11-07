@@ -187,7 +187,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         # The waveform sibling of ``_collection``; None on a connector wired to
         # a single collection, which then reads scalars only.
         self._waveforms = None
-        self._timeout = 60
+        self._timeout: float = 60
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -338,7 +338,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
         _log_route_once(url is not None, store)
 
         try:
-            self._client = self._MongoClient(
+            client = self._MongoClient(
                 **mongo_client_kwargs(
                     url=url,
                     host=host,
@@ -350,16 +350,17 @@ class MongoDBArchiverConnector(ArchiverConnector):
                     timeout_s=self._timeout,
                 )
             )
+            self._client = client
 
             # Test connection
             def test_connection():
-                self._client.admin.command("ping")
+                client.admin.command("ping")
 
             await asyncio.to_thread(test_connection)
 
             # Get collection
-            self._collection = self._client[db_name][collection_name]
-            self._waveforms = self._client[db_name][waveform_collection(collection_name)]
+            self._collection = client[db_name][collection_name]
+            self._waveforms = client[db_name][waveform_collection(collection_name)]
 
             self._connected = True
             logger.debug(
@@ -388,11 +389,12 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
     async def disconnect(self) -> None:
         """Cleanup MongoDB connection."""
-        if self._client:
+        client = self._client
+        if client:
             try:
 
                 def close_connection():
-                    self._client.close()
+                    client.close()
 
                 await asyncio.to_thread(close_connection)
             except Exception as e:
@@ -486,7 +488,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
                 non-raw processing mode is requested for a channel that
                 carries non-numeric values
         """
-        timeout = timeout if timeout is not None else self._timeout
+        bound: float = timeout if timeout is not None else self._timeout
 
         self._require_connected()
 
@@ -559,7 +561,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
 
         try:
             # Use asyncio.wait_for for timeout, asyncio.to_thread for async execution
-            data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=timeout)
+            data = await asyncio.wait_for(asyncio.to_thread(fetch_data), timeout=bound)
 
             logger.debug(
                 f"Retrieved MongoDB archiver data: {len(data)} rows across {len(channels)} channels"
@@ -567,7 +569,7 @@ class MongoDBArchiverConnector(ArchiverConnector):
             return data
 
         except TimeoutError as e:
-            raise TimeoutError(f"MongoDB query timed out after {timeout}s") from e
+            raise TimeoutError(f"MongoDB query timed out after {bound}s") from e
         except ConnectionError as e:
             raise ConnectorUnavailableError(f"Network connectivity issue with MongoDB: {e}") from e
         except self._connection_error_types() as e:

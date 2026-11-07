@@ -13,6 +13,8 @@ the non-patched integration test in `test_read_bounded.py`.
 
 from unittest.mock import patch
 
+import pytest
+
 from osprey.mcp_server.bluesky.tools import read_tools
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
@@ -31,7 +33,7 @@ def _fn(name):
 async def test_max_rows_caps_the_returned_row_window():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[0.0], [1.0]],
         "row_count": 5,
         "truncated": True,
@@ -52,7 +54,7 @@ async def test_max_rows_caps_the_returned_row_window():
 async def test_row_count_reflects_true_total_not_window_size():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[0.0], [1.0]],
         "row_count": 500,
         "truncated": True,
@@ -70,32 +72,27 @@ async def test_row_count_reflects_true_total_not_window_size():
 # =========================================================================
 
 
-async def test_truncated_false_when_window_covers_every_row():
+@pytest.mark.parametrize(
+    ("row_count", "truncated", "max_rows"),
+    [
+        pytest.param(2, False, 100, id="window-covers-every-row"),
+        pytest.param(5, True, 2, id="window-omits-rows"),
+    ],
+)
+async def test_truncated_follows_whether_the_window_covers_every_row(
+    row_count, truncated, max_rows
+):
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[0.0], [1.0]],
-        "row_count": 2,
-        "truncated": False,
+        "row_count": row_count,
+        "truncated": truncated,
     }
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)):
-        result = await _fn("get_run_data")(run_id="abc123", max_rows=100)
+        result = await _fn("get_run_data")(run_id="abc123", max_rows=max_rows)
 
-    assert extract_response_dict(result)["truncated"] is False
-
-
-async def test_truncated_true_when_window_omits_rows():
-    body = {
-        "run_uid": "uid-1",
-        "columns": ["x"],
-        "rows": [[0.0], [1.0]],
-        "row_count": 5,
-        "truncated": True,
-    }
-    with patch(f"{_MOD}._http_get_json", return_value=(200, body)):
-        result = await _fn("get_run_data")(run_id="abc123", max_rows=2)
-
-    assert extract_response_dict(result)["truncated"] is True
+    assert extract_response_dict(result)["truncated"] is truncated
 
 
 # =========================================================================
@@ -146,7 +143,7 @@ async def test_paginated_rows_surface_unmodified_from_the_bridge_body():
     """The tool must not re-slice or otherwise alter the bridge's own window."""
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[2.0], [3.0]],
         "row_count": 5,
         "truncated": True,
@@ -178,7 +175,7 @@ async def test_empty_stream_returns_the_minimal_shape():
 async def test_mid_run_surfaces_partial_true():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,
@@ -193,7 +190,7 @@ async def test_mid_run_surfaces_partial_true():
 async def test_completed_run_omits_partial_key():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,

@@ -7,6 +7,8 @@ no Bluesky bridge process and no network.
 
 from unittest.mock import patch
 
+import pytest
+
 from osprey.mcp_server.bluesky.tools import read_tools
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
@@ -135,11 +137,18 @@ async def test_list_devices_empty():
     assert "note" not in data
 
 
-async def test_list_devices_bridge_error():
-    with patch(f"{_MOD}._http_get_json", return_value=(503, {"detail": "no manager"})):
+@pytest.mark.parametrize(
+    ("tool", "detail"),
+    [
+        pytest.param("list_devices", "no manager", id="list-devices"),
+        pytest.param("list_runs", "not armed", id="list-runs"),
+    ],
+)
+async def test_a_listing_reports_a_bridge_error(tool, detail):
+    with patch(f"{_MOD}._http_get_json", return_value=(503, {"detail": detail})):
         with assert_raises_error(error_type="bluesky_bridge_error") as ctx:
-            await _fn("list_devices")()
-    assert "no manager" in ctx["envelope"]["error_message"]
+            await _fn(tool)()
+    assert detail in ctx["envelope"]["error_message"]
 
 
 async def test_list_devices_refuses_a_body_that_is_not_a_device_page():
@@ -217,18 +226,11 @@ async def test_list_runs_default_limit():
     assert m.call_args.args[0] == "/runs?limit=20"
 
 
-async def test_list_runs_bridge_error():
-    with patch(f"{_MOD}._http_get_json", return_value=(503, {"detail": "not armed"})):
-        with assert_raises_error(error_type="bluesky_bridge_error") as ctx:
-            await _fn("list_runs")()
-    assert "not armed" in ctx["envelope"]["error_message"]
-
-
 # ── get_run_data ───────────────────────────────────────────────────────────
 async def test_get_run_data_success():
     body = {
         "run_uid": "uid-1",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,

@@ -6,7 +6,7 @@ import re
 import shutil
 import sys
 import warnings
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
@@ -341,6 +341,32 @@ def _graphdb_configured(config: dict) -> bool:
         return False
 
 
+def panel_declared_context(declares_panel: Callable[[str], bool]) -> dict[str, bool]:
+    """The ctx keys the panel-derived MCP servers are conditioned on.
+
+    One key per server the registry derived from a sidecar panel, true when
+    *declares_panel* says the panel is there. The question is put by the
+    caller because its two askers hold different things: the render holds a
+    ``config.yml`` and asks whether it declares ``web.panels.<id>``, and the
+    profile card holds a build profile and asks whether the panel is among its
+    resolved ``web_panels``.
+
+    Args:
+        declares_panel: Panel id to whether that panel is served.
+
+    Returns:
+        ``{"panel_declared:<id>": bool}`` for every panel-derived server, to
+        be merged into the context before ``resolve_servers`` runs.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    return {
+        sdef.condition: bool(declares_panel(sdef.panel_id))
+        for sdef in FRAMEWORK_SERVERS.values()
+        if sdef.panel_id is not None and sdef.condition
+    }
+
+
 def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     """The template-context keys read out of a project's ``config.yml`` and facts file.
 
@@ -360,7 +386,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
             resolved against the files it ships, and the facts are read from
             its ``data/facility_facts.json``.
     """
-    from osprey.deployment.web_terminals.roster import config_needs_dispatcher_token
+    from osprey.deployment.web_terminals.roster import (
+        config_declares_panel,
+        config_needs_dispatcher_token,
+    )
     from osprey.facility.views.facts import hook_measurement, read_facts
     from osprey.mcp_server.http import phoebus_bridge_default
     from osprey_connectors.types import connector_transport
@@ -374,6 +403,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     facility_facts = read_facts(project_dir, config.get("project_name", project_dir.name))
     facility = _read_facility(project_dir)
     ariel_attachment_view = _ariel_attachment_view(config)
+    ariel_sql_tool = _ariel_sql_tool(config)
     return {
         # User-owned files: regen skips these, users edit in-place
         "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
@@ -429,6 +459,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # it, or the credential with no entry to spend it on. The panel
         # declaration IS that entitlement; there is no separate key.
         "event_dispatcher_wired": config_needs_dispatcher_token(config),
+        # Gates for the MCP servers derived from sidecar panels, one key per
+        # server, read the way the two above are. The predicate is the same
+        # "this project shows that panel" the dispatcher key rests on.
+        **panel_declared_context(lambda panel_id: config_declares_panel(config, panel_id)),
         # Render-time fallback for the phoebus server's PHOEBUS_BRIDGE_URL env
         # entry, derived from the same phoebus.host/phoebus.port the backend is
         # deployed on. One spelling with the runtime resolution (the shared
@@ -456,10 +490,17 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # attachment_view, and the logbook templates read it to leave the tool
         # and its viewing rules out of the rendered guidance.
         "ariel_attachment_view": ariel_attachment_view,
-        # The ARIEL read tools the control-assistant CLAUDE.md tells the main
+        # Whether the ARIEL server serves sql_query: false where the profile
+        # authors `ariel.database.uri` without `ariel.database.readonly_uri`.
+        # resolve_servers reads it to withhold the tool, and the logbook
+        # templates read it to leave the tool and its SQL guidance out.
+        "ariel_sql_tool": ariel_sql_tool,
+        # The ARIEL read tools the demo CLAUDE.md tells the main
         # agent never to call itself, from the static registry entry (never
         # create_server(), which has start-up side effects).
-        "ariel_read_tools": _ariel_read_tools(ariel_attachment_view),
+        "ariel_read_tools": _ariel_read_tools(
+            {"ariel_attachment_view": ariel_attachment_view, "ariel_sql_tool": ariel_sql_tool}
+        ),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -489,6 +530,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # absent key renders as nothing at all — the same way hook_config.json
         # once shipped with an empty write-tool list and no error to say so.
         "mixed_read_write_tools": [],
+        # Every tool plan mode refuses, fully qualified. Derived from resolved
+        # servers by build_claude_code_context below; this empty default only
+        # guarantees the key is never absent, for the reason given above.
+        "plan_mode_denied_tools": [],
         # The render's facility (custom-server) write set, fully qualified: one
         # exact name per tool a declaring server gates, the whole-server
         # matcher for a server with no list. Like mixed_read_write_tools it
@@ -623,10 +668,11 @@ def _middle_layer_families(facility: dict[str, Any]) -> dict[str, list[dict[str,
         Class name -> ``[{"name", "system"}]``, ``system`` ``None`` where the
         cell does not name it; a class no family holds is absent.
     """
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.channel_finder import middle_layer_families
 
     out: dict[str, list[dict[str, str | None]]] = {}
-    for name, pairs in middle_layer_families(facility).items():
+    for name, pairs in middle_layer_families(FacilityRecords(facility)).items():
         qualified = len({system for system, _family in pairs}) > 1
         out[name] = [
             {"name": family, "system": system if qualified else None} for system, family in pairs
@@ -666,6 +712,21 @@ def _ariel_attachment_view(config: dict) -> bool:
         raise BuildProfileError(str(exc)) from exc
 
 
+def _ariel_sql_tool(config: dict) -> bool:
+    """Whether the ARIEL server serves ``sql_query``; ``True`` with no ``ariel`` mapping.
+
+    The tool is served only through a SELECT-only login, so a profile that
+    authors ``ariel.database.uri`` without ``ariel.database.readonly_uri`` gets
+    no SQL tool.
+    """
+    ariel = config.get("ariel") or {}
+    if not isinstance(ariel, Mapping):
+        return True
+    from osprey.services.ariel_search.config import sql_tool_offered
+
+    return sql_tool_offered(ariel)
+
+
 #: The ARIEL tools the main agent calls itself rather than through a logbook
 #: subagent: the two introspection tools, and the two verbs that put an entry or
 #: picture the subagent found in front of the operator.
@@ -674,20 +735,18 @@ _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset(
 )
 
 
-def _ariel_read_tools(view_enabled: bool) -> list[str]:
+def _ariel_read_tools(ctx: Mapping) -> list[str]:
     """The ARIEL read tools only the logbook subagents call, in registry order.
 
     Every ``permissions_allow`` tool of the ``ariel`` registry entry except
-    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL``, and except
-    ``attachment_view`` while the view is off (the server then does not offer
-    it).
+    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL`` and the optional tools
+    ``ctx`` withholds (the server then does not offer them).
     """
     from osprey.registry.mcp import FRAMEWORK_SERVERS
 
-    excluded = set(_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL)
-    if not view_enabled:
-        excluded.add("attachment_view")
-    return [t for t in FRAMEWORK_SERVERS["ariel"].permissions_allow if t not in excluded]
+    ariel = FRAMEWORK_SERVERS["ariel"]
+    excluded = _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL | ariel.withheld_optional_tools(ctx)
+    return [t for t in ariel.permissions_allow if t not in excluded]
 
 
 _CLAUDE_CODE_MIN_CLEANUP_DAYS = 30
@@ -990,6 +1049,7 @@ def build_claude_code_context(
         facility_write_tools,
         governed_write_tools,
         mixed_read_write_tools,
+        plan_mode_denied_tools,
         resolve_agents,
         resolve_servers,
     )
@@ -1010,6 +1070,11 @@ def build_claude_code_context(
     # classification is a property of the tool, not of the current posture,
     # and its consumers are read at run time under either one.
     ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
+    # The tools plan mode refuses, from the same resolved servers and for the
+    # same reason; unconditional as well, since plan mode is not a posture.
+    ctx["plan_mode_denied_tools"] = plan_mode_denied_tools(
+        ctx["servers"], ctx.get("control_system_write_tools") or []
+    )
     # The facility write set, from its one producer, unconditionally for the
     # same reason: hook_config.json renders it verbatim, and both write-target
     # twins send exactly those tools to `live` under either posture.
@@ -1026,6 +1091,11 @@ def build_claude_code_context(
     # empty in the shipped artifact. Both paths come through this function, so
     # both carry the index.
     ctx["bluesky_plan_index"] = _build_bluesky_plan_index(config, project_dir, ctx)
+    # Build-time guide to the CANOPY screen library, for the bundled screens
+    # skill; here for the same reason as the plan index above.
+    from osprey.integrations.canopy.screen_guide import screen_guide_context
+
+    ctx["canopy_screen_guide"] = screen_guide_context(config, project_dir)
 
     # Approval-overlap guard: a facility permissions.remove_ask or
     # permissions.allow entry naming an approval-gated (ask) tool of an enabled
@@ -1422,6 +1492,33 @@ def auto_register_user_owned(project_dir: Path, canonical_name: str):
     if not config_path.exists():
         return
     config_add_to_list(config_path, ["scaffold", "user_owned"], canonical_name)
+
+
+def _installed_hooks(selected: list[str]) -> list[str]:
+    """The hooks a render installs: the selection, then what its closure ships.
+
+    A selected hook ships with every ``hooks/`` row it requires, transitively
+    (the build catalog's closure). The short names of the rows that closure adds
+    follow the selection, sorted. Invariant: a hook that ships is wired, and one
+    that does not ship is not. A hook the configuration selects rather than the
+    profile (the watchdog trigger, in the selection exactly when a watchdog is
+    enabled — :func:`watchdog_hook_selection`) is part of ``selected`` and so of
+    the closure: it ships and is wired by the same rule.
+
+    Args:
+        selected: The render's hook selection, in short-name form: the profile's
+            ``hooks:`` list after :func:`watchdog_hook_selection`.
+    """
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+
+    prefix = "hooks/"
+    closure = BuildArtifactCatalog.default().closure(prefix + name for name in selected)
+    added = sorted(
+        name[len(prefix) :]
+        for name in closure
+        if name.startswith(prefix) and name[len(prefix) :] not in selected
+    )
+    return [*selected, *added]
 
 
 def _build_framework_hook_rules(
@@ -2471,30 +2568,15 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
         covering = [(m, src) for m, src in matchers if _matcher_covers(m, tool)]
         if covering:
             if all(src == _MATCHER_PROFILE for _, src in covering):
-                # The shell's reach is wider than the filesystem, so a facility
-                # weighing its own Bash or Monitor gate has to weigh the
-                # dispatcher wire too: OSPREY_PANEL_TOKEN is in the agent's
-                # process env, which is all it takes to fire a job from a shell
-                # command, in the foreground or the background.
-                shell_note = (
-                    " The shell also reaches the dispatcher wire: the panel "
-                    "token sits in the agent's process env, so a shell command "
-                    "can POST to /panel/events/mcp and fire a job without the "
-                    "approval prompt — the job still runs as the real user "
-                    "under their chip."
-                    if tool in SHELL_TOOLS
-                    else ""
-                )
                 logger.warning(
                     "%s is not in permissions.deny and is gated only by a "
                     "PreToolUse matcher this profile declares itself (%s). The "
                     "build checks that the rule exists, not that the hook "
                     "refuses anything — a hook that exits without a "
                     "permissionDecision allows the call. Verify that hook denies "
-                    "what it is there to deny.%s",
+                    "what it is there to deny.",
                     tool,
                     ", ".join(repr(m) for m, _ in covering),
-                    shell_note,
                 )
             continue
         floor_note = (
@@ -2561,9 +2643,10 @@ def create_claude_code_integration(
     # root is guaranteed present regardless of which one called.
     apply_agent_data_root(ctx, project_dir)
 
-    # Build framework hook rules from selected hooks' frontmatter
+    # Build framework hook rules from the frontmatter of every hook the render
+    # installs: the selection and the hooks its closure ships with it.
     fw_pre, fw_post = _build_framework_hook_rules(
-        ctx.get("selected_hooks", []), ctx.get("code_review_deadline_s")
+        _installed_hooks(ctx.get("selected_hooks", [])), ctx.get("code_review_deadline_s")
     )
     ctx["framework_pre_hooks"] = fw_pre
     ctx["framework_post_hooks"] = fw_post

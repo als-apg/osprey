@@ -33,6 +33,13 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Buttons do not inherit font properties by default: the browser gives them
+   its own system font at 13.33px. Inherit, so a button with no font rule of
+   its own draws in the surrounding text's face and size. */
+button {
+  font: inherit;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
@@ -54,7 +61,7 @@ html, body {
 
 /* Pane splitter — the grip-pill idiom shared by every resizable pane in the
    product (OKF sidebar/reader, artifact gallery browse view, PLAN
-   plan-list/detail, LATTICE sidebar, settings drawer, event dashboard zones)
+   plan-list/detail, settings drawer, event dashboard zones)
    and matching the hub's dockview sashes: a quiet pill at rest, instant accent
    fill on hover, drag, or keyboard focus. Behaviour is js/splitter.js, which
    toggles `.dragging` for the duration of a drag.

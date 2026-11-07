@@ -2,7 +2,8 @@
 
 Each layer reads one outside format and writes record sources under
 ``data/facility/imported/<layer>/``; the build merges them with the authored
-sources field by field.
+sources field by field. A seed-once file an import creates opens with
+:data:`HEADER`, whichever format wrote it, and is a person's from then on.
 """
 
 from __future__ import annotations
@@ -13,7 +14,13 @@ import click
 
 from osprey.facility.errors import FacilityBuildError
 
-__all__ = ["LayerSourceInvalid"]
+__all__ = ["FORMER_HEADER", "HEADER", "LayerSourceInvalid"]
+
+#: The first line of every file an import seeds, in every format.
+HEADER = "# Seeded once by the facility import; edit this file by hand."
+
+#: The mml import's own header before #2369; a deployment seeded under it still holds it.
+FORMER_HEADER = "# Seeded once by the mml import; edit this file by hand."
 
 
 class LayerSourceInvalid(click.ClickException):

@@ -1,89 +1,227 @@
 // @ts-check
 /**
- * ARIEL Entries Module
+ * ARIEL Entries Module — the compose host.
  *
- * Entry browsing, detail view, and creation.
+ * Hosts the create form in the `#ariel-compose` sheet and owns its init and
+ * controls. Store keys:
+ *   - reads `compose`: set shows the sheet, titled by kind, and opens it
+ *     through the compose lifecycle (compose-lifecycle.js: reset, fields,
+ *     kind fill, autosave restore); null hides it and closes the lifecycle,
+ *     which keeps the context's snapshot;
+ *   - writes `compose:null` on Close and Discard. Discard first finishes the
+ *     sheet (its snapshot is cleared) and, on a draft, deletes the draft
+ *     (Decision 10); Close keeps the snapshot. It never writes
+ *     `narrowView` (C-COMPOSE): the sheet overlays the tile when stacked, so
+ *     closing shows whichever pane was there. Maximise is per-open UI state
+ *     and is not stored. A successful create writes its own keys
+ *     (entries-form.js). Close, Discard and Esc return focus to the element
+ *     that opened the sheet, or to the selected row when that is gone (the
+ *     lifecycle's `scope` and `fallbackFocus`).
+ * The sheet keeps itself over the list column (placeSheet), and its footer
+ * names where the entry goes (adaptPublishingSection).
+ * The entry list lives in list.js and the reader in reader.js.
  */
 
 import { entriesApi } from './api.js';
+import { createComposeLifecycle } from './compose-lifecycle.js';
 import {
-  renderEntryCard,
-  renderLoading,
-  renderEmptyState,
-  renderErrorState,
-} from './components.js';
-import {
-  showEntry,
-  openEntry,
-  closeEntryModal,
-  showImageLightbox,
-  getCurrentEntry,
-  initEntryDetail,
-} from './entries-detail.js';
-import {
+  applySnapshot,
+  deleteDraft,
   handleCreateEntry,
   handleTagInput,
   handleFilePreview,
   loadDraft,
+  loadFollowUp,
   initEntryTags,
+  onComposeFinish,
+  readSnapshot,
+  resetCreateForm,
 } from './entries-form.js';
-import { renderEntryFields } from './entry-fields.js';
+import { entryFieldsRendered, renderEntryFields } from './entry-fields.js';
+import { formatFacilityTime } from '/design-system/js/facility-time.js';
+import { getState, setState, subscribe } from './store.js';
 
-// Re-export the detail-view and form public surface — app.js and window.app
-// import these from entries.js, so this module stays their single point of entry.
-export { showEntry, openEntry, closeEntryModal, showImageLightbox, getCurrentEntry };
-export { loadDraft };
+/** @typedef {import('./store.js').State} State */
 
 /**
- * Wire up delegated click handling for entry cards and pagination.
- *
- * #entries-list's innerHTML is replaced wholesale on every loadEntries()
- * call, so the listener is delegated on the stable list container
- * (attached once, at init) instead of bound to child elements that get
- * discarded on the next render.
+ * The sheet's title for a compose kind.
+ * @param {NonNullable<State['compose']>} compose
+ * @returns {string}
  */
-export function initEntriesListDelegation() {
-  const entriesList = document.getElementById('entries-list');
-  entriesList?.addEventListener('click', (e) => {
-    const target = /** @type {HTMLElement} */ (e.target);
-    const pageBtn = target.closest('[data-page]');
-    if (pageBtn) {
-      const page = parseInt(/** @type {HTMLElement} */ (pageBtn).dataset.page ?? '', 10);
-      if (!Number.isNaN(page)) loadEntries({ page });
-      return;
-    }
-    const card = target.closest('[data-entry-id]');
-    if (card) {
-      const entryId = /** @type {HTMLElement} */ (card).dataset.entryId;
-      if (entryId) showEntry(entryId);
-    }
-  });
+function composeTitle(compose) {
+  if (compose.draft) return 'Draft';
+  return compose.followsUp ? 'Follow up' : 'New entry';
 }
 
 /**
- * Initialize entries module.
+ * Maximise (span the panel) or restore the sheet.
+ * @param {HTMLElement|null} host
+ * @param {boolean} max
  */
-export function initEntries() {
-  // Entry creation form
-  const createForm = document.getElementById('create-entry-form');
-  createForm?.addEventListener('submit', handleCreateEntry);
+function setMax(host, max) {
+  if (!host) return;
+  host.classList.toggle('max', max);
+  const btn = host.querySelector('#ariel-compose-max');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', String(max));
+  const label = max ? 'Restore' : 'Expand';
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('title', label);
+}
 
-  // Tag input
-  const tagInput = document.getElementById('entry-tags-input');
-  tagInput?.addEventListener('keydown', handleTagInput);
+/**
+ * Write the footer's autosave stamp (C-SHEET-LIFECYCLE Saving): the time of
+ * a landed save, "not saved locally" after a failed one, empty on open.
+ * @param {boolean|null} ok
+ * @param {number} [savedAt]
+ */
+function setSavedStamp(ok, savedAt) {
+  const stamp = document.getElementById('ariel-compose-saved');
+  if (!stamp) return;
+  if (ok === null) stamp.textContent = '';
+  else if (!ok) stamp.textContent = 'not saved locally';
+  else {
+    const time = formatFacilityTime(savedAt, { hour: '2-digit', minute: '2-digit', hour12: false });
+    stamp.textContent = `saved locally ${time}`;
+  }
+}
 
-  // File input preview
-  const fileInput = document.getElementById('entry-files');
-  fileInput?.addEventListener('change', handleFilePreview);
+/**
+ * The sheet's lifecycle over the create form. The follow filler prefills from
+ * the parent entry; the draft filler loads the draft. Focus leaving the sheet
+ * falls back to the list's selected row.
+ * @param {ParentNode} root
+ * @param {AbortSignal} signal
+ */
+function createLifecycle(root, signal) {
+  const form = /** @type {HTMLFormElement|null} */ (root.querySelector('#create-entry-form'));
+  return createComposeLifecycle(
+    {
+      reset() {
+        resetCreateForm();
+        setSavedStamp(null);
+      },
+      renderFields: () => entryFieldsRendered(),
+      fillers: { follow: loadFollowUp, draft: loadDraft },
+      readSnapshot,
+      applySnapshot,
+      onSaved: (ok, savedAt) => setSavedStamp(ok, savedAt),
+    },
+    {
+      form,
+      gated: [
+        form?.querySelector('button[type="submit"]') ?? null,
+        /** @type {HTMLButtonElement|null} */ (root.querySelector('#create-cancel-btn')),
+      ],
+      scope: /** @type {HTMLElement|null} */ (root.querySelector('#ariel-compose')),
+      fallbackFocus: () =>
+        /** @type {HTMLElement|null} */ (
+          root.querySelector('[data-entry-id][aria-selected="true"]')
+        ),
+      signal,
+    }
+  );
+}
 
-  // Delegated handlers for the entries list, the detail modal, and the tags input.
-  initEntriesListDelegation();
-  initEntryDetail();
+/**
+ * Show or hide the compose sheet for `compose`, opening or closing the
+ * lifecycle. Every open and close starts the sheet restored.
+ * @param {HTMLElement|null} host
+ * @param {State['compose']} compose
+ * @param {ReturnType<typeof createComposeLifecycle>} lifecycle
+ */
+function applyCompose(host, compose, lifecycle) {
+  setMax(host, false);
+  if (host) host.hidden = !compose;
+  if (!compose) {
+    lifecycle.close();
+    return;
+  }
+  const title = composeTitle(compose);
+  const titleEl = host?.querySelector('#ariel-compose-title');
+  if (titleEl) titleEl.textContent = title;
+  host?.setAttribute('aria-label', title);
+  lifecycle.open(compose);
+}
+
+/**
+ * Keep the sheet's default position over the list column. The sheet is not
+ * inside `.ariel-list-col` (Decision 10), so it reads the column's box into
+ * two custom properties; the stacked and maximised styles ignore them.
+ * @param {HTMLElement|null} host
+ * @param {ParentNode} root
+ * @param {AbortSignal} signal
+ */
+function placeSheet(host, root, signal) {
+  const col = /** @type {HTMLElement|null} */ (root.querySelector('#ariel-list-col'));
+  if (!host || !col) return;
+  const place = () => {
+    if (!col.offsetWidth) return; // hidden while stacked: keep the last box
+    host.style.setProperty('--ariel-compose-left', `${col.offsetLeft}px`);
+    host.style.setProperty('--ariel-compose-width', `${col.offsetWidth}px`);
+  };
+  place();
+  if (typeof ResizeObserver === 'undefined') return;
+  const observer = new ResizeObserver(place);
+  // The rail moves the column without resizing it, so watch both.
+  for (const el of [col, root.querySelector('#ariel-rail')]) if (el) observer.observe(el);
+  signal.addEventListener('abort', () => observer.disconnect());
+}
+
+/**
+ * Initialize the create form and the compose host.
+ * @param {ParentNode} [root=document]
+ * @returns {{destroy(): void}}
+ */
+export function initEntries(root = document) {
+  const controller = new AbortController();
+  const { signal } = controller;
+
+  root.querySelector('#create-entry-form')?.addEventListener('submit', handleCreateEntry, {
+    signal,
+  });
+  root
+    .querySelector('#entry-tags-input')
+    ?.addEventListener('keydown', /** @type {EventListener} */ (handleTagInput), { signal });
+  root.querySelector('#entry-files')?.addEventListener('change', handleFilePreview, { signal });
+  const lifecycle = createLifecycle(root, signal);
+  onComposeFinish(() => lifecycle.finish());
+  const close = () => setState({ compose: null });
+  // Discard: finish (drop the snapshot), close, and delete a draft outright.
+  const discard = () => {
+    const draft = getState().compose?.draft;
+    lifecycle.finish();
+    close();
+    if (draft) deleteDraft(draft, 'Draft discarded');
+  };
+  root.querySelector('#create-cancel-btn')?.addEventListener('click', discard, { signal });
+  root.querySelector('#ariel-compose-close')?.addEventListener('click', close, { signal });
+  const host = /** @type {HTMLElement|null} */ (root.querySelector('#ariel-compose'));
+  root
+    .querySelector('#ariel-compose-max')
+    ?.addEventListener('click', () => setMax(host, !host?.classList.contains('max')), {
+      signal,
+    });
+  placeSheet(host, root, signal);
+
   initEntryTags();
 
   // Adapt the publishing section and the declared entry fields to the
   // configured logbook adapter.
   adaptCreateForm();
+
+  const unsubscribe = subscribe((next, _prev, changed) => {
+    if (changed.has('compose')) applyCompose(host, next.compose, lifecycle);
+  });
+  applyCompose(host, getState().compose, lifecycle);
+
+  return {
+    destroy() {
+      unsubscribe();
+      onComposeFinish(() => {});
+      controller.abort();
+    },
+  };
 }
 
 /**
@@ -102,6 +240,7 @@ export async function adaptCreateForm() {
     info = await entriesApi.getPublishInfo();
   } catch {
     // Service/DB unavailable — keep the neutral default text and built-in inputs.
+    setDestination('Destination unknown');
     await renderEntryFields([]);
     return;
   }
@@ -111,17 +250,32 @@ export async function adaptCreateForm() {
 }
 
 /**
- * Adapt the "Logbook Publishing" section to the adapter's publish-info.
+ * Write the sheet footer's destination line.
+ * @param {string} text
+ */
+function setDestination(text) {
+  const dest = document.getElementById('ariel-compose-dest');
+  if (dest) dest.textContent = text;
+}
+
+/**
+ * Adapt the "Logbook Publishing" section and the footer's destination line
+ * (Decision 11) to the adapter's publish-info.
  * @param {{supports_write: boolean, requires_auth: boolean, source_system: ?string}} info
  */
 function adaptPublishingSection(info) {
+  const book = info.source_system ? `${info.source_system} logbook` : 'facility logbook';
+  if (!info.supports_write) setDestination('→ This Logbook only (facility logbook read-only)');
+  else setDestination(`→ ${book}${info.requires_auth ? ' (credentials required)' : ''}`);
+
   const helper = document.getElementById('publish-helper');
   const credentials = document.getElementById('publish-credentials');
   if (!helper) return;
 
   const where = info.source_system ? ` to ${info.source_system}` : '';
   if (!info.supports_write) {
-    helper.textContent = 'Entries are saved to ARIEL only — this logbook is read-only.';
+    helper.textContent =
+      'Entries are saved to this Logbook only — the facility logbook is read-only.';
     if (credentials) credentials.style.display = 'none';
   } else if (info.requires_auth) {
     helper.textContent = `Enter your logbook credentials to publish${where}.`;
@@ -132,99 +286,4 @@ function adaptPublishingSection(info) {
   }
 }
 
-/**
- * Load and display entry list.
- * @param {any} params - List parameters
- */
-export async function loadEntries(params = {}) {
-  const container = document.getElementById('entries-list');
-  if (!container) return;
-
-  container.innerHTML = renderLoading('Loading entries...');
-
-  try {
-    const result = await entriesApi.list(params);
-    renderEntriesList(container, result);
-  } catch (error) {
-    console.error('Failed to load entries:', error);
-    container.innerHTML = renderErrorState('Failed to Load Entries', error);
-  }
-}
-
-/**
- * Render entries list.
- * @param {HTMLElement} container - Container element
- * @param {any} result - API result
- */
-function renderEntriesList(container, result) {
-  if (!result.entries?.length) {
-    container.innerHTML = renderEmptyState(
-      'No Entries',
-      'No logbook entries found. Try adjusting your filters.'
-    );
-    return;
-  }
-
-  let html = `
-    <div class="results-header">
-      <span class="results-count">
-        <strong>${result.total}</strong> total entries
-        <span class="text-muted">(page ${result.page} of ${result.total_pages})</span>
-      </span>
-    </div>
-    <div class="results-list">
-  `;
-
-  result.entries.forEach((/** @type {any} */ entry) => {
-    html += renderEntryCard(entry);
-  });
-
-  html += '</div>';
-
-  // Pagination
-  if (result.total_pages > 1) {
-    html += renderPagination(result.page, result.total_pages);
-  }
-
-  container.innerHTML = html;
-}
-
-/**
- * Render pagination controls.
- * @param {number} currentPage - Current page
- * @param {number} totalPages - Total pages
- * @returns {string} HTML string
- */
-function renderPagination(currentPage, totalPages) {
-  // Both buttons ALWAYS render; the ends of the range disable them rather than
-  // dropping them from the DOM. The row is centred, so a member coming and
-  // going re-centres the whole row and moves every OTHER member by half the
-  // delta — and the first click of "Next" is exactly what brings "Previous"
-  // into existence, so Next would slide out from under the cursor on the one
-  // gesture people repeat to page through a list. Disabled buttons hold the
-  // geometry still for the whole run. (artifacts/js/timeseries.js pages its
-  // table the same way, for the same reason.)
-  //
-  // Residual, deliberately left: the page readout still widens when the counts
-  // cross a digit (Page 9 of 9 -> Page 10 of 12), which nudges both buttons by
-  // about half a character. Same class, two orders of magnitude smaller.
-  const atStart = currentPage <= 1;
-  const atEnd = currentPage >= totalPages;
-  return (
-    '<div class="pagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 24px;">' +
-    `<button class="btn btn-secondary btn-sm" data-page="${currentPage - 1}"${atStart ? ' disabled' : ''}>Previous</button>` +
-    `<span class="text-muted" style="padding: 8px;">Page ${currentPage} of ${totalPages}</span>` +
-    `<button class="btn btn-secondary btn-sm" data-page="${currentPage + 1}"${atEnd ? ' disabled' : ''}>Next</button>` +
-    '</div>'
-  );
-}
-
-export default {
-  initEntries,
-  loadEntries,
-  showEntry,
-  closeEntryModal,
-  getCurrentEntry,
-  loadDraft,
-  showImageLightbox,
-};
+export default { initEntries, adaptCreateForm };

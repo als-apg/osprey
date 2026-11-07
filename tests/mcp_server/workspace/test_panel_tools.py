@@ -1,18 +1,25 @@
 """Tests for the panel_tools MCP tools.
 
 Covers:
-  - list_panels returns enabled built-in panels with correct labels
-  - list_panels includes custom panels (with and without explicit label)
+  - list_panels returns enabled built-in and custom panels with their labels,
+    the dock's full ``layout``, its ``rev`` and its freshness
   - list_panels handles web terminal being unreachable
-  - open_panel calls notify_panel_focus with correct args
-  - open_panel passes optional url through
-  - open_panel works with app-registered (custom) panel IDs
-  - close_panel takes a tile off screen without touching rail membership
+  - every on-screen verb relays exactly one dock op through ``panel_op``
+    (open_panel -> open, drop_panel -> drop, close_panel -> close,
+    open_panel_set -> open_set side by side, arrange_workspace ->
+    open_arrangement or open_set as a layout), with ``base_rev`` only for
+    ``drop``, the one op that names tile ids
+  - a mode that would stack panels in one tile is not accepted: open_panel_set
+    takes none, arrange_workspace's open_as is side or layout
+  - each returns the resulting layout and rev, or raises a structured error
+    whose error_type is the named refusal
+  - panel-id layouts are sent with member indexes
+  - open_panel refuses a url for an agent-hop panel (CANOPY), a url under
+    /panel/canopy/ for any panel, the CANOPY sidecar's own origin, and a url
+    the navigation guard refuses, before anything is relayed
   - add_panel_to_rail / remove_panel_from_rail validate ids before toggling
     rail membership
   - register_panel maps the register helper's outcomes to its response
-  - arrange_workspace reports the applied layout plus report freshness, and
-    surfaces the route's validation details verbatim as structured errors
 """
 
 import json
@@ -20,6 +27,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 _MODULE = "osprey.mcp_server.workspace.tools.panel_tools"
@@ -49,10 +57,45 @@ def _get_open_panel():
     return get_tool_fn(open_panel)
 
 
-def _get_close_panel():
-    from osprey.mcp_server.workspace.tools.panel_tools import close_panel
+def _tool(name: str):
+    from osprey.mcp_server.workspace.tools import panel_tools
 
-    return get_tool_fn(close_panel)
+    return get_tool_fn(getattr(panel_tools, name))
+
+
+#: A dock-form layout as the route returns it: two tiles, the terminal in one.
+_LAYOUT = {
+    "split": "row",
+    "items": [
+        {"tile": "t1", "tabs": ["lattice"], "showing": "lattice", "size": 0.6},
+        {"tile": "t2", "tabs": ["terminal"], "showing": "terminal", "size": 0.4},
+    ],
+}
+
+#: ARTIFACTS beside a LATTICE tile; ariel is on the rail but has no tile.
+_OCCUPIED = {
+    "split": "row",
+    "items": [
+        {"tile": "t1", "tabs": ["terminal"], "showing": "terminal", "size": 0.3},
+        {"tile": "t2", "tabs": ["lattice"], "showing": "lattice", "size": 0.4},
+        {"tile": "t3", "tabs": ["artifacts"], "showing": "artifacts", "size": 0.3},
+    ],
+}
+
+
+def _service_keys(layout) -> list[str]:
+    """The service keys of a dock ``layout`` in reading order, terminal excluded."""
+    return [key for key in layout_keys(layout) if key != "terminal"]
+
+
+def _applied(layout=None, rev=7) -> dict:
+    """``panel_op``'s outcome when the dock applied the op."""
+    return {"ok": True, "status": 200, "layout": layout or _LAYOUT, "rev": rev}
+
+
+def _refused(reason: str, detail: str = "", status: int | None = 409, **extra) -> dict:
+    """``panel_op``'s outcome for a named refusal."""
+    return {"ok": False, "status": status, "reason": reason, "detail": detail, **extra}
 
 
 class TestListPanels:
@@ -65,7 +108,7 @@ class TestListPanels:
             {
                 "enabled": ["artifacts", "ariel", "lattice"],
                 "custom": [],
-                "labels": {"artifacts": "WORKSPACE", "ariel": "ARIEL", "lattice": "LATTICE"},
+                "labels": {"artifacts": "WORKSPACE", "ariel": "LOGBOOK", "lattice": "LATTICE"},
                 "visible": ["artifacts", "lattice"],
                 "active": None,
             }
@@ -85,7 +128,7 @@ class TestListPanels:
         assert ids == ["artifacts", "ariel", "lattice"]
         labels = {p["id"]: p["label"] for p in result["panels"]}
         assert labels["artifacts"] == "WORKSPACE"
-        assert labels["ariel"] == "ARIEL"
+        assert labels["ariel"] == "LOGBOOK"
         assert labels["lattice"] == "LATTICE"
         visible = {p["id"]: p["visible"] for p in result["panels"]}
         assert visible["artifacts"] is True
@@ -161,7 +204,7 @@ class TestListPanels:
         assert "not running" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_list_panels_reports_open_tiles_independently_of_rail_membership(
+    async def test_list_panels_reports_layout_independently_of_rail_membership(
         self, _mock_web_terminal_url
     ):
         """Rail membership and on-screen occupancy are reported as separate facts."""
@@ -175,9 +218,10 @@ class TestListPanels:
                 # ariel is in the rail but has no tile; lattice has a tile.
                 "visible": ["artifacts", "ariel", "lattice"],
                 "active": "lattice",
-                "open_tiles": ["lattice", "artifacts"],
-                "open_tiles_age_s": 12.0,
-                "open_tiles_dock": True,
+                "layout": _OCCUPIED,
+                "rev": 2,
+                "layout_age_s": 12.0,
+                "layout_dock": True,
             }
         ).encode()
 
@@ -189,17 +233,18 @@ class TestListPanels:
         with patch("urllib.request.urlopen", return_value=mock_resp):
             result = extract_response_dict(await fn())
 
-        assert result["open_tiles"] == ["lattice", "artifacts"]
-        assert result["open_tiles_age_s"] == 12.0
-        assert result["open_tiles_dock"] is True
+        on_screen = _service_keys(result["layout"])
+        assert on_screen == ["lattice", "artifacts"]
+        assert result["layout_age_s"] == 12.0
+        assert result["layout_dock"] is True
         visible = {p["id"]: p["visible"] for p in result["panels"]}
-        assert visible["ariel"] is True and "ariel" not in result["open_tiles"]
+        assert visible["ariel"] is True and "ariel" not in on_screen
 
     @pytest.mark.asyncio
     async def test_list_panels_freshness_is_null_when_no_client_has_reported(
         self, _mock_web_terminal_url
     ):
-        """Never-reported is all-null — never [], which would claim a known-empty screen."""
+        """Never-reported is all-null — never a layout, which would claim a known screen."""
         fn = _get_list_panels()
 
         api_response = json.dumps(
@@ -210,9 +255,9 @@ class TestListPanels:
                 "visible": ["artifacts"],
                 "active": None,
                 # The route's never-reported state: all three null.
-                "open_tiles": None,
-                "open_tiles_age_s": None,
-                "open_tiles_dock": None,
+                "layout": None,
+                "layout_age_s": None,
+                "layout_dock": None,
             }
         ).encode()
 
@@ -224,9 +269,9 @@ class TestListPanels:
         with patch("urllib.request.urlopen", return_value=mock_resp):
             result = extract_response_dict(await fn())
 
-        assert result["open_tiles"] is None
-        assert result["open_tiles_age_s"] is None
-        assert result["open_tiles_dock"] is None
+        assert result["layout"] is None
+        assert result["layout_age_s"] is None
+        assert result["layout_dock"] is None
 
     @pytest.mark.asyncio
     async def test_list_panels_passes_through_unknown_occupancy(self, _mock_web_terminal_url):
@@ -241,9 +286,9 @@ class TestListPanels:
                 "visible": ["artifacts"],
                 "active": "artifacts",
                 # Server maps a dock:false report to unknown occupancy.
-                "open_tiles": None,
-                "open_tiles_age_s": 3.0,
-                "open_tiles_dock": False,
+                "layout": None,
+                "layout_age_s": 3.0,
+                "layout_dock": False,
             }
         ).encode()
 
@@ -255,92 +300,257 @@ class TestListPanels:
         with patch("urllib.request.urlopen", return_value=mock_resp):
             result = extract_response_dict(await fn())
 
-        assert result["open_tiles"] is None
-        assert result["open_tiles_dock"] is False
-        assert result["open_tiles_age_s"] == 3.0
+        assert result["layout"] is None
+        assert result["layout_dock"] is False
+        assert result["layout_age_s"] == 3.0
+
+
+class TestListPanelsLayout:
+    @pytest.mark.asyncio
+    async def test_list_panels_returns_layout_and_rev(self):
+        """The full dock layout, its rev and freshness pass through."""
+        data = {
+            "enabled": ["ariel", "lattice"],
+            "custom": [],
+            "visible": ["ariel", "lattice"],
+            "active": "lattice",
+            "layout": _LAYOUT,
+            "rev": 12,
+            "layout_age_s": 1.5,
+            "layout_dock": True,
+            "presets": [{"name": "Ops", "panels": ["ariel"]}],
+        }
+        with patch(f"{_MODULE}.fetch_panels", return_value=data):
+            result = extract_response_dict(await _tool("list_panels")())
+
+        assert result["layout"] == _LAYOUT
+        assert result["rev"] == 12
+        assert result["layout_age_s"] == 1.5
+        assert result["layout_dock"] is True
+        assert result["presets"] == [{"name": "Ops", "panels": ["ariel"]}]
+
+    @pytest.mark.asyncio
+    async def test_list_panels_layout_is_null_before_any_report(self):
+        data = {"enabled": ["ariel"], "custom": [], "visible": [], "layout": None, "rev": 0}
+        with patch(f"{_MODULE}.fetch_panels", return_value=data):
+            result = extract_response_dict(await _tool("list_panels")())
+
+        assert result["layout"] is None
+        assert result["rev"] == 0
 
 
 class TestOpenPanel:
     @pytest.mark.asyncio
-    async def test_calls_notify(self):
-        """open_panel delegates to notify_panel_focus."""
-        fn = _get_open_panel()
+    async def test_open_panel_relays_open_and_returns_layout_and_rev(self):
+        """open_panel is one dock op ``open {member}``, member-only: no base_rev."""
+        with patch(f"{_MODULE}.panel_op", return_value=_applied(rev=9)) as mock_op:
+            result = extract_response_dict(await _get_open_panel()("ariel"))
 
-        with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
-            result = extract_response_dict(await fn("ariel"))
-
-        assert result["status"] == "success"
-        assert result["panel"] == "ariel"
-        mock_focus.assert_called_once_with("ariel", url=None)
-
-    @pytest.mark.asyncio
-    async def test_passes_url(self):
-        """Optional url is forwarded to notify_panel_focus."""
-        fn = _get_open_panel()
-
-        with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
-            result = extract_response_dict(await fn("ariel", url="http://127.0.0.1:10300/#draft"))
-
-        assert result["status"] == "success"
-        mock_focus.assert_called_once_with("ariel", url="http://127.0.0.1:10300/#draft")
+        assert result == {
+            "status": "success",
+            "panel": "ariel",
+            "layout": _LAYOUT,
+            "popouts": [],
+            "rev": 9,
+        }
+        mock_op.assert_called_once_with("open", {"member": "ariel"}, base_rev=None)
 
     @pytest.mark.asyncio
-    async def test_open_custom_panel(self):
-        """open_panel works with app-registered (custom) panel IDs."""
-        fn = _get_open_panel()
-
-        with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
-            result = extract_response_dict(await fn("my-grafana"))
+    async def test_open_panel_passes_url(self):
+        url = "http://127.0.0.1:10300/#draft"
+        with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+            result = extract_response_dict(await _get_open_panel()("ariel", url=url))
 
         assert result["status"] == "success"
+        mock_op.assert_called_once_with("open", {"member": "ariel", "url": url}, base_rev=None)
+
+    @pytest.mark.asyncio
+    async def test_open_panel_custom_panel(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+            result = extract_response_dict(await _get_open_panel()("my-grafana"))
+
         assert result["panel"] == "my-grafana"
-        mock_focus.assert_called_once_with("my-grafana", url=None)
-
-
-class TestClosePanel:
-    """``close_panel`` moves the on-screen axis and only that axis."""
+        mock_op.assert_called_once_with("open", {"member": "my-grafana"}, base_rev=None)
 
     @pytest.mark.asyncio
-    async def test_calls_notify_close(self):
-        fn = _get_close_panel()
+    async def test_open_panel_route_refusal_is_named(self):
+        refused = _refused("unknown_member", "unknown panel 'nope'", status=422, rev=3)
+        with patch(f"{_MODULE}.panel_op", return_value=refused):
+            with assert_raises_error(error_type="unknown_member") as ctx:
+                await _get_open_panel()("nope")
 
-        with patch(f"{_MODULE}.notify_panel_close") as mock_close:
-            result = extract_response_dict(await fn("ariel"))
-
-        assert result["status"] == "success"
-        assert result["panel"] == "ariel"
-        mock_close.assert_called_once_with("ariel")
+        envelope = ctx["envelope"]
+        assert "open_panel refused" in envelope["error_message"]
+        assert "unknown panel 'nope'" in envelope["error_message"]
+        assert envelope["details"] == {
+            "op": "open",
+            "reason": "unknown_member",
+            "detail": "unknown panel 'nope'",
+            "rev": 3,
+        }
 
     @pytest.mark.asyncio
-    async def test_does_not_touch_rail_membership(self):
-        """The regression the split exists to prevent.
+    async def test_open_panel_web_terminal_unreachable(self):
+        down = _refused("no_web_terminal", "Web Terminal is not running.", status=None)
+        with patch(f"{_MODULE}.panel_op", return_value=down):
+            with assert_raises_error(error_type="no_web_terminal") as ctx:
+                await _get_open_panel()("ariel")
 
-        The old ``hide_panel`` closed the tile *and* dropped the rail entry, so
-        an agent asked to clear the screen also took away the operator's ability
-        to bring the panel back. Closing must reach only the close channel.
+        assert "rev" not in ctx["envelope"]["details"]
+
+
+@pytest.fixture
+def _pinned_deployment():
+    """Pin the port block (default base 10000) and the terminal's own port."""
+    with (
+        patch("osprey_connectors.workspace.load_osprey_config", return_value={}),
+        patch("osprey.mcp_server.http.web_terminal_url", return_value="http://127.0.0.1:10100"),
+    ):
+        yield
+
+
+class TestOpenPanelCanopyRefusal:
+    """An agent-hop panel's screen moves through its own tool, never a url.
+
+    The refusal happens in the tool, so it can name the panel's own tool: a
+    refused call must raise the structured envelope naming ``set_workspace``
+    and must not reach ``panel_op`` at all.
+    """
+
+    async def _assert_refused(self, panel_id: str, url: str) -> dict:
+        fn = _get_open_panel()
+        with patch(f"{_MODULE}.panel_op") as mock_op:
+            with assert_raises_error(error_type="agent_hop_panel_url") as ctx:
+                await fn(panel_id, url=url)
+        mock_op.assert_not_called()
+        envelope = ctx["envelope"]
+        assert "set_workspace" in " ".join(envelope["suggestions"])
+        assert envelope["details"]["panel"] == panel_id
+        assert "canopy" in envelope["details"]["agent_hop_panels"]
+        return envelope
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "/panel/canopy/embed/drafts/beam-tune",
+            "/s/GTLView",
+            "https://example.org/",
+        ],
+    )
+    async def test_open_panel_canopy_with_url_refused(self, url, _pinned_deployment):
+        """Any url for the canopy panel itself is refused, even a harmless one."""
+        await self._assert_refused("canopy", url)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "/panel/canopy/embed/drafts/x",
+            "/panel/canopy",
+            "/u/alice/panel/canopy/s/GTLView",
+            "http://127.0.0.1:10100/panel/canopy/s/x",
+            "https://terminal.example.org/panel/canopy/trace/",
+            "\\panel\\canopy\\s\\x",
+            "/panel/%63anopy/s/x",
+            "/panel/%2563anopy/s/x",
+            "/panel/ariel/../canopy/s/x",
+            "/panel/./canopy/s/x",
+            "/panel//canopy/s/x",
+            "/panel/canopy;x=1/s/x",
+            "/PANEL/CANOPY/s/x",
+            "  /panel/canopy/s/x\t",
+        ],
+    )
+    async def test_open_panel_other_panel_with_canopy_path_refused(self, url, _pinned_deployment):
+        """A url resolving under /panel/canopy/ is refused whatever panel_id names."""
+        await self._assert_refused("ariel", url)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127.0.0.1:54321/embed/drafts/x",
+            "http://localhost:49200/s/GTLView",
+            "http://[::1]:61000/",
+            "HTTP://127.0.0.1:54321/",
+            # The spellings a browser reads as the same loopback listener.
+            "http://127.1:54321/",
+            "http://2130706433:54321/",
+            "http://0x7f.0.0.1:54321/",
+            "http://0177.0.0.1:54321/",
+            "http://[::ffff:127.0.0.1]:54321/",
+            "http://localhost.:54321/",
+            "http://foo.localhost:54321/",
+        ],
+    )
+    async def test_open_panel_canopy_sidecar_origin_refused(self, url, _pinned_deployment):
+        """The sidecar's own ephemeral loopback origin is refused for any panel."""
+        await self._assert_refused("artifacts", url)
+
+    @pytest.mark.asyncio
+    async def test_open_panel_canopy_without_url_still_focuses(self):
+        """No url: one ``open`` op is the only thing sent.
+
+        The tool reaches neither the rail nor any other op, so the CANOPY slot
+        and its pending batches are untouched.
         """
-        fn = _get_close_panel()
-
+        fn = _get_open_panel()
         with (
-            patch(f"{_MODULE}.notify_panel_close"),
+            patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op,
             patch(f"{_MODULE}.notify_panel_visibility") as mock_visibility,
         ):
-            await fn("ariel")
+            result = extract_response_dict(await fn("canopy"))
 
+        assert result == {
+            "status": "success",
+            "panel": "canopy",
+            "layout": _LAYOUT,
+            "rev": 7,
+            "popouts": [],
+        }
+        mock_op.assert_called_once_with("open", {"member": "canopy"}, base_rev=None)
         mock_visibility.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_close_custom_panel(self):
-        fn = _get_close_panel()
-
-        with patch(f"{_MODULE}.notify_panel_close") as mock_close:
-            result = extract_response_dict(await fn("my-grafana"))
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "/panel/ariel/#/draft/7",
+            "/panel/ariel/#/panel/canopy/s/x",
+            "/panel/ariel/?next=/panel/canopy/s/x",
+            "/panel/canopy-notes/x",
+            "http://127.0.0.1:10300/#draft",
+            "http://127.0.0.1:10100/panel/ariel/",
+            "https://grafana.example.org:54321/d/x",
+        ],
+    )
+    async def test_open_panel_canopy_unrelated_urls_pass(self, url, _pinned_deployment):
+        """Deep links into other panels are unchanged by the canopy refusal."""
+        fn = _get_open_panel()
+        with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+            result = extract_response_dict(await fn("ariel", url=url))
 
         assert result["status"] == "success"
-        mock_close.assert_called_once_with("my-grafana")
+        mock_op.assert_called_once_with("open", {"member": "ariel", "url": url}, base_rev=None)
 
+    @pytest.mark.asyncio
+    async def test_open_panel_canopy_refusal_is_data_driven(self, _pinned_deployment):
+        """The refused set is the agent_hop flag, not the literal 'canopy'."""
+        from osprey.profiles.sidecar_panels import SIDECAR_PANELS, SidecarPanel
 
-# ---- Helpers for rail-membership/register tests ----
+        hop = SidecarPanel("hop", "x:y", mcp_path="/mcp", agent_hop=True)
+        no_hop = SidecarPanel("plain", "x:y", mcp_path="/mcp")
+        with patch.dict(SIDECAR_PANELS, {"hop-panel": hop, "plain-panel": no_hop}):
+            await self._assert_refused("hop-panel", "/x")
+            await self._assert_refused("ariel", "/panel/hop-panel/x")
+            fn = _get_open_panel()
+            with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+                result = extract_response_dict(await fn("plain-panel", url="/panel/plain-panel/x"))
+        assert result["status"] == "success"
+        mock_op.assert_called_once_with(
+            "open", {"member": "plain-panel", "url": "/panel/plain-panel/x"}, base_rev=None
+        )
 
 
 def _get_add_panel_to_rail():
@@ -568,182 +778,336 @@ class TestRegisterPanel:
         assert "not running" in result["message"].lower()
 
 
-# ---- arrange_workspace ----
+# ---- the dock ops ----
 
 
-def _get_arrange_workspace():
-    from osprey.mcp_server.workspace.tools.panel_tools import arrange_workspace
+#: The hint every one_panel_per_tile refusal carries.
+_ONE_PANEL_HINT = (
+    "A tile holds one panel: put panels side by side (open_panel_set, or a layout "
+    "with one panel per tile), or use open_panel to replace what a tile shows."
+)
 
-    return get_tool_fn(arrange_workspace)
+
+class TestDropPanel:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("source", "target"),
+        [
+            ({"new": {"panel": "ariel"}}, {"tile": "t1", "edge": "right"}),
+            ({"tile": "t1"}, {"tile": "t2", "edge": "left"}),
+            ({"tab": "lattice"}, {"border": {"tile": "t2", "side": "right"}}),
+            ({"new": {"panel": "artifacts"}}, {"outer": "bottom"}),
+        ],
+    )
+    async def test_drop_panel_relays_drop_with_base_rev(self, source, target):
+        """Every source and target form goes through as given, with base_rev."""
+        with patch(f"{_MODULE}.panel_op", return_value=_applied(rev=5)) as mock_op:
+            result = extract_response_dict(await _tool("drop_panel")(source, target, 4))
+
+        assert result == {"status": "success", "layout": _LAYOUT, "popouts": [], "rev": 5}
+        mock_op.assert_called_once_with("drop", {"source": source, "target": target}, base_rev=4)
+
+    @pytest.mark.asyncio
+    async def test_drop_panel_stale_base_names_the_reread(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_refused("stale_base", "behind", rev=8)):
+            with assert_raises_error(error_type="stale_base") as ctx:
+                await _tool("drop_panel")({"tab": "ariel"}, {"outer": "left"}, 2)
+
+        envelope = ctx["envelope"]
+        assert envelope["details"]["rev"] == 8
+        assert "list_panels" in envelope["suggestions"][0]
+        assert "drop_panel refused (stale_base)" in envelope["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_drop_panel_terminal_source_refused(self):
+        refused = _refused("terminal_not_agent_movable", "the terminal ...", status=422)
+        with patch(f"{_MODULE}.panel_op", return_value=refused):
+            with assert_raises_error(error_type="terminal_not_agent_movable"):
+                await _tool("drop_panel")({"tab": "terminal"}, {"outer": "left"}, 1)
+
+    @pytest.mark.asyncio
+    async def test_a_drop_into_a_tile_is_refused_with_what_to_do_instead(self):
+        """The route refuses a zone target by name; the agent hears how to place the panel."""
+        refused = _refused("one_panel_per_tile", "a tile holds one panel", status=422, rev=4)
+        target = {"tile": "t1", "zone": "centre"}
+        with patch(f"{_MODULE}.panel_op", return_value=refused) as mock_op:
+            with assert_raises_error(error_type="one_panel_per_tile") as ctx:
+                await _tool("drop_panel")({"new": {"panel": "ariel"}}, target, 4)
+
+        mock_op.assert_called_once_with(
+            "drop", {"source": {"new": {"panel": "ariel"}}, "target": target}, base_rev=4
+        )
+        envelope = ctx["envelope"]
+        assert "drop_panel refused (one_panel_per_tile)" in envelope["error_message"]
+        assert envelope["suggestions"] == [_ONE_PANEL_HINT]
+
+
+class TestClosePanel:
+    @pytest.mark.asyncio
+    async def test_close_panel_relays_close_with_the_key_and_no_base_rev(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_applied(rev=3)) as mock_op:
+            result = extract_response_dict(await _tool("close_panel")("ariel"))
+
+        assert result == {
+            "status": "success",
+            "panel": "ariel",
+            "layout": _LAYOUT,
+            "popouts": [],
+            "rev": 3,
+        }
+        mock_op.assert_called_once_with("close", {"key": "ariel"}, base_rev=None)
+
+    @pytest.mark.asyncio
+    async def test_close_panel_does_not_touch_rail_membership(self):
+        with (
+            patch(f"{_MODULE}.panel_op", return_value=_applied()),
+            patch(f"{_MODULE}.notify_panel_visibility") as mock_visibility,
+        ):
+            await _tool("close_panel")("ariel")
+
+        mock_visibility.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_close_panel_of_a_panel_no_tile_shows_is_refused(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_refused("unknown_key", status=422)):
+            with assert_raises_error(error_type="unknown_key") as ctx:
+                await _tool("close_panel")("nope")
+
+        assert "close_panel refused (unknown_key)" in ctx["envelope"]["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_close_panel_no_dock_client(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_refused("no_dock_client")):
+            with assert_raises_error(error_type="no_dock_client") as ctx:
+                await _tool("close_panel")("ariel")
+
+        assert "Web Terminal" in ctx["envelope"]["suggestions"][0]
+
+    @pytest.mark.asyncio
+    async def test_a_dock_that_did_not_answer_leaves_the_outcome_unknown(self):
+        """The dock may still apply the op: the error never says nothing changed."""
+        no_answer = _refused("no_dock_answer", "the dock client did not answer in time", rev=5)
+        with patch(f"{_MODULE}.panel_op", return_value=no_answer):
+            with assert_raises_error(error_type="no_dock_answer") as ctx:
+                await _tool("close_panel")("ariel")
+
+        envelope = ctx["envelope"]
+        assert "Nothing changed" not in envelope["error_message"]
+        assert "outcome is unknown" in envelope["error_message"]
+        assert "list_panels" in envelope["suggestions"][0]
+
+    def test_close_panel_is_the_one_close_tool(self):
+        """A tile shows one panel, so it closes with its panel: one verb, no tile ids."""
+        import inspect
+
+        from osprey.mcp_server.workspace.tools import panel_tools
+
+        assert sorted(name for name in vars(panel_tools) if name.startswith("close_")) == [
+            "close_panel"
+        ]
+        assert list(inspect.signature(_tool("close_panel")).parameters) == ["panel_id"]
+
+
+class TestOpenPanelSet:
+    @pytest.mark.asyncio
+    async def test_open_panel_set_relays_open_set_side_by_side(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+            result = extract_response_dict(await _tool("open_panel_set")(["ariel", "lattice"]))
+
+        assert result["panels"] == ["ariel", "lattice"]
+        assert result["rev"] == 7
+        mock_op.assert_called_once_with(
+            "open_set", {"members": ["ariel", "lattice"], "as": "side"}, base_rev=None
+        )
+
+    def test_open_panel_set_takes_no_mode(self):
+        """Side by side is how a set opens; an exact layout is arrange_workspace's."""
+        import inspect
+
+        from osprey.mcp_server.workspace.tools import panel_tools
+
+        assert list(inspect.signature(_tool("open_panel_set")).parameters) == ["panels"]
+        assert not hasattr(panel_tools, "OpenSetAs")
+
+    @pytest.mark.asyncio
+    async def test_a_mode_sent_over_mcp_is_refused_before_anything_is_relayed(self):
+        from fastmcp.exceptions import ValidationError
+
+        from osprey.mcp_server.workspace.server import mcp
+        from osprey.mcp_server.workspace.tools import panel_tools  # noqa: F401  (registers)
+
+        with patch(f"{_MODULE}.panel_op") as mock_op:
+            with pytest.raises(ValidationError, match="open_as"):
+                await mcp.call_tool("open_panel_set", {"panels": ["ariel"], "open_as": "tabs"})
+
+        mock_op.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_open_panel_set_too_many_for_side_refused(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_refused("too_many_for_side")):
+            with assert_raises_error(error_type="too_many_for_side") as ctx:
+                await _tool("open_panel_set")(["a", "b", "c"])
+
+        hint = ctx["envelope"]["suggestions"][0]
+        assert "fewer tiles" in hint and "one at a time" in hint
+        assert "tabs" not in hint
 
 
 class TestArrangeWorkspace:
     @pytest.mark.asyncio
-    async def test_arrange_tiles_returns_applied_layout_and_freshness(self):
-        """A tiles arrangement echoes the server's applied layout plus freshness."""
-        # Arrange
-        fn = _get_arrange_workspace()
-        ok_result = {
-            "ok": True,
-            "status": 200,
-            "data": {
-                "status": "ok",
-                "tiles": ["artifacts", "lattice"],
-                "focus": "lattice",
-                "preset": None,
-                "prune_rail": False,
-            },
+    async def test_arrange_preset_relays_open_arrangement(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_applied(rev=11)) as mock_op:
+            result = extract_response_dict(await _tool("arrange_workspace")(preset="Ops"))
+
+        assert result == {
+            "status": "success",
+            "preset": "Ops",
+            "layout": _LAYOUT,
+            "popouts": [],
+            "rev": 11,
         }
-        panels = {"open_tiles": ["artifacts"], "open_tiles_age_s": 2.5, "open_tiles_dock": True}
+        mock_op.assert_called_once_with("open_arrangement", {"name": "Ops"}, base_rev=None)
 
-        # Act
-        with (
-            patch(f"{_MODULE}.notify_panel_arrange", return_value=ok_result) as mock_arrange,
-            patch(f"{_MODULE}.fetch_panels", return_value=panels),
-        ):
-            result = extract_response_dict(
-                await fn(tiles=["artifacts", "lattice"], focus="lattice")
-            )
+    @pytest.mark.asyncio
+    async def test_arrange_preset_side_by_side(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+            await _tool("arrange_workspace")(preset="Ops", open_as="side")
 
-        # Assert
-        assert result["status"] == "success"
-        assert result["tiles"] == ["artifacts", "lattice"]
-        assert result["focus"] == "lattice"
-        assert result["open_tiles_age_s"] == 2.5
-        assert result["open_tiles_dock"] is True
-        assert "preset" not in result
-        mock_arrange.assert_called_once_with(
-            tiles=["artifacts", "lattice"], preset=None, focus="lattice"
+        mock_op.assert_called_once_with(
+            "open_arrangement", {"name": "Ops", "as": "side"}, base_rev=None
+        )
+
+    def test_open_as_is_side_or_layout(self):
+        import typing
+
+        from osprey.mcp_server.workspace.tools import panel_tools
+
+        assert typing.get_args(panel_tools.OpenAs) == ("side", "layout")
+
+    @pytest.mark.asyncio
+    async def test_open_as_tabs_is_not_accepted(self):
+        """The MCP call is refused by its schema before anything is relayed."""
+        from fastmcp.exceptions import ValidationError
+
+        from osprey.mcp_server.workspace.server import mcp
+        from osprey.mcp_server.workspace.tools import panel_tools  # noqa: F401  (registers)
+
+        with patch(f"{_MODULE}.panel_op") as mock_op:
+            with pytest.raises(ValidationError, match="open_as"):
+                await mcp.call_tool("arrange_workspace", {"preset": "Ops", "open_as": "tabs"})
+
+        mock_op.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_arrange_layout_relays_open_set_as_layout(self):
+        """A panel-id layout becomes open_set over its panels in reading order."""
+        layout = {
+            "split": "column",
+            "items": [
+                {"tabs": ["lattice"]},
+                {
+                    "split": "row",
+                    "items": [{"tabs": ["ariel"]}, {"tabs": ["artifacts"], "showing": "artifacts"}],
+                },
+            ],
+        }
+        with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+            result = extract_response_dict(await _tool("arrange_workspace")(layout=layout))
+
+        assert result["panels"] == ["lattice", "ariel", "artifacts"]
+        mock_op.assert_called_once_with(
+            "open_set",
+            {
+                "members": ["lattice", "ariel", "artifacts"],
+                "as": "layout",
+                "layout": {
+                    "split": "column",
+                    "items": [
+                        {"tabs": [0]},
+                        {"split": "row", "items": [{"tabs": [1]}, {"tabs": [2], "showing": 2}]},
+                    ],
+                },
+            },
+            base_rev=None,
         )
 
     @pytest.mark.asyncio
-    async def test_arrange_preset_reports_preset_name(self):
-        """A preset call forwards the name and reports it back."""
-        # Arrange
-        fn = _get_arrange_workspace()
-        ok_result = {
-            "ok": True,
-            "status": 200,
-            "data": {
-                "status": "ok",
-                "tiles": ["artifacts", "errors"],
-                "focus": None,
-                "preset": "injection",
-                "prune_rail": True,
-            },
-        }
+    async def test_arrange_single_tile_layout(self):
+        with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
+            await _tool("arrange_workspace")(layout={"tabs": ["ariel"]})
 
-        # Act
-        with (
-            patch(f"{_MODULE}.notify_panel_arrange", return_value=ok_result) as mock_arrange,
-            patch(f"{_MODULE}.fetch_panels", return_value={}),
-        ):
-            result = extract_response_dict(await fn(preset="injection"))
-
-        # Assert
-        assert result["preset"] == "injection"
-        assert result["tiles"] == ["artifacts", "errors"]
-        assert result["focus"] is None
-        mock_arrange.assert_called_once_with(tiles=None, preset="injection", focus=None)
+        mock_op.assert_called_once_with(
+            "open_set",
+            {"members": ["ariel"], "as": "layout", "layout": {"tabs": [0]}},
+            base_rev=None,
+        )
 
     @pytest.mark.asyncio
-    async def test_arrange_reports_null_freshness_when_readback_fails(self):
-        """An arrangement that applied is still a success when the freshness read fails."""
-        # Arrange
-        fn = _get_arrange_workspace()
-        ok_result = {"ok": True, "status": 200, "data": {"tiles": ["artifacts"], "focus": None}}
+    async def test_arrange_layout_with_two_panels_in_a_tile_is_refused_by_name(self):
+        """The layout is relayed as written; the route refuses it, and the agent hears why."""
+        refused = _refused("one_panel_per_tile", "layout.tabs: one_panel_per_tile", status=422)
+        with patch(f"{_MODULE}.panel_op", return_value=refused) as mock_op:
+            with assert_raises_error(error_type="one_panel_per_tile") as ctx:
+                await _tool("arrange_workspace")(layout={"tabs": ["ariel", "lattice"]})
 
-        # Act
-        with (
-            patch(f"{_MODULE}.notify_panel_arrange", return_value=ok_result),
-            patch(f"{_MODULE}.fetch_panels", return_value=None),
-        ):
-            result = extract_response_dict(await fn(tiles=["artifacts"]))
-
-        # Assert
-        assert result["status"] == "success"
-        assert result["open_tiles_age_s"] is None
-        assert result["open_tiles_dock"] is None
+        assert mock_op.call_args.args[1]["layout"] == {"tabs": [0, 1]}
+        assert ctx["envelope"]["suggestions"] == [_ONE_PANEL_HINT]
 
     @pytest.mark.asyncio
-    async def test_arrange_reports_nulls_when_no_client_has_reported(self):
-        """Nulls from a live server mean nobody is watching — the agent should see that."""
-        # Arrange
-        fn = _get_arrange_workspace()
-        ok_result = {"ok": True, "status": 200, "data": {"tiles": ["artifacts"], "focus": None}}
-        never_reported = {
-            "enabled": ["artifacts"],
-            "open_tiles": None,
-            "open_tiles_age_s": None,
-            "open_tiles_dock": None,
-        }
+    async def test_arrange_layout_naming_terminal_reaches_route_unindexed(self):
+        """The terminal is left as a name so the route refuses terminal_in_layout."""
+        refused = _refused("terminal_in_layout", status=422)
+        layout = {"split": "row", "items": [{"tabs": ["ariel"]}, {"tabs": ["terminal"]}]}
+        with patch(f"{_MODULE}.panel_op", return_value=refused) as mock_op:
+            with assert_raises_error(error_type="terminal_in_layout"):
+                await _tool("arrange_workspace")(layout=layout)
 
-        # Act
-        with (
-            patch(f"{_MODULE}.notify_panel_arrange", return_value=ok_result),
-            patch(f"{_MODULE}.fetch_panels", return_value=never_reported),
-        ):
-            result = extract_response_dict(await fn(tiles=["artifacts"]))
-
-        # Assert
-        assert result["status"] == "success"
-        assert result["open_tiles_age_s"] is None
-        assert result["open_tiles_dock"] is None
+        args = mock_op.call_args.args[1]
+        assert args["members"] == ["ariel", "terminal"]
 
     @pytest.mark.asyncio
-    async def test_arrange_surfaces_route_detail_verbatim(self):
-        """A 422 from the route reaches the agent word for word."""
-        # Arrange
-        fn = _get_arrange_workspace()
-        detail = "Unknown panel ids: ['bogus']. Valid panel ids: ['artifacts', 'lattice']"
-        rejected = {"ok": False, "status": 422, "detail": detail}
+    @pytest.mark.parametrize(
+        "kwargs",
+        [{}, {"preset": "Ops", "layout": {"tabs": ["ariel"]}}],
+    )
+    async def test_arrange_needs_exactly_one_of_preset_or_layout(self, kwargs):
+        with patch(f"{_MODULE}.panel_op") as mock_op:
+            with assert_raises_error(error_type="invalid_request"):
+                await _tool("arrange_workspace")(**kwargs)
 
-        # Act / Assert
-        with patch(f"{_MODULE}.notify_panel_arrange", return_value=rejected):
-            with assert_raises_error(error_type="arrange_rejected") as ctx:
-                await fn(tiles=["bogus"])
-        assert detail in ctx["envelope"]["error_message"]
+        mock_op.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_arrange_unknown_preset_detail_lists_available(self):
-        """The route's available-preset list is preserved for the agent."""
-        # Arrange
-        fn = _get_arrange_workspace()
-        detail = "Unknown preset: 'nope'. Available presets: ['injection']"
-        rejected = {"ok": False, "status": 422, "detail": detail}
+    async def test_arrange_layout_refuses_open_as_other_than_layout(self):
+        with patch(f"{_MODULE}.panel_op") as mock_op:
+            with assert_raises_error(error_type="invalid_request"):
+                await _tool("arrange_workspace")(layout={"tabs": ["ariel"]}, open_as="side")
 
-        # Act / Assert
-        with patch(f"{_MODULE}.notify_panel_arrange", return_value=rejected):
-            with assert_raises_error(error_type="arrange_rejected") as ctx:
-                await fn(preset="nope")
-        assert "Available presets: ['injection']" in ctx["envelope"]["error_message"]
+        mock_op.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_arrange_layout_naming_no_panel_refused(self):
+        with patch(f"{_MODULE}.panel_op") as mock_op:
+            with assert_raises_error(error_type="invalid_layout") as ctx:
+                await _tool("arrange_workspace")(layout={"split": "row", "items": []})
+
+        mock_op.assert_not_called()
+        assert "arrange_workspace refused" in ctx["envelope"]["error_message"]
+
+    @pytest.mark.asyncio
+    async def test_arrange_unknown_preset_refused(self):
+        refused = _refused("unknown_arrangement", "unknown preset 'X'; presets: ['Ops']", 422)
+        with patch(f"{_MODULE}.panel_op", return_value=refused):
+            with assert_raises_error(error_type="unknown_arrangement") as ctx:
+                await _tool("arrange_workspace")(preset="X")
+
+        assert "['Ops']" in ctx["envelope"]["error_message"]
 
     @pytest.mark.asyncio
     async def test_arrange_web_terminal_unreachable(self):
-        """An unreachable web terminal is its own error type, not a rejection."""
-        # Arrange
-        fn = _get_arrange_workspace()
-        down = {"ok": False, "status": None, "detail": "Web Terminal is not running."}
+        down = _refused("no_web_terminal", "Web Terminal is not running.", status=None)
+        with patch(f"{_MODULE}.panel_op", return_value=down):
+            with assert_raises_error(error_type="no_web_terminal") as ctx:
+                await _tool("arrange_workspace")(preset="Ops")
 
-        # Act / Assert
-        with patch(f"{_MODULE}.notify_panel_arrange", return_value=down):
-            with assert_raises_error(error_type="web_terminal_unreachable") as ctx:
-                await fn(tiles=["artifacts"])
-        assert "not running" in ctx["envelope"]["error_message"].lower()
-
-    @pytest.mark.asyncio
-    async def test_arrange_does_not_prevalidate_tiles_xor_preset(self):
-        """The route owns tiles/preset exclusivity — the tool forwards and reports it."""
-        # Arrange
-        fn = _get_arrange_workspace()
-        rejected = {
-            "ok": False,
-            "status": 422,
-            "detail": "Provide exactly one of 'tiles' or 'preset'",
-        }
-
-        # Act / Assert
-        with patch(f"{_MODULE}.notify_panel_arrange", return_value=rejected) as mock_arrange:
-            with assert_raises_error(error_type="arrange_rejected"):
-                await fn(tiles=["artifacts"], preset="injection")
-        mock_arrange.assert_called_once_with(tiles=["artifacts"], preset="injection", focus=None)
+        assert "Continue without the workspace" in ctx["envelope"]["suggestions"][0]

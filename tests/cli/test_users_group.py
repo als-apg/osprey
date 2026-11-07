@@ -97,7 +97,7 @@ USERS_ENV_CONFIG = textwrap.dedent(
 #: nested inside it and each entry carrying its render.
 PROFILE_WITH_ROSTER = textwrap.dedent(
     """
-    preset: control-assistant
+    preset: demo
     config:
       modules.web_terminals:
         enabled: true
@@ -119,7 +119,7 @@ def _make_repo(
     config: dict | str | None = None,
     *,
     name: str = "repo",
-    profile: str = "preset: control-assistant\n",
+    profile: str = "preset: demo\n",
 ) -> Path:
     """Create a three-zone deployment repo: ``profile.yml`` + rendered ``build/``."""
     repo_root = tmp_path / name
@@ -316,7 +316,7 @@ class TestRepoDiscovery:
     def test_a_repo_with_no_build_refuses_and_names_the_remedy(self, runner, tmp_path, monkeypatch):
         repo_root = tmp_path / "repo"
         repo_root.mkdir()
-        (repo_root / "profile.yml").write_text("preset: control-assistant\n", encoding="utf-8")
+        (repo_root / "profile.yml").write_text("preset: demo\n", encoding="utf-8")
         monkeypatch.chdir(repo_root)
 
         patcher, mocks = _fake_web_terminals()
@@ -504,27 +504,21 @@ class TestTypedGates:
         assert result.exit_code != 0
         assert prompts and "Type 'alice' to confirm" in prompts[0]
 
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "",  # blank, non-matching
+            "yes",
+        ],
+        ids=["blank", "generic-yes"],
+    )
     def test_remove_purge_declined_leaves_the_roster_and_volumes_untouched(
-        self, runner, tmp_path, monkeypatch, fake_runtime
+        self, runner, tmp_path, monkeypatch, fake_runtime, answer
     ):
         calls, _listing = fake_runtime
         repo_root = _make_repo(tmp_path, _config([{"name": "alice", "index": 0}]))
         monkeypatch.chdir(repo_root)
-        monkeypatch.setattr("builtins.input", lambda prompt="": "")  # blank, non-matching
-
-        result = runner.invoke(users, ["remove", "alice", "--purge"])
-
-        assert result.exit_code != 0
-        assert _roster(repo_root) == [{"name": "alice", "index": 0}]
-        assert [c for c in calls if c[1] == "rm" or c[1:3] == ["volume", "rm"]] == []
-
-    def test_remove_purge_is_not_confirmed_by_a_generic_yes(
-        self, runner, tmp_path, monkeypatch, fake_runtime
-    ):
-        calls, _listing = fake_runtime
-        repo_root = _make_repo(tmp_path, _config([{"name": "alice", "index": 0}]))
-        monkeypatch.chdir(repo_root)
-        monkeypatch.setattr("builtins.input", lambda prompt="": "yes")
+        monkeypatch.setattr("builtins.input", lambda prompt="": answer)
 
         result = runner.invoke(users, ["remove", "alice", "--purge"])
 
@@ -717,7 +711,7 @@ class TestProfileRosterWrite:
         """Removing an earlier entry must not shift a later user's ports."""
         profile = textwrap.dedent(
             """
-            preset: control-assistant
+            preset: demo
             config:
               modules.web_terminals:
                 users:
@@ -737,7 +731,7 @@ class TestProfileRosterWrite:
     def test_the_deeper_key_spelling_is_edited_in_place_too(self, runner, tmp_path, monkeypatch):
         profile = textwrap.dedent(
             """
-            preset: control-assistant
+            preset: demo
             config:
               modules.web_terminals.users:
                 - name: alice
@@ -858,7 +852,7 @@ class TestProfileRosterWrite:
         self, runner, tmp_path, monkeypatch
     ):
         """The corrupt-profile path lands in the same handler, not the generic one."""
-        broken = "preset: control-assistant\nconfig:\n  modules.web_terminals:\n   users: [\n"
+        broken = "preset: demo\nconfig:\n  modules.web_terminals:\n   users: [\n"
         repo_root = _make_repo(tmp_path, profile=broken)
         monkeypatch.chdir(repo_root)
 
@@ -961,7 +955,7 @@ class TestProfileRosterWrite:
     ):
         profile = textwrap.dedent(
             """
-            preset: control-assistant
+            preset: demo
             config:
               modules.web_terminals:
                 users:

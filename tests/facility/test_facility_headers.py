@@ -4,14 +4,16 @@ A JSON file carries ``"schema": "osprey.facility.<doc>/<version>"`` at its top
 level; a YAML or Markdown file starts with the line
 ``schema: osprey.facility.<doc>/<version>``, the version a positive integer.
 The files checked are the ones ``render_facility_outputs`` writes in each render
-of a control-assistant build: the facility file, and every view it writes.
+of a demo build: the facility file, and every view it writes.
 
 Exempt, each for a stated reason: the files whose format is fixed outside
 OSPREY (the limits view keeps its ``_version`` key, the graph view's TTL keeps a
 comment header), the deck copies (pyAT's own lattice format), the pyAML view
 (pyAML's own configuration, lattice and matrix formats), the copies of the
 files a scenario's logbook entries attach (a plot spec or a picture, in the
-format the seeder reads) and the binary files on ``BINARY_EXEMPTIONS``.
+format the seeder reads), the benchmark query file (a byte copy of the
+facility's query source, in the format the benchmark runner reads) and the
+binary files on ``BINARY_EXEMPTIONS``.
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
+from osprey.facility.settings import BENCHMARK_DATASET_PATH
 from osprey.facility.validate import FACILITY_HEADER
 
 if TYPE_CHECKING:
@@ -42,6 +46,7 @@ FORMAT_EXEMPTIONS: dict[str, str] = {
     "*decks/*.json": "a deck copy is pyAT's own lattice format",
     "data/simulator/scenarios/*": "an attached file is a byte copy of the scenario's own",
     "data/pyaml/*": "the pyAML view is in pyAML's own formats",
+    BENCHMARK_DATASET_PATH: "the benchmarks view is a byte copy of the facility's query source",
 }
 
 #: Binary files a view writes, relative to the render root; each is written by
@@ -80,8 +85,8 @@ def header_problem(relative: str, content: bytes) -> str | None:
     return f"no header rule for {suffix or 'a file without a suffix'}"
 
 
-def test_every_written_file_carries_its_header(built_control_assistant: BuiltProject) -> None:
-    outputs = built_control_assistant.outputs
+def test_every_written_file_carries_its_header(built_demo: BuiltProject) -> None:
+    outputs = built_demo.outputs
     assert outputs
     problems = {
         relative: problem
@@ -93,29 +98,27 @@ def test_every_written_file_carries_its_header(built_control_assistant: BuiltPro
 
 
 def test_the_facility_file_is_written_in_every_render_with_its_header(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     from osprey.facility.render import FACILITY_FILE
 
-    for render in built_control_assistant.outputs:
+    for render in built_demo.outputs:
         assert json.loads(render.files[FACILITY_FILE])["schema"] == FACILITY_HEADER
 
 
-def test_the_bluesky_devices_view_is_checked(built_control_assistant: BuiltProject) -> None:
-    content = built_control_assistant.outputs[0].files["data/bluesky_devices.yml"]
+def test_the_bluesky_devices_view_is_checked(built_demo: BuiltProject) -> None:
+    content = built_demo.outputs[0].files["data/bluesky_devices.yml"]
     assert header_problem("data/bluesky_devices.yml", content) is None
 
 
-def test_the_in_context_index_is_checked(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
+def test_the_in_context_index_is_checked(built_demo: BuiltProject, tmp_path: Path) -> None:
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.channel_finder import write_in_context
 
     inputs = ViewInputs(
-        doc=built_control_assistant.facility,
+        records=FacilityRecords(built_demo.facility),
         rendered_config={"channel_finder": {"pipeline_mode": "in_context"}},
-        facility_dir=built_control_assistant.facility_dir,
+        facility_dir=built_demo.facility_dir,
         served=[],
     )
     (target,) = write_in_context(tmp_path, inputs)
@@ -123,23 +126,21 @@ def test_the_in_context_index_is_checked(
 
 
 def test_every_render_carries_the_graph_view_under_its_hash_line(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    for render in built_control_assistant.outputs:
+    for render in built_demo.outputs:
         content = render.files["data/graph/facility.ttl"]
         assert content.decode("utf-8").startswith("# osprey:facility-sha256 ")
 
 
-def test_the_hierarchical_index_is_checked(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
+def test_the_hierarchical_index_is_checked(built_demo: BuiltProject, tmp_path: Path) -> None:
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.channel_finder import write_hierarchical
 
     inputs = ViewInputs(
-        doc=built_control_assistant.facility,
+        records=FacilityRecords(built_demo.facility),
         rendered_config={"channel_finder": {"pipeline_mode": "hierarchical"}},
-        facility_dir=built_control_assistant.facility_dir,
+        facility_dir=built_demo.facility_dir,
         served=[],
     )
     (target,) = write_hierarchical(tmp_path, inputs)
@@ -152,7 +153,7 @@ def _middle_layer_render(built: BuiltProject, root: Path) -> dict[str, bytes]:
     from osprey.facility.views.channel_finder import write_middle_layer
 
     inputs = ViewInputs(
-        doc=built.facility,
+        records=FacilityRecords(built.facility),
         rendered_config={"channel_finder": {"pipeline_mode": "middle_layer"}},
         facility_dir=built.facility_dir,
         served=[],
@@ -161,10 +162,8 @@ def _middle_layer_render(built: BuiltProject, root: Path) -> dict[str, bytes]:
     return {path.relative_to(root).as_posix(): path.read_bytes() for path in written}
 
 
-def test_the_middle_layer_index_is_checked(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
-    files = _middle_layer_render(built_control_assistant, tmp_path)
+def test_the_middle_layer_index_is_checked(built_demo: BuiltProject, tmp_path: Path) -> None:
+    files = _middle_layer_render(built_demo, tmp_path)
     problems = {
         relative: problem
         for relative, content in sorted(files.items())
@@ -177,10 +176,8 @@ def test_the_middle_layer_index_is_checked(
     assert problems == {}
 
 
-def test_every_binary_exemption_is_written(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
-    files = _middle_layer_render(built_control_assistant, tmp_path)
+def test_every_binary_exemption_is_written(built_demo: BuiltProject, tmp_path: Path) -> None:
+    files = _middle_layer_render(built_demo, tmp_path)
     assert [relative for relative in BINARY_EXEMPTIONS if relative not in files] == []
 
 

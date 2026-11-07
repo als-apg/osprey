@@ -230,7 +230,8 @@ def channel_record(channel: Mapping[str, Any], source: RosterSource) -> ChannelR
         KeyError: The record has no ``id`` or no ``role``.
         ValueError: The record's ``role`` is not one the facility file allows,
             or the record is not one :class:`ChannelRecord` accepts.
-        TypeError: The record, or its ``on``, is not a mapping.
+        TypeError: The record, or its ``on``, is not a mapping, or its
+            ``options`` is not a list.
     """
     address = channel["id"]
     role = channel["role"]
@@ -246,7 +247,21 @@ def channel_record(channel: Mapping[str, Any], source: RosterSource) -> ChannelR
         value_type=channel.get("value_type"),
         description=channel.get("description"),
         on=_on(channel.get("on")),
+        options=_options(channel.get("options")),
     )
+
+
+def _options(options: Any) -> tuple[str, ...] | None:
+    """A labelled channel's labels, in option-index order.
+
+    Raises:
+        TypeError: The record's ``options`` is not a list of labels.
+    """
+    if options is None:
+        return None
+    if not isinstance(options, list | tuple):
+        raise TypeError(f"options must be a list of labels, got {type(options).__name__}")
+    return tuple(str(label) for label in options)
 
 
 def _on(target: Mapping[str, Any] | None) -> tuple[str, str] | None:
