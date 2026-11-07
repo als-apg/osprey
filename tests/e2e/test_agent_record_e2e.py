@@ -40,8 +40,9 @@ What each case proves, read back through the read API:
 * (hello-world) a profile carrying retired keys refused by ``osprey build``
   naming each replacement, then built and brought up once edited as directed.
 
-The two cases run one after the other, never side by side: each tears its
-deployment down before it returns.
+The two cases never run side by side on one host: each holds the module's
+host lock and tears its deployment down before it returns. CI runs them on
+two runners, one matrix cell per case.
 
 CONTAINER SAFETY: every docker invocation names an exact container or volume
 of this project. Teardown is ``osprey down`` followed by the project-scoped
@@ -121,7 +122,7 @@ from osprey.services.archive.manifest import MANIFEST_NAME
 from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, SPOOL_DIR_RELPATH
 from tests.e2e._deploy_support import env_from_example
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
 pytestmark = [
     pytest.mark.model_free,
@@ -679,6 +680,7 @@ def _deploy(
             "--preset",
             preset.name,
             "--no-git",
+            *e2e_scenario_pin(preset.name),
             *set_pairs(preset.edits),
         ],
         cwd=base,

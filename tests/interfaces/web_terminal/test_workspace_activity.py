@@ -225,6 +225,19 @@ class TestEachCallYieldsOneRow:
         [row] = _rows(app)
         assert _workspace(row) == {"commands": ROW_COMMANDS, "status": "unanswered"}
 
+    @pytest.mark.parametrize("stream", [False, True], ids=["json", "sse"])
+    def test_set_workspace_failure_other_than_a_request_error_reads_unanswered(self, hop, stream):
+        app, client = hop
+        failure = RuntimeError("relay broke")
+        app.state.proxy_client.request = AsyncMock(side_effect=failure)
+        app.state.proxy_client.send = AsyncMock(side_effect=failure)
+
+        with pytest.raises(RuntimeError, match="relay broke"):
+            _post(client, stream=stream)
+
+        [row] = _rows(app)
+        assert _workspace(row) == {"commands": ROW_COMMANDS, "status": "unanswered"}
+
     def test_set_workspace_stream_ending_before_the_answer_reads_unanswered(self, hop):
         app, client = hop
         _reply_stream(app, (b'event: message\ndata: {"jsonrpc":"2.0",',))

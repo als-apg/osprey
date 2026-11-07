@@ -177,22 +177,24 @@ def _divider_y(page: Page) -> tuple[float, float]:
     return box["x"] + box["width"] / 2, box["y"]
 
 
+#: The room the sidebar leaves the rail (sidebar-divider.js railRoom).
+_RAIL_ROOM_JS = """() => {
+  const side = document.getElementById('panel-rail').parentElement;
+  const cs = getComputedStyle(side);
+  let room = side.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  for (const el of side.children) {
+    if (el.id === 'panel-rail') continue;
+    const ecs = getComputedStyle(el);
+    if (ecs.position !== 'absolute' && ecs.position !== 'fixed')
+      room -= el.offsetHeight + parseFloat(ecs.marginTop) + parseFloat(ecs.marginBottom);
+  }
+  return room;
+}"""
+
+
 def _rail_room(page: Page) -> float:
     """The room the sidebar leaves the rail (sidebar-divider.js railRoom)."""
-    return page.evaluate(
-        """() => {
-          const side = document.getElementById('panel-rail').parentElement;
-          const cs = getComputedStyle(side);
-          let room = side.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-          for (const el of side.children) {
-            if (el.id === 'panel-rail') continue;
-            const ecs = getComputedStyle(el);
-            if (ecs.position !== 'absolute' && ecs.position !== 'fixed')
-              room -= el.offsetHeight + parseFloat(ecs.marginTop) + parseFloat(ecs.marginBottom);
-          }
-          return room;
-        }"""
-    )
+    return page.evaluate(_RAIL_ROOM_JS)
 
 
 def test_automatic_height_follows_a_small_project(tmp_path, chromium_browser):
@@ -287,13 +289,29 @@ def test_an_earlier_builds_pixels_become_a_fraction_once(tmp_path, chromium_brow
         assert lay["sized"]
         assert lay["height"] == 300, lay
         assert re.fullmatch(r"0\.\d{4}", lay["stored"]), lay["stored"]
-        assert abs(float(lay["stored"]) * _rail_room(page) - 300) <= 1
+        # The rail's room shrinks as the late blocks render and the fraction is
+        # rewritten after it, so the two agree once the sidebar's head is done.
+        page.wait_for_function(
+            f"Math.abs(Number(localStorage.getItem('{_KEY}')) * ({_RAIL_ROOM_JS})() - 300) <= 1",
+            timeout=10_000,
+        )
 
+        # The fraction is rewritten until the sidebar's late blocks (the control
+        # target, the footer) have rendered, up to the moment this page goes, so
+        # the one the next load reads is the one stored as the page is hidden.
+        # The tab's sessionStorage carries it across the reload.
+        page.evaluate(
+            "addEventListener('pagehide', () => sessionStorage.setItem("
+            f"'written', localStorage.getItem('{_KEY}')))"
+        )
         page.reload(wait_until="domcontentloaded")
         _ready(page)
+        # The fraction is applied to the rail's room as it stands, which the
+        # late blocks shrink as they render: the height is 300 px once they have.
+        page.wait_for_function("window.__dividerLayout().height === 300", timeout=10_000)
         again = _layout(page)
         assert again["height"] == 300, again
-        assert again["stored"] == lay["stored"]
+        assert again["stored"] == page.evaluate("sessionStorage.getItem('written')")
 
 
 #: Where the short-window cases read their positions: the divider, the Search

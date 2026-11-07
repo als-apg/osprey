@@ -635,7 +635,7 @@ def test_every_web_terminal_render_pins_the_mcp_health_address(
     for render in renders:
         assert _config_yaml(render)["health"]["auto"]["mcp"]["url_key"] == "host_url", render
 
-    monkeypatch.setattr("osprey.health.derive._in_container", lambda: True)
+    monkeypatch.setattr("osprey.health.derive.in_container", lambda: True)
     agent_url = json.loads((repo / "build" / ".mcp.json").read_text())["mcpServers"][
         "facility_tools"
     ]["url"]
@@ -830,7 +830,8 @@ def test_control_assistant_preset_wires_its_simulation(
     No ``active_scenarios`` state file ships in ``data/``: the active set is
     runtime state under ``_agent_data/simulation/``, and the first deploy
     writes it from ``simulation.default_scenarios`` (``rf-thermal``, the
-    incident the getting-started tutorial walks through).
+    incident the getting-started tutorial walks through, and ``demo-history``,
+    which seeds the sidebar's example sessions).
     """
     project_dir = built_control_assistant.build_dir
     sim_dir = project_dir / "data" / "simulation"
@@ -845,7 +846,7 @@ def test_control_assistant_preset_wires_its_simulation(
     for block in config["control_system"]["connector"].values():
         assert "simulation_file" not in block
     assert "simulation_file" not in config["archiver"].get("mock_archiver", {})
-    assert config["simulation"]["default_scenarios"] == ["rf-thermal"]
+    assert config["simulation"]["default_scenarios"] == ["rf-thermal", "demo-history"]
 
 
 def test_preset_yaml_must_be_mapping(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

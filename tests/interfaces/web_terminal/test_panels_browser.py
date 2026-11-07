@@ -78,6 +78,7 @@ from osprey.interfaces._serving import run_app_server
 # call sites reading as they did.
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
+from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import (
     UNSERVED,
@@ -2633,9 +2634,11 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
 # so served unsandboxed — which posts a header contribution and records every
 # action the hub routes back.
 #
-# Under header protocol v1 the hub renders exactly what a panel contributes,
-# so each CANOPY page shape shows every item once. Two shapes are pinned, each
-# in its own hub boot:
+# Under header protocol v1 the hub renders exactly the controls a panel
+# contributes, so each CANOPY page shape shows every control once. CANOPY
+# still sends an inert ``text`` item (its subtitle); the hub drops it, since
+# the tile bar carries the tile's name and controls only. Two shapes are
+# pinned, each in its own hub boot:
 #
 #   * a one-tile SCREEN: subtitle, the screen verbs (Print, Export PNG),
 #     Search, ⋯ and Save view;
@@ -2836,6 +2839,9 @@ def test_canopy_header_contribution_renders_exactly_and_round_trips(
 ):
     """Each CANOPY page shape renders exactly its contributed control set.
 
+    CANOPY's subtitle ``text`` item is part of what the stub sends and none of
+    what the bar shows.
+
     The sidecar is replaced by a stub published at ``app.state.canopy_server_url``
     (what a started sidecar publishes), so the iframe is CANOPY's real mount,
     ``/panel/canopy/embed/…`` through the panel proxy. The hub must render one
@@ -2846,13 +2852,13 @@ def test_canopy_header_contribution_renders_exactly_and_round_trips(
     ``{id}``, a menu entry ``{id: "more", value: <entry id>}``.
     """
     spec = _CANOPY_PAGES[page_name]
-    items = spec["items"]
+    items = [it for it in spec["items"] if it["kind"] != "text"]
     expected_keys = sorted(f"{it['kind']}:{it['id']}" for it in items)
 
     with _canopy_hub(tmp_path, chromium_browser, page_name) as (page, base_url):
         tab = _service_tab(page, "CANOPY")
-        (text_item,) = [it for it in items if it["kind"] == "text"]
-        expect(tab.locator(".contrib-text")).to_have_text(text_item["text"], timeout=10_000)
+        expect(tab.locator("[data-contrib-key]")).to_have_count(len(items), timeout=10_000)
+        expect(tab.locator(".contrib-text")).to_have_count(0)
 
         # Exactly the contributed set: no item dropped, none duplicated, nothing
         # added under a contribution key (the bar's own ⋯ carries none).
@@ -3362,6 +3368,9 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         arm_terminal_tab(page)
         page.goto(base_url, wait_until="domcontentloaded")
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
+        # The Agent tile's header is re-parented while the dock boots; a press
+        # landing between the two moves opens no menu.
+        wait_for_dock_settled(page)
 
         _open_agent_header_menu(page)
         assert _menu_labels(page) == [

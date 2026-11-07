@@ -173,6 +173,7 @@ def test_scenario_record_shape(core: dict) -> None:
         "channel_faults",
         "archiver",
         "logbook",
+        "sessions",
         "drivers",
         "couple",
         "noise",

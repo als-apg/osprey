@@ -25,7 +25,8 @@ Cost classes and ``--full``
 
 Every category is either **poll** — cheap and side-effect-free, run on every
 ``osprey health`` — or **on_demand** — costly or externally-visible (a live
-model-chat completion, a package download), run *only* with ``--full``.
+model-chat completion, a package download), run with ``--full`` or when you
+re-probe a row or tile.
 Without ``--full`` an on_demand category is reported as a single ``skip`` row
 (which still counts toward exit code 0). ``--category NAME`` scopes which
 categories run but never elevates cost class:
@@ -221,12 +222,13 @@ The web dashboard (Health panel)
 --------------------------------
 
 In a Web Terminal build that ships panels, the same **poll-class** results are
-served as a read-only browser dashboard — the Health tab. It never runs
-``on_demand`` checks, so a browser can never trigger a costly probe; those
-categories render as cards carrying a copyable ``osprey health --full`` hint.
+served as a browser dashboard — the Health tab — one band per layer of the
+deployment, one tile per component. The poll never runs ``on_demand`` checks
+or spawns MCP servers; a click does: re-probing a row or tile (on_demand
+included), a provider's ping (one small completion), or first opening the MCP
+tile.
 The tab appears only when ``system-health`` is in the build's ``web_panels``
-list, and its LED reflects sidecar liveness only — the pass/warn/fail status
-lives inside the panel.
+list; its LED reflects sidecar liveness only.
 
 Title, host, port, and auto-launch live under ``health.title`` and
 ``health.web`` (all optional):

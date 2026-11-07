@@ -86,7 +86,7 @@ export function headerItems(shown, position) {
       priority: 9,
       disabled: index <= 0,
     },
-    { kind: 'text', id: 'pager', text: `${index + 1} of ${count}`, priority: 9 },
+    { kind: 'count', id: 'pager', text: `${index + 1} of ${count}`, priority: 9 },
     {
       kind: 'button',
       id: 'next',

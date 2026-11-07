@@ -305,16 +305,14 @@
   color: var(--text-primary);
 }
 
-/* ---- Contribution region: subtitle + the panel-controls slot ----
+/* ---- Contribution region: the panel-controls slot ----
  * Rendered by tile-header-contrib.js from an embedded panel's
  * `canopy-host-header-contribution`. Fills the bar between the tile name and the
- * close button, with no divider fence: inert `text` items are the tile's
- * SUBTITLE and read left, beside the name (they are identity, not a
- * control), while every interactive control right-anchors toward the
- * actions. The split is pure CSS `order` around a flexible ::before spacer,
- * so the reconcile in tile-header-contrib.js keeps one flat child list.
- * min-width:0 + a clipped overflow let text ellipsize before the overflow
- * ladder folds whole controls (.contrib-hidden). The overflow is `clip`, not
+ * close button, with no divider fence: every control right-anchors toward the
+ * actions, behind a flexible ::before spacer, so the reconcile in
+ * tile-header-contrib.js keeps one flat child list. min-width:0 + a clipped
+ * overflow let the overflow ladder fold whole controls (.contrib-hidden).
+ * The overflow is `clip`, not
  * `hidden`: a hidden overflow is still a scroll container, and focusing a
  * control at the clipped edge (the ladder's ⋯ button, pressed) scrolled the
  * region to reveal it — a scroll that moved the button and closed the menu
@@ -338,24 +336,6 @@
 
 .tile-tab .tile-tab-contrib > * {
   order: 2;
-}
-
-.tile-tab .tile-tab-contrib > .contrib-text {
-  order: 0;
-}
-
-/* Subtitle: the loaded-file-name idiom — quiet mono beside the display-type
- * name. Its floor makes the region overflow (and the ladder fold controls)
- * before the subtitle is squeezed past a stub. */
-.tile-tab .contrib-text {
-  flex: 0 1 auto;
-  min-width: 40px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
 }
 
 /* ---- One control language ----

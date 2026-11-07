@@ -52,7 +52,7 @@ describe('headerItems', () => {
     expect(items.map((item) => `${item.kind}:${item.id}`)).toEqual([
       'crumb:crumb',
       'button:prev',
-      'text:pager',
+      'count:pager',
       'button:next',
       'sep:sep',
       'button:open',

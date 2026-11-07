@@ -12,11 +12,12 @@
  * The hub renders only what the last contribution says — it never mutates
  * item state locally, so a contribution is an idempotent replace, not a diff.
  *
- * Item vocabulary (closed set; the hub ignores unknown kinds):
+ * Item vocabulary (closed set; the hub ignores unknown kinds). Every item is
+ * a control: the bar shows the tile's name and nothing else that is inert, so
+ * there is no text item — a status sentence or a loaded-file name belongs in
+ * the panel's body. (The hub drops the retired `{kind:'text'}` like any other
+ * unknown kind, so a panel that still sends one keeps working.)
  *
- * - `{kind:'text', id, text}` — inert label (e.g. a loaded-file name). The
- *   hub renders it as the tile's SUBTITLE, beside the tile name — it is
- *   identity, not a control — while interactive items right-anchor.
  * - `{kind:'nav', id, items:[{id, label, active}]}` — view switcher; the
  *   action's `value` is the clicked entry's id.
  * - `{kind:'button', id, label, title?, tone?:'default'|'accent', disabled?}`
@@ -37,9 +38,7 @@
  * ORDER IS THE LAYOUT, AND THE RIGHT EDGE IS THE ANCHOR. The hub gathers every
  * INTERACTIVE item into one cluster pinned against the tile's close button — a
  * flexible spacer takes all the slack to its left — and lays that cluster out
- * in contribution order. (`text` items are outside it: they are the tile's
- * subtitle, left-anchored beside the name, and their width costs the spacer,
- * not a neighbour.) Right-anchoring makes change ASYMMETRIC: when an item
+ * in contribution order. Right-anchoring makes change ASYMMETRIC: when an item
  * appears, disappears, or changes width, everything contributed BEFORE it
  * slides sideways and everything after it does not move at all.
  *
@@ -60,8 +59,7 @@
  * the hub for.
  *
  * Every item may carry `priority` (number, default 0): in a narrow tile the
- * hub hides lowest-priority items first (text truncates before anything
- * hides). That is a SEPARATE axis from order — it decides what survives a
+ * hub hides lowest-priority items first. That is a SEPARATE axis from order — it decides what survives a
  * narrow tile, not where anything sits — and the two may legitimately
  * disagree. Note the coupling, though: a re-contribution that widens a label
  * can itself make the bar crowded, so an item that both grows and carries the
@@ -92,10 +90,9 @@ export const HEADER_CONTRACT_VERSION = 1;
 
 /**
  * @typedef {object} HeaderItem
- * @property {'text'|'nav'|'button'|'search'|'menu'} kind
+ * @property {'nav'|'button'|'search'|'menu'} kind
  * @property {string} id
  * @property {number} [priority]
- * @property {string} [text]        text items
  * @property {HeaderNavEntry[] | HeaderMenuEntry[]} [items]  nav / menu items
  * @property {string} [label]       button / menu items
  * @property {string} [title]       button items
@@ -113,7 +110,7 @@ function isEmbedded() {
 /**
  * Send (replace) this panel's tile-bar contribution. Call once after init and
  * again WHOLE whenever any item's state changes (active nav entry, button
- * label/disabled, live text). No-op standalone.
+ * label/disabled). No-op standalone.
  * @param {HeaderItem[]} items
  */
 export function contributeHeader(items) {
