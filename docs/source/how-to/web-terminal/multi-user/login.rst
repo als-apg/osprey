@@ -81,7 +81,7 @@ inside the deployment can reach nginx back:
 ``.claude/settings.json`` denies ``Bash``, ``Monitor``, ``WebFetch``,
 ``WebSearch`` and ``mcp__plugin_*`` (``osprey scaffold web-terminals
 lint`` reports the same, as ``web_terminals.open_mode_egress``). All of them
-are in OSPREY's deny defaults, so a refusal means a tier or app lifted one —
+are in OSPREY's deny defaults, so a refusal means a login lifted one —
 put it back in that file's ``config:`` block and rebuild. The python executor's
 own guard against executed code reaching the web ports is defence in depth,
 not a boundary: ``none`` is for rooms where the agents are trusted too.
@@ -403,9 +403,9 @@ other set is written as a list.
        needs ``method: oidc``; a tier no login with an ``oidc_subject`` runs is
        a build error.
 
-A shared app takes the same set. List the app by name to open it to the whole
-roster, or as a mapping to name who may open it. ``user:`` members need not be
-on the roster: they reach the app and nothing else.
+A shared login takes the same set. List the login by name to open it to the
+whole roster, or as a mapping to name who may open it. ``user:`` members need
+not be on the roster: they reach that card and nothing else.
 
 .. code-block:: yaml
 

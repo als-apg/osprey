@@ -1,4 +1,4 @@
-"""``osprey init --revalidate``: a repo made before tiers and apps, rewritten in place.
+"""``osprey init --revalidate``: a repo made before tiers and shared logins, rewritten in place.
 
 The previous release's ``profile.yml`` is the current exemplar's with the
 retired swaps put back (``_RETIRED_PROFILE_SWAPS``): the default-tier and
@@ -8,7 +8,7 @@ hooks and stanzas. The fixture under ``tests/fixtures/previous_release_repo/``
 holds the five retired layer-directory files exactly as that release emitted
 them (header, no provenance block) and the logbook and knowledge context
 slots. Every other file of the repo — README, data tree, provider catalog, the
-``channel-finder`` app the previous release had no word for — is the current
+``channel-finder`` shared login the previous release had no word for — is the current
 exemplar's own, because the rewrite never touches it. So the gate is exact: the
 rewritten repo is the new exemplar, byte for byte.
 """
@@ -35,12 +35,22 @@ from tests._retired_layout import RETIRED_LAYER_DIRNAME
 from tests.fixtures.lifecycle_repo import (
     exemplar_source_files,
     expand_sentinels,
+    profile_without_applications,
 )
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "previous_release_repo"
 
-#: Exemplar files the previous release wrote differently; the fixture holds those.
-_MIGRATED = ("profile.yml", "tiers/", "apps/logbook.yml", "apps/knowledge.yml")
+#: Exemplar files the previous release wrote differently; the fixture holds those. It held
+#: no application, and revalidating adds none: a deployment holds what it chose to.
+_MIGRATED = (
+    "apps/",
+    "profile.yml",
+    "tiers/readonly.yml",
+    "tiers/readwrite.yml",
+    "tiers/admin.yml",
+    "tiers/logbook.yml",
+    "tiers/knowledge.yml",
+)
 
 _CHANNEL_FINDER_ITEM = (
     "      - channel-finder   # Channel Finder: channel addresses from the hierarchy\n"
@@ -108,11 +118,12 @@ def _without_channel_finder(root: Path) -> None:
     """Make the fixture's profile the previous release's exactly: no `shared:` at all."""
     path = root / "profile.yml"
     text = path.read_text(encoding="utf-8")
-    block = re.search(r"    # Apps everyone above.*?" + re.escape(_CHANNEL_FINDER_ITEM), text, re.S)
+    block = re.search(
+        r"    # Logins everyone above.*?" + re.escape(_CHANNEL_FINDER_ITEM), text, re.S
+    )
     assert block is not None
     path.write_text(text[: block.start()] + text[block.end() :], encoding="utf-8")
-    (root / "apps" / "channel-finder.yml").unlink()
-    (root / "apps").rmdir()
+    (root / "tiers" / "channel-finder.yml").unlink()
 
 
 def _repo_files(root: Path) -> dict[str, str]:
@@ -135,7 +146,10 @@ _KEPT_CEILING = ("  control_system.writes: asked\n", "  control_system.writes: a
 
 def revalidated_exemplar() -> dict[str, str]:
     """The new exemplar as the previous release's repo revalidates to it."""
-    files = exemplar_source_files()
+    files = {
+        rel: text for rel, text in exemplar_source_files().items() if not rel.startswith("apps/")
+    }
+    files["profile.yml"] = profile_without_applications(files["profile.yml"])
     asked, allowed = _KEPT_CEILING
     assert files["profile.yml"].count(asked) == 1
     files["profile.yml"] = files["profile.yml"].replace(asked, allowed)
@@ -257,10 +271,10 @@ _RETIRED_PROFILE_SWAPS: tuple[tuple[str, str], ...] = (
         "    default_persona: readonly   # used for any user below with no tier\n",
     ),
     (
-        "        # `apps` renders one card per entry in `shared:` below, titled by the\n"
-        "        # app's own `name:` in apps/. Everyone on the roster opens them.\n"
-        "        - type: apps\n"
-        "          label: Apps\n",
+        "        # `shared` renders one card per entry in `shared:` below, titled by the\n"
+        "        # login's own `name:` in tiers/. Everyone on the roster opens them.\n"
+        "        - type: shared\n"
+        "          label: Shared logins\n",
         "",
     ),
     (
@@ -339,7 +353,7 @@ _RETIRED_PROFILE_SWAPS: tuple[tuple[str, str], ...] = (
 
 def previous_release_profile() -> str:
     """The previous release's ``profile.yml``: the exemplar's, retired swaps put back."""
-    exemplar = exemplar_source_files()["profile.yml"]
+    exemplar = profile_without_applications(exemplar_source_files()["profile.yml"])
     for old, _ in _RETIRED_PROFILE_SWAPS:
         assert exemplar.count(old) == 1, old
     text = exemplar
@@ -373,7 +387,7 @@ def test_the_diff_is_printed(tmp_path: Path) -> None:
 
     assert f"-    {RETIRED_DEFAULT_TIER_KEY}: readonly" in output
     assert "+    default_tier: readonly" in output
-    assert "+++ b/apps/logbook.yml" in output
+    assert "+++ b/tiers/logbook.yml" in output
     assert "+++ b/tiers/readonly.yml" in output
     assert "-requires_osprey_version: '>=2026.9.0'" in output
     assert "Left for you to do by hand" not in output
@@ -401,7 +415,9 @@ def test_previous_release_without_shared_gains_the_shared_block(tmp_path: Path) 
     assert result.exit_code == 0, result.output
     expected = revalidated_exemplar()["profile.yml"].replace(_CHANNEL_FINDER_ITEM, "")
     assert (root / "profile.yml").read_text(encoding="utf-8") == expected
-    assert sorted(p.name for p in (root / "apps").iterdir()) == ["knowledge.yml", "logbook.yml"]
+    assert not (root / "apps").exists()
+    shared = sorted(p.name for p in (root / "tiers").iterdir() if "lists: own" in p.read_text())
+    assert shared == ["knowledge.yml", "logbook.yml"]
 
 
 def test_web_terminal_context_of_moved_cards_is_removed(tmp_path: Path) -> None:
@@ -456,9 +472,9 @@ def test_an_edited_logbook_retired_tier_stays_a_tier_and_the_manual_step_is_prin
     result = _revalidate(root)
 
     assert result.exit_code == 0, result.output
-    assert (root / "tiers" / "logbook.yml").is_file()
-    assert not (root / "apps" / "logbook.yml").exists()
-    assert (root / "apps" / "knowledge.yml").is_file()
+    assert "lists: own" not in (root / "tiers" / "logbook.yml").read_text(encoding="utf-8")
+    assert not (root / "apps").exists()
+    assert "lists: own" in (root / "tiers" / "knowledge.yml").read_text(encoding="utf-8")
     profile = (root / "profile.yml").read_text(encoding="utf-8")
     assert "        tier: logbook\n" in profile
     assert "      - name: knowledge\n" not in profile
@@ -477,9 +493,10 @@ def test_the_manual_step_for_an_edited_logbook_names_its_model(tmp_path: Path) -
 
     assert result.exit_code == 0, result.output
     assert (root / "tiers" / "logbook.yml").is_file()
-    assert "its `model: claude-sonnet-5` among them, into apps/logbook.yml" in " ".join(
+    assert "with your edits, its `model: claude-sonnet-5` among them, in it" in " ".join(
         result.output.split()
     )
+    assert "model: claude-sonnet-5" in (root / "tiers" / "logbook.yml").read_text(encoding="utf-8")
 
 
 def test_an_edited_tier_retired_tier_is_kept_as_written(tmp_path: Path) -> None:
@@ -653,11 +670,11 @@ def test_an_unreadable_retired_tier_file_is_refused_and_nothing_is_touched(tmp_p
 
 
 def test_a_run_stopped_after_the_app_was_written_is_finished_by_the_next(tmp_path: Path) -> None:
-    """The logbook app exists, but the users pinned to it never moved: they move now."""
+    """The logbook login exists, but the users pinned to it never moved: they move now."""
     root = _previous_release_repo(tmp_path / "als-exemplar")
     (root / f"{RETIRED_CATALOG_KEY}" / "logbook.yml").unlink()
-    (root / "apps" / "logbook.yml").write_text(
-        exemplar_source_files()["apps/logbook.yml"], encoding="utf-8"
+    (root / "tiers" / "logbook.yml").write_text(
+        exemplar_source_files()["tiers/logbook.yml"], encoding="utf-8"
     )
 
     result = _revalidate(root)
@@ -683,6 +700,20 @@ def test_a_user_pinned_to_a_tier_with_no_file_is_reported(tmp_path: Path) -> Non
         "profile.yml: `modules.web_terminals.users[bob].tier` names 'viewer', which has no "
         "file in tiers/" in result.output
     )
+
+
+def test_a_tier_that_spells_provider_is_a_manual_step_naming_the_file(tmp_path: Path) -> None:
+    root = _previous_release_repo(tmp_path / "als-exemplar")
+    layer_file = root / f"{RETIRED_CATALOG_KEY}" / "readonly.yml"
+    layer_file.write_text(
+        layer_file.read_text(encoding="utf-8") + "provider: cborg\n", encoding="utf-8"
+    )
+
+    result = _revalidate(root)
+
+    assert result.exit_code == 0, result.output
+    assert "tiers/readonly.yml spells `provider: cborg`" in result.output
+    assert "the provider lives in profile.yml" in result.output
 
 
 # ── Operator content the rewrite must not lose ──────────────────────────────
@@ -803,7 +834,9 @@ def test_a_catalog_field_with_no_successor_prints_the_manual_step(tmp_path: Path
     )
 
 
-def test_a_logbook_retired_tier_under_another_name_becomes_the_logbook_app(tmp_path: Path) -> None:
+def test_a_logbook_retired_tier_under_another_name_becomes_the_logbook_login(
+    tmp_path: Path,
+) -> None:
     root = _previous_release_repo(tmp_path / "als-exemplar")
     (root / f"{RETIRED_CATALOG_KEY}" / "logbook.yml").rename(
         root / f"{RETIRED_CATALOG_KEY}" / "elog.yml"
@@ -826,10 +859,10 @@ def test_a_logbook_retired_tier_under_another_name_becomes_the_logbook_app(tmp_p
     _assert_is_the_new_exemplar(root)
 
 
-# ── References to a card that became an app ─────────────────────────────────
+# ── References to a card that became a shared login ─────────────────────────
 
 
-def test_a_role_pinned_to_a_migrated_app_is_reported(tmp_path: Path) -> None:
+def test_a_role_pinned_to_a_migrated_login_is_reported(tmp_path: Path) -> None:
     root = _previous_release_repo(tmp_path / "als-exemplar")
     overlay = root / "profiles" / "night.yml"
     overlay.parent.mkdir()
@@ -848,12 +881,12 @@ def test_a_role_pinned_to_a_migrated_app_is_reported(tmp_path: Path) -> None:
     steps = result.output.split("Left for you to do by hand:", 1)[1]
     assert (
         "profiles/night.yml: `modules.web_terminals.authorization.roles.archivist.tier` "
-        "names 'logbook', which is now the shared app `logbook`" in steps
+        "names 'logbook', which is now the shared login `logbook`" in steps
     )
     assert steps.count("logbook") == 2, steps
 
 
-def test_an_unrelated_mention_of_a_migrated_app_is_not_reported(tmp_path: Path) -> None:
+def test_an_unrelated_mention_of_a_migrated_login_is_not_reported(tmp_path: Path) -> None:
     root = _previous_release_repo(tmp_path / "als-exemplar")
     overlay = root / "profiles" / "night.yml"
     overlay.parent.mkdir()
@@ -891,8 +924,8 @@ def test_dropping_the_catalog_keeps_a_flow_list_before_it_on_one_line(tmp_path: 
     assert "        access: [roster]\n" in written
     assert "access: [roster\n" not in written
     # The comment introducing `shared:` still introduces it.
-    assert "    # Apps everyone above may open" in written
+    assert "    # Logins everyone above may open" in written
     lines = written.splitlines()
     shared = lines.index("    shared:")
-    assert lines[shared - 4].lstrip().startswith("# Apps everyone above may open")
-    assert lines[shared - 5] == "        access: [roster]"
+    assert lines[shared - 5].lstrip().startswith("# Logins everyone above may open")
+    assert lines[shared - 6] == "        access: [roster]"

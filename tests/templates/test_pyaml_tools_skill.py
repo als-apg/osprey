@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 from osprey.cli.templates.manager import TemplateManager
-from osprey.utils.workspace import APPS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 
 SKILL = "claude_code/claude/skills/pyaml-tools/SKILL.md.j2"
 PROMPT = "claude_code/CLAUDE.md.j2"
@@ -125,7 +125,9 @@ def test_the_control_room_preset_installs_the_skill_and_sandboxless_renders_drop
     # An app's lists are its whole selection, so a sandboxless app drops the
     # skill by not listing it.
     for app in ("channel-finder", "knowledge", "logbook"):
-        preset = yaml.safe_load((PRESETS / APPS_DIRNAME / f"{app}.yml").read_text(encoding="utf-8"))
+        preset = yaml.safe_load(
+            (PRESETS / TIERS_DIRNAME / f"{app}.yml").read_text(encoding="utf-8")
+        )
         assert "pyaml-tools" not in preset["skills"], app
 
 

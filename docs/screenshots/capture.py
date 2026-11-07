@@ -470,6 +470,20 @@ def _capture_hermetic_hub(browser: Browser, shot: DocShot) -> list[Path]:
     return paths
 
 
+def _deployment_operator_secret(project_dir: Path) -> str | None:
+    """The terminal secret the deployment's ``.env`` holds, or ``None`` without one."""
+    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV
+
+    env_file = project_dir / ".env"
+    if not env_file.is_file():
+        return None
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == OPERATOR_SECRET_ENV:
+            return value.strip().strip("'\"") or None
+    return None
+
+
 def _run_stack_step(cmd: list[str], *, cwd: Path | None, what: str) -> None:
     """Run one project-scoped lifecycle command, mapping failure to a skip.
 
@@ -490,8 +504,8 @@ def _run_stack_step(cmd: list[str], *, cwd: Path | None, what: str) -> None:
     except FileNotFoundError as exc:
         raise ScreenshotSkip(f"osprey CLI unavailable to {what}: {exc}") from exc
     if result.returncode != 0:
-        tail = (result.stderr or result.stdout or "").strip().splitlines()[-1:] or [""]
-        raise ScreenshotSkip(f"failed to {what} (exit {result.returncode}): {tail[0]}")
+        tail = (result.stderr or result.stdout or "").strip().splitlines()[-15:] or [""]
+        raise ScreenshotSkip(f"failed to {what} (exit {result.returncode}): " + "\n".join(tail))
 
 
 def rendered_artifact_port(project_dir: Path) -> int:
@@ -933,7 +947,10 @@ def web_terminal(project_dir: Path) -> Iterator[WebTerminal]:
             f"{len(problems)} vendored front-end file(s) missing or corrupt "
             f"(first: {problems[0]}); run `osprey vendor fetch` once"
         )
-    operator_secret = mint_secret()
+    # The deployment's own secret, as `osprey web` reads it from the repo's .env: the
+    # application containers accept that one, so a minted secret would lock the
+    # terminal out of every application panel.
+    operator_secret = _deployment_operator_secret(project_dir) or mint_secret()
     config_dir = _isolated_claude_config(project_dir)
     child_env = {
         **os.environ,

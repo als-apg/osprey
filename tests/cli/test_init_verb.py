@@ -42,6 +42,7 @@ import yaml
 from click.testing import CliRunner
 from rich.console import Console
 
+from osprey.cli.build_profile_drift import APP_PROVENANCE_FILENAME
 from osprey.cli.init_cmd import (
     _PRESERVED_PROSE,
     CI_EMITTED_PATHS,
@@ -303,16 +304,16 @@ def test_every_profile_verb_an_emitted_artifact_names_exists(exemplar_repo: Path
 #: set the prose rewrite has to reach. All seven are listed because this tuple
 #: is the only thing that gates them: a file left out here is a file whose
 #: emitter could drift from the exemplar forever without anything going red.
-#: One entry per tier and app file, so a newly shipped layer is byte-checked
+#: One entry per login file, so a newly shipped layer is byte-checked
 #: from its first release rather than whenever someone remembers to add it.
 RENDERED_FILES = (
     "profile.yml",
     f"{TIERS_DIRNAME}/readonly.yml",
     f"{TIERS_DIRNAME}/readwrite.yml",
     f"{TIERS_DIRNAME}/admin.yml",
-    f"{APPS_DIRNAME}/logbook.yml",
-    f"{APPS_DIRNAME}/knowledge.yml",
-    f"{APPS_DIRNAME}/channel-finder.yml",
+    f"{TIERS_DIRNAME}/logbook.yml",
+    f"{TIERS_DIRNAME}/knowledge.yml",
+    f"{TIERS_DIRNAME}/channel-finder.yml",
     ".env.example",
 )
 
@@ -326,6 +327,22 @@ def test_rendered_files_match_the_exemplar_byte_for_byte(exemplar_repo: Path) ->
         if exemplar_repo.joinpath(name).read_text(encoding="utf-8") != expected[name]
     ]
     assert differing == []
+
+
+def test_the_listed_application_is_copied_as_packaged(exemplar_repo: Path) -> None:
+    """Every file of the application, and its sidecar, down to the byte."""
+    expected = {
+        name: text
+        for name, text in exemplar_source_files(with_ci=False).items()
+        if name.startswith(f"{APPS_DIRNAME}/")
+    }
+    emitted = {
+        path.relative_to(exemplar_repo).as_posix(): path.read_text(encoding="utf-8")
+        for path in (exemplar_repo / APPS_DIRNAME).rglob("*")
+        if path.is_file()
+    }
+    assert f"{APPS_DIRNAME}/knob-example/app.yml" in expected
+    assert emitted == expected
 
 
 def test_the_data_readme_is_the_packaged_one(exemplar_repo: Path) -> None:
@@ -382,10 +399,11 @@ def test_render_catalog_stores_only_each_renders_source(exemplar_repo: Path) -> 
     """The profile names no render: each tier and app file is its own source.
 
     ``osprey build`` derives every render's ``project``/``project_path`` from
-    the files in ``tiers/`` and ``apps/`` and from ``project_name``, and writes
-    them into ``build/config.yml``, so a catalog in the profile would be a
-    second home for one fact. The roster names a tier per person and the apps
-    it shares, and every name it uses has its file.
+    the files in ``tiers/`` and from ``project_name``, and writes them into
+    ``build/config.yml``, so a catalog in the profile would be a second home
+    for one fact. The roster names a tier per person and the logins it shares,
+    and every name it uses has its file; ``apps/`` holds applications only, and
+    init writes the one the preset lists, with its provenance.
     """
     profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
     web_terminals = profile["config"]["modules.web_terminals"]
@@ -393,20 +411,20 @@ def test_render_catalog_stores_only_each_renders_source(exemplar_repo: Path) -> 
     assert "renders" not in web_terminals
     assert sorted(p.stem for p in (exemplar_repo / TIERS_DIRNAME).iterdir()) == [
         "admin",
-        "readonly",
-        "readwrite",
-    ]
-    assert sorted(p.stem for p in (exemplar_repo / APPS_DIRNAME).iterdir()) == [
         "channel-finder",
         "knowledge",
         "logbook",
+        "readonly",
+        "readwrite",
     ]
+    assert (exemplar_repo / APPS_DIRNAME / "knob-example" / "app.yml").is_file()
+    assert (exemplar_repo / APPS_DIRNAME / "knob-example" / APP_PROVENANCE_FILENAME).is_file()
     tiers = {web_terminals["default_tier"], *(user["tier"] for user in web_terminals["users"])}
     for tier in tiers:
         assert (exemplar_repo / TIERS_DIRNAME / f"{tier}.yml").is_file(), tier
     assert web_terminals["shared"] == ["logbook", "knowledge", "channel-finder"]
     for app in web_terminals["shared"]:
-        assert (exemplar_repo / APPS_DIRNAME / f"{app}.yml").is_file(), app
+        assert (exemplar_repo / TIERS_DIRNAME / f"{app}.yml").is_file(), app
 
 
 def test_init_records_the_folder_name_as_project_name(exemplar_repo: Path) -> None:
@@ -958,14 +976,13 @@ def test_unused_exported_keys_are_reported_not_dropped_silently(
 #: newline. The trailing blank line is real -- the git note is written with a
 #: leading newline, which is what separates it from the entry list.
 #:
-#: One row per layer directory, naming its files: the tiers, then the apps.
+#: One row per layer directory, naming its files.
 EXEMPLAR_REPORT = f"""\
 ✓ Created {EXEMPLAR_DIRNAME}
 
   profile.yml   your assistant's settings; edit this
   data/         channel lists and facility docs; edit these
-  tiers/        access levels of your assistant: admin, readonly, readwrite
-  apps/         separate assistants on offer: channel-finder, knowledge, logbook
+  tiers/        the logins of your assistant: admin, channel-finder, knowledge, logbook, readonly, readwrite
   .env          seeded: OSPREY_AUTH_PW_ALICE, OSPREY_AUTH_PW_BOB, OSPREY_AUTH_PW_CAROL. Add your API key; not in git
   .env.shared   settings shared by every host; your .env wins
   README.md     what everything here does

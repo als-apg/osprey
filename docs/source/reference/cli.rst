@@ -42,6 +42,7 @@ names another one explicitly.
    osprey channel-finder     # Channel finder CLI
    osprey knowledge          # Facility knowledge bundles and graph corpus
    osprey facility           # Check and show the facility description under data/facility/
+   osprey app                # Check a deployment's applications
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy artifacts and plan-queue history into var/archive
@@ -387,9 +388,12 @@ takes effect at the next ``osprey up`` or ``osprey restart``.
 ``-s, --stream`` — Stream lifecycle step output in real time.
 
 ``--skip-lifecycle`` — Skip the profile's ``pre_build``, ``post_build``, and
-``validate`` steps.
+``validate`` steps; deployment-package wheels are still built and installed.
 
-``--skip-deps`` — Skip venv creation and dependency installation (CI mode).
+``--skip-deps`` — Skip venv creation and dependency installation (CI mode);
+deployment-package wheels are still built, for the image. Building a wheel runs
+the package's own build code, which can read ``HOME`` and ``PIP_*``/``UV_*``
+variables.
 
 ``--runtime-root PATH`` — Override ``project_root`` in the rendered config, for
 a build whose output runs somewhere other than where it was made.
@@ -631,8 +635,9 @@ these verbs act on that roster, which lives in the profile. Every verb takes
 
 ``--dry-run`` -- Show what would happen without making changes.
 
-``osprey users list`` joins the rendered roster, shared apps and each render's
-``control_system.writes`` by the rules the render and the login service apply.
+``osprey users list`` joins the rendered roster, shared logins and each
+render's ``control_system.writes`` by the rules the render and the login service
+apply.
 ``--live`` adds container state and last sign-in from the running stack; off the
 host, or with the stack down, those read as a dash. Sign-ins come from the agent
 record, in UTC, so a dash there means the record holds none, not that the person
@@ -1129,6 +1134,32 @@ up`` seeds the store from that view. See
 
    osprey knowledge seed-from-ttl data/facility/knowledge
    osprey knowledge validate
+
+.. _cli-osprey-app:
+
+osprey app
+==========
+
+Make and check a deployment's applications without building anything.
+
+``osprey app new NAME [--force] [--repo DIRECTORY]``
+   Copy the shipped example application into ``apps/NAME/``, its names rewritten
+   to ``NAME`` (the Python package to ``NAME`` with underscores), and list it as
+   ``NAME: {}`` in the ``apps:`` block of ``profile.yml``; ``.gitignore`` gains
+   ``/apps/*/panel/vendor/`` when it lacks it. No port is pinned. A name whose
+   package would be a Python keyword or shadow a standard-library or OSPREY module
+   is refused, and whatever exists at ``apps/NAME/`` unless ``--force`` replaces it.
+
+``osprey app check [--repo DIRECTORY]``
+   Run what ``osprey build`` checks of the applications the ``apps:`` block of
+   ``profile.yml`` names, then the import boundary over each of their Python
+   packages, ESLint over ``panel/`` when it holds JS, and Vitest over
+   ``tests/**/*.test.{js,mjs}`` when that matches a file. Prints every violation
+   with its application, field and rule, and exits 1. An ``apps/<name>/`` the block
+   does not name is reported and not checked. The JS checks execute the
+   application's JS tests, with none of the shell's secrets; they need Node and
+   install a pinned toolchain into the user's cache once; an application with no
+   JS needs neither.
 
 .. _cli-osprey-facility:
 

@@ -35,7 +35,6 @@ from osprey.deployment.compose_generator import (
 from osprey.deployment.runtime_helper import get_runtime_command
 from osprey.deployment.subprocess_capture import run_captured
 from osprey.deployment.web_terminals.render_naming import (
-    RENDER_KIND_APP,
     RENDER_KIND_TIER,
     render_project,
 )
@@ -49,7 +48,6 @@ from osprey.deployment.web_terminals.roster import (
 from osprey.deployment.wheel_build import _staged_dev_artifact_paths
 from osprey.docs_links import setup_remedy
 from osprey.utils.workspace import (
-    APPS_DIRNAME,
     IMAGE_DIR_NAME,
     LAYER_DIR_KINDS,
     LAYER_DIRNAMES,
@@ -385,8 +383,7 @@ def _referenced_renders(
         render.
     :return: One ``{"render", "project", "project_path", "build_profile",
         "image"}`` dict per served render, in served order (``build_profile``
-        is the file the render is built from — ``tiers/<name>.yml`` or
-        ``apps/<name>.yml`` by the entry's ``kind``).
+        is the file the render is built from, ``tiers/<name>.yml``).
     :raises ValueError: A roster or dispatch tier that does not resolve.
     """
     by_render: dict[str, dict] = {}
@@ -428,7 +425,7 @@ def _referenced_renders(
         # from the tag resolve_cards itself resolved.
         project = cast(str, entry.get("project"))
         image = cast(str, entry.get("image"))
-        # The file this render is built from, by kind; carried here so
+        # The file this render is built from; carried here so
         # verify_renders need not re-walk the projection to explain an
         # absent render.
         referenced.append(
@@ -436,7 +433,7 @@ def _referenced_renders(
                 "render": render_name,
                 "project": project,
                 "project_path": served.project_path,
-                "build_profile": _canonical_delta_reference(render_name, served.kind),
+                "build_profile": _canonical_delta_reference(render_name),
                 "image": image,
             }
         )
@@ -464,7 +461,7 @@ def _is_profile_file_reference(build_profile: str) -> bool:
 
 
 def render_build_profile_shape_problem(build_profile: str) -> str | None:
-    """Why ``build_profile`` can never name a tier or app file, or ``None`` if it can.
+    """Why ``build_profile`` can never name a login file, or ``None`` if it can.
 
     The single shape rule for the file a render is built from, shared by the two
     places that enforce it: ``osprey lint`` (the well-formedness gate) and
@@ -489,15 +486,15 @@ def render_build_profile_shape_problem(build_profile: str) -> str | None:
     """
     if not _is_profile_file_reference(build_profile):
         return (
-            f"is the bundled preset name {build_profile!r}. A tier or app render is never "
-            "rendered from a preset: it is rendered from a tier or app file over the profile "
+            f"is the bundled preset name {build_profile!r}. A login render is never "
+            "rendered from a preset: it is rendered from a login file over the profile "
             "the deployed project was built from, which is what gives it that profile's data "
             "tree, secrets and conventions."
         )
 
     if posixpath.isabs(build_profile):
         return (
-            f"is the absolute path {build_profile!r}. A tier or app file belongs to the "
+            f"is the absolute path {build_profile!r}. A login file belongs to the "
             "deployed project's own profile and is named relative to it."
         )
 
@@ -507,7 +504,7 @@ def render_build_profile_shape_problem(build_profile: str) -> str | None:
         layer_dirs = " or ".join(f"{dirname}/" for dirname in LAYER_DIR_KINDS)
         return (
             f"is {build_profile!r}, which is not a direct child of the profile's "
-            f"{layer_dirs} directory. A tier or app file is read as a layer only when "
+            f"{layer_dirs} directory. A login file is read as a layer only when "
             "its parent directory IS one of those, so anything else would build a "
             "hollow project from the layer alone, or from a profile this deployment does "
             "not own."
@@ -516,18 +513,14 @@ def render_build_profile_shape_problem(build_profile: str) -> str | None:
     return None
 
 
-def _canonical_delta_reference(render_name: str, kind: str) -> str:
-    """The one ``build_profile`` value a render of *kind* is supposed to carry.
+def _canonical_delta_reference(render_name: str) -> str:
+    """The one ``build_profile`` value a render is supposed to carry.
 
-    ``tiers/<name>.yml`` for a tier, ``apps/<name>.yml`` for an app. One
-    spelling, shared by the remedy that recommends it and the check that asks
+    ``tiers/<name>.yml``, the login file it is rendered from. One spelling, shared by the remedy that recommends it and the check that asks
     whether recommending it would be circular — a catalog already holding this
     value needs to hear about a missing FILE, not about the value.
     """
-    dirname = next(
-        (name for name, dir_kind in LAYER_DIR_KINDS.items() if dir_kind == kind), TIERS_DIRNAME
-    )
-    return f"{dirname}/{render_name}.yml"
+    return f"{TIERS_DIRNAME}/{render_name}.yml"
 
 
 #: What an operator whose variant build predates the layer layout does
@@ -542,7 +535,7 @@ PREDATES_DELTA_REMEDY = (
 )
 
 
-def _layer_delta_remedy(render_name: str, kind: str, profile_root: Path) -> str:
+def _layer_delta_remedy(render_name: str, profile_root: Path) -> str:
     """The one sentence every unusable-``build_profile`` error ends with.
 
     Names both spellings the operator needs — the catalog value to write and the
@@ -553,7 +546,7 @@ def _layer_delta_remedy(render_name: str, kind: str, profile_root: Path) -> str:
     layer layout: they have a variant build in some older shape and
     need it converted, which is a bigger job than editing one catalog value.
     """
-    reference = _canonical_delta_reference(render_name, kind)
+    reference = _canonical_delta_reference(render_name)
     delta = profile_root / reference
     return (
         f"Set modules.web_terminals.renders.{render_name}.build_profile to "
@@ -562,9 +555,7 @@ def _layer_delta_remedy(render_name: str, kind: str, profile_root: Path) -> str:
     )
 
 
-def _resolve_render_profile(
-    build_profile: str, render_name: str, profile_root: Path, *, kind: str = RENDER_KIND_TIER
-) -> Path:
+def _resolve_render_profile(build_profile: str, render_name: str, profile_root: Path) -> Path:
     """Resolve a catalog ``build_profile`` to the layer it must name.
 
     A render project is rendered from a delta over the very profile this
@@ -590,14 +581,12 @@ def _resolve_render_profile(
     :param render_name: Catalog key, named in every error.
     :param profile_root: This deployment's profile root — under the four-zone
         layout, the deployment repo itself.
-    :param kind: The render's kind (``tier`` or ``app``), which names the
-        directory its canonical file lives in.
     :return: The absolute path to the layer.
     :raises ValueError: For any value that is not an existing delta inside
         ``<profile root>/tiers/``, naming both the value and the file the
         operator has to point at instead.
     """
-    remedy = _layer_delta_remedy(render_name, kind, profile_root)
+    remedy = _layer_delta_remedy(render_name, profile_root)
 
     problem = render_build_profile_shape_problem(build_profile)
     if problem is not None:
@@ -618,7 +607,7 @@ def _resolve_render_profile(
         # the canonical delta, that advice is circular — "set this value to the
         # value it already holds" — and the real fact is that the source zone
         # lost a file the catalog still references.
-        if build_profile == _canonical_delta_reference(render_name, kind):
+        if build_profile == _canonical_delta_reference(render_name):
             raise ValueError(
                 f"Render {render_name!r} names the build_profile {build_profile!r}, which "
                 f"is the right spelling, but no file exists at {candidate}. The catalog "
@@ -800,7 +789,7 @@ def verify_renders(
     :param serves_roster: Forwarded to :func:`_referenced_renders`.
     :raises ValueError: A referenced render that is absent, partial, or whose
         model its provider cannot serve; and, on the absent path, a render whose
-        tier or app file is missing or does not anchor at ``repo_root``.
+        login file is missing or does not anchor at ``repo_root``.
     """
     for unit in _referenced_renders(config, resolved_users, serves_roster=serves_roster):
         render_name = unit["render"]
@@ -811,16 +800,11 @@ def verify_renders(
             continue
 
         build_profile = unit["build_profile"]
-        kind = (
-            RENDER_KIND_APP
-            if isinstance(build_profile, str) and posixpath.dirname(build_profile) == APPS_DIRNAME
-            else RENDER_KIND_TIER
-        )
         if not isinstance(build_profile, str) or not build_profile:
             raise ValueError(
                 f"Render {render_name!r} has no rendered project at {project_path}, and "
                 "its catalog entry has no build_profile naming the delta a build would "
-                "render it from. " + _layer_delta_remedy(render_name, kind, repo_root)
+                "render it from. " + _layer_delta_remedy(render_name, repo_root)
             )
 
         layer = (repo_root / build_profile).resolve()
@@ -829,7 +813,7 @@ def verify_renders(
             # build cannot write it, so sending the operator to one would only
             # bring them back here.
             raise ValueError(
-                f"The {kind} {render_name!r} has no rendered project at {project_path}, "
+                f"The login {render_name!r} has no rendered project at {project_path}, "
                 f"and no build can write one: the deployment's config names it, but "
                 f"{layer} does not exist. Restore {layer}, or remove {render_name!r} from "
                 "the roster that references it, then run `osprey build` and start again."
@@ -839,13 +823,13 @@ def verify_renders(
         # not anchor back at this repo's profile. Checked before the remedy below
         # so the operator is not sent through a build that cannot change the
         # outcome.
-        source = _resolve_render_profile(build_profile, render_name, repo_root, kind=kind)
-        _, rendered_relpath = render_project(resolve_project_name(config), source.stem, kind=kind)
+        source = _resolve_render_profile(build_profile, render_name, repo_root)
+        _, rendered_relpath = render_project(resolve_project_name(config), source.stem)
         rendered_at = repo_root / rendered_relpath
 
         raise ValueError(
-            f"The {kind} {render_name!r} has no rendered project at {project_path}. "
-            "Tiers and apps are rendered by `osprey build`, never by a start: "
+            f"The login {render_name!r} has no rendered project at {project_path}. "
+            "Logins are rendered by `osprey build`, never by a start: "
             "`osprey up` runs what the last build produced. Run `osprey build` in "
             f"{repo_root} and start again.\n"
             f"A build of this repo renders {build_profile} to {rendered_at}. If that "

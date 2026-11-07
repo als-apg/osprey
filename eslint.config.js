@@ -25,6 +25,8 @@ export default [
     files: [
       'src/osprey/interfaces/**/*.js',
       'src/osprey/history/static/**/*.js',
+      'src/osprey/profiles/presets/apps/*/panel/**/*.js',
+      'src/osprey/profiles/presets/apps/*/tests/**/*.{js,mjs}',
       'tests/**/*.{js,mjs}',
     ],
     languageOptions: {
@@ -94,6 +96,8 @@ export default [
     files: [
       'src/osprey/interfaces/**/static/js/**/*.js',
       'src/osprey/interfaces/bluesky_web/panels/**/*.js',
+      'src/osprey/profiles/presets/apps/*/panel/**/*.js',
+      'src/osprey/profiles/presets/apps/*/tests/**/*.{js,mjs}',
       'tests/**/*.{js,mjs}',
     ],
     plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },

@@ -1,0 +1,1 @@
+An application's tool server is projected onto every login that shows it, as a facility server whose approval tools are its declared writes: an armed render (`asked` or `allowed`) hands them to the write switch and a `never` render denies them. The render also carries each tool's approval entry, the application's error types and the list of tools denied in jobs.

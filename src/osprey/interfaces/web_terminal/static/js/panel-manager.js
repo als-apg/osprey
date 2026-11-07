@@ -27,7 +27,8 @@
  * resync — is panel-sse.js. What a GESTURE on a sidebar row or a tile header
  * does is panel-menu-policy.js (row closures, both context menus), and where
  * a panel LANDS is panel-placement.js. A panel's time in its own window is
- * popout.js. All of them read this module's private state through deps
+ * popout.js. The start-up tail — the payload's other readers and the ready
+ * mark — is panel-startup.js. All of them read this module's private state through deps
  * registered at init, so none imports it back: the import direction is
  * panel-manager → panel-sse → panel-lifecycle.
  */
@@ -46,11 +47,7 @@ import { renderEmptyState as renderEmptyStateInto } from './panel-empty-state.js
 import { hiddenPanels, visiblePanelsExcept, standaloneUrl } from './panel-queries.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
-import { applyConfigTabGate, applyConfigUnreadableNotice } from './config-tab.js';
-import { applyScaffoldWriteGate } from './scaffold/write-gate.js';
-import { applyLoginNudge } from './login-nudge.js';
-import { applyTourConfig } from './tour.js';
-import { setFacts } from './first-contact.js';
+import { finishStartup } from './panel-startup.js';
 import {
   initDockIframeAdapter,
   focusPanel,
@@ -480,42 +477,6 @@ export async function initPanelManager(panelId) {
   // Config-defined layouts for the "+" menu's Layouts section (empty by default).
   panelPresets = panelConfig?.presets || [];
 
-  // Withdraw the settings drawer's Config tab where the deployment gated its
-  // server surface off (web.config_panel.enabled). The tab is not a dock panel
-  // — it is static drawer markup — but the flag rides the payload this module
-  // already reads, and applying it here keeps the page to ONE /api/panels
-  // round trip. config-tab.js owns the rule; a failed fetch (null) leaves the
-  // tab alone, matching every other server-config read above. When an
-  // unreadable config file closed the panel, a drawer notice names that file.
-  applyConfigTabGate(panelConfig);
-  applyConfigUnreadableNotice(panelConfig);
-
-  // Record whether this deployment's Scaffold gallery may write
-  // (web.scaffold_gallery.write_enabled). The gallery renders its controls
-  // lazily, when a drawer tab is first activated, so it reads the posture back
-  // at render time; applying it here rides the same single /api/panels round
-  // trip as the Config gate above. scaffold/write-gate.js owns the rule; a
-  // failed fetch (null) leaves the posture alone, matching every other
-  // server-config read in this function.
-  applyScaffoldWriteGate(panelConfig);
-
-  // Hand the onboarding tour its server-derived facts (invite policy +
-  // capability list) on the same single /api/panels round trip. tour.js owns
-  // the policy; a failed fetch (null) leaves the tour on-demand only.
-  applyTourConfig(panelConfig);
-
-  // The personal-login nudge reads its two facts off the same round trip:
-  // shown only when the deployment allows a personal login and this terminal
-  // holds none. login-nudge.js owns the dismissal; a failed fetch shows nothing.
-  applyLoginNudge(panelConfig);
-
-  // Hand first contact the same facts off the same round trip. Unlike every
-  // other server-config read above, the failed fetch (null) is NOT a no-op
-  // here: the greeting and its starter prompts render either way, so they need
-  // to be told the facts are in — with nothing in them — or they would wait
-  // for a payload that is never coming.
-  setFacts(panelConfig ? panelConfig.tour : null);
-
   // A human closing a dock tile is a LOCAL vacate (occupancy is per-client
   // layout state; the panel keeps its rail membership) — reconcile the local
   // active state here, never POST.
@@ -599,8 +560,8 @@ export async function initPanelManager(panelId) {
 
   // Open the panel event stream (panel-sse.js: the /api/files/events
   // subscription, its frame dispatcher, and the membership/close apply paths
-  // that dispatcher shares with the reconnect resync). LAST statement of init:
-  // the first frame can arrive the moment the stream opens, so every other
+  // that dispatcher shares with the reconnect resync). LAST registration of
+  // init: the first frame can arrive the moment the stream opens, so every other
   // registration and the rail render must already have happened. Reassigned
   // scalars go as getters/setters and the strip seam as a closure, so the
   // dispatcher always sees the value this module holds now.
@@ -627,6 +588,10 @@ export async function initPanelManager(panelId) {
     // must reach the handler current at frame time.
     reportActivity: (frame) => onAgentActivity(frame),
   });
+
+  // Hand the surfaces outside the panel stack the same /api/panels payload,
+  // then mark the hub ready (panel-startup.js).
+  finishStartup(panelConfig);
 }
 
 // ---- Panel Queries & Active-Panel State ----

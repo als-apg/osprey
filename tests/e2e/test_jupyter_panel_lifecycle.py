@@ -344,6 +344,8 @@ def _shape_repo(repo: Path) -> None:
     # render's `project` / `project_path` from the profile's `project_name` and
     # its file from the tier's name, so the profile spells no catalog.
     terminals["default_tier"] = RENDER
+    # The shared logins' files give way below, so the roster names none of them.
+    terminals["shared"] = []
     profile_path.write_text(yaml.safe_dump(profile, sort_keys=False), encoding="utf-8")
 
     renders = repo / TIERS_DIRNAME

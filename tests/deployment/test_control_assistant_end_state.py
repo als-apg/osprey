@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import json
 import os
 from collections.abc import Iterator
 from pathlib import Path
@@ -36,7 +37,8 @@ from osprey.deployment.compose_generator import _dispatch_worker_corpus_mounts
 from osprey.deployment.web_terminals import env_production, render_images, roster
 from osprey.deployment.web_terminals.artifacts import resolve_render_inputs
 from osprey.deployment.web_terminals.env_production import ensure_env_production
-from osprey.deployment.web_terminals.lint import lint_app_render, lint_web_terminals
+from osprey.deployment.web_terminals.lint import lint_shared_render, lint_web_terminals
+from osprey.deployment.web_terminals.render_naming import RENDER_KIND_SHARED
 from osprey.deployment.web_terminals.roster import (
     ALL_PRIVILEGES,
     config_archiver_ca_bundles,
@@ -295,7 +297,8 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
         "archiver_ca_bundle_renders": lambda cfg: bool(config_archiver_ca_bundles(cfg)),
         "stop_grace_renders": lambda cfg: config_stop_period(cfg) > 0,
     }
-    assert set(predicates) | {"launch_token_renders"} == set(grants)
+    keyed = {"launch_token_renders", "application_token_renders"}
+    assert set(predicates) | keyed == set(grants)
     for grant, predicate in predicates.items():
         for name, render_config in configs.items():
             assert (name in grants[grant]) == bool(predicate(render_config)), (grant, name)
@@ -308,6 +311,14 @@ def test_reach(stack: Path, config: dict, served: dict[str, roster.ServedRender]
                 lane,
                 name,
             )
+    # An application token is granted to exactly the renders whose rendered
+    # config serves that application's panel under its launch_token_env; the
+    # flagship projects none, so the map is empty and the loop proves that.
+    for token_env, entitled in grants["application_token_renders"].items():
+        for name, render_config in configs.items():
+            panels = ((render_config.get("web") or {}).get("panels") or {}).values()
+            holds = any((block or {}).get("launch_token_env") == token_env for block in panels)
+            assert (name in entitled) == holds, (token_env, name)
 
     # The kind is never asked: the projection with every ``kind`` removed
     # grants exactly the same.
@@ -355,7 +366,7 @@ def test_open_doors_refuse_a_headless_tier(
 
 
 def test_privilege(stack: Path, served: dict[str, roster.ServedRender], open_stack: Path) -> None:
-    """An app render holds no deployment-editing door, even on a host that
+    """A shared login's render holds no deployment-editing door, even on a host that
     opens them all; the admin tier keeps what it held."""
     open_served = served_renders(_host(open_stack), strict=True)
     assert set(open_served) == SERVED
@@ -363,11 +374,11 @@ def test_privilege(stack: Path, served: dict[str, roster.ServedRender], open_sta
 
     for app in APPS:
         render = open_served[app]
-        assert render.kind == roster.RENDER_KIND_APP, app
+        assert render.kind == RENDER_KIND_SHARED, app
         app_config = _render_config(open_stack, render)
         assert tier_privileges(app_config) == (), app
         document = {"hooks": _render_hooks(open_stack, render), "config": app_config}
-        assert lint_app_render(document) == [], app
+        assert lint_shared_render(document) == [], app
 
     # The doors really are open on the host's tiers, so the app result above is
     # the composer closing them, not a host that never opened them.
@@ -387,3 +398,51 @@ def test_no_retired_key(stack: Path, config: dict, served: dict[str, roster.Serv
     )
     for where, document in documents.items():
         assert RETIRED_KEYS.isdisjoint(_keys(document)), where
+
+
+# --- the bundled example application ----------------------------------------------------------
+
+APP = "knob-example"
+WRITE_TOOL = f"mcp__{APP}__set_corrector"
+
+
+def test_the_example_runs_on_the_bridge_against_the_simulator(stack: Path, config: dict) -> None:
+    assert config["control_system"]["type"] == "virtual_accelerator"
+    service = _load(stack / "build" / "services" / APP / "docker-compose.yml")["services"][APP]
+    environment = service["environment"]
+
+    assert "network_mode" not in service
+    assert environment["EPICS_CA_NAME_SERVERS"].startswith("virtual-accelerator:")
+    assert environment["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
+    assert "writes_enabled" not in environment
+    assert environment["OSPREY_APP_STATE_DIRS"].endswith("var/knob-example")
+
+
+def test_the_example_judges_a_write_by_the_staged_login_map(stack: Path, config: dict) -> None:
+    staged = _load(stack / "build" / "services" / APP / "config.yml")["control_system"]
+    users = config["modules"]["web_terminals"]["users"]
+    assert {user["name"] for user in users} <= set(staged["login_tiers"])
+
+
+def test_the_example_is_shown_by_every_tier_and_armed_by_the_writing_ones(
+    stack: Path, served: dict[str, roster.ServedRender]
+) -> None:
+    denies = {}
+    for name in ("readonly", "readwrite", "admin"):
+        render = served[name]
+        panel = _render_config(stack, render)["web"]["panels"][APP]
+        methods = {route["method"] for route in panel["agent_routes"]}
+        assert ("POST" in methods) is (name != "readonly"), name
+        assert ("launch_token_env" in panel) is (name != "readonly"), name
+        settings = json.loads((stack / render.project_path / ".claude/settings.json").read_text())
+        denies[name] = WRITE_TOOL in settings["permissions"]["deny"]
+    assert denies == {"readonly": True, "readwrite": False, "admin": False}
+
+
+@pytest.mark.parametrize("login", ["logbook", "knowledge", "channel-finder"])
+def test_a_shared_login_does_not_show_the_example(
+    stack: Path, served: dict[str, roster.ServedRender], login: str
+) -> None:
+    render = _render_config(stack, served[login])
+    assert APP not in render["web"].get("panels", {})
+    assert APP not in render.get("apps", {})

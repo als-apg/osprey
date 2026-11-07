@@ -30,10 +30,8 @@ approval:
     add_panel_to_rail: always
     archiver_read: skip
     channel_read: skip
-    channel_write: always
     entry_create: always
     entry_publish: always
-    execute: selective
     register_panel: always
     remove_panel_from_rail: always
     setup_patch: always
@@ -180,6 +178,8 @@ control_system:
 deploy:
   fqdn: 127.0.0.1
 deployed_services: []
+dispatch:
+  denied_app_tools: []
 execution:
   execution_method: subprocess
 facility_knowledge:
@@ -217,8 +217,8 @@ modules:
       groups:
       - label: Users
         type: users
-      - label: Apps
-        type: apps
+      - label: Shared logins
+        type: shared
       notices:
       - data/landing/working-safely.md
     shared:

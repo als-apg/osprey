@@ -107,7 +107,7 @@ harness's `_guards.py`) that changes how work is handed to workers:
 
 There are exactly **two** sanctioned groups today:
 
-- `"docker"`, shared by the ten files that start real containers (the MongoDB
+- `"docker"`, shared by the files that start real containers (the MongoDB
   connector tests and the Postgres-backed ARIEL tests). One group means one
   worker, one testcontainers session, one reaper — see section 6.
 - `"soft-ioc"`, shared by the files that start real EPICS soft IOCs through

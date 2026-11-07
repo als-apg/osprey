@@ -130,6 +130,11 @@ BUNDLED_HOST_BINDINGS: Mapping[str, BundledHostBinding] = {
         "under host its compose file binds Neo4j itself to loopback through "
         "NEO4J_server_default__listen__address",
     ),
+    "app_runtime": BundledHostBinding(
+        HostBinding(bind_env="OSPREY_APP_BIND"),
+        "its compose file renders the application's bind address into OSPREY_APP_BIND, "
+        "loopback under host networking",
+    ),
     "qmd": BundledHostBinding(
         HostBinding(),
         "its socat forwarder listens on every interface and no variable narrows it",

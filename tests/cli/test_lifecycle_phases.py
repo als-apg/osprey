@@ -270,6 +270,9 @@ class TestBuildPhases:
             post_build = None
             validate = None
 
+        class _Environment:
+            packages: list[str] = []
+
         class _Profile:
             name = "probe"
             project_name = "probe"
@@ -277,6 +280,7 @@ class TestBuildPhases:
             provider = "anthropic"
             requires_osprey_version = None
             dependencies: list[str] = []
+            environment = _Environment()
             lifecycle = _Lifecycle()
             config: dict = {}
             deploy = None
@@ -313,6 +317,9 @@ class TestBuildPhases:
             build_profile_deploy, "deploy_aware_config_warnings", lambda *a, **k: []
         )
         monkeypatch.setattr(build_cmd, "TemplateManager", lambda *a, **k: object())
+        monkeypatch.setattr(
+            build_cmd, "check_deployment", lambda *a, **k: build_cmd.DeploymentApps()
+        )
         monkeypatch.setattr(
             build_cmd,
             "_plan_project_venv",

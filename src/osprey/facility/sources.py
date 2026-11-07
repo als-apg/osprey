@@ -85,6 +85,7 @@ COMPUTED_SLOTS: dict[str, frozenset[str]] = {
             "role",
             "plane",
             "refresh",
+            "marks",
             "provenance",
         }
     ),
@@ -102,6 +103,7 @@ SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
         ("Group", "names"),
         ("Group", "members"),
         ("Device", "groups"),
+        ("Wiring", "marks"),
         ("Measurement", "kinds"),
         ("MeasurementGroups", "bpm"),
         ("MeasurementGroups", "hcor"),

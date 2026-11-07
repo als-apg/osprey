@@ -1,0 +1,1 @@
+The build can project an application's panel onto each login that shows it, as a `web.panels.<id>` block on the application's loopback port; its write routes and launch token are projected only where the login arms the application.

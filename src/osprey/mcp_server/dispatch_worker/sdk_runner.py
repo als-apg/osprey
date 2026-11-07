@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.agent_runner import (
     HAS_SDK,
@@ -49,6 +49,9 @@ from osprey.mcp_server.dispatch_worker.prior_answers import (
     keep_run_ids,
 )
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, DISPATCH_RUN_ENV_VAR, NO_OWNER
+
+if TYPE_CHECKING:
+    from osprey.agent_runner.tool_policy import AgentSurfaces
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
 
@@ -291,6 +294,7 @@ async def run_dispatch(
     owner: str | None = None,
     prior_answer_runs: list[str] | None = None,
     session_id: str | None = None,
+    agent_surfaces: AgentSurfaces | None = None,
 ) -> dict[str, Any]:
     """Run a prompt headlessly through the agent runner.
 
@@ -331,6 +335,9 @@ async def run_dispatch(
             onto the agent's session, so the run's transcript is filed under
             it and the run's accept entry names that same session. ``None``
             mints a fresh one, for a caller that recorded no accept.
+        agent_surfaces: The subagents the run may delegate to and the tools each
+            one holds, as ``parse_project_agents`` returns them. ``None`` or empty
+            means no subagent is delegable.
 
     Returns:
         dict with keys:
@@ -403,7 +410,6 @@ async def run_dispatch(
         make_pretooluse_hook,
         narrow_allowed_tools,
     )
-    from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
     from osprey_connectors.config import get_facility_timezone
 
     sdk_env = build_clean_env(project_cwd=render_dir)
@@ -552,14 +558,7 @@ async def run_dispatch(
     sdk_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
     sdk_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
 
-    # Declared subagent tool surfaces from the provisioned .claude/agents/ —
-    # each subagent is held to exactly its declared tools (web-terminal parity)
-    # without the trigger having to enumerate them. Read from the RENDER, which
-    # is where the build writes ``.claude/`` and where the CLI itself loads the
-    # agents from; reading the repo root instead found nothing, and an empty
-    # surface map denies every delegation (see ``osprey.agent_runner.tool_policy``)
-    # — fail-closed, but it silently costs dispatch its subagents.
-    agent_surfaces = parse_project_agents(render_dir)
+    agent_surfaces = agent_surfaces or {}
 
     # Narrow the main thread's allow set to this surface's keep-list, if any.
     # Pure removal only — cannot add a tool absent from allowed_tools, and

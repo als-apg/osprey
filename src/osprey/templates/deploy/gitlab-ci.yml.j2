@@ -82,7 +82,7 @@ variables:
 # -----------------------------------------------------------------------------
 render-build:
   stage: validate
-  image: {{ ctx.ci_image_prefix }}python:3.12-slim
+  image: {{ ctx.ci_image_prefix }}python:{{ ctx.image_python }}-slim
   before_script:
     # The floor the profile itself declares (requires_osprey_version), so the
     # pipeline can never run an OSPREY that does not understand it.
@@ -120,7 +120,7 @@ render-build:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "${{ ctx.registry_token_var }}" "$REGISTRY_HOST"
   script:
-    - docker build -t "$REGISTRY/$SERVICE:$CI_COMMIT_SHORT_SHA" "services/$SERVICE"
+    - docker build {% if ctx.image_platform %}--platform {{ ctx.image_platform }} {% endif %}-t "$REGISTRY/$SERVICE:$CI_COMMIT_SHORT_SHA" "services/$SERVICE"
     - docker push "$REGISTRY/$SERVICE:$CI_COMMIT_SHORT_SHA"
     # :latest is what the deploy host pulls, so it moves only on the default
     # branch — a feature branch can build and push an image without any

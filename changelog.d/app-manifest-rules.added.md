@@ -1,0 +1,1 @@
+Applications are checked against the rules that hold for every render — container, panel, tool-name and vendor-path rules, names OSPREY keeps for itself — and an application package that would move a version OSPREY pins is refused naming both versions; every violation is reported at once.

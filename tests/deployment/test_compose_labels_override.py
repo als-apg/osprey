@@ -70,11 +70,24 @@ services:
 """
 
 
-def _write_config(project: Path, deployed_services: list[str]) -> Path:
-    """A config declaring the shipped ``postgresql`` and the facility ``site-probe``."""
-    probe = project / "services" / "site-probe"
-    probe.mkdir(parents=True, exist_ok=True)
-    (probe / "docker-compose.yml.j2").write_text(SITE_PROBE_TEMPLATE, encoding="utf-8")
+#: A facility service compose builds, in compose's short ``build:`` form.
+SITE_BUILT_TEMPLATE = """\
+services:
+  site-built:
+    image: site-built:local
+    build: ./services/site-built
+"""
+
+
+def _write_config(project: Path, deployed_services: list[str], images: dict | None = None) -> Path:
+    """A config declaring the shipped ``postgresql`` and the facility services."""
+    for name, template in (
+        ("site-probe", SITE_PROBE_TEMPLATE),
+        ("site-built", SITE_BUILT_TEMPLATE),
+    ):
+        directory = project / "services" / name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "docker-compose.yml.j2").write_text(template, encoding="utf-8")
     config_path = project / "config.yml"
     config = {
         "project_name": PROJECT,
@@ -84,19 +97,25 @@ def _write_config(project: Path, deployed_services: list[str]) -> Path:
         "services": {
             "postgresql": {"path": "./services/postgresql", "port": 5432},
             "site-probe": {"path": "./services/site-probe"},
+            "site-built": {"path": "./services/site-built"},
         },
         "deployed_services": deployed_services,
     }
+    if images is not None:
+        config["images"] = images
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     return config_path
 
 
 def _render(
-    project: Path, monkeypatch: pytest.MonkeyPatch, deployed_services: list[str] | None = None
+    project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    deployed_services: list[str] | None = None,
+    images: dict | None = None,
 ) -> list[str]:
     """Render the project from inside it and return the rendered compose files."""
     services = ["postgresql", "site-probe"] if deployed_services is None else deployed_services
-    config_path = _write_config(project, services)
+    config_path = _write_config(project, services, images)
     _copy_service_templates(project)
     monkeypatch.chdir(project)
     _, compose_files = prepare_compose_files(str(config_path))
@@ -295,6 +314,67 @@ def test_the_podman_document_carries_the_labels_on_every_service(
         for key, value in _expected_labels(tmp_path).items():
             assert services[name]["labels"][key] == value
     assert services["site-probe"]["labels"]["site.owner"] == "ops"
+
+
+# ---------------------------------------------------------------------------
+# A stated image platform rides on every service compose builds
+# ---------------------------------------------------------------------------
+
+STATED = {"platform": "linux/amd64"}
+BUILT = ["postgresql", "site-probe", "site-built"]
+
+
+def test_a_stated_platform_is_stamped_on_a_built_service_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Third-party and pure-image services stay native; a built one is built for it."""
+    _render(tmp_path, monkeypatch, BUILT, images=STATED)
+
+    services = _override(tmp_path)["services"]
+
+    assert services["site-built"] == {
+        "labels": _expected_labels(tmp_path),
+        "platform": "linux/amd64",
+    }
+    assert services["site-probe"] == {"labels": _expected_labels(tmp_path)}
+    assert services["postgresql"] == {"labels": _expected_labels(tmp_path)}
+
+
+def test_unstated_no_service_is_stamped(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _render(tmp_path, monkeypatch, BUILT)
+
+    for entry in _override(tmp_path)["services"].values():
+        assert entry == {"labels": _expected_labels(tmp_path)}
+
+
+def test_a_subset_invocation_keeps_the_stated_platform(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = _render(tmp_path, monkeypatch, BUILT, images=STATED)
+    built_file = next(f for f in files if f.endswith("site-built/docker-compose.yml"))
+
+    argv = compose_base_cmd(["docker", "compose"], [built_file], tmp_path, env_file_args=[])
+
+    document = yaml.safe_load(Path(_f_entries(argv)[1]).read_text(encoding="utf-8"))
+    assert document["services"]["site-built"]["platform"] == "linux/amd64"
+
+
+def test_the_podman_document_keeps_the_stated_platform(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = _render(tmp_path, monkeypatch, BUILT, images=STATED)
+
+    compose_base_cmd(
+        ["podman", "compose"],
+        files,
+        tmp_path,
+        env_file_args=[],
+        provider=ComposeProvider.PODMAN_COMPOSE,
+    )
+
+    services = yaml.safe_load((tmp_path / MERGED_COMPOSE_FILENAME).read_text())["services"]
+    assert services["site-built"]["platform"] == "linux/amd64"
+    assert "platform" not in services["site-probe"]
 
 
 # ---------------------------------------------------------------------------

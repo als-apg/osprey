@@ -1748,7 +1748,7 @@ def _render_bluesky_template(
     # control_system is omitted by default (matching every pre-existing call
     # site below). The template reads each lane's posture from
     # `svc.writes_enabled`, which compose_generator precomputes per lane from
-    # the render's tier (`_bluesky_lane_write_posture`) rather than from the
+    # the render's tier (`drives_target_write_posture`) rather than from the
     # config, so a caller that cares stamps the lane the way the generator does.
     if writes_enabled is not None:
         kwargs["control_system"] = {"writes": "allowed" if writes_enabled else "never"}
@@ -2282,9 +2282,12 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
         "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
-    assert container_lifecycle._deployed_project_image_services(dict(config)) == ["agent_record"], (
-        "the plan-stack lanes deploy no service on the project image; only the "
-        f"always-deployed agent record runs on it: {config.get('deployed_services')}"
+    assert container_lifecycle._deployed_project_image_services(dict(config)) == [
+        "knob-example",
+        "agent_record",
+    ], (
+        "on the project image the plan-stack lanes deploy only the preset's example "
+        f"application and the always-deployed agent record: {config.get('deployed_services')}"
     )
 
     # -- bluesky MCP server enabled in the rendered .mcp.json -------------------

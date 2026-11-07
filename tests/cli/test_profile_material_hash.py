@@ -180,11 +180,15 @@ def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
     _write(root / "triggers.yml", "triggers: []\n")
     _write(root / "tiers" / "operator.yml", "name: operator\n")
     _write(root / "tiers" / "expert.yml", "name: expert\n")
-    _write(root / "apps" / "logbook.yml", "name: logbook\n")
+    _write(root / "apps" / "knob" / "app.yml", "name: knob\n")
+    _write(root / "apps" / "knob" / "panel" / "vendor" / "lib.js", "vendored\n")
+    _write(root / "packages" / "ring" / "pyproject.toml", "[project]\nname = 'ring'\n")
     _write(root / "profiles" / "teststand.yml", "# teststand\n")
     _write(root / VARIANT_SETTING_FILENAME, f"{VARIANT_SETTING_KEY}=teststand\n")
     profile = _write(
-        root / "profile.yml", "name: Facility\ndata: data\ndispatch:\n  triggers: triggers.yml\n"
+        root / "profile.yml",
+        "name: Facility\ndata: data\ndependencies:\n  - ./packages/ring\n"
+        "dispatch:\n  triggers: triggers.yml\n",
     )
     document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
 
@@ -192,9 +196,9 @@ def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
     folded = [entry for entry in inputs if entry.role is not ProfileInputRole.DOCUMENT]
     labels = [entry.label for entry in folded]
     assert labels[0] == "data"
-    assert labels[-4:] == ["tier", "tier", "app", "variant"]
+    assert labels[-5:] == ["tier", "tier", "app:knob", "package:packages/ring", "variant"]
     assert "triggers" in labels
-    assert [entry.path for entry in folded if entry.label in ("tier", "app")] == [
+    assert [entry.path for entry in folded if entry.label == "tier"] == [
         path for _kind, path in layer_files(root)
     ]
     assert [entry.role for entry in inputs] == sorted(
@@ -204,7 +208,11 @@ def test_inputs_folded_in_order_give_the_fold_digest(tmp_path):
     expected = hashlib.sha256()
     for entry in folded:
         _fold_source_tree(
-            expected, entry.label, entry.path, skip_runtime_output=entry.label == "data"
+            expected,
+            entry.label,
+            entry.path,
+            skip_runtime_output=entry.label == "data",
+            skip=entry.build_output,
         )
     actual = hashlib.sha256()
     _fold_profile_material(actual, inputs)

@@ -62,7 +62,6 @@ from osprey.agent_runner.project_paths import CLAUDE_CONFIG_DIR_ENV
 from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_presets import (
     _read_preset_document,
-    list_apps,
     list_presets,
     list_tiers,
 )
@@ -286,10 +285,7 @@ def test_every_bundled_tier_and_app_renders_inside_its_root(
     """The walk covers every tier and app render, because each lands in the root's ``build/``."""
     stated = _stated_renders(rendered[LAYER_HOST].repo)
     kinds = {name: entry.get("kind") for name, entry in stated.items()}
-    assert kinds == {
-        **dict.fromkeys(list_tiers(), "tier"),
-        **dict.fromkeys(list_apps(), "app"),
-    }
+    assert kinds == dict.fromkeys(list_tiers(), "tier")
     missing = sorted(
         f"{root}:{entry.get('project_path')}"
         for root, render in rendered.items()

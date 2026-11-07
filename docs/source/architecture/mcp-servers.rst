@@ -33,7 +33,7 @@ safety-limits enforcement on all write operations.
 **Tools:**
 
 - ``channel_read`` -- Read current values from one or more control system channels.
-- ``channel_write`` -- Write values to one or more control system channels (requires human approval).
+- ``channel_write`` -- Write values to one or more control system channels (the write switch's position decides whether a person approves).
 - ``archiver_read`` -- Retrieve historical archived data for one or more channels over a
   time range. ``processing`` selects the per-bin aggregation (``raw``, ``mean``, ``min``,
   ``max``, ``median``, ``std``, ``count``) and ``bin_size`` sets the bin width in seconds;
@@ -46,6 +46,10 @@ safety-limits enforcement on all write operations.
   write-gated and under what constraints (lookup, pattern match, summary). Not a channel
   roster -- an unlisted channel may still exist; use channel-finder to discover what channels
   exist.
+
+An application's write tools take the same path: they enter the gate as their server's
+``writes:`` list, the switch's position decides each call, and no per-tool approval policy exists
+for them. See :doc:`applications`.
 
 
 Channel Finding
@@ -393,9 +397,8 @@ loopback, or ``OPTIMIZER_URL`` when that is set.
 
 The server holds no launch token and cannot start a run: a person starts
 every run. A tool that reads a machine (``environment_status``,
-``read_observables``, ``initial_bounds``) asks about the session's current
-control target unless it is given a ``target``; the optimizer serves only the
-targets its profile lists (``va`` and ``standin`` today), and refuses any other.
+``read_observables``, ``initial_bounds``) asks about the session's control
+target, as every app does.
 
 **Tools:**
 

@@ -164,11 +164,14 @@ class TestBlueskyPlansPresetWiring:
         assert "bluesky-plans" in profile["skills"]
 
     def test_logbook_app_leaves_the_skill_out(self):
-        """The logbook app ships without the Bluesky server, so its own skill
-        list leaves the routing skill out: an app's lists are its whole
-        selection, never a union with the host's, and an app has no
+        """The logbook login ships without the Bluesky server, so its own skill
+        list leaves the routing skill out: a ``lists: own`` login's lists are
+        its whole selection, never a union with the host's, and a login has no
         ``exclude:`` to subtract with."""
-        profile = yaml.safe_load((PRESETS_DIR / "apps" / "logbook.yml").read_text(encoding="utf-8"))
+        profile = yaml.safe_load(
+            (PRESETS_DIR / "tiers" / "logbook.yml").read_text(encoding="utf-8")
+        )
+        assert profile["lists"] == "own"
         assert "bluesky-plans" not in (profile.get("skills") or [])
         assert "exclude" not in profile
 

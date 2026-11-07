@@ -280,8 +280,11 @@ What a plug-in is given and asked for:
   ``monitor`` or ``output``; ``plane`` is ``x`` or ``y`` for a record that
   steers or reads one transverse plane, else ``None``; ``refresh`` is
   ``pass`` for a value each write's solve updates, or ``periodic`` for one
-  only the periodic solve publishes. The build stamps the description into each wiring record
-  of the simulator view, so no reader re-derives it from engine attributes.
+  only the periodic solve publishes. It may add ``marks``, a list: ``command``
+  marks a write record whose write is a command. The words are the facility
+  schema's, and a word it does not state stops the build. The build writes
+  the description onto each wiring record, so no reader re-derives it from
+  engine attributes.
 - **Build.** The composite calls the module's
   ``build(model, wiring, deck, settings, active=...)`` once per served model.
   ``wiring`` is the model's wiring records from the simulator view's
@@ -300,7 +303,8 @@ What a plug-in is given and asked for:
   the five functions above, and ``isinstance(module, EnginePlugin)`` checks a
   module states them. Its docstring lists the optional functions ---
   ``error_text``, ``fault_variables``, ``polynomial_kicks``,
-  ``response_matrix`` --- and what a model whose engine lacks each gets.
+  ``response_matrix``, ``scenario_stops`` --- and what a model whose engine
+  lacks each gets.
 
 What the container keeps the same for every engine:
 

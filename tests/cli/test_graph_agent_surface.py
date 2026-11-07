@@ -306,8 +306,7 @@ def _write_profile(repo: Path, config: dict | None = None) -> Path:
     (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     from osprey.cli.build_profile_presets import _presets_dir
 
-    for layer_dir in ("tiers", "apps"):
-        shutil.copytree(_presets_dir() / layer_dir, repo / layer_dir)
+    shutil.copytree(_presets_dir() / "tiers", repo / "tiers")
     return repo
 
 
@@ -360,13 +359,12 @@ def test_osprey_build_completes_with_the_graph_server_switched_off(tmp_path):
         "the lever must switch off the SERVER while leaving the store configured"
     )
 
-    # An app states its own server set, so the host's switch does not reach
-    # the app renders; the host and every tier render over it lose the server.
-    from osprey.cli.build_profile_presets import list_apps
-
+    # A `lists: own` login states its own server set, so the host's switch does
+    # not reach those renders; the host and every tier render over it lose the
+    # server.
     app_renders = tuple(
         prefix
-        for app in list_apps()
+        for app in ("channel-finder", "knowledge", "logbook")
         for prefix in (f"{repo.name}-{app}/", f".image/{repo.name}-{app}/")
     )
     assert [hit for hit in _graph_tool_hits(project) if not hit.startswith(app_renders)] == []
