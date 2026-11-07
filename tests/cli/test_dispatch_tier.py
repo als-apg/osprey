@@ -281,10 +281,16 @@ def test_schema_bridge_configs_have_no_tier() -> None:
     from osprey.cli.build_profile_schema import (
         GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
+        SlackBridgeProfileConfig,
         TeamsBridgeProfileConfig,
     )
 
-    for cls in (NextcloudBridgeProfileConfig, GChatBridgeProfileConfig, TeamsBridgeProfileConfig):
+    for cls in (
+        NextcloudBridgeProfileConfig,
+        GChatBridgeProfileConfig,
+        TeamsBridgeProfileConfig,
+        SlackBridgeProfileConfig,
+    ):
         assert "tier" not in {f.name for f in fields(cls)}, cls.__name__
 
 

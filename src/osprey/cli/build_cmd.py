@@ -82,6 +82,7 @@ from .build_injectors import (
     _inject_limits_database,
     _inject_nextcloud_bridge,
     _inject_profile_services,
+    _inject_slack_bridge,
     _inject_teams_bridge,
     _inject_va,
     _inject_va_archiver,
@@ -145,6 +146,7 @@ __all__ = [
     "_inject_limits_database",
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
+    "_inject_slack_bridge",
     "_inject_teams_bridge",
     "_inject_va",
     "_inject_va_archiver",
@@ -4433,6 +4435,9 @@ def _inject_services(
     if build_profile.teams_bridge is not None:
         _inject_teams_bridge(build_profile.teams_bridge, project_path)
         injected.append("Microsoft Teams bridge")
+    if build_profile.slack_bridge is not None:
+        _inject_slack_bridge(build_profile.slack_bridge, project_path)
+        injected.append("Slack bridge")
     if build_profile.bluesky is not None:
         # The VA block is handed over because a two-lane deploy on a live
         # baseline puts its second lane on the virtual accelerator, and
