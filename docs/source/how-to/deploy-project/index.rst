@@ -517,6 +517,25 @@ and ``--dev`` stops before staging and says so. Run ``git fetch --tags``; a
 fork or an internal mirror must sync the ``osprey-connectors-v*`` tags as well
 as the ``v*`` ones.
 
+A dev build installs third-party packages at the versions the checkout's
+``uv.lock`` holds, not the newest the index has that day, so the images run
+your code against the dependency set the repo's own tests ran with. Each build
+context receives ``osprey-lock-constraints.txt``, the lock exported with
+``uv export --locked``, and every install layer in the image is held to it;
+nothing is installed as ``osprey-framework`` from the index. The same applies
+to the project venv ``osprey build`` creates when it installs an editable
+checkout. ``--dev`` therefore needs ``uv`` on the host and a current lock: with
+no ``uv.lock``, or one out of date with ``pyproject.toml``, it stops and tells
+you to run ``uv lock``. A release build stages no such file and resolves from
+the index as before.
+
+The optimizer image takes torch's CPU build from the PyTorch index
+(``OPTIMIZER_TORCH_INDEX_URL``), and the lock pins exactly that build
+(``torch==<version>+cpu``). A site that empties the variable and serves torch
+from its own mirror must mirror the ``+cpu`` build; a mirror carrying only
+PyPI's plain torch has no candidate the lock admits, and the dev build of that
+image fails.
+
 Troubleshooting
 ===============
 
