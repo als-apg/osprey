@@ -6,11 +6,10 @@ Chat Bridges
 
 A chat bridge lets your team ask the OSPREY agent questions from a chat room
 they already sit in. Someone mentions the agent in the room, and the answer
-comes back in the same conversation — plots included, and on Nextcloud Talk and
-Google Chat other files too.
+comes back in the same conversation — plots and other files included.
 
-Three chat systems are supported today: **Nextcloud Talk**, **Google Chat** and
-**Microsoft Teams**. They answer the same way and are switched on the same way in
+Four chat systems are supported today: **Nextcloud Talk**, **Google Chat**,
+**Microsoft Teams** and **Slack**. They answer the same way and are switched on the same way in
 a profile. You can add others.
 
 What a Bridge Is Not
@@ -42,8 +41,8 @@ there. Everything below it — remembering questions, keeping the conversation,
 handling failures — is shared code that every bridge uses unchanged.
 
 Notice that every arrow leaving a bridge points outward. A bridge fetches its
-messages — from the chat system, or from a queue the chat system feeds — rather
-than being called, so it opens no network port, needs no public address, and
+messages — from the chat system, from a queue the chat system feeds, or down a
+connection it opened itself — rather than being called, so it opens no network port, needs no public address, and
 nothing has to be able to reach it. For Teams the one public piece is the relay,
 and that lives in Azure, not in your stack.
 
@@ -92,35 +91,40 @@ the agent is allowed to do, however it is phrased.
 Choosing Your Platform
 ======================
 
-All three bridges answer questions equally well. The differences that matter when
+All four bridges answer questions equally well. The differences that matter when
 you pick one:
 
 .. list-table::
    :header-rows: 1
-   :widths: 16 28 28 28
+   :widths: 12 22 22 22 22
 
    * -
      - Nextcloud Talk
      - Google Chat
      - Microsoft Teams
+     - Slack
    * - The agent speaks as
      - A normal Nextcloud user account you create
      - A Chat app backed by a service account
      - A single-tenant Azure Bot registration in your own tenant
+     - A Slack app installed in your workspace
    * - Messages arrive by
      - The bridge asking Nextcloud for them
      - A Google Cloud message queue
      - An Azure Function relay that checks each message came from Microsoft and
        puts it on a Service Bus queue the bridge reads
+     - A Socket Mode connection the bridge opens to Slack
    * - Plots and files
      - Shared with the room, visible to its members only
      - **Published as a public link** anyone can open
      - Plots inside the conversation; other files in one SharePoint library,
        shared with the conversation's members
+     - Uploaded into the thread, visible to its members only
    * - You need
      - A Nextcloud instance with the Talk app
      - A Google Cloud project
      - An Azure subscription, and permission to install a Teams app
+     - Permission to install an app in the workspace
 
 The plots-and-files row is the one to read twice. Google Chat can only display an
 image if Google itself can fetch it, so files are published to a world-readable
@@ -139,7 +143,7 @@ and files stay in your own tenant, readable by the conversation's members. The M
 Learn More
 ==========
 
-.. grid:: 1 2 2 4
+.. grid:: 1 2 2 3
    :gutter: 3
 
    .. grid-item-card:: Nextcloud Talk
@@ -169,13 +173,22 @@ Learn More
       Publish the relay into Azure, then deploy a bridge into Teams channels and
       chats, where plots stay in the conversation.
 
+   .. grid-item-card:: Slack
+      :link: slack
+      :link-type: doc
+      :class-header: bg-warning text-white
+      :shadow: md
+
+      Create a Slack app and deploy a bridge into channels and direct messages,
+      where files stay in the thread.
+
    .. grid-item-card:: Add Your Own
       :link: /contributing/extending-osprey
       :link-type: doc
       :class-header: bg-success text-white
       :shadow: md
 
-      What it takes to connect Slack, email, or any other service the agent
+      What it takes to connect Mattermost, email, or any other service the agent
       should answer from -- the developer seam, in the Contributing guide.
 
 .. seealso::
@@ -191,3 +204,4 @@ Learn More
    nextcloud-talk
    google-chat
    microsoft-teams
+   slack

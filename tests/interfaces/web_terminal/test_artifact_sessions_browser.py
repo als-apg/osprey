@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import time
 import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -886,6 +887,31 @@ def test_open_in_new_window_keeps_the_artifact_the_tile_showed(hub, page):
     docked = page.frame_locator(_ARTIFACTS_FRAME)
     expect(docked.locator("#preview-content .preview-viewport")).to_be_visible(timeout=_TIMEOUT_MS)
     expect(docked.locator("#preview-empty")).to_be_hidden()
+
+
+def test_the_window_shows_the_viewer_even_when_the_type_registry_answers_last(hub, page):
+    """The hub answers the frame's ready with its selection at once, so the window's
+    first render must already know the extension types: held back until after that
+    answer, the type registry still decides the view, not the base JSON fallback."""
+    store = _store(hub)
+    profile = next(e for e in store.list_entries() if e.kind == BEAM_PROFILE_KIND)
+    _boot(page, hub)
+    _open_session(page, _PROFILE.transcript_id)
+    _open_all(page)
+    _row(page, profile.id).click()
+    marker = f".ext-viewer-container .{BEAM_PROFILE_MARKER_CLASS}"
+    expect(page.frame_locator(_ARTIFACTS_FRAME).locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
+
+    def _registry_last(route):
+        response = route.fetch()
+        time.sleep(1.5)
+        route.fulfill(response=response)
+
+    page.context.route("**/api/type-registry", _registry_last)
+    with page.expect_popup() as info:
+        page.locator('.tile-tab[data-panel-id="iframe:artifacts"] .tile-tab-window').click()
+    frame = info.value.frame_locator(_ARTIFACTS_FRAME)
+    expect(frame.locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
 
 
 # --- the palette and delete ---------------------------------------------------------

@@ -287,6 +287,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
+        "slack_bridge",
     }
 
 
