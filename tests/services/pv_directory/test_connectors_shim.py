@@ -15,7 +15,7 @@ from types import ModuleType
 
 import pytest
 
-from osprey.services.pv_directory import _connectors
+from osprey.services.pv_directory import _connectors, resolve
 
 _NEW_MODULES = (
     "osprey_connectors.pv_directory",
@@ -146,3 +146,10 @@ def test_floor_payload_helpers_still_work(floor: ModuleType) -> None:
         payload["reason"] == "installed osprey-connectors has no PV directory support (upgrade it)"
     )
     assert floor.as_payload(_Inner(kind=_Kind.ROW, names=())) == {"kind": "row", "names": []}
+
+
+def test_floor_section_resolves_with_one_warning(floor: ModuleType) -> None:
+    resolved = resolve.resolve_section({"control_system": {"type": "epics"}, "pv_directory": {}})
+
+    assert resolved is not None
+    assert resolved.warnings == (f"pv_directory: {floor.FLOOR_REASON}",)
