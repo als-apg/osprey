@@ -433,6 +433,31 @@ class SimulatorView:
             }
         )
 
+    def ioc_health_by_model(self) -> Mapping[str, tuple[str, ...]]:
+        """Each listed model's IOC health addresses, ``<code>:SIM:<model>:<suffix>``.
+
+        ``ioc_health`` is optional under :data:`ADDRESSES_SCHEMA`: a view from
+        a build without it yields an empty mapping. Unlike the status
+        addresses, it lists the ``texture`` model too.
+
+        Raises:
+            ViewSchemaError: a listed entry is not such an address.
+        """
+        listed = self.document(ADDRESSES_FILE).get("ioc_health", ())
+        if not listed:
+            return MappingProxyType({})
+        prefix = f"{self.code}:SIM:"
+        by_model: dict[str, tuple[str, ...]] = {}
+        for address in listed:
+            model = str(address).removeprefix(prefix).rpartition(":")[0]
+            if not model or not str(address).startswith(prefix):
+                raise ViewSchemaError(
+                    f"{self.path / ADDRESSES_FILE} lists {address!r} under ioc_health, "
+                    f"which is not {prefix}<model>:<suffix>: rebuild with osprey build"
+                )
+            by_model[model] = (*by_model.get(model, ()), address)
+        return MappingProxyType(by_model)
+
     def _channels(self) -> Mapping[str, Channel]:
         if self._channel_records is None:
             self._channel_records = MappingProxyType(

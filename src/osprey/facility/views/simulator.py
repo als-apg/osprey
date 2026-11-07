@@ -3,7 +3,8 @@
 Written into ``<render>/data/simulator/``::
 
     served_models.json   {schema: osprey.facility.served_models/1, models: [...]}
-    addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...]}
+    addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...],
+                          ioc_health: [...]}
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
     variables.json       {schema: osprey.facility.simulator/2, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
@@ -95,6 +96,7 @@ __all__ = [
     "SERVED_MODELS_SCHEMA",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
+    "ioc_health_addresses",
     "served_deck_path",
     "simulator_wiring",
     "status_address",
@@ -232,6 +234,19 @@ def status_address(code: str, model: str) -> str:
         ``<code>:SIM:<model>:STATUS``.
     """
     return f"{code}:SIM:{model}:STATUS"
+
+
+def ioc_health_addresses(code: str, model: str) -> list[str]:
+    """The IOC health addresses the simulator serves for one model, texture included.
+
+    Args:
+        code: The facility's identity ``code``.
+        model: The model's name.
+
+    Returns:
+        ``<code>:SIM:<model>:<signal>`` for ``HEARTBEAT``, ``UPTIME`` and ``ENGINEER``.
+    """
+    return [f"{code}:SIM:{model}:{signal}" for signal in ("HEARTBEAT", "UPTIME", "ENGINEER")]
 
 
 def _unlisted_setpoints_writable(rendered_config: Mapping[str, Any]) -> bool:
@@ -452,6 +467,9 @@ def write_simulator_view(root: Path, inputs: ViewInputs) -> list[Path]:
             "schema": ADDRESSES_SCHEMA,
             "channels": sorted(str(channel["id"]) for channel in doc.get("channels", [])),
             "status": [status_address(code, name) for name in physics],
+            "ioc_health": [
+                address for name in inputs.served for address in ioc_health_addresses(code, name)
+            ],
         },
         VARIABLES_FILE: _variables_document(inputs),
         SEEDS_FILE: _seeds_document(doc),

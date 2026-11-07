@@ -18,7 +18,8 @@ to :func:`apply_safety`, which fixes every key a write's safety depends on:
   included.
 
 :func:`periodic_addresses` names the channels the view says refresh
-``periodic``, which a write pass leaves for the next periodic pass.
+``periodic`` and the IOC health addresses that move with time alone, which a
+write pass leaves for the next periodic pass.
 
 :func:`setting_records` and :func:`pass_readback` name what a write pass of
 physics settings reads back. A physics setting reaches its own model alone, and
@@ -75,6 +76,7 @@ FLOAT_PRECISION = 4
 _SETPOINT = "setpoint"
 _FLOAT = "float"
 _PERIODIC = "periodic"
+_PERIODIC_IOC_HEALTH = (":HEARTBEAT", ":UPTIME")
 
 
 def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, Any]:
@@ -116,19 +118,27 @@ def apply_safety(config: Mapping[str, Any], view: SimulatorView) -> dict[str, An
 
 
 def periodic_addresses(view: SimulatorView) -> frozenset[str]:
-    """The addresses whose binding refreshes ``periodic``, across every model of the view.
+    """The addresses only a periodic pass publishes, across every model of the view.
 
     Args:
-        view: The simulator view.
+        view: The simulator view; one from before ``ioc_health_by_model`` names
+            no IOC health address.
 
     Returns:
-        The bound addresses the periodic solve alone publishes.
+        The addresses bound to refresh ``periodic``, and the ``HEARTBEAT`` and
+        ``UPTIME`` IOC health addresses.
     """
+    ioc_health = getattr(view, "ioc_health_by_model", None)
     return frozenset(
         binding.address
         for binding in view.bindings(served_only=False)
         if binding.refresh == _PERIODIC
-    )
+    ) | {
+        address
+        for addresses in (ioc_health() if ioc_health is not None else {}).values()
+        for address in addresses
+        if address.endswith(_PERIODIC_IOC_HEALTH)
+    }
 
 
 def setting_records(view: SimulatorView) -> dict[str, frozenset[str]]:

@@ -33,8 +33,8 @@ resolve or that overlaps another at its level (``span-invalid``), an imported
 place that contradicts its span, a stated position that contradicts the deck
 or lies outside a single-pass deck (``place-conflict``), a device or address
 wired by two models or a wired element repeated in its deck
-(``wiring-conflict``), a declared ``texture`` model or a channel on a status
-address (``model-conflict``), a nominal outside its limits band
+(``wiring-conflict``), a declared ``texture`` model or a channel on a status or
+IOC health address (``model-conflict``), a nominal outside its limits band
 (``seed-invalid``), an unseeded setpoint whose limits band excludes 0
 (``seed-missing``), and a scenario fault keyed by a name that is neither a
 channel nor a variable of the model's engine (``engine-invalid``); a wired
@@ -233,22 +233,25 @@ def _model_conflicts(run: _Run) -> None:
                 f"a source declares model {model['name']}, which the build provides",
                 f"remove model {model['name']}; every channel no model wires is {TEXTURE}'s",
             )
+    from osprey.facility.views.simulator import ioc_health_addresses, status_address
+
     code = run.document["identity"]["code"]
-    status = {
-        f"{code}:SIM:{model['name']}:STATUS": model["name"]
-        for model in models
-        if str(model["name"]).casefold() != TEXTURE
-    }
+    physics = [model["name"] for model in models if str(model["name"]).casefold() != TEXTURE]
+    served = {status_address(code, name): (name, "status") for name in physics}
+    for name in (*physics, TEXTURE):
+        for address in ioc_health_addresses(code, name):
+            served[address] = (name, "IOC health")
     for channel in run.document.get("channels", []):
-        name = status.get(channel["id"])
-        if name is not None:
+        owner = served.get(channel["id"])
+        if owner is not None:
+            name, kind = owner
             run.stop(
                 "model-conflict",
                 "channel",
                 channel["id"],
                 stating_files(channel, None, _MODELS_FILE),
-                f"the address is model {name}'s status channel",
-                "rename the channel; the simulator serves the status address itself",
+                f"the address is model {name}'s {kind} channel",
+                f"rename the channel; the simulator serves the {kind} address itself",
             )
 
 

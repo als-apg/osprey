@@ -329,10 +329,10 @@ def test_apply_safety_modes_unchanged_on_the_built_demo(
     )
 
 
-def test_periodic_addresses_equal_the_chromaticity_channels_on_the_demo(
+def test_periodic_addresses_equal_the_chromaticity_and_moving_health_on_the_demo(
     built_demo: BuiltProject,
 ) -> None:
-    view, variables, _ = _demo_view(built_demo)
+    view, variables, addresses = _demo_view(built_demo)
 
     chromaticity = {
         record["address"]
@@ -342,8 +342,14 @@ def test_periodic_addresses_equal_the_chromaticity_channels_on_the_demo(
         and not record.get("slices")
         and (record.get("engine") or {}).get("attribute") == "chromaticity"
     }
+    moving_health = {
+        address
+        for address in addresses["ioc_health"]
+        if address.endswith((":HEARTBEAT", ":UPTIME"))
+    }
     assert chromaticity
-    assert periodic_addresses(view) == chromaticity
+    assert moving_health
+    assert periodic_addresses(view) == chromaticity | moving_health
 
 
 def test_a_setting_reads_back_itself_its_readback_and_its_models_computed_records_on_the_demo(
