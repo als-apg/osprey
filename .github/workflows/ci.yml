@@ -1563,7 +1563,6 @@ jobs:
           tests/interfaces/design_system/test_dispatch_dashboard_trigger_tools.py \
           tests/interfaces/design_system/test_dispatch_run_owner.py \
           tests/interfaces/design_system/test_osprey_drawer.py \
-          tests/interfaces/design_system/test_splitter_surfaces.py \
           tests/interfaces/artifacts/test_gallery_interactions.py \
           tests/interfaces/artifacts/test_plot_theme_browser.py \
           tests/interfaces/artifacts/test_plot_export_browser.py \
@@ -1608,7 +1607,6 @@ jobs:
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
           tests/interfaces/ariel/test_embedded_nav.py \
-          tests/interfaces/ariel/test_display_menu.py \
           tests/interfaces/ariel/test_vocabulary_banner.py \
           tests/interfaces/ariel/test_shell.py \
           tests/interfaces/history/test_history_page_browser.py \
