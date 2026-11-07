@@ -390,8 +390,8 @@ takes effect at the next ``osprey up`` or ``osprey restart``.
 ``--skip-lifecycle`` — Skip the profile's ``pre_build``, ``post_build``, and
 ``validate`` steps; deployment-package wheels are still built and installed.
 
-``--skip-deps`` — Skip venv creation and dependency installation (CI mode). No
-deployment-package wheel is built, so the render is not installable until a full build.
+``--skip-deps`` — Skip venv creation and dependency installation (CI mode);
+deployment-package wheels are still built, for the image.
 
 ``--runtime-root PATH`` — Override ``project_root`` in the rendered config, for
 a build whose output runs somewhere other than where it was made.

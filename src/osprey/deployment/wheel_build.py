@@ -630,10 +630,8 @@ class DeploymentPackage:
 
     Attributes:
         name: The distribution's canonical name.
-        version: Its version, as the built wheel spells it; read from the package's
-            ``pyproject.toml`` when no wheel was built, and empty if that leaves it
-            to the build backend (``dynamic``).
-        wheel: The built wheel; ``None`` under ``--skip-deps``, which builds none.
+        version: Its version, as the built wheel spells it.
+        wheel: The built wheel.
         replaces: The profile ``dependencies`` entries this wheel stands for, every
             spelling of its path; empty for an application package no entry names.
         source: Where the package lives, as a refusal names it.
@@ -641,7 +639,7 @@ class DeploymentPackage:
 
     name: str
     version: str
-    wheel: Path | None
+    wheel: Path
     replaces: tuple[str, ...] = ()
     source: str = ""
 
@@ -653,23 +651,16 @@ class DeploymentPackage:
     @property
     def requirement(self) -> str:
         """The spelling the recorded list and the Dockerfile carry: name and version."""
-        return f"{self.name}=={self.version}" if self.version else self.name
+        return f"{self.name}=={self.version}"
 
     @property
     def wheel_name(self) -> str:
-        """The file the name is bound to: the wheel, or with none built what it would be.
-
-        The binding outlives the build, so a resolve fails at the missing file and
-        never reaches an index for the name.
-        """
-        if self.wheel is not None:
-            return self.wheel.name
-        return f"{self.name.replace('-', '_')}-{self.version or '0'}-py3-none-any.whl"
+        """The file the name is bound to, so no index can serve it."""
+        return self.wheel.name
 
     @property
     def install_requirement(self) -> str:
         """The spelling the build venv installs: the name, bound to the wheel."""
-        assert self.wheel is not None  # only `--skip-deps` leaves one unbuilt: it makes no venv
         return f"{self.name} @ {self.wheel.resolve().as_uri()}"
 
 
@@ -679,7 +670,6 @@ def build_deployment_packages(
     dest: Path,
     *,
     apps: Iterable[str],
-    build: bool = True,
     image_platform: str | None = None,
 ) -> tuple[DeploymentPackage, ...]:
     """Build every deployment package of *root* into *dest*, with its manifest.
@@ -690,9 +680,6 @@ def build_deployment_packages(
         dest: The deployment-packages directory; replaced whole, and not created
             when the deployment has no package.
         apps: The applications the profile's ``apps:`` block lists.
-        build: Run each package's build backend. False (``--skip-deps``) runs nothing:
-            each package's name and version are read from its ``pyproject.toml``,
-            it has no wheel, and *dest* is not created.
         image_platform: The platform ``images.platform`` states; None judges each
             wheel against this host.
 
@@ -701,8 +688,8 @@ def build_deployment_packages(
 
     Raises:
         BuildProfileError: A local-path entry holds no package to build, a package's
-            wheel build failed, its wheel does not fit the project image or holds a
-            ``.env``, or with no build its ``pyproject.toml`` names no package.
+            wheel build failed, or its wheel does not fit the project image or holds a
+            ``.env``.
     """
     from osprey.apps.rules import deployment_packages, local_path
     from osprey_connectors.errors import BuildProfileError
@@ -735,11 +722,6 @@ def build_deployment_packages(
         shutil.rmtree(dest)
     if not sources:
         return ()
-    if not build:
-        return tuple(
-            _declared_package(pyproject, tuple(replaced.get(pyproject, ())))
-            for pyproject in sources
-        )
     dest.mkdir(parents=True)
 
     from packaging.utils import parse_wheel_filename
@@ -762,37 +744,6 @@ def build_deployment_packages(
     _write_deployment_packages_manifest(packages, dest)
     report_step(f"built {len(packages)} deployment package wheel(s)")
     return tuple(packages)
-
-
-def _declared_package(pyproject: Path, replaces: tuple[str, ...]) -> DeploymentPackage:
-    """The package a ``pyproject.toml`` declares, read without running anything."""
-    import tomllib
-
-    from packaging.utils import canonicalize_name
-
-    from osprey_connectors.errors import BuildProfileError
-
-    source = _shown(pyproject.parent)
-    try:
-        project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {})
-    except tomllib.TOMLDecodeError as e:
-        raise BuildProfileError(
-            f"the deployment package {source}: its pyproject.toml does not parse: {e}"
-        ) from e
-    name = project.get("name")
-    if not name:
-        raise BuildProfileError(
-            f"the deployment package {source}: its pyproject.toml has no [project] name, "
-            "which a build with --skip-deps reads instead of running the package's build "
-            "backend."
-        )
-    return DeploymentPackage(
-        name=str(canonicalize_name(name)),
-        version=str(project.get("version", "")),
-        wheel=None,
-        replaces=replaces,
-        source=source,
-    )
 
 
 def _wheel_build_env() -> dict[str, str]:

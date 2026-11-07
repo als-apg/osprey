@@ -854,34 +854,27 @@ def test_every_image_context_carries_the_wheels_and_installs_them(
         assert (repo / BUILD_DIR_NAME / source["path"]).is_file()
 
 
-# --- a wheel build is a dependency step: --skip-deps runs none --------------------
+# --- the wheels go with the image: --skip-deps skips only the venv ------------------
 
 
-@pytest.fixture
-def no_build_backend(monkeypatch: pytest.MonkeyPatch) -> None:
-    def refuse(source: Path, _out_dir: Path) -> Path:
-        raise AssertionError(f"a build backend ran for {source}")
-
-    monkeypatch.setattr(wheel_build, "_build_wheel", refuse)
-
-
-@pytest.mark.usefixtures("no_build_backend")
 @pytest.mark.parametrize("flags", [["--skip-deps"], ["--skip-deps", "--skip-lifecycle"]])
-def test_a_skip_deps_build_builds_no_wheel_and_its_image_cannot_reach_an_index(
-    tmp_path: Path, flags: list[str]
+def test_a_skip_deps_build_builds_the_wheels_its_image_installs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: list[str]
 ) -> None:
+    created = _no_venv(monkeypatch)
     repo = _repo_with_packages(tmp_path / "pkgs", DEPENDENCIES)
 
     result = _osprey_build(repo, *flags)
     assert result.exit_code == 0, result.output
 
+    assert not created
     context = next((repo / BUILD_DIR_NAME / IMAGE_DIR_NAME).iterdir())
-    assert not (context / DEPLOYMENT_PACKAGES_DIRNAME).exists()
-    assert not (repo / BUILD_DIR_NAME / DEPLOYMENT_PACKAGES_DIRNAME).exists()
+    assert sorted(p.name for p in (context / DEPLOYMENT_PACKAGES_DIRNAME).glob("*.whl")) == [
+        "knob_app-0.1.0-py3-none-any.whl",
+        "ring_kind-0.2.0-py3-none-any.whl",
+    ]
     dockerfile = (context / BUILD_DIR_NAME / "Dockerfile").read_text(encoding="utf-8")
     dependencies = _dependency_run(dockerfile)
-    # Each name stays bound to a wheel this context does not hold, so the install
-    # stops there; no index is ever asked for it.
     staged = f"file:///tmp/deps-ctx/{DEPLOYMENT_PACKAGES_DIRNAME}"
     assert f'"knob-app @ {staged}/knob_app-0.1.0-py3-none-any.whl"' in dependencies
     assert f'"ring-kind @ {staged}/ring_kind-0.2.0-py3-none-any.whl"' in dependencies
@@ -905,64 +898,6 @@ def test_skip_lifecycle_still_builds_and_installs_the_packages(
     ]
     record = tomllib.loads((repo / BUILD_DIR_NAME / "pyproject.toml").read_text(encoding="utf-8"))
     assert set(record["tool"]["uv"]["sources"]) == {"knob-app", "ring-kind"}
-
-
-@pytest.mark.usefixtures("no_build_backend")
-def test_a_skip_deps_build_reads_a_kinds_package_from_its_pyproject(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    kinds = [SimpleNamespace(name="ring", dist=SimpleNamespace(name="ring-kind"))]
-    monkeypatch.setattr(wheel_build, "entry_points", lambda group: kinds)
-    repo = _repo_with_packages(tmp_path / "pkgs", DEPENDENCIES)
-
-    result = _osprey_build(repo, "--skip-deps")
-
-    assert result.exit_code == 0, result.output
-
-
-@pytest.mark.usefixtures("no_build_backend")
-def test_reading_a_package_spells_it_as_the_build_would(tmp_path: Path) -> None:
-    root = _deployment(tmp_path / "repo")
-    dest = tmp_path / "stage" / DEPLOYMENT_PACKAGES_DIRNAME
-
-    packages = build_deployment_packages(root, DEPENDENCIES, dest, apps=APPS, build=False)
-
-    assert [(p.name, p.version, p.wheel) for p in packages] == [
-        ("knob-app", "0.1.0", None),
-        ("ring-kind", "0.2.0", None),
-    ]
-    assert not dest.exists()
-
-
-@pytest.mark.usefixtures("no_build_backend")
-def test_a_package_with_a_dynamic_version_is_named_with_no_version(tmp_path: Path) -> None:
-    root = _deployment(tmp_path / "repo")
-    (root / "kinds" / "ring" / "pyproject.toml").write_text(
-        '[project]\nname = "ring-kind"\ndynamic = ["version"]\n', encoding="utf-8"
-    )
-
-    packages = build_deployment_packages(
-        root, ["./kinds/ring"], tmp_path / "s", apps=APPS, build=False
-    )
-
-    assert deployment_dependencies(["./kinds/ring"], packages) == [
-        "ring-kind",
-        "knob-app==0.1.0",
-    ]
-    # The bound file name still parses as a wheel, so a resolve fails at the file.
-    assert packages[1].wheel_name == "ring_kind-0-py3-none-any.whl"
-
-
-@pytest.mark.usefixtures("no_build_backend")
-@pytest.mark.parametrize("text", ["[build-system]\n", "not toml ["])
-def test_a_package_whose_name_cannot_be_read_is_refused_naming_it(
-    tmp_path: Path, text: str
-) -> None:
-    root = _deployment(tmp_path / "repo")
-    (root / "apps" / "knob" / "pyproject.toml").write_text(text, encoding="utf-8")
-
-    with pytest.raises(BuildProfileError, match="apps/knob"):
-        build_deployment_packages(root, [], tmp_path / "stage", apps=APPS, build=False)
 
 
 def _skip_deps_build_with_kind(

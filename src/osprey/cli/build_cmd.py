@@ -3402,7 +3402,7 @@ def _render_container_project(
     rendered.rename(image_root / BUILD_DIR_NAME)
     scratch.rmdir()
     _stage_source_zone(shared.repo_root, image_root, build_inputs=build_inputs)
-    if any(p.wheel is not None for p in shared.deployment_packages):
+    if shared.deployment_packages:
         # The wheels its Dockerfile names, at the context root where its deps
         # layer copies them from.
         shutil.copytree(
@@ -3876,8 +3876,7 @@ def _build_repo(
         # The deployment's own packages, built to wheels in the staged render
         # before the venv: the venv installs each from its wheel, and every
         # image context carries the directory (`_render_container_project`). The
-        # wheel build is a dependency step: `--skip-deps` builds none, the packages
-        # are only read, and the render's image fails its install at the missing wheel.
+        # image installs them, so `--skip-deps` builds them too.
         from .build_profile_load import config_image_platform
 
         image_platform = config_image_platform(build_profile.config)
@@ -3886,7 +3885,6 @@ def _build_repo(
             list(build_profile.dependencies or []),
             zones.stage / DEPLOYMENT_PACKAGES_DIRNAME,
             apps=[manifest.name for manifest in applications.manifests],
-            build=not skip_deps,
             image_platform=image_platform,
         )
         # The plan is judged first and in both modes, so a `--skip-deps`

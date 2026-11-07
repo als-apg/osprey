@@ -986,7 +986,7 @@ def _plan_project_venv(
             deployment_dependencies(dependencies, packages, install=True),
             environment_packages,
         )
-        if packages and install
+        if packages
         else None
     )
     refuse_unshipped_kinds(extra_deps)
