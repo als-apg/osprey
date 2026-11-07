@@ -1490,18 +1490,14 @@ class TestTheUpPreflightGate:
         # The render probe has its own suite; inert here so these tests are
         # about the privilege gate rather than about any fixture's Dockerfiles.
         monkeypatch.setattr(provision, "verify_renders", lambda *a, **k: None)
-        return [
-            problem
-            for problem, _remedy in provision.web_terminal_preflight_problems(
-                config, repo_root=root
-            )
-        ]
+        blocking, _advisories = provision.web_terminal_preflight_report(config, repo_root=root)
+        return [problem for problem, _remedy in blocking]
 
     @staticmethod
     def _advisories(config: dict[str, Any], root: Path) -> list[str]:
         from osprey.deployment.web_terminals import provision
 
-        return provision.web_terminal_preflight_advisories(config, repo_root=root)
+        return provision.web_terminal_preflight_report(config, repo_root=root)[1]
 
     def test_a_hand_edited_shared_card_refuses_the_start(self, tmp_path: Path, monkeypatch):
         """THE repro: `profile.yml` untouched, one key added in the render."""
