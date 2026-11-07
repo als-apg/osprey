@@ -523,7 +523,11 @@ export function startTerminal(
       }
     },
     onClose() {
-      setConnectionIndicator(false);
+      // A socket already dropped (a stop, or the new session that follows a
+      // refused resume) closes once the server answers the close, which can
+      // be after the connection that replaced it opened; the indicators are
+      // that connection's by then, and dropConnection() dimmed them for this one.
+      if (wsConnection === socket) setConnectionIndicator(false);
       // A close before any answer is itself the answer: this attempt is over,
       // whatever the wrapper does about reconnecting.
       settle();
