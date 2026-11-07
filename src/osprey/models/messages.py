@@ -63,14 +63,22 @@ def _render_part(part: dict) -> str:
     return f"[{part_type}]"
 
 
-def _with_cache_marker(content: list[dict]) -> list[dict]:
-    """Return a copy of *content* with a cache marker on its last text part."""
-    parts = [dict(p) for p in content]
-    for part in reversed(parts):
+def _add_cache_marker(msg: dict) -> None:
+    """Put a cache marker on the last text part of *msg*, in place.
+
+    String content is first wrapped as a single text part; other content is
+    left alone. *msg* comes from :meth:`ChatMessage.to_dict`, whose parts are
+    already copies, so the source message is never touched.
+    """
+    content = msg.get("content")
+    if isinstance(content, str):
+        content = msg["content"] = [{"type": "text", "text": content}]
+    elif not isinstance(content, list):
+        return
+    for part in reversed(content):
         if part.get("type") == "text":
             part["cache_control"] = dict(_CACHE_CONTROL)
             break
-    return parts
 
 
 @dataclass
@@ -155,27 +163,13 @@ class ChatCompletionRequest:
         if provider != "anthropic":
             return result
 
-        # --- Anthropic cache markers ---
-        # 1. System message gets cache_control on its content block
+        # Anthropic: cache every system message and the second-to-last user one.
         for msg in result:
             if msg["role"] == "system":
-                content = msg.get("content")
-                if isinstance(content, str):
-                    msg["content"] = _with_cache_marker([{"type": "text", "text": content}])
-                elif isinstance(content, list):
-                    msg["content"] = _with_cache_marker(content)
-
-        # 2. Find user messages and mark the second-to-last for caching
-        user_indices = [i for i, msg in enumerate(result) if msg["role"] == "user"]
-        if len(user_indices) >= 2:
-            cache_idx = user_indices[-2]
-            content = result[cache_idx].get("content")
-            if isinstance(content, str):
-                result[cache_idx]["content"] = _with_cache_marker(
-                    [{"type": "text", "text": content}]
-                )
-            elif isinstance(content, list):
-                result[cache_idx]["content"] = _with_cache_marker(content)
+                _add_cache_marker(msg)
+        user_msgs = [msg for msg in result if msg["role"] == "user"]
+        if len(user_msgs) >= 2:
+            _add_cache_marker(user_msgs[-2])
 
         return result
 
