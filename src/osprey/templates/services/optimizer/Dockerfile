@@ -17,6 +17,10 @@
 #     overlays them with the `service` extra, so unreleased code and any
 #     dependency the dev wheel adds to that extra are included. With no wheel
 #     staged it is a no-op.
+#   * source builds — `osprey up --dev` also stages osprey-lock-constraints.txt,
+#     the checkout's uv.lock exported as constraints. With it present the deps
+#     layer primes no release, and every install layer holds each third-party
+#     package to the version the lock holds (see the deps layer).
 # This image is built locally by `osprey up`; override with
 # OSPREY_OPTIMIZER_IMAGE to use a prebuilt/published image.
 
@@ -129,10 +133,25 @@ ARG PIP_EXTRA_INDEX_URL=""
 # itself sets this empty, and the install resolves torch from the site indexes
 # alone.
 ARG OPTIMIZER_TORCH_INDEX_URL="https://download.pytorch.org/whl/cpu"
-COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
+# A build from an osprey source checkout (`osprey up --dev`) also stages
+# osprey-lock-constraints.txt (the checkout's uv.lock exported as constraints)
+# and osprey-extra-requirements.txt (the `service` extra's own requirements),
+# and the lock file's presence, not OSPREY_DEV, puts this layer on the
+# lock-driven install: nothing is primed from a released optimizer, and the
+# staged wheels' base requirements and the extra's are installed here, with
+# the toolchain, every third-party package held to the version the lock holds.
+# The lock's lines are appended to the setuptools constraint file, so they
+# reach uv's build environments too, and the file is kept at
+# /opt/osprey/lock-constraints.txt for the wheel layer below. With no lock file
+# staged (a release build) the layer is exactly what it was.
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] osprey-lock-constraints.tx[t] osprey-extra-requirements.tx[t] /tmp/deps-ctx/
 # The torch index rides in UV_INDEX beside any site extra index, and uv's
 # consider-every-index strategy then takes the `+cpu` build, the highest
-# version matching the extra's `torch==` pin.
+# version matching the extra's `torch==` pin. On the lock-driven path the lock
+# itself pins that build (`torch==<version>+cpu` off macOS), which only the
+# CPU index serves: a site that empties OPTIMIZER_TORCH_INDEX_URL must then
+# mirror the `+cpu` build itself, as a mirror carrying only PyPI's plain torch
+# has no candidate the lock admits and the layer fails.
 #
 # A dev build of an unreleased optimizer has no pinned release AND no earlier
 # one to prime from, so that case skips the prime instead of failing: the wheel
@@ -156,16 +175,25 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && pip install "uv==0.12.21" \
-    && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-optimizer[service]==$OSPREY_VERSION" \
-         || if [ "$OSPREY_DEV" = "1" ]; then \
-                echo "WARNING: pin unreleased, priming with latest" \
-                && { uv pip install "osprey-optimizer[service]" \
-                     || echo "WARNING: no osprey-optimizer release to prime from; the wheel layer installs the service stack" ; } ; \
-            else \
-                exit 1 ; \
-            fi ; } \
-    && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
-           uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+    && if [ -f /tmp/deps-ctx/osprey-lock-constraints.txt ]; then \
+           echo "Source build: installing the staged wheels' dependencies at the checkout's uv.lock versions" \
+           && mkdir -p /opt/osprey \
+           && cp /tmp/deps-ctx/osprey-lock-constraints.txt /opt/osprey/lock-constraints.txt \
+           && cat /opt/osprey/lock-constraints.txt >> /tmp/deps-ctx/pip-constraints.txt \
+           && uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt \
+                  -r /tmp/deps-ctx/osprey-extra-requirements.txt ; \
+       else \
+           { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-optimizer[service]==$OSPREY_VERSION" \
+             || if [ "$OSPREY_DEV" = "1" ]; then \
+                    echo "WARNING: pin unreleased, priming with latest" \
+                    && { uv pip install "osprey-optimizer[service]" \
+                         || echo "WARNING: no osprey-optimizer release to prime from; the wheel layer installs the service stack" ; } ; \
+                else \
+                    exit 1 ; \
+                fi ; } \
+           && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
+                  uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+              fi ; \
        fi \
     && pip uninstall -y uv \
     && apt-get purge -y build-essential python3-dev \
@@ -180,12 +208,18 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # and `pip check` cannot see a missing extra), beside the connectors wheel it
 # requires; then both are force-reinstalled --no-deps so their own modules
 # win, and `pip check` guards against residual mismatches.
+# On the lock-driven path (see the deps layer) the first install runs under
+# /opt/osprey/lock-constraints.txt, so anything the wheels add beyond what the
+# earlier layers installed is held to the checkout's uv.lock as well; the
+# staged wheels satisfy one another, so nothing resolves an osprey
+# distribution from the index.
 COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheels (dev build)" \
+        && lock= && { [ ! -f /opt/osprey/lock-constraints.txt ] || lock="-c /opt/osprey/lock-constraints.txt" ; } \
         && whl="$(ls /tmp/ctx/osprey_optimizer-*.whl)" \
-        && pip install ${OPTIMIZER_TORCH_INDEX_URL:+--extra-index-url "$OPTIMIZER_TORCH_INDEX_URL"} \
+        && pip install $lock ${OPTIMIZER_TORCH_INDEX_URL:+--extra-index-url "$OPTIMIZER_TORCH_INDEX_URL"} \
                "${whl}[service]" /tmp/ctx/osprey_connectors-*.whl \
         && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
         && pip check ; \

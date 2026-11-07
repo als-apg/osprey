@@ -176,7 +176,9 @@ way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
 
 (Two more ARGs are set by ``osprey up`` itself and you normally never set them
 by hand: ``OSPREY_DEV`` makes ``osprey up --dev`` install a locally built
-wheel, and ``OSPREY_PIP_PRE`` is ``"1"`` when the pinned OSPREY version is a
+wheel — beside an ``osprey-lock-constraints.txt`` that holds every third-party
+package to the checkout's ``uv.lock`` (:ref:`development-mode`) — and
+``OSPREY_PIP_PRE`` is ``"1"`` when the pinned OSPREY version is a
 pre-release, so the ``pip`` resolve inside the image admits the pre-release of
 ``osprey-connectors`` that ships beside it. A hand-run build pinning a beta
 needs ``--build-arg OSPREY_PIP_PRE=1`` for the same reason. The
