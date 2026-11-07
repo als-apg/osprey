@@ -126,9 +126,17 @@ export function createSessionPeek(deps) {
     refresh();
   }
 
-  /** Close the peek now. */
+  /** Close the peek now, and drop a peek waiting to open. */
   function close() {
     clearTimeout(opening);
+    dismiss();
+  }
+
+  /**
+   * Close the open peek. A peek waiting to open stays scheduled: the pointer
+   * that moved from one folded session onto the next has asked for it.
+   */
+  function dismiss() {
     clearTimeout(closing);
     openId = null;
     host = null;
@@ -142,7 +150,7 @@ export function createSessionPeek(deps) {
 
   function closeLater() {
     clearTimeout(closing);
-    closing = window.setTimeout(close, PEEK_CLOSE_MS);
+    closing = window.setTimeout(dismiss, PEEK_CLOSE_MS);
   }
 
   /**
