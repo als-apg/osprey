@@ -1740,6 +1740,18 @@ class BuildProfile:
         except BuildProfileError as e:
             errors.append(str(e))
 
+        # A `config:` pair the build cannot apply — a scalar beside a dotted key
+        # under it — is refused here, once, for the whole block. The readers of
+        # one subtree fold only the keys on their own path, so none of them
+        # reports a conflict elsewhere. Imported here: build_profile_emit
+        # reaches this module at import time.
+        from .build_profile_emit import _collapse_config_prefixes
+
+        try:
+            _collapse_config_prefixes(dict(self.config))
+        except BuildProfileError as e:
+            errors.append(str(e))
+
         # Validate MCP server definitions
         for name, server in self.mcp_servers.items():
             if not server.command and not server.url:

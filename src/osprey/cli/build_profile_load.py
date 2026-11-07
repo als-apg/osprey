@@ -486,8 +486,8 @@ def config_port_base(config: Any) -> int:
     # Only the keys that address `deployment` are folded. Handing the whole
     # block to the folder would make a prefix conflict anywhere in it — a
     # scalar `env:` beside an `env.required:`, say — a refusal raised here, on
-    # behalf of a key this function never reads. Those conflicts belong to the
-    # axis that owns the key and are reported there.
+    # behalf of a key this function never reads. Those conflicts are reported
+    # once, for the whole block, by the profile's validation.
     deployment_keys = {
         key: value
         for key, value in config.items()
