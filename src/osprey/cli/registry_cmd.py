@@ -1,4 +1,8 @@
-"""Registry display for the Osprey CLI (osprey registry)."""
+"""Registry display helpers for the Osprey CLI.
+
+No ``osprey`` command calls these: there is no ``osprey registry`` verb, and
+:func:`display_registry_contents` has no caller outside the tests.
+"""
 
 from rich.text import Text
 

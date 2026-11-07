@@ -343,13 +343,13 @@ mcp_servers:
 ```
 
 The hello-world preset ships `example_server` as a worked copy to read. Which
-buckets the artifact gallery sorts into is a separate, top-level key, one entry
-per bucket:
+facility artifact kinds the gallery lists is a separate, top-level key, each
+type conforming to one base form:
 
 ```yaml
 artifact_server:
-  categories:
-    beam_studies: {{label: Beam studies, color: "#4C6EF5"}}
+  extension_types:
+    beam_study: {{label: Beam study, base_form: plots}}
 ```
 
 ### Adding a panel of your own

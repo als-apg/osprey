@@ -31,15 +31,11 @@ from typing import Any
 __all__ = [
     "ADDRESSES_FILE",
     "ADDRESSES_SCHEMA",
-    "COMMAND_MARK",
     "DECKS_DIR",
-    "MARKS",
     "MONITOR",
     "NO_VIEW_MESSAGE",
-    "OUTPUT",
     "PERIODIC",
     "PLANES",
-    "READBACK",
     "REFRESH",
     "ROLES",
     "SCENARIOS_DIR",
@@ -51,7 +47,6 @@ __all__ = [
     "SERVED_MODELS_FILE",
     "SERVED_MODELS_SCHEMA",
     "SETPOINT",
-    "TEXTURE",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
     "VIEW_RELPATH",
@@ -94,7 +89,7 @@ SCHEMAS: Mapping[str, str] = MappingProxyType(
 )
 
 #: The engine of the model that serves every channel no physics model wires.
-TEXTURE = "texture"
+_TEXTURE = "texture"
 
 SETPOINT = "setpoint"
 READBACK = "readback"
@@ -421,7 +416,7 @@ class SimulatorView:
             settings=MappingProxyType(copy.deepcopy(entry.get("settings") or {})),
             deck=self.path / deck if deck else None,
             bindings=()
-            if engine == TEXTURE
+            if engine == _TEXTURE
             else tuple(Binding.from_record(name, record) for record in wiring),
         )
 
@@ -442,7 +437,7 @@ class SimulatorView:
 
     def physics_models(self) -> tuple[Model, ...]:
         """The served models whose engine is not ``texture``, sorted by name."""
-        return tuple(model for model in self.models() if model.served and model.engine != TEXTURE)
+        return tuple(model for model in self.models() if model.served and model.engine != _TEXTURE)
 
     def channels(self) -> tuple[str, ...]:
         """Every channel address of the facility file, sorted."""
@@ -511,7 +506,7 @@ class SimulatorView:
 
     def _all_bindings(self, served_only: bool) -> Iterator[Binding]:
         for model in self.models():
-            if model.engine == TEXTURE or (served_only and not model.served):
+            if model.engine == _TEXTURE or (served_only and not model.served):
                 continue
             yield from model.bindings
 

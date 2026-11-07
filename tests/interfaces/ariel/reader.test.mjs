@@ -448,6 +448,47 @@ describe('Use in Workspace', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  /**
+   * Click "Use in Workspace" and return the URL the POST went to.
+   * @returns {Promise<string>}
+   */
+  async function workspacePostUrl() {
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal('fetch', fetchSpy);
+    try {
+      showImageLightbox(RENDITION_SRC, 'beam.png', null, 'att-0123456789ab');
+      const button = /** @type {HTMLButtonElement} */ (
+        lightbox()?.querySelector('[data-use-in-workspace]')
+      );
+      button.click();
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      expect(fetchSpy.mock.calls[0][1]).toEqual({ method: 'POST' });
+      return fetchSpy.mock.calls[0][0];
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }
+
+  /** @param {any} data @param {string} [origin] */
+  function hostSays(data, origin = window.location.origin) {
+    window.dispatchEvent(new MessageEvent('message', { data, origin }));
+  }
+
+  // These run in order: the module holds the key from the first change on.
+  test('sends no session key before a session change arrives', async () => {
+    hostSays({ type: 'osprey-theme-change', session_id: 'not-a-session' });
+    hostSays({ type: 'osprey-session-change', session_id: 'key-foreign' }, 'https://evil.test');
+    expect(await workspacePostUrl()).toBe('/api/attachments/att-0123456789ab/artifact');
+  });
+
+  test("sends the host's session key once a session change arrives", async () => {
+    hostSays({ type: 'osprey-session-change', session_id: 'key-1' });
+    hostSays({ type: 'osprey-session-change', session_id: 'key 2/x' });
+    expect(await workspacePostUrl()).toBe(
+      '/api/attachments/att-0123456789ab/artifact?session_key=key%202%2Fx'
+    );
+  });
 });
 
 /**

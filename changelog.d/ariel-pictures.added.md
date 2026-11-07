@@ -11,8 +11,8 @@ and `entry_open` shows an entry, or one of its pictures enlarged, to the operato
 in the ARIEL panel; the panel opens the same view from a
 `#entry?id=<entry_id>&attachment=<attachment_id>` link. `attachment_to_artifact`
 keeps a stored picture's display rendition in the artifact gallery, with the entry,
-attachment, filename and caption it came from; the same picture saved twice is one
-artifact.
+attachment, filename and caption it came from; the same picture saved twice in one
+session is one artifact.
 The `control-assistant` preset turns all three on; each
 picture module runs when its server and model answer and is otherwise skipped,
 with `osprey ariel status` naming the skipped module and why.

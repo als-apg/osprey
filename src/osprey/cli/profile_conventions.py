@@ -281,6 +281,10 @@ STATE_DIR = STATE_DIR_NAME
 #: other by a test rather than by an import.
 _SYSTEMD_UNIT_ENTRY = "osprey.service"
 
+#: The deployment repo's own root ``.dockerignore``: the repo files it names
+#: are kept out of the deployment's images when the build stages them.
+REPO_DOCKERIGNORE_FILENAME = ".dockerignore"
+
 #: SOURCE zone: tracked, user-edited. ``profile.yml`` plus the material it
 #: names, and the files a deployment's scaffolding verbs emit into the root:
 #: the CI pair (``scripts/verify.sh`` beside ``ci-extra.yml``;
@@ -313,6 +317,8 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         "watchdogs",
         "ci-extra.yml",
         _SYSTEMD_UNIT_ENTRY,
+        # The deployment's own list of repo files kept out of its image.
+        REPO_DOCKERIGNORE_FILENAME,
     }
 )
 
@@ -1462,13 +1468,6 @@ def handwritten_limits_violation(data_root: Path, repo_root: Path) -> FacilityBu
     return None
 
 
-def _symlink_escapes(path: Path, profile_dir: Path) -> bool:
-    """True when ``path`` is a symlink resolving outside the profile directory."""
-    if not path.is_symlink():
-        return False
-    return not path.resolve().is_relative_to(profile_dir.resolve())
-
-
 def _validate_markdown_dir(convention: ConventionDir, root: Path) -> list[str]:
     errors: list[str] = []
     for path in _iter_files(root):
@@ -1572,9 +1571,8 @@ def validate_convention_sources(profile_dir: Path) -> None:
     """Validate every convention directory a profile carries, up front.
 
     Checks that each convention directory is a directory, that its entries have
-    the shape the destination expects, that no entry symlinks outside the
-    profile (a profile must be self-contained to be reproducible), and that the
-    ``project/`` mirror writes no build-owned path.
+    the shape the destination expects, and that the ``project/`` mirror writes
+    no build-owned path.
 
     Args:
         profile_dir: The profile root directory.
@@ -1595,17 +1593,6 @@ def validate_convention_sources(profile_dir: Path) -> None:
                 f"  Make it a directory, or rename the file."
             )
             continue
-
-        escaping = [
-            f"{convention.source}/{path.relative_to(root).as_posix()}"
-            for path in sorted(root.rglob("*"))
-            if _symlink_escapes(path, profile_dir)
-        ]
-        errors += [
-            f"{rel} is a symlink pointing outside the profile.\n"
-            f"  A profile must be self-contained — copy the target in instead."
-            for rel in escaping
-        ]
 
         if convention.shape is EntryShape.MARKDOWN:
             errors += _validate_markdown_dir(convention, root)

@@ -95,6 +95,16 @@ def deps_project(tmp_path_factory):
     )
 
 
+@pytest.fixture(scope="module")
+def packages_project(tmp_path_factory):
+    """The same, for a deployment whose profile declares ``environment.packages``."""
+    return _render(
+        tmp_path_factory.mktemp("dockerfile-packages") / "packages-docker",
+        "hello-world",
+        'environment.packages=["pyepics"]',
+    )
+
+
 class TestDockerfileContent:
     """Content invariants of the rendered Dockerfile."""
 
@@ -475,6 +485,12 @@ class TestDockerfileContent:
             "pip freeze --exclude uv --exclude pip --exclude setuptools --exclude wheel > /opt/osprey/constraints.txt"
             in deps
         )
+
+    def test_environment_packages_on_deps_run(self, packages_project):
+        """A ``--skip-deps`` render installs the list a full build installs:
+        ``environment.packages`` joins the deps RUN after ``$OSPREY_PIP_SPEC``."""
+        deps = self._deps_run_body((packages_project / "Dockerfile").read_text())
+        assert "pyepics" in deps.split('"$OSPREY_PIP_SPEC"', 1)[1]
 
     @staticmethod
     def _run_command_bodies(text: str) -> list[str]:

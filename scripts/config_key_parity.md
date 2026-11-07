@@ -1,11 +1,11 @@
 # Config key parity classification
 
 Input to the resurrection-guard manifest. Every dotted key the config-honesty
-ledger touched is classified as **all-presets** (must appear in both shipped
-root presets' resolved `config:`) or **per-preset** (deliberately present in
+ledger touched is classified as **all-presets** (must appear in every shipped
+root preset's resolved `config:`) or **per-preset** (deliberately present in
 some and absent from others, with the reason). Value equality is a third,
 separate classification, carried by the manifest's `same-value` mark and
-described below. Parity is a claim about the two root presets only; the bundled
+described below. Parity is a claim about the root presets only; the bundled
 apps are union sources, never parity subjects.
 
 ## The sources
@@ -21,7 +21,7 @@ of the split.
 | `src/osprey/profiles/presets/*.yml` (`render_contexts.presets`) | the preset's stem | everything else, as dotted `config:` keys with a comment on the line that sets each one |
 | `src/osprey/profiles/presets/tiers/{logbook,knowledge,channel-finder}.yml` (`render_contexts.shared`) | the login's stem | each shared login's `config:` composed over `render_contexts.host` as a `lists: own` login named by `shared:`: the host's facts, the login's keys over them, every write switch pinned off |
 
-The two root presets, which are what `osprey init --preset <name>` copies out as
+The root presets, which are what `osprey init --preset <name>` copies out as
 the operator's own `profile.yml`:
 
 | id | path |
@@ -60,7 +60,7 @@ and — for MCP/approval claims — feeding the resulting `claude_code` section 
 ## Scope caveat — read before deriving guard rules
 
 This document covers the keys the **config-honesty ledger touched**. It is *not*
-an exhaustive enumeration of every key in the two presets, and the
+an exhaustive enumeration of every key in the presets, and the
 "all-presets" table is *not* automatically the complete set of keys that happen
 to appear in both.
 
@@ -86,9 +86,9 @@ Three rules follow for anything consuming this list:
 
 ## All-presets (parity-required)
 
-Present in both presets' resolved `config:`. A guard fires if one goes
+Present in every root preset's resolved `config:`. A guard fires if one goes
 missing. A row reading "`X` everywhere" carries `same-value: true` beside
-`all-templates: true` in the manifest, and the guard compares the two presets'
+`all-templates: true` in the manifest, and the guard compares the presets'
 stated values for it. A row reading "diverges" carries `all-templates` only. The
 value column is prose for the reader, because the presets are the one place a
 value is written, and
@@ -123,7 +123,7 @@ agreement among the presets that state the key.
   preset lists only tools its servers gate
   (`tests/profiles/test_approval_tools_parity.py`), and an unlisted tool falls to
   `approval.default_policy`. `entry_create` and `entry_publish` carry no mark:
-  `control-assistant` is the one root preset that states them (the `logbook`
+  `control-assistant` is the only root preset that states them (the `logbook`
   app states them too, and apps are not parity subjects), so the mark would
   compare nothing.
 
@@ -146,7 +146,7 @@ Present only where the deployment has the capability.
 
 | dotted key | present in | rationale |
 |---|---|---|
-| `control_system.*` | `hello-world`, `control-assistant` | both shipped presets reach a control system; a deployment that disables the `controls` server has no hardware surface and states none |
+| `control_system.*` | `hello-world`, `control-assistant` | every shipped preset reaches a control system; a deployment that disables the `controls` server has no hardware surface and states none |
 | `archiver.*` | `hello-world`, `control-assistant` | rides with `control_system` |
 | `ariel.*` | `control-assistant` | logbook deployments only |
 | `logbook.*` | `control-assistant` | rides with `ariel` |
@@ -199,7 +199,7 @@ per-type entry carries `rendered: false`.
 ### Keys nothing ships (`rendered: false`)
 
 The manifest keys marked `rendered: false` have real readers, real spellings and
-no writer among the framework template, the two root presets or the apps. They are marked `rendered: false` so
+no writer among the framework template, the root presets or the apps. They are marked `rendered: false` so
 the phantom-key check does not read them as manifest rot.
 
 The flag is checked in **both** directions. A key carrying it that IS in the
@@ -215,19 +215,6 @@ The preset conversion added twenty of the seventy-five, in three groups:
 | `control_system.connector.epics.gateways.*` (9) | a facility's Channel Access gateways cannot be guessed, and shipping someone else's would point a control system at a stranger's machine. `control-assistant` documents the whole block commented and the operator authors it at go-live |
 | `archiver.mongodb_archiver.*` (9) | the build's archiver injector derives the connection block from the deployment's own `services.postgresql` / `va_archiver:` declaration. The preset states only `archiver.type: mongodb_archiver` |
 | `control_system.connector.virtual_accelerator.response_delay_ms` (1) | the presets serve the simulator in process at the connector's own delay; a slower machine is authored per deployment |
-
-### Deleted keys documented as commented examples
-
-A key on the `deleted` list may still be documented, commented, in a preset, and
-the manifest's `deleted_commented_examples` section records why each such key is
-not a resurrection: it left what OSPREY *ships* while staying live in its reader.
-`ariel.database.uri` still wins over the derived DSN when set. Under the app templates that documentation sat in a template, which the
-resurrection check never read for comments; converting the templates into
-presets moved the same lines onto the surface it does read. The exemption is
-narrow — a LIVE spelling of an exempt key in a preset is still a resurrection, as
-is one reappearing in the rendered union or in the loader's synthesized
-defaults — and the exemption itself is checked, so one that names a key that was
-never deleted, carries no reason, or outlives its preset line fails the guard.
 
 ### `api.providers` membership
 

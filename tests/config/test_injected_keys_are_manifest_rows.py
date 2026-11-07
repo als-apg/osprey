@@ -20,7 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.build_profile_load import bundled_service_names, manifest_rows, service_family
+from osprey.cli.build_profile_load import manifest_rows, service_family
+from osprey.cli.build_profile_presets import bundled_service_names
 from tests._by_path import load_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

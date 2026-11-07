@@ -14,10 +14,13 @@ import click
 
 from osprey.facility.errors import FacilityBuildError
 
-__all__ = ["HEADER", "LayerSourceInvalid"]
+__all__ = ["FORMER_HEADER", "HEADER", "LayerSourceInvalid"]
 
 #: The first line of every file an import seeds, in every format.
 HEADER = "# Seeded once by the facility import; edit this file by hand."
+
+#: The mml import's own header before #2369; a deployment seeded under it still holds it.
+FORMER_HEADER = "# Seeded once by the mml import; edit this file by hand."
 
 
 class LayerSourceInvalid(click.ClickException):

@@ -1,6 +1,6 @@
 """Reverse proxy for companion panel servers running inside the container.
 
-Companion servers (artifact gallery, ARIEL, channel-finder, lattice, OKF) and
+Companion servers (artifact gallery, ARIEL, channel-finder, OKF) and
 the notebook sidecar bind to 127.0.0.1 inside the Docker container.  The browser cannot reach them
 directly, so this proxy forwards ``/panel/{panel_id}/{path}`` to the internal
 server and rewrites root-absolute paths in HTML/JS/CSS responses.
@@ -76,6 +76,7 @@ from osprey.interfaces.common_middleware import (
     EXTERNAL_ORIGIN_ENV,
     FACILITY_TIMEZONE_ATTRIBUTE,
     FIRST_PARTY_PANEL_STATIC,
+    FIRST_PARTY_PANEL_VIEWERS,
     MOUNT_SEGMENT_RE,
     PANEL_ADMISSION_STATE_KEY,
     PANEL_ASSET_SUBPATHS,
@@ -197,6 +198,10 @@ _REWRITE_PREFIXES = (
     "/webhook/",
     "/retry/",
     "/trigger/",
+    # The gallery's extension-type viewer modules (artifact-viewport.js builds
+    # the import URL as a `/viewers/...` literal), answered by
+    # ``proxy_panel_artifacts_viewer`` for the embedded gallery.
+    "/viewers/",
 )
 
 # Content types eligible for path rewriting.
@@ -1989,6 +1994,36 @@ for _panel_id, _subpaths in FIRST_PARTY_PANEL_STATIC.items():
 del _panel_id, _subpaths, _subpath, _root
 
 
+@router.api_route(f"{FIRST_PARTY_PANEL_VIEWERS}{{key}}.js", methods=["GET", "HEAD"])
+async def proxy_panel_artifacts_viewer(key: str) -> Response:
+    """Serve extension type ``key``'s viewer module to the embedded gallery.
+
+    A C-ASSETS path (:data:`~osprey.interfaces.common_middleware.FIRST_PARTY_PANEL_VIEWERS`):
+    the embedded gallery is an opaque-origin document, so its viewer import is
+    a credential-less CORS request that could not reach the gated catch-all.
+    MUST stay declared above :func:`proxy_panel`.
+
+    The bytes are the one file :func:`~osprey.stores.type_registry.viewer_path`
+    resolved for ``key`` at load, served verbatim; the key never touches the
+    filesystem. An unknown key, or a type without a viewer, is a 404 here and
+    never reaches the backend.
+    """
+    from osprey.stores.type_registry import viewer_path
+
+    path = viewer_path(key)
+    if path is None or not path.is_file():
+        return Response(content="Not found", status_code=404)
+    return Response(
+        content=path.read_bytes(),
+        headers={
+            "cache-control": _DEFAULT_NO_CACHE,
+            "x-content-type-options": "nosniff",
+            **ASSET_CORS_HEADERS,
+        },
+        media_type="text/javascript",
+    )
+
+
 _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 
@@ -2328,6 +2363,11 @@ async def _forward_to_panel(
             content=f"Upstream connection failed: {exc}",
             status_code=502,
         )
+    except BaseException:
+        # Anything else that escapes still leaves each observed call its row.
+        if observer is not None:
+            observer.close()
+        raise
 
     # Filter response headers (see _filter_response_headers); fill in the
     # no-cache default when the upstream made no caching decision of its own

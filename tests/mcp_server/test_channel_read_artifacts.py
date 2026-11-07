@@ -182,14 +182,14 @@ async def test_gallery_serves_the_rendered_png(tmp_path, monkeypatch):
     assert _png_size(response.content) == (64, 48)
 
 
-async def test_artifact_metadata_and_category_feed_retention(tmp_path, monkeypatch):
-    """channel + channel_values are the keys the retention sweep selects on."""
+async def test_artifact_metadata_and_tool_source_feed_retention(tmp_path, monkeypatch):
+    """tool_source channel_read + channel are the keys the retention sweep selects on."""
     data = await _read(tmp_path, monkeypatch, {ADDRESS: _gaussian_spot()})
 
     stored = get_artifact_store().get_entry(data["summary"]["readings"][ADDRESS]["artifact_id"])
 
     assert stored is not None
-    assert stored.category == "channel_values"
+    assert stored.category == ""
     assert stored.tool_source == "channel_read"
     assert stored.metadata["channel"] == ADDRESS
     assert stored.metadata["shape"] == [48, 64]
@@ -382,7 +382,8 @@ async def test_four_dimensional_value_takes_the_data_only_path(tmp_path, monkeyp
     stored = get_artifact_store().get_entry(entry["artifact_id"])
     assert stored is not None
     assert stored.mime_type != "image/png"
-    assert stored.category == "channel_values"
+    assert stored.category == ""
+    assert stored.tool_source == "channel_read"
     assert stored.metadata["channel"] == ADDRESS
 
     loaded = np.load(_resolve(entry))
@@ -453,7 +454,7 @@ async def test_retention_keeps_only_the_configured_window(tmp_path, monkeypatch)
         for _ in range(4):
             await get_tool_fn(channel_read)(channels=[ADDRESS])
 
-    entries = get_artifact_store().list_entries(category_filter="channel_values")
+    entries = [e for e in get_artifact_store().list_entries() if e.tool_source == "channel_read"]
     assert len(entries) == 2, [e.id for e in entries]
 
     # Both halves of every pruned entry are gone, not just the thumbnail.

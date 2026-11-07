@@ -93,7 +93,7 @@ def _retired_ports() -> frozenset[int]:
     (bluesky lane ports, the ariel sidecar, the VA stand-in port).
     """
     numbers: set[int] = set()
-    numbers.update(range(8085, 8098))  # web/artifacts/ariel/panels/lattice band
+    numbers.update(range(8085, 8098))  # web/artifacts/ariel/panels band
     numbers.update(range(9070, 9101))  # auth, nginx, dispatcher-adjacent band
     numbers.update(n for n in range(9200, 9701) if n % 100 == 0)  # family anchors
     numbers.update(

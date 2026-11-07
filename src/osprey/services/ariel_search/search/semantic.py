@@ -11,17 +11,13 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from osprey.services.ariel_search.exceptions import SearchTimeoutError
+from osprey.services.ariel_search.exceptions import EmbeddingGenerationError, SearchTimeoutError
 from osprey.services.ariel_search.models import (
     END_BOUND_DESCRIPTION,
     START_BOUND_DESCRIPTION,
     TimeBoundText,
 )
-from osprey.services.ariel_search.search._offload import (
-    QUERY_EMBEDDING_TIMEOUT_S,
-    SearchCallPool,
-    run_search_call,
-)
+from osprey.services.ariel_search.search._offload import QUERY_EMBEDDING_TIMEOUT_S
 from osprey.services.ariel_search.search.base import (
     ModuleOutput,
     ParameterDescriptor,
@@ -36,6 +32,7 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.filters import EntryFilter
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
+    from osprey.services.ariel_search.search._offload import SearchCallPool
     from osprey.services.ariel_search.search.base import QueryExpansion
 
 logger = get_logger("ariel")
@@ -207,6 +204,7 @@ async def semantic_search(
     config: ARIELConfig,
     embedder: BaseProvider,
     *,
+    search_calls: SearchCallPool,
     provider_config: dict[str, Any] | None = None,
     max_results: int = 10,
     similarity_threshold: float | None = None,
@@ -215,7 +213,6 @@ async def semantic_search(
     author: str | None = None,
     source_system: str | None = None,
     query_expansion: QueryExpansion | None = None,
-    search_calls: SearchCallPool,
     entry_filter: EntryFilter | None = None,
     offset: int | None = None,
     **kwargs: Any,
@@ -231,6 +228,7 @@ async def semantic_search(
         config: ARIEL configuration
         embedder: The embedding provider adapter instance. Its class supplies
             the base-URL rule and whether vectors are cut to the table's length.
+        search_calls: The pool the query embedding runs on.
         provider_config: The provider's ``api.providers`` entry (``api_key``,
             ``base_url``). ``None`` resolves it from the provider
             :func:`semantic_provider` names.
@@ -246,8 +244,6 @@ async def semantic_search(
             the service only when one was actually resolved. When present, its
             `flattened_text` is embedded in place of `query` -- the whole query
             is the matching text for semantic search, and it is never truncated.
-        search_calls: The search service's pool for search-time provider
-            calls; the query is embedded on it, never on the event loop.
         entry_filter: Dimension filter (C-FILTER), applied in SQL by
             ``repository.semantic_search`` beside the legacy filters.
         offset: The page offset (C-MODOUT). When given, the repository returns
@@ -270,8 +266,10 @@ async def semantic_search(
     Raises:
         SearchTimeoutError: When embedding the query outlasts its timeout or
             every search-call worker is held (``operation`` is
-            ``"query embedding"``). Any other embedding failure is logged and
-            gives no matches.
+            ``"query embedding"``).
+        EmbeddingGenerationError: When the provider fails any other way
+            (unreachable, model error, no vector), naming the provider URL and
+            the cause, so a dead provider never reads as "no matches".
     """
 
     def _output(
@@ -336,6 +334,9 @@ async def semantic_search(
     base_url = provider_cls.effective_base_url(raw_base_url)
 
     embed_text = query_expansion.flattened_text if query_expansion else query
+    provider_name = (
+        f"the embedding provider at {base_url}" if base_url else "the embedding provider"
+    )
 
     embed_kwargs: dict[str, Any] = {}
     if provider_cls.truncates_to_dimensions:
@@ -345,8 +346,7 @@ async def semantic_search(
 
     step_timeout_s = QUERY_EMBEDDING_TIMEOUT_S / 2 + QUERY_EMBEDDING_TIMEOUT_S + 1
     try:
-        embeddings = await run_search_call(
-            search_calls,
+        embeddings = await search_calls.run(
             _embed_query,
             embedder,
             embed_text,
@@ -357,8 +357,11 @@ async def semantic_search(
             timeout_s=step_timeout_s,
         )
         if not embeddings or not embeddings[0]:
-            logger.error("Failed to generate query embedding")
-            return _output([])
+            raise EmbeddingGenerationError(
+                f"{provider_name} returned no vector for the query",
+                model_name=model_name,
+                input_text=embed_text,
+            )
 
         query_embedding = embeddings[0]
 
@@ -378,9 +381,16 @@ async def semantic_search(
             timeout_seconds=step_timeout_s,
             operation="query embedding",
         ) from exc
+    except EmbeddingGenerationError:
+        raise
     except Exception as e:
-        logger.error(f"Embedding generation failed: {e}")
-        return _output([])
+        # "The provider is down" must not look like "nothing matched": an
+        # empty list here reads as a normal answer to the caller and to hybrid.
+        raise EmbeddingGenerationError(
+            f"{provider_name} failed the query embedding: {type(e).__name__}: {e}",
+            model_name=model_name,
+            input_text=embed_text,
+        ) from e
 
     paging: dict[str, Any] = {}
     if entry_filter is not None:

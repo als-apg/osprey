@@ -8,12 +8,12 @@
  *
  * Pinned here: a foreign drag gets nothing; a recorded source over a tile edge
  * paints a split preview and raises the shield, and its drop runs the engine
- * through the holder once the drag has ended; a sidebar row's drop onto a
- * header or a centre has no target (a row makes a new tile) while its edges
- * split; the Agent pane's tile takes no tab from any source and never tabs into
- * another tile, while its edges still split; dockview's own tab drag is the
- * tile, its overlays never paint and it moves nothing by itself; a drag that
- * leaves the dock leaves no highlight; Escape ends the drag.
+ * through the holder once the drag has ended; every tile holds one panel, so
+ * a tile's centre and its header bar are no target for any source (no
+ * preview, and a drop there changes nothing) while its edges split; the Agent
+ * pane's tile splits like any other; dockview's own tab drag is the tile, its
+ * overlays never paint and it moves nothing by itself; a drag that leaves the
+ * dock leaves no highlight; Escape ends the drag.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -72,12 +72,24 @@ const AB = {
   ],
 };
 
+/** Tiles t1 | t2, half each: two service tiles. */
+/** @type {Layout} */
+const TWO_SERVICES = {
+  split: 'row',
+  items: [
+    { tile: 't1', tabs: ['alpha'], showing: 'alpha', size: 0.5 },
+    { tile: 't2', tabs: ['beta'], showing: 'beta', size: 0.5 },
+  ],
+};
+
 /** Inside t1's content, in its bottom edge band (31% of 600 from the bottom, above the 48 px dock strip). */
 const T1_BOTTOM_EDGE = { clientX: 250, clientY: 500 };
 /** t1's centre. */
 const T1_CENTRE = { clientX: 250, clientY: 300 };
-/** t2's centre: the Agent pane. */
+/** t2's centre. */
 const T2_CENTRE = { clientX: 750, clientY: 300 };
+/** On t2's header bar, once its rect is stubbed (jsdom lays nothing out). */
+const T2_HEADER = { clientX: 750, clientY: 15 };
 /** Inside t2's content, in its bottom edge band. */
 const T2_BOTTOM_EDGE = { clientX: 750, clientY: 500 };
 
@@ -290,38 +302,51 @@ describe('a recorded source', () => {
     expect(dockDragSource()).toBeNull();
     expect(m.api.groups.map((/** @type {any} */ g) => g.id).sort()).toEqual(['t1', 't2', 't3']);
   });
+});
 
-  test('a sidebar row has no target on a tile centre or header: a row makes a new tile', () => {
-    const m = mount();
-    const dt = transfer();
-    dockDragStart({ new: 'gamma' }, dt);
-    const over = fire(content(m, 't1'), 'dragover', dt, T1_CENTRE);
-    expect(over.defaultPrevented).toBe(true);
-    expect(previewRects(m)).toEqual([]);
-    fire(content(m, 't1'), 'drop', dt, T1_CENTRE);
-    expect(m.run).not.toHaveBeenCalled();
-    expect(shape(m.holder)).toEqual(['t1:alpha', 't2:terminal']);
-  });
+describe('a tile holds one panel: its centre and its header take nothing', () => {
+  test.each([
+    ['a sidebar row', { new: 'gamma' }, 't1', T1_CENTRE],
+    ['an open panel', { tab: 'alpha' }, 't2', T2_CENTRE],
+    ['a tile', { tile: 't1' }, 't2', T2_CENTRE],
+  ])(
+    '%s over a tile centre: no preview, and its drop changes nothing',
+    (_name, source, tile, at) => {
+      const m = mount(TWO_SERVICES);
+      const grid = JSON.stringify(m.api.toJSON().grid);
+      const dt = transfer();
+      dockDragStart(/** @type {any} */ (source), dt);
+      const over = fire(content(m, tile), 'dragover', dt, at);
+      expect(over.defaultPrevented).toBe(true);
+      expect(previewRects(m)).toEqual([]);
+      fire(content(m, tile), 'drop', dt, at);
+      expect(m.run).not.toHaveBeenCalled();
+      expect(shape(m.holder)).toEqual(['t1:alpha', 't2:beta']);
+      expect(JSON.stringify(m.api.toJSON().grid)).toBe(grid);
+    }
+  );
 
-  test('an open tab over another service tile centre is a tab of it', () => {
-    const m = mount({
-      split: 'row',
-      items: [
-        { tile: 't1', tabs: ['alpha'], showing: 'alpha', size: 0.5 },
-        { tile: 't2', tabs: ['beta'], showing: 'beta', size: 0.5 },
-      ],
-    });
+  test('a header bar is no target; the edge band below it splits', () => {
+    const m = mount(TWO_SERVICES);
+    const header = groupOf(m, 't2').querySelector('.dv-tabs-and-actions-container');
+    if (!(header instanceof HTMLElement)) throw new Error('t2 has no header row');
+    header.getBoundingClientRect = () => new DOMRect(500, 0, 500, 30);
     const dt = transfer();
     dockDragStart({ tab: 'alpha' }, dt);
-    fire(content(m, 't2'), 'dragover', dt, T2_CENTRE);
-    expect(previewRects(m)).toEqual([`${PREVIEW_CLASS}__rect ${PREVIEW_CLASS}__rect--tab`]);
-    fire(content(m, 't2'), 'drop', dt, T2_CENTRE);
-    expect(shape(m.holder)).toEqual(['t2:beta+alpha']);
+    fire(header, 'dragover', dt, T2_HEADER);
+    expect(previewRects(m)).toEqual([]);
+    fire(content(m, 't2'), 'dragover', dt, T2_BOTTOM_EDGE);
+    expect(previewRects(m)).toEqual([`${PREVIEW_CLASS}__rect ${PREVIEW_CLASS}__rect--split`]);
+    fire(header, 'dragover', dt, T2_HEADER);
+    expect(previewRects(m)).toEqual([]);
+    fire(header, 'drop', dt, T2_HEADER);
+    expect(m.run).not.toHaveBeenCalled();
+    expect(shape(m.holder)).toEqual(['t1:alpha', 't2:beta']);
   });
 });
 
-describe('the Agent pane is always its own tile', () => {
-  test('a tab dropped on its centre has no target; on its edge it splits', () => {
+describe('the Agent pane is always its own tile, and splits like any other', () => {
+  test('a panel dropped on its centre has no target; on its edge it splits', () => {
     const m = mount();
     const dt = transfer();
     dockDragStart({ tab: 'alpha' }, dt);
@@ -335,7 +360,7 @@ describe('the Agent pane is always its own tile', () => {
     expect(m.holder.layout && 'split' in m.holder.layout && m.holder.layout.split).toBe('column');
   });
 
-  test('its own tile never tabs into another: no target on a centre, a split on an edge', () => {
+  test('its own tile never joins another: no target on a centre, a split on an edge', () => {
     const m = mount();
     const dt = transfer();
     dockDragStart({ tile: 't2' }, dt);
@@ -346,20 +371,22 @@ describe('the Agent pane is always its own tile', () => {
     fire(content(m, 't1'), 'drop', dt, T1_BOTTOM_EDGE);
     expect(shape(m.holder)).toEqual(['t1:alpha', 't2:terminal']);
   });
+});
 
-  test('admitted() states the rule for every source', () => {
-    const agent = { tile: 't2', zone: /** @type {const} */ ('centre') };
-    const service = { tile: 't1', zone: /** @type {const} */ ('centre') };
-    const edge = { tile: 't2', edge: /** @type {const} */ ('left') };
-    expect(admitted(AB, { tab: 'alpha' }, agent)).toBe(false);
-    expect(admitted(AB, { tile: 't2' }, service)).toBe(false);
-    expect(admitted(AB, { tab: 'terminal' }, service)).toBe(false);
-    expect(admitted(AB, { new: 'gamma' }, service)).toBe(false);
-    expect(admitted(AB, { tab: 'alpha' }, service)).toBe(true);
-    expect(admitted(AB, { new: 'gamma' }, edge)).toBe(true);
-    expect(admitted(AB, { tile: 't2' }, { outer: 'left' })).toBe(true);
-    expect(previewKind(agent)).toBe('tab');
-    expect(previewKind(edge)).toBe('split');
+describe('the rule, as the bridge states it', () => {
+  test('admitted() takes the target alone: every zone is refused; edges, dock edges and borders are not', () => {
+    expect(admitted({ tile: 't1', zone: 'centre' })).toBe(false);
+    expect(admitted({ tile: 't2', zone: 'tab', index: 0 })).toBe(false);
+    expect(admitted({ tile: 't2', edge: 'left' })).toBe(true);
+    expect(admitted({ outer: 'bottom' })).toBe(true);
+    expect(admitted({ border: { tile: 't1', side: 'right' } })).toBe(true);
+  });
+
+  test('previewKind() paints a split for an edge or a dock edge, and nothing else', () => {
+    expect(previewKind({ tile: 't2', edge: 'left' })).toBe('split');
+    expect(previewKind({ outer: 'left' })).toBe('split');
+    expect(previewKind({ tile: 't1', zone: 'centre' })).toBeNull();
+    expect(previewKind({ tile: 't1', zone: 'tab', index: 1 })).toBeNull();
     expect(previewKind({ border: { tile: 't1', side: 'right' } })).toBeNull();
   });
 });
@@ -377,13 +404,21 @@ describe('dockview decides nothing', () => {
     fire(content(m, 't2'), 'dragover', dt, T2_CENTRE);
     expect(seen.every((e) => e.defaultPrevented)).toBe(true);
     expect(m.root.querySelector('.dv-drop-target-selection')).toBeNull();
-    // The Agent tile takes no tab: no target, so the drop changes nothing.
+    // A centre takes nothing: no target, so the drop changes nothing.
     fire(content(m, 't2'), 'drop', dt, T2_CENTRE);
     fire(dvTab(m, 't1'), 'dragend', dt);
     await settle();
     expect(JSON.stringify(m.api.toJSON().grid)).toBe(before);
     expect(shape(m.holder)).toEqual(['t1:alpha', 't2:terminal']);
     expect(dockDragSource()).toBeNull();
+  });
+
+  test('its own drag start is always the tile, even over a source left by an earlier drag', () => {
+    const m = mount();
+    // A sidebar row's drag whose end never arrived.
+    dockDragStart({ new: 'gamma' }, null);
+    fire(dvTab(m, 't1'), 'dragstart', transfer());
+    expect(dockDragSource()).toEqual({ tile: 't1' });
   });
 });
 

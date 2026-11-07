@@ -42,7 +42,7 @@ _HOST = {
     "data": "data",
     "provider": "anthropic",
     "model": "opus",
-    "env": {"FACILITY": "test"},
+    "env": {"defaults": {"FACILITY": "test"}},
     "dispatch": {"max_turns": 5},
     "provenance": {"preset": "control-assistant"},
     "channel_finder_mode": "graph",

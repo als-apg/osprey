@@ -42,6 +42,11 @@
   guidance text of each `<app>.<type>` error, both derived from the rendered
   `apps.<name>` leaves; `{}` when the render has no application.
 
+  `plan_mode_denied_tools` is every tool this render refuses while the session
+  is in plan mode, derived from the registry's side-effect classification.
+  osprey_plan_mode.py reads it, and the approval hook through it; an empty list
+  means plan mode changes nothing.
+
   `watchdogs_enabled` is the one conditional key: `true` when the render has an
   enabled watchdog and absent otherwise, so a build with none renders what it
   would render without the feature. It has nothing to do with writes.
@@ -80,7 +85,8 @@
   "lane_addressed_tools": {{ lane_addressed_tools | default([], true) | tojson }},
   "measurement": {{ measurement | default({}, true) | tojson }},
   "app_approvals": {{ app_approvals | default({}, true) | tojson }},
-  "app_error_types": {{ app_error_types | default({}, true) | tojson }}
+  "app_error_types": {{ app_error_types | default({}, true) | tojson }},
+  "plan_mode_denied_tools": {{ plan_mode_denied_tools | default([], true) | tojson }}
 {%- if watchdogs_enabled %},
   "watchdogs_enabled": true
 {%- endif %}

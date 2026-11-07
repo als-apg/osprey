@@ -1475,7 +1475,7 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
 
 def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Path) -> None:
     """Sections no bundled preset carries — facility MCP servers and custom
-    artifact categories — are appended as commented guidance, and the guidance
+    artifact extension types — are appended as commented guidance, and the guidance
     is suppressed for a section the written profile actually defines."""
     target = tmp_path / "my-facility"
 
@@ -1488,7 +1488,9 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     assert "# mcp_servers:" in text
     assert "#   lattice:" in text
     assert "# artifact_server:" in text
-    assert '#       color: "#4C9AFF"' in text
+    assert "#   extension_types:" in text
+    assert "#       base_form: plots" in text
+    assert "#   categories:" not in text
 
     # A profile that defines mcp_servers itself gets the real key, not the hint.
     servers = json.dumps(

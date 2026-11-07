@@ -11,6 +11,14 @@ Both tools report gallery outcomes honestly instead of fire-and-forget:
 * ``artifact_pin``: the durable pin lands in the shared index first
   (``set_pinned``), so the response stays ``success`` but reports whether the
   gallery was actually notified via ``gallery_notified``.
+
+Both record the session they were set in (ruling 15): each resolves the
+session scope once, at the store's workspace root. The pin stores its
+transcript in the index (``set_pinned(..., set_in=...)``), which is what the
+agent's prompt reads, so the gallery notification stays off the correctness
+path. Both POSTs carry ``transcript_id`` only when a transcript resolved; a
+dispatch run or a process in no session sends none, so its pin or focus
+reaches no session's prompt. Both act by id and are not scoped.
 """
 
 import json
@@ -28,13 +36,25 @@ from osprey.mcp_server.workspace.server import mcp
 logger = logging.getLogger("osprey.mcp_server.tools.focus")
 
 
+def _current_transcript(store) -> str | None:
+    """The transcript this process is in, resolved at *store*'s workspace root.
+
+    ``None`` for a dispatch run or a process in no session.
+    """
+    from osprey.stores import artifact_scope
+
+    return artifact_scope.current_scope(root=store._workspace).transcript
+
+
 @mcp.tool()
 async def artifact_focus(artifact_id: str, fullscreen: bool = False) -> str:
     """Select an artifact in the gallery so the user sees it.
 
     Sets the gallery's current selection to the given artifact, scrolling
-    it into view and showing the preview pane. Also updates focus_state.txt
-    so the agent-awareness hook includes this artifact in context.
+    it into view and showing the preview pane. The focus carries the current
+    session's transcript, so the gallery files it under that session (the
+    gallery, not this tool, writes the focus state the agent-awareness hook
+    reads); with no current session it reaches no prompt.
 
     The focus effect lives entirely in the gallery, so a gallery that is
     unreachable or rejects the request is reported as a tool error
@@ -63,6 +83,9 @@ async def artifact_focus(artifact_id: str, fullscreen: bool = False) -> str:
     payload: dict = {"artifact_id": artifact_id}
     if fullscreen:
         payload["fullscreen"] = True
+    transcript = _current_transcript(store)
+    if transcript is not None:
+        payload["transcript_id"] = transcript
 
     try:
         status, body = _post_json_with_response(f"{base_url}/api/focus", payload)
@@ -127,7 +150,8 @@ async def artifact_pin(artifact_id: str, pinned: bool = True) -> str:
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
-    entry = store.set_pinned(artifact_id, pinned)
+    transcript = _current_transcript(store)
+    entry = store.set_pinned(artifact_id, pinned, set_in=transcript)
     if not entry:
         return make_error(
             "not_found",
@@ -139,8 +163,11 @@ async def artifact_pin(artifact_id: str, pinned: bool = True) -> str:
     base_url = gallery_url()
     gallery_notified = False
     try:
+        payload: dict = {"pinned": pinned}
+        if transcript is not None:
+            payload["transcript_id"] = transcript
         status, _body = _post_json_with_response(
-            f"{base_url}/api/artifacts/{artifact_id}/pin", {"pinned": pinned}
+            f"{base_url}/api/artifacts/{artifact_id}/pin", payload
         )
         gallery_notified = 200 <= status < 300
     except (urllib.error.URLError, OSError) as exc:

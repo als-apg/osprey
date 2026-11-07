@@ -166,7 +166,7 @@ dependencies = [
     "watchdog>=6.0.0",
     # Async HTTP client for the web-terminal panel reverse proxy
     "httpx>=0.28.1",
-    # Lattice physics (Accelerator Toolbox for lattice dashboard + shared ring).
+    # Lattice physics (Accelerator Toolbox for the simulator, pyAT agent + shared ring).
     # Floor-pinned for the save_mat/load_mat(use='RING'), disable_6d, and
     # get_optics(get_chrom=) surface the shared ALS-U AR ring relies on.
     "accelerator-toolbox[plot]>=0.8.0",

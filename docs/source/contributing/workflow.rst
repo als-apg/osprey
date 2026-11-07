@@ -150,11 +150,13 @@ escape hatch.
 Model-Spending Lanes: ``full-ci`` on a PR, On Demand on ``main``
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Eight CI lanes drive real agent sessions against a live model endpoint: the
-agentic per-preset flows, the E2E suite, the two dispatch stacks, the scan-stack
-and control-target-switch agentic lanes, and the two chat bridges. Together they
-cost about $15 per run — and they used to run on every push of every pull
-request, which at this repository's pace was the group's whole model bill.
+The CI lanes the LANES table in ``scripts/repo_checks.py`` marks ``why="models"``
+(the workflow wiring test holds the set against the workflow) drive real agent
+sessions against a live model endpoint. Together they cost about $15 per run (measured on the
+gateway ledger, week of 2026-09-01: ~150 runs a week, ~$2,300, on pace for $10k
+a month, 95% of the group's model spend) — and they used to run on every push of
+every pull request, which at this repository's pace was the group's whole model
+bill.
 
 They now run on exactly two events:
 
@@ -195,6 +197,33 @@ merged in the two weeks before this landed, 86–91 % touched something under
 ``src/`` that the broad lanes cover, so a filter map would have saved about a
 fifth and needed maintaining. The label is the whole mechanism; the stop-loss
 behind it is a daily budget on the CI gateway key.
+
+Every PR and ``main`` push keeps one live run per ref: a new push cancels the
+run for the previous head. Before that grouping, superseded runs kept running
+and queued ahead of the live one on a saturated concurrent-job allowance:
+measured over 71 PR runs, 35 % were superseded runs still holding 31 % of all
+CI wall-clock.
+
+.. _contributing-ci-figures:
+
+Measured CI Figures
+^^^^^^^^^^^^^^^^^^^
+
+.. csv-table:: Figures the workflow caps cite; dated by the first commit stating them.
+   :header: "Lane", "What", "Figure", "Where measured", "Date"
+   :widths: 18, 34, 18, 18, 12
+
+   "``test`` coverage", "tests/{registry,connectors,mcp_server,cli} on 3.12: bare / ctrace / sysmon", "150 s / 283 s / 130 s", "developer host", "2026-08-21"
+   "``test`` coverage", "CI cells: 3.12 (sysmon) / 3.11 (ctrace)", "14.6 min / 36.1 min", "GHA", "2026-08-21"
+   "``test`` unit shards", "rest-a / rest-b / rest-c share of non-cli test time", "32–35 / 33–37 / 31–32 %", "GHA per-test event logs", "2026-11-06"
+   "``test`` unit shards", "cli-a share of tests/cli test time", "51 %", "GHA per-test event logs", "2026-11-06"
+   "``scan-agentic-e2e``", "whole cycle, cold / warm", "~33 min / ~7.5 min", "Apple Silicon host", "2026-08-11"
+   "``terminal-auth-multiuser-e2e``", "whole module, warm layer cache", "6 min 55 s", "developer host", "2026-08-27"
+   "single-build auth lanes", "one cold image build", "7–11 min", "runner", "2026-08-26"
+   "``full-chain-auth-e2e``", "whole module: project image built / warm / warm with history cases", "~5 min / ~1 min / 114 s", "developer host", "2026-10-11"
+   "``target-switch-e2e``", "VA image cold / bench IOC image / three modules (54 tests) / total", "226 s / 1 s / 214 s / 7.4 min", "Apple Silicon host, amd64 emulated", "2026-08-27"
+   "``target-switch-e2e``", "run step", "3.6 min", "Apple Silicon host, amd64 emulated", "2026-08-27"
+   "``target-switch-agentic-e2e``", "VA image cold / bench IOC image / module (10 tests) / total", "226 s / 1 s / 281 s / ~8.5 min", "Apple Silicon host, amd64 emulated", "2026-08-24"
 
 Dependency Update Pull Requests
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

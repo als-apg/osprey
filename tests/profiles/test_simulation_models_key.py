@@ -17,21 +17,19 @@ from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_load import load_profile_document
 from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.facility import TEXTURE
-from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.served import resolve_served
 from osprey.utils.workspace import TIERS_DIRNAME
+from tests._facility_file import demo_facility_document
 
-_DEMO_FACILITY = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
-
-#: The four shipped presets every all-templates key must appear in.
+#: The shipped presets every all-templates key must appear in.
 _PRESETS = ("hello-world", "control-assistant")
 
 
 @pytest.fixture(scope="module")
 def demo() -> dict[str, Any]:
-    return build_facility(_DEMO_FACILITY, project_name="demo")
+    return demo_facility_document()
 
 
 def _config(models: Any) -> dict[str, Any]:

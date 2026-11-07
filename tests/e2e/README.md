@@ -1,16 +1,6 @@
 # End-to-End (E2E) Tests
 
-## 🚨 CRITICAL: How to Run These Tests
-
-```bash
-# ✅ CORRECT: Always use direct path
-pytest tests/e2e/ -v
-
-# ❌ WRONG: Do NOT use -m e2e marker
-pytest -m e2e  # This causes test collection issues and failures!
-```
-
-**Why?** Using `-m e2e` causes pytest to collect tests in the wrong order, leading to registry initialization failures and mysterious "Registry contains no nodes" errors. Always run e2e tests using the direct path `pytest tests/e2e/`.
+The suite is run by path, `pytest tests/e2e/`; it has no suite-wide marker.
 
 ---
 
@@ -90,8 +80,7 @@ directory; the tests run on demand in the `tier2-model-benchmark` job
 (`gh workflow run ci.yml -f run_benchmarks=true`) and in the model matrix. They
 carry no rerun marker: a benchmark scores every attempt. Tier 2 sits between the
 build-and-boot checks (Tier 1) and the per-preset agentic lanes (Tier 3) in the CI
-pyramid; the benchmark dashboard's own "Tier 0/1" labels for the two matrix lanes
-are a separate numbering.
+pyramid.
 
 Tier 2 tests may deploy the real stack when the task needs it. `tier2/test_chart_value_reading.py`
 measures reading a value off a chart: it brings up the virtual accelerator, the MongoDB
@@ -421,7 +410,6 @@ pytest tests/e2e/ --e2e-verbose
 ```python
 import pytest
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.requires_als_apg
 @pytest.mark.asyncio
@@ -458,7 +446,7 @@ async def test_my_workflow(e2e_project_factory):
    dry-verify both halves offline — the floor against hand-built traces, the
    judge against one passing conclusion plus one failing control per criterion —
    before you spend a live run. See `test_plan_stack_agentic.py`.
-3. **Mark appropriately** - use `@pytest.mark.e2e`, `@pytest.mark.slow`, `@pytest.mark.requires_*`.
+3. **Mark appropriately** - use `@pytest.mark.slow`, `@pytest.mark.requires_*`.
    Which credential marker depends on what the test builds with: `requires_e2e_provider`
    when it builds with `e2e_provider()` and therefore follows the run, the
    gateway-specific marker (`requires_als_apg`, `requires_cborg`, …) when the test
@@ -477,7 +465,7 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - run: pytest tests/ -m "not e2e" -v
+      - run: pytest tests/ --ignore=tests/e2e -v
 
   e2e-tests:
     runs-on: ubuntu-latest

@@ -372,7 +372,6 @@ def diagnose_python_execute(repo: Path) -> str:
 # ---------------------------------------------------------------------------
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.skipif(
         not is_claude_code_available(),
         reason="Claude Code CLI not installed (run: brew install claude)",

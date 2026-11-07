@@ -378,7 +378,7 @@ function patchNav(item, nav) {
 
 /* ---- menu popover ----
  * Appended to document.body rather than inside the bar: the contribution
- * region is overflow:hidden and only 36px tall, so an in-place popover would
+ * region is overflow:clip and only 36px tall, so an in-place popover would
  * be clipped to nothing. It closes on a capture-phase outside pointerdown, on
  * Escape, and on a resize or a scroll that moves its button, rather than
  * running a reposition loop. */

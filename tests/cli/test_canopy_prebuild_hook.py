@@ -49,7 +49,9 @@ def _pre_build_steps(repo: Path) -> list:
 
 def _run(repo: Path, stage: Path) -> None:
     """Run the phase exactly as ``build_cmd`` does for ``pre_build``."""
-    _run_lifecycle_phase("pre_build", _pre_build_steps(repo), repo, stage)
+    _run_lifecycle_phase(
+        "pre_build", _pre_build_steps(repo), repo, stage, venv=None, repo_root=repo
+    )
 
 
 # ---------------------------------------------------------------------------

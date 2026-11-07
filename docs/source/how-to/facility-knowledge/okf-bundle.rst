@@ -242,25 +242,13 @@ Working with a Bundle
 
       .. _knowledge-cli:
 
-      The ``osprey knowledge`` command group provides four operations from the
-      terminal — three that manage an OKF bundle and one that compiles the
-      ontology table.  The graph store has no verb of its own: ``osprey up``
-      seeds it from the build's graph view (see :doc:`../deploy-project/index`).
+      The ``osprey knowledge`` command group provides three operations from the
+      terminal, all of which manage an OKF bundle. The graph store has no verb
+      of its own: ``osprey up`` seeds it from the build's graph view (see
+      :doc:`../deploy-project/index`). ``osprey knowledge --help`` prints:
 
-      .. code-block:: console
-
-         $ osprey knowledge --help
-         Usage: osprey knowledge [OPTIONS] COMMAND [ARGS]...
-
-           Manage OKF facility knowledge bundles.
-
-         Options:
-           --help  Show this message and exit.
-
-         Commands:
-           regen-index       Regenerate index.md files throughout an OKF bundle.
-           seed-from-ttl     Seed OKF stub documents from the build's graph view.
-           validate          Validate all OKF documents in a bundle.
+      .. literalinclude:: examples/knowledge-help.out
+         :language: text
 
       **regen-index** — regenerates ``index.md`` files throughout the bundle. Run
       this after adding or removing concept documents:

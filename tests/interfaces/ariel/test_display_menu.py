@@ -353,7 +353,10 @@ def test_family_picked_on_ariel_is_adopted_by_the_hub(
             # The param is unknown to the hub (and origin-irrelevant, so the
             # stored preference is still the same one ARIEL wrote).
             page.goto(f"{hub_url}/?surface=hub", wait_until="domcontentloaded")
-            expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
+            # The page ships the Agent row disabled; the rail render enables it.
+            expect(
+                page.locator('button.panel-rail-button[data-panel-id="terminal"]:not(.disabled)')
+            ).to_be_attached(timeout=10_000)
             expect(page.locator("html")).to_have_attribute("data-theme", "desy-dark", timeout=5_000)
     finally:
         page.close()

@@ -1,19 +1,19 @@
 """Browser tests: the collaborative-panels contract between dock and server.
 
-``test_panels_browser.py`` proves the docked workspace itself (tiles, tabs,
-drags, persistence, the echo guard). This suite proves the *two-party* contract
+``test_panels_browser.py`` proves the docked workspace itself (tiles, drags,
+persistence, the echo guard). This suite proves the *two-party* contract
 layered on top of it — the one where the agent sees, and can rearrange, what is
 actually on screen:
 
   * the layout REPORT (``POST /api/panel-layout`` with a dock layout ``layout`` —
-    every tile with its tabs, showing tab and size, the terminal's included —
-    → ``GET /api/panels``'s ``layout`` / ``rev`` / ``layout_age_s`` /
+    every tile with the one panel it shows and its size, the terminal's
+    included — → ``GET /api/panels``'s ``layout`` / ``rev`` / ``layout_age_s`` /
     ``layout_dock``),
   * the agent's OPS (``POST /api/panel-op/<op>``, relayed as a ``panel_op``
     frame to the one current dock client and answered through
-    ``/api/panel-op-result``): a plain ``open`` follows rule 7 and becomes a
-    tab of the last service tile; ``open-set`` / ``open-arrangement`` arrange
-    exactly, and a preset click is the same ``open-arrangement`` route;
+    ``/api/panel-op-result``): a plain ``open`` follows rule 7 and replaces
+    the panel of the last service tile; ``open-set`` / ``open-arrangement``
+    arrange exactly, and a preset click is the same ``open-arrangement`` route;
   * the terminal invariant on those ops: no agent verb moves, closes or
     arranges the terminal.
 
@@ -224,22 +224,15 @@ def _open_page(browser, base_url: str) -> Page:
 # Dock DOM / module helpers
 # ---------------------------------------------------------------------------
 
-# Every dockview group with its tab keys (in bar order), its showing tab and its
-# pixel rectangle. The showing panel's header (dock-tab.js) carries the tile's
-# tabs: its strip items when it holds several, its own ``data-panel-key`` when
-# one (the terminal's is ``terminal``); reported under their operator labels.
+# Every dockview group with its panel key, the panel it shows and its pixel
+# rectangle. A tile holds one panel, so its header (dock-tab.js) carries that
+# panel's ``data-panel-key`` (the terminal's is ``terminal``); reported under
+# the operator labels.
 _GROUPS_JS = r"""() => [...document.querySelectorAll('#dock-root .dv-groupview')].map(g => {
-  const bar = [...g.querySelectorAll('.tile-tab')]
-    .find((b) => !b.parentElement?.classList.contains('dv-inactive-tab')) ?? null;
-  const items = bar ? [...bar.querySelectorAll('.tile-tab-item')] : [];
-  const own = bar?.getAttribute('data-panel-key') ?? null;
-  const tabs = items.length ? items.map((t) => t.getAttribute('data-panel-key')) : (own ? [own] : []);
-  const showing = items.length
-    ? (bar.querySelector('.tile-tab-item--showing')?.getAttribute('data-panel-key') ?? null)
-    : own;
+  const own = g.querySelector('.tile-tab')?.getAttribute('data-panel-key') ?? null;
   const r = g.getBoundingClientRect();
   return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width),
-           h: Math.round(r.height), tabs, showing };
+           h: Math.round(r.height), tabs: own ? [own] : [], showing: own };
 })"""
 
 # The client's OWN layout (dock layout), straight from the layout holder the
@@ -274,10 +267,11 @@ def _tiles(node: dict | None) -> list[dict]:
 
 
 def _shape(node: dict | None) -> str | None:
-    """A layout as a readable shape: ``row[artifacts,[*data-viz|scope],terminal]``.
+    """A layout as a readable shape: ``row[artifacts,column[data-viz,scope],terminal]``.
 
-    A one-tab tile is its key; a tile with several tabs lists them with ``*``
-    before the showing one (the reading test_dock_tiles_browser uses).
+    A tile is the key of the panel it shows; a tile listing several (which
+    the policy forbids) lists them with ``*`` before the showing one, so a
+    regression reads plainly (the reading test_dock_tiles_browser uses).
     """
     if node is None:
         return None
@@ -290,7 +284,7 @@ def _shape(node: dict | None) -> str | None:
 
 
 def _service_keys(layout: dict | None) -> list[str] | None:
-    """The service tabs of a layout: every tab in reading order, no terminal.
+    """The service panels of a layout, in reading order, no terminal.
 
     Applied to the client's layout and the server read-back alike, so the two
     compare.
@@ -330,14 +324,9 @@ def _wait_for_client_tiles(page: Page, expected: list[str], timeout: float = 10.
 
 
 def _service_tab(page: Page, label: str):
-    """The showing header's handle for the panel labelled ``label``: its strip
-    item when its tile holds several tabs, the lone tab's header otherwise."""
+    """The header bar of the tile showing the panel labelled ``label``."""
     key = _TAB_KEYS.get(label, label)
-    return page.locator(
-        f'#dock-root .dv-tab:not(.dv-inactive-tab) .tile-tab-item[data-panel-key="{key}"], '
-        f"#dock-root .dv-tab:not(.dv-inactive-tab) "
-        f'.tile-tab[data-panel-key="{key}"]:not(:has(.tile-tab-item))'
-    )
+    return page.locator(f'#dock-root .tile-tab[data-panel-key="{key}"]')
 
 
 def _rail_ids(page: Page) -> list[str]:
@@ -345,17 +334,18 @@ def _rail_ids(page: Page) -> list[str]:
     return page.eval_on_selector_all(".panel-rail-button", "els => els.map(e => e.dataset.panelId)")
 
 
-def _active_rail_id(page: Page) -> str | None:
+def _active_panel_id(page: Page) -> str | None:
+    """The client's surfaced panel (``panel-manager.js`` stamps it; artifacts has no rail entry)."""
     return page.evaluate(
-        "() => document.querySelector('.panel-rail-button.active')?.dataset.panelId ?? null"
+        "() => document.getElementById('right-panel')?.dataset.activePanel ?? null"
     )
 
 
 def _open_beside(page: Page, panel_id: str) -> None:
     """Open ``panel_id`` as a NEW tile beside the active one from its menu.
 
-    A plain rail click makes the panel a TAB of the last service tile (rule
-    7), so every test here that needs side-by-side tiles grows the layout
+    A plain rail click replaces the panel of the last service tile (rule 7),
+    so every test here that needs side-by-side tiles grows the layout
     through the entry's right-click menu: "Open in a new tile" is the human
     open-beside verb (panel-context-menu.js).
     """
@@ -368,16 +358,9 @@ def _open_beside(page: Page, panel_id: str) -> None:
 
 
 def _close_tile(page: Page, panel_id: str) -> None:
-    """Close a panel's tab through its own "×" — the human close gesture.
-
-    Close is tab first: on a tile whose only tab this is, the tile closes too.
-    """
+    """Close the tile showing a panel through its own "×" — the human close gesture."""
     label = _LABELS[panel_id]
-    tab = _service_tab(page, label)
-    tab.click()
-    bar = page.locator(
-        f'#dock-root .dv-tab:not(.dv-inactive-tab) .tile-tab[data-tile="{_tile_of(_client_layout(page), panel_id)}"]'
-    )
+    bar = _service_tab(page, label)
     bar.hover()
     bar.locator(".tile-tab-close").click()
     expect(_service_tab(page, label)).to_have_count(0, timeout=5_000)
@@ -421,9 +404,8 @@ _RAIL_DRAG_JS = r"""async ({ panelId, x, y }) => {
 
 #: A viewport point inside the content of the tile holding ``key``.
 _CONTENT_POINT_JS = r"""({ key, fx, fy, dy }) => {
-  const tab = [...document.querySelectorAll(`#dock-root .tile-tab-item[data-panel-key="${key}"], #dock-root .tile-tab[data-panel-key="${key}"]`)]
-    .find((n) => !n.closest('.dv-tab')?.classList.contains('dv-inactive-tab')) ?? null;
-  const content = tab?.closest('.dv-groupview')?.querySelector('.dv-content-container');
+  const bar = document.querySelector(`#dock-root .tile-tab[data-panel-key="${key}"]`);
+  const content = bar?.closest('.dv-groupview')?.querySelector('.dv-content-container');
   if (!content) return null;
   const r = content.getBoundingClientRect();
   return { x: r.x + r.width * fx, y: r.y + r.height * fy + (dy ?? 0) };
@@ -520,8 +502,8 @@ def test_human_tile_close_updates_layout_and_freshness(tmp_path, chromium_browse
     Tile occupancy used to live entirely in the browser: the operator could close
     a panel and the agent would keep reading it off the rail as "visible". Here
     two tiles are opened, the server is checked to see both in reading order, the
-    data-viz tab — its tile's only tab — is closed through its own "×", which
-    closes the tile with it, and the server must converge on the remaining
+    data-viz tile is closed through its own "×", and the server must converge
+    on the remaining
     tile: a dock layout report (``layout`` with every tile, the terminal's
     included, and a fresh ``rev``) from a client that has a dock shell
     (``dock: true``), with an age that reflects the close that just happened,
@@ -549,7 +531,7 @@ def test_human_tile_close_updates_layout_and_freshness(tmp_path, chromium_browse
         assert _shape(before["layout"]) == "row[artifacts,data-viz,terminal]", before
         rail_before = _rail_ids(page)
 
-        # Act — the operator closes the data-viz tab, and with it its tile.
+        # Act — the operator closes the data-viz tile.
         _close_tile(page, "data-viz")
 
         # Assert — occupancy converges, freshness describes THIS change.
@@ -576,19 +558,19 @@ def test_human_tile_close_updates_layout_and_freshness(tmp_path, chromium_browse
 
 
 def test_agent_open_follows_rule_7_and_posts_nothing_back(tmp_path, chromium_browser):
-    """An agent open of a closed rail member becomes a tab, silently (rule 7).
+    """An agent open of a closed rail member replaces a panel, silently (rule 7).
 
     The polite agent SWITCH that opened a tile beside the operator's is gone. A
     plain agent open (``POST /api/panel-op/open``, relayed to the dock client as
     a ``panel_op`` frame) follows the same rule a person's rail click does: the
-    panel becomes a tab of the last service tile used and is shown; nothing
-    resizes. Two halves, both only observable in a browser:
+    panel replaces the one the last service tile used shows; nothing resizes.
+    Two halves, both only observable in a browser:
 
     * **Non-destructive.** The operator has two tiles open; the agent opens a
-      third panel that is a rail member but holds no tab. It joins the last
-      service tile (data-viz's, the one the operator just opened) as its showing
-      tab; both tiles keep their ids, their other tabs and their rectangles,
-      and no tile is added.
+      third panel that is a rail member but holds no tile. It takes the last
+      service tile (data-viz's, the one the operator just opened), in place of
+      data-viz, which keeps its rail entry; both tiles keep their ids and
+      their rectangles, and no tile is added.
     * **No echo.** Applying the op drives a placeholder add and a programmatic
       active-panel change, both of which look exactly like human dock gestures
       to dockview. If either leaked back out as a ``POST /api/panel-focus`` the
@@ -607,7 +589,7 @@ def test_agent_open_follows_rule_7_and_posts_nothing_back(tmp_path, chromium_bro
         page = _open_page(chromium_browser, base_url)
         expect(_service_tab(page, "Artifacts")).to_have_count(1, timeout=15_000)
         _open_beside(page, "data-viz")
-        # scope is a rail member from config but holds no tab.
+        # scope is a rail member from config but holds no tile.
         assert "scope" in _rail_ids(page)
         expect(_service_tab(page, "SCOPE")).to_have_count(0)
 
@@ -629,17 +611,18 @@ def test_agent_open_follows_rule_7_and_posts_nothing_back(tmp_path, chromium_bro
         result = r.json()
         assert result["status"] == "ok", result
 
-        # The panel is on screen, as the showing tab of data-viz's tile…
+        # The panel is on screen, in data-viz's tile in place of data-viz…
         expect(_service_tab(page, "SCOPE")).to_have_count(1, timeout=10_000)
         expect(
             page.locator('button.panel-rail-button[data-panel-id="scope"].active')
         ).to_have_count(1, timeout=10_000)
-        after = _wait_for_client_tiles(page, ["artifacts", "data-viz", "scope"])
+        after = _wait_for_client_tiles(page, ["artifacts", "scope"])
         dv_tile = _tile_of(before, "data-viz")
         assert _tile_of(after, "scope") == dv_tile, _shape(after)
-        assert _shape(after) == "row[artifacts,[data-viz|*scope],terminal]", _shape(after)
+        assert _shape(after) == "row[artifacts,scope,terminal]", _shape(after)
+        assert "data-viz" in _rail_ids(page), _rail_ids(page)
 
-        # …and neither prior tile was disturbed: same tiles, nothing resized.
+        # …and neither tile was disturbed: same tiles, nothing resized.
         assert [t["tile"] for t in _tiles(after)] == [t["tile"] for t in _tiles(before)]
         assert _tile_of(after, "artifacts") == _tile_of(before, "artifacts")
         rects_after = sorted((g["x"], g["y"], g["w"], g["h"]) for g in _dock_groups(page))
@@ -647,7 +630,7 @@ def test_agent_open_follows_rule_7_and_posts_nothing_back(tmp_path, chromium_bro
 
         # The op returned the layout the dock applied, and the server holds it.
         assert _shape(result["layout"]) == _shape(after), (result["layout"], after)
-        state = _wait_for_service_tabs(base_url, ["artifacts", "data-viz", "scope"])
+        state = _wait_for_service_tabs(base_url, ["artifacts", "scope"])
         assert state["rev"] >= result["rev"], (state, result)
 
         # The client answered the op and reported; it said nothing else.
@@ -835,9 +818,10 @@ def test_arrange_with_unhealthy_member_focuses_elsewhere_and_docks_no_empty_tile
         assert result["status"] == "ok", result
 
         # Focus falls back to the first healthy listed tile.
-        expect(
-            page.locator('button.panel-rail-button[data-panel-id="artifacts"].active')
-        ).to_have_count(1, timeout=10_000)
+        # Artifacts has no rail entry; the client's active stamp shows the focus.
+        expect(page.locator('#right-panel[data-active-panel="artifacts"]')).to_have_count(
+            1, timeout=10_000
+        )
         page.wait_for_timeout(1_000)
 
         # No ghost tile for the panel that cannot fill one — and its rail entry
@@ -880,7 +864,7 @@ def _workspace_signature(page: Page) -> dict:
     return {
         "shape": _shape(_client_layout(page)),
         "rail": _rail_ids(page),
-        "active": _active_rail_id(page),
+        "active": _active_panel_id(page),
     }
 
 
@@ -928,14 +912,14 @@ def test_preset_click_and_agent_preset_call_are_the_same_operation(tmp_path, chr
             # what makes the pruning observable.
             assert "scope" in _rail_ids(page)
 
-            # Focus scope before applying the preset, as a new tab of the
-            # artifacts tile, so the recorded focus is on a panel the
+            # Focus scope before applying the preset — it replaces artifacts in
+            # the one service tile — so the recorded focus is on a panel the
             # arrangement is about to close. Starting focused on a preset
             # MEMBER instead would let a stale active_panel still name a
             # visible panel, and the active-in-visible check below would pass
             # for the wrong reason.
             rail_entry(page, "scope", enabled_only=True).click()
-            _wait_for_client_tiles(page, ["artifacts", "scope"])
+            _wait_for_client_tiles(page, ["scope"])
             _wait_for_active(base_url, "scope")
             # _wait_for_active proves A focus write landed, not the LAST one:
             # the click's POSTs are fire-and-forget, so a straggler can arrive
@@ -943,7 +927,7 @@ def test_preset_click_and_agent_preset_call_are_the_same_operation(tmp_path, chr
             # (the arrange just pruned scope), and resurrect the pruned panel —
             # diverging layout, rail, and active all at once. Quiesce first.
             _wait_for_fetch_quiescence(page)
-            _wait_for_service_tabs(base_url, ["artifacts", "scope"])
+            _wait_for_service_tabs(base_url, ["scope"])
             posts = _track_panel_posts(page)
 
             page_action(page, base_url)
@@ -982,11 +966,11 @@ def test_preset_click_and_agent_preset_call_are_the_same_operation(tmp_path, chr
     assert human_result == agent_result, f"preset paths diverged\nhuman: {human}\nagent: {agent}"
     # And the shared result is the preset's own layout: its two tiles side by
     # side, left of the terminal, the rail pruned to them (plus the terminal
-    # anchor).
+    # anchor; artifacts has no rail entry).
     assert human["shape"] == "row[artifacts,data-viz,terminal]", human
     assert human["server_shape"] == human["shape"], human
     assert "scope" not in human["rail"], human
-    assert set(human["rail"]) == {"terminal", "data-viz", "artifacts"}, human
+    assert set(human["rail"]) == {"terminal", "data-viz"}, human
     assert human["server_visible"] == ["artifacts", "data-viz"], human
 
     # The recorded focus moved with the arrangement rather than being stranded
@@ -1196,9 +1180,7 @@ def test_occupancy_read_back_distinguishes_unknown_from_empty(tmp_path, chromium
         dockless = chromium_browser.new_page()
         dockless.route("**/dockview-core*", lambda route: route.abort())
         dockless.goto(base_url, wait_until="domcontentloaded")
-        expect(
-            dockless.locator('button.panel-rail-button[data-panel-id="artifacts"]')
-        ).to_be_attached(timeout=15_000)
+        expect(rail_entry(dockless, "terminal", enabled_only=True)).to_be_attached(timeout=15_000)
         assert (
             dockless.evaluate(
                 "async () => { const m = await import('/static/js/dock-workspace.js');"
@@ -1234,13 +1216,13 @@ def test_tile_close_with_two_tiles_commands_nothing(tmp_path, chromium_browser):
     """A tile "×" with a SECOND service tile open still commands nothing.
 
     The single-tile variant is pinned in the sibling suite; with two tiles the
-    close (of data-viz's only tab, which closes its tile) makes dockview
-    auto-activate the surviving service tile, and that
+    close of data-viz's tile makes dockview auto-activate the surviving
+    service tile, and that
     activation runs outside any human focus gesture — it must stay inside the
     echo guard exactly like retireTile's removal does, or the close leaks a
     ``setPanelFocus`` command the design says it must not send. The assertion
     window is generous because the leaked POST arrives asynchronously, well
-    after the tab is gone.
+    after the tile is gone.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1287,7 +1269,7 @@ def test_human_focus_stays_local_to_the_gesturing_client(tmp_path, chromium_brow
         _wait_for_client_tiles(page_a, ["artifacts"])
         page_b = _open_page(chromium_browser, base_url)
         _wait_for_client_tiles(page_b, ["artifacts"])
-        assert _active_rail_id(page_a) == "artifacts"
+        assert _active_panel_id(page_a) == "artifacts"
 
         # B's human gesture: open data-viz beside (activation reports focus).
         _open_beside(page_b, "data-viz")
@@ -1297,7 +1279,7 @@ def test_human_focus_stays_local_to_the_gesturing_client(tmp_path, chromium_brow
         _wait_for_active(base_url, "data-viz")
         page_a.wait_for_timeout(1000)  # ...but no echo may reach client A:
 
-        assert _active_rail_id(page_a) == "artifacts", (
+        assert _active_panel_id(page_a) == "artifacts", (
             "client B's human focus gesture moved client A's active panel"
         )
         assert _client_service_tabs(page_a) == ["artifacts"], (
@@ -1316,15 +1298,16 @@ def test_human_focus_stays_local_to_the_gesturing_client(tmp_path, chromium_brow
 def test_agent_ops_on_the_terminal_are_refused_and_change_nothing(tmp_path, chromium_browser):
     """Every agent verb that would move, close or arrange the terminal is refused.
 
-    The terminal-refusal contract, carried onto the new verbs: closing its tab
-    (``close-tab``), closing its tile (``close-tile``), dragging its tab or its
-    tile (``drop``) and opening it (``open``) are each refused
-    ``terminal_not_agent_movable``; a set or arrangement naming it
-    (``open-set``) is ``terminal_in_layout``. Each refusal carries the current
-    ``rev`` and changes nothing — the server's layout and rev, and the live
-    client's layout, are exactly as before. The person's paths to the same
-    terminal (its rail entry's close and reopen, the "Close terminal tile" row)
-    stay, and are proven in the sibling suite.
+    The terminal-refusal contract, carried onto the new verbs: closing it
+    (``close``), dragging its tile by the panel or by the tile id (``drop``)
+    and opening it (``open``) are each refused ``terminal_not_agent_movable``;
+    a set naming it (``open-set``) is ``terminal_in_layout``; a service panel
+    dropped into its tile is ``one_panel_per_tile``, as a drop into any tile
+    is. Each refusal carries the current ``rev`` and changes nothing — the
+    server's layout and rev, and the live client's layout, are exactly as
+    before. The person's paths to the same terminal (its rail entry's close
+    and reopen, the "Close terminal tile" row) stay, and are proven in the
+    sibling suite.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -1346,14 +1329,13 @@ def test_agent_ops_on_the_terminal_are_refused_and_change_nothing(tmp_path, chro
         assert term_tile and service_tile, layout
 
         ops = [
-            ("close-tab", {"key": "terminal"}, "terminal_not_agent_movable"),
-            ("close-tile", {"base_rev": rev, "tile": term_tile}, "terminal_not_agent_movable"),
+            ("close", {"key": "terminal"}, "terminal_not_agent_movable"),
             (
                 "drop",
                 {
                     "base_rev": rev,
                     "source": {"tab": "terminal"},
-                    "target": {"tile": service_tile, "zone": "centre"},
+                    "target": {"tile": service_tile, "edge": "right"},
                 },
                 "terminal_not_agent_movable",
             ),
@@ -1369,8 +1351,17 @@ def test_agent_ops_on_the_terminal_are_refused_and_change_nothing(tmp_path, chro
             ("open", {"member": "terminal"}, "terminal_not_agent_movable"),
             (
                 "open-set",
-                {"members": ["terminal", "artifacts"], "as": "tabs"},
+                {"members": ["terminal", "artifacts"], "as": "side"},
                 "terminal_in_layout",
+            ),
+            (
+                "drop",
+                {
+                    "base_rev": rev,
+                    "source": {"tab": "artifacts"},
+                    "target": {"tile": term_tile, "zone": "centre"},
+                },
+                "one_panel_per_tile",
             ),
         ]
         for n, (route, body, reason) in enumerate(ops):

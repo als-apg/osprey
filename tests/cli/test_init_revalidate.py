@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -438,6 +439,19 @@ def test_a_second_run_rewrites_nothing(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "nothing to rewrite" in result.output
     assert _repo_files(root) == before
+
+
+def test_a_swap_whose_exemplar_text_moved_names_that_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = exemplar_source_files()
+    tier_line = "    default_tier: readonly   # used for any user below with no tier\n"
+    assert files["profile.yml"].count(tier_line) == 1
+    files["profile.yml"] = files["profile.yml"].replace(tier_line, "    default_tier: operator\n")
+    monkeypatch.setattr(sys.modules[__name__], "exemplar_source_files", lambda: files)
+
+    with pytest.raises(AssertionError, match=re.escape(tier_line.strip())):
+        _previous_release_repo(tmp_path / "als-exemplar")
 
 
 # ── What the rewrite leaves alone ───────────────────────────────────────────

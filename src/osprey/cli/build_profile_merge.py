@@ -14,10 +14,17 @@ import copy
 import logging
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from osprey.utils.workspace import LAYER_DIR_KINDS, PROFILE_FILENAME, RETIRED_LAYER_DIRS
+from osprey.utils.workspace import (
+    APPS_DIRNAME,
+    LAYER_DIR_KINDS,
+    PROFILE_FILENAME,
+    RETIRED_LAYER_DIRS,
+    RUNTIME_DATA_DIR_NAME,
+)
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import (
     configured_targets,
@@ -32,11 +39,13 @@ from .build_profile_presets import (
     PRESET_ONLY_KEYS,
     _load_preset_raw,
     _preset_exists,
+    is_bundled_preset_dir,
     list_presets,
+    resolve_service_template,
     resolve_triggers_path,
 )
 from .derived_keys import derived_key_errors
-from .profile_root import resolve_profile_root
+from .profile_root import resolve_profile_root, symlink_escapes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -419,6 +428,7 @@ def _resolve_extends(
     artifacts: set[str] | None = None,
     shadow_candidates: set[str] | None = None,
     preset_lineage: list[str] | None = None,
+    local_bases: list[Path] | None = None,
 ) -> dict[str, Any]:
     """Resolve ``extends`` chain, returning a fully merged raw YAML dict.
 
@@ -431,6 +441,8 @@ def _resolve_extends(
         shadow_candidates: Set collecting bare library-selection exclusions from
             every layer, mutated in place. ``None`` skips recording.
         preset_lineage: List collecting the bundled presets the chain extends,
+            nearest layer first, mutated in place. ``None`` skips recording.
+        local_bases: List collecting the non-preset files the chain extends,
             nearest layer first, mutated in place. ``None`` skips recording.
 
     Returns:
@@ -482,6 +494,8 @@ def _resolve_extends(
                 f"No bundled preset by that name (available: {available}), "
                 f"and no file at {base_path}."
             )
+        if local_bases is not None:
+            local_bases.append(base_path)
 
     base_raw = _read_profile_document(base_path)
 
@@ -514,6 +528,7 @@ def _resolve_extends(
         artifacts=artifacts,
         shadow_candidates=shadow_candidates,
         preset_lineage=preset_lineage,
+        local_bases=local_bases,
     )
 
     merged = _deep_merge(base_raw, raw)
@@ -677,6 +692,9 @@ _WRITES_CHECK_HOOK = "writes-check"
 #: The dotted ``config:`` key that gives a render its own web-terminal tier.
 _WEB_TERMINALS_ENABLED = "modules.web_terminals.enabled"
 
+#: The ``config:`` key that names the deployment's container runtime, set once per build.
+_CONTAINER_RUNTIME = "container_runtime"
+
 #: What an attached render is, whatever its file says: no services of its own,
 #: no web-terminal tier of its own. ``(key, value)`` for the top-level facts.
 _ATTACHMENT_FACTS: tuple[tuple[str, Any], ...] = (("deploy_services", False), ("services", {}))
@@ -721,16 +739,18 @@ def _drop_config_path(config: dict[str, Any], parts: list[str]) -> dict[str, Any
 def _refuse_layer_spellings(
     layer: dict[str, Any], layer_rel: str, kind: Any, *, legacy: bool
 ) -> None:
-    """Refuse what a login file may not say: subtraction, attachment, derived keys.
+    """Refuse what a login file may not say: subtraction, attachment, runtime, derived keys.
 
     A login adds by name, or owns its lists outright under ``lists: own``, so
     ``exclude:`` has no meaning in it. Attachment is a fact of the kind, set
     by the resolver, so a file spelling it is either redundant or wrong. A
     file in the retired layer directory (``legacy``) keeps ``exclude:`` and may restate the
-    attachment it gets anyway, but never contradict it. A ``config:`` key the
-    build renders (:mod:`~osprey.cli.derived_keys`) is refused here, on the
-    file's own block, so the refusal names this file rather than the merged
-    render's ``profile.yml``.
+    attachment it gets anyway, but never contradict it. The container runtime
+    is a fact of the build, stated in the deployment's own profile and written
+    into every render of it, so no layer file, legacy or not, may spell it. A
+    ``config:`` key the build renders (:mod:`~osprey.cli.derived_keys`) is
+    refused here, on the file's own block, so the refusal names this file
+    rather than the merged render's ``profile.yml``.
 
     Raises:
         BuildProfileError: Naming the file and the offending key.
@@ -749,6 +769,11 @@ def _refuse_layer_spellings(
         (_WEB_TERMINALS_ENABLED, value, False)
         for value in _find_config_path(layer.get("config"), _WEB_TERMINALS_ENABLED.split("."))
     )
+    if _find_config_path(layer.get("config"), [_CONTAINER_RUNTIME]):
+        raise BuildProfileError(
+            f"{layer_rel} spells {_CONTAINER_RUNTIME!r}. The build sets the deployment's "
+            f"runtime once; remove it from {layer_rel} and state it in {PROFILE_FILENAME}."
+        )
     for key, value, forced in spelled:
         if legacy and value == forced:
             continue
@@ -1752,6 +1777,9 @@ class ResolvedProfileDocument:
             chain consumed, and so the answer to "which packaged data bundle is
             this profile's tree from" for a profile that records no
             ``provenance:`` block of its own.
+        extends_files: The non-preset files the ``extends`` chain read, nearest
+            first; bundled presets are not listed. A repository's profile admits
+            only files under its root (:func:`refuse_inputs_outside_repository`).
         seal: How the login's render was sealed (:func:`seal_login_render`),
             which a ``--set`` edit of it is sealed with again; ``None`` for
             the root and for an unshared file in the retired layer directory.
@@ -1762,6 +1790,7 @@ class ResolvedProfileDocument:
     is_layer: bool
     excluded_artifacts: frozenset[str]
     inherited_preset: str | None = None
+    extends_files: tuple[Path, ...] = ()
     seal: RenderSeal | None = None
 
 
@@ -1820,6 +1849,7 @@ def resolve_profile_document(
     artifacts: set[str] = set()
     shadowed: set[str] = set()
     lineage: list[str] = []
+    local_bases: list[Path] = []
 
     def finish(
         resolved: dict[str, Any], as_delta: bool, seal: RenderSeal | None = None
@@ -1839,6 +1869,7 @@ def resolve_profile_document(
             as_delta,
             frozenset(artifacts),
             lineage[0] if lineage else None,
+            tuple(local_bases),
             seal,
         )
 
@@ -1853,6 +1884,7 @@ def resolve_profile_document(
             artifacts=artifacts,
             shadow_candidates=shadowed,
             preset_lineage=lineage,
+            local_bases=local_bases,
         )
         judge_retired_posture(
             resolved.get("config"),
@@ -1908,6 +1940,7 @@ def resolve_profile_document(
         artifacts=artifacts,
         shadow_candidates=shadowed,
         preset_lineage=lineage,
+        local_bases=local_bases,
     )
     _refuse_root_lists(root_resolved, str(root_path))
     # The delta goes into the merge unresolved on purpose: it carries no
@@ -1967,9 +2000,9 @@ def _fold_source_tree(
     reserved name, not by a manifest — so the fold and the writer cannot fall
     out of sync about which files a start is allowed to create.
 
-    ``skip`` is passed for an application directory: it is handed each file's
-    relative path and answers whether that file is build output rather than
-    build input (:func:`~osprey.cli.application_material.app_build_output`).
+    ``skip`` is passed for an application directory (:attr:`ProfileInput.build_output`):
+    it is handed each file's relative path and answers whether that file is build
+    output rather than build input.
 
     A ``source`` that does not exist folds only its ``label``: the profile keys
     that name it are already in the canonical JSON, so a vanished tree still
@@ -1980,14 +2013,16 @@ def _fold_source_tree(
 
     * Symlinks. A symlinked *file* is folded — ``is_file`` and ``read_bytes``
       both follow it — and so is a ``source`` that is itself a symlink to a
-      directory, which arrives here already resolved. A symlinked *directory
-      nested inside* the tree is not: ``rglob`` does not recurse into one, so
-      its contents are invisible to the digest while ``shutil.copytree``
-      (``symlinks=False``) does follow it and copy them into the project. A
-      data tree that reaches its content through a nested directory symlink
-      therefore has a known blind spot in the staleness advisory: edits behind
-      that link do not move the hash. Recursing resolved targets would change
-      the pinned algorithm and is left to the maintainer.
+      directory, which arrives here already resolved. A link whose target is
+      outside the repository, however many directory links lead to it, never
+      reaches the fold: :func:`refuse_inputs_outside_repository` refuses it
+      before hashing. A
+      nested *directory* link that resolves inside the repository is the one
+      thing still outside the digest: ``rglob`` does not recurse into it, while
+      ``shutil.copytree`` (``symlinks=False``) follows it and copies its
+      contents into the project, so edits behind that link do not move the
+      hash. Recursing resolved targets would change the pinned algorithm and is
+      left to the maintainer.
     * Unicode. Relative paths are folded as their UTF-8 bytes with no
       normalization, so cross-platform determinism is guaranteed for ASCII
       names; a non-ASCII name stored NFD on one filesystem and NFC on another
@@ -2056,10 +2091,8 @@ def profile_triggers_material(
     return PurePosixPath(triggers).as_posix(), source.path
 
 
-def _fold_profile_material(
-    digest: Any, resolved: dict[str, Any], profile_dir: Path, *, conventions: bool = True
-) -> None:
-    """Fold the *file* inputs a resolved profile names into ``digest``.
+def _fold_profile_material(digest: Any, inputs: Iterable[ProfileInput]) -> None:
+    """Fold the *file* inputs of a profile into ``digest``, in enumeration order.
 
     The canonical JSON alone captures what a profile says; it cannot see what
     the trees it points at contain. Without this, editing a facility's channel
@@ -2067,7 +2100,9 @@ def _fold_profile_material(
     on leaves the profile hash untouched and the deploy-side staleness advisory
     stays silent about a project that no longer matches its source.
 
-    Four kinds of input are covered:
+    *inputs* is :func:`profile_inputs`; every entry with a fold label is folded
+    and the document entries, which the canonical JSON already covers, are not.
+    Seven kinds of input are covered:
 
     * the ``data:`` tree, anchored via
       :meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_data_root`
@@ -2077,7 +2112,7 @@ def _fold_profile_material(
       runtime-minted material (the Bluesky lanes' CURVE certificates) and
       never build input: fold it and every successful ``osprey up`` marks its
       own build OUT OF DATE, stranding a bare ``osprey up -d`` boot unit at
-      the drift gate (#716);
+      the drift gate;
     * every convention directory the profile carries
       (:data:`~osprey.cli.profile_conventions.CONVENTION_SOURCES`, which
       includes the ``project/`` verbatim mirror), folded in sorted name order
@@ -2087,7 +2122,8 @@ def _fold_profile_material(
       material);
     * every application directory ``apps/<name>/``, under ``app:<name>``,
       minus the vendor files the build fetches into it
-      (:func:`~osprey.cli.application_material.app_build_output`);
+      (:func:`~osprey.cli.application_material.app_build_output`), and every
+      local-path ``dependencies`` package outside it, under ``package:<path>``;
     * every layer file in ``tiers/`` and the retired layer directory
       (:func:`~osprey.cli.profile_root.layer_files`, the same listing the build
       loop renders from) — the files a deployment's own per-layer projects are
@@ -2095,7 +2131,15 @@ def _fold_profile_material(
       moves no hash at all: the deploy-side check would call the build clean,
       no rebuild would follow, and the render already on disk (which
       ``up`` re-renders only when it is *absent*) would keep shipping the
-      superseded delta into that render's image.
+      superseded delta into that render's image;
+    * every enabled watchdog's directory, which the render copies whole, so
+      editing its instructions or references moves the hash;
+    * the host-variant overlay ``.env.variant`` selects, folded last under
+      ``variant``. It is folded as file material rather than merged in:
+      :func:`_fold_source_tree` contributes the file's NAME beside its content,
+      so an edit to the selected overlay and a switch between two
+      byte-identical overlays both move the hash, while an overlay this host
+      did not select folds nothing.
 
     Layers are folded as the *direct children* of their layer directory and
     nothing deeper, because that is exactly the set that can be built: a file is
@@ -2114,56 +2158,434 @@ def _fold_profile_material(
     subtracting siblings would cost a render that silently no longer matches
     its source.
 
-    A convention directory, the named trigger file or ``tiers/`` that is absent
-    folds nothing at all, so a profile carrying none of them hashes exactly as
-    it did before they existed. Creating an empty convention directory does
-    move the hash — it folds its label — which is honest: the profile tree
-    changed.
+    A convention directory, the named trigger file, ``tiers/`` or an overlay
+    that is absent folds nothing at all, so a profile carrying none of them
+    hashes exactly as it did before they existed. Creating an empty convention
+    directory does move the hash — it folds its label — which is honest: the
+    profile tree changed.
 
     Args:
         digest: The hash object to update in place.
-        resolved: The profile after ``extends`` (and layer) resolution.
-        profile_dir: The profile root every relative path anchors at.
-        conventions: Whether to fold convention material. ``False`` for a
-            bundled preset, which is one file among many in a shared package
-            directory rather than a profile root of its own — folding there
-            would make every preset's hash depend on every other preset's
-            neighbouring directories.
+        inputs: The profile's inputs, as :func:`profile_inputs` lists them.
     """
+    for entry in inputs:
+        if entry.label is None:
+            continue
+        _fold_source_tree(
+            digest,
+            entry.label,
+            entry.path,
+            skip_runtime_output=entry.skips_runtime_output,
+            skip=entry.build_output,
+        )
+
+
+class ProfileInputRole(StrEnum):
+    """What part a file plays in a profile's build."""
+
+    #: ``profile.yml`` and every non-preset file its ``extends`` chain reads.
+    DOCUMENT = "document"
+    #: The ``data:`` tree, the convention directories, the trigger file, the
+    #: layer files, the profile-relative service templates and the enabled
+    #: watchdogs' directories.
+    MATERIAL = "material"
+    #: Each ``apps/<name>/`` directory, minus the vendor files the build fetches into it.
+    APPLICATION = "application"
+    #: Each local-path ``dependencies`` package outside ``apps/``, which the build
+    #: turns into a wheel.
+    PACKAGE = "package"
+    #: The selected host-variant profile.
+    OVERLAY = "overlay"
+
+
+@dataclass(frozen=True)
+class ProfileInput:
+    """One file or directory a profile's build reads.
+
+    Attributes:
+        key: The input as the operator spells it, POSIX; a directory ends in
+            ``/``. What a drift refusal names.
+        label: The fold label, or ``None`` for a document, which the hash
+            covers as resolved JSON rather than as bytes.
+        path: Where the input lives.
+        role: What part it plays.
+
+    Raises:
+        ValueError: On an empty key, or a label that is ``None`` for anything
+            but a document or set for a document.
+    """
+
+    key: str
+    label: str | None
+    path: Path
+    role: ProfileInputRole
+
+    def __post_init__(self) -> None:
+        if not self.key:
+            raise ValueError("a profile input needs a non-empty key")
+        if (self.label is None) != (self.role is ProfileInputRole.DOCUMENT):
+            raise ValueError(
+                f"profile input {self.key!r}: a label is None exactly when the role is "
+                f"{ProfileInputRole.DOCUMENT.value}, not for role {self.role.value} "
+                f"with label {self.label!r}"
+            )
+
+    @property
+    def skips_runtime_output(self) -> bool:
+        """Whether the fold skips the runtime-minted subtree: the ``data:`` tree only."""
+        return self.label == "data"
+
+    @property
+    def build_output(self) -> Callable[[str], bool] | None:
+        """Which files under an application the build writes, or ``None`` for any other input.
+
+        :func:`~osprey.cli.application_material.app_build_output`, read when asked:
+        an application's ``app.yml`` names its own vendor targets.
+        """
+        if self.role is not ProfileInputRole.APPLICATION:
+            return None
+        from .application_material import app_build_output
+
+        return app_build_output(self.path)
+
+
+def profile_inputs(
+    document: ResolvedProfileDocument, *, conventions: bool = True
+) -> tuple[ProfileInput, ...]:
+    """Every file a build of *document* reads, in fold order.
+
+    The one enumeration of a profile's inputs: the hash folds its material and
+    overlay entries, the drift digests key one digest per entry, and the image
+    guard keeps every entry in the image.
+
+    Entries come in this order:
+
+    1. documents — the root ``profile.yml``, then the non-preset files the
+       ``extends`` chain read, nearest first (:attr:`ResolvedProfileDocument.extends_files`);
+    2. material — the ``data:`` root (``data``), each existing convention
+       directory (``convention:<name>``, sorted by name), the trigger file that
+       lives with the profile (``triggers``) and each layer file
+       (:func:`layer_fold_label`, in :func:`~osprey.cli.profile_root.layer_files`
+       order), then each profile-relative service template
+       (``services.<name>.template``, sorted by name; a bundled ``osprey.<name>``
+       template is package content and has none), then each enabled watchdog's
+       directory (``watchdog:<name>``, sorted by name);
+    3. applications — each application directory (``app:<name>``, sorted by name);
+    4. packages — each local-path ``dependencies`` package outside ``apps/``
+       (``package:<path>``, in ``dependencies`` order);
+    5. the overlay ``.env.variant`` in ``document.root_dir`` selects (``variant``).
+
+    Every entry anchors at ``document.root_dir``. A tier or app reads its
+    deployment's overlay there, because the variant reaches its render through
+    the deployment root.
+
+    Args:
+        document: The profile's resolution, from :func:`resolve_profile_document`.
+        conventions: ``False`` for a bundled preset: the ``data:`` root alone.
+            A preset is one file among many in a shared package directory, so
+            its neighbours, its own file and any overlay are package content.
+    """
+    from osprey.services.watchdog.config import WATCHDOGS_BLOCK
+
     from .build_profile_model import BuildProfile
+    from .build_profile_watchdogs import enabled_watchdogs
     from .profile_conventions import CONVENTION_SOURCES
     from .profile_root import layer_files
+    from .variant_selection import VARIANT_DIRNAME, active_variant_overlay
 
-    data_root = BuildProfile(name="", data=resolved.get("data")).resolved_data_root(profile_dir)
-    if data_root is not None:
-        # data/.runtime/ is runtime-minted material, never build input — see
-        # the docstring above and _fold_source_tree's skip contract (#716).
-        _fold_source_tree(digest, "data", data_root, skip_runtime_output=True)
+    root = document.root_dir
+    entries: list[ProfileInput] = []
+
+    if conventions:
+        entries.extend(
+            ProfileInput(_document_key(path, root), None, path, ProfileInputRole.DOCUMENT)
+            for path in (root / PROFILE_FILENAME, *document.extends_files)
+        )
+
+    data = document.raw.get("data")
+    data_root = BuildProfile(name="", data=data).resolved_data_root(root)
+    # A data root resolves only from a non-empty string ``data:``.
+    if data_root is not None and isinstance(data, str):
+        entries.append(
+            ProfileInput(
+                f"{PurePosixPath(data).as_posix()}/", "data", data_root, ProfileInputRole.MATERIAL
+            )
+        )
 
     if not conventions:
-        return
+        return tuple(entries)
 
     for source in sorted(CONVENTION_SOURCES):
-        candidate = profile_dir / source
+        candidate = root / source
         if candidate.exists():
-            _fold_source_tree(digest, f"convention:{source}", candidate)
+            entries.append(
+                ProfileInput(
+                    f"{source}/", f"convention:{source}", candidate, ProfileInputRole.MATERIAL
+                )
+            )
 
-    triggers = profile_triggers_material(resolved, profile_dir)
+    triggers = profile_triggers_material(document.raw, root)
     if triggers is not None:
-        _fold_source_tree(digest, "triggers", triggers[1])
+        entries.append(
+            ProfileInput(triggers[0], "triggers", triggers[1], ProfileInputRole.MATERIAL)
+        )
 
     # Sorted by name, which is the whole ordering rule a flat directory needs;
     # `_fold_source_tree` contributes each delta's own name beside its content
     # digest, so a rename moves the hash exactly as an edit does.
-    for _kind, layer in layer_files(profile_dir):
-        _fold_source_tree(digest, layer_fold_label(layer), layer)
+    for _kind, layer in layer_files(root):
+        entries.append(
+            ProfileInput(
+                f"{layer.parent.name}/{layer.name}",
+                layer_fold_label(layer),
+                layer,
+                ProfileInputRole.MATERIAL,
+            )
+        )
 
-    # Each application directory is build input — its app.yml, fragments and
-    # config — minus the vendor files the build fetches into it.
-    from .application_material import app_build_output, application_dirs
+    services = document.raw.get("services")
+    if isinstance(services, dict):
+        for name in sorted(services):
+            service = services[name]
+            template = service.get("template") if isinstance(service, dict) else None
+            if not isinstance(template, str) or not template:
+                continue
+            template_source = resolve_service_template(root, template)
+            if template_source.bundled:
+                continue
+            entries.append(
+                ProfileInput(
+                    f"{PurePosixPath(template).as_posix()}/",
+                    f"services.{name}.template",
+                    template_source.path,
+                    ProfileInputRole.MATERIAL,
+                )
+            )
 
-    for app_dir in application_dirs(profile_dir):
-        _fold_source_tree(digest, f"app:{app_dir.name}", app_dir, skip=app_build_output(app_dir))
+    entries.extend(
+        ProfileInput(
+            f"{WATCHDOGS_BLOCK}/{name}/",
+            f"watchdog:{name}",
+            root / WATCHDOGS_BLOCK / name,
+            ProfileInputRole.MATERIAL,
+        )
+        for name in sorted(enabled_watchdogs(document.raw.get(WATCHDOGS_BLOCK)))
+    )
+
+    from .application_material import application_dirs, dependency_package_dirs
+
+    entries.extend(
+        ProfileInput(
+            f"{APPS_DIRNAME}/{app_dir.name}/",
+            f"app:{app_dir.name}",
+            app_dir,
+            ProfileInputRole.APPLICATION,
+        )
+        for app_dir in application_dirs(root)
+    )
+    for package in dependency_package_dirs(document.raw.get("dependencies"), root):
+        key = _document_key(package, root)
+        entries.append(ProfileInput(f"{key}/", f"package:{key}", package, ProfileInputRole.PACKAGE))
+
+    overlay = active_variant_overlay(root)
+    if overlay is not None:
+        entries.append(
+            ProfileInput(
+                f"{VARIANT_DIRNAME}/{overlay.name}", "variant", overlay, ProfileInputRole.OVERLAY
+            )
+        )
+    return tuple(entries)
+
+
+def _document_key(path: Path, root: Path) -> str:
+    """A document's key: its path relative to *root* when inside it, else absolute.
+
+    The absolute key is for a profile the repository rule
+    (:func:`refuse_inputs_outside_repository`) has not admitted: the hash is
+    defined for a profile at any path.
+    """
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _is_service_template_label(label: str) -> bool:
+    """Whether *label* is a service template's fold label, ``services.<name>.template``."""
+    return label.startswith("services.") and label.endswith(".template")
+
+
+#: The remedy every repository-boundary refusal line ends with.
+_MOVE_INSIDE = "Move it into the repository."
+
+#: The remedy a refusal line ends with for a link inside the repository that the copy
+#: cannot follow: one that leads back into its own tree or does not resolve.
+_REMOVE_LINK = "Remove the link."
+
+
+@dataclass(frozen=True)
+class OutsideInput:
+    """One place a repository profile reaches outside its repository.
+
+    Attributes:
+        entry: The input that reaches out: its top path is outside, or it holds
+            the link.
+        link: The link's path relative to ``entry.path``, POSIX, or ``None``
+            when the top path itself is outside.
+        loops: The descent at ``link`` meets a directory it is still inside, so
+            the copy would not end. The link stays inside the repository.
+        unresolvable: The link at ``link`` does not resolve (its target is
+            missing, or it leads to itself through any number of links), so the
+            copy cannot stage it.
+    """
+
+    entry: ProfileInput
+    link: str | None = None
+    loops: bool = False
+    unresolvable: bool = False
+
+    @property
+    def path(self) -> Path:
+        """The outside thing: the link, or the input's top path."""
+        return self.entry.path if self.link is None else self.entry.path / self.link
+
+
+def _links_outside(entry: ProfileInput, root: Path) -> list[OutsideInput]:
+    """What a ``copytree(symlinks=False)`` of *entry* cannot stage from inside *root*.
+
+    Directory links are entered, through any number of hops. A link outside *root*
+    is reported and not entered. An entry resolving to a directory the descent is
+    still inside is reported as a loop and not entered: the copy would not end. A
+    directory reached a second way is not walked again, because its first visit
+    answered for it. A link that does not resolve is reported and not entered: the
+    copy cannot stage it. Everything else a visited directory holds is inside
+    *root*, because every directory visited resolves inside it.
+
+    Args:
+        entry: The input directory, which resolves inside *root*.
+        root: The resolved repository root.
+
+    Returns:
+        One record per link, at its path relative to the input, POSIX: the path
+        the copy would write, sorted per directory, depth first.
+    """
+    found: list[OutsideInput] = []
+    top = entry.path.resolve()
+    visited = {top}
+    descent = {top}
+
+    def visit(directory: Path, prefix: str) -> None:
+        try:
+            children = sorted(directory.iterdir(), key=lambda child: child.name)
+        except PermissionError:
+            return
+        for child in children:
+            if not prefix and entry.skips_runtime_output and child.name == RUNTIME_DATA_DIR_NAME:
+                continue
+            rel = f"{prefix}{child.name}"
+            if child.is_symlink() and not child.exists():
+                found.append(OutsideInput(entry, rel, unresolvable=True))
+            elif symlink_escapes(child, root):
+                found.append(OutsideInput(entry, rel))
+            elif child.is_dir():
+                resolved = child.resolve()
+                if resolved in descent:
+                    found.append(OutsideInput(entry, rel, loops=True))
+                elif resolved not in visited:
+                    visited.add(resolved)
+                    descent.add(resolved)
+                    visit(child, f"{rel}/")
+                    descent.remove(resolved)
+
+    visit(entry.path, "")
+    return found
+
+
+def inputs_outside_repository(document: ResolvedProfileDocument) -> tuple[OutsideInput, ...]:
+    """The inputs of *document* outside its root, or holding a link the copy cannot stage.
+
+    The repository is the profile root, ``document.root_dir``. Both sides are
+    resolved, so a symlink whose target lies outside counts as outside: a clone
+    does not carry it. An input directory inside the root is walked the way the
+    copy that stages it follows it, through directory links, and every link that
+    resolves outside, leads back into its own tree or does not resolve is reported
+    at the path the copy would write, except under the runtime subtree the fold skips. A bundled
+    preset is package content, not a repository, and has none.
+
+    Args:
+        document: The profile's resolution, from :func:`resolve_profile_document`.
+
+    Returns:
+        The outside entries of :func:`profile_inputs`, in enumeration order,
+        each followed by its outside links in path order.
+    """
+    if is_bundled_preset_dir(document.root_dir):
+        return ()
+    root = document.root_dir.resolve()
+    outside: list[OutsideInput] = []
+    for entry in profile_inputs(document):
+        if not entry.path.resolve().is_relative_to(root):
+            outside.append(OutsideInput(entry))
+            continue
+        if not entry.path.is_dir():
+            continue
+        outside.extend(_links_outside(entry, root))
+    return tuple(outside)
+
+
+def refuse_inputs_outside_repository(document: ResolvedProfileDocument) -> None:
+    """Refuse a profile whose input is outside the repository or holds a link the copy cannot stage.
+
+    Called by the profile loaders before validation, so a repository builds
+    from a clone or is refused before anything is installed.
+
+    Args:
+        document: The profile's resolution, with any command-line edits applied.
+
+    Raises:
+        BuildProfileError: One line per outside input or link, in enumeration
+            order, naming the profile key, the resolved path and the remedy. A
+            link back into its own tree, or a link that does not resolve, names
+            the key and the remedy.
+    """
+    outside = inputs_outside_repository(document)
+    if not outside:
+        return
+    root_document = (document.root_dir / PROFILE_FILENAME).resolve()
+    lines = []
+    for found in outside:
+        entry = found.entry
+        if entry.role is ProfileInputRole.DOCUMENT and entry.path.resolve() != root_document:
+            lines.append(
+                f"extends: {found.path.resolve().as_posix()} is outside the repository. "
+                f"{_MOVE_INSIDE}"
+            )
+            continue
+        if entry.label == "data":
+            key = f"data: {document.raw['data']}"
+        elif entry.label == "triggers":
+            key = f"dispatch.triggers: {entry.key}"
+        elif entry.role is ProfileInputRole.PACKAGE:
+            key = f"dependencies: {entry.key}"
+        elif entry.label is not None and _is_service_template_label(entry.label):
+            name = entry.label.removeprefix("services.").removesuffix(".template")
+            key = f"{entry.label}: {document.raw['services'][name]['template']}"
+        else:
+            key = entry.key
+        if found.link is not None:
+            key = f"{key.rstrip('/')}/{found.link}"
+        if found.loops:
+            lines.append(
+                f"{key} leads back into its own tree, so the copy would not end. {_REMOVE_LINK}"
+            )
+            continue
+        if found.unresolvable:
+            lines.append(f"{key} does not resolve, so the copy cannot stage it. {_REMOVE_LINK}")
+            continue
+        # Resolved only here: before Python 3.13 resolve() raises on the looping links above.
+        resolved = found.path.resolve().as_posix()
+        lines.append(f"{key} resolves to {resolved}, outside the repository. {_MOVE_INSIDE}")
+    raise BuildProfileError("\n".join(lines))
 
 
 def layer_fold_label(layer: Path) -> str:
@@ -2189,15 +2611,14 @@ def _hash_resolved_profile(
     profile_path: Path,
     *,
     conventions: bool = True,
-    overlay: Path | None = None,
 ) -> str:
     """Canonical content hash of a profile dict after ``extends`` resolution.
 
     Hashes the *resolved* content (canonical JSON, sorted keys) rather than
     file bytes, so comment/ordering churn is invisible while a change in any
-    ``extends`` parent is not. The file inputs the resolved profile names — its
-    ``data:`` tree, convention directories, the named trigger file and the render
-    deltas in ``tiers/`` — are folded in on top by
+    ``extends`` parent is not. The file inputs :func:`profile_inputs` lists —
+    the ``data:`` tree, convention directories, the named trigger file, the
+    layer files and the selected host-variant overlay — are folded in on top by
     :func:`_fold_profile_material`, so a project whose facility data changed
     under an unchanged profile still reads as stale.
 
@@ -2229,16 +2650,6 @@ def _hash_resolved_profile(
     the same as one that did — the YAML-surface rename must not move any
     profile's hash. Normalizing before ``extends`` resolution (rather than
     after) keeps the deep merge child-wins across a mixed-spelling chain.
-
-    ``overlay`` is the host-variant profile this repo builds, when one is
-    selected — the layer ``raw`` does not carry, because the hash resolves the
-    TRACKED document while the render merges the overlay over it. It is folded
-    as file material rather than merged in: :func:`_fold_source_tree`
-    contributes the file's NAME beside its content, so an edit to the selected
-    overlay and a switch between two byte-identical overlays both move the hash,
-    while an overlay this host did not select folds nothing. No overlay folds
-    nothing at all, which is what keeps every repo that defines no variants
-    hashing exactly as it did before variants existed.
     """
     import hashlib
     import json
@@ -2246,9 +2657,7 @@ def _hash_resolved_profile(
     document = resolve_profile_document(raw, profile_path, warn=False)
     canonical = json.dumps(document.raw, sort_keys=True, default=str)
     digest = hashlib.sha256(canonical.encode("utf-8"))
-    _fold_profile_material(digest, document.raw, document.root_dir, conventions=conventions)
-    if overlay is not None:
-        _fold_source_tree(digest, "variant", overlay)
+    _fold_profile_material(digest, profile_inputs(document, conventions=conventions))
     # Sorted so the record's iteration order cannot move a hash; a profile with
     # no exclusions folds nothing and keeps the digest it had before.
     for artifact in sorted(document.excluded_artifacts):
@@ -2294,9 +2703,9 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     drift-fingerprint input, hashed against the profile path the manifest
     recorded. Returns ``None`` when the file is missing or unreadable.
 
-    The host variant is folded in from the profile's own directory rather than
-    passed by the caller. That is deliberate: this one function is what the
-    build stamps and what ``osprey up``/``status`` recompute, and a fingerprint
+    The host variant is folded in from the deployment root
+    (:func:`profile_inputs`) rather than passed by the caller. That is
+    deliberate: this one function is what the build stamps and what ``osprey up``/``status`` recompute, and a fingerprint
     whose variant arrived as an argument would be a fingerprint two call sites
     could spell differently — the exact way a stale build goes unnoticed. Read
     off the directory, both sides of the comparison see the same selection, and
@@ -2305,13 +2714,10 @@ def compute_profile_hash(profile_path: Path) -> str | None:
     render through that root.
     """
     try:
-        from .variant_selection import active_variant_overlay
-
         path = Path(profile_path)
         raw = _read_profile_document(path)
         if not isinstance(raw, dict):
             return None
-        root_dir, _kind = resolve_profile_root(path)
-        return _hash_resolved_profile(raw, path, overlay=active_variant_overlay(root_dir))
+        return _hash_resolved_profile(raw, path)
     except Exception:
         return None

@@ -76,8 +76,9 @@ import {
   bootLayoutSettled,
   setLayoutRestoredHook,
 } from './dock-workspace.js';
-import { getLayoutHolder, TERMINAL_KEY } from './dock-apply.js';
+import { getLayoutHolder } from './dock-apply.js';
 import { serviceTileTarget } from './dock-open.js';
+import { deriveSurfaced, followDock } from './dock-view.js';
 import {
   initMenuPolicy,
   openTileContextMenu,
@@ -106,8 +107,10 @@ import {
   onPopoutChange,
   broadcastToPopouts,
 } from './popout.js';
+import { focusAttached, isAttached } from './attached-popout.js';
 import { subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
 import { onSessionChange } from './terminal.js';
+import { relayTranscriptMove as relayToPanels } from './panel-transcript-relay.js';
 
 // ---- Types ----
 
@@ -315,10 +318,11 @@ export async function initPanelManager(panelId) {
   // up, panel iframes live in the adapter's overlay layer instead (dockview
   // re-parents panel content on regroup, which reloads iframes — see the
   // dock-spike verdict and dock-iframe.js); without a shell they mount here.
-  // After every layout apply the adapter hands back here, so a restored
-  // placeholder gets its panel's iframe.
+  // After every whole-layout apply the adapter hands back here, so a restored
+  // placeholder gets its panel's iframe and a reset keeps the panel the
+  // operator was on.
   initDockIframeAdapter({ fallbackHost: contentEl });
-  setPlaceholdersAppliedHandler(hydrateRestoredTiles);
+  setPlaceholdersAppliedHandler(settleAppliedLayout);
 
   // Bridge dockview gestures back to the server-owned panel state: a human dock
   // tab focus / close POSTs the same setPanelFocus / setPanelVisibility the rail
@@ -328,8 +332,10 @@ export async function initPanelManager(panelId) {
   // The landing must not claim the workspace slot while a stored layout may
   // still arrive (dock-workspace restores it after its own /api/panels round
   // trip): re-run it once the boot layout is final. Latched, so a layout that
-  // settled before this registration fires it at once.
+  // settled before this registration fires it at once. From then on the
+  // surfaced panel is re-derived on every settled dock change (dock-view.js).
   setLayoutRestoredHook(ensureActivePanel);
+  setLayoutRestoredHook(() => followDock(() => deriveSurfaced(isPanelKnown, markSurfaced)));
 
   // Hand panel-placement (the tile-geometry half of this module: open-beside,
   // agent switch, arrange rebuild) live access to the state it places panels
@@ -346,7 +352,7 @@ export async function initPanelManager(panelId) {
     activate: activateTab,
     reveal: showPanel,
     getActive: getActiveTabId,
-    clearActive: clearActivePanel,
+    clearActive: () => markSurfaced(null),
     renderEmpty: renderEmptyState,
     // An arranged tile is attributed on both surfaces (rail entry flash + tile
     // body glow, one gesture: flashAgentTile). Only the arrange path passes
@@ -374,11 +380,13 @@ export async function initPanelManager(panelId) {
   });
 
   // Pop-out windows (popout.js): the tile leaves the dock while the window is
-  // open and comes back when it closes. The verbs it needs are this module's
-  // own retire and re-dock; the state it pushes into a window is the same
-  // two messages every iframe gets. The sidebar row follows every change,
-  // and the hub's theme and session broadcasts reach the windows alongside
-  // the iframes.
+  // open and comes back when it closes — by the open rule (it takes the
+  // service tile used last, replacing its panel), and without a focus report,
+  // since nobody asked the server for that surfacing. The verbs it needs are
+  // this module's own retire and activate; the state it pushes into a window
+  // is the same two messages every iframe gets. The sidebar row follows every
+  // change, and the hub's theme and session broadcasts reach the windows
+  // alongside the iframes.
   initPopouts({
     // No page to open until the config resolves a URL; and none for a panel
     // whose frame resolved to an opaque origin (panel-iframe-factory.js), whose
@@ -389,7 +397,7 @@ export async function initPanelManager(panelId) {
       return buildPopoutSrc(url);
     },
     conceal: vacateForPopout,
-    redock: redockPanel,
+    redock: (id) => activateTab(id, { userInitiated: false }),
     sync: (win) => {
       sendThemeToWindow(win);
       sendSessionToWindow(win);
@@ -566,15 +574,14 @@ export async function initPanelManager(panelId) {
     activate: activateTab,
     navigate: navigatePanel,
     getActive: getActiveTabId,
-    // Forget the surfaced panel WITHOUT clearing the rail accent: a tile closed
-    // with no fallback leaves the rail pointing at the panel that is one click
-    // away again (clearActivePanel is the human-close path, not this one).
+    // Forget the surfaced panel; the rail accent follows the dock once the
+    // close settles (dock-view.js).
     resetActive: () => {
       activeTabId = null;
     },
     // Forget the surfaced panel AND its rail accent: an op that took the
     // viewed panel away and could surface nothing in its place.
-    clearActive: clearActivePanel,
+    clearActive: () => markSurfaced(null),
     renderEmpty: renderEmptyState,
     // Closure, not the value: onAgentActivity is reassigned whenever the
     // activity strip registers (setActivityStripHandler), and the dispatcher
@@ -603,22 +610,31 @@ export function getPopoutPanels() {
   );
 }
 
+/**
+ * Relay a transcript move on `key` to every panel (panel-transcript-relay.js).
+ * @param {string} key - The session key whose transcript moved.
+ */
+export const relayTranscriptMove = (key) => relayToPanels(key, Object.values(panelState));
+
 /** The catalog label for a panel id (falls back to the id itself).
  *  Exported for the activity strip, which words panel actions with labels.
  *  @param {string} id @returns {string} */
-export function labelOf(id) {
-  return PANELS.find((p) => p.id === id)?.label ?? id;
-}
+export const labelOf = (id) => PANELS.find((p) => p.id === id)?.label ?? id;
 
 /**
- * Clear the locally-tracked active panel (rail accent, container stamp,
- * activeTabId). Used when the active panel's tile goes away without a
- * successor — a human tile close.
+ * Set the locally-tracked surfaced panel — activeTabId, the rail accent, and
+ * the container stamp CSS shapes the workspace by (files.css
+ * [data-active-panel]) — or clear all three with null: the panel's tile went
+ * away without a successor. Derived from the dock after every whole-layout
+ * apply and every settled dock change (dock-view.js), so no accent outlives
+ * the tile it marked; fallback mode keeps activateTab's bookkeeping.
+ * @param {string | null} id
  */
-function clearActivePanel() {
-  activeTabId = null;
-  setActive(railEl, null);
-  if (containerEl) delete containerEl.dataset.activePanel;
+function markSurfaced(id) {
+  activeTabId = id;
+  setActive(railEl, id);
+  if (containerEl && id) containerEl.dataset.activePanel = id;
+  else if (containerEl) delete containerEl.dataset.activePanel;
 }
 
 /**
@@ -631,7 +647,7 @@ function clearActivePanel() {
  */
 function vacatePanel(panelId) {
   concealPanel(panelId);
-  if (activeTabId === panelId) clearActivePanel();
+  if (activeTabId === panelId) markSurfaced(null);
 }
 
 /**
@@ -646,7 +662,7 @@ function vacatePanel(panelId) {
  */
 function retireTile(panelId) {
   withEchoSuppressed(() => hidePanel(panelId));
-  clearActivePanel();
+  markSurfaced(null);
 }
 
 /**
@@ -660,50 +676,57 @@ function retireTile(panelId) {
  */
 function vacateForPopout(panelId) {
   withEchoSuppressed(() => hidePanel(panelId));
-  if (activeTabId === panelId) clearActivePanel();
+  if (activeTabId === panelId) markSurfaced(null);
 }
 
 /**
- * Put a panel back in the dock after its pop-out window closed, by the open
- * rule: a tab in front of the service tile used last. Nobody asked the server
- * for this surfacing, so the activation carries no focus report.
- * @param {string} panelId
+ * Settle the view after a whole-layout apply (a reset, a stored-layout
+ * restore): fill the restored tiles, and give a dock left with no service
+ * tile the panel the operator was on — a reset keeps what they were looking
+ * at, in the default arrangement — else the landing's choice. A dock that
+ * still shows a service tile is left as it is: opening anything into it
+ * would replace that tile's panel (the open rule). Nothing opens while the
+ * boot layout may still arrive (the landing waits for it), nor into a
+ * session's own layout (`asLeft`, session-layout.js): it shows as it was left.
+ * @param {{ asLeft?: boolean }} [options]
  */
-function redockPanel(panelId) {
-  activateTab(panelId, { userInitiated: false });
+function settleAppliedLayout({ asLeft = false } = {}) {
+  hydrateRestoredTiles();
+  const keep = asLeft ? null : activeTabId;
+  // The accent follows the layout now on screen, never the one it replaced;
+  // a dock still showing a service tile (or no dock at all) is left as it is.
+  if (deriveSurfaced(isPanelKnown, markSurfaced) !== false) return;
+  const kept = keep && visiblePanels.has(keep) && panelState[keep]?.healthy && !isPoppedOut(keep);
+  if (kept) activateTab(/** @type {string} */ (keep));
+  else if (!asLeft) ensureActivePanel();
 }
 
 /**
  * Fill every restored placeholder with its panel's iframe. A stored layout
  * brings back a placeholder for every tile that was open, but only the
- * landing panel's activation creates an iframe, so under one panel per tile
- * every other restored tile is an empty card until its row is clicked. This
- * runs after every layout apply (the adapter's placeholders-applied seam) and
- * on every health settle, so a tile is filled as soon as both its placeholder
- * and its panel's health are there. It never moves the active tile or the
- * rail accent and reports nothing: the adapter adopts the iframe into the
- * placeholder that already exists, and the echo guard covers the one case
- * where it would have to add one. A panel living in its own pop-out window
- * has no tile to fill; its placeholder is pruned instead.
+ * landing panel's activation creates an iframe, so every other restored tile
+ * is an empty card until its row is clicked. This runs after every layout
+ * apply (the adapter's placeholders-applied seam) and on every health settle,
+ * so a tile is filled as soon as both its placeholder and its panel's health
+ * are there. It never moves the active tile or the rail accent and reports
+ * nothing: the adapter adopts the iframe into the placeholder that already
+ * exists (a cached iframe from a closed tile is concealed, and a concealed
+ * entry is never re-materialized on its own), and the echo guard covers the
+ * one case where it would have to add one. A panel living in its own pop-out
+ * window has no tile to fill; its placeholder is pruned instead.
  */
 function hydrateRestoredTiles() {
   const api = getDockApi();
   if (!api) return;
-  for (const panel of PANELS) {
-    const id = panel.id;
+  for (const { id, label } of PANELS) {
     const state = panelState[id];
     if (!state?.healthy || !visiblePanels.has(id) || isPoppedOut(id)) continue;
     if (!api.getPanel(PLACEHOLDER_PREFIX + id)) continue;
     const iframe = state.iframe;
-    if (iframe?.isConnected) {
-      // A cached iframe from a closed tile is concealed, and a concealed
-      // entry is never re-materialized: re-adopt it so the restored tile
-      // shows it. A shown iframe already fills its tile.
-      if (iframe.style.display !== 'none') continue;
-      withEchoSuppressed(() => adoptIframe(id, iframe, { title: panel.label }));
-    } else {
-      withEchoSuppressed(() => createIframe(id));
-    }
+    if (iframe?.isConnected && iframe.style.display !== 'none') continue;
+    withEchoSuppressed(() =>
+      iframe?.isConnected ? adoptIframe(id, iframe, { title: label }) : createIframe(id)
+    );
   }
 }
 
@@ -716,12 +739,8 @@ function hydrateRestoredTiles() {
  */
 function landingTarget() {
   const holder = getLayoutHolder();
-  const layout = holder?.layout ?? null;
-  if (holder && layout) {
-    const key = serviceTileTarget(layout, holder.context())?.showing;
-    if (key && key !== TERMINAL_KEY && panelState[key]) return key;
-  }
-  return DEFAULT_PANEL;
+  const key = holder ? serviceTileTarget(holder.layout, holder.context())?.showing : undefined;
+  return key && panelState[key] ? key : DEFAULT_PANEL;
 }
 
 /**
@@ -768,9 +787,9 @@ function ensureActivePanel() {
  * reported to the server via setPanelFocus — omitting it focuses locally only.
  * `landing` marks the boot/empty-slot landing: a surfacing nobody asked for.
  *
- * A panel living in its own pop-out window has no tile to focus: a requested
- * surfacing brings that window to the front instead, and a health-driven one
- * does nothing — nobody asked for the window.
+ * A panel living in its own pop-out window — either kind — shows there: a
+ * requested surfacing brings that window to the front instead, and a
+ * health-driven one does nothing — nobody asked for the window.
  * @param {string} panelId
  * @param {{ userInitiated?: boolean, auto?: boolean, landing?: boolean }} [options]
  */
@@ -778,8 +797,8 @@ export function activateTab(
   panelId,
   { userInitiated = false, auto = false, landing = false } = {}
 ) {
-  if (isPoppedOut(panelId)) {
-    if (!auto) focusPopout(panelId);
+  if (isPoppedOut(panelId) || isAttached(panelId)) {
+    if (!auto && !focusPopout(panelId)) focusAttached(panelId);
     return;
   }
   const state = panelState[panelId];
@@ -796,15 +815,7 @@ export function activateTab(
   // that refused to surface at the guarded returns above keep theirs too.
   if (!landing) clearBadge(panelId);
 
-  activeTabId = panelId;
-
-  // Reflect the active entry on the rail
-  setActive(railEl, panelId);
-
-  // Stamp the active panel id on the content container so CSS can shape the
-  // workspace region per-panel — e.g. a panel that paints its own full-bleed
-  // canvas opts out of the hub's card chrome (see files.css [data-active-panel]).
-  if (containerEl) containerEl.dataset.activePanel = panelId;
+  markSurfaced(panelId);
 
   // Clear any stale empty-state placeholder before revealing a panel. isConnected
   // guards a cached ref that was detached by renderEmptyState's innerHTML wipe

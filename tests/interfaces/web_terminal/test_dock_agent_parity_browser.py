@@ -1,10 +1,10 @@
 """The MCP panel tools, run against a live OSPREY web terminal: an agent's dock writes.
 
 Every write here is made by calling the real MCP tool function
-(``drop_panel``, ``close_panel_tab``, ``close_panel_tile``, ``open_panel``,
-``open_panel_set``, ``arrange_workspace``; ARIEL's and Phoebus's own open
-paths) with the tool's HTTP base pointed at a live web terminal. The tool posts
-to ``/api/panel-op/<op>``, the server relays one ``panel_op`` frame to the
+(``drop_panel``, ``close_panel``, ``open_panel``, ``open_panel_set``,
+``arrange_workspace``; ARIEL's and Phoebus's own open paths) with the tool's
+HTTP base pointed at a live web terminal. The tool posts to
+``/api/panel-op/<op>``, the server relays one ``panel_op`` frame to the
 browser that holds the dock, that browser runs it on its layout holder and
 posts the outcome back; the tool returns the resulting layout and ``rev`` or
 raises the named refusal. Nothing in between is stubbed except Phoebus's own
@@ -12,32 +12,37 @@ bridge (there is no Phoebus product here; its web-terminal open is real).
 
 What is proven, against what a person does in the same dock:
 
-- **Parity.** Every pointer zone (centre, tab bar, edge, next to a split line, the dock's side) for
-  every source (an open tab, a whole tile, a panel not open yet), plus closing
-  a tab and closing a tile, gives the layout a person's drag (or tab close)
-  gives from the same start: same tree, tabs, showing tabs and sizes, and the
-  same on-screen rectangles. The person's drags are real HTML5 drags dispatched
-  from the real source element (its own ``dragstart`` raises the drag shield).
-- **Sets.** A set of three opens as tabs, side by side, and in a given
-  layout, one call each; after each the terminal keeps its tile id, its
-  rectangle and its showing tab.
+- **Parity.** Every pointer zone that splits (a tile's edge, next to a split
+  line, the dock's side) for every source (an open panel, a whole tile, a
+  panel not open yet), plus closing a panel, gives the layout a person's drag
+  (or the tile's ×) gives from the same start: same tree, panels and sizes,
+  and the same on-screen rectangles. The person's drags are real HTML5 drags
+  dispatched from the real source element (its own ``dragstart`` raises the
+  drag shield). A drop into a tile (its centre or its header) shows a person
+  nothing and is refused ``one_panel_per_tile`` for the agent, both changing
+  nothing.
+- **Sets.** A set of three opens side by side, and in a given layout of one
+  panel per tile, one call each; after each the terminal keeps its tile id,
+  its rectangle and its panel. A layout putting two panels in one tile is
+  refused ``one_panel_per_tile``.
 - **The operator keeps the terminal.** An agent open (with and without
   ``url``) landing while the operator types never covers the terminal, and the
   typed keys reach the shell (read from the shell's side: a stand-in program
   appends everything it reads to a log file).
-- **The terminal is not agent-movable.** As a drop source (tab or tile), a
-  close-tab key, a close-tile target or an open member it is refused
-  ``terminal_not_agent_movable`` and nothing changes.
-- **Revisions.** A drop then ``close_panel_tile`` with the ``rev`` the drop
-  returned both succeed; an op carrying the pre-drag ``base_rev`` while a
-  person's drag is still unacknowledged is refused ``stale_base``; an op that
-  arrives mid-drag is held off the screen until the drag ends, then applies.
-  A person who undoes an agent's open (back to the exact pre-op layout) is
-  reported, so the agent never reads a dock that is no longer on screen.
+- **The terminal is not agent-movable.** As a drop source (panel or tile), a
+  close target or an open member it is refused ``terminal_not_agent_movable``
+  and nothing changes.
+- **Revisions.** Two drops in a row, the second naming the tile and ``rev``
+  the first returned, both succeed; an op carrying the pre-drag ``base_rev``
+  while a person's drag is still unacknowledged is refused ``stale_base``; an
+  op that arrives mid-drag is held off the screen until the drag ends, then
+  applies. A person who undoes an agent's open (back to the exact pre-op
+  layout) is reported, so the agent never reads a dock that is no longer on
+  screen.
 - **Which browser tab answers.** Closing the reporting browser tab moves the
   next write to the other open tab; with none open, ``no_dock_client``.
-- **ARIEL and Phoebus** open their panels through the same op path, into one
-  dock tab, in the one browser tab that holds the dock.
+- **ARIEL and Phoebus** open their panels through the same op path, one dock
+  tile each time, in the one browser tab that holds the dock.
 
 Run:
 
@@ -119,10 +124,11 @@ def _split(direction: str, *items: dict, size: float | None = None) -> dict:
     return node
 
 
-#: A two-tab tile, a one-tab tile and the terminal's own tile.
+#: A over B, C, and the terminal's own tile: C's and the terminal's tiles sit
+#: where they did when B was a tab behind A.
 MATRIX_START = _split(
     "row",
-    _tile("t1", "a", "b", showing="a", size=0.4),
+    _split("column", _tile("t1", "a", size=0.5), _tile("t4", "b", size=0.5), size=0.4),
     _tile("t2", "c", size=0.3),
     _tile("t3", TERMINAL, size=0.3),
 )
@@ -161,7 +167,9 @@ def _service(key: str) -> Iterator[str]:
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     server.daemon_threads = True
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -251,7 +259,7 @@ def _open(browser, hub: Hub, *, terminal: bool = False) -> Page:
         page = browser.new_page(viewport=VIEWPORT)
         arm_terminal_tab(page)
         page.goto(hub.base_url, wait_until="domcontentloaded")
-        expect(rail_entry(page, "artifacts")).to_be_attached(timeout=15_000)
+        expect(rail_entry(page, "terminal", enabled_only=True)).to_be_attached(timeout=15_000)
         expect(page.locator(".dv-groupview").first).to_be_visible(timeout=15_000)
     else:
         page = open_hub_page(browser, hub.base_url, viewport=VIEWPORT)
@@ -353,24 +361,18 @@ async () => {
   const root = document.querySelector('#dock-root');
   const tiles = {};
   for (const bar of root.querySelectorAll('.tile-tab[data-tile]')) {
-    if (!bar.isConnected || bar.parentElement?.classList.contains('dv-inactive-tab')) continue;
+    if (!bar.isConnected) continue;
     const group = bar.closest('.dv-groupview');
     if (!group) continue;
     const content = group.querySelector('.dv-content-container');
-    const strip = bar.querySelector('.tile-tab-tabs');
-    const items = strip && !strip.hidden ? [...bar.querySelectorAll('.tile-tab-item')] : [];
-    const title = bar.querySelector('.tile-tab-title');
     const own = bar.getAttribute('data-panel-key');
-    const tabEls = items.length ? items : (title && !title.hidden ? [title] : []);
     tiles[bar.dataset.tile] = {
       rect: r(group),
       content: content ? r(content) : null,
       bar: r(bar),
-      tabs: items.length ? items.map((t) => t.getAttribute('data-panel-key')) : [own],
-      tabRects: tabEls.map(r),
-      showing: items.length
-        ? (bar.querySelector('.tile-tab-item--showing')?.getAttribute('data-panel-key') ?? null)
-        : own,
+      row: r(bar.closest('.dv-tabs-and-actions-container') ?? bar),
+      tabs: [own],
+      showing: own,
     };
   }
   const shielded = [...document.querySelectorAll('.dock-iframe-overlay iframe')]
@@ -412,13 +414,10 @@ _DRAG_PRELUDE = r"""
   const sleep = (t) => new Promise((r) => setTimeout(r, t));
   const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
   const root = document.querySelector('#dock-root');
-  const shown = (sel) => [...root.querySelectorAll(sel)]
-    .find((n) => !n.closest('.dv-tab')?.classList.contains('dv-inactive-tab')) ?? null;
   const find = (source) => {
-    // A lone tab has no strip item: its header is the tab, dragged as the tile.
-    if (source.tab) return shown(`.tile-tab-item[data-panel-key="${CSS.escape(source.tab)}"]`)
-      ?? shown(`.tile-tab[data-panel-key="${CSS.escape(source.tab)}"]`)?.closest('.dv-tab') ?? null;
-    if (source.grip) return shown(`.tile-tab[data-tile="${CSS.escape(source.grip)}"]`)?.closest('.dv-tab') ?? null;
+    // A panel's bar is its tile's header: dockview's header drag, read as the tile.
+    if (source.tab) return root.querySelector(`.tile-tab[data-panel-key="${CSS.escape(source.tab)}"]`)?.closest('.dv-tab') ?? null;
+    if (source.grip) return root.querySelector(`.tile-tab[data-tile="${CSS.escape(source.grip)}"]`)?.closest('.dv-tab') ?? null;
     if (source.rail) return document.querySelector(`button.panel-rail-button[data-panel-id="${CSS.escape(source.rail)}"]`);
     return null;
   };
@@ -618,26 +617,16 @@ def _iframe(page: Page, key: str):
     return page.locator(f'.dock-iframe-overlay iframe[data-panel-id="{key}"]')
 
 
-def _tab(page: Page, key: str):
-    """The showing header's handle for ``key``: its strip item, or the lone tab's header."""
-    return page.locator(
-        f'#dock-root .dv-tab:not(.dv-inactive-tab) .tile-tab-item[data-panel-key="{key}"], '
-        f"#dock-root .dv-tab:not(.dv-inactive-tab) "
-        f'.tile-tab[data-panel-key="{key}"]:not(:has(.tile-tab-item))'
-    )
-
-
 def _bar(page: Page, key: str):
-    """The visible header of the tile holding ``key``."""
-    return page.locator(
-        f'#dock-root .dv-tab:not(.dv-inactive-tab) .tile-tab[data-tile="{_tile_of(_state(page), key)}"]'
-    )
+    """The header bar of the tile showing ``key``."""
+    return page.locator(f'#dock-root .tile-tab[data-panel-key="{key}"]')
 
 
 def _rail_open(page: Page, key: str) -> None:
-    """Open a panel from its sidebar row — a new tab in front — and wait for its tab."""
+    """Open a panel from its sidebar row — it replaces the panel of the service
+    tile used last — and wait for its bar."""
     rail_entry(page, key, enabled_only=True).click()
-    expect(_tab(page, key)).to_have_count(1, timeout=5_000)
+    expect(_bar(page, key)).to_have_count(1, timeout=5_000)
 
 
 def _open_services(page: Page, *keys: str) -> None:
@@ -646,18 +635,18 @@ def _open_services(page: Page, *keys: str) -> None:
     _settle(page)
 
 
-def _close_tab_by_hand(page: Page, key: str) -> dict:
-    """Show ``key`` and press its header's ×: the close of the showing tab."""
-    _show_by_hand(page, key)
+def _close_by_hand(page: Page, key: str) -> dict:
+    """Press the × of the tile showing ``key``: the tile closes."""
     bar = _bar(page, key)
     bar.hover()
     bar.locator(".tile-tab-close").click()
-    expect(_tab(page, key)).to_have_count(0, timeout=5_000)
+    expect(_bar(page, key)).to_have_count(0, timeout=5_000)
     return _settle(page)
 
 
-def _show_by_hand(page: Page, key: str) -> dict:
-    _tab(page, key).click()
+def _focus_by_hand(page: Page, key: str) -> dict:
+    """Click the title of the tile showing ``key``: the person's focus gesture."""
+    _bar(page, key).locator(".tile-tab-title").click()
     return _settle(page)
 
 
@@ -714,15 +703,10 @@ def _edge_bottom(state: dict, key: str) -> dict:
     return {"x": c["x"] + c["width"] / 2, "y": c["y"] + c["height"] - inset}
 
 
-def _tab_gap(state: dict, key: str, index: int) -> dict:
-    """A point on `key`'s tile bar that inserts at `index` among its tabs."""
-    tile = state["tiles"][_tile_of(state, key)]
-    bar, tabs = tile["bar"], tile["tabRects"]
-    y = bar["y"] + bar["height"] / 2
-    if index < len(tabs):
-        return {"x": tabs[index]["x"] + 2, "y": y}
-    last = tabs[-1]
-    return {"x": min(last["x"] + last["width"] + 6, bar["x"] + bar["width"] - 2), "y": y}
+def _on_bar(state: dict, key: str) -> dict:
+    """A point on the header row of `key`'s tile, over its title."""
+    row = state["tiles"][_tile_of(state, key)]["row"]
+    return {"x": row["x"] + 24, "y": row["y"] + row["height"] / 2}
 
 
 def _near_split(state: dict, left: str, right: str) -> dict:
@@ -865,28 +849,28 @@ def _assert_terminal_shown(page: Page, state: dict) -> None:
 # Parity: every drop type x every source, close tab and close tile
 # ---------------------------------------------------------------------------
 
-#: (source kind, target kind) from MATRIX_START: row[[*a|b], c, terminal].
-#: A panel not open yet is dropped beside a tile or at the dock's side, never
-#: onto a centre or a tab bar (a person's row drop there shows nothing).
+#: (source kind, target kind) from MATRIX_START: row[column[a,b], c, terminal].
+#: Every split target for every source; the targets inside a tile (its centre,
+#: its header) take nothing from any source and are _ZONES.
 _MATRIX = [
     (source, target)
     for source in ("tab", "tile", "new")
-    for target in ("centre", "tabbar", "edge", "split line", "dock side")
-    if source != "new" or target not in ("centre", "tabbar")
+    for target in ("edge", "split line", "dock side")
 ]
+_ZONES = [(source, target) for source in ("tab", "tile", "new") for target in ("centre", "tabbar")]
 
 
 def _person_point(start: dict, target: str) -> dict:
     """Where a person drops for this case (the points test_dock_tiles_browser proves).
 
-    Every target is on C's tile or beside it: the Agent pane's tile takes no
-    tab (dock-drop.js admits no centre or tab-bar target on it), so the places
-    a person can drop are a service tile's.
+    Every target is on C's tile or beside it: the Agent pane's tile takes
+    nothing either (dock-drop.js admits no centre or header target on any
+    tile), so the places a person can try are a service tile's.
     """
     if target == "centre":
         return _centre(start, S("c"))
     if target == "tabbar":
-        return _tab_gap(start, S("c"), 0)
+        return _on_bar(start, S("c"))
     if target == "edge":
         return _edge_bottom(start, S("c"))
     if target == "split line":
@@ -908,14 +892,16 @@ def _agent_target(target: str) -> dict:
 
 
 def test_every_agent_drop_and_close_gives_the_persons_layout(tmp_path, chromium_browser):
-    """``drop_panel``, ``close_panel_tab`` and ``close_panel_tile`` match a person, case by case.
+    """``drop_panel`` and ``close_panel`` match a person, case by case.
 
     Each case starts twice from the same layout: once a person drags (or
-    closes a tab by its close button), once the agent makes the equivalent
-    call with the ``rev`` it just read. The two settled docks must have the
-    same tree, tabs, showing tabs and sizes (tile ids aside, which are minted)
-    and the same rectangles; and the layout the tool returned must be the one
-    the dock shows, so an agent never has to re-read.
+    closes a tile by its ×), once the agent makes the equivalent call with
+    the ``rev`` it just read. The two settled docks must have the same tree,
+    panels and sizes (tile ids aside, which are minted) and the same
+    rectangles; and the layout the tool returned must be the one the dock
+    shows, so an agent never has to re-read. A drop into a tile changes
+    nothing either way: the person's drag paints nothing, and the agent's is
+    refused ``one_panel_per_tile``.
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
@@ -927,7 +913,7 @@ def test_every_agent_drop_and_close_gives_the_persons_layout(tmp_path, chromium_
         for source_kind, target in _MATRIX:
             case = f"{source_kind} -> {target}"
             start = _restore(page, hub, MATRIX_START)
-            assert start["shape"] == S("row[[*a|b],c,terminal]")
+            assert start["shape"] == S("row[column[a,b],c,terminal]")
             drag = _drag(page, persons[source_kind], _person_point(start, target))
             assert drag["kind"] is not None, f"{case}: the person's drag showed no highlight"
             person = _settle(page)
@@ -946,35 +932,45 @@ def test_every_agent_drop_and_close_gives_the_persons_layout(tmp_path, chromium_
             _assert_returned_is_shown(result, agent, case)
             _assert_same_layout(person, agent, case)
 
-        # Close a tab: one of two (the tile stays), and a tile's last (the tile goes).
+        # Into a tile: nothing for the person, one_panel_per_tile for the agent.
+        for source_kind, target in _ZONES:
+            case = f"{source_kind} -> {target}"
+            start = _restore(page, hub, MATRIX_START)
+            drag = _drag(page, persons[source_kind], _person_point(start, target))
+            assert drag["kind"] is None, f"{case}: the person's drag showed a highlight"
+            assert _settle(page)["shape"] == start["shape"], f"{case}: the person's drop moved"
+
+            start = _restore(page, hub, MATRIX_START)
+            rev = _tool("list_panels")["rev"]
+            envelope = _refused(
+                "one_panel_per_tile",
+                "drop_panel",
+                source=agents[source_kind],
+                target=_agent_target(target),
+                base_rev=rev,
+            )
+            assert "Nothing changed" in envelope["error_message"], case
+            assert _settle(page)["shape"] == start["shape"], f"{case}: the refused drop moved"
+            assert hub.app.state.dock_layout_rev == rev, f"{case}: the rev moved"
+
+        # Close a panel: the tile showing it closes, by its × or by the agent.
         for key in (b, c):
-            case = f"close tab {key}"
+            case = f"close {key}"
             _restore(page, hub, MATRIX_START)
-            person = _close_tab_by_hand(page, key)
+            person = _close_by_hand(page, key)
             _rail_open(page, key)  # back as a person brings it back, before the next start
             _restore(page, hub, MATRIX_START)
-            result = _tool("close_panel_tab", panel_id=key)
+            result = _tool("close_panel", panel_id=key)
+            assert result["panel"] == key, result
             agent = _settle(page)
             _assert_returned_is_shown(result, agent, case)
             _assert_same_layout(person, agent, case)
             assert key not in _keys(agent)
 
-        # Close a whole tile: a person closes its tabs one by one.
-        for tile, tabs in (("t2", [c]), ("t1", [a, b])):
-            case = f"close tile {tile}"
-            _restore(page, hub, MATRIX_START)
-            for key in tabs:
-                person = _close_tab_by_hand(page, key)
-            for key in tabs:
-                _rail_open(page, key)
-            _restore(page, hub, MATRIX_START)
-            rev = _tool("list_panels")["rev"]
-            result = _tool("close_panel_tile", tile=tile, base_rev=rev)
-            assert result["tile"] == tile
-            agent = _settle(page)
-            _assert_returned_is_shown(result, agent, case)
-            _assert_same_layout(person, agent, case)
-            assert tile not in agent["tiles"]
+        # A panel no tile shows has no tile to close.
+        start = _restore(page, hub, MATRIX_START)
+        _refused("unknown_key", "close_panel", panel_id=d)
+        assert _settle(page)["shape"] == start["shape"]
         assert hub.errors == []
 
 
@@ -983,30 +979,28 @@ def test_every_agent_drop_and_close_gives_the_persons_layout(tmp_path, chromium_
 # ---------------------------------------------------------------------------
 
 
-def test_a_set_of_three_opens_as_tabs_side_and_layout_leaving_the_terminal(
+def test_a_set_of_three_opens_side_by_side_and_by_layout_leaving_the_terminal(
     tmp_path, chromium_browser
 ):
-    """``open_panel_set`` as tabs and side by side, and ``arrange_workspace`` with
-    an exact layout of the same three, one call each.
+    """``open_panel_set`` side by side, and ``arrange_workspace`` with an exact
+    layout of the same three, one call each.
 
     After each call the terminal's tile keeps its id, its rectangle and its
-    showing tab: a set places service panels and leaves the terminal alone.
+    panel: a set places service panels and leaves the terminal alone. A
+    layout putting two panels in one tile is refused ``one_panel_per_tile``
+    and changes nothing.
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "c", "d", "e")
         a, c, d, e = (S(x) for x in "acde")
         three = [c, d, e]
-        given = {"split": "column", "items": [{"tabs": [c, d], "showing": d}, {"tabs": [e]}]}
+        given = {"split": "column", "items": [{"tabs": [c]}, {"tabs": [d]}, {"tabs": [e]}]}
 
-        for open_as, layout in (("tabs", None), ("side", None), ("layout", given)):
-            case = (
-                f"open_panel_set as {open_as}"
-                if layout is None
-                else "arrange_workspace with a layout"
-            )
+        for layout in (None, given):
+            case = "open_panel_set" if layout is None else "arrange_workspace with a layout"
             _restore(page, hub, ONE_SERVICE)
-            before = _show_by_hand(page, a)  # the operator is on A's tile
+            before = _focus_by_hand(page, a)  # the operator is on A's tile
             _quiet(page, hub)
             posts: list[str] = []
 
@@ -1016,7 +1010,7 @@ def test_a_set_of_three_opens_as_tabs_side_and_layout_leaving_the_terminal(
 
             page.on("request", answered)
             if layout is None:
-                result = _tool("open_panel_set", panels=three, open_as=open_as)
+                result = _tool("open_panel_set", panels=three)
             else:
                 result = _tool("arrange_workspace", layout=layout)
             assert result["panels"] == three, (case, result)
@@ -1026,26 +1020,28 @@ def test_a_set_of_three_opens_as_tabs_side_and_layout_leaving_the_terminal(
             assert len(posts) == 1, f"{case}: the dock answered {len(posts)} ops for one call"
             page.remove_listener("request", answered)
 
-            held = {tuple(t["tabs"]): t for t in after["held"]}
-            if open_as == "tabs":
-                assert (c, d, e) in held, (
-                    f"{case}: no tile holds the three as tabs: {after['shape']}"
-                )
-            elif open_as == "side":
-                tiles = {_tile_of(after, k) for k in three}
-                assert len(tiles) == 3, f"{case}: not one tile each: {after['shape']}"
-                assert all(len(after["tiles"][t]["tabs"]) == 1 for t in tiles), after["shape"]
-            else:
-                assert (c, d) in held and held[(c, d)]["showing"] == d, after["shape"]
-                assert (e,) in held, after["shape"]
+            tiles = {_tile_of(after, k) for k in three}
+            assert len(tiles) == 3, f"{case}: not one tile each: {after['shape']}"
+            if layout is not None:
                 assert a not in _keys(after), f"{case}: the layout replaces the service tiles"
-                # c|d sits above e.
-                assert _rect(after, c)["y"] < _rect(after, e)["y"], after["tiles"]
+                # c over d over e.
+                assert _rect(after, c)["y"] < _rect(after, d)["y"] < _rect(after, e)["y"], after[
+                    "tiles"
+                ]
+
+        # Two panels in one tile: refused by name, and nothing changes.
+        start = _restore(page, hub, ONE_SERVICE)
+        rev = _tool("list_panels")["rev"]
+        crowded = {"split": "column", "items": [{"tabs": [c, d], "showing": d}, {"tabs": [e]}]}
+        envelope = _refused("one_panel_per_tile", "arrange_workspace", layout=crowded)
+        assert "Nothing changed" in envelope["error_message"], envelope
+        assert _settle(page)["shape"] == start["shape"]
+        assert hub.app.state.dock_layout_rev == rev
         assert hub.errors == []
 
 
-def test_a_preset_with_tabs_loads_in_one_call(tmp_path, chromium_browser):
-    """``arrange_workspace(preset=...)`` puts the preset's tabbed tiles on screen in one call."""
+def test_a_preset_loads_in_one_call(tmp_path, chromium_browser):
+    """``arrange_workspace(preset=...)`` puts the preset's tiles on screen in one call."""
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a")
@@ -1056,7 +1052,7 @@ def test_a_preset_with_tabs_loads_in_one_call(tmp_path, chromium_browser):
                 "panels": [b, c, d],
                 "layout": {
                     "split": "row",
-                    "items": [{"tabs": [b, c], "showing": c, "size": 2}, {"tabs": [d]}],
+                    "items": [{"tabs": [b], "size": 2}, {"tabs": [c]}, {"tabs": [d]}],
                 },
             }
         ]
@@ -1072,13 +1068,11 @@ def test_a_preset_with_tabs_loads_in_one_call(tmp_path, chromium_browser):
         _assert_returned_is_shown(result, after, "preset")
         _assert_terminal_untouched(before, after, "preset")
         assert len(posts) == 1, posts
-        held = {tuple(t["tabs"]): t for t in after["held"]}
-        assert (b, c) in held and held[(b, c)]["showing"] == c, after["shape"]
-        assert (d,) in held, after["shape"]
+        assert len({_tile_of(after, k) for k in (b, c, d)}) == 3, after["shape"]
         assert a not in _keys(after), after["shape"]
-        expect(_iframe(page, c)).to_be_visible(timeout=5_000)
-        expect(_iframe(page, b)).to_be_hidden()
-        # The b|c tile has twice d's width (weights 2:1).
+        for key in (b, c, d):
+            expect(_iframe(page, key)).to_be_visible(timeout=5_000)
+        # B's tile has twice D's width (weights 2:1:1).
         assert _rect(after, b)["width"] > 1.8 * _rect(after, d)["width"], after["tiles"]
         # Like the operator's Layouts click, the rail now holds exactly the preset's panels.
         for key in (b, c, d):
@@ -1108,7 +1102,8 @@ def test_an_old_shape_panel_presets_fails_the_profile_build(tmp_path, caplog):
     output = result.output + caplog.text
     assert "panel_presets['Ops'] is the retired list-of-panel-ids form" in output, output
     assert "{split: row, items: [{tabs: [okf]}, {tabs: [channel-finder]}]}" in output, output
-    assert "{tabs: [okf, channel-finder]}" in output, output
+    # The rewrite offered is one panel per tile; a tile naming both is never suggested.
+    assert "{tabs: [okf, channel-finder]}" not in output, output
     assert not (repo / "build" / "config.yml").exists(), "a refused profile still rendered"
 
 
@@ -1118,16 +1113,16 @@ def test_an_agent_open_while_typing_never_covers_the_terminal(tmp_path, chromium
     The open runs on a worker thread while the operator keeps typing into the
     terminal. Keys typed before, during and after the open arrive in the shell
     in order, the panel never lands in the terminal's tile, and the terminal is
-    still the showing, uncovered tab afterwards.
+    still shown, uncovered, afterwards.
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub, terminal=True)
         _open_services(page, "a", "b")
         a, b, c, d = (S(x) for x in "abcd")
         cases = [
-            # A service tile of its own: the panel becomes its tab.
+            # A service tile of its own: the panel replaces the one it shows.
             ("own tile", ONE_SERVICE, c),
-            # Two service tiles: the panel joins the one last used, never the Agent pane's.
+            # Two service tiles: the panel replaces one of theirs, never the Agent pane.
             ("two tiles", MATRIX_START, d),
         ]
         n = 0
@@ -1153,7 +1148,8 @@ def test_an_agent_open_while_typing_never_covers_the_terminal(tmp_path, chromium
                 )
                 _assert_terminal_shown(page, state)
                 if case == "own tile":
-                    assert state["shape"] == S("row[[a|*c],terminal]"), (label, state["shape"])
+                    assert state["shape"] == S("row[c,terminal]"), (label, state["shape"])
+                    assert _tile_of(state, c) == "t1", (label, state["held"])
         assert hub.errors == []
 
 
@@ -1163,75 +1159,79 @@ def test_an_agent_open_while_typing_never_covers_the_terminal(tmp_path, chromium
 
 
 def test_the_terminal_is_refused_as_a_source_or_close_target(tmp_path, chromium_browser):
-    """Every agent verb that would move or close the terminal, or tab with it, is refused by name.
+    """Every agent verb that would move or close the terminal is refused by name.
 
     The refusal is ``terminal_not_agent_movable``, the dock does not change and
     the rev does not move. The Agent pane is always its own tile: a service
-    dropped into its tile (centre or tab bar) is refused the same way, as a
-    person's drop there is admitted nowhere; beside it stays allowed.
+    dropped into its tile (centre or header) is refused ``one_panel_per_tile``,
+    as is a drop into any tile, and a person's drop there is admitted nowhere;
+    beside it stays allowed.
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
-        a, b, c = (S(x) for x in "abc")
-        for name, start_layout in (("alone", MATRIX_START),):
-            start = _restore(page, hub, start_layout)
-            rev = _tool("list_panels")["rev"]
-            calls = [
-                (
-                    "drop_panel",
-                    {
-                        "source": {"tab": TERMINAL},
-                        "target": {"tile": "t1", "zone": "centre"},
-                        "base_rev": rev,
-                    },
-                ),
-                (
-                    "drop_panel",
-                    {"source": {"tile": "t3"}, "target": {"outer": "left"}, "base_rev": rev},
-                ),
-                (
-                    "drop_panel",
-                    {
-                        "source": {"new": {"panel": TERMINAL}},
-                        "target": {"outer": "left"},
-                        "base_rev": rev,
-                    },
-                ),
-                ("close_panel_tab", {"panel_id": TERMINAL}),
-                ("close_panel_tile", {"tile": "t3", "base_rev": rev}),
-                ("open_panel", {"panel_id": TERMINAL}),
-                (
-                    "drop_panel",
-                    {
-                        "source": {"tab": c},
-                        "target": {"tile": "t3", "zone": "centre"},
-                        "base_rev": rev,
-                    },
-                ),
-                (
-                    "drop_panel",
-                    {
-                        "source": {"new": {"panel": S("d")}},
-                        "target": {"tile": "t3", "zone": "tab", "index": 0},
-                        "base_rev": rev,
-                    },
-                ),
-            ]
-            for tool, kwargs in calls:
-                case = f"{name}: {tool}({kwargs})"
-                envelope = _refused("terminal_not_agent_movable", tool, **kwargs)
-                assert "Nothing changed" in envelope["error_message"], case
-                after = _settle(page)
-                assert after["shape"] == start["shape"], f"{case}: {after['shape']}"
-                assert hub.app.state.dock_layout_rev == rev, f"{case}: the rev moved"
-            # A layout naming the terminal is refused under its own name.
-            _refused(
-                "terminal_in_layout",
-                "arrange_workspace",
-                layout={"split": "row", "items": [{"tabs": [b]}, {"tabs": [TERMINAL]}]},
-            )
-            assert _settle(page)["shape"] == start["shape"]
+        b, c = S("b"), S("c")
+        start = _restore(page, hub, MATRIX_START)
+        rev = _tool("list_panels")["rev"]
+        calls = [
+            (
+                "terminal_not_agent_movable",
+                "drop_panel",
+                {
+                    "source": {"tab": TERMINAL},
+                    "target": {"tile": "t1", "edge": "left"},
+                    "base_rev": rev,
+                },
+            ),
+            (
+                "terminal_not_agent_movable",
+                "drop_panel",
+                {"source": {"tile": "t3"}, "target": {"outer": "left"}, "base_rev": rev},
+            ),
+            (
+                "terminal_not_agent_movable",
+                "drop_panel",
+                {
+                    "source": {"new": {"panel": TERMINAL}},
+                    "target": {"outer": "left"},
+                    "base_rev": rev,
+                },
+            ),
+            ("terminal_not_agent_movable", "close_panel", {"panel_id": TERMINAL}),
+            ("terminal_not_agent_movable", "open_panel", {"panel_id": TERMINAL}),
+            (
+                "one_panel_per_tile",
+                "drop_panel",
+                {
+                    "source": {"tab": c},
+                    "target": {"tile": "t3", "zone": "centre"},
+                    "base_rev": rev,
+                },
+            ),
+            (
+                "one_panel_per_tile",
+                "drop_panel",
+                {
+                    "source": {"new": {"panel": S("d")}},
+                    "target": {"tile": "t3", "zone": "tab", "index": 0},
+                    "base_rev": rev,
+                },
+            ),
+        ]
+        for reason, tool, kwargs in calls:
+            case = f"{tool}({kwargs})"
+            envelope = _refused(reason, tool, **kwargs)
+            assert "Nothing changed" in envelope["error_message"], case
+            after = _settle(page)
+            assert after["shape"] == start["shape"], f"{case}: {after['shape']}"
+            assert hub.app.state.dock_layout_rev == rev, f"{case}: the rev moved"
+        # A layout naming the terminal is refused under its own name.
+        _refused(
+            "terminal_in_layout",
+            "arrange_workspace",
+            layout={"split": "row", "items": [{"tabs": [b]}, {"tabs": [TERMINAL]}]},
+        )
+        assert _settle(page)["shape"] == start["shape"]
 
         # A service may still be dropped beside the terminal's tile.
         _restore(page, hub, MATRIX_START)
@@ -1277,20 +1277,24 @@ def test_two_steps_in_a_row_and_a_stale_base(tmp_path, chromium_browser):
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
-        a, b, c, d = (S(x) for x in "abcd")
+        a, b, c = (S(x) for x in "abc")
 
-        # Two steps in a row: a drop, then close_panel_tile with the rev the drop
-        # returned. No second read in between.
+        # Two steps in a row: B to the dock's right edge, then B's new tile to
+        # its left edge with the tile id and rev the first drop returned. No
+        # second read in between.
         start = _restore(page, hub, MATRIX_START)
         rev = _tool("list_panels")["rev"]
         dropped = _tool("drop_panel", source={"tab": b}, target={"outer": "right"}, base_rev=rev)
         assert dropped["rev"] > rev
         (b_tile,) = _tiles_holding(dropped["layout"], [b])
-        closed = _tool("close_panel_tile", tile=b_tile, base_rev=dropped["rev"])
-        assert closed["rev"] > dropped["rev"]
+        moved = _tool(
+            "drop_panel", source={"tile": b_tile}, target={"outer": "left"}, base_rev=dropped["rev"]
+        )
+        assert moved["rev"] > dropped["rev"]
         after = _settle(page)
-        _assert_returned_is_shown(closed, after, "drop then close")
-        assert after["shape"] == S("row[a,c,terminal]"), after["shape"]
+        _assert_returned_is_shown(moved, after, "drop then drop")
+        assert after["shape"] == S("row[b,a,c,terminal]"), after["shape"]
+        assert _tile_of(after, b) == b_tile, after["held"]
 
         # A stale base: a person's drag whose report the server has not had yet.
         # The page's report is held in the network, so the server's rev is still
@@ -1310,7 +1314,7 @@ def test_two_steps_in_a_row_and_a_stale_base(tmp_path, chromium_browser):
         try:
             _drag(page, {"grip": _tile_of(start, c)}, _edge_bottom(start, a))
             moved = _settle(page)
-            assert moved["shape"] == S("row[column[[*a|b],c],terminal]"), moved["shape"]
+            assert moved["shape"] == S("row[column[a,c,b],terminal]"), moved["shape"]
             assert page.evaluate(_HOLDER_JS)["dirty"], "the person's drag was already acked"
             assert hub.app.state.dock_layout_rev == pre_drag_rev
             _refused(
@@ -1320,7 +1324,13 @@ def test_two_steps_in_a_row_and_a_stale_base(tmp_path, chromium_browser):
                 target={"tile": "t3", "edge": "bottom"},
                 base_rev=pre_drag_rev,
             )
-            _refused("stale_base", "close_panel_tile", tile="t1", base_rev=pre_drag_rev)
+            _refused(
+                "stale_base",
+                "drop_panel",
+                source={"tile": "t1"},
+                target={"outer": "left"},
+                base_rev=pre_drag_rev,
+            )
             assert _settle(page)["shape"] == moved["shape"], "a refused op changed the dock"
         finally:
             # Release in order: the held reports go out first, later ones pass
@@ -1335,12 +1345,56 @@ def test_two_steps_in_a_row_and_a_stale_base(tmp_path, chromium_browser):
         assert hub.errors == []
 
 
+#: Delay the page's reading of every /api/panel-op-result answer: the server has
+#: recorded the layout (and the agent's call has returned its rev) while the dock
+#: has not yet taken that rev as its ack.
+_SLOW_OP_ANSWER_JS = """
+(ms) => {
+  const fetch0 = window.fetch;
+  window.fetch = async (input, init) => {
+    const response = await fetch0(input, init);
+    if (String(input).includes('/api/panel-op-result')) {
+      await new Promise((r) => setTimeout(r, ms));
+    }
+    return response;
+  };
+}
+"""
+
+
+def test_a_second_step_arriving_before_the_first_answer_lands(tmp_path, chromium_browser):
+    """The returned ``rev`` holds even when the next op beats the dock's ack.
+
+    The agent's call returns as soon as the server records the dock's answer;
+    the dock reads that answer's ``rev`` a moment later. A second op carrying
+    the returned rev can reach the dock in between, and it must be run after
+    the first op's answer is taken, not refused ``stale_base`` against the
+    ack the dock had before it.
+    """
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        b = S("b")
+        _restore(page, hub, MATRIX_START)
+        page.evaluate(_SLOW_OP_ANSWER_JS, 1500)
+        rev = _tool("list_panels")["rev"]
+        dropped = _tool("drop_panel", source={"tab": b}, target={"outer": "right"}, base_rev=rev)
+        (b_tile,) = _tiles_holding(dropped["layout"], [b])
+        moved = _tool(
+            "drop_panel", source={"tile": b_tile}, target={"outer": "left"}, base_rev=dropped["rev"]
+        )
+        assert moved["rev"] > dropped["rev"]
+        after = _settle(page)
+        _assert_returned_is_shown(moved, after, "drop then drop, answer slow")
+        assert after["shape"] == S("row[b,a,c,terminal]"), after["shape"]
+
+
 def test_an_agent_op_mid_drag_applies_after_the_drag(tmp_path, chromium_browser):
     """An op that arrives while a person drags waits for the drop, then shows.
 
     The drag is started from the real grip and left live; ``open_panel`` runs
     meanwhile and answers with D in the layout. Nothing re-lays the dock under
-    the person's pointer (no D tab yet, the drag still live); once the person
+    the person's pointer (no D tile yet, the drag still live); once the person
     drops, both the drop and D are on screen and on the server.
     """
     with _hub(tmp_path) as hub:
@@ -1358,18 +1412,18 @@ def test_an_agent_op_mid_drag_applies_after_the_drag(tmp_path, chromium_browser)
             result = _Background(_tool, "open_panel", panel_id=d).join()
             assert d in _keys(result["layout"]), result
             page.wait_for_timeout(300)
-            expect(_tab(page, d)).to_have_count(0)  # nothing re-laid the dock mid-drag
+            expect(_bar(page, d)).to_have_count(0)  # nothing re-laid the dock mid-drag
             assert _state(page)["dragLive"], "the drag ended early"
         finally:
             assert page.evaluate(_END_DRAG_JS) == "ok"
         after = _settle(page)
         assert d in _keys(after), f"the op was lost: {after['shape']}"
-        expect(_tab(page, d)).to_have_count(1)
-        # The person's drop applied too: C is under A.
+        expect(_bar(page, d)).to_have_count(1)
+        # The person's drop applied too: C's tile (t2, whatever D replaced) sits
+        # under A's (t1), above B's (t4).
         column = after["layout"]["items"][0]
-        assert column.get("split") == "column" and column["items"][-1].get("tabs") == [c], after[
-            "shape"
-        ]
+        ids = [item.get("tile") for item in column.get("items", [])]
+        assert column.get("split") == "column" and ids == ["t1", "t2", "t4"], after["shape"]
         _quiet(page, hub)
         assert _canon(hub.app.state.dock_layout) == _canon(after["layout"])
         assert hub.errors == []
@@ -1378,12 +1432,12 @@ def test_an_agent_op_mid_drag_applies_after_the_drag(tmp_path, chromium_browser)
 def test_a_person_undoing_an_agent_open_is_reported(tmp_path, chromium_browser):
     """After an agent op, a person's return to the pre-op layout reaches the server.
 
-    The agent opens D (a tab of A's tile, recorded through the op result);
-    the person closes D's tab, which puts the dock back exactly where it was
-    before the op. The server, and so the agent's next ``list_panels``, must
-    hold that layout and not the op's result — otherwise the agent works from
-    a dock that is no longer on screen, with a ``rev`` the page still counts as
-    current.
+    The agent opens D, which replaces A in A's tile (recorded through the op
+    result); the person clicks A's sidebar row, which replaces D with A and
+    puts the dock back exactly where it was before the op. The server, and so
+    the agent's next ``list_panels``, must hold that layout and not the op's
+    result — otherwise the agent works from a dock that is no longer on
+    screen, with a ``rev`` the page still counts as current.
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
@@ -1391,17 +1445,20 @@ def test_a_person_undoing_an_agent_open_is_reported(tmp_path, chromium_browser):
         a, d = S("a"), S("d")
         before = _restore(page, hub, ONE_SERVICE)
         opened = _tool("open_panel", panel_id=d)
-        assert d in _keys(opened["layout"]), opened
+        assert d in _keys(opened["layout"]) and a not in _keys(opened["layout"]), opened
         _settle(page)
-        after = _close_tab_by_hand(page, d)
+        _rail_open(page, a)
+        expect(_bar(page, d)).to_have_count(0, timeout=5_000)
+        after = _settle(page)
         assert _canon(after["layout"]) == _canon(before["layout"]), after["shape"]
+        assert _tile_of(after, a) == _tile_of(before, a), after["held"]
         deadline = time.monotonic() + _SETTLE_S
         listed = _tool("list_panels")
         while d in _keys(listed["layout"] or {}) and time.monotonic() < deadline:
             page.wait_for_timeout(200)
             listed = _tool("list_panels")
         assert d not in _keys(listed["layout"] or {}), (
-            f"the person closed {d}, but the agent still reads it open: {listed['layout']}"
+            f"the person put {a} back, but the agent still reads {d} open: {listed['layout']}"
         )
         assert listed["rev"] > opened["rev"], listed
         assert a in _keys(listed["layout"])
@@ -1471,13 +1528,14 @@ def test_closing_the_reporting_tab_moves_writes_to_the_other(tmp_path, chromium_
 def test_ariel_and_phoebus_open_through_the_op_path_in_one_tab(
     tmp_path, chromium_browser, monkeypatch
 ):
-    """ARIEL's and Phoebus's own open paths land as one dock tab in one browser tab.
+    """ARIEL's and Phoebus's own open paths each land in one dock tile, in one browser tab.
 
     ARIEL opens through its tool's ``open {member: ariel, url}`` helper, Phoebus
     through ``phoebus_open_panel`` (its bridge stubbed; ``OSPREY_SERVER_NAME``
-    names its panel). Opening twice keeps one tab of each; the dock client
-    answers each op once through ``/api/panel-op-result``; the other browser
-    tab, which is not the dock client, never changes.
+    names its panel). Opening twice keeps one tile of each; Phoebus's open
+    replaces ARIEL in the service tile, whose iframe stays cached and hidden;
+    the dock client answers each op once through ``/api/panel-op-result``; the
+    other browser tab, which is not the dock client, never changes.
     """
     from osprey.mcp_server.ariel.tools.entry import _focus_ariel_panel
     from osprey.mcp_server.phoebus.tools import bridge_tools
@@ -1507,7 +1565,7 @@ def test_ariel_and_phoebus_open_through_the_op_path_in_one_tab(
             _run_async(_focus_ariel_panel, f"/panel/ariel/#entry?id={entry}")
             state = _settle(page)
             assert _keys(state).count(ARIEL) == 1, state["shape"]
-            expect(_tab(page, ARIEL)).to_have_count(1)
+            expect(_bar(page, ARIEL)).to_have_count(1)
             expect(_iframe(page, ARIEL)).to_have_count(1)
             _assert_terminal_shown(page, state)
         assert len(answers) == 2 and all('"layout"' in body for body in answers), answers
@@ -1525,11 +1583,13 @@ def test_ariel_and_phoebus_open_through_the_op_path_in_one_tab(
                 assert json.loads(raw)["focused"] is True, raw
                 state = _settle(page)
                 assert _keys(state).count(PHOEBUS) == 1, state["shape"]
-                expect(_tab(page, PHOEBUS)).to_have_count(1)
+                expect(_bar(page, PHOEBUS)).to_have_count(1)
         assert len(answers) == 4, answers
-        assert ARIEL in _keys(state) and PHOEBUS in _keys(state)
+        assert PHOEBUS in _keys(state) and ARIEL not in _keys(state), state["shape"]
+        expect(_iframe(page, ARIEL)).to_have_count(1)
+        expect(_iframe(page, ARIEL)).to_be_hidden()
 
         assert other_posts == [], f"the other browser tab answered ops: {other_posts}"
         assert _settle(other)["shape"] == other_before["shape"]
-        expect(_tab(other, ARIEL)).to_have_count(0)
+        expect(_bar(other, ARIEL)).to_have_count(0)
         assert hub.errors == []

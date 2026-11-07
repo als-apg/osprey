@@ -11,8 +11,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from osprey.cli.build_profile import compute_profile_hash
+from osprey.cli.build_profile_document import _read_profile_document
+from osprey.cli.build_profile_merge import (
+    refuse_inputs_outside_repository,
+    resolve_profile_document,
+)
 from osprey.deployment.staleness import profile_fingerprint
+from osprey_connectors.errors import BuildProfileError
 
 _APP_YML = """\
 name: knob
@@ -83,3 +91,42 @@ def test_a_repo_without_applications_hashes_as_before(tmp_path):
     before = compute_profile_hash(profile)
     (root / "apps").mkdir()
     assert compute_profile_hash(profile) == before
+
+
+def _repo_with_package(tmp_path: Path, entry: str = "./packages/ring") -> Path:
+    root = tmp_path / "repo"
+    _write(root / "packages" / "ring" / "pyproject.toml", "[project]\nname = 'ring'\n")
+    _write(root / "packages" / "ring" / "ring.py", "VALUE = 1\n")
+    return _write(root / "profile.yml", f"name: Facility\ndependencies:\n  - {entry}\n")
+
+
+def test_editing_a_local_dependency_package_moves_the_hash(tmp_path):
+    profile = _repo_with_package(tmp_path)
+    before = compute_profile_hash(profile)
+    _write(profile.parent / "packages" / "ring" / "ring.py", "VALUE = 2\n")
+    assert compute_profile_hash(profile) != before
+
+
+def test_a_dependency_package_is_a_named_drift_input(tmp_path):
+    profile = _repo_with_package(tmp_path)
+    fingerprint = profile_fingerprint(profile)
+    assert fingerprint is not None
+    assert "material:packages/ring/" in fingerprint.key_digests
+
+
+def test_an_index_dependency_is_no_input(tmp_path):
+    root = tmp_path / "repo"
+    profile = _write(root / "profile.yml", "name: Facility\ndependencies:\n  - numpy>=1.24\n")
+    fingerprint = profile_fingerprint(profile)
+    assert fingerprint is not None
+    assert not [key for key in fingerprint.key_digests if "numpy" in key]
+
+
+def test_a_dependency_package_outside_the_repository_is_refused(tmp_path):
+    outside = tmp_path / "elsewhere"
+    _write(outside / "pyproject.toml", "[project]\nname = 'ring'\n")
+    root = tmp_path / "repo"
+    profile = _write(root / "profile.yml", f"name: Facility\ndependencies:\n  - {outside}\n")
+    document = resolve_profile_document(_read_profile_document(profile), profile, warn=False)
+    with pytest.raises(BuildProfileError, match="dependencies: .*outside the repository"):
+        refuse_inputs_outside_repository(document)

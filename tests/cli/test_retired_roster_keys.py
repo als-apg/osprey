@@ -666,7 +666,6 @@ def _lint_config(**web_terminals: object) -> dict:
         "web_base_port": default_port("web", 0, base=20000),
         "artifact_base_port": default_port("artifact", 0, base=20000),
         "ariel_base_port": default_port("ariel", 0, base=20000),
-        "lattice_base_port": default_port("lattice", 0, base=20000),
         "users": [{"name": "alice", "index": 0}, {"name": "bob", "index": 1}],
         "shared": ["logbook", "knowledge"],
         "default_tier": "readonly",

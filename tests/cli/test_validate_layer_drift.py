@@ -27,7 +27,7 @@ from osprey.cli.validate_cmd import validate
 PROFILE = "profile.yml"
 LOGBOOK = Path("tiers") / "logbook.yml"
 READONLY = Path("tiers") / "readonly.yml"
-EXAMPLE_ARTIFACT = "artifact_server.example_artifact: false"
+PICKER = "web.control_target_picker: false"
 
 
 @pytest.fixture(scope="module")
@@ -103,12 +103,12 @@ def test_every_login_file_is_paired(repo: Path) -> None:
 
 
 def test_one_edited_shared_login_key_is_one_drift_line(repo: Path) -> None:
-    _edit(repo / LOGBOOK, EXAMPLE_ARTIFACT, "artifact_server.example_artifact: true")
+    _edit(repo / LOGBOOK, PICKER, "web.control_target_picker: true")
     report = _report(repo)
     assert len(report.unmarked) == 1
     finding = report.unmarked[0]
     assert finding.kind == "value"
-    assert finding.subject == "config.artifact_server.example_artifact"
+    assert finding.subject == "config.web.control_target_picker"
     assert finding.profile_ref.startswith("tiers/logbook.yml:")
 
     result = _validate(str(repo / PROFILE))
@@ -116,11 +116,11 @@ def test_one_edited_shared_login_key_is_one_drift_line(repo: Path) -> None:
     lines = _drift_lines(result.output)
     assert len(lines) == 1, result.output
     assert "tiers/logbook.yml" in lines[0]
-    assert "artifact_server.example_artifact" in lines[0]
+    assert "web.control_target_picker" in lines[0]
 
 
 def test_validating_the_shared_login_file_reports_that_login_only(repo: Path) -> None:
-    _edit(repo / LOGBOOK, EXAMPLE_ARTIFACT, "artifact_server.example_artifact: true")
+    _edit(repo / LOGBOOK, PICKER, "web.control_target_picker: true")
     _edit(repo / READONLY, "control_system.writes: never", "control_system.writes: asked")
     refs = [f.profile_ref for f in _report(repo, repo / LOGBOOK).unmarked]
     assert len(refs) == 1 and refs[0].startswith("tiers/logbook.yml:")
@@ -143,8 +143,8 @@ def test_structural_shared_login_drift_is_refused(repo: Path) -> None:
 def test_a_marker_claims_a_layer_difference(repo: Path) -> None:
     _edit(
         repo / LOGBOOK,
-        EXAMPLE_ARTIFACT,
-        "# DEVIATION: our gallery shows the example\n  artifact_server.example_artifact: true",
+        PICKER,
+        "# DEVIATION: our logbook shows the picker\n  web.control_target_picker: true",
     )
     report = _report(repo)
     assert report.unmarked == []

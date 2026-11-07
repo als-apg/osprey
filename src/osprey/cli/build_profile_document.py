@@ -1133,6 +1133,108 @@ def normalize_retired_web_keys(raw: dict[str, Any], source: str) -> dict[str, An
     return raw
 
 
+#: The gallery no longer seeds a shipped example artifact, so the key that
+#: switched it on is dropped from a profile that still states it.
+RETIRED_EXAMPLE_ARTIFACT_KEY = "artifact_server.example_artifact"
+
+
+def normalize_retired_example_artifact(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Drop ``artifact_server.example_artifact`` under ``config:``, in place.
+
+    Every repo materialized from the control-assistant preset states it. Each
+    spelling (and any mapping that empties) warns once per *source* and is
+    dropped.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the warning.
+
+    Returns:
+        ``raw``.
+    """
+    for chain in _leaf_spellings(raw.get("config"), RETIRED_EXAMPLE_ARTIFACT_KEY.split(".")):
+        spelled = ": ".join(key for _mapping, key in chain)
+        for mapping, key in reversed(chain):
+            del mapping[key]
+            if mapping:
+                break
+        if (source, spelled) not in _WARNED_RETIRED_KEYS:
+            _WARNED_RETIRED_KEYS.add((source, spelled))
+            _LOGGER.warning("%s: `%s` is no longer read; delete it", source, spelled)
+    return raw
+
+
+#: The retired LATTICE panel's id, and the ``config:`` paths that configured it:
+#: its ``web.panels`` block and the dashboard server's own section.
+RETIRED_PANEL_ID = "lattice"
+_RETIRED_PANEL_CONFIG = (("web", "panels", RETIRED_PANEL_ID), ("lattice_dashboard",))
+
+
+def _drop_config_path(node: dict, prefix: tuple[str, ...], path: tuple[str, ...] = ()) -> list[str]:
+    """Delete every key of *node* at or below *prefix*, in any dotted spelling.
+
+    A mapping emptied by the deletion goes with it. Returns the dotted path of
+    each key deleted.
+    """
+    dropped: list[str] = []
+    for key in list(node):
+        if not isinstance(key, str):
+            continue
+        full = path + tuple(key.split("."))
+        depth = min(len(full), len(prefix))
+        if full[:depth] != prefix[:depth]:
+            continue
+        if len(full) >= len(prefix):
+            del node[key]
+            dropped.append(".".join(full))
+        elif isinstance(node[key], dict):
+            dropped.extend(_drop_config_path(node[key], prefix, full))
+            if not node[key]:
+                del node[key]
+    return dropped
+
+
+def normalize_retired_panel(raw: dict[str, Any], source: str) -> dict[str, Any]:
+    """Drop the retired LATTICE panel from one profile document, in place.
+
+    Every repo materialized from the control-assistant preset selects it, and a
+    tab that no longer exists has nothing to protect, so each spelling — the
+    ``web_panels`` entry, a ``default_panel`` naming it, and its ``config:``
+    keys — warns once per *source* and is dropped.
+
+    Args:
+        raw: One raw profile mapping, mutated in place.
+        source: How to name the document in the warning.
+
+    Returns:
+        ``raw``.
+    """
+    panels = raw.get("web_panels")
+    if isinstance(panels, list) and RETIRED_PANEL_ID in panels:
+        raw["web_panels"] = [panel for panel in panels if panel != RETIRED_PANEL_ID]
+        _warn_retired_panel(source, f"web_panels: {RETIRED_PANEL_ID}")
+    if raw.get("default_panel") == RETIRED_PANEL_ID:
+        del raw["default_panel"]
+        _warn_retired_panel(source, f"default_panel: {RETIRED_PANEL_ID}")
+    config = raw.get("config")
+    if isinstance(config, dict):
+        for prefix in _RETIRED_PANEL_CONFIG:
+            for spelled in _drop_config_path(config, prefix):
+                _warn_retired_panel(source, f"config: {spelled}")
+    return raw
+
+
+def _warn_retired_panel(source: str, spelled: str) -> None:
+    if (source, spelled) in _WARNED_RETIRED_KEYS:
+        return
+    _WARNED_RETIRED_KEYS.add((source, spelled))
+    _LOGGER.warning(
+        "%s: `%s` is no longer read — the LATTICE panel was retired; delete it",
+        source,
+        spelled,
+    )
+
+
 def _read_profile_document(path: Path, source: str | None = None) -> Any:
     """Read one raw profile-YAML document.
 
@@ -1184,6 +1286,8 @@ def _parse_profile_document(text: str, source: str, *, path: Path | None = None)
         normalize_retired_write_keys(raw, source, path=path)
         normalize_retired_approval_policies(raw, source)
         normalize_retired_web_keys(raw, source)
+        normalize_retired_example_artifact(raw, source)
+        normalize_retired_panel(raw, source)
         normalize_retired_bar_items(raw, source)
     elif path is not None:
         _RETIRED_WRITE_ORIGINS.pop(Path(path).resolve(), None)

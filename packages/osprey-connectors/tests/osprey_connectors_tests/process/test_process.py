@@ -9,13 +9,7 @@ import sys
 
 import pytest
 
-from osprey_connectors.process import (
-    ChildExit,
-    ExitCause,
-    JobSlots,
-    reap_exit_code,
-    terminate,
-)
+from osprey_connectors.process import reap_exit_code, terminate
 from osprey_connectors_tests._paths import PACKAGE_SRC
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal semantics")
@@ -162,6 +156,10 @@ async def test_a_child_that_ignores_sigterm_is_killed():
     assert process.returncode == -signal.SIGKILL
 
 
+#: Seconds a child that has closed its pipe gets to finish exiting on a loaded host.
+_EXIT_WAIT_S = 30.0
+
+
 @posix_only
 async def test_terminate_returns_the_reaped_code():
     exited = await asyncio.create_subprocess_exec(
@@ -180,200 +178,6 @@ async def test_terminate_returns_the_reaped_code():
         sys.executable, "-c", "import time; time.sleep(60)"
     )
     assert await terminate(sleeping, 0.5) == -signal.SIGTERM
-
-
-_SLEEP = "import time; time.sleep(60)"
-
-#: Seconds a child that has closed its pipe gets to finish exiting on a loaded host.
-_EXIT_WAIT_S = 30.0
-
-
-def _python(code: str, *args: str) -> list[str]:
-    return [sys.executable, "-c", code, *args]
-
-
-async def test_a_job_that_exits_zero_is_completed():
-    job = JobSlots().reserve("worker")
-    await job.start(_python("pass"))
-
-    exit_ = await job.wait()
-
-    assert exit_ == ChildExit(job.job, ExitCause.COMPLETED, 0, "")
-
-
-async def test_a_job_that_exits_nonzero_unasked_is_failed_with_its_code():
-    job = JobSlots().reserve("worker")
-    await job.start(_python("import os; os._exit(3)"))
-
-    exit_ = await job.wait()
-
-    assert (exit_.cause, exit_.returncode) == (ExitCause.FAILED, 3)
-
-
-@posix_only
-async def test_a_job_stopped_after_its_own_sigterm_is_cancelled_not_failed():
-    job = JobSlots().reserve("worker")
-    await job.start(_python(_SLEEP))
-
-    exit_ = await job.stop()
-
-    assert (exit_.cause, exit_.returncode) == (ExitCause.CANCELLED, -signal.SIGTERM)
-    assert await job.wait() is exit_
-
-
-@posix_only
-async def test_a_job_past_its_deadline_is_timed_out():
-    job = JobSlots().reserve("worker")
-    await job.start(_python(_SLEEP))
-
-    exit_ = await job.wait(deadline_s=0.2)
-
-    assert exit_.cause is ExitCause.TIMED_OUT
-    assert exit_.returncode == job.process.returncode == -signal.SIGTERM
-
-
-@posix_only
-async def test_the_first_asked_cause_wins():
-    job = JobSlots().reserve("worker")
-    await job.start(_python(_SLEEP))
-
-    job.asked(ExitCause.TIMED_OUT)
-    exit_ = await job.stop(ExitCause.CANCELLED)
-
-    assert exit_.cause is ExitCause.TIMED_OUT
-
-
-async def test_reserve_mints_the_job_id_before_start():
-    job = JobSlots().reserve("worker")
-    assert job.process is None
-    assert job.pid is None
-
-    await job.start(
-        _python("import sys; print(sys.argv[1], flush=True)", str(job.job)),
-        stdout=asyncio.subprocess.PIPE,
-    )
-    printed = await asyncio.wait_for(job.process.stdout.read(), 10.0)
-    await job.wait()
-
-    assert printed.strip().decode() == str(job.job)
-    assert job.pid == job.process.pid
-
-
-@posix_only
-async def test_a_new_reservation_makes_the_old_job_non_current_and_reaps_it_before_the_new_spawn():
-    slots = JobSlots()
-    old = slots.reserve("worker")
-    await old.start(_python(_SLEEP))
-    old_pid = old.pid
-
-    new = slots.reserve("worker")
-    assert not slots.is_current(old)
-    assert slots.is_current(new)
-    assert slots.current("worker") is new
-
-    # The new child probes the old pid as its first act, so it reports what
-    # existed at the moment it was spawned.
-    probe = (
-        "import os, sys\n"
-        "try:\n"
-        "    os.kill(int(sys.argv[1]), 0)\n"
-        "    print('alive', flush=True)\n"
-        "except ProcessLookupError:\n"
-        "    print('gone', flush=True)\n"
-    )
-    await new.start(_python(probe, str(old_pid)), stdout=asyncio.subprocess.PIPE)
-    seen = await asyncio.wait_for(new.process.stdout.read(), 10.0)
-    await new.wait()
-
-    assert seen.strip() == b"gone"
-    with pytest.raises(ProcessLookupError):
-        os.kill(old_pid, 0)
-    assert (await old.wait()).cause is ExitCause.CANCELLED
-
-
-async def test_a_job_superseded_before_it_starts_spawns_nothing():
-    slots = JobSlots()
-    old = slots.reserve("worker")
-    slots.reserve("worker")
-
-    await old.start(_python(_SLEEP))
-
-    assert old.process is None
-    exit_ = await old.wait()
-    assert (exit_.cause, exit_.returncode) == (ExitCause.CANCELLED, None)
-
-
-async def test_waiting_on_a_job_that_was_never_started_raises_and_leaves_it_startable():
-    slots = JobSlots()
-    job = slots.reserve("worker")
-
-    with pytest.raises(RuntimeError, match=rf"^job {job.job} was never started$"):
-        await job.wait()
-
-    assert slots.current("worker") is job
-    await job.start(_python("pass"))
-    assert job.process is not None
-    assert await job.wait() == ChildExit(job.job, ExitCause.COMPLETED, 0, "")
-
-
-async def test_stopping_a_job_before_it_starts_ends_it_cancelled_without_a_returncode():
-    job = JobSlots().reserve("worker")
-
-    exit_ = await job.stop()
-
-    assert exit_ == ChildExit(job.job, ExitCause.CANCELLED, None, "")
-    await job.start(_python(_SLEEP))
-    assert job.process is None
-
-
-async def test_waiting_after_a_stop_before_start_returns_that_exit():
-    slots = JobSlots()
-    job = slots.reserve("worker")
-
-    exits = await slots.stop_all()
-
-    assert await job.wait() is exits[0]
-    assert (exits[0].cause, exits[0].returncode) == (ExitCause.CANCELLED, None)
-
-
-@posix_only
-async def test_stop_all_returns_only_after_every_child_is_reaped():
-    slots = JobSlots()
-    jobs = [slots.reserve(name) for name in ("a", "b", "c")]
-    for job in jobs:
-        await job.start(_python(_SLEEP))
-
-    exits = await slots.stop_all()
-
-    assert sorted(exit_.job for exit_ in exits) == sorted(job.job for job in jobs)
-    assert all(job.process.returncode is not None for job in jobs)
-    assert all(exit_.cause is ExitCause.CANCELLED for exit_ in exits)
-    assert [slots.current(name) for name in ("a", "b", "c")] == [None, None, None]
-
-
-def test_job_ids_are_unique_across_slots():
-    first, second = JobSlots(), JobSlots()
-
-    ids = [first.reserve("a").job, first.reserve("b").job, second.reserve("a").job]
-
-    assert len(set(ids)) == len(ids)
-
-
-async def test_a_job_writing_a_mebibyte_to_stderr_still_completes_and_keeps_its_tail():
-    code = (
-        "import sys\n"
-        "data = bytes(65 + i % 26 for i in range(1 << 20))\n"
-        "sys.stderr.buffer.write(data)\n"
-        "sys.stderr.flush()\n"
-    )
-    expected = bytes(65 + i % 26 for i in range(1 << 20))[-500:].decode()
-    job = JobSlots().reserve("worker")
-    await job.start(_python(code), collect_stderr=500)
-
-    exit_ = await job.wait(deadline_s=30.0)
-
-    assert exit_.cause is ExitCause.COMPLETED
-    assert exit_.stderr_tail == expected
 
 
 def test_the_module_imports_only_the_standard_library():

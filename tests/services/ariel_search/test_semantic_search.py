@@ -341,12 +341,13 @@ class TestEmbeddingTimeout:
         self, monkeypatch, mock_repository, mock_embedder, search_calls
     ):
         from osprey.services.ariel_search.exceptions import SearchTimeoutError
-        from osprey.services.ariel_search.search import semantic
+        from osprey.services.ariel_search.search._offload import SearchCallPool
 
         async def saturated(*_args, **_kwargs):
             raise TimeoutError("search calls saturated: 4 calls still running")
 
-        monkeypatch.setattr(semantic, "run_search_call", saturated)
+        search_calls = SearchCallPool()
+        monkeypatch.setattr(search_calls, "run", saturated)
 
         with pytest.raises(SearchTimeoutError, match="search calls saturated") as raised:
             await semantic_search(

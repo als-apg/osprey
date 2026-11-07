@@ -90,7 +90,7 @@ from osprey.services.ariel_search.search.base import (
     module_result,
 )
 from osprey.services.ariel_search.subject import entry_subject
-from osprey.services.qmd import QMDClient, QMDUnavailableError
+from osprey.services.qmd import QMDClient, QMDClientError, QMDUnavailableError
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -303,6 +303,7 @@ async def hybrid_search(
     config: ARIELConfig,
     embedder: BaseProvider | None = None,
     *,
+    search_calls: SearchCallPool,
     max_results: int = 10,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
@@ -313,7 +314,6 @@ async def hybrid_search(
     client: QMDClient | None = None,
     query_expansion: QueryExpansion | None = None,
     include_images: bool | None = None,
-    search_calls: SearchCallPool,
     entry_filter: EntryFilter | None = None,
     offset: int | None = None,
     **kwargs: Any,
@@ -340,6 +340,8 @@ async def hybrid_search(
         embedder: Provider used by ARIEL's existing semantic search, for the
             ``rrf`` strategy only. When omitted, the ``rrf`` path resolves the
             configured provider class; the ``qmd`` strategy never touches it.
+        search_calls: The pool the query embeddings of the semantic and
+            picture lanes run on.
         max_results: Maximum text-lane entries to return (default: 10).
             Image-only entries are counted separately, at most
             ``ceil(max_results / 3)`` of them.
@@ -366,9 +368,6 @@ async def hybrid_search(
             original `query`.
         include_images: Whether the picture lane runs. ``None`` means on
             exactly when ``image_embedding`` is enabled.
-        search_calls: The search service's search-call pool. Every provider
-            call of every lane runs on it: the picture lane embeds the query
-            there, and so does the ``rrf`` strategy's semantic lane.
         entry_filter: Dimension filter (C-FILTER). Hydrated hits of both lanes
             must pass ``EntryFilter.matches`` alongside the legacy filters
             above, and the ``rrf`` semantic lane applies it in SQL.
@@ -404,14 +403,21 @@ async def hybrid_search(
         results come from the unreranked retry, the picture lane failed, or
         the sidecar is down and the results are picture matches only, and
         whenever `entry_filter` or `offset` was passed (``filter_applied``
-        true when a filter was).
+        true when a filter was). Under ``strategy: rrf`` one lost text lane is
+        a diagnostic too: a failed semantic lane (timeout, unreachable
+        provider, model error) leaves the keyword ranking with a
+        ``semantic_search`` warning, and a sidecar that is down or fails the
+        query leaves the semantic ranking with a ``text_ranking`` warning.
 
     Raises:
         QMDUnavailableError: If no sidecar is configured, or the configured one
             is not answering, and the picture lane matched nothing (or did not
-            run). This is deliberately not an empty result: "search is down"
-            and "nothing matched" must not look alike to the agent.
-        QMDClientError: If the sidecar was reached but could not answer. A
+            run). Under ``strategy: rrf`` only when the semantic lane failed
+            too, with a message naming both causes. This is deliberately not an
+            empty result: "search is down" and "nothing matched" must not look
+            alike to the agent.
+        QMDClientError: If the sidecar was reached but could not answer (not
+            under ``strategy: rrf``, whose semantic lane answers instead). A
             reranked query that fails is retried once without the reranker, so
             what surfaces here is the retry's failure, not the first attempt's.
         SearchConfigurationError: If the module's config block holds a
@@ -581,9 +587,9 @@ async def _hybrid_search(
             candidate_limit=effective_candidates,
             client=client,
             embedder=embedder,
+            search_calls=search_calls,
             query_expansion=query_expansion,
             img_task=img_task,
-            search_calls=search_calls,
             paging=paging,
         )
     finally:
@@ -604,6 +610,21 @@ SEMANTIC_UNAVAILABLE_MESSAGE = (
     "Semantic ranking unavailable — the query embedding timed out, so results "
     "are ranked on keywords only."
 )
+
+#: Opening of the diagnostic an RRF answer carries when its keyword lane is lost;
+#: :func:`_keyword_unavailable_message` completes it with the cause.
+KEYWORD_UNAVAILABLE_MESSAGE = "Keyword ranking unavailable"
+
+
+def _keyword_unavailable_message(cause: str) -> str:
+    """The semantic-only diagnostic, naming why the keyword lane is missing."""
+    return f"{KEYWORD_UNAVAILABLE_MESSAGE} — {cause}, so results are ranked on meaning only."
+
+
+def _semantic_unavailable_message(cause: str) -> str:
+    """The keyword-only diagnostic for a semantic lane that failed, not timed out."""
+    return f"Semantic ranking unavailable — {cause}, so results are ranked on keywords only."
+
 
 #: Opening of the diagnostic an image-only answer to a sidecar outage carries;
 #: :func:`_text_unavailable_message` completes it with the sidecar dialled.
@@ -643,9 +664,9 @@ async def _ranked_search(
     candidate_limit: int | None,
     client: QMDClient | None,
     embedder: BaseProvider | None,
+    search_calls: SearchCallPool,
     query_expansion: QueryExpansion | None,
     img_task: asyncio.Task[dict[str, fusion.ImageHit] | None] | None,
-    search_calls: SearchCallPool,
     paging: _Paging | None = None,
 ) -> list[tuple[EnhancedLogbookEntry, float, list[str]]] | ModuleOutput:
     """Run the text lane, join the picture lane when it ran, and shape the result.
@@ -656,47 +677,10 @@ async def _ranked_search(
     result is one page with its totals.
     """
     page_total: list[int] = []
-    qmd, available = await asyncio.to_thread(_resolve_client, client)
-    if not available:
-        image_hits = await img_task if img_task is not None else None
-        if image_hits:
-            results = await _fused_results(
-                [],
-                image_hits,
-                repository,
-                config,
-                filters=filters,
-                max_results=max_results,
-                query=query,
-                query_expansion=query_expansion,
-                paging=paging,
-                page_total=page_total,
-            )
-            logger.info(f"hybrid_search: sidecar down, returning {len(results)} picture matches")
-            total, has_more = paging.totals(page_total[0]) if paging else (None, None)
-            return ModuleOutput(
-                entries=results,
-                total=total,
-                has_more=has_more,
-                diagnostics=(
-                    SearchDiagnostic(
-                        level=DiagnosticLevel.WARNING,
-                        source="hybrid",
-                        message=_text_unavailable_message(qmd),
-                        category="text_ranking",
-                    ),
-                ),
-                expansion=query_expansion.groups if query_expansion else (),
-            )
-        raise QMDUnavailableError(_sidecar_cause(qmd))
-
-    logger.info(
-        f"hybrid_search: query={query!r}, max_results={max_results}, fetch_limit={fetch_limit}, "
-        f"strategy={settings.strategy}, rerank={rerank}, candidate_limit={candidate_limit}, "
-        f"picture_lane={img_task is not None}"
-    )
-
     lane_limit = max(fetch_limit, candidate_limit or fetch_limit)
+    # The RRF semantic lane needs no sidecar, so it starts before the sidecar
+    # is resolved: a qmd outage then costs hybrid its keyword lane, not the
+    # whole answer.
     semantic_task: asyncio.Task[list[_RankedTextHit]] | None = None
     if rrf:
         semantic_task = asyncio.create_task(
@@ -705,35 +689,90 @@ async def _ranked_search(
                 repository,
                 config,
                 embedder,
+                search_calls=search_calls,
                 limit=lane_limit,
                 filters=filters,
                 query_expansion=query_expansion,
-                search_calls=search_calls,
             )
         )
+    # Why the RRF keyword lane is missing, or ``None`` when it answered.
+    lexical_failure: str | None = None
+    hits: list[QMDSearchResult] = []
+    diagnostics: tuple[SearchDiagnostic, ...] = ()
+    rerank_order: list[str] | None = None
     try:
-        hits, diagnostics = await _fetch_hits(
-            qmd,
-            settings.collection,
-            query_expansion.flattened_text if query_expansion else query,
-            limit=fetch_limit,
-            rerank=rerank,
-            lexical_only=rrf,
-            candidate_limit=candidate_limit,
-        )
-        rerank_order: list[str] | None = None
-        if paging is not None and paging.rerank:
-            reranked, rerank_diagnostics = await _fetch_hits(
+        qmd, available = await asyncio.to_thread(_resolve_client, client)
+        if not available and semantic_task is None:
+            image_hits = await img_task if img_task is not None else None
+            if image_hits:
+                results = await _fused_results(
+                    [],
+                    image_hits,
+                    repository,
+                    config,
+                    filters=filters,
+                    max_results=max_results,
+                    query=query,
+                    query_expansion=query_expansion,
+                    paging=paging,
+                    page_total=page_total,
+                )
+                logger.info(
+                    f"hybrid_search: sidecar down, returning {len(results)} picture matches"
+                )
+                total, has_more = paging.totals(page_total[0]) if paging else (None, None)
+                return ModuleOutput(
+                    entries=results,
+                    total=total,
+                    has_more=has_more,
+                    diagnostics=(
+                        SearchDiagnostic(
+                            level=DiagnosticLevel.WARNING,
+                            source="hybrid",
+                            message=_text_unavailable_message(qmd),
+                            category="text_ranking",
+                        ),
+                    ),
+                    expansion=query_expansion.groups if query_expansion else (),
+                )
+            raise QMDUnavailableError(_sidecar_cause(qmd))
+        if not available:
+            lexical_failure = _sidecar_cause(qmd)
+        else:
+            logger.info(
+                f"hybrid_search: query={query!r}, max_results={max_results}, "
+                f"fetch_limit={fetch_limit}, strategy={settings.strategy}, rerank={rerank}, "
+                f"candidate_limit={candidate_limit}, picture_lane={img_task is not None}"
+            )
+            hits, diagnostics = await _fetch_hits(
                 qmd,
                 settings.collection,
                 query_expansion.flattened_text if query_expansion else query,
                 limit=fetch_limit,
-                rerank=True,
+                rerank=rerank,
                 lexical_only=rrf,
                 candidate_limit=candidate_limit,
             )
-            diagnostics = (*diagnostics, *rerank_diagnostics)
-            rerank_order = [hit.entry_id for hit in _decode_hits(reranked)]
+            if paging is not None and paging.rerank:
+                reranked, rerank_diagnostics = await _fetch_hits(
+                    qmd,
+                    settings.collection,
+                    query_expansion.flattened_text if query_expansion else query,
+                    limit=fetch_limit,
+                    rerank=True,
+                    lexical_only=rrf,
+                    candidate_limit=candidate_limit,
+                )
+                diagnostics = (*diagnostics, *rerank_diagnostics)
+                rerank_order = [hit.entry_id for hit in _decode_hits(reranked)]
+    except QMDClientError as exc:
+        if semantic_task is None:
+            raise
+        # The sidecar answered /health and then failed the query: under RRF
+        # that is one lane down, the same as a sidecar that never answered.
+        logger.warning(f"hybrid_search: keyword lane failed: {exc}")
+        lexical_failure = f"the qmd sidecar failed the query ({exc})"
+        hits, diagnostics, rerank_order = [], (), None
     except BaseException:
         if semantic_task is not None:
             semantic_task.cancel()
@@ -779,6 +818,8 @@ async def _ranked_search(
 
     ranked = _decode_hits(hits)
     if semantic_task is not None:
+        semantic_failure: str | None = None
+        semantic_message = SEMANTIC_UNAVAILABLE_MESSAGE
         try:
             semantic = await semantic_task
         except SearchTimeoutError as e:
@@ -786,12 +827,51 @@ async def _ranked_search(
             # lane, never the keyword answer the sidecar already gave.
             logger.warning(f"hybrid_search: semantic lane skipped: {e}")
             semantic = []
+            semantic_failure = "the query embedding timed out"
+        except Exception as e:
+            # Any other fault (provider unreachable, model error, database) is
+            # the same lost lane, and must be said: an empty lane reads as
+            # "no semantic matches".
+            logger.warning(f"hybrid_search: semantic lane failed: {e}")
+            semantic = []
+            semantic_failure = str(e) or type(e).__name__
+            semantic_message = _semantic_unavailable_message(semantic_failure)
+        if lexical_failure is not None and semantic_failure is not None:
+            if not image_hits:
+                raise QMDUnavailableError(
+                    f"both text lanes are down: keyword ranking ({lexical_failure}) "
+                    f"and semantic ranking ({semantic_failure})"
+                )
             diagnostics = (
                 *diagnostics,
                 SearchDiagnostic(
                     level=DiagnosticLevel.WARNING,
                     source="hybrid",
-                    message=SEMANTIC_UNAVAILABLE_MESSAGE,
+                    message=(
+                        f"{TEXT_UNAVAILABLE_MESSAGE}; keyword ranking failed "
+                        f"({lexical_failure}) and semantic ranking failed "
+                        f"({semantic_failure}), so entries matching on text are missing."
+                    ),
+                    category="text_ranking",
+                ),
+            )
+        elif lexical_failure is not None:
+            diagnostics = (
+                *diagnostics,
+                SearchDiagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    source="hybrid",
+                    message=_keyword_unavailable_message(lexical_failure),
+                    category="text_ranking",
+                ),
+            )
+        elif semantic_failure is not None:
+            diagnostics = (
+                *diagnostics,
+                SearchDiagnostic(
+                    level=DiagnosticLevel.WARNING,
+                    source="hybrid",
+                    message=semantic_message,
                     category="semantic_search",
                 ),
             )
@@ -1082,10 +1162,10 @@ async def _semantic_hits(
     config: ARIELConfig,
     embedder: BaseProvider | None,
     *,
+    search_calls: SearchCallPool,
     limit: int,
     filters: _Filters,
     query_expansion: QueryExpansion | None,
-    search_calls: SearchCallPool,
 ) -> list[_RankedTextHit]:
     """Run the existing Nomic/pgvector search and reduce it to an RRF lane."""
     if not config.get_search_model():
@@ -1105,6 +1185,7 @@ async def _semantic_hits(
         repository,
         config,
         embedder,
+        search_calls=search_calls,
         max_results=limit,
         # Hybrid needs a candidate ranking rather than semantic mode's
         # operator-facing cutoff; RRF itself decides the final order.
@@ -1114,7 +1195,6 @@ async def _semantic_hits(
         author=filters.author,
         source_system=filters.source_system,
         query_expansion=query_expansion,
-        search_calls=search_calls,
         **narrowed,
     )
     rows = output.entries if isinstance(output, ModuleOutput) else output

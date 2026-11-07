@@ -37,8 +37,9 @@ pause option, how long to wait, what "already paused" and "it finished while we
 were pausing" mean) is stated in that method's docstring.
 
 All failures leave this module as one of the :class:`QueueBackendError`
-subclasses below, each carrying a stable ``reason`` code; the route layer maps
-the type to an HTTP status and puts the code on the wire.
+subclasses below, each carrying a stable ``reason`` code. :data:`REFUSAL_REASONS`
+gives every such code its HTTP status and whether retrying can help; the route
+layer reads both from it and puts the code on the wire.
 """
 
 from __future__ import annotations
@@ -48,11 +49,14 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeoutError
 
+from osprey.utils.launch_token import LAUNCH_TOKEN_INVALID, LAUNCH_TOKEN_REQUIRED
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
@@ -64,6 +68,14 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
 # different — and differently actionable — failure than a deployed manager that
 # will not answer.
 QSERVER_CONTROL_ADDRESS_ENV = "QSERVER_ZMQ_CONTROL_ADDRESS"
+
+# What a bridge with no queue server says on every surface: the fact and the
+# operator's remedy.
+MANAGER_NOT_CONFIGURED_DETAIL = (
+    "No queue server is configured for this deployment "
+    f"({QSERVER_CONTROL_ADDRESS_ENV} is unset), so plans cannot be executed. "
+    "Redeploy so the rendered bridge names its queue server."
+)
 
 EXTERNAL_WORKER_ENV = "BLUESKY_EXTERNAL_WORKER"
 """Set (to ``"1"``) by the compose render when this lane fronts a facility-run
@@ -216,6 +228,100 @@ REASON_MANAGER_UNREACHABLE = "manager_unreachable"
 # module pulls in `bluesky-queueserver-api`, which that server refuses to
 # depend on) and a test pins the two spellings equal.
 REASON_CONTROL_TARGET_MISMATCH = "control_target_mismatch"
+
+# The reasons a backend failure carries beyond the capability vocabulary.
+REASON_QUEUE_BACKEND_ERROR = "queue_backend_error"
+REASON_QUEUE_REQUEST_REJECTED = "queue_request_rejected"
+REASON_INVALID_ITEM = "invalid_item"
+REASON_ENVIRONMENT_UNAVAILABLE = "environment_unavailable"
+REASON_NOTHING_RUNNING = "nothing_running"
+REASON_ABORT_PAUSE_TIMEOUT = "abort_pause_timeout"
+REASON_FUNCTION_TIMEOUT = "function_timeout"
+REASON_FUNCTION_FAILED = "function_failed"
+
+# The codes the bridge's routes mint themselves, declared here beside the
+# backend's because every surface — panels, the JS queue client, the MCP tools —
+# branches on these strings, and a code minted in one layer but unknown to the
+# others is a code nobody can answer.
+REASON_INTERRUPTED_ITEM_IN_QUEUE = "interrupted_item_in_queue"
+REASON_MANAGER_NOT_IDLE = "manager_not_idle"
+REASON_QUEUE_CHANGED_SINCE_APPROVAL = "queue_changed_since_approval"
+REASON_UNKNOWN_DEVICE = "unknown_device"
+REASON_STALE_DRAFT_REVISION = "stale_draft_revision"
+REASON_DRAFT_REVISION_ALREADY_LAUNCHED = "draft_revision_already_launched"
+REASON_SESSION_PLAN_UNVALIDATED = "session_plan_unvalidated"
+REASON_SESSION_PLAN_NOT_IN_NAMESPACE = "session_plan_not_in_namespace"
+REASON_PLAN_NAME_MISMATCH = "plan_name_mismatch"
+REASON_NO_DRAFT = "no_draft"
+REASON_USE_THE_QUEUE = "use_the_queue"
+REASON_RUN_NOT_FINISHED = "run_not_finished"
+REASON_UNSUPPORTED_FORMAT = "unsupported_format"
+REASON_TILED_NOT_CONFIGURED = "tiled_not_configured"
+REASON_TILED_UNAVAILABLE = "tiled_unavailable"
+REASON_UNKNOWN_RUN = "unknown_run"
+REASON_NOTHING_STORED = "nothing_stored"
+REASON_AMBIGUOUS_TABLE = "ambiguous_table"
+REASON_EXPORT_FAILED = "export_failed"
+
+
+@dataclass(frozen=True)
+class ReasonRecord:
+    """How the queue surface answers one refusal reason.
+
+    Attributes:
+        status: The HTTP status the refusal is answered with.
+        retryable: True only when the same request can succeed unchanged later.
+    """
+
+    status: int
+    retryable: bool
+
+
+# Every refusal reason has exactly one row: each `REASON_*` constant except
+# `REASON_EXECUTABLE`, which is not a refusal, the `reason` of every
+# `QueueBackendError` subclass except `ExecutionUnavailableError`, whose
+# instances carry their capability's reason, every code the routes mint, and
+# the two launch-token codes `osprey.utils.launch_token` owns. Every surface
+# that answers a refusal reads its status and retryability here.
+REFUSAL_REASONS: Mapping[str, ReasonRecord] = MappingProxyType(
+    {
+        REASON_BROWSE_ONLY_CONNECTOR: ReasonRecord(409, False),
+        REASON_UNSUPPORTED_CONNECTOR: ReasonRecord(409, False),
+        REASON_CONFIG_UNREADABLE: ReasonRecord(409, False),
+        REASON_MANAGER_NOT_CONFIGURED: ReasonRecord(409, False),
+        REASON_MANAGER_UNREACHABLE: ReasonRecord(503, True),
+        REASON_CONTROL_TARGET_MISMATCH: ReasonRecord(409, False),
+        REASON_ENVIRONMENT_UNAVAILABLE: ReasonRecord(503, True),
+        REASON_ABORT_PAUSE_TIMEOUT: ReasonRecord(503, True),
+        REASON_QUEUE_REQUEST_REJECTED: ReasonRecord(409, False),
+        REASON_NOTHING_RUNNING: ReasonRecord(409, False),
+        REASON_INVALID_ITEM: ReasonRecord(400, False),
+        REASON_FUNCTION_TIMEOUT: ReasonRecord(500, False),
+        REASON_FUNCTION_FAILED: ReasonRecord(500, False),
+        REASON_QUEUE_BACKEND_ERROR: ReasonRecord(500, False),
+        LAUNCH_TOKEN_REQUIRED: ReasonRecord(503, False),
+        LAUNCH_TOKEN_INVALID: ReasonRecord(403, False),
+        REASON_INTERRUPTED_ITEM_IN_QUEUE: ReasonRecord(409, False),
+        REASON_MANAGER_NOT_IDLE: ReasonRecord(409, False),
+        REASON_QUEUE_CHANGED_SINCE_APPROVAL: ReasonRecord(409, False),
+        REASON_UNKNOWN_DEVICE: ReasonRecord(400, False),
+        REASON_STALE_DRAFT_REVISION: ReasonRecord(409, False),
+        REASON_DRAFT_REVISION_ALREADY_LAUNCHED: ReasonRecord(409, False),
+        REASON_SESSION_PLAN_UNVALIDATED: ReasonRecord(409, False),
+        REASON_SESSION_PLAN_NOT_IN_NAMESPACE: ReasonRecord(409, False),
+        REASON_PLAN_NAME_MISMATCH: ReasonRecord(409, False),
+        REASON_NO_DRAFT: ReasonRecord(409, False),
+        REASON_USE_THE_QUEUE: ReasonRecord(410, False),
+        REASON_RUN_NOT_FINISHED: ReasonRecord(409, False),
+        REASON_UNSUPPORTED_FORMAT: ReasonRecord(400, False),
+        REASON_TILED_NOT_CONFIGURED: ReasonRecord(409, False),
+        REASON_TILED_UNAVAILABLE: ReasonRecord(503, True),
+        REASON_UNKNOWN_RUN: ReasonRecord(404, False),
+        REASON_NOTHING_STORED: ReasonRecord(409, False),
+        REASON_AMBIGUOUS_TABLE: ReasonRecord(409, False),
+        REASON_EXPORT_FAILED: ReasonRecord(502, False),
+    }
+)
 
 # The env var naming which plan LANE this bridge process is — the service key
 # of its own config block (`bluesky`, `bluesky_va`, `bluesky_live`), written
@@ -458,7 +564,7 @@ class QueueBackendError(Exception):
     wire; the message is the human half.
     """
 
-    reason = "queue_backend_error"
+    reason = REASON_QUEUE_BACKEND_ERROR
 
 
 class QueueUnavailableError(QueueBackendError):
@@ -467,10 +573,21 @@ class QueueUnavailableError(QueueBackendError):
     reason = REASON_MANAGER_UNREACHABLE
 
 
+class ManagerNotConfiguredError(QueueUnavailableError):
+    """This deployment names no queue server, so there is no manager to reach.
+
+    A :class:`QueueUnavailableError` by kind, so every caller that treats "no
+    manager to talk to" as one case keeps doing so; its own reason tells a
+    client that only an operator can fix it.
+    """
+
+    reason = REASON_MANAGER_NOT_CONFIGURED
+
+
 class QueueRequestRejectedError(QueueBackendError):
     """The manager was reached and refused the request (bad state, unknown uid, ...)."""
 
-    reason = "queue_request_rejected"
+    reason = REASON_QUEUE_REQUEST_REJECTED
 
 
 class QueueItemInvalidError(QueueBackendError):
@@ -482,13 +599,13 @@ class QueueItemInvalidError(QueueBackendError):
     request the caller composed, which only the caller can correct.
     """
 
-    reason = "invalid_item"
+    reason = REASON_INVALID_ITEM
 
 
 class EnvironmentUnavailableError(QueueBackendError):
     """The worker environment is not open and could not be opened."""
 
-    reason = "environment_unavailable"
+    reason = REASON_ENVIRONMENT_UNAVAILABLE
 
 
 class NothingRunningError(QueueBackendError):
@@ -500,7 +617,7 @@ class NothingRunningError(QueueBackendError):
     rather than relaying a generic manager refusal.
     """
 
-    reason = "nothing_running"
+    reason = REASON_NOTHING_RUNNING
 
 
 class AbortPauseTimeoutError(QueueBackendError):
@@ -512,7 +629,7 @@ class AbortPauseTimeoutError(QueueBackendError):
     means.
     """
 
-    reason = "abort_pause_timeout"
+    reason = REASON_ABORT_PAUSE_TIMEOUT
 
 
 class FunctionTimeoutError(QueueBackendError):
@@ -524,7 +641,7 @@ class FunctionTimeoutError(QueueBackendError):
     well — the caller learns "no result yet", not "no queue server".
     """
 
-    reason = "function_timeout"
+    reason = REASON_FUNCTION_TIMEOUT
 
 
 class FunctionFailedError(QueueBackendError):
@@ -536,7 +653,7 @@ class FunctionFailedError(QueueBackendError):
     carries whatever the manager said about it.
     """
 
-    reason = "function_failed"
+    reason = REASON_FUNCTION_FAILED
 
 
 class ExecutionUnavailableError(QueueBackendError):
@@ -556,8 +673,10 @@ class Capability:
 
     Attributes:
         can_execute: True only when a reachable manager is backed by a connector
-            that can drive real Channel Access.
-        reason: Machine-readable code — one of the ``REASON_*`` constants.
+            that can drive real Channel Access, and exactly when ``reason`` is
+            :data:`REASON_EXECUTABLE`.
+        reason: Machine-readable code — :data:`REASON_EXECUTABLE` or a key of
+            :data:`REFUSAL_REASONS`. Construction fails on any other code.
         detail: Operator-facing explanation. For a browse-only in-process
             deployment it names the exact command that flips it.
         lane: The plan lane this bridge is — its own service key
@@ -582,6 +701,22 @@ class Capability:
     lane_target: str
     lane_degraded: str | None = None
 
+    def __post_init__(self) -> None:
+        executable = self.reason == REASON_EXECUTABLE
+        if not executable and self.reason not in REFUSAL_REASONS:
+            raise ValueError(f"capability reason {self.reason!r} is not a declared reason")
+        if self.can_execute != executable:
+            raise ValueError(
+                f"can_execute={self.can_execute} contradicts capability reason {self.reason!r}"
+            )
+
+    @property
+    def retryable(self) -> bool:
+        """Whether asking again can help: never when executable, else the reason's record."""
+        if self.can_execute:
+            return False
+        return REFUSAL_REASONS[self.reason].retryable
+
     def to_dict(self) -> dict[str, Any]:
         """The capability as the JSON object the status surface publishes."""
         return {
@@ -591,6 +726,7 @@ class Capability:
             "lane": self.lane,
             "lane_target": self.lane_target,
             "lane_degraded": self.lane_degraded,
+            "retryable": self.retryable,
         }
 
 
@@ -735,10 +871,7 @@ class QueueBackend:
 
     def _require_manager(self) -> Any:
         if self._manager is None:
-            raise QueueUnavailableError(
-                "No queue server is configured for this deployment "
-                f"({QSERVER_CONTROL_ADDRESS_ENV} is unset)."
-            )
+            raise ManagerNotConfiguredError(MANAGER_NOT_CONFIGURED_DETAIL)
         return self._manager
 
     async def _call(self, method: str, /, **kwargs: Any) -> dict[str, Any]:
@@ -1563,10 +1696,7 @@ class QueueBackend:
                 lane=lane,
                 lane_target=lane_target,
                 lane_degraded=lane_degraded,
-                detail=(
-                    "No queue server is configured for this deployment "
-                    f"({QSERVER_CONTROL_ADDRESS_ENV} is unset), so plans cannot be executed."
-                ),
+                detail=MANAGER_NOT_CONFIGURED_DETAIL,
             )
 
         try:

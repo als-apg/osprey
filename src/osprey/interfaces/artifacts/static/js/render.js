@@ -10,11 +10,15 @@
  * state.js and formats via types.js. (The browse split's orientation and
  * divider live in browse-layout.js.)
  *
+ * Tree mode groups by the server's listed `form` (`form_label` names the
+ * group): the registry's base forms in order, then its extension types. A
+ * run's head lists under Runs and expands to its parts (`run_parts`); the
+ * parts themselves (`form: null`) list only there.
+ *
  * Rendering needs two effects this module doesn't own — setting agent focus
  * and (re)rendering the preview pane / entering fullscreen, owned by
  * preview.js's preview renderer and wired through gallery.js — so
- * `createSidebarRenderer(callbacks)` injects them, mirroring
- * lattice_dashboard/render.js's createRenderer(callbacks) pattern.
+ * `createSidebarRenderer(callbacks)` injects them.
  *
  * @module render
  */
@@ -32,7 +36,12 @@ import {
   setPickAnchor,
 } from './state.js';
 import {
-  typeBadge,
+  formBadge,
+  formKey,
+  formOrder,
+  formSectionLabel,
+  isRunPart,
+  RUN_PART_LABELS,
   typeIcon,
   thumbnailHtml,
   escapeHtml,
@@ -104,12 +113,16 @@ export function revealDelayMs(i, stepMs = 30) {
  */
 function galleryCardHtml(a, i) {
   const sel = getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : '';
+  const parts =
+    a.form === 'runs' && Array.isArray(a.run_parts) && a.run_parts.length > 0
+      ? `<span class="tree-run-toggle" data-run="${escapeHtml(a.id)}" title="Parts">${a.run_parts.length}</span>`
+      : '';
   const pinnedCls = a.pinned ? ' pinned' : '';
   const pick = pickMarkup(a, getPickedIds());
   return `
     <div class="gallery-card${sel}${pinnedCls}${pick.cls}"${pick.aria}
          data-id="${a.id}" draggable="true"
-         data-type="${escapeHtml(a.category || a.artifact_type)}"
+         data-type="${escapeHtml(formKey(a))}"
          style="animation-delay: ${revealDelayMs(i)}ms">
       <div class="gallery-card-thumb">${thumbnailHtml(a)}</div>
       <div class="gallery-card-info">
@@ -118,9 +131,10 @@ function galleryCardHtml(a, i) {
           ${escapeHtml(a.title)}
         </div>
         <div class="gallery-card-meta">
-          <span class="gallery-card-type">${typeBadge(a.category || a.artifact_type)}</span>
+          <span class="gallery-card-type">${formBadge(a)}</span>
           <span class="gallery-card-time">${formatTime(a.timestamp)}</span>
           <span class="gallery-card-size">${formatSize(a.size_bytes)}</span>
+          ${parts}
         </div>
       </div>
     </div>`;
@@ -172,6 +186,9 @@ export function createSidebarRenderer(callbacks) {
   // because every new artifact rebuilds the sidebar via innerHTML.
   /** @type {Set<string>} */
   const collapsedSections = new Set();
+  // Run heads the user expanded to their parts; kept across rebuilds too.
+  /** @type {Set<string>} */
+  const expandedRuns = new Set();
 
   /** @returns {"tree"|"activity"} */
   function getBrowseMode() {
@@ -250,17 +267,97 @@ export function createSidebarRenderer(callbacks) {
    */
   function treeItemHtml(a, i) {
     const pick = pickMarkup(a, getPickedIds());
+    const head = runHeadMarkup(a);
     return `
-                <div class="tree-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : ''}${a.pinned ? ' pinned' : ''}${pick.cls}"${pick.aria}
+                <div class="tree-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : ''}${a.pinned ? ' pinned' : ''}${pick.cls}${head.cls}"${pick.aria}${head.attrs}
                      data-id="${a.id}" draggable="true"
                      style="animation-delay: ${revealDelayMs(i)}ms">
+                  ${head.toggle}
                   ${a.pinned ? '<span class="pin-indicator" title="Pinned">&#128204;</span>' : ''}
                   <span class="tree-item-icon">${typeIcon(a.artifact_type)}</span>
+                  ${head.status}
                   <span class="tree-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
                   ${isNewThisSession(a, _sessionStart) ? '<span class="tree-item-badge new">new</span>' : ''}
                   ${a.origin === 'demo' ? '<span class="tree-item-badge demo">example</span>' : ''}
                   <span class="tree-item-size">${formatSize(a.size_bytes)}</span>
                 </div>`;
+  }
+
+  /**
+   * Whether an artifact is a run's head with parts to expand to.
+   * @param {any} a
+   * @returns {boolean}
+   */
+  function hasRunParts(a) {
+    return a.form === 'runs' && Array.isArray(a.run_parts) && a.run_parts.length > 0;
+  }
+
+  /**
+   * The status of a run's head as `{key, text}`: `succeeded`, `failed`,
+   * `not_run`, or `running` while the run is in flight (`run_status: null`).
+   * @param {any} a
+   * @returns {{key: string, text: string}}
+   */
+  function runStatusOf(a) {
+    switch (a.run_status) {
+      case 'succeeded':
+        return { key: 'succeeded', text: '' };
+      case 'failed':
+        return { key: 'failed', text: 'failed' };
+      case 'not_run':
+        return { key: 'not_run', text: 'not run' };
+      default:
+        return { key: 'running', text: 'running' };
+    }
+  }
+
+  /**
+   * The extra markup a run's head row carries: its status marker and, with
+   * parts, the expand toggle. Empty pieces for every other row.
+   * @param {any} a
+   * @returns {{cls: string, attrs: string, toggle: string, status: string}}
+   */
+  function runHeadMarkup(a) {
+    if (a.form !== 'runs') return { cls: '', attrs: '', toggle: '', status: '' };
+    const st = runStatusOf(a);
+    const parts = hasRunParts(a);
+    const open = parts && expandedRuns.has(a.id);
+    return {
+      cls: ` tree-run-head run-status-${st.key}${open ? ' expanded' : ''}`,
+      attrs: ` data-run-status="${st.key}"${parts ? ` aria-expanded="${open}"` : ''}`,
+      toggle: parts
+        ? `<span class="tree-run-toggle" data-run="${escapeHtml(a.id)}" title="${open ? 'Hide' : 'Show'} parts">${chevronSvg}</span>`
+        : '',
+      status: st.text ? `<span class="tree-item-badge run-status">${st.text}</span>` : '',
+    };
+  }
+
+  /**
+   * The rows an expanded run's head lists beneath it: its outputs by their
+   * titles, then its approval preview, code and further results by role.
+   * @param {any} head
+   * @returns {string}
+   */
+  function runPartsHtml(head) {
+    if (!hasRunParts(head) || !expandedRuns.has(head.id)) return '';
+    const picked = getPickedIds();
+    const selectedId = getSelectedArtifact()?.id;
+    /** @param {any} p @returns {string} */
+    const label = (p) => (p.role === 'output' ? p.title : RUN_PART_LABELS[p.role] || p.title);
+    const outputs = head.run_parts.filter((/** @type {any} */ p) => p.role === 'output');
+    const others = head.run_parts
+      .filter((/** @type {any} */ p) => p.role !== 'output')
+      .sort((/** @type {any} */ x, /** @type {any} */ y) => label(x).localeCompare(label(y)));
+    return [...outputs, ...others]
+      .map((/** @type {any} */ p) => {
+        const pick = pickMarkup(p, picked);
+        return `
+                <div class="tree-item tree-run-part${selectedId === p.id ? ' selected' : ''}${pick.cls}"${pick.aria}
+                     data-id="${escapeHtml(p.id)}" data-run-part="${escapeHtml(p.role)}" data-run-head="${escapeHtml(head.id)}" draggable="true">
+                  <span class="tree-item-name" title="${escapeHtml(label(p))}">${escapeHtml(label(p))}</span>
+                </div>`;
+      })
+      .join('');
   }
 
   const exampleSvg =
@@ -311,25 +408,40 @@ export function createSidebarRenderer(callbacks) {
     const pinnedItems = ownItems.filter((a) => a.pinned);
     const unpinned = ownItems.filter((a) => !a.pinned);
 
+    // A run's part lists under its head, not in a group of its own -- unless
+    // its head is not among the shown rows (a search hit, a page not yet
+    // loaded), when it lists under Runs so it is never unreachable.
+    const shownParts = new Set();
+    items.forEach((a) => {
+      if (hasRunParts(a)) a.run_parts.forEach((/** @type {any} */ p) => shownParts.add(p.id));
+    });
+
     /** @type {Record<string, any[]>} */
     const groups = {};
     unpinned.forEach((a) => {
-      const groupKey = a.category || a.artifact_type;
+      if (isRunPart(a) && shownParts.has(a.id)) return;
+      const groupKey = isRunPart(a) ? 'runs' : formKey(a);
       if (!groups[groupKey]) groups[groupKey] = [];
       groups[groupKey].push(a);
     });
 
-    const sortedTypes = Object.keys(groups).sort((a, b) => {
-      const diff = groups[b].length - groups[a].length;
-      return diff !== 0 ? diff : a.localeCompare(b);
-    });
+    // Base forms, then extension types, in the registry's order; a form the
+    // registry does not name (it has not loaded yet) follows alphabetically.
+    const ordered = formOrder().map((f) => f.key);
+    const sortedTypes = [
+      ...ordered.filter((k) => groups[k]),
+      ...Object.keys(groups)
+        .filter((k) => !ordered.includes(k))
+        .sort((a, b) => a.localeCompare(b)),
+    ];
 
     const isGallery = sidebarLayout === 'gallery';
     let html = '';
     let globalIdx = 0;
     /** @param {any} a @returns {string} */
     const itemHtml = (a) =>
-      isGallery ? galleryCardHtml(a, globalIdx++) : treeItemHtml(a, globalIdx++);
+      (isGallery ? galleryCardHtml(a, globalIdx++) : treeItemHtml(a, globalIdx++)) +
+      runPartsHtml(a);
 
     if (pinnedItems.length > 0) {
       html += treeSectionHtml({
@@ -346,7 +458,7 @@ export function createSidebarRenderer(callbacks) {
       html += treeSectionHtml({
         type,
         icon: typeIcon(type),
-        label: typeBadge(type),
+        label: formSectionLabel(type, groups[type][0].form_label),
         items: groups[type],
         isGallery,
         itemHtml,
@@ -410,7 +522,7 @@ export function createSidebarRenderer(callbacks) {
           html += `
             <div class="timeline-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? ' selected' : ''}${a.pinned ? ' pinned' : ''}${pick.cls}"${pick.aria}
                  data-id="${a.id}"
-                 data-type="${escapeHtml(a.category || a.artifact_type)}"
+                 data-type="${escapeHtml(formKey(a))}"
                  style="animation-delay: ${revealDelayMs(itemIndex, 25)}ms">
               <span class="timeline-dot"></span>
               <div class="timeline-item-body">
@@ -419,7 +531,7 @@ export function createSidebarRenderer(callbacks) {
                   ${escapeHtml(a.title)}
                 </div>
                 <div class="timeline-item-meta">
-                  <span class="timeline-item-type">${typeBadge(a.category || a.artifact_type)}</span>
+                  <span class="timeline-item-type">${formBadge(a)}</span>
                   ${a.origin === 'demo' ? '<span class="tree-item-badge demo">example</span>' : ''}
                   <span class="timeline-item-time">${formatTime(a.timestamp)}</span>
                 </div>
@@ -496,6 +608,14 @@ export function createSidebarRenderer(callbacks) {
         const type = section.dataset.type || '';
         if (section.classList.toggle('collapsed')) collapsedSections.add(type);
         else collapsedSections.delete(type);
+        return;
+      }
+      // Run head toggle: expand or fold its parts, selecting nothing.
+      const toggle = target.closest('.tree-run-toggle');
+      if (toggle instanceof HTMLElement && body.contains(toggle)) {
+        const run = toggle.dataset.run || '';
+        if (!expandedRuns.delete(run)) expandedRuns.add(run);
+        renderSidebar();
         return;
       }
       const el = rowOf(e);

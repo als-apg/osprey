@@ -911,9 +911,13 @@ def deployment_dependencies(
 
 
 def _plan_project_venv(
-    profile: Any, deployment_packages: Sequence[DeploymentPackage] = ()
+    profile: Any, deployment_packages: Sequence[DeploymentPackage] = (), *, install: bool
 ) -> _ProjectVenvPlan:
     """Judge the project environment's inputs without writing anything.
+
+    A plan that installs nothing (``install=False``) never depends on the
+    host's installer: the workspace members are located only for a venv that
+    is written.
 
     Every :class:`BuildProfileError` about the environment's inputs is raised
     here: an invalid ``osprey_install``, a base interpreter that cannot be
@@ -982,7 +986,7 @@ def _plan_project_venv(
             deployment_dependencies(dependencies, packages, install=True),
             environment_packages,
         )
-        if packages
+        if packages and install
         else None
     )
     refuse_unshipped_kinds(extra_deps)
@@ -991,7 +995,7 @@ def _plan_project_venv(
     # The pip path names the workspace members beside the framework; a spec
     # they cannot be derived from is refused here, before the venv is written.
     uv_path = os.environ.get("UV") or shutil.which("uv")
-    member_requirements = [] if uv_path else _pip_member_requirements(osprey_spec)
+    member_requirements = _pip_member_requirements(osprey_spec) if install and not uv_path else []
     return _ProjectVenvPlan(
         base_python=base_python,
         base_python_arg=base_python_arg,

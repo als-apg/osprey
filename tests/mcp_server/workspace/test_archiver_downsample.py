@@ -367,12 +367,15 @@ class TestArchiverDownsampleErrors:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace")
-    async def test_wrong_category(self, non_archiver_entry):
+    async def test_wrong_tool_source(self, non_archiver_entry):
+        """An artifact another tool saved is refused, naming the tool that saved it."""
         fn = _get_archiver_downsample()
         with assert_raises_error() as _exc_ctx:
             await fn(artifact_id=non_archiver_entry.id)
         result = _exc_ctx["envelope"]
-        assert "archiver_data" in result["error_message"].lower()
+        message = result["error_message"].lower()
+        assert "archiver_read" in message
+        assert "channel_read" in message
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("workspace", "art_store")

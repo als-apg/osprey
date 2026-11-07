@@ -42,7 +42,6 @@ def _config(**web_terminals: object) -> dict:
         "web_base_port": _WEB_BASE,
         "artifact_base_port": default_port("artifact", 0, base=_BASE),
         "ariel_base_port": default_port("ariel", 0, base=_BASE),
-        "lattice_base_port": default_port("lattice", 0, base=_BASE),
         "users": [{"name": "alice", "index": 0}, {"name": "bob", "index": 1}],
         "shared": ["logbook", "knowledge"],
         "renders": _renders(assistant=tier_render("assistant", "test-assistant")),

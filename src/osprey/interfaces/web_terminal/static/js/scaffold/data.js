@@ -7,8 +7,7 @@
  * {artifacts, untrackedFiles, summary} state: loading, registering an
  * untracked file, and deleting one.
  *
- * Mirrors the factory/injection pattern in lattice_dashboard/net.js: the
- * network/filtering logic is pure standalone functions with no DOM access or
+ * Factory/injection pattern: the network/filtering logic is pure standalone functions with no DOM access or
  * `this`, unit-testable in isolation. {@link createScaffoldDataActions} is the
  * factory that binds that pure logic to a gallery's fixed domain (its
  * categoryFilter/categoryOverrides/categoryRemaps) and to DOM/render effects
@@ -161,8 +160,7 @@ function messageOf(e) {
 /**
  * Create the scaffold gallery's data actions, bound to a fixed domain
  * (categoryFilter/categoryOverrides/categoryRemaps) and a set of effect
- * callbacks. Mirrors {@link createNetClient} in lattice_dashboard/net.js:
- * this factory owns no DOM state itself, it just wires the pure functions
+ * callbacks. This factory owns no DOM state itself, it just wires the pure functions
  * above to the caller's render effects.
  *
  * @param {ArtifactFilterState} domain

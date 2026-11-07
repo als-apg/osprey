@@ -384,7 +384,7 @@ def test_each_local_path_entry_is_substituted_in_place_and_apps_follow(tmp_path:
 def test_the_plan_carries_both_spellings_and_the_wheels(tmp_path: Path) -> None:
     _root, _dest, packages = _built(tmp_path)
 
-    plan = _plan_project_venv(_profile(DEPENDENCIES), packages)
+    plan = _plan_project_venv(_profile(DEPENDENCIES), packages, install=True)
 
     assert plan.deployment_packages == packages
     assert plan.extra_deps == ["numpy>=1.24", "ring-kind==0.2.0", "knob-app==0.1.0"]
@@ -407,7 +407,7 @@ def test_a_local_path_and_a_requirement_of_one_distribution_are_refused(
     packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
 
     with pytest.raises(BuildProfileError) as refused:
-        _plan_project_venv(_profile(dependencies), packages)
+        _plan_project_venv(_profile(dependencies), packages, install=True)
 
     message = str(refused.value)
     assert "'./kinds/ring'" in message
@@ -428,7 +428,7 @@ def test_a_local_path_and_an_environment_package_of_one_distribution_are_refused
     )
 
     with pytest.raises(BuildProfileError) as refused:
-        _plan_project_venv(profile, packages)
+        _plan_project_venv(profile, packages, install=True)
 
     assert "'./kinds/ring'" in str(refused.value) and "'ring-kind==9'" in str(refused.value)
 
@@ -440,7 +440,7 @@ def test_an_application_package_and_a_requirement_of_one_distribution_are_refuse
     packages = build_deployment_packages(root, ["knob_app"], tmp_path / "stage", apps=APPS)
 
     with pytest.raises(BuildProfileError) as refused:
-        _plan_project_venv(_profile(["knob_app"]), packages)
+        _plan_project_venv(_profile(["knob_app"]), packages, install=True)
 
     assert "'apps/knob'" in str(refused.value) and "'knob_app'" in str(refused.value)
 
@@ -453,7 +453,7 @@ def test_two_packages_of_one_distribution_are_refused(tmp_path: Path) -> None:
     packages = build_deployment_packages(root, dependencies, tmp_path / "stage", apps=APPS)
 
     with pytest.raises(BuildProfileError) as refused:
-        _plan_project_venv(_profile(dependencies), packages)
+        _plan_project_venv(_profile(dependencies), packages, install=True)
 
     assert "'./kinds/ring'" in str(refused.value) and "'./kinds/copy'" in str(refused.value)
 
@@ -510,7 +510,7 @@ def test_the_venv_resolves_the_wheels_with_the_framework_and_records_names(
     upgrading it; nothing installs a wheel on its own or with ``--no-deps``.
     """
     _root, _dest, packages = _built(tmp_path)
-    plan = _plan_project_venv(_profile(DEPENDENCIES), packages)
+    plan = _plan_project_venv(_profile(DEPENDENCIES), packages, install=True)
     calls: list[list[str]] = []
 
     def run(cmd: list[str], **_kw: Any) -> subprocess.CompletedProcess[str]:
@@ -535,7 +535,7 @@ def test_the_venv_resolves_the_wheels_with_the_framework_and_records_names(
 
 def test_the_record_binds_each_package_to_its_wheel_by_relative_path(tmp_path: Path) -> None:
     _root, dest, packages = _built(tmp_path)
-    plan = _plan_project_venv(_profile(DEPENDENCIES), packages)
+    plan = _plan_project_venv(_profile(DEPENDENCIES), packages, install=True)
     project = tmp_path / "stage"
 
     _write_project_pyproject(
@@ -678,7 +678,7 @@ def test_a_registered_kind_with_no_shipped_package_is_refused(
     monkeypatch.setattr(wheel_build, "entry_points", lambda group: kinds)
 
     with pytest.raises(BuildProfileError) as refused:
-        _plan_project_venv(_profile(DEPENDENCIES), packages)
+        _plan_project_venv(_profile(DEPENDENCIES), packages, install=True)
 
     message = str(refused.value)
     assert "'halo'" in message and "Halo_Kind" in message
@@ -692,7 +692,7 @@ def test_a_kind_shipped_as_an_index_dependency_is_not_refused(
     kinds = [SimpleNamespace(name="halo", dist=SimpleNamespace(name="halo-kind"))]
     monkeypatch.setattr(wheel_build, "entry_points", lambda group: kinds)
 
-    plan = _plan_project_venv(_profile(["Halo_Kind>=1"]), ())
+    plan = _plan_project_venv(_profile(["Halo_Kind>=1"]), (), install=True)
 
     assert plan.extra_deps == ["Halo_Kind>=1"]
 
@@ -987,17 +987,13 @@ def _skip_deps_build_with_kind(
     return runner.invoke(build_command, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
 
 
-def test_a_skip_deps_build_judges_the_kinds_over_what_its_image_installs(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_a_skip_deps_build_ships_a_kind_named_in_the_environment_packages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``--skip-deps`` installs the dependencies only: environment packages do not ship."""
+    """``--skip-deps`` plans what a full build installs: environment packages ship."""
     result = _skip_deps_build_with_kind(tmp_path, monkeypatch, packages=["halo-kind>=1"])
 
-    assert result.exit_code != 0
-    # The build reports a refusal through its logger, not on stdout.
-    assert "'halo'" in caplog.text
-    assert "halo-kind" in caplog.text
-    assert "not among the packages the project image installs" in caplog.text
+    assert result.exit_code == 0, result.output
 
 
 def test_a_skip_deps_build_ships_a_kind_named_in_the_dependencies(

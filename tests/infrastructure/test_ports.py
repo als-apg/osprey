@@ -210,7 +210,7 @@ def test_a_port_already_bound_is_never_yielded(monkeypatch, kind):
 def test_the_lock_is_released_when_the_block_ends():
     with reserved_port() as port:
         pass
-    fd = os.open(lock_path(port), os.O_RDWR)
+    fd = os.open(lock_path(port), os.O_RDONLY)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     finally:

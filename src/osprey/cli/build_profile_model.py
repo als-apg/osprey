@@ -49,7 +49,11 @@ from .build_profile_archiver import (
 )
 from .build_profile_deploy import DeployConfig
 from .build_profile_health import health_url_key_errors
-from .build_profile_presets import is_bundled_preset_dir, resolve_triggers_path
+from .build_profile_presets import (
+    is_bundled_preset_dir,
+    resolve_service_template,
+    resolve_triggers_path,
+)
 from .build_profile_schema import (
     DEFAULT_LISTS_MODE,
     SECOND_LANE_PORT_STRIDE,
@@ -329,24 +333,22 @@ def render_key_errors(config: Any) -> list[str]:
 
 
 def _preset_rewrite(name: str, members: list[Any]) -> str:
-    """How to write a ``label: [ids]`` preset as a dock layout."""
+    """How to write a ``label: [ids]`` preset as a dock layout: one panel per tile."""
     ids = [str(member) for member in members] or ["<panel id>"]
     if len(ids) == 1:
         return f"rewrite it as a layout, e.g. {name!r}: {{tabs: [{ids[0]}]}}"
     tiles = ", ".join(f"{{tabs: [{pid}]}}" for pid in ids)
-    return (
-        f"rewrite it as a layout, e.g. {name!r}: {{split: row, items: [{tiles}]}} "
-        f"(side by side), or {name!r}: {{tabs: [{', '.join(ids)}]}} (tabs of one tile)"
-    )
+    return f"rewrite it as a layout, e.g. {name!r}: {{split: row, items: [{tiles}]}} (side by side)"
 
 
 def panel_preset_errors(name: str, layout: Any, is_known: Callable[[str], bool]) -> list[str]:
     """Refuse a ``panel_presets`` entry that is not a dock layout over shown panels.
 
     The layout rules are :func:`osprey.interfaces.web_terminal.presets.preset_refusal`,
-    the ones the terminal applies to ``web.presets`` at startup; the build adds
-    that every tab must be a panel this render shows (``is_known``). The retired
-    ``label: [ids]`` list form is refused with the layout to write instead.
+    the ones the terminal applies to ``web.presets`` at startup, one panel per
+    tile included; the build adds that every panel a tile names must be a panel
+    this render shows (``is_known``). The retired ``label: [ids]`` list form is
+    refused with the layout to write instead.
 
     Returns:
         One error per problem with the entry; empty when it is a valid preset.
@@ -399,9 +401,8 @@ class BuildProfile:
     """
     data: str | None = None
     """Facility data tree this profile carries, as a path relative to the
-    profile directory (``data`` for a materialized profile, ``../data`` for a
-    sibling render profile that shares its parent's tree; may therefore
-    resolve above the profile dir). The build copies this tree and no other:
+    profile directory that resolves inside the repository (``data`` for a
+    materialized profile). The build copies this tree and no other:
     it is the whole source of the project's ``data/``, with no packaged
     fallback behind it, so :meth:`validate` requires it of every profile file.
     ``None`` only for a bundled preset, which has no profile directory to
@@ -465,9 +466,10 @@ class BuildProfile:
     panel_presets: dict[str, dict[str, Any]] = field(default_factory=dict)
     """Named panel layouts ("presets") rendered into ``web.presets``. Each key is
     the display label, each value a dock layout in collection form: a tile
-    ``{tabs: [<panel id>, ...], showing?, size?}`` or a split ``{split: row|column,
-    items: [...], size?}`` whose tabs are panel ids (built-ins or custom
-    ``web.panels.<id>.url``-backed ids, never the terminal). A human applies one
+    ``{tabs: [<panel id>], showing?, size?}`` naming the one panel it shows, or a
+    split ``{split: row|column, items: [...], size?}``. Panel ids are built-ins
+    or custom ``web.panels.<id>.url``-backed ids, never the terminal; a tile
+    naming several is refused. A human applies one
     from the Web Terminal "+" popover's "Layouts" section; the agent applies one
     by name. Empty (the default) renders no ``web.presets`` block. Validated at
     build time by :func:`panel_preset_errors`; the retired list-of-ids form is
@@ -483,9 +485,9 @@ class BuildProfile:
     artifact_server: dict[str, Any] = field(default_factory=dict)
     """Overrides merged into config.yml's ``artifact_server`` block (the
     artifacts-gallery server). Supported subkeys: ``host``, ``port``,
-    ``auto_launch``, and ``categories`` — custom gallery categories as
-    ``{key: {label, color}}`` that facility MCP tools save artifacts under via
-    ``category="<key>"``.
+    ``auto_launch``, and ``extension_types`` — ``{key: {label, base_form,
+    viewer?}}``, each a ``kind`` conforming to one base form, its optional
+    viewer a ``.js``/``.mjs`` path under the profile's ``project/`` mirror.
     """
     dispatch: DispatchConfig | None = None
     bluesky: BlueskyConfig | None = None
@@ -1635,6 +1637,45 @@ class BuildProfile:
         )
         return errors
 
+    def _artifact_server_errors(self, profile_dir: Path) -> list[str]:
+        """The ``artifact_server`` block's errors: unknown keys, then extension types.
+
+        Extension types are checked with the installed ``osprey.artifact_types``
+        entry points by the registry's own validate mode, against the profile's
+        ``project/`` mirror (which lands on the project root, where config
+        viewers resolve at runtime). The registry also refuses the retired
+        ``categories`` key, so it is not reported as unsupported here too.
+        """
+        from osprey.stores.type_registry import load_extension_types
+
+        from .profile_conventions import PROJECT_MIRROR_DIR
+
+        block = self.artifact_server
+        if not isinstance(block, dict):
+            return [f"artifact_server must be a mapping (got {type(block).__name__})"]
+        allowed = {"host", "port", "auto_launch", "extension_types"}
+        errors = [
+            f"artifact_server.{unknown} is not a supported key (must be one of {sorted(allowed)})"
+            for unknown in sorted(set(block) - allowed - {"categories"})
+        ]
+        if "categories" in block and not block["categories"]:
+            # The registry only refuses a non-empty block; an empty one is still the retired key.
+            errors.append(
+                "artifact_server.categories is retired; "
+                "declare artifact_server.extension_types instead"
+            )
+        if "extension_types" in block or block.get("categories"):
+            try:
+                load_extension_types(
+                    validate=True,
+                    config={"artifact_server": block},
+                    project_root=profile_dir / PROJECT_MIRROR_DIR,
+                )
+            except ValueError as exc:
+                _header, _, body = str(exc).partition("\n  - ")
+                errors.extend(body.split("\n  - ") if body else [str(exc)])
+        return errors
+
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
         errors: list[str] = []
@@ -1772,9 +1813,9 @@ class BuildProfile:
                 f"module off with `config: {_HYBRID_SEARCH_ENABLED_KEY}: false`."
             )
 
-        # The data tree may legitimately sit above the profile dir (render
-        # profiles share their parent's tree via ``data: ../data``), so only
-        # existence and shape are checked, never containment.
+        # Containment is the loader's rule over every input
+        # (`refuse_inputs_outside_repository`); here only existence and shape
+        # are checked.
         #
         # It is also required. ``data:`` is the ONLY source of the project's
         # ``data/`` tree — the build copies it and nothing else — so a profile
@@ -1822,16 +1863,10 @@ class BuildProfile:
         for name, svc in self.services.items():
             if not svc.template:
                 errors.append(f"Service '{name}' missing 'template'")
-            elif svc.template.startswith("osprey."):
-                # Bundled template (e.g. "osprey.event_dispatcher") — resolved at copy
-                # time by _copy_service_templates; no profile-dir file to validate.
-                continue
             else:
-                tmpl_path = profile_dir / svc.template
-                if not tmpl_path.is_dir():
-                    errors.append(f"Service '{name}' template dir not found: {tmpl_path}")
-                elif not (tmpl_path / "docker-compose.yml.j2").exists():
-                    errors.append(f"Service '{name}' template dir missing docker-compose.yml.j2")
+                refusal = resolve_service_template(profile_dir, svc.template).refusal(name)
+                if refusal is not None:
+                    errors.append(refusal)
 
         # Validate the per-service axes across both authoring surfaces, after
         # reporting any key the YAML resolver handed back as a non-string.
@@ -1882,12 +1917,6 @@ class BuildProfile:
                 for var in self.env.pinned
                 if not isinstance(var, str) or not ENV_NAME_RE.match(var)
             )
-
-        # Validate env file path
-        if self.env.file:
-            env_file_path = profile_dir / self.env.file
-            if not env_file_path.is_file():
-                errors.append(f"env.file not found: {self.env.file} (resolved: {env_file_path})")
 
         # Validate the environment block (interpreter base + extra packages)
         errors.extend(self._validate_environment())
@@ -1979,42 +2008,14 @@ class BuildProfile:
                 f"({sorted(UNIVERSAL_PANELS)})"
             )
 
-        # Validate panel_presets: each is a dock layout whose tabs resolve the
-        # same way a default_panel does (selected, or universal). Catches typos
-        # and the retired list form at build time, with the layout to write.
+        # Validate panel_presets: each is a dock layout of one panel per tile,
+        # whose panels resolve the same way a default_panel does (selected, or
+        # universal). Catches typos and the retired list form at build time,
+        # with the layout to write.
         for preset_name, layout in self.panel_presets.items():
             errors.extend(panel_preset_errors(preset_name, layout, self._is_known_panel_id))
 
-        # Validate the artifact_server override block (gallery server settings
-        # + custom category definitions)
-        import re
-
-        _hex_re = re.compile(r"^#[0-9a-fA-F]{6}$")
-        if not isinstance(self.artifact_server, dict):
-            errors.append(
-                f"artifact_server must be a mapping (got {type(self.artifact_server).__name__})"
-            )
-        else:
-            _allowed = {"host", "port", "auto_launch", "categories"}
-            errors.extend(
-                f"artifact_server.{unknown} is not a supported key "
-                f"(must be one of {sorted(_allowed)})"
-                for unknown in sorted(set(self.artifact_server) - _allowed)
-            )
-            raw_categories = self.artifact_server.get("categories", {})
-            if not isinstance(raw_categories, dict):
-                errors.append("artifact_server.categories must be a mapping of category ids")
-                raw_categories = {}
-            for cat_key, cat_spec in raw_categories.items():
-                if not isinstance(cat_spec, dict):
-                    errors.append(f"Category '{cat_key}' must be a mapping with label and color")
-                    continue
-                if "label" not in cat_spec or not isinstance(cat_spec.get("label"), str):
-                    errors.append(f"Category '{cat_key}' missing or invalid 'label'")
-                if "color" not in cat_spec or not _hex_re.match(str(cat_spec.get("color", ""))):
-                    errors.append(
-                        f"Category '{cat_key}' missing or invalid 'color' (must be #RRGGBB)"
-                    )
+        errors.extend(self._artifact_server_errors(profile_dir))
 
         # Validate dispatch configuration
         if self.dispatch is not None:

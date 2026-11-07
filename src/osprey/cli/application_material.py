@@ -1,7 +1,8 @@
 """What an application directory contributes to the profile fingerprint.
 
 An application lives in ``apps/<name>/`` of a deployment repo, and its files —
-``app.yml``, its fragments, its config — are build input the fingerprint folds.
+``app.yml``, its fragments, its config — are build input the fingerprint folds,
+as is every local-path package the profile's ``dependencies`` names.
 The vendor files the build fetches into that directory are its output, not its
 input, and are skipped. One home for both answers, so the build's material fold
 and the staleness digests cannot disagree about which files count.
@@ -12,6 +13,7 @@ from __future__ import annotations
 import posixpath
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 import yaml
 
@@ -72,3 +74,28 @@ def application_dirs(profile_dir: Path) -> list[Path]:
         for entry in sorted(apps_dir.iterdir(), key=lambda entry: entry.name)
         if entry.is_dir() and not entry.name.startswith(".") and entry.name != "__pycache__"
     ]
+
+
+def dependency_package_dirs(dependencies: Any, profile_dir: Path) -> list[Path]:
+    """Every local-path ``dependencies`` package outside ``apps/``, in entry order, once each.
+
+    The directories :func:`osprey.apps.rules.deployment_packages` builds from a
+    profile's ``dependencies``: an entry naming a directory that holds a
+    ``pyproject.toml``. One under ``apps/`` is already an application directory.
+    The value is read unvalidated, so any shape other than a list of strings
+    yields nothing.
+    """
+    from osprey.apps.rules import local_path
+
+    if not isinstance(dependencies, list):
+        return []
+    apps_dir = (profile_dir / APPS_DIRNAME).resolve()
+    found: list[Path] = []
+    for raw in dependencies:
+        directory = local_path(raw, profile_dir) if isinstance(raw, str) else None
+        if directory is None or not (directory / "pyproject.toml").is_file():
+            continue
+        if directory.resolve().is_relative_to(apps_dir) or directory in found:
+            continue
+        found.append(directory)
+    return found
