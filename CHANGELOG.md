@@ -39,7 +39,7 @@ line where it needs one, only once it is merged on main (WPF #2123, RLF
   drop its Known gaps line and add that connectors release.
 - Final fold (after APP #2109, H1, TAB #2345 and ARS): fragments from FU2A
   #2369, the ARIEL mail client #2391, the optimizer stream (#2353, #2398,
-  #2399, #2403), #2222 (bar-key-ignored) and #2026
+  #2399, #2403), the Slack bridge #2501, #2222 (bar-key-ignored) and #2026
   (artifacts-gallery-markdown, security).
 -->
 
