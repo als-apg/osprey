@@ -233,6 +233,7 @@ class _StubConfig:
     ) -> None:
         self.markers: list[str] = []
         self.hook = _StubHook()
+        self.stash: dict = {}
         self._collect_only = collect_only
         if workerinput is not None:
             self.workerinput = workerinput

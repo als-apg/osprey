@@ -410,7 +410,7 @@ def test_query_timing_is_inert_when_unarmed(tmp_path, monkeypatch):
     """No OSPREY_E2E_QUERY_LOG — every non-benchmark run — writes nothing."""
     monkeypatch.delenv("OSPREY_E2E_QUERY_LOG", raising=False)
     monkeypatch.chdir(tmp_path)
-    _log_query_timing(_timed_result())
+    _log_query_timing(_timed_result(), tmp_path)
     assert list(tmp_path.iterdir()) == []
 
 
@@ -418,8 +418,8 @@ def test_query_timing_appends_one_record_per_query(tmp_path, monkeypatch):
     log = tmp_path / "m__seed1.queries.jsonl"
     monkeypatch.setenv("OSPREY_E2E_QUERY_LOG", str(log))
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "tests/e2e/test_x.py::TestX::test_y[case0] (call)")
-    _log_query_timing(_timed_result())
-    _log_query_timing(_timed_result(duration_ms=60_000, usage=None))
+    _log_query_timing(_timed_result(), tmp_path)
+    _log_query_timing(_timed_result(duration_ms=60_000, usage=None), tmp_path)
 
     first, second = (json.loads(line) for line in log.read_text().splitlines())
     assert first == {
@@ -439,14 +439,46 @@ def test_query_timing_skips_a_query_without_a_result(tmp_path, monkeypatch):
     """A query that never produced a ResultMessage has no timing to record."""
     log = tmp_path / "q.jsonl"
     monkeypatch.setenv("OSPREY_E2E_QUERY_LOG", str(log))
-    _log_query_timing(SDKWorkflowResult())
+    _log_query_timing(SDKWorkflowResult(), tmp_path)
     assert not log.exists()
+
+
+def test_query_timing_records_the_wait_the_transcripts_measure(tmp_path, monkeypatch):
+    """The in-model share comes from the session's transcripts, subagents included."""
+    log = tmp_path / "q.jsonl"
+    monkeypatch.setenv("OSPREY_E2E_QUERY_LOG", str(log))
+    project = tmp_path / "project"
+    (project / "s1" / "subagents").mkdir(parents=True)
+    monkeypatch.setattr(sdk_helpers, "claude_project_dir", lambda _render: project)
+
+    def stamp(second: int) -> str:
+        return f"2026-11-06T12:00:{second:02d}+00:00"
+
+    def write(path, *entries) -> None:
+        path.write_text("".join(json.dumps(e) + "\n" for e in entries) + "not json\n")
+
+    write(
+        project / "s1.jsonl",
+        {"type": "user", "timestamp": stamp(0)},
+        {"type": "assistant", "timestamp": stamp(2), "requestId": "r1"},
+        {"type": "user", "timestamp": stamp(10)},
+    )
+    write(
+        project / "s1" / "subagents" / "agent-a.jsonl",
+        {"type": "user", "timestamp": stamp(1)},
+        {"type": "assistant", "timestamp": stamp(4), "requestId": "s1"},
+    )
+
+    _log_query_timing(_timed_result(session_id="s1"), tmp_path / "render")
+
+    record = json.loads(log.read_text())
+    assert (record["model_wait_ms"], record["span_ms"]) == (4_000, 10_000)
 
 
 def test_query_timing_never_raises(tmp_path, monkeypatch):
     """Instrumentation must never fail the test it observes."""
     monkeypatch.setenv("OSPREY_E2E_QUERY_LOG", str(tmp_path / "missing-dir" / "q.jsonl"))
-    _log_query_timing(_timed_result())
+    _log_query_timing(_timed_result(), tmp_path)
 
 
 # --- the per-query dollar cap handed to the Agent SDK -----------------------
