@@ -9,19 +9,22 @@ that names a deck and has a ``measurement/<model>.yaml``::
                          instruments name, one array per group role, named
                          after its group, or after the role when the role
                          names several (one group named as both ``hcor`` and
-                         ``vcor`` is two arrays, one per plane), and one tool
-                         per measurement kind
+                         ``vcor`` is two arrays, one per plane), and each
+                         measurement kind's tool section, written by the kind's
+                         declaration (:mod:`osprey.facility.kinds`)
     lattice.json         the design simulator's lattice, referenced as
                          ``${path:lattice.json}``: the model's deck with each
                          corrector the view drives carrying its kick as the
                          dipole polynomials pyAML reads, as the model's engine
                          writes it
-    trm.json, crm.json   the tune and chromaticity response matrices of the
-                         design optics, for a periodic model whose measurement
-                         file allows ``trm`` or ``crm`` and whose group has a
-                         finite column for every member; the correction tool
-                         that loads one is added only when the matrix can
-                         drive a two-plane correction (rank two)
+    <kind files>         each file a kind's declaration adds to the view
+                         (``view_files``): the built-in ``trm`` and ``crm`` add
+                         ``trm.json`` and ``crm.json``, the tune and
+                         chromaticity response matrices of the design optics,
+                         for a periodic model whose group has a finite column
+                         for every member; the correction tool that loads one
+                         is added only when the matrix can drive a two-plane
+                         correction (rank two)
 
 A model solved ``single_pass`` has no design simulator (``simulators: []``):
 pyAML's design simulator solves a periodic orbit. Every other model the render
@@ -37,7 +40,7 @@ between its files are relative, and equal sources and configs give equal bytes.
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -45,22 +48,19 @@ from typing import TYPE_CHECKING, Any
 from osprey.facility import TEXTURE
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs, report_note
+from osprey.facility.views.facts import CONFIGURATION_FILE, PYAML_DIR
 
 if TYPE_CHECKING:
+    from osprey.facility.kinds import ViewContext
     from pyaml_cs_osprey.names import ViewNames
 
 __all__ = [
     "CONFIGURATION_FILE",
-    "CRM_FILE",
     "GROUP_ROLES",
-    "KIND_MEMBERS",
-    "KIND_STEPPED",
     "LATTICE_FILE",
     "PYAML_DIR",
     "ROLE_PLANES",
-    "SINGLE_PASS_KINDS",
-    "TOOL_KEYS",
-    "TRM_FILE",
+    "kind_records",
     "measured_models",
     "measurement_groups",
     "pyaml_view_wanted",
@@ -69,21 +69,11 @@ __all__ = [
     "write_pyaml_view",
 ]
 
-#: The view's directory under the render's ``data/``.
-PYAML_DIR = "pyaml"
-
 #: The file a model record is named in when no source states it.
 _MODELS_FILE = "models.yaml"
 
-#: The configuration file of one model's view.
-CONFIGURATION_FILE = "configuration.yaml"
-
 #: The deck's copy beside the configuration.
 LATTICE_FILE = "lattice.json"
-
-#: The response matrices the correction tools load.
-TRM_FILE = "trm.json"
-CRM_FILE = "crm.json"
 
 #: The measurement file's group roles, in the order the arrays are written.
 GROUP_ROLES: tuple[str, ...] = ("bpm", "hcor", "vcor", "quad", "sext")
@@ -120,22 +110,6 @@ RESPONSE_MATRIX_DATA_TYPE = "pyaml.tuning_tools.response_matrix_data"
 SIMULATOR_NAME = "design"
 CONTROL_SYSTEM_NAME = "live"
 
-#: Each measurement kind's pyAML tool: its ``type:`` path and its name.
-KIND_TOOLS: dict[str, tuple[str, str]] = {
-    "orm": ("pyaml.tuning_tools.orbit_response_matrix", "DEFAULT_ORBIT_RESPONSE_MATRIX"),
-    "dispersion": ("pyaml.tuning_tools.dispersion", "DEFAULT_DISPERSION"),
-    "trm": ("pyaml.tuning_tools.tune_response_matrix", "DEFAULT_TUNE_RESPONSE_MATRIX"),
-    "crm": (
-        "pyaml.tuning_tools.chromaticity_response_matrix",
-        "DEFAULT_CHROMATICITY_RESPONSE_MATRIX",
-    ),
-    "chromaticity_monitor": ("pyaml.tuning_tools.chromaticity_monitor", ""),
-}
-
-#: The correction tools a periodic model's design optics give a matrix to.
-TUNE_CORRECTION = ("pyaml.tuning_tools.tune", "DEFAULT_TUNE_CORRECTION")
-CHROMATICITY_CORRECTION = ("pyaml.tuning_tools.chromaticity", "DEFAULT_CHROMATICITY_CORRECTION")
-
 #: The keys of a tool section that name an array, each with the group role it is.
 ARRAY_KEYS: dict[str, str] = {
     "bpm_array_name": "bpm",
@@ -144,50 +118,6 @@ ARRAY_KEYS: dict[str, str] = {
     "quad_array_name": "quad",
     "sextu_array_name": "sext",
 }
-
-#: The groups and instruments each measurement kind needs: a name in
-#: :data:`GROUP_ROLES` is a group role, any other an instrument.
-KIND_MEMBERS: dict[str, tuple[str, ...]] = {
-    "orm": ("bpm", "hcor", "vcor"),
-    "dispersion": ("bpm", "hcor", "vcor", "rf"),
-    "trm": ("quad", "tune"),
-    "crm": ("sext", "tune", "rf"),
-    "chromaticity_monitor": ("tune", "rf"),
-}
-
-#: The kinds a model solved in a single pass allows.
-SINGLE_PASS_KINDS: tuple[str, ...] = ("orm",)
-
-#: The setpoints each kind writes: its group roles, and ``rf`` for the setpoint
-#: the view's RF plant steps. The approval prompt lists every one of them.
-KIND_STEPPED: dict[str, tuple[str, ...]] = {
-    "orm": ("hcor", "vcor"),
-    "dispersion": ("rf",),
-    "trm": ("quad",),
-    "crm": ("sext", "rf"),
-    "chromaticity_monitor": ("rf",),
-}
-
-#: The step and settle keys each measurement tool takes from the measurement
-#: file, pyAML's own spellings.
-TOOL_KEYS: dict[str, tuple[str, ...]] = {
-    "orm": ("corrector_delta",),
-    "dispersion": ("frequency_delta",),
-    "trm": ("quad_delta",),
-    "crm": ("sextu_delta",),
-    "chromaticity_monitor": (
-        "n_step",
-        "n_avg_meas",
-        "fit_order",
-        "sleep_between_step",
-        "sleep_between_meas",
-    ),
-}
-
-#: Upper bound of the chromaticity monitor's relative momentum step.
-E_DELTA_CAP = 0.01
-#: The orbit shift ``e_delta * alphac`` the momentum step aims for.
-E_DELTA_ORBIT = 5.0e-6
 
 #: The speed of light in m/s, exact; pyAML's rigidity is the energy in eV over it.
 _SPEED_OF_LIGHT = 299792458.0
@@ -799,7 +729,6 @@ def _configuration(
         slices mix zero-length and thick elements, each in group order.
     """
     from pyaml_cs_osprey.names import (
-        CHROMATICITY_MONITOR_NAME,
         RF_PLANT_NAME,
         TUNE_MONITOR_NAME,
     )
@@ -925,105 +854,208 @@ def _configuration(
             monitor["rf_plant_name"] = RF_PLANT_NAME
         devices.append(monitor)
 
-    array_of = {role: names.array_name(role) for role in groups_named}
-    for kind in kinds:
-        tool_type, tool_name = KIND_TOOLS[kind]
-        section = {"type": tool_type}
-        if kind == "orm":
-            section |= {
-                "name": tool_name,
-                "bpm_array_name": array_of["bpm"],
-                "hcorr_array_name": array_of["hcor"],
-                "vcorr_array_name": array_of["vcor"],
-            }
-        elif kind == "dispersion":
-            section |= {
-                "name": tool_name,
-                "bpm_array_name": array_of["bpm"],
-                "rf_plant_name": RF_PLANT_NAME,
-            }
-        elif kind == "trm":
-            section |= {
-                "name": tool_name,
-                "quad_array_name": array_of["quad"],
-                "betatron_tune_name": TUNE_MONITOR_NAME,
-            }
-        elif kind == "crm":
-            section |= {
-                "name": tool_name,
-                "sextu_array_name": array_of["sext"],
-                "chromaticity_name": CHROMATICITY_MONITOR_NAME,
-            }
-        else:
-            section |= {
-                "name": CHROMATICITY_MONITOR_NAME,
-                "betatron_tune_name": TUNE_MONITOR_NAME,
-                "rf_plant_name": RF_PLANT_NAME,
-            }
-            alphac = abs(optics.alphac) if optics is not None and optics.alphac else 0.0
-            e_delta = (
-                min(E_DELTA_CAP, E_DELTA_ORBIT / alphac)
-                if math.isfinite(alphac) and alphac > 0
-                else E_DELTA_CAP
-            )
-            section |= {"e_delta": e_delta, "max_e_delta": 2.0 * e_delta}
-        for key in TOOL_KEYS[kind]:
-            if key in measurement:
-                section[key] = _measurement_value(measurement, key)
-        devices.append(section)
-    if "crm" in kinds and "chromaticity_monitor" not in kinds and tunes is not None and rf:
-        devices.append(
-            {
-                "type": KIND_TOOLS["chromaticity_monitor"][0],
-                "name": CHROMATICITY_MONITOR_NAME,
-                "betatron_tune_name": TUNE_MONITOR_NAME,
-                "rf_plant_name": RF_PLANT_NAME,
-            }
-        )
-
-    if optics is not None:
-        if "trm" in kinds and tunes is not None:
-            trm = _tuning_matrix(
-                "quad", groups.get("quad", ()), magnets, names, deck, optics, TUNE_MONITOR_NAME
-            )
-            if trm is not None:
-                files[TRM_FILE] = _matrix_text(trm)
-            if trm is not None and _drives_a_correction(trm):
-                tool_type, tool_name = TUNE_CORRECTION
-                devices.append(
-                    {
-                        "type": tool_type,
-                        "name": tool_name,
-                        "quad_array_name": array_of["quad"],
-                        "betatron_tune_name": TUNE_MONITOR_NAME,
-                        "response_matrix": _path_reference(TRM_FILE),
-                    }
-                )
-        if "crm" in kinds and tunes is not None and rf is not None:
-            crm = _tuning_matrix(
-                "sext",
-                groups.get("sext", ()),
-                magnets,
-                names,
-                deck,
-                optics,
-                CHROMATICITY_MONITOR_NAME,
-            )
-            if crm is not None:
-                files[CRM_FILE] = _matrix_text(crm)
-            if crm is not None and _drives_a_correction(crm):
-                tool_type, tool_name = CHROMATICITY_CORRECTION
-                devices.append(
-                    {
-                        "type": tool_type,
-                        "name": tool_name,
-                        "sextu_array_name": array_of["sext"],
-                        "chromaticity_monitor_name": CHROMATICITY_MONITOR_NAME,
-                        "response_matrix": _path_reference(CRM_FILE),
-                    }
-                )
+    present = {"tune_monitor"} if tunes is not None else set()
+    if rf is not None:
+        present.add("rf_plant")
+    context = _view_context(
+        model,
+        kinds,
+        names,
+        groups_named,
+        measurement,
+        frozenset(present),
+        optics,
+        lambda role, monitor: (
+            _tuning_matrix(role, groups.get(role, ()), magnets, names, deck, optics, monitor)
+            if optics is not None
+            else None
+        ),
+    )
+    tools, extras, kind_files = _kind_sections(kinds, context, measurement)
+    devices.extend(tools)
+    devices.extend(extras)
+    files.update(kind_files)
     configuration["devices"] = devices
     return configuration, files, unmodelled, mixed
+
+
+def _view_context(
+    model: str,
+    kinds: Sequence[str],
+    names: ViewNames,
+    groups_named: Mapping[str, Any],
+    measurement: Mapping[str, Any],
+    present: frozenset[str],
+    optics: _Optics | None,
+    tuning: Callable[[str, str], dict[str, Any] | None],
+) -> ViewContext:
+    """What the model's kinds' view writers are handed; each matrix is computed once."""
+    from osprey.facility.kinds import ViewContext
+    from pyaml_cs_osprey.names import (
+        CHROMATICITY_MONITOR_NAME,
+        RF_PLANT_NAME,
+        TUNE_MONITOR_NAME,
+    )
+
+    computed: dict[tuple[str, str], dict[str, Any] | None] = {}
+
+    def tuning_matrix(role: str, monitor: str) -> dict[str, Any] | None:
+        if (role, monitor) not in computed:
+            computed[role, monitor] = tuning(role, monitor)
+        return computed[role, monitor]
+
+    return ViewContext(
+        model=model,
+        kinds=tuple(kinds),
+        arrays={str(role): names.array_name(str(role)) for role in groups_named},
+        measurement=measurement,
+        devices={
+            "rf_plant": RF_PLANT_NAME,
+            "tune_monitor": TUNE_MONITOR_NAME,
+            "chromaticity_monitor": CHROMATICITY_MONITOR_NAME,
+        },
+        present=present,
+        alphac=optics.alphac if optics is not None else None,
+        tuning_matrix=tuning_matrix,
+        matrix_drives_a_correction=_drives_a_correction,
+    )
+
+
+def _kind_sections(
+    kinds: Sequence[str], context: ViewContext, measurement: Mapping[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, str]]:
+    """Each listed kind's tool section, the devices its writer adds after every tool, its files.
+
+    A kind with no tool writes no tool section. Each tool section is ``type``
+    and ``name``, the writer's keys, then the kind's ``tool_keys`` the
+    measurement file states.
+    """
+    from osprey.facility.kinds import registered
+
+    declared = registered()
+    tools: list[dict[str, Any]] = []
+    extras: list[dict[str, Any]] = []
+    files: dict[str, str] = {}
+    for kind in kinds:
+        declaration = declared[kind]
+        if declaration.tool is not None and declaration.view_section is not None:
+            written = declaration.view_section(context)
+            section: dict[str, Any] = {
+                "type": declaration.tool.type,
+                "name": declaration.tool.name,
+                **written.fields,
+            }
+            for key in declaration.tool_keys:
+                if key in measurement:
+                    section[key] = _measurement_value(measurement, key)
+            tools.append(section)
+            extras.extend(dict(device) for device in written.devices)
+        for name, writer in declaration.view_files.items():
+            text = writer(context)
+            if text is not None:
+                files[name] = text
+    return tools, extras, files
+
+
+def kind_records(
+    records: FacilityRecords, model: str, configuration: Mapping[str, Any], files: Sequence[str]
+) -> dict[str, Any]:
+    """A model's kind block, as the facts document records it beside its pyAML view.
+
+    Read from the view's configuration as written and the model's measurement
+    file: ``kinds`` holds each kind the file allows, ``names`` the view's name
+    for each role that has one (a group role's array, the RF plant, the tune
+    monitor), ``instruments`` each instrument's address and ``rf`` the setpoint
+    each of the view's RF plants steps.
+
+    Args:
+        records: The facility file's records.
+        model: A model with a pyAML view.
+        configuration: The view's configuration, parsed.
+        files: The names of the view's other files.
+
+    Returns:
+        ``{kinds, names, instruments, rf}``. Each kind is ``{members: {role:
+        {requirement, addresses}}, stepped_roles, tool_keys, tool, single_pass,
+        matrix, takes_by, corrector_roles, view_files, measure_plan,
+        description}``: a group role's addresses are those its array's members
+        stand for, a magnet's setpoint and both planes of a BPM; an instrument's
+        its one channel.
+    """
+    from osprey.facility.kinds import registered
+
+    arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
+    devices = {str(d["name"]): d for d in configuration.get("devices") or []}
+    measurement = records.require("model", model).get("measurement") or {}
+    instruments = {
+        str(role): str(address)
+        for role, address in sorted((measurement.get("instruments") or {}).items())
+        if address is not None
+    }
+    names = view_names(records, model)
+    array_of = {
+        str(role): names.array_name(str(role))
+        for role in measurement.get("groups") or {}
+        if names.array_name(str(role)) in arrays
+    }
+    group_addresses = {
+        role: [
+            address for member in arrays[array] for address in _member_addresses(devices[member])
+        ]
+        for role, array in array_of.items()
+    }
+    plants = [device for device in devices.values() if device.get("type") == RF_PLANT_TYPE]
+    rf = sorted(_parse_reference(d["masterclock"]) for d in plants if "masterclock" in d)
+    role_names = dict(array_of)
+    if plants and "rf" in instruments:
+        role_names["rf"] = str(plants[-1]["name"])
+    monitors = [d for d in devices.values() if d.get("type") == TUNE_MONITOR_TYPE]
+    if monitors and "tune" in instruments:
+        role_names["tune"] = str(monitors[-1]["name"])
+    declared = registered()
+    kinds: dict[str, Any] = {}
+    for kind in measurement.get("kinds") or []:
+        declaration = declared[str(kind)]
+        members = {
+            role: {
+                "requirement": requirement,
+                "addresses": list(group_addresses[role])
+                if role in group_addresses
+                else ([instruments[role]] if role in instruments else []),
+            }
+            for role, requirement in declaration.members.items()
+        }
+        kinds[str(kind)] = {
+            "members": members,
+            "stepped_roles": list(declaration.stepped_roles),
+            "tool_keys": list(declaration.tool_keys),
+            "tool": (
+                {"type": declaration.tool.type, "name": declaration.tool.name}
+                if declaration.tool is not None
+                else None
+            ),
+            "single_pass": declaration.single_pass,
+            "matrix": declaration.matrix,
+            "takes_by": declaration.takes_by,
+            "corrector_roles": list(declaration.corrector_roles),
+            "view_files": [name for name in declaration.view_files if name in files],
+            "measure_plan": dict(declaration.measure_plan),
+            "description": declaration.description,
+        }
+    return {"kinds": kinds, "names": role_names, "instruments": instruments, "rf": rf}
+
+
+def _parse_reference(reference: str) -> str:
+    from pyaml_cs_osprey.catalog import parse_reference
+
+    return str(parse_reference(reference).address)
+
+
+def _member_addresses(device: Mapping[str, Any]) -> list[str]:
+    """The addresses an array member stands for: a magnet's setpoint, a BPM's readbacks."""
+    if "model" in device:
+        return [_parse_reference(device["model"]["powerconverter"])]
+    return sorted(_parse_reference(device[key]) for key in ("x_pos", "y_pos") if key in device)
 
 
 def _design_lattice(

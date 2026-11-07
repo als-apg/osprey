@@ -20,7 +20,8 @@ import numpy as np
 import pytest
 import yaml
 
-from osprey.facility.views.pyaml import CONFIGURATION_FILE, TRM_FILE
+from osprey.facility.kinds import TRM_FILE
+from osprey.facility.views.pyaml import CONFIGURATION_FILE
 from tests.facility._pyaml_trees import (
     _sr_deck,
     measured_tree,

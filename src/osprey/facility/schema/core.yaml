@@ -99,15 +99,6 @@ enums:
       add:
       drop:
 
-  measurement_kind_enum:
-    description: The measurements a model's measurement file allows.
-    permissible_values:
-      orm:
-      dispersion:
-      trm:
-      crm:
-      chromaticity_monitor:
-
 classes:
   Facility:
     tree_root: true
@@ -720,7 +711,9 @@ classes:
       step and settle keys are pyAML's own, carried verbatim.
     attributes:
       kinds:
-        range: measurement_kind_enum
+        description: >-
+          The measurement kinds the model allows, each a kind registered under
+          the osprey.facility.kinds entry points; the build refuses any other.
         multivalued: true
       groups:
         range: MeasurementGroups
