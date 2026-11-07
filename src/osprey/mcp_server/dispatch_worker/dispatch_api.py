@@ -482,9 +482,6 @@ async def _lifespan(_app: FastAPI):
     # event loop, because the version probe spawns the CLI.
     await asyncio.to_thread(_settle_agent_cli)
     _inject_provider_env_once()
-    # Route every _stamp's per-class increment into the process-lifetime counters
-    # before any run can fail, so no early failure goes uncounted.
-    counters.install()
     task = asyncio.create_task(_stale_run_cleanup())
     retention_task = _start_retention_sweep()
     yield
