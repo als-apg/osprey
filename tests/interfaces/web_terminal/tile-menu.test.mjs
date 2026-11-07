@@ -21,7 +21,7 @@ const shape = (rows) =>
 const TILE = [
   { label: 'Open in a new tile', run: noop },
   { divider: true },
-  { label: 'Pop out', run: noop },
+  { label: 'Open in new window', run: noop },
   { label: 'Reload', run: noop },
   { divider: true },
   { label: 'Remove from rail', danger: true, run: noop },
@@ -44,7 +44,7 @@ describe('composeTileMenu', () => {
       `#${TILE_HEADING}`,
       'Open in a new tile',
       '—',
-      'Pop out',
+      'Open in new window',
       'Reload',
       '—',
       'Remove from rail',

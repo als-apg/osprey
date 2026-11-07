@@ -337,21 +337,19 @@ describe('on a page the hub framed (embedded=true)', () => {
 /* ---- on its own --------------------------------------------------------- */
 
 describe('on a page opened on its own', () => {
-  test.each([
-    '?theme=dark',
-    '?embedded=false&theme=dark',
-    '?embedded=1&theme=dark',
-    '?popout=true&theme=dark',
-  ])('%s: no switch from the address, and no listener', async (search) => {
-    const lab = installLab();
-    lab.load('JupyterLab Light');
-    lab.start();
+  test.each(['?theme=dark', '?embedded=false&theme=dark', '?embedded=1&theme=dark'])(
+    '%s: no switch from the address, and no listener',
+    async (search) => {
+      const lab = installLab();
+      lab.load('JupyterLab Light');
+      lab.start();
 
-    expect(openAt(search)).toBe(false);
-    postTheme('dark');
-    await flush();
+      expect(openAt(search)).toBe(false);
+      postTheme('dark');
+      await flush();
 
-    expect(lab.execute).not.toHaveBeenCalled();
-    expect(loadedTheme()).toBe('JupyterLab Light');
-  });
+      expect(lab.execute).not.toHaveBeenCalled();
+      expect(loadedTheme()).toBe('JupyterLab Light');
+    }
+  );
 });

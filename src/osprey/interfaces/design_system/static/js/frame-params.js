@@ -40,8 +40,8 @@ export const CONTRACT_VERSION = '2';
  * param is exactly `"true"` (any other value -- `"false"`, `"1"`, absent --
  * reads as standalone). The one predicate behind {@link applyEmbedded},
  * exposed so a page can branch on it before `<body>` carries the class -- a
- * standalone page runs theme-manager.js in the `hub` role (persisting picks
- * from its own `<osprey-display-menu>`), an embedded one as a `follower`.
+ * page in a tab of its own (the activity log) runs theme-manager.js in the
+ * `hub` role, an embedded one as a `follower`.
  *
  * @returns {boolean}
  */

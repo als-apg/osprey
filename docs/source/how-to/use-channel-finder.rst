@@ -221,12 +221,8 @@ See `Web Interface`_ below.
 Web Interface
 =============
 
-Launch the browser-based channel explorer:
-
-.. code-block:: bash
-
-   osprey channel-finder web
-   osprey channel-finder web --port 9000
+The browser-based channel explorer is the Channel Finder panel of the web
+terminal (``osprey web``).
 
 The explorer is read-only. To correct a channel, edit
 ``data/facility/fixes.yaml`` and run ``osprey build``.
@@ -236,9 +232,8 @@ file, so its Explore view is a finder over the store instead. Type words into
 the search box in the panel toolbar (``/`` focuses it) and it keeps the
 channels that match all of them — against the address, the description, the
 device or signal name, and the name or synonyms of the device's class or any
-class above it. The toolbar is the same when the panel runs inside the
-terminal: Explore and Feedback are at its left, and the result count and the
-search box are at its right.
+class above it. Explore and Feedback are at the toolbar's left, and the result
+count and the search box are at its right.
 
 The sidebar narrows further: Section, System and Signal count matching
 channels, Device class counts devices and rolls each class up over its

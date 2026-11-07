@@ -95,8 +95,8 @@ lists the panel's own actions and any icons a narrow tile has no room for.
 has a documentation page, **Help**.
 
 A panel you open — from its sidebar row, from a link, from the **+** menu,
-from a pop-out window coming back, or one the agent opens for you — takes the
-service tile you used last and replaces the panel it showed. Nothing resizes,
+or one the agent opens for you — takes the service tile you used last and
+replaces the panel it showed. Nothing resizes,
 and the panel it replaced stays in the sidebar, one click away. A panel
 already open is brought forward where it is. To open a panel in a tile of
 its own, pick **Open in a new tile** from its row's menu, or drag the row
@@ -643,43 +643,25 @@ or press the same keys.
 
 .. _web-terminal-pop-out:
 
-Pop a pane out
-~~~~~~~~~~~~~~
+Open a pane in a new window
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Click **Pop out** in a tile's header, left of the close button, to move the
-tile's content into a window of its own. This works for the agent pane and for
-each service panel. The window stays attached to the terminal: the content
-keeps running there, and the window follows its theme. The tile keeps its
-place and shows **Reattach**. A service panel loads again when it moves into
-the window and when it comes back.
+To move a pane into a window of its own, click **Open in new window** in its
+tile's header, or pick it from the **Tile** section of its **⋯** menu or from
+a right-click on its sidebar row. The command palette has
+**Open <panel> in new window**. This works for the Agent pane and for each
+service panel. The tile leaves the workspace.
 
-To bring the content back, click **Reattach** in the window's bar or in the
-tile; closing the window does the same. When you reload or close the terminal,
-the window closes and the content is back in its tile.
+The window's bar is the tile's own bar, with **Reattach** at the top right.
+The pane's sidebar row shows the reattach icon: a click on the row brings the
+window to the front, a click on the icon reattaches the pane. Reattach puts
+the pane back where it was. With no room for it, the pane stays in its window
+and the terminal shows *No room to reattach <panel>.*
 
-To open a service panel as a page of its own instead, do one of these:
-
-- Right-click its row in the sidebar or its tile header and pick
-  **Open in new window**.
-- Open the command palette and run **Open <panel> in new window**.
-
-The panel opens in a new window the size of its tile. Its tile leaves the
-workspace, and its sidebar row shows a window glyph. The window follows the
-theme, the view and the session of the terminal. The agent can still show you
-the panel: a focus from the agent brings the window to the front.
-
-While the panel is in that window:
-
-- A click on its sidebar row brings the window to the front.
-- Its row menu offers **Bring back** in place of **Open in new window**.
-- A layout change in the workspace does not open a tile for it.
-
-To bring the panel back, close the window, or pick **Bring back** from its
-row menu. The tile returns next to the active tile.
-
-When you reload the terminal, these windows stay open and connect to the
-reloaded page again. When you close the terminal tab, they stay open as normal
-pages, and they no longer follow the terminal.
+Closing the window closes the pane. Reloading the window (Cmd+R) keeps the
+pane in it. After you reload the terminal, the windows are closed and their
+panes are back in place. The terminal's keyboard shortcuts do not work in the
+window.
 
 .. note::
 
@@ -687,9 +669,8 @@ pages, and they no longer follow the terminal.
    *Pop-ups are blocked for this site.* and the tile stays. Allow pop-ups for
    the site in the browser, then try again.
 
-   A panel that runs at an opaque origin (a page the agent wrote) cannot be
-   popped out. Its **Pop out** button and its **Open in new window** row are
-   disabled.
+   A panel that runs at an opaque origin (a page the agent wrote) cannot open
+   in a new window. Its **Open in new window** button and row are disabled.
 
 The More menu
 ~~~~~~~~~~~~~

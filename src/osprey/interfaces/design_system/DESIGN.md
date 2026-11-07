@@ -359,47 +359,6 @@ two have none, deliberately: a retired name always has a fleet spelling to
 migrate to. On the migrated ARIEL tree the whole check passes with zero
 exemptions.
 
-### Step 5 — Mount `<osprey-display-menu>` in the standalone header
-
-`design_system/static/js/components/osprey-display-menu.js` is the shared
-settings popover: one faders button collapsing Appearance (light/dark) and
-Theme (family pills) behind a card, plus an optional Settings entry and a projected action slot. Every standalone surface mounts
-it — the web-terminal hub, ARIEL, artifacts, channel_finder and okf_panel
-— so a new interface copies any of them.
-
-- Import it for its side effect
-  (`import '/design-system/js/components/osprey-display-menu.js';`) and place
-  `<osprey-display-menu>` in the header. Add
-  `settings-drawer="<drawer-id>"` if the page has an `<osprey-drawer>` — the
-  attribute renders a Settings button carrying `data-drawer`, which is the
-  delegated trigger `<osprey-drawer>` already installs document-wide. The
-  component neither imports nor needs the drawer module.
-- Select the theme role off the embed state:
-  `initTheme({ role: isEmbedded() ? 'follower' : 'hub' })`, with
-  `isEmbedded()` imported from `frame-params.js` (it answers from the URL, so
-  the call needs no particular ordering against `applyEmbedded()`). That one
-  expression is the only theme-related change an on-ramping page makes:
-  persistence, OS auto-follow and `?theme=` handling all come with the hub
-  role, and broadcast is a structural no-op on a page with no iframes. A page
-  popped out of the hub (`?popout=true`, §10) runs as a follower whatever
-  role it asks for; `theme-manager.js` decides that itself.
-- **Add no page CSS for the embedded case.** The component injects both its
-  own skin and the `body.embedded osprey-display-menu { display: none; }`
-  rule itself, once per page however many instances mount
-  (`_ensureStyleInjected`). An interface that had a hand-written
-  `body.embedded osprey-theme-switcher` hide rule retires it along with the
-  switcher.
-- **Page-owned chrome goes into the action slot.** Element children written
-  inside the tag are moved into the card's action row after the three
-  preference rows; the hub projects its Settings (keeping the
-  `data-drawer-trigger` gate contract) and Log out buttons this way. The
-  component attaches no behavior to projected children — a page that wants
-  the card dismissed calls `closeMenu()` on the element itself.
-- Preferences are origin-scoped and deliberately shared across surfaces: a
-  theme pick made on a standalone panel *is* the operator's preference, and
-  the hub adopts it on next load. Embedded panels are insulated by the
-  `?theme=` query parameter, which outranks storage.
-
 ### What legitimately stays local
 
 The enforced invariant is narrower than "no local custom properties." A local
@@ -411,7 +370,7 @@ requirement.
 ARIEL's `:root` block in `ariel/static/css/base.css` is what a legitimate
 survivor looks like: surface and status-tint composites built with
 `color-mix()` from canonical color tokens (so they still theme correctly),
-the layout dimensions (`--container-max`, `--header-height`), and the
+the layout dimension `--container-max`, and the
 letter-spacing scale `--tracking-tight` / `--tracking-wide`. The
 `--tracking-*` names are **unprefixed and legal**: no fleet tracking token
 exists, so there is nothing to collide with and check (c) cannot fire. If a fleet `--tracking-*` ever
@@ -420,21 +379,9 @@ is the right time to do it, not now.
 
 ### Known follow-ups
 
-The popover now exists in exactly **one** implementation. The hub's own copy
-(`web_terminal/static/js/display-menu.js` and the `.display-menu-*` block in
-`terminal.css`) is gone: the hub mounts `<osprey-display-menu>` with its
-Settings and Log out projected into the action slot, and keeps only a
-tag-scoped remainder in `terminal.css` for the Log out skin. `modeOf(id)`
-lives in `theme-manager.js` beside `familyLabel`/`themeFamilies`, and both
-components import it. The `display_menu` DocShot recipe
-(`docs/screenshots/recipes.py`) photographs the open card on `channel_finder`.
-
-What is left, in order:
-
 1. `<osprey-theme-switcher>` now has one consumer, `web_terminal`'s
    `session.html`, plus `static/reference.html`. It stays a shipped component
-   for as long as that page mounts it; retiring it means giving session.html
-   the display menu too.
+   for as long as that page mounts it.
 
 Worth doing whenever the file is next open: reword the `var(--…)` prose in
 `components/osprey-theme-switcher.js`'s module docstring (line 52). That
@@ -526,57 +473,41 @@ The JS modules (ES modules unless noted; each has a `.test.mjs` in
 | `tooltip.js` | `initTooltips(root = document.body, {mode})` → disposer, `hideTooltip()`, `readTitle(el)`, `writeTitle(el, text)` | One tip layer for a whole page. For the nearest element in `root` with `data-tip` (short label), a native `title` (read as the label when there is no `data-tip`) or `data-tip-detail` (one sentence saying what the control does), it shows a label line over a detail line. `mode(el)` returns `'label+detail'` (default) or `'detail'`; use `'detail'` where the control already shows its label, such as an expanded sidebar row. A mode with no text for the element shows no tip and leaves its `title` alone. The tip appears 450 ms after the pointer enters or keyboard focus arrives, and a tip that shows within 300 ms of the last hide skips the wait. `data-tip-place` is `right` (default), `below` or `above`; the tip sits 10 px away, flips to the opposite side at a window edge and stays 8 px inside the window. It hides on pointer leave, focus out, any press, Escape and when the element's `aria-controls` popover opens; after a press or Escape the element stays quiet until it is left. While shown, the element's `aria-describedby` names the layer. The native `title` is parked in `data-tip-title` while the tip shows; change a title through `writeTitle`. |
 | `collapsible.js` | `initCollapsible({attribute, storageKey, toggle, controls, shortcut})` → `{isCollapsed, toggle, set}` | State on `<html>[attribute]` (`collapsed` or `expanded`; absent = expanded). The toggle button carries `aria-expanded` (true while the labels show) and `aria-controls` (`controls`, default `sidebar`) with a label that flips between Hide and Show. The button, Cmd+\ (macOS) or Ctrl+\ and `set()` change the state; it is stored under `scopedStorageKey(storageKey)` and announced as `osprey-collapsible-change` `{attribute, state}` on `document`. |
 | `sidebar-boot.js` | none (non-module pre-paint script) | Stamps `data-sidebar="collapsed"` on `<html>` from the scoped `osprey-sidebar` key, and `--sidebar-user-width` from the scoped `osprey-sidebar-width` key (the web terminal's resize handle), so the sidebar never flashes the other width. Same inline scope rule as `theme-boot.js`; no fallback to the bare key on a scoped page. |
-| `popout-client.js` | `initPopoutClient()` → boolean, `popoutPanelId()` | The popup side of the pop-out protocol below. `applyEmbedded()` starts it on a `?popout=true` page. |
 | `panel-sidebar.js` | `initPanelSidebar({sidebar, handle, toggle, storageKey, defaultOpen, min, max, width, narrowQuery, root})` → `{open, close, toggle, isOpen, setDefaultOpen, applyDefault, resetWidth, destroy}` | The panel sidebar of §12.2 on `splitter.js`. Mirrors the state to `[data-open]` on the sidebar and the panel root, and to the toggle's `aria-expanded`, `aria-controls` and title. Stores `{size, collapsed}` under `scopedStorageKey(storageKey)`: only the operator's gestures (the toggle, and a drag, nudge, double-click or Enter on the handle) are stored, a toggle only where `defaultOpen` is true on a wide panel. Calls from code, `applyDefault()` and the narrow rule are never stored. At a panel width that matches `narrowQuery` (a ResizeObserver on the panel root) it is an overlay with a scrim: it starts closed and closes on Escape and on a press outside it. |
 | `panel-state.js` | `renderState(host, {icon, message, detail, action: {label, onClick}})` → the `.osprey-state` root, `clearState(host)` | Replaces the content of `host` with the centred state of §12.3; `icon` is an `icons.js` name. `clearState` removes only the state. |
 | `info-popover.js` | `openInfoPopover(anchor, {title, text, rows: [{label, value, copy}]})` → `{close}` | One body-level info popover per page on `popover.js` (`below-end`, `role=dialog`). Rows are a definition list; `copy: true` adds a Copy button (`clipboard.js`) that shows a check mark for a moment. A second open on the same anchor closes it. |
 | `content-strip.js` | `createContentStrip(host, {groups: [{id, items: [{id, icon, title, detail, mode, pressed}]}], onAction, label})` → `{show, hide, setPressed, destroy}` | Renders the strip into `host` (made `position: relative` when it is static). `show()` makes it visible for about 3 s. A mode toggles `aria-pressed`, one per group, and calls `onAction(id, pressed)`; an action calls `onAction(id)`. A mode marked `pressed` is its group's default, and that group is a radio set. While a mode other than the default is pressed, the strip stays visible. `setPressed` follows the content without a callback. |
 
-## 10. Embedding and pop-out: how a panel page follows the hub
+## 10. Embedding: how a panel page follows the hub
 
-A panel page runs in one of three places. The web terminal (the hub) frames
-it as a tile, pops it out into its own window, or the operator opens it at
-its own address. The address says which, and `frame-params.js` reads it:
+A panel page runs framed by the web terminal (the hub): in a tile, or in a
+window of its own the hub drives (the same iframe, moved into that window).
+`frame-params.js` reads the address (contract version `2`):
 
 | Where | Address | What the page does |
 |---|---|---|
-| Tile | `?embedded=true&theme=<id>` | `applyEmbedded()` adds `body.embedded`; the page hides its own chrome and contributes its header controls to the tile bar (`header-contrib.js`). `initTheme({role: 'follower'})`. |
-| Pop-out window | `?popout=true&theme=<id>` | `applyEmbedded()` stamps `html[data-popout="true"]` and starts `popout-client.js`. The page keeps its own chrome. `initTheme` runs as a follower whatever role the page asks for. |
-| Own address | neither | A standalone page: `initTheme({role: 'hub'})`, its own preferences. |
+| Tile or the pane's window | `?embedded=true&theme=<id>` | `applyEmbedded()` adds `body.embedded`, the iframe marker; the page contributes its header controls to the tile bar (`header-contrib.js`). `initTheme({role: 'follower'})`. |
+| Own address, top level | no `embedded=true` | `redirectTopLevelVisit()`, run first in `applyEmbedded()`, replaces the page with `<prefix>/?open=<id>&at=<path+query+hash>`: the web terminal with that panel on that page. |
 
-Never add `token` or a capability to either address: a framed or popped-out
-page runs under the operator's own session cookie.
+Never add `token` or a capability to the address: a framed page runs under
+the operator's own session cookie.
 
-The hub pushes its state to a framed page and to a popped-out window with the
-same two messages, posted to the page's own origin on load (a hello, for a
-window; the iframe `load`, for a tile) and on every change:
+The hub pushes its state to a framed page with two messages, posted to the
+page's own origin on the iframe `load` and on every change; for a pane in its
+own window the hub sends them to the moved frame:
 
 | Message | Payload | Receiver on the page |
 |---|---|---|
 | `osprey-theme-change` | `{theme}` | `theme-manager.js` in the follower role; takes a message from its own origin |
 | `osprey-session-change` | `{session_id}` | The page's own receiver, where it scopes to a session (the artifacts gallery, the session page); takes a message from its own origin |
 
-The pop-out protocol adds three messages of its own. The hub keeps a handle
-on every window it opens; the window reports to the hub so the hub can retire
-the panel's tile while the window is open and put it back when the window
-goes away:
-
-| Message | Direction | Transport | Check |
-|---|---|---|---|
-| `osprey-popout-hello {panelId}` | popup → hub | `window.opener.postMessage`, on load and in answer to a roll-call | The hub takes it from its own origin, from a window whose `opener` is the hub and whose `name` is `osprey-popout-<panelId>` (the name the hub opened it under). A hello is how a window is adopted, so nothing else may claim a panel. |
-| `osprey-popout-bye {panelId}` | popup → hub | `window.opener.postMessage`, on `pagehide` | The hub takes it from its own origin and only from the window it holds for that panel. A bye fires on close, reload and navigation alike, so the hub waits 1.5 s for a hello (a reload) before it treats the window as gone; a closed window is noticed by a 500 ms poll either way. |
-| `osprey-popout-roll-call` | hub → every popup | `BroadcastChannel`, named by `scopedStorageKey('osprey-popout')`, once per hub page load | The channel is origin-scoped and carries no source. The popup answers only its own `window.opener`, only while that opener is alive. A popup whose opener is gone, or whose address was pasted into a fresh tab, is a plain standalone page and reports to nobody. |
-
-The popup learns its panel id from `window.name`: the hub opens it as
-`osprey-popout-<panelId>`, and a window keeps its name across every
-navigation inside it. The hub's reload loses its handles; the popups'
-`window.opener` survives it, which is what the roll-call is for.
+`popover.js`, `tooltip.js` and `context-menu.js` are document-aware: each
+opens in its anchor's document, which may be a pane's own window, and hears
+dismissal on that document and its window.
 
 JupyterLab is not a design-system page; its theme follower
-(`web_terminal/static/js/lab-theme-follow.js`) reads the same two flags and
-follows the hub's theme in a tile and in a pop-out window, but it does not
-report to the hub, so after a hub reload a popped-out Lab window stays a
-standalone page.
+(`web_terminal/static/js/lab-theme-follow.js`) reads `embedded=true` and
+follows the hub's theme in a tile and in the pane's window.
 
 ## 11. CANOPY host contract
 

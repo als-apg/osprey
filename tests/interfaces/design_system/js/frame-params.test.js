@@ -61,15 +61,6 @@ describe('applyEmbedded', () => {
 
     expect(document.body.classList.contains('embedded')).toBe(false);
   });
-
-  test('a pop-out address means nothing any more', () => {
-    window.history.replaceState({}, '', '?popout=true');
-
-    applyEmbedded();
-
-    expect(document.documentElement.hasAttribute('data-popout')).toBe(false);
-    expect(document.body.classList.contains('embedded')).toBe(false);
-  });
 });
 
 describe('isEmbedded', () => {

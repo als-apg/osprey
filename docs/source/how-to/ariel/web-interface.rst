@@ -186,21 +186,9 @@ parameter descriptors it returns, are documented in
 Running the Web Interface
 =========================
 
-**CLI mode** (recommended for development):
-
-.. code-block:: bash
-
-   osprey ariel web                      # http://localhost:10300
-   osprey ariel web --port 8080          # Custom port
-   osprey ariel web --host 0.0.0.0       # Bind to all interfaces
-   osprey ariel web --reload             # Auto-reload on code changes
-
-.. note::
-
-   The web UI runs in-process via ``osprey ariel web`` and is also exposed
-   as a panel under ``osprey web``. There is no shipped container service
-   template for it --- ``osprey up`` only brings up dependencies
-   such as PostgreSQL.
+The web UI is the ARIEL panel of the web terminal: run ``osprey web``. There
+is no shipped container service template for it --- ``osprey up`` only
+brings up dependencies such as PostgreSQL.
 
 **Programmatic usage:**
 
@@ -230,4 +218,4 @@ See Also
     MCP tools, the capabilities API, and the database schema
 
 :doc:`/reference/cli`
-    CLI reference for ``osprey ariel web`` and all other ARIEL commands
+    CLI reference for the ARIEL commands
