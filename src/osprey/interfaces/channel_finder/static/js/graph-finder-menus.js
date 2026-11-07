@@ -4,7 +4,7 @@
  *
  * One builder per surface: a result row, a column header, a facet value, a
  * facet heading, an active-filter chip, the device inspector and its channel
- * rows, and the toolbar's ⋯ menu. Each takes what the surface shows plus an
+ * rows. Each takes what the surface shows plus an
  * {@link Actions} object of bound verbs, and returns the rows the shared
  * context menu (/design-system/js/context-menu.js) draws. Nothing here touches
  * the document or the network, so which verb a surface offers — and when it
@@ -349,47 +349,6 @@ export function chipMenu(ctx, key) {
   return [
     { label: 'Remove filter', run: () => ctx.actions.removeChip(key) },
     { label: 'Clear all filters', danger: true, run: () => ctx.actions.clearFilters() },
-  ];
-}
-
-/**
- * The toolbar's ⋯ menu: view settings and the bulk verbs.
- * @param {MenuContext} ctx
- * @returns {MenuItem[]}
- */
-export function moreMenu(ctx) {
-  const { finder, actions } = ctx;
-  return [
-    { heading: 'Rows' },
-    {
-      label: 'Comfortable',
-      checked: ctx.density === 'comfortable',
-      run: () => actions.setDensity('comfortable'),
-    },
-    {
-      label: 'Compact',
-      checked: ctx.density === 'compact',
-      run: () => actions.setDensity('compact'),
-    },
-    { divider: true },
-    ...columnToggles(ctx),
-    {
-      label: 'Reset columns',
-      disabled: isDefaultLayout(ctx.specs, ctx.layout),
-      run: () => actions.resetColumns(),
-    },
-    { divider: true },
-    { label: ctx.railCollapsed ? 'Show filters' : 'Hide filters', run: () => actions.toggleRail() },
-    {
-      label: 'Clear all filters',
-      disabled: !hasFilters(finder),
-      run: () => actions.clearFilters(),
-    },
-    {
-      label: 'Clear selection',
-      disabled: finder.selected.size === 0,
-      run: () => actions.clearSelection(),
-    },
   ];
 }
 

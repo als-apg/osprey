@@ -2,13 +2,12 @@
 /**
  * OSPREY Channel Finder — Application Entry Point
  *
- * Hash routing, module initialization, nav tab management.
+ * Hash routing, module initialization, the tile bar's view tabs.
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
-import '/design-system/js/components/osprey-display-menu.js';
 import { fetchJSON, putJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { state } from './state.js';
@@ -16,14 +15,10 @@ import { mountExplore, unmountExplore } from './explore.js';
 import { mountFeedback, unmountFeedback } from './feedback.js';
 import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
 
-// Standalone, this page owns its own theme chrome (the header
-// <osprey-display-menu>), so it runs theme-manager.js in the hub role:
-// persistence, OS auto-follow and ?theme= handling all come with it, and
-// broadcast is a structural no-op on a page with no iframes. Embedded in the
-// Web Terminal hub it is a follower instead: theme-boot.js already applied
-// data-theme pre-paint, and this attaches the postMessage listener for the
-// hub's live broadcasts.
-initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
+// A follower of the Web Terminal hub: theme-boot.js already applied data-theme
+// pre-paint, and this attaches the postMessage listener for the hub's live
+// broadcasts.
+initTheme({ role: 'follower' });
 
 applyEmbedded();
 
@@ -62,8 +57,6 @@ async function init() {
   // Load stats badges
   refreshStatsBadges();
 
-  // Set up navigation
-  setupNav();
   onHeaderAction((id, value) => {
     if (id === 'view') {
       if (value && VIEWS[value]) location.hash = value;
@@ -104,11 +97,6 @@ function activateView(viewName) {
   // Clear container
   container.innerHTML = '';
 
-  // Update nav links
-  document.querySelectorAll('.nav-link').forEach((link) => {
-    link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
-  });
-
   // Mount new view
   currentView = viewName;
   state.setActiveView(viewName);
@@ -118,23 +106,13 @@ function activateView(viewName) {
 
 // ---- Navigation ----
 
-function setupNav() {
-  document.querySelectorAll('.nav-link').forEach((link) => {
-    link.addEventListener('click', (e) => {
-      e.preventDefault();
-      const view = /** @type {HTMLElement} */ (link).dataset.view;
-      if (view) location.hash = view;
-    });
-  });
-}
-
 /**
  * Publish the Explore/Feedback tabs into the hub's tile bar, marking the
  * current view active, behind whatever the active view adds of its own (the
  * graph finder's search box and ⋯ menu). The view's items come first: they
  * exist only in one view, and the header contract puts conditional items
  * before the persistent switcher so the switcher never slides. Sent whole on
- * every change — the hub renders only the latest contribution. No-op standalone, where `.header-nav` carries the same tabs.
+ * every change — the hub renders only the latest contribution.
  */
 function contributeViewNav() {
   contributeHeader([

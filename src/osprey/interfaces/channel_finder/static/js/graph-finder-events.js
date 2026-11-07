@@ -22,7 +22,7 @@ import {
   openContextMenuAt,
 } from '/design-system/js/context-menu.js';
 import { nudgeColumn } from '/design-system/js/table-columns.js';
-import { setQuery, togglePageSelection, toggleSelection } from './graph-finder-state.js';
+import { togglePageSelection, toggleSelection } from './graph-finder-state.js';
 import { deviceAddresses } from './graph-finder-render.js';
 import {
   bindingMenu,
@@ -31,7 +31,6 @@ import {
   facetValueMenu,
   headerMenu,
   inspectorMenu,
-  moreMenu,
   rowMenu,
 } from './graph-finder-menus.js';
 import {
@@ -47,9 +46,6 @@ import {
 /** @typedef {import('./graph-finder-state.js').Facet} Facet */
 /** @typedef {import('/design-system/js/context-menu.js').MenuItem} MenuItem */
 
-/** How long typing settles before the query is sent, in ms. */
-export const SEARCH_DEBOUNCE_MS = 200;
-
 const ROWS = '.result-table tbody tr[data-pv]';
 const DATA_HEADS = '.result-table thead th[data-col]:not([data-pinned])';
 
@@ -61,25 +57,8 @@ const DATA_HEADS = '.result-table thead th[data-col]:not([data-pinned])';
  * @returns {() => void}
  */
 export function bindFinderEvents(pane, host) {
-  /** @type {number|undefined} */
-  let debounce;
   const controller = new AbortController();
   const { signal } = controller;
-
-  pane.addEventListener(
-    'input',
-    (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLInputElement) || target.id !== host.searchInputId) return;
-      const value = target.value;
-      window.clearTimeout(debounce);
-      debounce = window.setTimeout(() => {
-        setQuery(host.finder(), value);
-        void host.runSearch();
-      }, SEARCH_DEBOUNCE_MS);
-    },
-    { signal }
-  );
 
   pane.addEventListener('change', (event) => onChange(event, host), { signal });
   pane.addEventListener('click', (event) => onClick(event, host), { signal });
@@ -88,10 +67,7 @@ export function bindFinderEvents(pane, host) {
   pane.addEventListener('focusin', (event) => onFocusIn(event, host), { signal });
   document.addEventListener('keydown', (event) => onDocKeydown(event, host), { signal });
 
-  return () => {
-    window.clearTimeout(debounce);
-    controller.abort();
-  };
+  return () => controller.abort();
 }
 
 /**
@@ -147,25 +123,6 @@ function onClick(event, host) {
   const chip = target.closest('button.active-filter[data-chip]');
   if (chip) return act.removeChip(chip.getAttribute('data-chip') || '');
   if (target.closest('[data-clear-all]')) return act.clearFilters();
-
-  const density = target.closest('button[data-density]');
-  if (density)
-    return act.setDensity(
-      density.getAttribute('data-density') === 'compact' ? 'compact' : 'comfortable'
-    );
-
-  const more = target.closest('button[data-more]');
-  if (more instanceof HTMLElement) {
-    const rect = more.getBoundingClientRect();
-    openContextMenu({
-      x: rect.right - 220,
-      y: rect.bottom + 4,
-      anchorEl: more,
-      ariaLabel: 'Finder options',
-      items: moreMenu(menuContext(host)),
-    });
-    return;
-  }
 
   const copy = target.closest('button.copy-btn[data-copy]');
   if (copy)
@@ -349,15 +306,7 @@ function onDocKeydown(event, host) {
     (active.matches('input, textarea, select') || active.isContentEditable)
   )
     return;
-  if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    const input = /** @type {HTMLInputElement|null} */ (host.part(host.searchInputId));
-    // Hidden when the hub's tile bar carries the search box instead.
-    if (input && input.getClientRects().length > 0) {
-      event.preventDefault();
-      input.focus();
-      input.select();
-    }
-  } else if (event.key === 'Escape' && host.card()) {
+  if (event.key === 'Escape' && host.card()) {
     event.preventDefault();
     host.closeCard();
   }

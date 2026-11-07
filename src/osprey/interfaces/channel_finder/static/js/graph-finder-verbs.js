@@ -63,7 +63,6 @@ import { COLUMN_SPECS, savePrefs } from './graph-finder-prefs.js';
  * @property {() => SplitterApi|null} railSplit
  * @property {() => HTMLElement|null} pane - the mounted pane, or null
  * @property {(id: string) => HTMLElement|null} part - an element of the drawn finder, by id
- * @property {string} searchInputId
  * @property {() => Promise<void>} runSearch
  * @property {() => void} renderTable
  * @property {() => void} renderRail
@@ -87,12 +86,6 @@ export const HEADER_MENU = 'graph-more';
 /** @param {FinderHost} host @returns {HTMLTableElement|null} */
 function tableOf(host) {
   return /** @type {HTMLTableElement|null} */ (host.pane()?.querySelector('.result-table') ?? null);
-}
-
-/** @param {FinderHost} host @returns {void} */
-function clearSearchBox(host) {
-  const input = /** @type {HTMLInputElement|null} */ (host.part(host.searchInputId));
-  if (input) input.value = '';
 }
 
 /**
@@ -133,12 +126,10 @@ export function createActions(host) {
     },
     clearFilters: () => {
       if (!clearFilters(finder)) return;
-      clearSearchBox(host);
       void host.runSearch();
     },
     removeChip: (key) => {
       if (!removeChip(finder, key)) return;
-      if (key === 'q') clearSearchBox(host);
       void host.runSearch();
     },
     collapseAllFacets: (collapsed) => {
@@ -185,9 +176,6 @@ export function createActions(host) {
         .pane()
         ?.querySelector('.graph-explorer')
         ?.classList.toggle('compact', density === 'compact');
-      for (const btn of host.pane()?.querySelectorAll('[data-density]') ?? []) {
-        btn.setAttribute('aria-pressed', String(btn.getAttribute('data-density') === density));
-      }
       contributeHeader(host);
     },
     toggleRail: () => {
@@ -275,8 +263,7 @@ export function runAction(host, action) {
 }
 
 /**
- * Publish the search box and the ⋯ menu to the hub's tile bar. A no-op standalone (header-contrib.js ignores it outside a
- * frame), where the in-body toolbar stays.
+ * Publish the search box and the ⋯ menu to the hub's tile bar.
  * @param {FinderHost} host
  * @returns {void}
  */
@@ -330,8 +317,6 @@ export function contributeHeader(host) {
 export function onHeaderAction(host, id, value) {
   if (id === HEADER_SEARCH) {
     // The hub debounces its own search box, so the text is final here.
-    const input = /** @type {HTMLInputElement|null} */ (host.part(host.searchInputId));
-    if (input) input.value = value ?? '';
     setQuery(host.finder(), value ?? '');
     void host.runSearch();
     return;

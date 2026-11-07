@@ -45,8 +45,8 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 /* base.css sets html,body { overflow: hidden } for the hub's fixed-viewport
-   terminal shell. Channel Finder is a normal scrolling page (fixed header +
-   a normal-flow .app-main that grows past one viewport height), so it must
+   terminal shell. Channel Finder is a normal scrolling page (a normal-flow
+   .app-main that grows past one viewport height), so it must
    override that back to auto or all content below the fold is unreachable. */
 html, body {
   overflow: auto;
@@ -90,103 +90,10 @@ a:hover { color: var(--color-accent-light); }
 }
 
 /* ================================================================
-   App Header
-   ================================================================ */
-
-.app-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 48px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--neutral-tint-10);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--space-4);
-  z-index: 100;
-}
-
-/* Embedded in web terminal: the hub's tile bar is the panel's only header —
- * it shows the panel name, owns theming, and renders the Explore/Feedback
- * tabs this panel contributes (see js/app.js). So the whole local header
- * goes, along with the body padding that compensated for its fixed 48px. */
-body.embedded .app-header { display: none; }
-body.embedded .app-main { padding-top: 0; }
-body.embedded .app-logo { display: none; }
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.app-logo {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-accent-light);
-}
-
-.logo-icon { flex-shrink: 0; }
-
-.logo-text {
-  font-family: var(--font-display);
-  font-weight: var(--weight-bold);
-  font-size: var(--text-base);
-  letter-spacing: 0.12em;
-  color: var(--text-primary);
-}
-
-/* ================================================================
-   Navigation
-   ================================================================ */
-
-.header-nav {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: 100%;
-}
-
-.nav-link {
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  padding: 0 var(--space-3);
-  height: 100%;
-  display: flex;
-  align-items: center;
-  border-bottom: 2px solid transparent;
-  transition: color var(--duration-instant) ease, border-color var(--duration-instant) ease;
-}
-
-.nav-link:hover { color: var(--text-primary); }
-
-.nav-link.active {
-  color: var(--text-accent);
-  border-bottom-color: var(--color-accent);
-}
-
-/* Groups header-nav with the theme switcher so `.app-header`'s two-child
-   space-between layout is preserved (header-left <-> header-right) instead
-   of splitting three items across the header. */
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  height: 100%;
-}
-
-/* ================================================================
    Main Layout
    ================================================================ */
 
 .app-main {
-  padding-top: 48px;
   /* Clears the fixed corpus strip so the last row of content stays readable. */
   padding-bottom: var(--cf-strip-h);
   min-height: 100vh;
@@ -1820,15 +1727,11 @@ textarea.form-input {
 /* --- Frame ---------------------------------------------------------- */
 
 .graph-explorer {
-  --cf-graph-chrome: calc(48px + var(--cf-strip-h) + 2 * var(--space-4));
+  --cf-graph-chrome: calc(var(--cf-strip-h) + 2 * var(--space-4));
   display: flex;
   flex-direction: column;
   height: calc(100dvh - var(--cf-graph-chrome));
   min-height: 420px;
-}
-
-body.embedded .graph-explorer {
-  --cf-graph-chrome: calc(var(--cf-strip-h) + 2 * var(--space-4));
 }
 
 /* The frame replaces the view's fade-in target, so the panes do not
@@ -1843,147 +1746,6 @@ body.embedded .graph-explorer {
   flex-direction: column;
   gap: var(--space-2);
   min-height: 0;
-}
-
-/* --- Toolbar -------------------------------------------------------- */
-
-.cf-toolbar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: 28px;
-}
-
-/* Embedded, the hub's tile bar carries the search box and the ⋯ menu
-   (header contribution), so the in-body toolbar steps aside. Standalone keeps it. */
-body.embedded .cf-toolbar {
-  display: none;
-}
-
-/* The search pill: the hub's own filter-box idiom, one size up. */
-.cf-search {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex: 0 1 440px;
-  min-width: 160px;
-  height: 28px;
-  padding: 0 var(--space-2);
-  background: var(--bg-panel);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: text;
-  transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
-}
-
-.cf-search:hover,
-.cf-search:focus-within {
-  border-color: var(--border-accent);
-  background: var(--bg-elevated);
-}
-
-.cf-search svg {
-  flex-shrink: 0;
-  width: 12px;
-  height: 12px;
-  color: var(--text-muted);
-}
-
-.cf-search input {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  outline: none;
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
-  color: var(--text-primary);
-}
-
-.cf-search input::placeholder {
-  color: var(--text-muted);
-}
-
-.cf-search kbd {
-  padding: 1px var(--space-1);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  font-family: var(--font-display);
-  font-size: var(--text-2xs);
-  line-height: var(--leading-none);
-  color: var(--text-muted);
-}
-
-.cf-search:focus-within kbd {
-  visibility: hidden;
-}
-
-.finder-count {
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-base);
-  white-space: nowrap;
-}
-
-.finder-count strong {
-  color: var(--text-primary);
-  font-weight: var(--weight-medium);
-}
-
-.cf-fill {
-  flex: 1;
-}
-
-/* Segmented control: the hub's contrib-nav idiom. */
-.cf-seg {
-  display: inline-flex;
-  gap: 2px;
-  height: 28px;
-  padding: 2px;
-  box-sizing: border-box;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-}
-
-.cf-seg button,
-.cf-iconbtn {
-  appearance: none;
-  padding: 0 var(--space-2);
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  line-height: var(--leading-none);
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.cf-seg button {
-  border-radius: var(--radius-xs);
-}
-
-.cf-seg button[aria-pressed="true"],
-.cf-seg button:hover {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-}
-
-.cf-iconbtn {
-  min-width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-lg);
-}
-
-.cf-iconbtn:hover,
-.cf-iconbtn:focus-visible {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-  outline: none;
 }
 
 /* --- Active filters ------------------------------------------------- */
@@ -2769,8 +2531,6 @@ tr:focus-within .copy-btn,
    not removed: each is parked by its own isEnabled gate and resumes
    when the viewport widens. */
 @media (max-width: 768px) {
-  .cf-seg,
-  .finder-count,
   .corpus-prov {
     display: none;
   }

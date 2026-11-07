@@ -35,13 +35,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.interfaces._panel_host import PanelHost, open_panel_host
 from tests.interfaces.conftest import launch_graph_channel_finder
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-    from playwright.sync_api import Browser, Page
+    from playwright.sync_api import Browser
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -62,20 +63,20 @@ def finder_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]
         yield url
 
 
-def _open(browser: Browser, url: str) -> Page:
+def _open(browser: Browser, url: str) -> PanelHost:
     page = browser.new_page(viewport=VIEWPORT)
-    page.goto(f"{url}/#explore")
-    page.wait_for_selector(ROWS)
-    return page
+    host = open_panel_host(page, f"{url}/#explore")
+    host.wait_for_selector(ROWS)
+    return host
 
 
-def _columns(page: Page) -> list[str]:
+def _columns(page: PanelHost) -> list[str]:
     return page.eval_on_selector_all(
         ".result-table thead th[data-col]", "els => els.map(e => e.dataset.col)"
     )
 
 
-def _box(page: Page, selector: str) -> dict:
+def _box(page: PanelHost, selector: str) -> dict:
     box = page.locator(selector).bounding_box()
     assert box is not None, f"{selector} is not laid out"
     return box

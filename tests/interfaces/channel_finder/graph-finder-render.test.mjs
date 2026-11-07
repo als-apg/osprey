@@ -869,17 +869,8 @@ test('the inspector heading and meta stay inert under a hostile payload', () => 
 });
 
 test('the skeleton carries every region the panel redraws, each once', () => {
-  const el = parse(skeletonHtml('comfortable'));
+  const el = parse(skeletonHtml());
   for (const id of Object.values(FINDER_IDS)) {
     expect(el.querySelectorAll(`#${id}`)).toHaveLength(1);
-  }
-  expect(el.querySelector(`#${FINDER_IDS.search}`)?.tagName).toBe('INPUT');
-});
-
-test('the density toggle presses the density it is given and no other', () => {
-  for (const density of /** @type {const} */ (['comfortable', 'compact'])) {
-    const el = parse(skeletonHtml(density));
-    const pressed = [...el.querySelectorAll('[data-density][aria-pressed="true"]')];
-    expect(pressed.map((b) => b.getAttribute('data-density'))).toEqual([density]);
   }
 });

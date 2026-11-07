@@ -17,7 +17,6 @@ import {
   hasFilters,
   headerMenu,
   inspectorMenu,
-  moreMenu,
   rowMenu,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-menus.js';
 import {
@@ -295,25 +294,6 @@ describe('the inspector', () => {
     expect(labels(items)).toEqual(['Copy address', 'Send to assistant', 'Add to selection']);
     row(items, 'Add to selection').run?.();
     expect(c.actions.toggleSelected).toHaveBeenCalledWith('A');
-  });
-});
-
-describe('the toolbar ⋯ menu', () => {
-  test('density is a pair of toggles reflecting the preference', () => {
-    const items = moreMenu(ctx({ density: 'compact' }));
-    expect(row(items, 'Compact').checked).toBe(true);
-    expect(row(items, 'Comfortable').checked).toBe(false);
-  });
-
-  test('the rail verb names what it will do', () => {
-    expect(labels(moreMenu(ctx()))).toContain('Hide filters');
-    expect(labels(moreMenu(ctx({ railCollapsed: true })))).toContain('Show filters');
-  });
-
-  test('bulk verbs are disabled when there is nothing to clear', () => {
-    const items = moreMenu(ctx());
-    expect(row(items, 'Clear all filters').disabled).toBe(true);
-    expect(row(items, 'Clear selection').disabled).toBe(true);
   });
 });
 

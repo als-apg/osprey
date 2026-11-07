@@ -658,8 +658,6 @@ export function deviceCardErrorHtml(detail) {
  * to redraw each one in place.
  */
 export const FINDER_IDS = Object.freeze({
-  search: 'graph-finder-q',
-  count: 'graph-finder-count',
   chips: 'graph-finder-chips',
   rail: 'graph-finder-rail',
   railSplit: 'graph-finder-rail-split',
@@ -669,31 +667,12 @@ export const FINDER_IDS = Object.freeze({
   table: 'graph-finder-table',
 });
 
-const SEARCH_PLACEHOLDER = 'Search devices, addresses and descriptions';
-
 /**
- * The finder's skeleton. The query box lives here rather than in a re-rendered
- * region: replacing an input while it has focus would drop the caret mid-word.
- * @param {'comfortable'|'compact'} density - The row density the toggle shows as pressed.
- * @returns {string} Markup for the toolbar, the panes and the regions inside them.
+ * The finder's skeleton.
+ * @returns {string} Markup for the panes and the regions inside them.
  */
-export function skeletonHtml(density) {
-  const toggle = (/** @type {'comfortable'|'compact'} */ d, /** @type {string} */ label) =>
-    `<button type="button" data-density="${d}" aria-pressed="${density === d}">${label}</button>`;
+export function skeletonHtml() {
   return `
-    <div class="cf-toolbar">
-      <label class="cf-search">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input type="search" id="${FINDER_IDS.search}" placeholder="${esc(SEARCH_PLACEHOLDER)}"
-               aria-label="${esc(SEARCH_PLACEHOLDER)}" autocomplete="off" spellcheck="false">
-        <kbd title="Press / to search">/</kbd>
-      </label>
-      <span class="finder-count" id="${FINDER_IDS.count}"></span>
-      <span class="cf-fill"></span>
-      <span class="cf-seg" role="group" aria-label="Row density">${toggle('comfortable', 'Comfortable')}${toggle('compact', 'Compact')}</span>
-      <button type="button" class="cf-iconbtn" data-more aria-haspopup="menu"
-              title="More options" aria-label="More options">⋯</button>
-    </div>
     <div class="active-filters" id="${FINDER_IDS.chips}"></div>
     <div class="finder-layout">
       <div class="facet-rail" id="${FINDER_IDS.rail}"></div>

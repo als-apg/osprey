@@ -300,15 +300,12 @@ function check(selector, checked) {
 }
 
 /**
- * Type into the query box and fire the input event the mount debounces.
+ * Report a query the way the hub's tile-bar search box does.
  * @param {string} value - The new query.
  * @returns {void}
  */
 function type(value) {
-  const input = /** @type {HTMLInputElement|null} */ (host().querySelector('#graph-finder-q'));
-  if (!input) throw new Error('no query box');
-  input.value = value;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
+  state.viewHeader?.onAction('graph-search', value);
 }
 
 /** @returns {string[]} The addresses of the rows currently drawn. */
@@ -369,17 +366,14 @@ describe('the first render', () => {
 
     // The page of rows, the counts, and the pager.
     expect(drawnPvs()).toEqual(DEMO_ROWS.map((row) => row.fullPv));
-    expect(container.querySelector('.finder-count')?.textContent).toBe(
-      `${(128).toLocaleString()} channels`
-    );
     expect(container.querySelector('.result-counts')?.textContent).toContain(
       `${(64).toLocaleString()} devices`
     );
     expect(container.querySelector('.pager-pos')?.textContent).toBe('1 / 3');
 
-    // Panel chrome: the toolbar and the three panes, and no failure pane.
+    // Panel chrome: the three panes, and no failure pane; the tile bar holds search.
     // Provenance lives in the corpus strip now (stats-badges.js), not here.
-    expect(container.querySelector('.cf-toolbar #graph-finder-q')).not.toBeNull();
+    expect(container.querySelector('.cf-toolbar')).toBeNull();
     expect(container.querySelector('.finder-layout > .facet-rail')).not.toBeNull();
     expect(
       container.querySelector('.finder-layout > .finder-results #graph-finder-table')
@@ -532,24 +526,6 @@ describe('the first render', () => {
 });
 
 describe('searching', () => {
-  test('typing costs one search after the debounce, not one per keystroke', async () => {
-    const fetchMock = stubDemo();
-    await mountGraph(host());
-    vi.useFakeTimers();
-
-    type('qu');
-    type('qua');
-    type('quad');
-    // Nothing has gone out yet: the query is still settling.
-    expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(1);
-
-    await vi.advanceTimersByTimeAsync(200);
-
-    const searches = callsTo(fetchMock, SEARCH_PATH);
-    expect(searches).toHaveLength(2);
-    expect(searches[1]).toBe(`${SEARCH_PATH}?q=quad&page=1`);
-  });
-
   test('a late reply to an abandoned query never overwrites the current one', async () => {
     /** @type {(() => void)[]} */
     const pending = [];
@@ -659,20 +635,6 @@ describe('searching', () => {
 
     expect(host().innerHTML).toBe('');
     expect(host().querySelector('.result-table')).toBeNull();
-  });
-
-  test('a query still settling when the panel goes away never leaves', async () => {
-    const fetchMock = stubDemo();
-    await mountGraph(host());
-    vi.useFakeTimers();
-
-    type('quad');
-    unmountGraph();
-    await vi.advanceTimersByTimeAsync(200);
-
-    // Only the mount's own search was ever sent: the debounce died with the
-    // panel rather than firing into a torn-down view.
-    expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(1);
   });
 });
 
@@ -1121,14 +1083,6 @@ describe('right-click menus', () => {
     await vi.waitFor(() => expect(callsTo(fetchMock, DEVICE_PATH)).toHaveLength(1));
   });
 
-  test('the search box keeps the browser’s own menu', async () => {
-    stubDemo();
-    await mountGraph(host());
-
-    expect(rightClick('#graph-finder-q').defaultPrevented).toBe(false);
-    expect(document.querySelector('.osprey-context-menu')).toBeNull();
-  });
-
   test('a facet value menu keeps only that value', async () => {
     const fetchMock = stubDemo();
     await mountGraph(host());
@@ -1296,32 +1250,15 @@ describe('the inspector and the keyboard', () => {
     press(/** @type {Element} */ (document.activeElement), 'Enter');
     await vi.waitFor(() => expect(callsTo(fetchMock, DEVICE_PATH)).toHaveLength(1));
   });
-
-  test('/ jumps to the search box, but not while typing', async () => {
-    stubDemo();
-    await mountGraph(host());
-    const input = /** @type {HTMLInputElement} */ (host().querySelector('#graph-finder-q'));
-    // happy-dom lays nothing out; give the box a client rect so it counts as shown.
-    vi.spyOn(input, 'getClientRects').mockReturnValue(/** @type {any} */ ([{}]));
-
-    document.body.focus();
-    document.dispatchEvent(
-      new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true })
-    );
-    expect(document.activeElement).toBe(input);
-  });
 });
 
 describe('density', () => {
-  test('the density toggle compacts the rows and remembers it', async () => {
+  test('the density menu entry compacts the rows and remembers it', async () => {
     stubDemo();
     await mountGraph(host());
 
-    click('button[data-density="compact"]');
+    state.viewHeader?.onAction('graph-more', 'density-compact');
     expect(host().querySelector('.graph-explorer')?.classList.contains('compact')).toBe(true);
-    expect(
-      host().querySelector('button[data-density="compact"]')?.getAttribute('aria-pressed')
-    ).toBe('true');
     expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}').density).toBe('compact');
   });
 });
@@ -1343,16 +1280,13 @@ describe('the hub tile bar', () => {
     expect(state.viewHeader).toBeNull();
   });
 
-  test('a search typed in the tile bar runs here and fills the hidden box', async () => {
+  test('a search typed in the tile bar runs here', async () => {
     const fetchMock = stubDemo();
     await mountGraph(host());
 
     state.viewHeader?.onAction('graph-search', 'qfa');
     await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2));
     expect(callsTo(fetchMock, SEARCH_PATH)[1]).toBe(`${SEARCH_PATH}?q=qfa&page=1`);
-    expect(/** @type {HTMLInputElement} */ (host().querySelector('#graph-finder-q')).value).toBe(
-      'qfa'
-    );
   });
 
   test('the tile-bar menu reaches the same verbs', async () => {

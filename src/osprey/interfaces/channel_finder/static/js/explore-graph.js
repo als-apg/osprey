@@ -34,10 +34,9 @@
  * the panel it was asked for is still mounted, so a slow answer to an abandoned
  * query can never overwrite a faster answer to the current one.
  *
- * Embedded in the web terminal the toolbar's search box and ⋯ menu move into
- * the hub's tile bar (graph-finder-verbs.js contributeHeader →
- * state.setViewHeader → app.js), so the panel body starts at the filters like
- * every other tile; only standalone keeps the in-body toolbar.
+ * The search box and ⋯ menu live in the hub's tile bar (graph-finder-verbs.js
+ * contributeHeader → state.setViewHeader → app.js), so the panel body starts at
+ * the filters like every other tile.
  */
 
 import { state } from './state.js';
@@ -161,7 +160,6 @@ const host = {
   railSplit: () => railSplit,
   pane: () => paneEl,
   part,
-  searchInputId: FINDER_IDS.search,
   runSearch,
   renderTable,
   renderRail,
@@ -397,9 +395,7 @@ function renderFinder() {
   if (!body || !results) return;
 
   if (!part(FINDER_IDS.table)) {
-    body.innerHTML = skeletonHtml(prefs.density);
-    const input = /** @type {HTMLInputElement|null} */ (part(FINDER_IDS.search));
-    if (input) input.value = finder.q;
+    body.innerHTML = skeletonHtml();
     wireSkeleton();
   }
 
@@ -419,9 +415,6 @@ function renderFinder() {
         ? '<button type="button" class="clear-all-filters" data-clear-all>Clear all</button>'
         : '');
   }
-
-  const count = part(FINDER_IDS.count);
-  if (count) count.innerHTML = `<strong>${fmt(results.total)}</strong> channels`;
 
   const caution = part(FINDER_IDS.caution);
   if (caution) {
