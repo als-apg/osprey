@@ -97,19 +97,38 @@ def _modules_for(distribution: str) -> tuple[str, ...]:
     return _installed_modules().get(distribution, ())
 
 
+def _imports_in(tree: ast.AST) -> set[str]:
+    """The dotted module names a tree's import statements and literal import_module calls name."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            names.add(node.module)
+            names.update(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Call) and _is_import_module(node.func):
+            if len(node.args) == 1 and not node.keywords:
+                (arg,) = node.args
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    names.add(arg.value)
+    return names
+
+
+def _is_import_module(func: ast.expr) -> bool:
+    if isinstance(func, ast.Attribute):
+        return func.attr == "import_module"
+    return isinstance(func, ast.Name) and func.id == "import_module"
+
+
 @cache
 def _shipped_imports() -> frozenset[str]:
-    """Every dotted module name an import statement under src/ or packages/ names."""
+    """Every dotted module name an import statement or a literal import_module call
+    under src/ or packages/ names."""
     names: set[str] = set()
     for root in (REPO_ROOT / "src", REPO_ROOT / "packages"):
         for path in sorted(root.rglob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    names.update(alias.name for alias in node.names)
-                elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-                    names.add(node.module)
-                    names.update(f"{node.module}.{alias.name}" for alias in node.names)
+            names |= _imports_in(tree)
     return frozenset(names)
 
 
@@ -150,3 +169,17 @@ def test_a_static_entry_wins_over_the_installed_top_level_names(
         sys.modules[__name__], "_installed_modules", lambda: {"azure-servicebus": ("swagger",)}
     )
     assert _modules_for("azure-servicebus") == ("azure.servicebus",)
+
+
+def test_a_literal_import_module_call_counts_as_an_import() -> None:
+    tree = ast.parse(
+        "import importlib\n"
+        "from importlib import import_module\n"
+        "importlib.import_module('lazy_a')\n"
+        "import_module('lazy_b.sub')\n"
+        "importlib.import_module(name)\n"
+        "importlib.import_module('.rel', package='pkg')\n"
+    )
+    names = _imports_in(tree)
+    assert {"lazy_a", "lazy_b.sub"} <= names
+    assert ".rel" not in names
