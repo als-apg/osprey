@@ -2,13 +2,13 @@
 
 The invariant under test: **an attached render dials the ports its hosting
 deployment actually publishes.** Web-terminal render projects (the
-``control-assistant-{readonly,readwrite,ariel}`` presets) render as *attached*
+``demo-{readonly,readwrite,ariel}`` presets) render as *attached*
 projects whose ``services:`` carries no ``bluesky`` or ``virtual_accelerator``
 block, so several in-container clients resolve their endpoint through a
 fallback chain that bottoms out in a compiled-in default. At the shipped
 defaults that default happens to equal the port the host publishes — so every
 existing test passes while proving nothing about *following*. This module
-breaks the coincidence: it builds one control-assistant stack whose hosting
+breaks the coincidence: it builds one demo stack whose hosting
 profile MOVES the ports, confirms the host render moved (the premise), then
 resolves each endpoint exactly the way the in-container client does and
 asserts the render followed.
@@ -68,7 +68,7 @@ MOVED_VA_PORT = 15064
 
 @pytest.fixture(scope="module")
 def moved_port_stack(tmp_path_factory) -> Path:
-    """A control-assistant stack whose hosting profile moved its service ports.
+    """A demo stack whose hosting profile moved its service ports.
 
     Same build pattern as ``tests/cli/test_tier_app_presets.py::
     _build_render_stack``, with one twist: between ``init`` and ``build`` the
@@ -82,7 +82,7 @@ def moved_port_stack(tmp_path_factory) -> Path:
 
     repo = tmp_path_factory.mktemp("render-drift") / "my-facility"
     runner = CliRunner()
-    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    created = runner.invoke(init, [str(repo), "--preset", "demo", "--no-git"])
     assert created.exit_code == 0, created.output
 
     profile_path = repo / "profile.yml"

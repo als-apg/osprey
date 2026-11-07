@@ -53,7 +53,7 @@ from tests.cli._reporters import ConsoleReporter, installed
 _PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 # ---------------------------------------------------------------------------
-# The exemplar: the control-assistant preset, resolved the way `init` resolves
+# The exemplar: the demo preset, resolved the way `init` resolves
 # it, with the layers the materializer parses. Session-scoped: the
 # preset is packaged data, identical for every test here.
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ _PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 @pytest.fixture(scope="session")
 def exemplar() -> tuple[BuildProfile, dict]:
-    resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
+    resolved, _preset_dir = resolve_build_profile(None, "demo", (), ())
     texts = _layer_profile_texts(resolved, "Exemplar", "")
     return resolved, _parsed_layer_deltas(texts)
 
@@ -679,7 +679,7 @@ def test_init_prints_the_card_after_its_report(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        ["init", str(tmp_path / "exemplar"), "--preset", "control-assistant", "--no-git"],
+        ["init", str(tmp_path / "exemplar"), "--preset", "demo", "--no-git"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output

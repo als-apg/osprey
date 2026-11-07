@@ -90,11 +90,11 @@ def _demo_document() -> dict[str, Any]:
     from osprey.facility.build import build_facility
     from tests._preset_data import packaged_facility_dir
 
-    return build_facility(packaged_facility_dir("control_assistant"), project_name="demo")
+    return build_facility(packaged_facility_dir("demo"), project_name="demo")
 
 
 def demo_facility_document() -> dict[str, Any]:
-    """The facility document of the tree the control-assistant preset ships.
+    """The facility document of the tree the demo preset ships.
 
     Built once per process; each call returns its own copy, which the caller
     may change. The tree ships ``identity.yaml``, so the project name a build
@@ -108,7 +108,7 @@ def demo_facility_document() -> dict[str, Any]:
 
 
 def write_demo_facility_file(render: Path | str) -> Path:
-    """Write the facility file of the tree the control-assistant preset ships.
+    """Write the facility file of the tree the demo preset ships.
 
     4731 channels: 674 setpoints, all but the 29 gauge trip resets paired with a
     readback, and 4057 readbacks.
@@ -132,7 +132,7 @@ def write_demo_facility_file(render: Path | str) -> Path:
     return target
 
 
-def write_facility_views(render: Path | str, bundle: str = "control_assistant") -> list[Path]:
+def write_facility_views(render: Path | str, bundle: str = "demo") -> list[Path]:
     """Write the facility outputs a build writes into *render*, from *bundle*'s tree.
 
     The facility file and every view the render's ``config.yml`` asks for, by
@@ -158,7 +158,7 @@ def write_facility_views(render: Path | str, bundle: str = "control_assistant") 
     facility_dir = packaged_facility_dir(bundle)
     if not facility_dir.is_dir():
         return []
-    if facility_dir == packaged_facility_dir("control_assistant"):
+    if facility_dir == packaged_facility_dir("demo"):
         document = demo_facility_document()
     else:
         document = build_facility(

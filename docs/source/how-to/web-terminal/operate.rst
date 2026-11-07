@@ -62,7 +62,7 @@ The window has a sidebar on the left and two panes:
   in tiles you arrange by dragging (`Tiles`_). New artifacts,
   plots, and data files appear under their session in the sidebar
   (`Sessions and artifacts`_) as the agent creates them, with no refresh.
-  On a fresh control-assistant deployment the tree is not empty: its first
+  On a fresh demo deployment the tree is not empty: its first
   deploy lays down three past sessions from the ``demo-history`` scenario,
   with their transcripts and artifacts, which you can open and resume (see
   :ref:`how-to-run-scenarios`). Your

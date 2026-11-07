@@ -68,7 +68,7 @@ _PROJECT_COUNTER = 0
 
 
 def _build(parent: Path) -> Path:
-    """Build a control-assistant project with its facility views, and return its directory."""
+    """Build a demo project with its facility views, and return its directory."""
     global _PROJECT_COUNTER
     _PROJECT_COUNTER += 1
     return create_project_as_built(
@@ -76,7 +76,7 @@ def _build(parent: Path) -> Path:
         facility_views=True,
         project_name=f"killswitch-tier-{_PROJECT_COUNTER}",
         output_dir=parent,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
 
@@ -112,7 +112,7 @@ def _configure(project_dir, *, writes, servers=None, write_tools=None, drop_hook
         manifest = json.loads(manifest_path.read_text())
         # The fixture's manifest records no selection, so the render falls back
         # to the preset's; spell that selection out, minus the dropped hooks.
-        artifacts = dict(manifest_mod.load_template_manifest("control-assistant")["artifacts"])
+        artifacts = dict(manifest_mod.load_template_manifest("demo")["artifacts"])
         artifacts["hooks"] = [h for h in artifacts["hooks"] if h not in drop_hooks]
         manifest["artifacts"] = artifacts
         manifest_path.write_text(json.dumps(manifest))

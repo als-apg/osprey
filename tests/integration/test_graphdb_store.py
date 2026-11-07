@@ -6,7 +6,7 @@ n10s plugin.  Every other graphdb test mocks the driver, which can prove the
 call shapes but not the two things that decide whether the feature works: that
 ``n10s.graphconfig.init`` with :data:`~...graph_seeder.N10S_GRAPH_CONFIG`
 produces a graph the operator queries can traverse, and that the graph view the
-control-assistant build writes imports into exactly the corpus those queries
+demo build writes imports into exactly the corpus those queries
 were verified against.  So the assertions here are the four counts verified on
 that view (1017 binding owners / 4731 bindings / 674 write-only + 4052 read-only
 / 480 magnets rolled up through the class hierarchy), plus n10s's own
@@ -52,10 +52,10 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 
 
 # ---------------------------------------------------------------------------
-# Verified counts for the control-assistant build's graph view
+# Verified counts for the demo build's graph view
 # ---------------------------------------------------------------------------
 # The binding and direction counts are the Turtle census pinned in
-# tests/templates/test_control_assistant_demo_ttl.py; the magnet rollup and the
+# tests/templates/test_demo_ttl.py; the magnet rollup and the
 # triple count were verified against a live n10s import of the same file.
 
 #: Triples n10s reports loading from the view.
@@ -146,9 +146,9 @@ def seeder_store(graphdb_plugin_dir: Path) -> Iterator[WatchedStore]:
 
 
 @pytest.fixture(scope="session")
-def demo_ttl(built_control_assistant: BuiltProject) -> str:
-    """The graph view the control-assistant build writes, as the seeder reads it."""
-    view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+def demo_ttl(built_demo: BuiltProject) -> str:
+    """The graph view the demo build writes, as the seeder reads it."""
+    view = built_demo.build_dir / "data" / "graph" / "facility.ttl"
     return view.read_text(encoding="utf-8")
 
 

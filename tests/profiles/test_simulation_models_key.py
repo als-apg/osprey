@@ -24,7 +24,7 @@ from osprey.utils.workspace import TIERS_DIRNAME
 from tests._facility_file import demo_facility_document
 
 #: The shipped presets every all-templates key must appear in.
-_PRESETS = ("hello-world", "control-assistant")
+_PRESETS = ("hello-world", "demo")
 
 
 @pytest.fixture(scope="module")

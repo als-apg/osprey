@@ -473,9 +473,9 @@ def _waveform(surface: ModelSurface) -> np.ndarray:
 
 
 def test_info_describes_the_sek_waveform_as_a_500_element_array(
-    built_control_assistant: BuiltProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_demo: BuiltProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    surface, _, _ = _demo_surface(built_control_assistant, tmp_path, monkeypatch)
+    surface, _, _ = _demo_surface(built_demo, tmp_path, monkeypatch)
 
     by_name = {entry["name"]: entry for entry in surface.info()["variables"]}
 
@@ -487,9 +487,9 @@ def test_info_describes_the_sek_waveform_as_a_500_element_array(
 
 
 def test_two_publishes_one_tick_apart_differ(
-    built_control_assistant: BuiltProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_demo: BuiltProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    surface, _, clock = _demo_surface(built_control_assistant, tmp_path, monkeypatch)
+    surface, _, clock = _demo_surface(built_demo, tmp_path, monkeypatch)
 
     first = _waveform(surface)
     clock.now += DEFAULT_TICK_S
@@ -502,19 +502,19 @@ def test_two_publishes_one_tick_apart_differ(
 
 
 def test_the_sek_waveform_is_refreshed_by_every_pass_of_the_runner(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     """A periodic pass reads the whole roster; a write pass drops only the periodic addresses."""
-    view = SimulatorView.of_render(built_control_assistant.build_dir)
+    view = SimulatorView.of_render(built_demo.build_dir)
 
     assert SEK_WAVEFORM in view.channels()
     assert SEK_WAVEFORM not in periodic_addresses(view)
 
 
 def test_writing_the_sek_setpoint_scales_the_next_peak(
-    built_control_assistant: BuiltProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_demo: BuiltProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    surface, composite, clock = _demo_surface(built_control_assistant, tmp_path, monkeypatch)
+    surface, composite, clock = _demo_surface(built_demo, tmp_path, monkeypatch)
     nominal = float(surface.get([SEK_SP])[SEK_SP])
     clock.now += DEFAULT_TICK_S
     before = _waveform(surface)
@@ -529,11 +529,11 @@ def test_writing_the_sek_setpoint_scales_the_next_peak(
 
 
 def test_sek_off_publishes_all_zeros(
-    built_control_assistant: BuiltProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    built_demo: BuiltProject, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The on status is a read-only readback, so the septum is switched off at its seed."""
     surface, _, clock = _demo_surface(
-        built_control_assistant, tmp_path, monkeypatch, seeds={SEK_ON: {"nominal": "FALSE"}}
+        built_demo, tmp_path, monkeypatch, seeds={SEK_ON: {"nominal": "FALSE"}}
     )
 
     first = _waveform(surface)

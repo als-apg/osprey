@@ -241,7 +241,7 @@ the framework reads and what it falls back to when no line spells it.
      approval.enabled: true
      approval.default_policy: always
 
-That is the shape ``osprey init --preset control-assistant`` writes, with the
+That is the shape ``osprey init --preset demo`` writes, with the
 timezone changed and a per-type limits block added. Pointing the same deployment at a real machine
 (``control_system.type: epics``) is a larger edit than the one line, because
 the ``va_archiver:`` block the preset ships records a machine the deployment
@@ -491,7 +491,7 @@ level. Such a profile is refused, naming that key and the verb that fixes it:
 .. code-block:: bash
 
    osprey init --revalidate                            # preset from provenance:
-   osprey init --revalidate --preset control-assistant # or name it
+   osprey init --revalidate --preset demo              # or name it
 
 It writes every key the preset documents and the profile lacks into the
 profile's own ``config:`` block, each under the comment the preset documents it
@@ -728,7 +728,7 @@ the requirement is "this tier can never move anything".
    keep the approval prompt, and strip that prompt away. ``deny`` is
    subtractable per tier, which is the direction a floor has to work in.
 
-   The bundled ``control-assistant`` preset is built exactly this way: its
+   The bundled ``demo`` preset is built exactly this way: its
    base denies the agent's own deployment-editing tool, and the ``admin``
    tier is the single delta that removes that deny. Writing the floor is
    not only a convention. A web terminal served without a login by a tier
@@ -919,7 +919,7 @@ profile ships no channel-database inputs. What it does need is a
 comes in.
 
 A deployment that runs its own store already has one.
-``osprey init --preset control-assistant`` writes the ``services.graphdb.*``
+``osprey init --preset demo`` writes the ``services.graphdb.*``
 keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
 ``config:`` block, and ``osprey up`` starts, bootstraps and seeds it — see
 :doc:`/how-to/deploy-project/index`. That profile reads, in outline:
@@ -979,7 +979,7 @@ answers, see :doc:`/how-to/use-channel-finder`; for the corpus behind them,
 :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 The qmd sidecar behind hybrid logbook search is guarded the same way. The
-``control-assistant`` preset switches
+``demo`` preset switches
 ``ariel.search_modules.hybrid`` on and deploys the ``services.qmd`` sidecar that
 answers it, but an attached project renders ``services: {}`` — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
@@ -1375,7 +1375,7 @@ the profile starts with them in force. Seeding is append-only: a value already
 in the file — set by the operator, or minted by a deploy — always wins, and
 later ``init`` runs never rewrite one. Declare a default only for a value the
 profile's author can honestly choose for every deployment (the
-``control-assistant`` preset's demo login passwords, say); values a *site*
+``demo`` preset's login passwords, say); values a *site*
 should share across hosts belong in ``.env.shared``, which is committed with
 the repository and read by every host (see :ref:`deployment-env-chain`).
 

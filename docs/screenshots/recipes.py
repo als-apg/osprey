@@ -17,7 +17,7 @@ Four environments cover every real case:
   :func:`docs.screenshots.contact_sheet.hermetic_hub`: a seeded workspace and a
   canned terminal transcript, with zero containers and no provider. On by
   default.
-* ``tutorial_stack`` — build the ``control-assistant`` tutorial project, bring up
+* ``tutorial_stack`` — build the ``demo`` tutorial project, bring up
   Postgres, and seed ARIEL via the product's own commands. Opt-in (``--stack``);
   agentic recipes (the web-terminal hero) additionally need ``--agentic``.
 """

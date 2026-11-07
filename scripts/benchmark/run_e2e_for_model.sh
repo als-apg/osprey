@@ -103,7 +103,7 @@ if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
     # never starts the archive store. Order matters: sim apply purges
     # embeddings, so reembed must come last.
     PROV_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ariel_prov_${CELL_DB}.XXXXXX")"
-    if "$PY" -m osprey.cli.main init "$PROV_DIR/prov" --preset control-assistant --no-git \
+    if "$PY" -m osprey.cli.main init "$PROV_DIR/prov" --preset demo --no-git \
          --set provider=als-apg --set model=claude-haiku-4-5-20251001 \
          --set "config.ariel.database.uri=$OSPREY_ARIEL_DB_URI" >&2 \
        && "$PY" -m osprey.cli.main build --repo "$PROV_DIR/prov" \

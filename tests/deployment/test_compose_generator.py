@@ -84,7 +84,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
 
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
     kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
@@ -2314,13 +2314,13 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 
     # -- Task 3.2 / CC-2: read-only config + limits mounts under /app/project -
-    # The control-assistant preset's root sets control_system.writes: asked
+    # The demo preset's root sets control_system.writes: asked
     # (this deploy config never overrides it to never), so the real,
     # fully-flattened render must mount both config.yml and channel_limits.json
     # under the same /app/project root the connector resolves project_root
     # against.
     assert config["control_system"]["writes"] == "asked", (
-        "this assertion block assumes the control-assistant preset's "
+        "this assertion block assumes the demo preset's "
         "control_system.writes: asked default -- if that default ever changes, this "
         "test's premise for asserting the channel_limits.json mount changes too"
     )
@@ -2450,7 +2450,7 @@ def test_setup_build_dir_stages_a_config_naming_no_interpreter(
         TemplateManager(),
         project_name="staged-no-interp",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
 
@@ -2501,7 +2501,7 @@ def test_setup_build_dir_stages_the_bytes_pyyaml_writes_for_the_config(
         TemplateManager(),
         project_name="staged-bytes",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     service_dir = project_dir / "services" / "worker"
@@ -2587,7 +2587,7 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
             manager,
             project_name="pep-fallback",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -2631,7 +2631,7 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
             manager,
             project_name="pep-host",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 

@@ -15,7 +15,7 @@ names no kernel gets the OSPREY one, so every cell runs under the gates below.
 Turning the panel on
 --------------------
 
-The panel is a built-in with the id ``jupyter``. The ``control-assistant``
+The panel is a built-in with the id ``jupyter``. The ``demo``
 preset selects it, so every tier of a standard build has the tab. The
 ``hello-world`` preset and the bundled logbook, knowledge and channel-finder
 apps do not select it.

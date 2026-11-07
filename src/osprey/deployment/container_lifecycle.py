@@ -1252,7 +1252,7 @@ def _refuse_invented_history(config: dict) -> None:
         f"process (`control_system.connector.virtual_accelerator.serving: in_process`), "
         f"whose synthesized archive claims nothing it cannot back up. To have "
         f"the stack deploy its own store, rebuild from a profile carrying a "
-        f"`va_archiver:` block — the control-assistant preset ships one, and "
+        f"`va_archiver:` block — the demo preset ships one, and "
         f"`osprey up` then brings up the store and its recorder beside the "
         f"machine this deployment stands up."
     )

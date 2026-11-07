@@ -37,8 +37,8 @@ from osprey_connectors_tests._epics_fakes import (  # noqa: F401 - fixtures, use
     fake_aioca,
 )
 
-CONTROL_ASSISTANT_PRESET = "control-assistant"
-PRESET_PATH = "profiles/presets/control-assistant.yml"
+DEMO_PRESET = "demo"
+PRESET_PATH = "profiles/presets/demo.yml"
 
 
 def _preset_source(preset: str) -> str:
@@ -49,7 +49,7 @@ def _preset_source(preset: str) -> str:
 
 def _rendered_va_block() -> dict[str, Any]:
     """The preset's resolved virtual_accelerator connector block."""
-    profile, _profile_dir = resolve_build_profile(None, CONTROL_ASSISTANT_PRESET)
+    profile, _profile_dir = resolve_build_profile(None, DEMO_PRESET)
     config = _expand_dotted(profile.config)
     return config["control_system"]["connector"]["virtual_accelerator"]
 
@@ -95,7 +95,7 @@ def test_preset_writes_no_hardcoded_va_gateway_port() -> None:
 
 def test_preset_documents_the_port_override() -> None:
     """A project reaching a VA it does not deploy needs to see how."""
-    text = _preset_source(CONTROL_ASSISTANT_PRESET)
+    text = _preset_source(DEMO_PRESET)
 
     assert "services.virtual_accelerator.port" in text, (
         "the preset no longer names where the gateway port comes from"

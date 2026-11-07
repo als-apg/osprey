@@ -79,7 +79,7 @@ def is_claude_code_available() -> bool:
 def init_project(
     tmp_path: Path,
     name: str,
-    template: str = "control_assistant",
+    template: str = "demo",
     *,
     provider: str,
     model: str | None = None,

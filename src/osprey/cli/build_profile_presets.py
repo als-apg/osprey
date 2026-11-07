@@ -37,7 +37,7 @@ _PRESETS_PACKAGE = "osprey.profiles.presets"
 PRESET_DATA_BUNDLE_KEY = "app_template"
 
 #: The bundle used when no preset is in play, or when the preset names none.
-DEFAULT_DATA_BUNDLE = "control_assistant"
+DEFAULT_DATA_BUNDLE = "demo"
 
 #: The preset-side key naming the bundled facility a preset's ``data/facility/``
 #: tree comes from (``templates/facilities/<name>/``). Preset-side ONLY, handled
@@ -50,13 +50,21 @@ PRESET_FACILITY_KEY = "facility"
 PRESET_ONLY_KEYS: tuple[str, ...] = (PRESET_DATA_BUNDLE_KEY, PRESET_FACILITY_KEY)
 
 
+#: Former preset names that still resolve, mapped to the preset they became.
+#: A repo made from one records it in ``provenance.preset``, in ``extends:`` and
+#: in its ``Made from …`` comment, so the old name has to keep answering.
+PRESET_ALIASES: dict[str, str] = {"control-assistant": "demo"}
+
+
 def _normalize_preset_name(name: str) -> str:
     """Normalize CLI preset spelling to the on-disk filename form.
 
-    CLI accepts both ``control-assistant`` and ``control_assistant``;
-    bundled YAML files are hyphenated.
+    The CLI accepts ``hello_world`` as well as ``hello-world`` (bundled YAML
+    files are hyphenated), and a former name in :data:`PRESET_ALIASES` as the
+    preset it became.
     """
-    return name.replace("_", "-")
+    normalized = name.replace("_", "-")
+    return PRESET_ALIASES.get(normalized, normalized)
 
 
 def _presets_dir() -> Path:
@@ -319,7 +327,7 @@ def _layer_refusal(subject: str, name: str, kind: ProfileKind) -> str:
     folder = _LAYER_PRESET_DIRNAMES[kind]
     return (
         f"{subject} is a {kind.value}, not a deployment. It renders inside a repo: "
-        f"`osprey init <dir> --preset control-assistant` writes {folder}/{name}.yml, "
+        f"`osprey init <dir> --preset demo` writes {folder}/{name}.yml, "
         f"and `osprey build` there renders build/<project>-{name}"
     )
 

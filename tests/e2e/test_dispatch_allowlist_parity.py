@@ -93,7 +93,7 @@ def _denied_by_policy(result_text: str | None) -> bool:
 
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Init + build a real control-assistant deployment repo once per module."""
+    """Init + build a real demo deployment repo once per module."""
     return build_repo(
         tmp_path_factory.mktemp("parity_build"), provider=e2e_provider(), model=E2E_MODEL
     )

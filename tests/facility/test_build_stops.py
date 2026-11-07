@@ -2,7 +2,7 @@
 
 ``STOP_SENTENCES`` lists each sentence of the error table once with its kind.
 Each case is a minimal tree that breaks exactly that rule. It replaces the
-``data/facility`` tree of a control-assistant repo, beside any profile edit the
+``data/facility`` tree of a demo repo, beside any profile edit the
 case makes, and runs through ``osprey build --skip-deps`` and through
 ``osprey facility validate``; both must print the case's line byte for byte on
 stderr and exit 1. A render is checked by the build alone, so a case
@@ -2793,8 +2793,8 @@ def _write(tmp_path: Path, case: str) -> Path:
 
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo named for the project, stating no start set a tree must hold."""
-    repo = init_project(tmp_path_factory.mktemp("ca"), "control-assistant", PROJECT)
+    """A demo repo named for the project, stating no start set a tree must hold."""
+    repo = init_project(tmp_path_factory.mktemp("ca"), "demo", PROJECT)
     _start_in([])(repo)
     return repo
 

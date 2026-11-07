@@ -15,8 +15,8 @@ a simulated machine, so nothing real can move.
    - What **Run** does, and when it reads **Add to queue** instead
    - Where the results appear, and how to stop a plan at any moment
 
-   **Prerequisites:** the Control Assistant tutorial project
-   (:doc:`/getting-started/control-assistant`). It ships the whole plan stack
+   **Prerequisites:** the demo tutorial project
+   (:doc:`/getting-started/demo`). It ships the whole plan stack
    ready to go, with the Virtual Accelerator as its default machine — there is
    nothing to configure first.
 

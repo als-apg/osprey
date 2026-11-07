@@ -30,7 +30,7 @@ WHY EACH STEP IS SHAPED THE WAY IT IS:
   bridge's own ``DELETE /queue/items/{uid}``, never into Redis.
 * The enqueue CARRIES THE TOKEN, and the start is conditional. A deployment
   is either armed (``bluesky.queue_autostart`` on -- what the shipped
-  ``control-assistant`` preset does) or stopped. On an armed queue the add is
+  ``demo`` preset does) or stopped. On an armed queue the add is
   the arming write: the item runs the moment the manager reaches it, an
   unarmed add is refused ``launch_token_invalid``, and a ``POST /queue/start``
   afterwards is refused ``manager_not_idle`` while the plan is in motion. On a

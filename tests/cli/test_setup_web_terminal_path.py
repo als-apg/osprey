@@ -1,14 +1,14 @@
 """The build path a multi-user web-terminal deployment takes on a hello-world base.
 
 This pins the recipe the setup skill hands an operator who starts from
-``hello-world`` and adopts ``control-assistant``'s web-terminal stack: splice the
+``hello-world`` and adopts ``demo``'s web-terminal stack: splice the
 block in, strip what the base cannot serve, write the tier and app files, prune
 the apps and the panels, pull the knowledge bundle, validate, build. Scripted end
 to end so the reference stays executable — a step that stops working fails here
 rather than in an interview.
 
 Several of those steps exist only because a file authored against
-``control-assistant`` carries facts about that base which ``hello-world`` does
+``demo`` carries facts about that base which ``hello-world`` does
 not have. Each is a line of the recipe, and each is why the naive splice of the
 web-terminal block alone does not build:
 
@@ -31,7 +31,7 @@ web-terminal block alone does not build:
   graph store; ``hello-world`` deploys none, so the app is switched to the
   file-based channel finder and loses its graph-reading subagent and server.
 * **Demo content in the block.** The roster arrives holding demo logins, and
-  ``landing.notices`` names a markdown file only ``control-assistant`` ships.
+  ``landing.notices`` names a markdown file only ``demo`` ships.
   Nothing reports the missing file, so the recipe removes the key, and the demo
   logins give way to the facility's own people.
 """
@@ -50,7 +50,7 @@ from osprey.cli.main import cli
 from tests.cli._lifecycle_build import rendered_config
 
 #: The preset whose web-terminal stack the hello-world repo adopts.
-SOURCE_PRESET = "control-assistant"
+SOURCE_PRESET = "demo"
 
 #: Every tier that preset's roster names. All are written; none is dropped.
 TIER_NAMES = ("admin", "readonly", "readwrite")

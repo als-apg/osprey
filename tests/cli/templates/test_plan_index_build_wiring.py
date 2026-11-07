@@ -46,7 +46,7 @@ def _make_project(tmp_path, name="plan-index-wiring", *, bluesky_enabled=True, c
         manager,
         project_name=name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     config_path = project_dir / "config.yml"

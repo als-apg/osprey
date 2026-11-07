@@ -33,7 +33,7 @@ from osprey_connectors.config import (
 from osprey_connectors.workspace import agent_data_base_dir
 from tests._builds import BuiltProject, copy_build
 
-PRESET = "control-assistant"
+PRESET = "demo"
 
 
 def _data_checksums(project: Path) -> dict[str, str]:
@@ -46,9 +46,7 @@ def _data_checksums(project: Path) -> dict[str, str]:
 
 
 @pytest.fixture(scope="module")
-def built_project(
-    tmp_path_factory: pytest.TempPathFactory, built_control_assistant: BuiltProject
-) -> Path:
+def built_project(tmp_path_factory: pytest.TempPathFactory, built_demo: BuiltProject) -> Path:
     """A real render, shared by every test here.
 
     The RENDER, not the repo: ``data/`` is build output, and what these tests
@@ -58,7 +56,7 @@ def built_project(
     Copied once: they are only ever supposed to touch the agent-data root, so
     they cannot interfere with each other's ``data/`` assertions.
     """
-    repo = copy_build(built_control_assistant.repo, tmp_path_factory.mktemp("projects"))
+    repo = copy_build(built_demo.repo, tmp_path_factory.mktemp("projects"))
     return repo / "build"
 
 
@@ -98,7 +96,7 @@ class TestRuntimeWriters:
         # Both side-seedings are off for the same reason: each one reaches a
         # service this test does not run and is not about. `seed_logbook` wants
         # ARIEL's Postgres; `seed_archive` wants the MongoDB store the
-        # control-assistant preset now declares, and refuses outright without
+        # demo preset now declares, and refuses outright without
         # the password `osprey up` mints -- correctly, since a rewrite it
         # cannot perform would leave the archive contradicting the scenario.
         # What is under test here is where the ACTIVATION writes: the state file

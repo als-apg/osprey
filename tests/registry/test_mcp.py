@@ -364,7 +364,7 @@ class TestResolveServers:
         assert [r["matcher"] for r in health["hooks_post"]] == ["mcp__health__.*"]
 
     def test_health_server_enabled_via_config_override(self):
-        """control-assistant opts the health server in via the dotted override
+        """demo opts the health server in via the dotted override
         ``claude_code.servers.health.enabled: true`` (renders to this config).
 
         Mirrors the bluesky enablement pattern: the preset's ``claude_code``

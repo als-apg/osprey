@@ -368,16 +368,16 @@
 #17 [ 9/13] RUN if [ "0" = "1" ]; then osprey vendor fetch; fi
 #17 DONE 0.1s
 
-#18 [10/13] COPY . /app/my-control-assistant/
+#18 [10/13] COPY . /app/osprey-demo/
 #18 DONE 0.1s
 
-#19 [11/13] RUN mkdir -p /app/my-control-assistant/var/agent_data/api_calls
+#19 [11/13] RUN mkdir -p /app/osprey-demo/var/agent_data/api_calls
 #19 DONE 0.1s
 
-#20 [12/13] RUN useradd --create-home --shell /bin/bash osprey  && chown -R osprey:osprey /app/my-control-assistant
+#20 [12/13] RUN useradd --create-home --shell /bin/bash osprey  && chown -R osprey:osprey /app/osprey-demo
 #20 DONE 0.4s
 
-#21 [13/13] WORKDIR /app/my-control-assistant
+#21 [13/13] WORKDIR /app/osprey-demo
 #21 DONE 0.0s
 
 #22 exporting to image
@@ -387,7 +387,7 @@
 #22 exporting config sha256:0eae22bb04fa050e8949ee88bf277e0bea5ce9c5f2d82b8bf83653afc7c1b6d4 done
 #22 exporting attestation manifest sha256:bbaf3e93c212445c603979d847c7887c32997167bfd9fbe7d3c0a314eb54dd39 done
 #22 exporting manifest list sha256:916a7101536fd922943ff943fbb15aeda8a0310711bc4aa08c306d4ab3f01019 done
-#22 naming to docker.io/library/my-control-assistant:local done
-#22 unpacking to docker.io/library/my-control-assistant:local
-#22 unpacking to docker.io/library/my-control-assistant:local 18.2s done
+#22 naming to docker.io/library/osprey-demo:local done
+#22 unpacking to docker.io/library/osprey-demo:local
+#22 unpacking to docker.io/library/osprey-demo:local 18.2s done
 #22 DONE 19.0s

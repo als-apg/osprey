@@ -9,7 +9,7 @@ Verifies that:
   override.
 - The agent template renders the exact tools/disallowedTools/maxTurns frontmatter
   and the distinctive body behaviors, and produces no output when disabled.
-- The control-assistant CLAUDE.md renders exactly one pyat-specialist roster
+- The demo CLAUDE.md renders exactly one pyat-specialist roster
   bullet, the delegation prohibition, and the documented-vs-computed boundary in
   both the pyat-specialist and facility-knowledge blocks.
 
@@ -370,7 +370,7 @@ class TestPyatSpecialistAgentTemplate:
 
 
 # ---------------------------------------------------------------------------
-# Control-assistant CLAUDE.md rendering
+# Demo CLAUDE.md rendering
 # ---------------------------------------------------------------------------
 
 
