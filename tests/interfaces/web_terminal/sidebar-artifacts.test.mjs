@@ -43,7 +43,7 @@ const mocks = vi.hoisted(() => ({
   isTerminalPanelOpen: vi.fn(() => true),
   openTerminalPanel: vi.fn(),
   showAgentPane: vi.fn(),
-  isDetached: vi.fn((/** @type {string} */ _id) => false),
+  isDetached: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
 }));
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', () => ({
