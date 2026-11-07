@@ -350,7 +350,7 @@ const STEPS = [
       strong(panelLabel('ariel', 'Ariel')),
       ' searches the electronic logbook. Ask the agent what happened on a shift, or search it yourself here.',
     ],
-    foot: 'Tip: right-click any sidebar row → “Pop out” to move the panel into its own window.',
+    foot: 'Tip: right-click any sidebar row → “Open in new window” to move the panel into its own window.',
   },
   {
     anchor: () => document.querySelector('#panel-feedback-btn'),

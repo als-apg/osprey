@@ -1,16 +1,14 @@
-"""Browser tests for ARIEL's embedded contract.
+"""Browser tests for ARIEL's tile-bar contract.
 
-When the panel runs inside the web-terminal iframe (``?embedded=true``) the
-host tile bar is its only header: ``layout.css`` hides the panel's own header,
-and ``header.js`` contributes ``[search, Compose, ⋯ menu]`` to the tile bar
-instead. The list pane then carries no search box and no compose button of
-its own, and the rail starts as an icon strip.
+The host tile bar is the panel's only header: ``header.js`` contributes
+``[search, Compose, ⋯ menu]`` to it. The list pane carries no search box and no
+compose button of its own, and the rail starts as an icon strip. The host here is
+the fixture page in ``_panel_host.py``.
 
 The search item re-keys (a new id, seeded with the new value) whenever the
 panel itself changes the query (hash navigation, a saved search), and keeps
 its id for the tile bar's own reports, so the hub never overwrites what the
-operator is typing. Every legacy hash alias lands embedded too; ``#status``
-shows the list there, because Status is standalone-only.
+operator is typing. Every legacy hash alias lands; ``#status`` shows the list.
 
 Run:
     uv run pytest tests/interfaces/ariel/test_embedded_nav.py -m browser -v
@@ -25,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from tests.interfaces._panel_host import PanelHost, open_panel_host
 from tests.interfaces.ariel import test_shell as _shell
 from tests.interfaces.ariel.test_shell import (
     INVALID_CAPABILITIES,
@@ -38,7 +37,7 @@ from tests.interfaces.ariel.test_shell import (
 )
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Browser, Page
+    from playwright.sync_api import Browser
 
 try:
     from playwright.sync_api import expect
@@ -52,71 +51,45 @@ _ariel_server = _shell._ariel_server
 ariel_url = _shell.ariel_url
 
 
-#: Stands in for the hub: the page is top-level in these tests, so
-#: ``window.parent`` is replaced with a recorder before any script runs, and
-#: ``contributeHeader`` (a no-op unless ``window.parent !== window``) posts
-#: each contribution into ``window.__contributions``. Other messages to the
-#: host (the router's ``canopy-host-navigate-ready``) are not recorded.
-_RECORD_CONTRIBUTIONS = """
-(() => {
-  window.__contributions = [];
-  const hub = {
-    postMessage: (message) => {
-      if (message && message.type === 'canopy-host-header-contribution') {
-        window.__contributions.push(message);
-      }
-    },
-  };
-  Object.defineProperty(window, 'parent', { configurable: true, get: () => hub });
-})();
-"""
-
-
 def _open_embedded(
-    browser: Browser, url: str, backend: FakeBackend | None = None, *, record: bool = True
-) -> tuple[Page, FakeBackend]:
-    """An embedded page on *url* behind a fake backend, recording contributions."""
+    browser: Browser, url: str, backend: FakeBackend | None = None
+) -> tuple[PanelHost, FakeBackend]:
+    """The panel on *url*, framed by the host page behind a fake backend."""
     page = browser.new_page(viewport={"width": 1280, "height": 800})
-    if record:
-        page.add_init_script(_RECORD_CONTRIBUTIONS)
     backend = (backend or FakeBackend()).install(page)
-    page.goto(url, wait_until="load")
-    expect(page.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
-    return page, backend
+    host = open_panel_host(page, url)
+    expect(host.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
+    return host, backend
 
 
-def _items(page: Page) -> list[dict[str, Any]]:
+def _items(page: PanelHost) -> list[dict[str, Any]]:
     """Items of the panel's latest tile-bar contribution."""
-    page.wait_for_function("window.__contributions.length > 0")
-    return page.evaluate("window.__contributions.at(-1).items")
+    return page.items()
 
 
-def _item(page: Page, kind: str) -> dict[str, Any]:
+def _item(page: PanelHost, kind: str) -> dict[str, Any]:
     found = [item for item in _items(page) if item["kind"] == kind]
     assert len(found) == 1, _items(page)
     return found[0]
 
 
-def _action(page: Page, item_id: str, value: str | None = None) -> None:
-    """Post a tile-bar action the way the hub does."""
-    page.evaluate(
-        "([id, value]) => window.postMessage("
-        "{type: 'canopy-host-header-action', id, value}, location.origin)",
-        [item_id, value],
-    )
+def _action(page: PanelHost, item_id: str, value: str | None = None) -> None:
+    """Use the bar's control for *item_id*: type into a search field, click anything else."""
+    if item_id.startswith("ariel-search-"):
+        page.bar_item(item_id).fill(value or "")
+    else:
+        page.bar_item(item_id, value).click()
 
 
-def test_embedded_hides_header_and_contributes_search_compose_and_menu(
+def test_panel_has_no_header_and_contributes_search_compose_and_menu(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
-    """The panel's header is gone; the tile bar gets search, Compose and the ⋯ menu."""
+    """The panel draws no header; the tile bar gets search, Compose and the ⋯ menu."""
     page, _ = _open_embedded(chromium_browser, f"{ariel_url}/?embedded=true")
 
-    expect(page.locator(".header")).to_be_hidden()
-    # The header module has run: it has contributed, so its removals are done too.
-    page.wait_for_function("window.__contributions.length > 0")
-    # The box and the compose button belong to the host now.
-    expect(page.locator("#ariel-search-input")).to_have_count(0)
+    expect(page.locator(".header")).to_have_count(0)
+    # The box and the compose button belong to the host.
+    expect(page.locator("#ariel-list input[type=search]")).to_have_count(0)
     expect(page.locator("#ariel-compose-btn")).to_have_count(0)
     expect(app(page)).to_have_attribute("data-rail-collapsed", "")
     expect(row(page, "E1")).to_be_visible()
@@ -163,7 +136,7 @@ def test_a_panel_set_query_re_keys_the_search_item(
 
     page.evaluate("location.hash = '#q=beam'")
 
-    page.wait_for_function(
+    page.page.wait_for_function(
         "window.__contributions.at(-1).items[0].id === 'ariel-search-1'"
         " && window.__contributions.at(-1).items[0].value === 'beam'"
     )
@@ -195,13 +168,13 @@ def test_menu_toggles_the_rail_and_relabels(ariel_url: str, chromium_browser: Br
 
     _action(page, "ariel-more", "toggle-rail")
     expect(app(page)).not_to_have_attribute("data-rail-collapsed", re.compile(".*"))
-    page.wait_for_function(
+    page.page.wait_for_function(
         "window.__contributions.at(-1).items[2].items[0].label === 'Hide sidebar'"
     )
 
     _action(page, "ariel-more", "toggle-rail")
     expect(app(page)).to_have_attribute("data-rail-collapsed", "")
-    page.wait_for_function(
+    page.page.wait_for_function(
         "window.__contributions.at(-1).items[2].items[0].label === 'Show sidebar'"
     )
     page.close()
@@ -227,7 +200,7 @@ def test_menu_save_search_opens_the_name_field(ariel_url: str, chromium_browser:
     wait_for_hash(page, canonical(q="other"))
     key = _item(page, "search")["id"]
     saved.click()
-    page.wait_for_function(
+    page.page.wait_for_function(
         "(key) => window.__contributions.at(-1).items[0].id !== key"
         " && window.__contributions.at(-1).items[0].value === 'beam'",
         arg=key,
@@ -250,7 +223,7 @@ def test_invalid_configuration_omits_the_search_item(
 
 
 def test_slash_is_left_to_the_host(ariel_url: str, chromium_browser: Browser) -> None:
-    """Embedded, ``/`` moves no focus: the search box is the host's."""
+    """``/`` moves no focus: the search box is the host's."""
     page, _ = _open_embedded(chromium_browser, f"{ariel_url}/?embedded=true")
     # A bubbling window listener runs after the panel's document handler, so
     # seeing the key there proves the panel has processed it.
@@ -264,7 +237,7 @@ def test_slash_is_left_to_the_host(ariel_url: str, chromium_browser: Browser) ->
 
 
 # ---------------------------------------------------------------------------
-# Every legacy alias, embedded
+# Every legacy alias
 # ---------------------------------------------------------------------------
 
 
@@ -318,29 +291,6 @@ def test_embedded_list_aliases_show_the_list(
     wait_for_hash(page, canonical())
     expect(page.locator("osprey-drawer#status-drawer[open]")).to_have_count(0)
     expect(page.locator("osprey-drawer#settings-drawer[open]")).to_have_count(0)
-    page.close()
-
-
-def test_standalone_keeps_its_header_and_contributes_nothing(
-    ariel_url: str, chromium_browser: Browser
-) -> None:
-    """Without ``?embedded=true`` the panel keeps its header, box and compose button."""
-    page = chromium_browser.new_page()
-    page.add_init_script(_RECORD_CONTRIBUTIONS)
-    FakeBackend().install(page)
-    page.goto(f"{ariel_url}/", wait_until="load")
-
-    expect(page.locator(".header")).to_be_visible()
-    expect(page.locator("#ariel-gear-btn")).to_be_visible()
-    expect(page.locator("#ariel-search-input")).to_be_visible()
-    expect(page.locator("#ariel-compose-btn")).to_be_visible()
-    expect(row(page, "E1")).to_be_visible()
-    # A query the panel sets itself re-contributes when embedded; wait until
-    # this one has run before checking that nothing was sent.
-    page.evaluate("location.hash = '#q=beam'")
-    expect(page.locator("#ariel-list .results-count")).to_be_visible()
-    wait_for_hash(page, canonical(q="beam"))
-    assert page.evaluate("window.__contributions.length") == 0
     page.close()
 
 

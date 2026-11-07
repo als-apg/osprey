@@ -13,10 +13,10 @@ import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from osprey.interfaces.artifacts.inline_assets import self_contained
@@ -198,6 +198,15 @@ async def sidecar_server_config(panel_id: str, request: Request):
     return _sidecar_panel_config(request, panel_id)
 
 
+def _require_enabled_sidecar(request: Request, panel_id: str) -> None:
+    """Refuse with 404 unless *panel_id* is a sidecar this terminal starts."""
+    enabled: set[str] = getattr(request.app.state, "enabled_panels", set())
+    if panel_id not in SIDECAR_PANELS or panel_id not in enabled:
+        raise HTTPException(
+            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
+        )
+
+
 @router.post("/api/panels/{panel_id}/start")
 async def start_sidecar_panel(panel_id: str, request: Request):
     """Start a panel sidecar again, one attempt at a time.
@@ -209,14 +218,59 @@ async def start_sidecar_panel(panel_id: str, request: Request):
     """
     from osprey.interfaces.web_terminal.app import request_sidecar_start
 
-    enabled: set[str] = getattr(request.app.state, "enabled_panels", set())
-    if panel_id not in SIDECAR_PANELS or panel_id not in enabled:
-        raise HTTPException(
-            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
-        )
+    _require_enabled_sidecar(request, panel_id)
     status = await request_sidecar_start(request.app, panel_id)
     return JSONResponse(
         _sidecar_panel_config(request, panel_id),
+        status_code=200 if status.state == "running" else 202,
+    )
+
+
+@router.get(f"/api/panels/{JUPYTER_PANEL_ID}/log")
+async def jupyter_server_log(request: Request):
+    """Return the notebook sidecar's last stderr lines, for the tile's "Show server log".
+
+    The tail of the sidecar the terminal holds now (running, or dead after it
+    ran). A start that failed leaves no sidecar behind, so the recorded
+    failure reason stands in for it. The launch token is replaced with
+    ``<token>``: the browser never holds it. Empty when there is nothing yet.
+    """
+    _require_enabled_sidecar(request, JUPYTER_PANEL_ID)
+    state = request.app.state
+    sidecar = getattr(state, "sidecars", {}).get(JUPYTER_PANEL_ID)
+    text: str = getattr(sidecar, "stderr_tail", "") if sidecar is not None else ""
+    token = getattr(sidecar, "token", None) if sidecar is not None else None
+    if token:
+        text = text.replace(token, "<token>")
+    if not text:
+        status = getattr(state, "sidecar_status", {}).get(JUPYTER_PANEL_ID)
+        if status is not None and status.state == "failed":
+            text = status.reason or ""
+    return {"text": text}
+
+
+@router.post(f"/api/panels/{JUPYTER_PANEL_ID}/restart")
+async def restart_jupyter_server(request: Request):
+    """Stop the notebook sidecar and start a fresh one; running kernels stop.
+
+    The tile's "Restart kernel server". The published URL and credential are
+    withdrawn first, so the panel answers unavailable at once; then the
+    operator's start path (:func:`request_sidecar_start`) stops the old
+    sidecar, which reaps its kernels, and launches a new one. A request while
+    a start is in flight joins it. Answers the config body with 202, as the
+    start route does for a start in progress.
+    """
+    from osprey.interfaces.web_terminal.app import request_sidecar_start
+
+    _require_enabled_sidecar(request, JUPYTER_PANEL_ID)
+    state = request.app.state
+    task = getattr(state, "sidecar_start_tasks", {}).get(JUPYTER_PANEL_ID)
+    if task is None or task.done():
+        setattr(state, panel_url_state_attr(JUPYTER_PANEL_ID), None)
+        state.panel_auth_headers.pop(JUPYTER_PANEL_ID, None)
+    status = await request_sidecar_start(request.app, JUPYTER_PANEL_ID)
+    return JSONResponse(
+        _sidecar_panel_config(request, JUPYTER_PANEL_ID),
         status_code=200 if status.state == "running" else 202,
     )
 
@@ -1455,12 +1509,58 @@ async def serve_discovered_panel(panel_id: str, path: str, request: Request):
     panel needs must be inline in the page itself, as in the design-system
     reference panel.
 
+    A top-level visit to the bundle's entry document opens the web terminal with
+    this panel instead (:func:`_direct_visit_redirect`).
+
     Returns:
-        A :class:`FileResponse` for the requested asset, or a 404 ``Response``.
+        A :class:`FileResponse` for the requested asset, a 404 ``Response``, or
+        the 303 of a direct visit.
     """
+    redirect = _direct_visit_redirect(panel_id, path, request)
+    if redirect is not None:
+        return redirect
     response = _discovered_panel_file(panel_id, path, request)
     apply_panel_sandbox(response, path, ())
     return response
+
+
+def _is_top_level_visit(request: Request) -> bool:
+    """Whether a request is a browser opening this address as its own page.
+
+    ``Sec-Fetch-*`` says so outright, and an iframe says ``iframe``. Browsers omit
+    those headers on a plain-http hostname, so there a page request counts unless
+    it carries the ``embedded=true`` every panel frame is loaded with.
+    """
+    if request.query_params.get("embedded") == "true":
+        return False
+    dest = request.headers.get("sec-fetch-dest")
+    if dest is not None:
+        return dest == "document" and request.headers.get("sec-fetch-mode") == "navigate"
+    return "text/html" in request.headers.get("accept", "")
+
+
+def _direct_visit_redirect(panel_id: str, path: str, request: Request) -> Response | None:
+    """The 303 that takes a direct visit to a bundle's entry document to the hub.
+
+    The server half of ``frame-params.js``'s ``directVisitHref``, which holds the
+    ``at`` contract, for bundles that never call ``applyEmbedded``. They route by
+    path, so nothing is lost by answering before a fragment could be read; only
+    the entry document moves, so a bundle's other files stay addressable. This
+    app sees paths with the per-user mount stripped, hence the prefix here.
+    """
+    panel = getattr(request.app.state, "discovered_panel_dirs", {}).get(panel_id)
+    if panel is None or path not in {"", "index.html", panel.entry}:
+        return None
+    if _resolve_bundle_file(request, panel_id, path) is None:
+        return None
+    if not _is_top_level_visit(request):
+        return None
+    prefix = compute_url_prefix()
+    query = f"?{request.url.query}" if request.url.query else ""
+    at = f"{prefix}/panel-static/{quote(panel_id, safe='')}/{quote(path)}{query}"
+    return RedirectResponse(
+        f"{prefix}/?open={quote(panel_id, safe='')}&at={quote(at, safe='')}", status_code=303
+    )
 
 
 def _discovered_panel_file(panel_id: str, path: str, request: Request) -> Response:

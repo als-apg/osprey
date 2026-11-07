@@ -70,36 +70,6 @@ button {
   --c: var(--text-muted);
 }
 
-/* ---- Standalone header ----
-   Embedded in the web-terminal hub the host tile bar is this panel's only
-   header, so the whole standalone header goes there. */
-.hdr {
-  display: flex;
-  align-items: center;
-  padding: 12px 16px 8px;
-  border-bottom: 1px solid var(--border-default);
-  background: var(--bg-elevated);
-}
-.hdr-t {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-.hdr-t h1 {
-  font-family: var(--font-display);
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
-}
-.hdr-sub {
-  font-size: var(--text-sm);
-  letter-spacing: 3px;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-body.embedded .hdr {
-  display: none;
-}
-
 .body {
   padding: 8px 14px 16px;
   min-width: 0;

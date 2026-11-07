@@ -43,6 +43,7 @@ const CONTRACT_NAMES = [
   'bash',
   'maximize',
   'popout',
+  'reattach',
   'save',
   'x',
   'pen',

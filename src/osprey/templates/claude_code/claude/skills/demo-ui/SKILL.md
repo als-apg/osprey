@@ -29,7 +29,7 @@ happens. Everything below is built around that.
 The left **rail** is a membership list: an entry exists only while its panel is a
 member; an off-rail panel waits in the "+" catalog. The workspace is a set of
 **tiles, each showing one panel**. Each tile's header carries that panel's name,
-its own buttons, Pop out and ×.
+its own buttons, Open in new window and ×.
 
 Two axes, and the verb names which one it moves. `open_panel` puts a panel on
 screen — it takes the service tile used last, replacing the panel that tile

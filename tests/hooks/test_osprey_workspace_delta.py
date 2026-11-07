@@ -389,7 +389,7 @@ def test_the_agent_pane_leaving_the_dock_empty_is_one_line_per_facet():
     out = _state([], None, [], popouts=["terminal"])
     line = delta._build_delta_line(before, out) or ""
     assert "terminal tile closed" in line
-    assert "terminal popped out to a window" in line
+    assert "terminal moved to a window" in line
     assert "tiles now none" in (delta._build_delta_line(_state(None, None, []), out) or "")
 
 
@@ -404,7 +404,7 @@ def test_main_reports_the_agent_pane_detached_from_the_default_layout(
     assert delta.main() == 0
 
     out = capsys.readouterr().out
-    assert "terminal popped out to a window" in out
+    assert "terminal moved to a window" in out
     assert snapshot_file.read()["tiles"] == []
 
 
@@ -576,7 +576,7 @@ def test_merge_state_carries_forward_last_known_tiles():
 def test_a_pop_out_and_its_return_are_each_one_clause():
     before = _state(["a", "b"], "a", ["a", "b"])
     out = _state(["a"], "a", ["a", "b"], popouts=["b"])
-    assert "b tile closed; b popped out to a window" in (delta._build_delta_line(before, out) or "")
+    assert "b tile closed; b moved to a window" in (delta._build_delta_line(before, out) or "")
     back = _state(["a", "b"], "a", ["a", "b"])
     assert "b back from its window" in (delta._build_delta_line(out, back) or "")
 

@@ -362,6 +362,10 @@ export const detachPlacement = Object.freeze({
    * @returns {OpResult|null}
    */
   reattach(layout, key, entry, ctx) {
+    if (entry.record === null) {
+      const opened = openReturning(layout, key, ctx);
+      return acceptsStep(layout, opened, false) ? opened : null;
+    }
     if (layout === null) {
       const alone = reopen(null, entry.record, ctx);
       return acceptsStep(layout, alone, true) ? alone : null;
@@ -382,8 +386,9 @@ export const detachPlacement = Object.freeze({
    * @returns {OpResult|null}
    */
   persist(layout, key, entry, ctx) {
+    const { record } = entry;
     const steps = [
-      () => reopen(layout, entry.record, ctx),
+      ...(record === null ? [] : [() => reopen(layout, record, ctx)]),
       () =>
         key === TERMINAL_KEY ? reopenTerminal(layout, ctx.dock) : openAt(layout, key, null, ctx),
       () => openAt(layout, key, { direction: 'right' }, ctx),
@@ -405,7 +410,7 @@ export const detachPlacement = Object.freeze({
 function neighbourIn(layout, entry) {
   const { record } = entry;
   return (
-    record.kind === 'tile' && record.neighbour !== null && !!findTile(layout, record.neighbour)
+    record?.kind === 'tile' && record.neighbour !== null && !!findTile(layout, record.neighbour)
   );
 }
 

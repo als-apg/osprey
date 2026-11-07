@@ -31,7 +31,7 @@
  */
 
 import { fetchJSON, withPrefix } from './api.js';
-import { activeRow, subscribe as subscribeToSessions } from './session-model.js';
+import { activeRow, firstLoaded, subscribe as subscribeToSessions } from './session-model.js';
 import { applyDock, currentDock, getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
 import { getLayoutHolder } from './dock-apply.js';
 import { getPanelPage, restorePanelPage } from './panel-lifecycle.js';
@@ -72,6 +72,28 @@ let settleTimer = null;
 const stored = new Map();
 /** @type {(() => void)[]} */
 const teardown = [];
+/** An arrive is reading or applying a layout, up to {@link SETTLE_MS} after. */
+let arriving = false;
+/** @type {() => void} */
+let resolveSettled = () => {};
+const pendingSettled = () =>
+  /** @type {Promise<void>} */ (new Promise((resolve) => (resolveSettled = resolve)));
+
+/**
+ * Resolves once this page's first session has had its say about the layout, so
+ * something opened after it is not closed or re-paged by that session's apply:
+ * after the first listing answered, with no row to follow, or with the arrive
+ * of the row in use finished (applied + {@link SETTLE_MS}, nothing stored, or a
+ * read that failed). A switch that cancels a pending arrive hands the wait to
+ * its own. At once on a page with no dock, which has no layout to apply.
+ * @type {Promise<void>}
+ */
+export let settled = pendingSettled();
+
+/** Settle if the listing has answered and no arrive is pending. */
+function settleIfIdle() {
+  if (firstLoaded && !arriving) resolveSettled();
+}
 
 /**
  * Start following sessions. A page without a dock (the fallback host) has no
@@ -82,7 +104,10 @@ const teardown = [];
 export function initSessionLayout() {
   if (started) return;
   const api = getDockApi();
-  if (!api) return;
+  if (!api) {
+    resolveSettled();
+    return;
+  }
   started = true;
   const disposers = [api.onDidLayoutChange(onDockChange), api.onDidActivePanelChange(onDockChange)];
   teardown.push(() => disposers.forEach((d) => d?.dispose?.()));
@@ -110,9 +135,10 @@ export function resetSessionLayout() {
   if (settleTimer) clearTimeout(settleTimer);
   saveTimer = settleTimer = null;
   stored.clear();
-  started = applying = false;
+  started = applying = arriving = false;
   following = target = null;
   generation += 1;
+  settled = pendingSettled();
 }
 
 /**
@@ -164,15 +190,30 @@ function snapshot() {
 /** Follow the active row's transcript: leave the old one, arrive at the new. */
 function follow() {
   const tid = activeRow()?.transcript_id ?? null;
-  if (tid === following) return;
+  if (tid === following) {
+    settleIfIdle();
+    return;
+  }
   // The screen is still the session being left: write it from there.
   save();
   following = tid;
   target = null;
   const gen = ++generation;
+  arriving = Boolean(tid);
   // A new session the listing has not caught up with has no transcript to
   // keep a layout under yet; it keeps the screen, and saves it on arrival.
   if (tid) void arrive(tid, gen);
+  else settleIfIdle();
+}
+
+/**
+ * This arrive is over, unless a newer switch took over from it.
+ * @param {number} gen
+ */
+function arriveFinished(gen) {
+  if (gen !== generation) return;
+  arriving = false;
+  settleIfIdle();
 }
 
 /**
@@ -189,15 +230,18 @@ async function arrive(tid, gen) {
     saved = (await fetchJSON(layoutPath(tid)))?.layout ?? null;
   } catch (err) {
     console.warn('[session-layout] could not read the session layout', err);
+    arriveFinished(gen);
     return;
   }
   if (gen !== generation) return;
   target = tid;
   if (saved && apply(saved)) {
     stored.set(tid, stableJson(saved));
+    setTimeout(() => arriveFinished(gen), SETTLE_MS);
     return;
   }
   save();
+  arriveFinished(gen);
 }
 
 /**

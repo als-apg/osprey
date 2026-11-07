@@ -56,7 +56,7 @@ def test_root_serves_spa_shell(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
-    assert '<div id="app">' in r.text
+    assert '<div id="app"' in r.text
 
 
 def test_root_loads_dompurify_from_the_cdn_by_default(client, monkeypatch):

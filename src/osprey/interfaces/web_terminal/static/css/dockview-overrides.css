@@ -28,7 +28,7 @@
  * That compounding applies ONLY to rules whose subject is a `dv-*` element —
  * the ones with a stock rule to out-specify. Rules whose subject is one of the
  * bar's OWN classes (`.tile-tab*`, `.contrib-*`, `.bar-icon`) anchor on
- * `.tile-tab` instead, matching terminal.css's `.tile-tab .terminal-header`.
+ * `.tile-tab` instead, matching operator.css's `.tile-tab .agent-bar`.
  * `.dock-root` would be actively WRONG for them: dockview builds a tile's drag
  * image by cloning the tab into document.body, so a bar styled from the dock
  * root paints unstyled the moment the operator picks it up. Anchoring on a
@@ -210,11 +210,12 @@
  * There is no drag badge: the whole bar is the drag handle (cursor: grab
  * below).
  *
- *   SERVICE tiles show the panel's name (.tile-tab-title) + its contributed
- *     controls + pop out + close.
- *   The AGENT tile shows its adopted bar + close: the chat console's
- *     .op-session-bar in chat (operator.css), the .terminal-header on the
- *     terminal surface (terminal.css). It is always its own tile.
+ *   SERVICE tiles show the panel's name (.tile-tab-title) + its panel icons
+ *     (.tile-tab-contrib) + ⋯ + open in new window + close.
+ *   The AGENT tile shows its adopted bar (the session label ▾ and +) + ⋯ +
+ *     close: the chat console's .op-session-bar in chat, the .terminal-header
+ *     on the terminal surface — one shape, styled as .agent-bar
+ *     (operator.css). It is always its own tile.
  *
  * SEATED CHROME: the bar is part of the card (--surface-card, remapped
  * above) closed by a hairline. The hairline turns accent on the ACTIVE tile
@@ -305,18 +306,16 @@
   color: var(--text-primary);
 }
 
-/* ---- Contribution region: the panel-controls slot ----
+/* ---- Contribution region: the panel-icon slot ----
  * Rendered by tile-header-contrib.js from an embedded panel's
  * `canopy-host-header-contribution`. Fills the bar between the tile name and the
- * close button, with no divider fence: every control right-anchors toward the
- * actions, behind a flexible ::before spacer, so the reconcile in
- * tile-header-contrib.js keeps one flat child list. min-width:0 + a clipped
- * overflow let the overflow ladder fold whole controls (.contrib-hidden).
- * The overflow is `clip`, not
- * `hidden`: a hidden overflow is still a scroll container, and focusing a
- * control at the clipped edge (the ladder's ⋯ button, pressed) scrolled the
- * region to reveal it — a scroll that moved the button and closed the menu
- * it had just opened. A clipped region cannot scroll, by focus or by code. */
+ * actions, with no divider fence: every control right-anchors toward the
+ * actions behind a flexible ::before spacer. min-width:0 + a clipped overflow
+ * let the fold ladder take whole controls out (.contrib-hidden) into the
+ * tile ⋯. The overflow is `clip`, not `hidden`: a hidden overflow is still a
+ * scroll container, and focusing a control at the clipped edge scrolled the
+ * region to reveal it — a scroll that moved the control under the pointer.
+ * A clipped region cannot scroll, by focus or by code. */
 .tile-tab .tile-tab-contrib {
   display: flex;
   align-items: center;
@@ -340,15 +339,14 @@
 
 /* ---- One control language ----
  * Every interactive element the bar renders is the design language's 28px
- * ghost control. The tile's own close (and the Agent bar's buttons) ARE
- * `.osprey-icon-btn` (primitives.css); the contributed buttons, nav
- * segments and the ⋯ menu take the same look here: transparent at rest,
- * the hover wash under the pointer, the press wash while held or open, one
- * radius, one type style. Icons are inline SVG on currentColor, so they take
- * each control's own state colour. */
+ * ghost control. The tile's own ⋯, open in new window and close, a panel's
+ * icons and the Agent bar's buttons ARE `.osprey-icon-btn` (primitives.css);
+ * the legacy text buttons and nav segments take the same look here:
+ * transparent at rest, the hover wash under the pointer, the press wash
+ * while held, one radius, one type style. Icons are inline SVG on
+ * currentColor, so they take each control's own state colour. */
 .tile-tab .contrib-btn,
-.tile-tab .contrib-nav-link,
-.tile-tab .contrib-menu-btn {
+.tile-tab .contrib-nav-link {
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -371,23 +369,20 @@
 }
 
 .tile-tab .contrib-btn:hover:not(:disabled),
-.tile-tab .contrib-nav-link:hover,
-.tile-tab .contrib-menu-btn:hover {
+.tile-tab .contrib-nav-link:hover {
   color: var(--text-primary);
   background: var(--surface-hover);
 }
 
-.tile-tab .contrib-btn:active:not(:disabled),
-.tile-tab .contrib-menu-btn:active,
-.tile-tab .contrib-menu-btn[aria-expanded='true'] {
+.tile-tab .contrib-btn:active:not(:disabled) {
   color: var(--text-primary);
   background: var(--surface-press);
 }
 
-/* Icon-only controls square off. */
-.tile-tab .contrib-menu-btn {
-  width: 28px;
-  padding: 0;
+/* A panel icon in its pressed state (a toggle the panel reports as on). */
+.tile-tab .contrib-icon[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--surface-selected);
 }
 
 .tile-tab .bar-icon {
@@ -500,16 +495,11 @@
   display: none;
 }
 
-/* A control the overflow ladder folded into the bar's ⋯ menu. Folded, not
- * lost: the menu keeps it reachable (see applyOverflowLadder). */
+/* A control the fold ladder took out of a narrow bar. Folded, not lost: the
+ * tile ⋯ lists it under "This panel" (applyOverflowLadder in
+ * tile-header-contrib.js). */
 .tile-tab .contrib-hidden {
   display: none;
-}
-
-/* The bar-owned ⋯ fold target sits at the controls cluster's right edge,
- * inside the region (order 3 > the controls' order 2). */
-.tile-tab .tile-tab-contrib > .contrib-overflow-btn {
-  order: 3;
 }
 
 /* Ladder step 1: the search field down to its magnifier — a 28px ghost
@@ -538,74 +528,18 @@
   color: var(--text-secondary);
 }
 
-/* Menu popover. Body-level and fixed — the contribution region is
- * overflow:hidden and one bar tall, so an in-place popover would be clipped
- * away. Positioned from JS (tile-header-items.js place()); everything here is
- * appearance only, and matches `.osprey-popover` (primitives.css). Not
- * scoped under .dock-root: it is a child of <body>. */
-.contrib-menu-popover {
-  position: fixed;
-  z-index: var(--z-dropdown);
-  min-width: 168px;
-  padding: var(--space-1);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-dropdown);
-}
-
-.contrib-menu-item {
-  appearance: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  height: 30px;
-  border: none;
-  background: transparent;
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  line-height: var(--leading-none);
-  color: var(--text-primary);
-  text-align: left;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.contrib-menu-item:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
-.contrib-menu-item:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.contrib-menu-item.checked {
-  font-weight: var(--weight-medium);
-}
-
-/* Fixed-width gutter so labels align whether or not an entry is checkable. */
-.contrib-menu-tick {
-  flex: 0 0 auto;
-  width: 12px;
-  color: var(--color-accent);
-}
-
-/* Actions cluster: right-anchored; a service tile's pop out (`.tile-tab-popout`)
- * and every tile's close (`.tile-tab-close`) are `.osprey-icon-btn`s, so the
- * primitive gives them their size, washes and disabled look.
- * Tiles drag, close and resize, so their header bars are live chrome. */
+/* Actions cluster: right-anchored and never folded; every tile's ⋯
+ * (`.tile-tab-more`), open in new window (`.tile-tab-window`) and close
+ * (`.tile-tab-close`) are `.osprey-icon-btn`s, so the primitive gives them
+ * their size, washes, the open state of the ⋯ (aria-expanded) and the
+ * disabled look. Tiles drag, close and resize, so their header bars are live
+ * chrome. */
 .tile-tab .tile-tab-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex: 0 0 auto;
 }
 
 /* ---- Drop preview ----

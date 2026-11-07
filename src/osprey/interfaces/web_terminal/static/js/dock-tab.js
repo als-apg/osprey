@@ -7,22 +7,29 @@
  * (dock-policy.js), so the bar is that panel's and there is no tab strip:
  * the sidebar is where the operator switches panels.
  *
- *   service tiles — the identity is the panel's name (`.tile-tab-title`); its
- *     contributed controls, Pop out and × sit beside it. The × closes the
- *     tile LOCALLY (the panel keeps its sidebar row; dock-sync routes the
- *     click to a vacate handler).
- *   the Agent tile — an adopted live bar, Pop out and close. In chat it adopts
- *     the console's `.op-session-bar` (status dot, `Agent`, New conversation,
- *     notifications); on the terminal surface it adopts the `.terminal-header`
- *     (session label, session selector, "+ New"). The bar is chosen when the
+ *   service tiles — the identity is the panel's name (`.tile-tab-title`);
+ *     then the panel's icons (at most three, tile-header-contrib.js) and the
+ *     fixed ⋯ / Open in new window / × cluster. The ⋯ opens the tile's one menu
+ *     (panel-menu-policy.js), the same menu a right-click on the bar opens.
+ *     The × closes the tile LOCALLY (the panel keeps its sidebar row;
+ *     dock-sync routes the click to a vacate handler).
+ *   the Agent tile — an adopted live bar (agent-bar.js: the session label ▾
+ *     and +), then ⋯ and close; Open in new window is a ⋯ row. In chat it
+ *     adopts the console's `.op-session-bar`; on the terminal surface the
+ *     `.terminal-header`, the same shape. The bar is chosen when the
  *     tab is built and swapped on a change of surface. Its close runs
  *     dock-workspace's closeTerminalPanel, which keeps `html[data-agent]` and
  *     the `osprey-agent-pane` event in step.
  *
- * Pop out, on every tile, moves the tile's content into an attached window
- * the hub drives (attached-popout.js); the tile stays and shows a stand-in
- * until that window closes. The panel menus' "Open in new window" is the
- * standalone kind (popout.js).
+ * Open in new window, on every tile, moves the tile's content into a window the hub
+ * drives and closes the tile (pane-window.js).
+ *
+ * A pane in its own window keeps this same bar, built in `mode: 'detached'` and
+ * moved into the window (pane-window.js): the name, the contributed controls or
+ * the adopted Agent bar as above, the ⋯, and Reattach in the far-right slot; its
+ * menu carries none of the tile's layout verbs. dockview plays no part there: the caller runs
+ * `init` with the title, moves `element` into the window, then calls `attached`,
+ * which registers what belongs to the window's document.
  *
  * dockview builds one tab component per panel, so a tile has exactly one bar,
  * stretched over the tile by dockview's single-tab fullwidth mode
@@ -35,20 +42,29 @@
  * tab drag — is `{tile}` (dock-drop maps it); a sidebar row is `{new}` or
  * `{tab}` (rail-drag.js).
  *
- * Both bar kinds are also a right-click surface: the tile header opens the
- * same verb menu as the panel's sidebar row (panel-context-menu.js), routed
- * through the setTileContextMenuHandler registration seam below.
+ * Both bar kinds are also a right-click surface: a right-click on the bar opens
+ * the same menu as its ⋯ button (panel-context-menu.js), routed through the
+ * setTileContextMenuHandler registration seam below.
  */
 
 import { TERMINAL_RAIL_ID, titleCase } from './panel-catalog.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
-import { PLACEHOLDER_PREFIX, TAB_KEY_ATTRIBUTE, TERMINAL_KEY, keyOfPanelId } from './dock-apply.js';
+import {
+  PLACEHOLDER_PREFIX,
+  TAB_KEY_ATTRIBUTE,
+  TERMINAL_KEY,
+  isDetached,
+  keyOfPanelId,
+} from './dock-apply.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import { closeDockPanel } from './dock-workspace.js';
 import { closeTerminalTile } from './panel-menu-policy.js';
-import { attachBlocker, popOutAttached } from './attached-popout.js';
+import { detach, detachBlocker } from './pane-window.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
+import { closeContextMenu } from '/design-system/js/context-menu.js';
 import { icon } from '/design-system/js/icons.js';
+import { closeAllPopovers } from '/design-system/js/popover.js';
+import { initTooltips } from '/design-system/js/tooltip.js';
 
 /** @typedef {import('/static/vendor/dock-engine.mjs').Source} Source */
 /** @typedef {import('/static/vendor/dock-engine.mjs').TabRects} TabRects */
@@ -168,13 +184,26 @@ function syncAgentBar() {
 
 onSurfaceChange(syncAgentBar);
 
+/**
+ * A bar in a window is going away: an Agent bar it still holds goes back where it
+ * lives, out of a document that may be closing. A tile that has already adopted
+ * the bar keeps it, and one built later adopts it from there.
+ * @param {HTMLElement} root  the tab root letting go
+ */
+function sendAgentBarsHome(root) {
+  for (const bar of [terminalHeaderEl, terminalConsoleBarEl]) {
+    if (bar?.parentElement === root) barHomes.get(bar)?.prepend(bar);
+  }
+}
+
 /** Matches the interactive children of a bar: they act, they never drag. */
 const INTERACTIVE = 'button, select, input, a, [role="button"]';
 
 /**
- * Handler a tile-header right-click is routed to, registered by
- * panel-manager.js at init — it owns the whole menu policy (which verbs, and
- * whether the surface has a menu at all), exactly as it does for the rail.
+ * Handler a tile-bar menu request (the ⋯ button, a right-click) is routed to,
+ * registered by panel-manager.js at init — it owns the whole menu policy
+ * (which verbs, and whether the surface has a menu at all), exactly as it does
+ * for the rail.
  *
  * A registration seam rather than an import, mirroring dock-sync's
  * setTileCloseHandler: panel-manager imports dock-workspace, which imports
@@ -186,8 +215,18 @@ let tileContextMenuHandler = null;
 /**
  * Where the menu should appear and what it belongs to. `anchorEl` is the
  * header bar: the menu scopes its scroll dismissal to it, so a panel
- * scrolling its own content underneath leaves the menu standing.
- * @typedef {{ x: number, y: number, anchorEl: HTMLElement }} TileMenuRequest
+ * scrolling its own content underneath leaves the menu standing. `mode` says
+ * whether the bar is on a tile or in the pane's own window, read when the menu is
+ * asked for: the Agent bar is wired once and travels between the two. With
+ * `triggerEl` (the bar's ⋯ button) the menu hangs under that button instead of
+ * opening at x/y, and a second press closes it.
+ * @typedef {{ x: number, y: number, anchorEl: HTMLElement, mode: TileMode,
+ *   triggerEl?: HTMLElement }} TileMenuRequest
+ */
+
+/**
+ * On a tile in the dock, or in the pane's own window.
+ * @typedef {'tile' | 'detached'} TileMode
  */
 
 /**
@@ -219,9 +258,44 @@ function wireTileContextMenu(el, idOf) {
       x: e.clientX,
       y: e.clientY,
       anchorEl: el,
+      mode: isDetached(id) ? 'detached' : 'tile',
     });
     if (opened) e.preventDefault();
   });
+}
+
+/**
+ * The bar's ⋯: the tile's one menu button. A click asks the registered handler
+ * for the same menu a right-click on the bar opens, hung under the button.
+ * Shared with the fallback bar (dock-fallback-bar.js).
+ * @param {() => string | null} idOf  the panel id the menu's verbs act on
+ * @param {HTMLElement} anchorEl  the header surface, for the menu's scroll scoping
+ * @returns {HTMLButtonElement}
+ */
+export function buildTileMenuButton(idOf, anchorEl) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tile-tab-more osprey-icon-btn';
+  btn.appendChild(icon('more'));
+  btn.title = 'Panel menu';
+  btn.setAttribute('aria-label', 'Panel menu');
+  btn.setAttribute('aria-haspopup', 'menu');
+  btn.setAttribute('aria-expanded', 'false');
+  btn.addEventListener('click', (e) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    const id = idOf();
+    if (id === null) return;
+    const r = btn.getBoundingClientRect();
+    tileContextMenuHandler?.(id, {
+      x: r.left,
+      y: r.bottom,
+      anchorEl,
+      triggerEl: btn,
+      mode: isDetached(id) ? 'detached' : 'tile',
+    });
+  });
+  return btn;
 }
 
 // --- drag sources -----------------------------------------------------------------
@@ -326,9 +400,12 @@ export function measureTabRects(scope = document) {
 
 // --- the renderer -----------------------------------------------------------------
 
+/** The tile button's name, and its tooltip while nothing blocks it. */
+const WINDOW_BUTTON_LABEL = 'Open in new window';
+
 /**
- * A tile's Pop out button: moves the tile's content into an attached window
- * (attached-popout.js). It runs the pop-out inside the click, the gesture the
+ * A tile's Open in new window button: moves the tile's content into a window of its own
+ * (pane-window.js). It runs the pop-out inside the click, the gesture the
  * browser needs to open a window at all. Content that cannot go (a panel not
  * loaded yet, an opaque-origin panel) gets the button disabled, with the
  * reason as its title. The gate cannot be read when the tile is built: the
@@ -340,17 +417,17 @@ export function measureTabRects(scope = document) {
  *   prefix), or TERMINAL_RAIL_ID
  * @returns {HTMLButtonElement}
  */
-function buildPopoutButton(panelId) {
+function buildWindowButton(panelId) {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'tile-tab-popout osprey-icon-btn';
+  btn.className = 'tile-tab-window osprey-icon-btn';
   btn.appendChild(icon('popout'));
-  btn.setAttribute('aria-label', 'Pop out');
-  btn.title = 'Pop out';
+  btn.setAttribute('aria-label', WINDOW_BUTTON_LABEL);
+  btn.title = WINDOW_BUTTON_LABEL;
   const paint = () => {
-    const blocker = attachBlocker(panelId);
+    const blocker = detachBlocker(panelId);
     btn.disabled = blocker !== null;
-    btn.title = blocker ?? 'Pop out';
+    btn.title = blocker ?? WINDOW_BUTTON_LABEL;
   };
   btn.addEventListener('pointerenter', paint);
   btn.addEventListener('focus', paint);
@@ -358,20 +435,53 @@ function buildPopoutButton(panelId) {
     if (e.defaultPrevented) return;
     e.preventDefault();
     paint();
-    if (!btn.disabled) popOutAttached(panelId);
+    if (!btn.disabled) detach(panelId);
   });
   return btn;
 }
 
 /**
+ * The far-right slot of a bar in the pane's own window.
+ * @param {(() => void) | undefined} onReattach
+ * @returns {HTMLButtonElement}
+ */
+function buildReattachButton(onReattach) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tile-tab-reattach osprey-btn';
+  btn.textContent = 'Reattach';
+  btn.addEventListener('click', (e) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    onReattach?.();
+  });
+  return btn;
+}
+
+/**
+ * @typedef {object} TileTabOptions
+ * @property {TileMode} [mode] - default 'tile'
+ * @property {() => void} [onReattach] - the Reattach of a 'detached' bar
+ */
+
+/**
  * The tile-tab renderer (dockview ITabRenderer: element / init / dispose).
  */
 class TileTab {
-  /** @param {string} id  dockview panel id ('terminal' or 'iframe:<panelId>') */
-  constructor(id) {
+  /**
+   * @param {string} id  dockview panel id ('terminal' or 'iframe:<panelId>'), or
+   *   the bare panel id of a pane in its own window
+   * @param {TileTabOptions} [options]
+   */
+  constructor(id, { mode = 'tile', onReattach } = {}) {
     this._panelId = id;
+    this._mode = mode;
     /** @type {{ dispose: () => void }[]} */
     this._disposables = [];
+    /** @type {HTMLElement | null} Reattach (a bar in the pane's own window) */
+    this._reattachEl = null;
+    /** @type {(() => void) | null} stops the window's tooltips */
+    this._stopTooltips = null;
 
     const root = document.createElement('div');
     root.className = 'tile-tab';
@@ -422,7 +532,8 @@ class TileTab {
       this._servicePanelId = id.startsWith(PLACEHOLDER_PREFIX)
         ? id.slice(PLACEHOLDER_PREFIX.length)
         : id;
-      registerContribHost(this._servicePanelId, contrib);
+      // A bar on its way to a window registers from there (attached).
+      if (mode === 'tile') registerContribHost(this._servicePanelId, contrib);
       // The bar is the panel's second home for its verbs, alongside the
       // sidebar row. Wired per construction because a service tab's root IS
       // rebuilt with the tab — unlike the long-lived adopted Agent bar.
@@ -437,9 +548,22 @@ class TileTab {
       e.preventDefault();
       e.stopPropagation();
     });
+    root.appendChild(actions);
+    this._element = root;
+    // Fixed at the right edge, never folded: ⋯ on every bar, then Open in new
+    // window (a service tile's; the Agent's is a ⋯ row) and × on a tile,
+    // Reattach in the pane's own window.
     actions.appendChild(
-      buildPopoutButton(terminal ? TERMINAL_RAIL_ID : (this._servicePanelId ?? id))
+      buildTileMenuButton(() => (terminal ? TERMINAL_RAIL_ID : this._servicePanelId), root)
     );
+
+    if (mode === 'detached') {
+      this._reattachEl = buildReattachButton(onReattach);
+      actions.appendChild(this._reattachEl);
+      return;
+    }
+
+    if (!terminal) actions.appendChild(buildWindowButton(this._servicePanelId ?? id));
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'tile-tab-close osprey-icon-btn';
@@ -460,9 +584,6 @@ class TileTab {
       );
     });
     actions.appendChild(close);
-    root.appendChild(actions);
-
-    this._element = root;
   }
 
   get element() {
@@ -471,6 +592,9 @@ class TileTab {
 
   /** @param {any} params  dockview TabPartInitParameters (title, params, api, …) */
   init(params) {
+    if (this._reattachEl) {
+      this._reattachEl.title = `Put ${titleCase(params.title ?? '')} back in the workspace`;
+    }
     // The tile id the bar belongs to, for the drop bridge's hit test and the
     // holder's focus restore; it follows the panel across group changes.
     const stamp = () => {
@@ -498,20 +622,44 @@ class TileTab {
     if (sub?.dispose) this._disposables.push(sub);
   }
 
+  /**
+   * A bar built for a window is in that window's document now: what is bound to a
+   * document binds to this one. Called after every move, so after a reload of the
+   * window as well, with a new tab and a new document.
+   */
+  attached() {
+    if (this._contribEl && this._servicePanelId) {
+      registerContribHost(this._servicePanelId, this._contribEl);
+    }
+    this._stopTooltips?.();
+    this._stopTooltips = initTooltips(this._element.ownerDocument.body);
+  }
+
   dispose() {
     for (const d of this._disposables.splice(0)) d.dispose();
+    // A window's document may be on its way out (R10): nothing stays open in it,
+    // or the opener's next click would only close what can no longer be seen.
+    if (this._mode === 'detached') {
+      closeAllPopovers();
+      closeContextMenu();
+    }
+    this._stopTooltips?.();
+    this._stopTooltips = null;
     if (agentTabRoot === this._element) agentTabRoot = null;
     if (this._contribEl && this._servicePanelId) {
       unregisterContribHost(this._servicePanelId, this._contribEl);
     }
+    if (this._mode === 'detached') sendAgentBarsHome(this._element);
   }
 }
 
 /**
- * Factory for dockview's createTabComponent option.
+ * Factory for dockview's createTabComponent option, and for the bar of a pane in
+ * its own window (`mode: 'detached'`).
  * @param {string} id
+ * @param {TileTabOptions} [options]
  * @returns {TileTab}
  */
-export function createTileTab(id) {
-  return new TileTab(id);
+export function createTileTab(id, options) {
+  return new TileTab(id, options);
 }

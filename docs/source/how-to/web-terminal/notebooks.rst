@@ -100,9 +100,8 @@ write switch, and the next cell you run is routed by the new state.
 
 Inside the web terminal the control-target block in the sidebar is the only
 place to do that; the JUPYTER tab carries no chip of its own. A notebook
-opened in its own window — popped out of the terminal, or opened at its own
-address — has no sidebar beside it, so that page shows the same chip in its
-top-right corner. It is the same
+in a window of its own has no sidebar beside it, so that window shows the
+same chip in its top-right corner. It is the same
 switch either way: a change made from either place lands deployment-wide.
 
 A cell already running is not re-routed --- but taking writes away still
@@ -289,19 +288,29 @@ A dimmed JUPYTER entry whose tooltip reads *JUPYTER failed to start:
 <reason>* means the sidecar did not start. On a host where the first start is
 slow, the terminal gives up after 60 s. Set ``web.sidecar_ready_timeout_s``
 (:ref:`config-web`) to give the sidecar longer. The reason is one line: what
-went wrong, and the sidecar's last error line when it has one. The terminal log
-has the full error output. The rest of the terminal is unaffected — only that
-one tab is unavailable.
+went wrong, and the sidecar's last error line when it has one. If the Jupyter
+tile is open, it shows *JupyterLab did not start*, the reason, and a **Retry**
+button. To see the last lines of the sidecar's error output, open the tile's
+**⋯** menu and select **Show server log**. The terminal log has the full error
+output. The rest of the terminal is unaffected — only that one tab is
+unavailable.
 
-Click the entry to start the sidecar again. The terminal runs one attempt at a
-time and waits as long as it does at startup; the tooltip reads *JUPYTER is
-starting* until the attempt settles. A start that succeeds opens the tab; one
-that fails again shows its new reason.
+Click the entry, or **Retry** in the tile, to start the sidecar again. The
+terminal runs one attempt at a time and waits as long as it does at startup;
+the tooltip reads *JUPYTER is starting* and the tile shows *Starting
+JupyterLab…* until the attempt settles. A start that succeeds opens the tab;
+one that fails again shows its new reason.
 
 A sidecar that dies after it started turns the entry the same way within about
 ten seconds. JupyterLab reads *Disconnected* first and saves fail, and there is
 nowhere else to save to, so copy any unsaved cells out of the browser before you
-click the entry to start it again.
+start it again.
+
+When JupyterLab stops answering but the sidecar still runs, click the **Reload**
+icon on the tile bar. This loads JupyterLab again; the kernels keep running. To
+stop the sidecar and start a new one, open the tile's **⋯** menu and select
+**Restart kernel server**. The terminal asks you to confirm first, because
+running kernels stop and their unsaved state is lost.
 
 ``osprey health`` never fetches the panel. It shows the same *failed to start*
 sentence as a warning row when the terminal recorded a failure, and a skip row

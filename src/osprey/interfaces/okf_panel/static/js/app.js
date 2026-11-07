@@ -29,10 +29,10 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { debounce } from '/design-system/js/dom.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
-import '/design-system/js/components/osprey-display-menu.js';
+import { renderState } from '/design-system/js/panel-state.js';
 import {
   el,
   FACILITY_SCHEME,
@@ -55,65 +55,45 @@ import {
   renderSearchMessage,
   renderSearchResults,
 } from './search.js';
-import { initSidebarResize } from './resize.js';
+import {
+  contentsPicked,
+  initContents,
+  resetContentsWidth,
+  setContentsSearching,
+  showContentsFor,
+} from './contents.js';
+import { initToolbar, showBundleHealth, showCrumb } from './toolbar.js';
 
-// Standalone, this page owns its own theme chrome (the header
-// <osprey-display-menu>), so it runs theme-manager.js in the hub role:
-// persistence, OS auto-follow and ?theme= handling all come with it, and
-// broadcast is a structural no-op on a page with no iframes. Embedded in the
-// Web Terminal hub it is a follower instead: theme-boot.js already applied
-// data-theme pre-paint, and this attaches the postMessage listener for the
-// hub's live broadcasts.
-initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
-
-/**
- * What the reading pane shows: `'browse'` is the structure overview (the list
- * of every page), `'page'` a single concept.
- * @type {'browse' | 'page'}
- */
-let readerView = 'browse';
+// A follower of the Web Terminal hub: theme-boot.js already applied data-theme
+// pre-paint, and this attaches the postMessage listener for the hub's live
+// broadcasts.
+initTheme({ role: 'follower' });
 
 /**
- * Publish this panel's tile-bar contribution. Embedded, the tile bar is the
- * panel's one header, with two items:
- *
- * - the sidebar's search box, rendered as the hub's magnifier pill (style.css
- *   hides the in-body one);
- * - a `view` nav whose Browse entry opens the structure overview. It is active
- *   while the overview is showing.
- *
- * The nav goes last, against the close button: it is the control aimed at
- * repeatedly, and it outranks the search when a narrow tile has to fold one.
- * Sent WHOLE (the hub replaces, never diffs) and a no-op standalone.
+ * The panel's menu, in the tile ⋯ under "This panel". Its one entry resets the
+ * contents list's width.
  */
-function publishHeaderContribution() {
-  contributeHeader([
-    // Placeholder matches the in-body input in index.html.
-    { kind: 'search', id: 'search', placeholder: 'Search concepts…' },
-    {
-      kind: 'nav',
-      id: 'view',
-      priority: 1,
-      items: [{ id: 'browse', label: 'Browse', active: readerView === 'browse' }],
-    },
-  ]);
-}
+const PANEL_MENU = {
+  id: 'knowledge',
+  items: [{ id: 'reset-width', label: 'Reset contents width' }],
+};
 
 /**
- * Record what the reading pane is about to show and re-publish the tile bar
- * when that changes the Browse entry's active state.
- * @param {'browse' | 'page'} view
+ * Run an entry of the panel's menu: it comes back as the menu's id and the
+ * entry's id.
+ * @param {string} id
+ * @param {string} [entry]
  */
-function setReaderView(view) {
-  if (view === readerView) return;
-  readerView = view;
-  publishHeaderContribution();
+function onPanelMenu(id, entry) {
+  if (id === PANEL_MENU.id && entry === 'reset-width') resetContentsWidth();
 }
 
 applyEmbedded();
 
-// Draggable sidebar/reader splitter.
-initSidebarResize();
+// The contents list (the sidebar): its toggle, divider and when it shows.
+initContents();
+
+onHeaderAction(onPanelMenu);
 
 /**
  * @typedef {Object} ConceptFrontmatter
@@ -194,17 +174,56 @@ function requireEl(id) {
   // -- DOM handles -----------------------------------------------------------
   const treeEl = requireEl('tree');
   const readerEl = requireEl('reader-content');
-  const searchForm = requireEl('search-form');
   const searchInput = /** @type {HTMLInputElement} */ (requireEl('search-input'));
   const searchResultsEl = requireEl('search-results');
   const structureLink = document.getElementById('structure-link');
   /** @type {Set<string> | null} */
   let knownConceptIds = null;
+  /** Each concept's title, and each group's label by its id, once the tree loaded. */
+  const conceptTitles = /** @type {Map<string, string>} */ (new Map());
+  const groupLabels = /** @type {Map<string, string>} */ (new Map());
+  /**
+   * The open page: the concept's id (the tile's subtitle) and its title (the
+   * breadcrumb's last crumb); null on the overview.
+   * @type {{id: string, title: string} | null}
+   */
+  let openPage = null;
   /** @type {ConceptDoc["facility_references"] | null} */
   let currentFacilityReferences = null;
 
-  initTree({ treeEl, structureLink, onSelect: loadConcept });
+  initTree({ treeEl, structureLink, onSelect: pickConcept });
   initSearchResults({ containerEl: searchResultsEl, onSelect: selectConcept });
+  initToolbar({ onBrowse: (group) => loadStructure({ section: group }) });
+
+  /**
+   * A row of the contents list (the tree or a search result) was picked.
+   * @param {string} id
+   */
+  function pickConcept(id) {
+    loadConcept(id);
+    contentsPicked();
+  }
+
+  /**
+   * The label of the group a concept is in (its id's first segment), or null
+   * for a top-level id and before the tree has loaded.
+   * @param {string} id
+   * @returns {string | null}
+   */
+  function groupOf(id) {
+    const slash = id.indexOf('/');
+    return slash > 0 ? (groupLabels.get(id.slice(0, slash)) ?? null) : null;
+  }
+
+  /**
+   * Name the open page in the tile's subtitle (re-sent when the concept
+   * changes) and in the breadcrumb.
+   * @param {{id: string, title: string} | null} page null on the overview
+   */
+  function showOpenPage(page) {
+    openPage = page;
+    showCrumb(page && { group: groupOf(page.id), title: page.title });
+  }
 
   // -------------------------------------------------------------------------
   // Render hook for task 3.2.
@@ -301,48 +320,82 @@ function requireEl(id) {
       treeEl.appendChild(el('p', { class: 'muted', text: 'Failed to load concepts.' }));
       return;
     }
-    /** @type {{concepts?: {id: string}[]}[]} */
+    /** @type {{id?: string, label?: string, concepts?: {id: string, title?: string}[]}[]} */
     const groups = data.groups || [];
-    knownConceptIds = new Set(
-      groups.flatMap(function (g) {
-        return (g.concepts || []).map(function (c) {
-          return c.id;
-        });
-      })
-    );
-    renderTree(data.groups || []);
+    knownConceptIds = new Set();
+    for (const group of groups) {
+      if (group.id) groupLabels.set(group.id, group.label || group.id);
+      for (const concept of group.concepts || []) {
+        knownConceptIds.add(concept.id);
+        conceptTitles.set(concept.id, concept.title || concept.id);
+      }
+    }
+    renderTree(groups);
+    // The breadcrumb names the open page's group once the groups are known.
+    if (openPage) showOpenPage(openPage);
   }
 
   // -- reading pane ----------------------------------------------------------
 
   /**
+   * One centred state in the reading pane, which then states no concept.
+   * @param {Parameters<typeof renderState>[1]} view
+   */
+  function showReaderState(view) {
+    delete readerEl.dataset.conceptId;
+    renderState(readerEl, view);
+  }
+
+  /**
+   * The reading pane could not get what it asked for: one centred state, with
+   * the one next step.
+   * @param {string} message
+   * @param {() => void} retry
+   */
+  function renderLoadFailure(message, retry) {
+    showReaderState({
+      icon: 'triangle-alert',
+      message,
+      action: { label: 'Retry', onClick: retry },
+    });
+  }
+
+  /**
    * @param {string} id
    */
   async function loadConcept(id) {
-    setReaderView('page');
-    renderMessage('Loading…');
+    showContentsFor('page');
+    showOpenPage({ id, title: conceptTitles.get(id) ?? id });
+    showReaderState({ icon: 'refresh', message: 'Loading the page' });
+    const retry = () => loadConcept(id);
     let resp;
     try {
       resp = await fetch('/api/concept?id=' + encodeURIComponent(id));
     } catch {
-      renderMessage('Failed to load concept.');
+      renderLoadFailure('The page did not load', retry);
       return;
     }
 
     if (resp.status === 404) {
-      renderMessage('Concept not found: "' + id + '"');
-      return;
-    }
-    if (!resp.ok) {
-      renderMessage('Failed to load concept (HTTP ' + resp.status + ').');
+      showReaderState({
+        icon: 'search',
+        message: 'No concept has this id',
+        detail: id,
+        action: { label: 'Browse', onClick: () => loadStructure() },
+      });
       return;
     }
 
-    let doc;
-    try {
-      doc = await resp.json();
-    } catch {
-      renderMessage('Failed to parse concept.');
+    let doc = null;
+    if (resp.ok) {
+      try {
+        doc = await resp.json();
+      } catch {
+        /* unreadable: reported below */
+      }
+    }
+    if (!doc) {
+      renderLoadFailure('The page did not load', retry);
       return;
     }
     renderConcept(doc);
@@ -364,6 +417,7 @@ function requireEl(id) {
     // regardless of how we got here (sidebar click, in-body cross-link,
     // structure-overview link, or back/forward). Single authoritative point.
     highlightActive(id);
+    showOpenPage({ id, title: title || id });
 
     readerEl.innerHTML = '';
 
@@ -400,29 +454,21 @@ function requireEl(id) {
     afterRender(readerEl);
   }
 
-  /**
-   * @param {string} msg
-   */
-  function renderMessage(msg) {
-    delete readerEl.dataset.conceptId;
-    readerEl.innerHTML = '';
-    readerEl.appendChild(el('p', { class: 'muted', text: msg }));
-    afterRender(readerEl);
-  }
-
   // -- structure overview ----------------------------------------------------
   //
   // Fetches /api/structure (a markdown document) and renders it into the
   // reading pane as an .osprey-md-rendered container. Its concept links are in
   // the /<id>.md form, so afterRender() wires them as in-panel navigation.
   /**
-   * @param {{push?: boolean}} [opts]
+   * @param {{push?: boolean, section?: string | null}} [opts]
+   *   `section`: the label of a group, whose section the overview scrolls to
    */
   async function loadStructure(opts) {
     const push = !opts || opts.push !== false;
-    setReaderView('browse');
+    showContentsFor('browse');
     highlightStructure();
-    renderMessage('Loading…');
+    showOpenPage(null);
+    showReaderState({ icon: 'refresh', message: 'Loading the overview' });
 
     let data;
     try {
@@ -430,7 +476,7 @@ function requireEl(id) {
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       data = await resp.json();
     } catch {
-      renderMessage('Failed to load knowledge base overview.');
+      renderLoadFailure('The overview did not load', () => loadStructure(opts));
       return;
     }
 
@@ -440,6 +486,13 @@ function requireEl(id) {
     renderMarkdownInto(container, data.markdown);
     readerEl.appendChild(container);
     afterRender(container);
+    const section = opts && opts.section;
+    if (section) {
+      const heading = Array.from(container.querySelectorAll('h2')).find(
+        (h) => (h.textContent || '').trim() === section
+      );
+      heading?.scrollIntoView({ block: 'start' });
+    }
 
     if (push) {
       history.pushState({ id: STRUCTURE_MARKER }, '', '#' + STRUCTURE_MARKER);
@@ -448,14 +501,17 @@ function requireEl(id) {
 
   // -- search ----------------------------------------------------------------
   //
-  // Rendering lives in search.js (see its header for the ranked/unranked
-  // presentation decision); this only fetches and hands over the hits.
+  // The toolbar's search field. Rendering lives in search.js (see its header
+  // for the ranked/unranked presentation decision); this only fetches and
+  // hands over the hits.
 
   /**
    * @param {string} query
    */
   async function runSearch(query) {
     const q = (query || '').trim();
+    // The results are drawn in the contents list, so a search shows it.
+    setContentsSearching(q !== '');
     if (!q) {
       clearSearchResults();
       return;
@@ -480,18 +536,9 @@ function requireEl(id) {
   }, 200);
 
   searchInput.addEventListener('input', debouncedSearch);
-  searchForm.addEventListener('submit', function (ev) {
-    ev.preventDefault();
-    runSearch(searchInput.value);
-  });
-
-  // Embedded: the same box lives in the hub's tile bar and posts its text back
-  // here. The hub already debounces before reporting, so this runs the search
-  // directly rather than through debouncedSearch. The bar's Browse entry opens
-  // the structure overview, like the sidebar's "Knowledge Base" link.
-  onHeaderAction(function (id, value) {
-    if (id === 'search') runSearch(value || '');
-    else if (id === 'view' && value === 'browse') loadStructure();
+  // Enter searches at once, without waiting out the debounce.
+  searchInput.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') runSearch(searchInput.value);
   });
 
   if (structureLink) {
@@ -503,53 +550,37 @@ function requireEl(id) {
 
   // -- bundle health (osprey addition) ---------------------------------------
   //
-  // Surfaces the panel's own /api/bundle_health summary (broken cross-links /
-  // frontmatter issues) as a small sidebar status line. Guarded/unconfigured
-  // panels (503) simply hide the line.
+  // The panel's own /api/bundle_health check of the served bundle (broken
+  // cross-links, frontmatter issues), shown as the toolbar's status chip
+  // (toolbar.js). A check that fails, an unconfigured panel's 503 included,
+  // shows as failed, with the reason behind the chip.
   async function loadBundleHealth() {
-    const footer = document.getElementById('bundle-health');
-    if (!footer) return;
-
-    let data;
+    let resp;
     try {
-      const resp = await fetch('/api/bundle_health');
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      data = await resp.json();
+      resp = await fetch('/api/bundle_health');
     } catch {
-      footer.hidden = true;
+      showBundleHealth({ state: 'failed', reason: 'the panel did not answer' });
       return;
     }
-
-    footer.hidden = false;
-    footer.innerHTML = '';
-    if (data.ok) {
-      footer.classList.remove('has-warnings');
-      footer.appendChild(el('span', { class: 'health-dot ok' }));
-      footer.appendChild(el('span', { class: 'health-text', text: 'Bundle healthy' }));
-    } else {
-      footer.classList.add('has-warnings');
-      const counts = data.counts || {};
-      const parts = Object.keys(counts)
-        .sort()
-        .map(function (k) {
-          return k + '=' + counts[k];
-        });
-      const total = data.total || 0;
-      footer.appendChild(el('span', { class: 'health-dot warn' }));
-      footer.appendChild(
-        el('span', {
-          class: 'health-text',
-          text: total + ' issue' + (total === 1 ? '' : 's') + ': ' + parts.join(', '),
-        })
-      );
+    let data = null;
+    try {
+      data = await resp.json();
+    } catch {
+      /* unreadable: reported below */
     }
+    if (resp.ok && data) {
+      showBundleHealth({ state: 'checked', health: data });
+      return;
+    }
+    const said = data && typeof data.error === 'string' ? data.error : 'no readable answer';
+    showBundleHealth({ state: 'failed', reason: said + ' (HTTP ' + resp.status + ')' });
   }
 
   // -- boot ------------------------------------------------------------------
   //
-  // Load the sidebar + bundle-health line, then honour any in-panel deep-link
-  // (URL hash → concept); otherwise show the structure overview as the default
-  // reader content (instead of an empty pane).
+  // Load the contents list and the bundle check, then honour any in-panel
+  // deep-link (URL hash → concept); otherwise show the structure overview as
+  // the default reader content (instead of an empty pane).
   function bootFromParams() {
     const params = readPanelParams();
     if (params.concept) {
@@ -565,6 +596,6 @@ function requireEl(id) {
   loadTree();
   loadBundleHealth();
   bootFromParams();
-  // Embedded: hand the search box and the Browse view to the host tile bar.
-  publishHeaderContribution();
+  // Embedded: the tile bar's subtitle (on a page) and its ⋯ entry.
+  contributeHeader([{ kind: 'menu', ...PANEL_MENU }]);
 })();

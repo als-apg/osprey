@@ -4,7 +4,7 @@
  *
  * The session pointer (`session-pointer.js`) is the single source of truth for
  * the tab's session. This module subscribes to it, so every key change — the
- * chat's pen button, the terminal's "+ New", a `session_switched`, a
+ * Agent bar's `+` on either surface, a `session_switched`, a
  * {@link switchTo}, page load — does the same three things: PUTs last-active
  * (debounced), clears the pick, and re-derives {@link activeRow}. A key the
  * listing has not caught up with gets a synthesized "New session" row.
@@ -79,7 +79,8 @@ let nextCursor = null;
 let more = false;
 /** @type {string} */
 let record = 'complete';
-let firstLoaded = false;
+/** Whether the first listing has answered, with rows or with a failure. */
+export let firstLoaded = false;
 /** @type {string|null} */
 let pickId = null;
 /** The pick {@link switchTo} chose, applied when the pointer reaches its key. */

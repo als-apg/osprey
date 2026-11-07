@@ -1582,6 +1582,7 @@ jobs:
           tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/design_system/test_theme_lab.py \
           tests/interfaces/design_system/test_dispatch_dashboard_unauthorized.py \
+          tests/interfaces/design_system/test_dispatch_dashboard_toolbar.py \
           tests/interfaces/design_system/test_panel_browser.py \
           tests/interfaces/design_system/test_dispatch_run_crosslinks.py \
           tests/interfaces/design_system/test_dispatch_run_thinking_browser.py \
@@ -1590,7 +1591,6 @@ jobs:
           tests/interfaces/design_system/test_dispatch_dashboard_trigger_tools.py \
           tests/interfaces/design_system/test_dispatch_run_owner.py \
           tests/interfaces/design_system/test_osprey_drawer.py \
-          tests/interfaces/design_system/test_splitter_surfaces.py \
           tests/interfaces/artifacts/test_gallery_interactions.py \
           tests/interfaces/artifacts/test_plot_theme_browser.py \
           tests/interfaces/artifacts/test_plot_export_browser.py \
@@ -1627,12 +1627,12 @@ jobs:
           tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py \
           tests/interfaces/web_terminal/test_sidebar_group_headings_browser.py \
           tests/interfaces/web_terminal/test_sidebar_sessions_browser.py \
-          tests/interfaces/web_terminal/test_attached_popout_browser.py \
+          tests/interfaces/web_terminal/test_pane_window_browser.py \
+          tests/interfaces/web_terminal/test_panel_direct_visit_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
           tests/interfaces/ariel/test_embedded_nav.py \
-          tests/interfaces/ariel/test_display_menu.py \
           tests/interfaces/ariel/test_vocabulary_banner.py \
           tests/interfaces/ariel/test_shell.py \
           tests/interfaces/history/test_history_page_browser.py \

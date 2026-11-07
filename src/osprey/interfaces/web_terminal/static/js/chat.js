@@ -105,7 +105,7 @@ export const isStreaming = () => controls?.streaming() ?? false;
 /** Stop the streaming turn (interrupt, then abort); resolves once asked, not once it ended. */
 export const stopTurn = () => controls?.stop() ?? Promise.resolve();
 
-/** Start a conversation on a new session key, as the pen button does. */
+/** Start a conversation on a new session key, as the Agent bar's `+` does. */
 export const newConversation = () => controls?.newConversation();
 
 /**
@@ -122,8 +122,8 @@ export function initChat(containerId = 'operator-container') {
   // handler closures below, so hand them a statically non-null reference.
   const container = /** @type {HTMLElement} */ (found);
 
-  const handles = buildConsole();
-  const { bar, label, newBtn, messages, overlay, overlayMessage, overlayAction } = handles;
+  const handles = buildConsole({ onNew: startConversation });
+  const { bar, label, messages, overlay, overlayMessage, overlayAction } = handles;
   const { inputArea, textarea, cmdBtn, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
   const slash = attachSlashComplete(textarea, { load: fetchCommands, mount: inputArea });
@@ -274,14 +274,14 @@ export function initChat(containerId = 'operator-container') {
   /**
    * Apply the current streaming/transition state to every control. A running
    * turn leaves the box open, so the next message can be typed and queued; a
-   * hand-off closes it, because the session is not this view's.
+   * hand-off closes it, because the session is not this view's. The Agent
+   * bar's `+` follows the `busy` it says on the bus (agent-bar.js).
    */
   function applyControls() {
     const blocked = streaming || transitioning;
     textarea.disabled = transitioning;
     cmdBtn.disabled = blocked;
     sendBtn.disabled = transitioning;
-    newBtn.disabled = blocked;
     sendBtn.hidden = streaming;
     stopBtn.hidden = !streaming;
     stopBtn.disabled = false;
@@ -763,7 +763,6 @@ export function initChat(containerId = 'operator-container') {
   });
   sendBtn.addEventListener('click', submit);
   stopBtn.addEventListener('click', stop);
-  newBtn.addEventListener('click', startConversation);
 
   controls = { streaming: () => streaming, stop, newConversation: startConversation };
 

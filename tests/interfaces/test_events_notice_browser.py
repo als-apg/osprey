@@ -1,10 +1,11 @@
-"""The embedded EVENTS panel's warning banner.
+"""The EVENTS panel's warning banner.
 
-Embedded, the dispatcher dashboard hides its status line and the tile bar
-carries no text, so the two warnings nothing else on screen says (the worker is
+The dispatcher dashboard has no status line and the tile bar carries no text,
+so the warnings nothing else on screen says (the dispatcher or its worker is
 unreachable, the queue is full) show as a banner at the top of the body, and
-only while they hold. The page is served from dashboard.html as is, with the
-design-system assets from the tree and ``/dashboard/state`` stubbed.
+only while they hold. Standalone and embedded show the same body. The page is
+served from dashboard.html as is, with the design-system assets from the tree
+and ``/dashboard/state`` stubbed.
 """
 
 from __future__ import annotations
@@ -59,8 +60,8 @@ def _open(chromium_browser, state: dict, *, embedded: bool = True):
 
     page.route(f"{_ORIGIN}/**", handle)
     page.goto(f"{_ORIGIN}/{'?embedded=true' if embedded else ''}")
-    # The first poll has landed once the status line has left its placeholder.
-    expect(page.locator("#status-text")).not_to_have_text("Checking the dispatcher…")
+    # The first poll has landed once the panel-wide "Connecting" state is gone.
+    expect(page.locator("#panel-state")).to_be_hidden()
     return page
 
 
@@ -94,9 +95,9 @@ def test_no_banner_when_all_is_well(chromium_browser):
     expect(page.locator("#embed-notice")).to_be_hidden()
 
 
-def test_standalone_keeps_the_status_line_and_no_banner(chromium_browser):
+def test_standalone_shows_the_same_banner(chromium_browser):
     page = _open(chromium_browser, _state(worker_error="connection refused"), embedded=False)
-    expect(page.locator("#embed-notice")).to_be_hidden()
-    expect(page.locator("#status-text")).to_have_text(
-        "Cannot reach the dispatch worker — the runs below may be out of date."
+    expect(page.locator("#status-text")).to_have_count(0)
+    expect(page.locator("#embed-notice div")).to_have_text(
+        ["Cannot reach the dispatch worker — the runs below may be out of date."]
     )

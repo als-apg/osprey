@@ -90,7 +90,10 @@ export function probeNavigateReady(state, iframe) {
  * @returns {boolean}
  */
 export function navigateInPlace(state, url) {
-  if (state.inPlace && state.iframe?.contentWindow && isNavigableUrl(url)) {
+  // A frame in a window of its own has that window for a parent, and a panel's
+  // router takes this message only from its parent: it would be dropped unheard.
+  const atHome = state.iframe?.ownerDocument === document;
+  if (atHome && state.inPlace && state.iframe?.contentWindow && isNavigableUrl(url)) {
     try {
       state.iframe.contentWindow.postMessage(
         { type: NAVIGATE_MESSAGE, url },

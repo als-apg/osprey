@@ -66,8 +66,7 @@
  *   - else, in chat, the agent's focus unless it is a run record;
  *   - else the newest of the session (not a shipped example), then any.
  * A non-automatic agent focus (or any focus on the terminal surface) takes the
- * pick and records last-artifact; an automatic one only records the focus. The
- * pane header's ‹ N of M › pages through the shown artifact's own session.
+ * pick and records last-artifact; an automatic one only records the focus.
  *
  * LIVE UPDATES. The panel's event stream is followed by
  * sidebar-artifact-frames.js: new, updated and deleted artifacts, and the
@@ -82,6 +81,7 @@ import { contributeLocal } from './tile-header-contrib.js';
 import { hasDockedTile } from './panel-placement.js';
 import { setServiceMenuExtras, showAgentPane } from './panel-menu-policy.js';
 import { isTerminalPanelOpen, openTerminalPanel } from './dock-workspace.js';
+import { TERMINAL_KEY, isDetached } from './dock-apply.js';
 import * as store from './sidebar-artifact-listing.js';
 import * as rows from './sidebar-artifact-rows.js';
 import { createBoxPager } from './sidebar-artifact-paging.js';
@@ -89,7 +89,7 @@ import { createSessionCues } from './sidebar-session-cues.js';
 import { createArtifactFrames } from './sidebar-artifact-frames.js';
 import * as viewer from './sidebar-artifact-viewer.js';
 import { ARTIFACTS_PANEL_ID, panelOnView, showArtifactsPanel } from './sidebar-artifact-viewer.js';
-import { headerItems, openArtifact, saveArtifact } from './artifacts-pane-header.js';
+import { downloadArtifact, headerItems, showArtifactInfo } from './artifacts-pane-header.js';
 import * as model from './session-model.js';
 import * as pins from './sidebar-session-pins.js';
 
@@ -260,7 +260,7 @@ export function teardownSidebarArtifacts() {
   setServiceMenuExtras(ARTIFACTS_PANEL_ID, null);
   state = { ...freshState(), view: state.view };
   lastHeader = '';
-  contributeLocal(ARTIFACTS_PANEL_ID, headerItems(null, null), onHeaderAction);
+  contributeLocal(ARTIFACTS_PANEL_ID, headerItems(null), onHeaderAction);
   render();
 }
 
@@ -320,33 +320,6 @@ function activeListing() {
   return row ? data.activeListing(row) : null;
 }
 
-/**
- * The listing the pager walks for an artifact: its own session's, or null for
- * one no session owns (no pager).
- * @param {ArtifactEntry} entry
- * @returns {Listing | null}
- */
-function pagerListing(entry) {
-  if (inActiveSession(entry)) return activeListing();
-  return entry.owner == null ? null : data.listingOf(entry.owner);
-}
-
-/** @param {1 | -1} delta */
-async function step(delta) {
-  const shown = held(state.shownId);
-  const listing = shown ? pagerListing(shown) : null;
-  const target = shown && listing ? await data.stepFrom(listing, shown.id, delta) : null;
-  if (!target || !served) return;
-  model.setPick(target.id);
-  model.recordLastArtifact(target);
-}
-
-/** @param {ArtifactEntry | null} shown */
-function pagerPosition(shown) {
-  const listing = shown ? pagerListing(shown) : null;
-  return shown && listing ? data.position(listing, shown.id) : null;
-}
-
 // ---- Recording ----
 
 /**
@@ -391,9 +364,8 @@ function onHeaderAction(id) {
   if (!served) return;
   const shown = held(state.shownId);
   if (!shown) return;
-  if (id === 'prev' || id === 'next') void step(id === 'prev' ? -1 : 1);
-  else if (id === 'open') openArtifact(shown);
-  else if (id === 'save') saveArtifact(shown);
+  if (id === 'info') showArtifactInfo(shown);
+  else if (id === 'download') downloadArtifact(shown);
 }
 
 const menuExtras = () => viewer.viewerMenuItems(served ? held(state.shownId) : null);
@@ -509,7 +481,7 @@ function render() {
   pager.fill();
   const current = activeListing();
   if (current) data.ensureLoaded(current);
-  const header = headerItems(shown, pagerPosition(shown));
+  const header = headerItems(shown);
   const key = JSON.stringify(header);
   if (key !== lastHeader) {
     lastHeader = key;
@@ -605,9 +577,11 @@ function onClick(event) {
     const where = session.dataset.where === 'pinned' ? 'pinned' : 'sessions';
     // The session in use folds or unfolds; another is entered, never browsed.
     // After expand-all, the click first returns to the session in use alone.
-    // With the Agent pane closed, a click on it reopens the pane, not a fold.
+    // With the Agent pane closed, a click on it reopens the pane, not a fold;
+    // with the pane in its own window, it brings that window forward, no more.
     // A click on its other copy moves its artifacts there, open.
     if (treeId === activeTreeId()) {
+      if (isDetached(TERMINAL_KEY)) return showAgentPane();
       const reopen = !isTerminalPanelOpen();
       const moved = openWhere() !== where;
       state.activeFolded = reopen || moved || state.expandAll ? false : !state.activeFolded;

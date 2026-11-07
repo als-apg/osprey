@@ -22,12 +22,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>System Health</title>
     <script type="module">
-      // Follower role: this standalone surface is never the theme hub (the web
-      // terminal is). It applies its own `?theme=` query param when the host
-      // appends one, otherwise it trusts whatever theme-boot.js already set
-      // pre-paint, and thereafter obeys the hub's broadcasts. applyEmbedded()
-      // reads `?embedded=true` and hides the standalone chrome so the panel
-      // sits flush inside its host frame. Every color is a design-token reference, so
+      // Follower role: this panel is never the theme hub (the web terminal
+      // is). It applies its own `?theme=` query param when the host appends
+      // one, otherwise it trusts whatever theme-boot.js already set pre-paint,
+      // and thereafter obeys the hub's broadcasts. applyEmbedded() reads
+      // `?embedded=true` and sends a top-level visit to the web terminal, whose
+      // tile bar names the panel. Every color is a design-token reference, so
       // no re-read of computed colors is needed on a data-theme swap.
       import { initTheme } from '/design-system/js/theme-manager.js';
       import { applyEmbedded } from '/design-system/js/frame-params.js';
@@ -36,13 +36,6 @@
     </script>
   </head>
   <body>
-    <header class="hdr">
-      <div class="hdr-t">
-        <h1 id="ttl">System Health</h1>
-        <span class="hdr-sub">Status</span>
-      </div>
-    </header>
-
     <main class="body">
       <section class="sum">
         <div class="ring" id="ring"></div>

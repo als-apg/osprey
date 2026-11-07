@@ -78,9 +78,7 @@ export async function ping(provider) {
 export function applyEnvelope(d, flash) {
   const firstData = !store.env || store.env.warming;
   store.env = d;
-  const title = pageTitle(d.title, store.demo);
-  must('ttl').textContent = title;
-  document.title = title;
+  document.title = pageTitle(d.title, store.demo);
   if (d.warming) {
     renderWarming();
     return;

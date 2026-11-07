@@ -14,7 +14,7 @@
  * frame-params.test.js in this directory.
  */
 
-import { test, expect, describe, afterEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   contributeHeader,
@@ -62,6 +62,64 @@ describe('contributeHeader', () => {
     contributeHeader([{ kind: 'button', id: 'b', label: 'hello' }]);
 
     expect(post).not.toHaveBeenCalled();
+  });
+});
+
+describe('contributeHeader in the hub', () => {
+  const posted = vi.fn();
+
+  beforeEach(() => {
+    posted.mockClear();
+    document.body.classList.add('embedded');
+    vi.stubGlobal('parent', { postMessage: posted });
+  });
+
+  afterEach(() => {
+    document.body.className = '';
+    vi.unstubAllGlobals();
+  });
+
+  test('sends v3 icon and menu items whole, with every field the hub reads', () => {
+    /** @type {import('../../../../src/osprey/interfaces/design_system/static/js/header-contrib.js').HeaderItem[]} */
+    const items = [
+      {
+        kind: 'icon',
+        id: 'sidebar',
+        icon: 'sidebar',
+        title: 'Toggle sidebar',
+        pressed: true,
+        disabled: false,
+        priority: 2,
+      },
+      {
+        kind: 'menu',
+        id: 'more',
+        items: [
+          { id: 'export', label: 'Export', checked: false },
+          { id: 'clear', label: 'Clear', danger: true, separator: true },
+        ],
+      },
+    ];
+
+    contributeHeader(items);
+
+    expect(posted).toHaveBeenCalledWith(
+      { type: 'canopy-host-header-contribution', version: HEADER_CONTRACT_VERSION, items },
+      window.location.origin
+    );
+  });
+
+  test('does not cap the icons: folding the extras is the hub bar’s job', () => {
+    const icons = ['a', 'b', 'c', 'd'].map((id) => ({
+      kind: /** @type {const} */ ('icon'),
+      id,
+      icon: 'search',
+      title: id,
+    }));
+
+    contributeHeader(icons);
+
+    expect(posted.mock.calls[0][0].items).toHaveLength(4);
   });
 });
 

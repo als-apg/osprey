@@ -16,7 +16,7 @@ const m = vi.hoisted(() => ({
   sendArtifactActionToIframe: vi.fn(),
   activateTab: vi.fn(),
   hasDockedTile: vi.fn(() => false),
-  isPoppedOut: vi.fn(() => false),
+  isDetached: vi.fn(() => false),
   menuItems: vi.fn((_shown, run) => [{ label: 'Download', run: () => run('download') }]),
 }));
 const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
@@ -31,8 +31,8 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js'
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.js', () => ({
   hasDockedTile: m.hasDockedTile,
 }));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
-  isPoppedOut: m.isPoppedOut,
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', () => ({
+  isDetached: m.isDetached,
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/artifacts-pane-header.js', () => ({
   menuItems: m.menuItems,
@@ -52,7 +52,7 @@ function addIframe() {
 beforeEach(() => {
   vi.clearAllMocks();
   m.hasDockedTile.mockReturnValue(false);
-  m.isPoppedOut.mockReturnValue(false);
+  m.isDetached.mockReturnValue(false);
   document.body.replaceChildren();
 });
 
@@ -100,9 +100,9 @@ test('ready is the iframe itself saying so, from this origin', () => {
   expect(ready({ source: window })).toBe(false);
 });
 
-test('on view when docked or popped out; the open rule activates only an undocked panel', () => {
+test('on view when docked or in its own window; the open rule activates only an undocked panel', () => {
   expect(viewer.panelOnView()).toBe(false);
-  m.isPoppedOut.mockReturnValue(true);
+  m.isDetached.mockReturnValue(true);
   expect(viewer.panelOnView()).toBe(true);
   viewer.showArtifactsPanel();
   expect(m.activateTab).toHaveBeenCalledWith('artifacts', { userInitiated: true });

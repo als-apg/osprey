@@ -5,7 +5,7 @@
  *
  * buildLogbookModal mounts the overlay from the static template and wires its
  * internal controls to the callbacks logbook.js passes in; buildSuccessCard
- * renders the two server strings of a created draft as text and a property.
+ * renders the server's string for a created draft as text.
  */
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
@@ -96,17 +96,14 @@ describe('buildLogbookModal', () => {
 });
 
 describe('buildSuccessCard', () => {
-  test('renders the draft id as text and the url as the link href', () => {
+  test('renders the draft id as text, and no link', () => {
     const draftId = '<script>alert("x")</script>"\'';
-    const url = 'https://ariel.example/draft?id="1"&x=<b>';
 
-    const card = buildSuccessCard(draftId, url);
+    const card = buildSuccessCard(draftId);
 
     expect(card.querySelector('script')).toBeNull();
     expect(card.textContent).toContain(draftId);
-    const link = /** @type {HTMLAnchorElement} */ (card.querySelector('a'));
-    expect(link.getAttribute('href')).toBe(url);
-    expect(link.rel).toBe('noopener');
-    expect(link.target).toBe('_blank');
+    // The host's osprey:navigate opens ARIEL; a link would open a panel page by itself.
+    expect(card.querySelector('a')).toBeNull();
   });
 });
