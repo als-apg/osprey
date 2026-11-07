@@ -53,6 +53,20 @@ body {
   display: flex;
   flex-direction: column;
 }
+
+/* The warnings nothing else on screen says (the dispatcher or its worker
+   unreachable, a full queue) show at the top of the body, only while they
+   hold. The tile bar carries no text, and the panel has no status line. */
+.embed-notice {
+  flex-shrink: 0;
+  padding: 8px 20px;
+  background: var(--error-tint-08);
+  border-bottom: 1px solid var(--error-tint-30);
+  color: var(--color-error);
+  font-size: 12px;
+}
+.embed-notice[hidden] { display: none; }
+
 /* ============================================================
    Views — exactly one is visible at a time.
    ============================================================ */
@@ -600,6 +614,8 @@ a.btn {
   </div>
 </div>
 
+<div class="embed-notice" id="embed-notice" role="status" hidden></div>
+
 <main id="main">
 
   <!-- A panel-wide state: while it shows, every view is hidden -->
@@ -965,7 +981,7 @@ async function fetchState() {
       render();
       return;
     }
-    // Anything else: the dispatcher did not answer. The status says so, and the
+    // Anything else: the dispatcher did not answer. The banner says so, and the
     // last state stays on screen rather than turning into an empty dispatcher.
     dispatcherError = e.message || String(e);
     console.error('fetchState failed:', e);
@@ -1071,18 +1087,17 @@ function clearFilters() {
 }
 
 /* ============================================================
-   Tile-bar header contribution — one ⋯ entry and the status sentence
+   Tile-bar header contribution — one ⋯ entry
 
    The panel's controls live in its own toolbar; the hub's tile bar gets a v3
-   `menu`, whose entries land in the tile ⋯ "This panel" section, and the status
-   sentence. The
+   `menu`, whose entries land in the tile ⋯ "This panel" section, and never
+   inert text. The
    design-system helpers are ES modules while this is a classic inline script,
    so they arrive through a dynamic import() rather than a top-level one. Until
    it settles every publish below simply does nothing.
    ============================================================ */
 
 let headerContrib = null;
-let statusSentence = 'Checking the dispatcher…';
 const headerContribReady = import('/design-system/js/header-contrib.js')
   .then((mod) => { headerContrib = mod; })
   .catch((e) => {
@@ -1102,9 +1117,6 @@ function publishHeader() {
       id: 'events',
       items: [{ id: 'clear-filters', label: 'Clear filters', disabled: !hasFilters() }],
     },
-    // Longest item in the bar and the least urgent — a narrow tile drops the
-    // status sentence before it drops the way to change screens.
-    { kind: 'text', id: 'status', text: statusSentence, priority: -1 },
   ]);
 }
 
@@ -1143,38 +1155,27 @@ function saveUrl() {
 }
 
 /* ============================================================
-   Status sentence — the dispatcher's health and its counters
+   Warning banner — what a stale screen must not hide
    ============================================================ */
 
-function renderStatus() {
-  if (authBlocked) {
-    statusSentence = 'Not authorised to read the dispatcher.';
-    return;
-  }
-  if (dispatcherError) {
-    statusSentence = 'Cannot reach the dispatcher — the runs below may be out of date.';
-    return;
-  }
-  if (lastWorkerError) {
-    // Persistent, not a toast: a stale run list must never look fresh.
-    statusSentence = 'Cannot reach the dispatch worker — the runs below may be out of date.';
-    return;
-  }
+const DISPATCHER_UNREACHABLE = 'Cannot reach the dispatcher — the runs below may be out of date.';
+const WORKER_UNREACHABLE = 'Cannot reach the dispatch worker — the runs below may be out of date.';
 
-  const runs = state.runs || [];
-  const triggers = state.triggers || [];
-  const armed = triggers.filter(t => t.status !== 'disabled').length;
-  const running = runs.filter(r => r.status === 'pending').length;
-  const failed = runs.filter(r => r.status === 'error').length;
-  const pool = state.pool || {};
-
-  const parts = [plural(armed, 'trigger') + ' armed'];
-  parts.push(plural(runs.length, 'recent run'));
-  if (running > 0) parts.push(running + ' running');
-  if (failed > 0) parts.push(failed + ' failed');
-  // Pool detail earns its place only when it is actually constraining work.
-  if (pool.queued) parts.push(`queue full — ${plural(pool.queued, 'waiting')}`);
-  statusSentence = parts.join(' · ');
+/* The body's banner: the dispatcher or its worker being unreachable, and a
+   full queue. Persistent, not a toast: a stale run list must never look
+   fresh. While reads are refused, or before the first state arrives, the
+   panel-wide state already says so, so the banner stays down. */
+function renderNotice() {
+  const box = $('#embed-notice');
+  const lines = [];
+  if (!authBlocked && loaded) {
+    if (dispatcherError) lines.push(DISPATCHER_UNREACHABLE);
+    else if (lastWorkerError) lines.push(WORKER_UNREACHABLE);
+    const queued = (state.pool || {}).queued;
+    if (queued) lines.push(`Queue full — ${queued} waiting.`);
+  }
+  box.replaceChildren(...lines.map((t) => el('div', { textContent: t })));
+  box.hidden = lines.length === 0;
 }
 
 /* ============================================================
@@ -1899,7 +1900,7 @@ async function toggleTrigger(name, currentStatus) {
    ============================================================ */
 
 function render() {
-  renderStatus();
+  renderNotice();
   syncToolbar();
   publishHeader();
   if (renderPanelState()) return;

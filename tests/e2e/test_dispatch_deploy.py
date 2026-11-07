@@ -134,7 +134,7 @@ from tests.e2e._deploy_support import (
 from tests.e2e._facility_select import bounded_setpoint, facility_view, repo_view
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.sdk_helpers import set_switch_in_record
 
 #: This deploy's own thousand-port block, chosen so the whole stack — the
@@ -309,6 +309,7 @@ INIT_PRESET_ARGS = [
     "--preset",
     "control-assistant",
     "--no-git",
+    *e2e_scenario_pin(),
     *set_pairs({"config": {PORT_BASE_CONFIG_KEY: PORT_BASE}}),
     "--set",
     "provider=als-apg",

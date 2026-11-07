@@ -2074,11 +2074,15 @@ describe("panel_op op:'open_arrangement' — the declarative whole-workspace reb
     expect(tileTabs(holder).flat().sort()).toEqual(['ariel', 'channel-finder', 'okf', 'terminal']);
     expect(tileTabs(holder).every((tabs) => tabs.length === 1)).toBe(true);
 
+    // Sent while the open_set's answer is still open, it runs once that
+    // answer is taken (panel-sse.js's queuePanelOp).
     op('open_arrangement', row(['channel-finder', 'ariel']));
 
     // Same end state as the clean-start case: the region is rebuilt, not
     // diffed, so a differing start layout cannot leave order behind.
-    expect(tileTabs(holder)).toEqual([['channel-finder'], ['ariel'], ['terminal']]);
+    await settled(() =>
+      expect(tileTabs(holder)).toEqual([['channel-finder'], ['ariel'], ['terminal']])
+    );
     // The dropped tile keeps its rail membership — a tile close is not a hide.
     expect(entry('okf')).not.toBeNull();
   });
@@ -3583,7 +3587,7 @@ describe('Undo after a one-click removal — the rail entry comes back where it 
         version: 1,
         groups: [
           { id: 'workspace', label: 'Sessions' },
-          { id: 'tools', label: 'Tools' },
+          { id: 'tools', label: 'Apps' },
         ],
         placement: { okf: 'workspace' },
       })
@@ -3709,7 +3713,7 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
 
     // The moved row offers the way back.
     rightClick(entry('ariel'));
-    expect(menuLabels()).toContain('Move to Tools');
+    expect(menuLabels()).toContain('Move to Apps');
     expect(menuLabels()).not.toContain('Move to Sessions');
   });
 
@@ -3720,7 +3724,7 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
 
     const groups = [...document.querySelectorAll('#panel-rail > .sidebar-group')];
     const ids = groups.map((g) => g.getAttribute('data-group'));
-    // okf sits in Tools (its default group), so the new group lands below Tools.
+    // okf sits in Apps (its default group), so the new group lands below Apps.
     expect(ids).toEqual(['workspace', 'tools', expect.stringMatching(/^g-[0-9a-f]{8}$/), 'system']);
     expect(groups[2].contains(entry('okf'))).toBe(true);
     const field = groups[2].querySelector('.sidebar-group-rename');

@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING
 
 from docs.screenshots import recipes
 
+from osprey.cli.build_profile_resolve import preset_authored_config
 from osprey.interfaces._serving import (
     authorize_browser_context,
     run_app_server,
@@ -539,6 +540,22 @@ def _opus_model_id(project_dir: Path) -> str:
     raise ScreenshotSkip(f"provider {provider!r} serves no Opus model: {models}")
 
 
+_SCENARIO_PRESET = "control-assistant"
+_HISTORY_SCENARIO = "demo-history"
+
+
+def _default_scenarios_pin() -> str:
+    """The init ``--set`` value pinning the preset's default scenarios minus history.
+
+    Read off the preset file's own ``config:`` block, so the list is never a
+    copy that drifts from the preset; ``demo-history`` is dropped because a
+    docs capture shows a quiet machine, not a seeded past.
+    """
+    authored = preset_authored_config(_SCENARIO_PRESET).get("simulation.default_scenarios", [])
+    names = [name for name in authored if name != _HISTORY_SCENARIO]
+    return f"config.simulation.default_scenarios=[{', '.join(names)}]"
+
+
 @contextmanager
 def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
     """Build the tutorial project, bring up Postgres, seed ARIEL, yield the dir.
@@ -550,8 +567,10 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
     deployment needs no venv of its own), ``osprey up -d --dev`` (detached — the
     non-detached form would ``execvpe`` away the runner), wait for Postgres on
     :data:`_POSTGRES_PORT` *before* seeding, then ``osprey sim apply nominal``
-    frozen to :data:`recipes.ANCHOR`. *sets* adds ``--set KEY=VALUE`` values to
-    the init, after the shared ones. Yields the deployment repo directory
+    on real time. The init pins the default scenario set to the preset's own
+    minus ``demo-history`` (:func:`_default_scenarios_pin`): no docs capture
+    lays down history. *sets* adds ``--set KEY=VALUE`` values to the init,
+    after the shared ones. Yields the deployment repo directory
     (``<build_root>/<name>``). The ``finally`` block always tears the deployment
     down with the repo-scoped ``osprey reset --yes`` — containers, volumes and
     built images carrying this repo's identity, so the next run's fresh
@@ -580,6 +599,8 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
             # preset's multi-user roster would own the same index-0 panel ports.
             "--set",
             "config.modules.web_terminals.enabled=false",
+            "--set",
+            _default_scenarios_pin(),
             "--set",
             f"port_base={_PORT_BASE}",
             "--set",
@@ -622,7 +643,7 @@ def tutorial_stack(sets: Sequence[str] = ()) -> Iterator[Path]:
         except RuntimeError as exc:
             raise ScreenshotSkip(f"Postgres did not become ready: {exc}") from exc
         _run_stack_step(
-            ["osprey", "sim", "apply", "nominal", "--yes", "--now", recipes.ANCHOR],
+            ["osprey", "sim", "apply", "nominal", "--yes"],
             cwd=project_dir,
             what="seed ARIEL",
         )

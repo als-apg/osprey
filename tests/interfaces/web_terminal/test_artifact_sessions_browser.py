@@ -773,13 +773,15 @@ def test_a_name_arrives_live_and_rename_reverts_and_the_switcher_switches(hub, p
     expect(_active(page)).to_have_attribute("data-session-id", _re(r"^key:"), timeout=_TIMEOUT_MS)
 
     # Only the active session's title is bold; past ones sit at the regular weight.
-    # The listing that follows a switch redraws the tree, so these retry: a one-shot
-    # read can land on a row just replaced, whose computed style is empty.
-    expect(_active(page).locator(".osprey-tree-title")).to_have_css("font-weight", "600")
+    # The tree re-renders after the switch; to_have_css re-resolves and retries,
+    # where a one-shot evaluate can read a detached node's empty style.
+    expect(_active(page).locator(".osprey-tree-title")).to_have_css(
+        "font-weight", "600", timeout=_TIMEOUT_MS
+    )
     past = page.locator(f"{_TREE} .osprey-tree-session:not(.active) .osprey-tree-title")
-    assert past.count() >= 1
+    expect(past.first).to_be_visible(timeout=_TIMEOUT_MS)
     for i in range(past.count()):
-        expect(past.nth(i)).to_have_css("font-weight", "400")
+        expect(past.nth(i)).to_have_css("font-weight", "400", timeout=_TIMEOUT_MS)
 
 
 def _many_sessions(project_dir: Path, session_dir: Path) -> None:  # noqa: ARG001

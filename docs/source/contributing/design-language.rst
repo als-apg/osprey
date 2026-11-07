@@ -119,7 +119,7 @@ The web terminal uses one shell:
   ``data-sidebar`` on ``<html>``. ``sidebar-boot.js`` sets it, and the
   stored width, before the first paint.
 - From top to bottom, the sidebar holds the OSPREY mark and the collapse
-  toggle, the control-system block, search, the ``Workspace`` and ``Tools``
+  toggle, the control-system block, search, the ``Workspace`` and ``Apps``
   sections, and a footer with Docs, Feedback and More. Only the
   ``Workspace`` section gives up height.
 - The panes are cards in the dock. Each pane has one header row,

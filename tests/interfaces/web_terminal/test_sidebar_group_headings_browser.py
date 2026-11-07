@@ -91,12 +91,12 @@ def test_right_click_anywhere_across_the_heading_opens_the_group_menu(tmp_path, 
 
         box = head.bounding_box()
         assert box is not None
-        # Near the right end of the row, well past the letters of "Tools" (the
+        # Near the right end of the row, well past the letters of "Apps" (the
         # sidebar's resize handle covers its last few pixels).
         head.click(button="right", position={"x": box["width"] - 16, "y": box["height"] / 2})
         menu = page.locator(_MENU)
         expect(menu).to_be_visible()
-        expect(menu).to_have_attribute("aria-label", "Tools group")
+        expect(menu).to_have_attribute("aria-label", "Apps group")
         expect(menu.locator('[role="menuitem"]')).to_have_text(
             ["Rename", "New group below", "Move up", "Move down"]
         )
@@ -110,7 +110,7 @@ def test_shift_f10_on_the_focused_name_opens_the_menu_and_rename_works(tmp_path,
         page.keyboard.press("Shift+F10")
         menu = page.locator(_MENU)
         expect(menu).to_be_visible()
-        expect(menu).to_have_attribute("aria-label", "Tools group")
+        expect(menu).to_have_attribute("aria-label", "Apps group")
 
         page.keyboard.press("Enter")  # the first row, Rename, has focus
         expect(menu).to_have_count(0)

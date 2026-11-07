@@ -21,6 +21,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import uuid
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -383,12 +384,9 @@ def _artifact_type_from_mime(mime: str) -> str:
 
 EXAMPLE_ORIGIN = "demo"
 """``origin`` of an artifact shipped with OSPREY rather than produced in a
-run: the example the gallery seeds into an empty workspace. Listed by the
+run: the example older galleries seeded into an empty workspace (no longer
+seeded; one already in a store stays until deleted). Listed by the
 gallery, hidden from every agent-facing listing (``exclude_examples``)."""
-
-EXAMPLE_REMOVED_SENTINEL = ".example-removed"
-"""File in the artifact directory written when an example is deleted, so no
-later launch seeds it again. Removing the file brings the example back."""
 
 WATCHDOG_ORIGIN = "watchdog"
 """``origin`` of an artifact a watchdog judge run saved (its env overlay sets
@@ -409,6 +407,11 @@ def _warn_category(category: str) -> None:
     """Warn that ``category`` is deprecated when a caller passed one."""
     if category:
         warnings.warn(CATEGORY_DEPRECATION, DeprecationWarning, stacklevel=3)
+
+
+_ENTRY_ID_SHAPE = re.compile(r"[0-9a-f]{12}")
+"""The shape of every artifact id (:meth:`ArtifactStore._make_id`); a stated
+``entry_id`` must match it whole."""
 
 
 def _resolved_origin(origin: str) -> str:
@@ -783,15 +786,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     def artifact_dir(self) -> Path:
         return self._store_dir
 
-    @property
-    def example_removed(self) -> bool:
-        """Whether someone deleted the shipped example from this store."""
-        return (self._store_dir / EXAMPLE_REMOVED_SENTINEL).exists()
-
-    def _mark_example_removed(self) -> None:
-        with suppress(OSError):
-            (self._store_dir / EXAMPLE_REMOVED_SENTINEL).touch()
-
     # ---- public API --------------------------------------------------------
 
     def save_file(
@@ -811,6 +805,8 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        at: datetime | None = None,
+        entry_id: str | None = None,
     ) -> ArtifactEntry:
         """Low-level save: write raw bytes to disk and register in the index.
 
@@ -826,7 +822,14 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         example; empty for produced output). An empty ``origin`` takes
         ``OSPREY_ARTIFACT_ORIGIN``. ``exec_id`` links the entry into a run group;
         ``kind`` names its extension type. ``category`` is deprecated and
-        ignored."""
+        ignored.
+
+        ``at`` (timezone-aware) states the save's time: it becomes
+        ``timestamp`` and, unless *metadata* already names one,
+        ``metadata.first_ts``, so ownership reads the stated time. ``entry_id``
+        replaces the random id; it must be of the store's id shape
+        (12 lowercase hex digits) and not already held by an entry, else
+        ``ValueError``. Both default to today's behaviour (now, a random id)."""
         _warn_category(category)
         with self._with_index_lock():
             entry = self._save_file_locked(
@@ -843,6 +846,8 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 session_id=session_id,
                 exec_id=exec_id,
                 kind=kind,
+                at=at,
+                entry_id=entry_id,
             )
 
         self._notify_listeners(entry)
@@ -868,6 +873,8 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         exec_id: str = "",
         kind: str = "",
+        at: datetime | None = None,
+        entry_id: str | None = None,
     ) -> ArtifactEntry:
         """Write the bytes and the index row and save the index.
 
@@ -876,7 +883,16 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         for old ``save_kwargs`` and never stored.
         """
         del category  # deprecated and ignored; the public callers warned
-        art_id = self._make_id()
+        if at is not None and at.utcoffset() is None:
+            raise ValueError(f"a stated save time needs a timezone: {at!r}")
+        if entry_id is None:
+            art_id = self._make_id()
+        else:
+            if not isinstance(entry_id, str) or not _ENTRY_ID_SHAPE.fullmatch(entry_id):
+                raise ValueError(f"artifact id {entry_id!r} is not 12 lowercase hex digits")
+            if any(e.id == entry_id for e in self._entries):
+                raise ValueError(f"artifact id {entry_id!r} is already in the store")
+            art_id = entry_id
         # Prefix filename with id to avoid collisions
         safe_filename = f"{art_id}_{filename}"
         filepath = self._store_dir / safe_filename
@@ -890,7 +906,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             filename=safe_filename,
             mime_type=mime_type,
             size_bytes=len(file_content),
-            timestamp=(now := datetime.now(UTC).isoformat()),
+            timestamp=(now := (at or datetime.now(UTC)).isoformat()),
             tool_source=tool_source,
             metadata=_stamped_metadata(metadata, now),
             session_id=(session_id if session_id is not None else self._session_tag()),
@@ -1435,10 +1451,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if data_file is not None:
             with suppress(OSError):
                 data_file.unlink()
-        if entry.origin == EXAMPLE_ORIGIN:
-            # Every delete path (single, category, whole store) comes through
-            # here, so a removed example stays removed whichever one ran.
-            self._mark_example_removed()
 
     def _delete_entry_locked(self, artifact_id: str) -> ArtifactEntry | None:
         """Delete one entry from *inside* an already-held index lock.

@@ -470,8 +470,6 @@ config:
   # inlines at most 4x this many elements across all the channels it read;
   # past that budget a channel takes the artifact path and says so.
   control_system.read_inline_max_elements: 2000
-  # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
-  # on save. Pinned entries are never pruned. 0 keeps everything.
   # Pattern detection: raw client puts in generated code (epics.caput,
   # PV.put(), and the other client libraries' write calls) are denied by the
   # approval hook and refused at runtime; osprey.runtime.write_channel is the
@@ -1359,9 +1357,9 @@ config:
   simulation.tick_s: 1.0
   # Scenarios a deployment that never chose a set starts in, by name from
   # the facility's scenarios; `osprey sim apply` replaces the set.
-  # Absent or [] starts in nominal alone.
-  # A stated start set is checked against the file at build.
-  simulation.default_scenarios: [rf-thermal]
+  # demo-history also seeds the sidebar's example sessions on first deploy.
+  # Absent or [] starts in nominal alone; a stated set is checked at build.
+  simulation.default_scenarios: [rf-thermal, demo-history]
 
 # ── Record archive ─────────────────────────────────────────────────────────
 # Copies artifacts and plan-queue history into var/archive/ once a day, beside
@@ -3018,6 +3016,7 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
     "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
     "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "data/facility/scenarios/demo-history.yaml": "{}\n",
     "data/facility/scenarios/rf-thermal.yaml": "{}\n",
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,

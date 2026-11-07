@@ -199,7 +199,8 @@ def test_the_agent_pane_leaves_the_dock_chats_from_the_window_and_reattaches(hub
     )
 
     with popup.expect_event("close", timeout=_TIMEOUT_MS):
-        popup.locator(_BAR_REATTACH).click()
+        # The click closes this window, which can fail a click call still waiting on it.
+        popup.locator(_BAR_REATTACH).evaluate("b => setTimeout(() => b.click())")
 
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator(_AGENT_TILE)).to_have_count(1)
@@ -477,7 +478,8 @@ def test_a_panel_with_no_tile_opens_in_a_window_from_its_row_and_reattaches(
         expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1)
 
         with popup.expect_event("close", timeout=_TIMEOUT_MS):
-            popup.locator(_BAR_REATTACH).click()
+            # The click closes this window, which can fail a click call still waiting on it.
+            popup.locator(_BAR_REATTACH).evaluate("b => setTimeout(() => b.click())")
 
         expect(page.locator(tile)).to_have_count(1, timeout=_TIMEOUT_MS)
         expect(page.locator(frame)).to_be_visible(timeout=_TIMEOUT_MS)
@@ -529,7 +531,8 @@ def test_the_closed_agent_pane_opens_in_a_window_from_its_row_and_reattaches(hub
     expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator("html")).to_have_attribute("data-agent", "detached")
     with popup.expect_event("close", timeout=_TIMEOUT_MS):
-        popup.locator(_BAR_REATTACH).click()
+        # The click closes this window, which can fail a click call still waiting on it.
+        popup.locator(_BAR_REATTACH).evaluate("b => setTimeout(() => b.click())")
     expect(page.locator(_AGENT_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
 
@@ -750,7 +753,8 @@ def test_reloading_a_service_panels_window_keeps_it_detached_on_its_page_with_it
         expect(popup.locator(_MENU)).to_be_visible(timeout=5_000)
         popup.keyboard.press("Escape")
 
-        popup.locator(_BAR_REATTACH).click()
+        # The click closes this window, which can fail a click call still waiting on it.
+        popup.locator(_BAR_REATTACH).evaluate("b => setTimeout(() => b.click())")
         expect(_service_tab(page, "SEARCHY")).to_have_count(1, timeout=_TIMEOUT_MS)
         expect(_service_tab(page, "SEARCHY").locator(".contrib-search-input")).to_be_visible(
             timeout=_TIMEOUT_MS
@@ -784,7 +788,8 @@ def test_reloading_the_agent_window_keeps_it_detached_with_its_bar_and_reattache
     _send(popup.locator(_COMPOSER), "after the reload")
     expect(popup.locator(".op-messages")).to_contain_text("after the reload", timeout=_TIMEOUT_MS)
 
-    popup.locator(_BAR_REATTACH).click()
+    # The click closes this window, which can fail a click call still waiting on it.
+    popup.locator(_BAR_REATTACH).evaluate("b => setTimeout(() => b.click())")
     expect(page.locator(_AGENT_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
     expect(page.locator(f"{_AGENT_TILE} .op-session-bar .agent-bar-new")).to_be_visible()
     expect(page.locator(_COMPOSER)).to_be_visible()
@@ -1065,7 +1070,10 @@ def test_remove_from_rail_in_the_windows_menu_closes_the_window_and_the_row_goes
 
         popup.locator(f"{_BAR} .tile-tab-title").click(button="right")
         with popup.expect_event("close", timeout=_TIMEOUT_MS):
-            popup.locator(_MENU).get_by_role("menuitem", name="Remove from rail").click()
+            # The click closes this window, which can fail a click call still waiting on it.
+            popup.locator(_MENU).get_by_role("menuitem", name="Remove from rail").evaluate(
+                "b => setTimeout(() => b.click())"
+            )
 
         expect(page.locator(_ARIEL_ROW)).to_have_count(0, timeout=_TIMEOUT_MS)
         expect(page.locator(_ARIEL_TILE)).to_have_count(0)

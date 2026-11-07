@@ -264,7 +264,26 @@ describe('sanitization', () => {
     expect(host.querySelector('.contrib-btn')?.textContent).toBe('<img src=x onerror=alert(1)>');
   });
 
-  test('clips oversized text and caps item count', () => {
+  test("a panel's text and count items never reach the bar", () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = document.createElement('div');
+    registerContribHost(panelId, host);
+
+    deliverContribution(
+      [
+        { kind: 'text', id: 'status', text: '4 triggers armed · 0 recent runs' },
+        { kind: 'count', id: 'pager', text: '1 of 9' },
+        { kind: 'button', id: 'ok', label: 'OK' },
+      ],
+      contentWindow
+    );
+
+    expect(host.children.length).toBe(1);
+    expect(host.textContent).toBe('OK');
+  });
+
+  test('clips oversized labels and caps item count', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = document.createElement('div');
@@ -403,6 +422,7 @@ describe('local contribution (the hub owns the header)', () => {
 
     expect(host.children.length).toBe(1);
     expect(host.querySelector('img')).toBeNull();
+    expect(host.querySelector('.contrib-btn')?.textContent).toBe('<img src=x onerror=alert(1)>');
   });
 
   test('button, nav and menu actions reach the local dispatch, never an iframe', () => {

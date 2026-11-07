@@ -26,6 +26,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+# The approval hook's note for an approved call; the hook keeps a copy, pinned by a test.
+from osprey.agent_runner.transcript_author import APPROVED_CALL_NOTE as _APPROVED_CALL_NOTE
 from osprey.build.claude_code_telemetry import (
     DISPATCH_SESSION_PREFIX,
     HOST_SESSION_PREFIX,
@@ -1058,11 +1060,6 @@ def _ts(value: Any) -> datetime | None:
     except ValueError:
         return None
 
-
-#: The note the approval hook gives the model when a person approved a call and the call
-#: then ran, or ran and failed. A copy of ``APPROVED_CALL_NOTE`` in the hook at
-#: ``templates/claude_code/claude/hooks/osprey_approval.py``; a test pins the two together.
-_APPROVED_CALL_NOTE = "The operator approved this call at the approval prompt before it ran."
 
 #: The hook events that run once a call has executed. The approval note arrives on one.
 _OUTCOME_HOOK_EVENTS = frozenset({"PostToolUse", "PostToolUseFailure"})

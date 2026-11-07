@@ -341,15 +341,18 @@ class TestMigrationSQLExecution:
                 ON CONFLICT (entry_id) DO NOTHING
             """)
 
-            # Test FTS search uses the index
-            result = await conn.execute("""
-                EXPLAIN SELECT * FROM enhanced_entries
-                WHERE to_tsvector('english', raw_text) @@ plainto_tsquery('english', 'beam current')
-            """)
-            plan = "\n".join([row[0] for row in await result.fetchall()])
-
-            # Clean up
-            await conn.execute("DELETE FROM enhanced_entries WHERE entry_id = 'test-fts-func-001'")
+            try:
+                # Test FTS search uses the index
+                result = await conn.execute("""
+                    EXPLAIN SELECT * FROM enhanced_entries
+                    WHERE to_tsvector('english', raw_text)
+                        @@ plainto_tsquery('english', 'beam current')
+                """)
+                plan = "\n".join([row[0] for row in await result.fetchall()])
+            finally:
+                await conn.execute(
+                    "DELETE FROM enhanced_entries WHERE entry_id = 'test-fts-func-001'"
+                )
 
         # The query plan should reference the core raw-text FTS index
         assert "idx_entries_raw_text_fts" in plan or "Seq Scan" in plan

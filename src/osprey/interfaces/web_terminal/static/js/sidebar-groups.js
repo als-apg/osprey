@@ -2,8 +2,8 @@
 /* OSPREY Web Terminal — the sidebar's groups
  *
  * The sidebar sorts its panel rows into named groups. Three are built in,
- * `workspace` ("Sessions"), `tools` ("Tools") and `system` ("System"); an
- * operator can rename Tools and System, add groups of their own, move those
+ * `workspace` ("Sessions"), `tools` ("Apps") and `system` ("System"); an
+ * operator can rename Apps and System, add groups of their own, move those
  * groups up or down the sidebar, and delete the groups they added. Every row
  * except the Agent row can move to another group. The Agent row is always the
  * first row of the first group, because the Agent pane is the anchor of the
@@ -28,7 +28,7 @@
  *
  * A panel with no placement sits where the sidebar has always put it:
  * Artifacts in Workspace, Events and Health in System, every other panel in
- * Tools. A value of an older version has System added when it lacks it,
+ * Apps. A value of an older version has System added when it lacks it,
  * and loses its placements of Events and Health: they were never placed with
  * System to choose, so both go to System. Its other placements and groups
  * stay, and a move made on the current version sticks. Within a
@@ -92,7 +92,7 @@ const MAX_LABEL_LENGTH = 40;
 /** The built-in groups, in their default order. */
 const BUILTIN_GROUPS = Object.freeze([
   Object.freeze({ id: 'workspace', label: 'Sessions' }),
-  Object.freeze({ id: 'tools', label: 'Tools' }),
+  Object.freeze({ id: 'tools', label: 'Apps' }),
   Object.freeze({ id: 'system', label: 'System' }),
 ]);
 
@@ -116,6 +116,9 @@ export const HEADLESS_GROUP = 'workspace';
 
 /** The name the headless group always has. */
 const HEADLESS_LABEL = 'Sessions';
+
+/** The tools group's default name before it was Apps; a saved layout may hold it. */
+const OLD_TOOLS_LABEL = 'Tools';
 
 // ---- Model ----
 
@@ -210,7 +213,8 @@ function validModel(value) {
     if (!isBuiltinGroup(id) && !CUSTOM_ID.test(id)) return null;
     if (typeof label !== 'string' || !label || cleanLabel(label) !== label) return null;
     ids.add(id);
-    copy.push({ id, label: isHeadlessGroup(id) ? HEADLESS_LABEL : label });
+    if (id === 'tools' && label === OLD_TOOLS_LABEL) copy.push({ id, label: 'Apps' });
+    else copy.push({ id, label: isHeadlessGroup(id) ? HEADLESS_LABEL : label });
   }
   for (const group of BUILTIN_GROUPS) {
     if (ids.has(group.id)) continue;
@@ -415,7 +419,7 @@ export function addGroup(label, afterId) {
 }
 
 /**
- * Delete a group the operator added. Its panels go back to Tools. A built-in
+ * Delete a group the operator added. Its panels go back to Apps. A built-in
  * group is never deleted.
  * @param {string} id
  * @returns {boolean} whether the group was deleted

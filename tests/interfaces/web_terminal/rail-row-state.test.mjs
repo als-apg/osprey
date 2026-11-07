@@ -68,7 +68,7 @@ function row(rail, id) {
 }
 
 // The groups live in this browser's storage; every test starts from the
-// default Workspace and Tools.
+// default Workspace and Apps.
 beforeEach(() => {
   localStorage.clear();
 });

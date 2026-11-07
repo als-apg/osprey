@@ -50,7 +50,7 @@ The window has a sidebar on the left and two panes:
 - **Sidebar** (left) — the list of everything you can open:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
-  **Sessions** row, the **Tools** and **System** sections, and a footer with **Docs**,
+  **Sessions** row, the **Apps** and **System** sections, and a footer with **Docs**,
   **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
@@ -63,7 +63,11 @@ The window has a sidebar on the left and two panes:
   in tiles you arrange by dragging (`Tiles`_). New artifacts,
   plots, and data files appear under their session in the sidebar
   (`Sessions and artifacts`_) as the agent creates them, with no refresh.
-  Your control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
+  On a fresh control-assistant deployment the tree is not empty: its first
+  deploy lays down three past sessions from the ``demo-history`` scenario,
+  with their transcripts and artifacts, which you can open and resume (see
+  :ref:`how-to-run-scenarios`). Your
+  control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
   on) open here too. See :doc:`panels`.
 
 The settings drawer (**☰ More** › **Settings**) lets you read and edit the
@@ -528,12 +532,12 @@ The sidebar is on the left. From top to bottom, it shows:
       row is dimmed. When the agent waits for your answer, the row shows the
       number of open questions. It is always the first row of the sidebar.
 
-  - **Tools** starts with all other panels that this deployment enables.
+  - **Apps** starts with all other panels that this deployment enables.
   - **System** starts with **Events** (only when the deployment enables the
     events panel) and **Health**.
 
   In each group, the rows are in your order. **+ Add panel** is always the
-  last row of **Tools**. See :doc:`panels`.
+  last row of **Apps**. See :doc:`panels`.
 - The footer: **Docs**, **Feedback**, **Sign out** and **☰ More**. **Sign
   out** shows only on a multi-user deployment. See
   :ref:`web-terminal-sign-out`.
@@ -605,7 +609,7 @@ Shift+F10). The menu has these items:
   its name for editing.
 - **Move up** and **Move down**. These move the group in the sidebar.
 - **Delete group**. This item shows only for a group that you added. The
-  rows of the group go back to **Tools**. You cannot delete **Tools** or
+  rows of the group go back to **Apps**. You cannot delete **Apps** or
   **System**, but you can rename them.
 
 Double-click a group's name to fold it down to its heading, and double-click

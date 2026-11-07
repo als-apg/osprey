@@ -10,7 +10,7 @@ sidebar is a transcript, not a key::
       "sessions": {transcript_id: {"title", "title_source": "user"|"auto",
                                    "auto_title", "naming": "done"|"failed",
                                    "last_artifact_id", "layout", "pinned",
-                                   "deleted"}},
+                                   "deleted", "scenario"}},
       "last_active": {"session_key", "at"},
       "naming_since": ISO time of the document's first creation
     }
@@ -18,7 +18,10 @@ sidebar is a transcript, not a key::
 ``title`` is what the sidebar shows: the operator's own title when they set one,
 else the auto title. Clearing a user title (``set_title(tid, "")``) reverts to the
 auto title rather than to nothing. ``layout`` is the web layout the session was
-last left in (see :func:`clean_layout`). ``naming_since`` bounds auto-naming to sessions
+last left in (see :func:`clean_layout`). ``scenario`` marks a transcript the
+demo-history lay-down seeded (:func:`mark_seeded`): its auto title is the scenario's
+title and its naming is ``done``, so the naming service never names it.
+``naming_since`` bounds auto-naming to sessions
 that began after the feature existed, so turning it on does not spend a model call
 per historical conversation. ``pinned`` (an ISO time) is when the operator pinned
 the session in the sidebar; the pinned sessions are listed in that order (the
@@ -77,6 +80,7 @@ __all__ = [
     "ledger_state_dir",
     "load",
     "mark_deleted",
+    "mark_seeded",
     "naming_since",
     "pinned_ids",
     "record_transcript_move",
@@ -234,6 +238,7 @@ def _clean_session(raw: Any) -> dict[str, Any] | None:
         "layout": _layout_or_none(raw.get("layout")),
         "pinned": _str_or_none(raw.get("pinned")),
         "deleted": _str_or_none(raw.get("deleted")),
+        "scenario": _str_or_none(raw.get("scenario")),
     }
 
 
@@ -247,6 +252,7 @@ def _blank() -> dict[str, Any]:
         "layout": None,
         "pinned": None,
         "deleted": None,
+        "scenario": None,
     }
 
 
@@ -406,6 +412,31 @@ def set_auto_title(app, tid: str, title: str | None, state: str) -> dict[str, An
     _persist(app, document)
     pending: set[str] = getattr(app.state, "session_naming_pending", set())
     pending.discard(tid)
+    return dict(entry)
+
+
+def mark_seeded(app, tid: str, scenario: str, title: str) -> dict[str, Any]:
+    """Mark *tid* as a transcript seeded from *scenario*, titled *title*.
+
+    The auto title becomes *title* and the naming ``done``, so the naming service
+    never names it; a user title (set before or after) still wins, and clearing it
+    reverts to *title*. Touches neither the transcript map nor the ledger.
+
+    Raises:
+        ValueError: *scenario* is empty.
+    """
+    scenario = (scenario or "").strip()
+    if not scenario:
+        raise ValueError("a seeded transcript needs a scenario")
+    document = _document(app)
+    entry = _entry(document, tid)
+    entry["scenario"] = scenario
+    entry["auto_title"] = _str_or_none((title or "").strip())
+    entry["naming"] = "done"
+    if entry["title_source"] != "user":
+        entry["title"] = entry["auto_title"]
+        entry["title_source"] = "auto" if entry["auto_title"] else None
+    _persist(app, document)
     return dict(entry)
 
 

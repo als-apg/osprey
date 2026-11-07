@@ -4,7 +4,7 @@ The EVENTS panel has one 40 px toolbar: an Activity | Triggers segmented switch
 at the start and one search field at the end. The search field searches runs on
 Activity and filters triggers by name on Triggers. The hub's tile bar gets one
 v3 ``menu`` contribution, whose "Clear filters" entry resets the window, the
-status filter, the lane and both searches, and the status sentence.
+status filter, the lane and both searches. The bar gets no text.
 
 Run:
     .venv/bin/pytest tests/interfaces/design_system/test_dispatch_dashboard_toolbar.py -v
@@ -165,10 +165,10 @@ def test_the_section_filters_are_segs_and_the_empty_list_offers_view_triggers(
     page.close()
 
 
-def test_the_tile_bar_gets_the_menu_and_the_status_and_clear_filters_resets(
+def test_the_tile_bar_gets_only_the_menu_and_clear_filters_resets(
     chromium_browser: Browser, busy_url: str
 ) -> None:
-    """Embedded, the panel contributes one v3 ``menu`` and its status; the entry resets every filter."""
+    """Embedded, the panel contributes one v3 ``menu`` and no text; the entry resets every filter."""
     page = chromium_browser.new_page(viewport=VIEWPORT)
     # A same-origin host page standing in for the hub: it frames the panel and
     # records each contribution.
@@ -189,13 +189,13 @@ def test_the_tile_bar_gets_the_menu_and_the_status_and_clear_filters_resets(
     page.wait_for_function("() => window.__items.length > 0", timeout=10_000)
     kinds = page.evaluate("() => [...new Set(window.__items.flat().map(i => i.kind))]")
     last = page.evaluate("() => window.__items.at(-1)")
-    assert kinds == ["menu", "text"]
+    assert kinds == ["menu"]
     assert last[0] == {
         "kind": "menu",
         "id": "events",
         "items": [{"id": "clear-filters", "label": "Clear filters", "disabled": False}],
     }
-    assert "1 failed" in last[1]["text"]
+    assert len(last) == 1
 
     frame = page.frame_locator("#panel")
     assert frame.locator("#status-filter > button[aria-pressed='true']").inner_text() == "Failed"

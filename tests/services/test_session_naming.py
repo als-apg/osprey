@@ -37,6 +37,7 @@ from osprey.services.session_naming import (
     name_session,
     trim_title,
 )
+from osprey.stores.session_ledger import aware_time
 from osprey_connectors import posture_store
 from tests.agent_record.fakes import FakeRecordClient
 
@@ -358,6 +359,19 @@ class TestScheduler:
         await namer.wait_idle()
         assert stub.calls == [] and _named_frames(app) == []
         assert app.state.session_naming_pending == set()
+
+    async def test_a_seeded_transcript_is_never_named(self, app, tmp_path):
+        """R2-CF-10: a seeded transcript is not named, even one begun after naming_since."""
+        session_meta.mark_seeded(app, T1, "rf-thermal", "RF cavity thermal drift")
+        row = _row(T1, first_ts=AFTER)
+        assert aware_time(row["first_ts"]) >= aware_time(session_meta.naming_since(app))
+        stub = StubNamer()
+        namer = _namer(app, stub, tmp_path)
+        assert namer.eligible(row, aware_time(session_meta.naming_since(app))) == ""
+        assert namer.schedule([row]) == []
+        await namer.wait_idle()
+        assert stub.calls == [] and _named_frames(app) == []
+        assert session_meta.get(app, T1)["title"] == "RF cavity thermal drift"
 
     async def test_a_row_with_an_auto_title_is_not_named_again(self, app, tmp_path):
         session_meta.set_auto_title(app, T1, "Earlier name", "done")

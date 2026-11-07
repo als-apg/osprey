@@ -9,12 +9,11 @@ from typing import TYPE_CHECKING
 from osprey.services.ariel_search.database.migrations import (
     BaseMigration,
     ImageEmbeddingTarget,
-    MigrationSkippedError,
     image_index_name,
 )
 from osprey.services.ariel_search.enhancement.text_embedding.migration import (
     create_vector_index_sql,
-    pgvector_available,
+    require_pgvector_hnsw,
     vector_index_name,
 )
 
@@ -76,12 +75,12 @@ class ImageEmbeddingMigration(BaseMigration):
 
     async def up(self, conn: "AsyncConnection") -> None:
         """Apply the image embedding migration."""
-        if not await pgvector_available(conn):
-            raise MigrationSkippedError(
-                "pgvector extension is not available in this PostgreSQL installation; "
-                "the image_embedding module needs it. Install pgvector to enable "
-                "image search."
-            )
+        await require_pgvector_hnsw(
+            conn,
+            "pgvector extension is not available in this PostgreSQL installation; "
+            "the image_embedding module needs it. Install pgvector to enable "
+            "image search.",
+        )
 
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
 

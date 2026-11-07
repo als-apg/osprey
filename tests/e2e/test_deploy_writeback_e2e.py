@@ -102,7 +102,7 @@ from tests.e2e._deploy_support import (
     volume_exists,
 )
 from tests.e2e._orm_stack import seed_repo_env
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
 pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
@@ -275,6 +275,7 @@ def _init_and_build(base_dir: Path, name: str, preset: str, edits: dict[str, Any
             "--preset",
             preset,
             "--no-git",
+            *e2e_scenario_pin(preset),
             *set_pairs(edits),
         ],
         cwd=base_dir,

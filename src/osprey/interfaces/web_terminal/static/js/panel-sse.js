@@ -220,7 +220,7 @@ export function subscribePanelEvents(sseDeps) {
         if (kind === 'panel_op') {
           const frame = /** @type {import('./panel-placement.js').PanelOpFrame} */ (raw);
           // Only the addressed dock client acts on an op.
-          if (frame.target_client === getPageClientId()) void handlePanelOp(frame);
+          if (frame.target_client === getPageClientId()) queuePanelOp(frame);
           return;
         }
         if (kind === 'panel_report_request') {
@@ -452,6 +452,44 @@ function showOutcome(frame, outcome, before, after) {
   }
   surfaceOp(before, after, outcome.result.focus, frame.source === 'agent');
   if (url !== null) ctx().navigate(args.member, url);
+}
+
+/** The last op this dock started; the next one waits for it while any is open. */
+let opsSettled = Promise.resolve();
+/** How many ops are started or waiting and not yet answered. */
+let opsOpen = 0;
+
+/**
+ * How long an op waits for the one before it: the server's own wait for an
+ * answer (OP_TIMEOUT_S), past which that op is refused anyway, so an answer
+ * that never lands cannot hold every later op.
+ */
+const OP_QUEUE_WAIT_MS = 5000;
+
+/**
+ * Run `frame` once every op that arrived before it has been answered and its
+ * answer taken. The server returns an op's `rev` to the agent as soon as it
+ * records this dock's answer, so the agent's next op (carrying that rev as
+ * `base_rev`) can arrive before this page has read the same answer and acked
+ * the rev. Run at once, it would be checked against the previous ack and
+ * refused `stale_base`; run after, it is checked against the rev it names.
+ * With no op open the frame runs at once, in the frame's own task.
+ * @param {import('./panel-placement.js').PanelOpFrame} frame
+ */
+function queuePanelOp(frame) {
+  const run = () =>
+    handlePanelOp(frame)
+      .catch((err) => console.error('panel-sse: panel op handling failed', err, frame))
+      .finally(() => {
+        opsOpen -= 1;
+      });
+  opsOpen += 1;
+  if (opsOpen === 1) {
+    opsSettled = run();
+    return;
+  }
+  const wait = new Promise((resolve) => setTimeout(resolve, OP_QUEUE_WAIT_MS));
+  opsSettled = Promise.race([opsSettled, wait]).then(run);
 }
 
 /**
