@@ -974,10 +974,10 @@ def main() -> int:
         n_1 = sum(1 for v in tier_by_key.values() if v == 1)
         n_2 = sum(1 for v in tier_by_key.values() if v == 2)
         what = (
-            f"The <b>{n_txt}</b> agentic e2e tests ({n_1} in Tier 1, {n_2} in Tier 2) — those "
+            f"The <b>{n_1 + n_2}</b> agentic e2e tests ({n_1} in Tier 1, {n_2} in Tier 2) — those "
             f"carrying an <code>agentic</code> marker, whose tier, title and description are "
             f"re-derived from live collection every cell — run once per seed with reruns off, "
-            f"so every result is a first attempt. Tier 3, facility-scale tasks, is planned. "
+            f"so every result is a first attempt. Tier 3 (facility-scale tasks) is not built yet. "
         )
     else:
         what = f"The <b>{n_txt}</b> model-driving e2e tests. "

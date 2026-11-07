@@ -115,7 +115,7 @@ and the board scores its first attempt:
      - Harder tasks a capable model may still miss.
      - Each test's first-attempt result per seed.
    * - 3 · facility scale
-     - Planned.
+     - Not built yet: facility-scale tasks, such as searching a whole logbook.
      -
 
 .. code-block:: bash

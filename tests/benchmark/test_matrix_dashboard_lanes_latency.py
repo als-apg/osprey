@@ -319,3 +319,32 @@ def test_a_refused_cell_says_who_refused_and_counts_for_nothing(tmp_path):
     assert "setup error" in page and message in page
     assert "class=no" not in page.split("</style>")[1]
     assert "class=ok" not in page.split("</style>")[1]
+
+
+def test_the_methodology_counts_the_tests_the_page_shows(tmp_path):
+    """Two cells that ran different tests: the lead number is every tiered test shown
+    (three), not the larger cell's total (two)."""
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "a__seed1.lanes.json").write_text(
+        json.dumps({_CAP: _meta(1, "One"), _CAP2: _meta(1, "Two"), _HARD: _meta(2, "Three")})
+    )
+    first = [
+        {"name": _CAP, "outcome": "passed", "duration_s": 1.0},
+        {"name": _CAP2, "outcome": "passed", "duration_s": 1.0},
+    ]
+    second = [{"name": _HARD, "outcome": "passed", "duration_s": 1.0}]
+    (results / "a__seed1.json").write_text(json.dumps(_summary("a", 1, first)))
+    (results / "b__seed1.json").write_text(json.dumps(_summary("b", 1, second)))
+    out = tmp_path / "dash.html"
+    subprocess.run(
+        [sys.executable, str(_BENCH / "matrix_dashboard.py"), "--results-dir", str(results)]
+        + ["--out", str(out)],
+        check=True,
+        capture_output=True,
+        timeout=120,
+    )
+    page = out.read_text()
+    assert "The <b>3</b> agentic e2e tests (2 in Tier 1, 1 in Tier 2)" in page
+    assert "Tier 3 (facility-scale tasks) is not built yet." in page
+    assert "planned" not in page
