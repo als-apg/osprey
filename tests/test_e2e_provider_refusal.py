@@ -135,7 +135,7 @@ def test_a_judge_that_returned_something_unreadable_is_not_a_refusal():
             "a7Qz",
         ),
         ("401 Bearer abc.def denied", "401 Bearer *** denied", "abc.def"),
-        ("see https://api.cborg.lbl.gov/key/manage now", "see <url> now", "cborg"),
+        ("see https://api.gateway.example/key/manage now", "see <url> now", "gateway"),
         ("gateway gw.example.org said no", "gateway <host> said no", "example"),
     ],
 )
