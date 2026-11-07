@@ -4,9 +4,8 @@ Retrieval Paths
 ===============
 
 The :doc:`safety chain <safety-chain>` is how OSPREY *writes*. Reading is a
-different shape: the agent
-answers questions from four retrieval stacks, each with its own
-index and its own answer to whether embeddings are involved at all.
+different shape: the agent answers questions from four retrieval stacks, each
+with its own index and its own answer to whether embeddings are involved at all.
 
 .. figure:: /_static/screenshots/retrieval_map_light.png
    :class: only-light
@@ -34,7 +33,8 @@ and the *query* at query time, so Ollama (or OpenAI) has to be reachable when an
 operator searches, not just when entries are ingested. The qmd sidecar carries
 its own embedder inside the image. The channel finder and the facility graph use
 no embeddings anywhere: the finder ranks with BM25 or lets the agent walk a
-hierarchy, and the graph answers Cypher, with a substring index for phrases.
+hierarchy, and the graph answers Cypher (Neo4j's query language), with a
+substring index for phrases.
 
 **The qmd sidecar is the one cross-stack component at query time.** It answers
 ARIEL's ``hybrid`` mode and backs :doc:`facility-knowledge </how-to/facility-knowledge/index>`
@@ -47,9 +47,8 @@ a text or an address. The :doc:`graph </how-to/facility-knowledge/use-facility-g
 relates devices, classes, sections and addresses to each other, so it can count
 every magnet or list a section in beam order. Two subagents read it: the
 facility-knowledge-graph agent for structure, and the channel finder in graph
-mode to turn a phrase into an address. The channel database and the graph are
-both derived from the facility file's records, and the OKF bundle is its prose,
-so all three describe the same machine.
+mode to turn a phrase into an address. The channel database and the graph both
+derive from the facility file's records, so they describe the same machine.
 
 **Stacks degrade differently.** The dashed edges are fallbacks: OKF search drops
 to a substring scan when the sidecar is absent, and ARIEL's ``semantic`` mode

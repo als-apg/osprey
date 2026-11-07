@@ -36,6 +36,7 @@ which devices share a PV.
    :color: primary
    :icon: book
 
+   - What a knowledge graph is, and the questions this one answers
    - Why the server can only read, and what it refuses before dialing
    - What each degraded state means and the remedy it names
    - Where the graph comes from: the graph view the build writes
@@ -74,13 +75,12 @@ corrector is a corrector, and a corrector is a magnet.
 .. raw:: html
    :file: ../../_diagrams/facility-graph-primer.html
 
-A snapshot of the demo machine's graph. Solid arrows link things, dashed arrows
+An excerpt of the demo machine's graph. Solid arrows link things, dashed arrows
 tie each device to its class, and teal marks the walk in step 4.
 
-The walk is what a channel list cannot do on its own: the question names a
-word, a section and a direction, and no single address spells any of them as
-the operator would. The same shape answers the questions that come up around
-a machine:
+The walk is what a list of addresses cannot do on its own: the question says
+"steerer" and "section 1", and no address spells either. The same shape answers
+the questions that come up around a machine:
 
 .. list-table::
    :header-rows: 1
@@ -94,7 +94,7 @@ a machine:
      - The section and position each device carries.
    * - Which addresses belong to this device, and which of them write?
      - The device's bindings, then the signal each one reads or writes.
-   * - If I write this address, what else moves?
+   * - Which devices share this address?
      - Back from the address to every device bound to it. Magnets on a common
        power supply appear here; the demo machine has no shared addresses.
 
@@ -127,8 +127,7 @@ a machine:
      and a query walks ``SUBCLASSOF*`` for the rest. The query gate refuses
      ``n10s`` procedures, so the agent has no reasoner to call.
    - **Derived, not curated.** Unless a profile names its own corpus, the build
-     writes it from the facility file, so it describes the same machine as the
-     channel finder, and a fix belongs in that file.
+     writes it from the facility file, so a fix belongs in that file.
    - **Structure only.** The graph holds no live values and no history. Those
      stay in the control system and the archiver.
    - **A wrong name returns zero rows, not an error.** The agent's prompt carries
