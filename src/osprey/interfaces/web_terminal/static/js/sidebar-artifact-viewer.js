@@ -14,6 +14,7 @@ import * as iframeSync from './panel-iframe-sync.js';
 import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
 import { isDetached } from './dock-apply.js';
+import { managedIframe } from './dock-iframe.js';
 import { menuItems } from './artifacts-pane-header.js';
 
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
@@ -21,11 +22,14 @@ import { menuItems } from './artifacts-pane-header.js';
 /** The panel id of the artifact gallery. */
 export const ARTIFACTS_PANEL_ID = 'artifacts';
 
-/** @returns {HTMLIFrameElement | null} */
+/**
+ * The Artifacts panel's frame, wherever it is: Open in new window moves the
+ * element into the pane's window, out of this document, and its ready message
+ * reaches the hub from there.
+ * @returns {HTMLIFrameElement | null}
+ */
 export function artifactsIframe() {
-  return /** @type {HTMLIFrameElement | null} */ (
-    document.querySelector(`iframe.panel-iframe[data-panel-id="${ARTIFACTS_PANEL_ID}"]`)
-  );
+  return managedIframe(ARTIFACTS_PANEL_ID)?.iframe ?? null;
 }
 
 /**
