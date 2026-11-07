@@ -14,7 +14,7 @@ license = {text = "BSD-3-Clause"}
 # schemas, approval previews, the build-time environment check), so they must
 # load without the search stack below.
 dependencies = [
-    "osprey-connectors>=2026.11.3",
+    "osprey-connectors>=2026.11.4",
     "pydantic>=2.12.5",
     "PyYAML>=6.0.2",
 ]

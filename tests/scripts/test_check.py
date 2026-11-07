@@ -17,7 +17,6 @@ import ast
 import dataclasses
 import fnmatch
 import functools
-import importlib.util
 import json
 import os
 import re
@@ -29,33 +28,21 @@ import sys
 import tomllib
 from collections.abc import Sequence
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
 import yaml
 
+from tests import _canopy_contract, _wallclock_files
+from tests.scripts import _check_script
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
-
-def _load(relative: str, name: str) -> ModuleType:
-    # import-time required because scripts/ is not a package: each module is
-    # loaded by path, under a name no import uses, and registered in
-    # sys.modules before exec so @dataclass can resolve annotations through
-    # cls.__module__.
-    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / relative)
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-check = _load("scripts/check.py", "_check_by_path")
+check = _check_script.check
 fw = check.FRAMEWORK
 kit = check.kit
-canopy_contract = _load("tests/_canopy_contract.py", "_canopy_contract_by_path")
+canopy_contract = _canopy_contract
 
 #: The CANOPY integration's checks module.
 CANOPY_MODULE = "src/osprey/integrations/canopy/repo_checks.py"
@@ -1057,7 +1044,7 @@ def test_run_resolves_each_check_to_its_one_command(monkeypatch: pytest.MonkeyPa
 # the root conftest stops any run that collects a marked test in a file the scan
 # does not name, and the scanned files are held to hold a marked test each.
 
-wallclock_files = _load("tests/_wallclock_files.py", "_wallclock_files_by_path")
+wallclock_files = _wallclock_files
 
 
 def test_the_wallclock_scan_reads_each_way_a_file_applies_the_marker() -> None:
@@ -2161,6 +2148,21 @@ class Recorder:
 
     def ran(self, text: str) -> bool:
         return any(text in shlex.join(argv) for argv in self.calls)
+
+
+#: The connectors checks module. Its ``connectors-public-names`` check is a
+#: ``builtin=``, so a ``check.main`` run calls it in process (``recorder`` does
+#: not stand in for it), and it sweeps the real tree from the module's own
+#: ``ROOT``, not ``kit.ROOT``.
+_connectors_checks = check.DECLARED.modules["packages/osprey-connectors/repo_checks.py"]
+#: The sweep, run once per worker for each root: every ``check.main`` here
+#: is about the runner, and the real tree does not change during a session.
+_cached_stray_exports = functools.cache(_connectors_checks.stray_exports)
+
+
+@pytest.fixture(autouse=True)
+def _one_public_names_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_connectors_checks, "stray_exports", _cached_stray_exports)
 
 
 @pytest.fixture
@@ -3897,6 +3899,23 @@ def test_a_widened_run_says_which_file_widened_it_before_running(
     header = f"check: pytest: widened by uv.lock: {fw.WIDENS_PROJECT}"
     assert header in before_first_run[0].splitlines()
     assert header not in capsys.readouterr().out
+
+
+@pytest.mark.usefixtures("any_base")
+def test_list_changed_names_the_path_that_widened_a_runner(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A root-level tests/ helper has no mirror, so the unit sweep runs whole;
+    the listing says which changed path did that."""
+    changed = ["tests/test_wait_ceilings.py", "tests/_live.py"]
+    monkeypatch.setattr(kit, "ROOT", REPO_ROOT)
+    monkeypatch.setattr(check, "touched", lambda base, worktree=False, scope=False: changed)
+    monkeypatch.setattr(check, "repository_files", lambda worktree=False: FILES)
+    assert check.main(["list", "--changed", "B", "--json"]) == 0
+    reason = f"tests/_live.py: {fw.WIDENS_UNMIRRORED}"
+    assert json.loads(capsys.readouterr().out)["widened"] == {"pytest": reason}
+    assert check.main(["list", "--changed", "B"]) == 0
+    assert f"widened: pytest: {reason}" in capsys.readouterr().out
 
 
 @pytest.mark.usefixtures("repo")

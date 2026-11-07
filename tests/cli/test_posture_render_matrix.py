@@ -43,7 +43,7 @@ from osprey.cli.build_profile_resolve import resolve_build_document, resolve_bui
 from osprey.utils.config_writer import config_update_fields
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.types import tier_writes
-from tests.cli.test_killswitch_on_tier import _DUMB, _FACILITY, _settings
+from tests.cli.test_killswitch_on_tier import _DUMB, _FACILITY, _build, _settings
 
 _ALLOWED = "allowed"
 _ASKED = "asked"
@@ -570,7 +570,7 @@ def _settings_of(tmp_path: Path, word: str, **kwargs: Any) -> tuple[dict, str]:
     """The settings.json a *word* tier renders, and the same text with its project blanked."""
     home = tmp_path / word
     home.mkdir()
-    settings = _settings(home, writes=word, **kwargs)
+    settings = _settings(_build(home), writes=word, **kwargs)
     project = re.escape(str(home)) + r"/killswitch-tier-\d+"
     return settings, re.sub(project, "<project>", json.dumps(settings, sort_keys=True))
 

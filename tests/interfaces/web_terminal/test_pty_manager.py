@@ -33,6 +33,8 @@ from tests.interfaces.web_terminal._pty_child import (
     wait_for_report,
 )
 
+pytestmark = pytest.mark.usefixtures("short_process_waits")
+
 
 def _stubborn_child_script(pid_file, grandchild) -> str:
     """Return the source of a PTY child that ignores SIGHUP and SIGTERM.

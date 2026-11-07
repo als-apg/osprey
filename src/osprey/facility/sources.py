@@ -214,7 +214,7 @@ def slot_names(class_name: str) -> frozenset[str]:
     Returns:
         The names of the class's attributes.
     """
-    core = yaml.safe_load(_CORE_SCHEMA.read_text(encoding="utf-8"))
+    core = yaml_loader.safe_load(_CORE_SCHEMA.read_text(encoding="utf-8"))
     return frozenset(core["classes"][class_name]["attributes"])
 
 

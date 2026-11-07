@@ -1191,9 +1191,9 @@ config:
   simulation.tick_s: 1.0
   # Scenarios a deployment that never chose a set starts in, by name from
   # the facility's scenarios; `osprey sim apply` replaces the set.
-  # Absent or [] starts in nominal alone.
-  # A stated start set is checked against the file at build.
-  simulation.default_scenarios: [rf-thermal]
+  # demo-history also seeds the sidebar's example sessions on first deploy.
+  # Absent or [] starts in nominal alone; a stated set is checked at build.
+  simulation.default_scenarios: [rf-thermal, demo-history]
 
 # ── Record archive ─────────────────────────────────────────────────────────
 # Copies artifacts and plan-queue history into var/archive/ once a day, beside

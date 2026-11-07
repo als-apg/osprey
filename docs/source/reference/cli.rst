@@ -1339,11 +1339,12 @@ the current directory is used.
    freezes the apply-time anchor to an ISO-8601 instant so seeded logbook
    dates are reproducible; a naive value takes the facility timezone, and the
    ``OSPREY_SIM_NOW`` environment variable is read when the option is absent.
+   It never adds or removes the scenario sessions a first deploy laid down.
 
 .. code-block:: bash
 
    osprey sim list
-   osprey sim apply rf-thermal
+   osprey sim apply rf-thermal demo-history
    osprey sim status
 
 osprey ariel

@@ -1148,8 +1148,9 @@ keys:
     evidence: '\.get\("default_scenarios"\)'
     facility-fact: true
     note: >-
-      Per-preset: control-assistant alone states it ([rf-thermal]), the
-      preset whose facility tree ships scenarios. Read at deploy time by
+      Per-preset: control-assistant alone states it ([rf-thermal,
+      demo-history]), the one preset whose facility tree ships scenarios.
+      Read at deploy time by
       `simulation.apply.activate_default_scenarios`, only while the deployment
       has no scenario state. Never derived: the build derives no start set from
       the facility file, and a stated name is an override checked against it.

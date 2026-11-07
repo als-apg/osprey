@@ -1275,6 +1275,12 @@ jobs:
       timeout-minutes: 5
       run: uv run python scripts/cli_tool_inventory.py --check
 
+    # Seeded agent history is authored to the pinned build's transcript format;
+    # this step proves the build still resumes such a transcript as its own.
+    - name: Resume an authored transcript under the pinned CLI
+      timeout-minutes: 5
+      run: uv run python scripts/transcript_resume_probe.py
+
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       # Identical pin to the two-shape-boot-e2e lane below, for the identical
       # reason: `podman compose` delegates to whichever provider it finds, and
@@ -2530,22 +2536,37 @@ jobs:
 
 
   agent-record-e2e:
-    name: Agent Record E2E (replays every captured fixture through the real stack, both backends)
+    name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
     runs-on: ubuntu-latest
     # Every pull request, fork pull requests included, for the reasons the
     # model-free lane gives: no gateway key, public images only, no label and
     # no actor guard. The replay is model-free — every test in it carries
-    # `model_free` — but it is its own lane because it deploys two stacks one
-    # after the other and waits out a stopped source twice.
+    # `model_free` — but it is its own lane because each case deploys a whole
+    # stack and waits out a stopped source.
     if: >-
       (github.event_name == 'pull_request')
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-    # Sized for its waits, not measured: two stopped-source waits of up to five
-    # minutes each; two deploys (hello-world, and control-assistant with its
-    # services and web terminals), each with a restart, an outage, a re-`up`
-    # that closes the day and a reset, and hello-world's rebuild after it; and
-    # a one-minute readability bound per step. The step cap sits under the job
-    # cap so a hang fails the run step and the capture step still runs.
+    # One cell per case, each on its own runner: the two cases share nothing
+    # but the module's project name and port block, which are per host, so
+    # side by side on two runners they cost the longer case (~17-22 min)
+    # instead of the sum (~33-39 min). Every case is in exactly one cell
+    # (tests/deployment/test_ci_workflow_wiring.py), and neither cell cancels
+    # the other, so a red one still reports both backends.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - backend: embedded
+          case: test_embedded_record_on_hello_world
+        - backend: clickhouse
+          case: test_clickhouse_record_on_control_assistant
+    # Sized for its waits, not measured: one stopped-source wait of up to five
+    # minutes; one deploy (hello-world, or control-assistant with its services
+    # and web terminals) with a restart, an outage, a re-`up` that closes the
+    # day and a reset, and hello-world's rebuild after it; and a one-minute
+    # readability bound per step. Kept at the two-case size so a cell never
+    # reds on the cap alone. The step cap sits under the job cap so a hang
+    # fails the run step and the capture step still runs.
     timeout-minutes: 135
     steps:
     # The project image's deps layer ran the runner out of disk: uv reported
@@ -2591,10 +2612,12 @@ jobs:
       timeout-minutes: 120
       run: |
         # Named by path: a path that stops existing exits pytest 4 and reds
-        # this step. Serial on purpose — the two cases share one host port
-        # block and run one after the other.
+        # this step; a case name that stops matching collects nothing, which
+        # exits pytest 5 and the skip gate below reds too. One case per cell,
+        # serial: the cases share one host port block.
         uv run pytest \
           tests/e2e/test_agent_record_e2e.py \
+          -k "${{ matrix.case }}" \
           -v --tb=short --durations=15 \
           --junitxml=junit-agent-record-e2e.xml
 
@@ -2630,7 +2653,7 @@ jobs:
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
       with:
-        name: agent-record-e2e
+        name: agent-record-e2e-${{ matrix.backend }}
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
@@ -6615,18 +6638,6 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Cache the bench IOC image layers
-      uses: actions/cache@v6
-      with:
-        path: /tmp/bench-ioc-buildx-cache
-        # Keyed on all four files the context contains — the Containerfile and
-        # the three text files it copies — because here the whole image IS the
-        # cache: nothing in it depends on osprey's source, so an unchanged
-        # record set restores every layer including the two pulled EPICS bases.
-        key: bench-ioc-buildx-${{ runner.os }}-${{ hashFiles('docker/bench-ioc/Containerfile', 'docker/bench-ioc/bench.db', 'docker/bench-ioc/bench.acf', 'docker/bench-ioc/st.cmd') }}
-        restore-keys: |
-          bench-ioc-buildx-${{ runner.os }}-
-
     - name: Build the virtual accelerator image
       # One of this lane's two control targets is a container of this image;
       # `bench-ioc:latest`, built below, is the other, and every assertion in
@@ -6634,37 +6645,9 @@ jobs:
       uses: ./.github/actions/build-virtual-accelerator-image
 
     - name: Build the bench IOC image
-      # `-f` is load-bearing, not stylistic: BuildKit only auto-detects a file
-      # literally named `Dockerfile`, so dropping it fails with "open
-      # Dockerfile: no such file or directory" (podman finds `Containerfile`
-      # unaided, docker does not). The Containerfile's header says this, and
-      # tests/fixtures/bench_ioc.py prints this exact command when the image is
-      # absent — the fixture never builds implicitly, so this step IS the only
-      # thing that produces `bench-ioc:latest`, and that tag is hardcoded there
-      # with no environment override.
-      #
-      # No staging step, unlike the image above: this context is three small
-      # text files and the Containerfile, so the directory holding them is
-      # already the smallest possible context.
-      run: |
-        set -euo pipefail
-        docker buildx build \
-          --tag bench-ioc:latest \
-          --load \
-          --cache-from type=local,src=/tmp/bench-ioc-buildx-cache \
-          --cache-to type=local,dest=/tmp/bench-ioc-buildx-cache-new,mode=max \
-          -f docker/bench-ioc/Containerfile docker/bench-ioc
-
-    - name: Rotate the bench IOC layer cache
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to the `-new` sibling and is swapped in
-      # here, under `/tmp/bench-ioc-buildx-cache` — the path actions/cache
-      # saves at the end of the job. A run that skips the swap saves the layers
-      # it restored and throws away the ones it just built.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/bench-ioc-buildx-cache
-        mv /tmp/bench-ioc-buildx-cache-new /tmp/bench-ioc-buildx-cache
+      # After the virtual accelerator image: this action builds on the Buildx
+      # builder that one sets up, and has none of its own.
+      uses: ./.github/actions/build-bench-ioc-image
 
     - name: Run the control-target switch E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -6858,23 +6841,6 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Cache the bench IOC image layers
-      uses: actions/cache@v6
-      with:
-        path: /tmp/bench-ioc-buildx-cache
-        # The same key as target-switch-e2e's bench IOC cache, because it is
-        # the same image from the same inputs: whichever lane runs first saves
-        # it and the other restores it, and a concurrent second save is a
-        # non-fatal "cache already exists" warning.
-        #
-        # Keyed on all four files the context contains — the Containerfile and
-        # the three text files it copies — because here the whole image IS the
-        # cache: nothing in it depends on osprey's source, so an unchanged
-        # record set restores every layer including the two pulled EPICS bases.
-        key: bench-ioc-buildx-${{ runner.os }}-${{ hashFiles('docker/bench-ioc/Containerfile', 'docker/bench-ioc/bench.db', 'docker/bench-ioc/bench.acf', 'docker/bench-ioc/st.cmd') }}
-        restore-keys: |
-          bench-ioc-buildx-${{ runner.os }}-
-
     - name: Build the virtual accelerator image
       # One of this lane's two control targets is a container of this image;
       # `bench-ioc:latest`, built below, is the other, and the agent is
@@ -6882,33 +6848,9 @@ jobs:
       uses: ./.github/actions/build-virtual-accelerator-image
 
     - name: Build the bench IOC image
-      # `-f` is load-bearing, not stylistic: BuildKit only auto-detects a file
-      # literally named `Dockerfile`, so dropping it fails with "open
-      # Dockerfile: no such file or directory" (podman finds `Containerfile`
-      # unaided, docker does not). tests/fixtures/bench_ioc.py prints this
-      # exact command when the image is absent — the fixture never builds
-      # implicitly, so this step IS the only thing that produces
-      # `bench-ioc:latest`, and that tag is hardcoded there with no
-      # environment override.
-      run: |
-        set -euo pipefail
-        docker buildx build \
-          --tag bench-ioc:latest \
-          --load \
-          --cache-from type=local,src=/tmp/bench-ioc-buildx-cache \
-          --cache-to type=local,dest=/tmp/bench-ioc-buildx-cache-new,mode=max \
-          -f docker/bench-ioc/Containerfile docker/bench-ioc
-
-    - name: Rotate the bench IOC layer cache
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to the `-new` sibling and is swapped in
-      # here, under `/tmp/bench-ioc-buildx-cache` — the path actions/cache
-      # saves at the end of the job. A run that skips the swap saves the layers
-      # it restored and throws away the ones it just built.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/bench-ioc-buildx-cache
-        mv /tmp/bench-ioc-buildx-cache-new /tmp/bench-ioc-buildx-cache
+      # After the virtual accelerator image: this action builds on the Buildx
+      # builder that one sets up, and has none of its own.
+      uses: ./.github/actions/build-bench-ioc-image
 
     - name: Install the pinned Claude Code CLI
       # One Claude Code runs in this lane: the version OSPREY pins, installed
@@ -7007,7 +6949,7 @@ jobs:
         extra-tags: bench-ioc:latest
 
   va-live-e2e:
-    name: Live Virtual Accelerator E2E (one container, every suite the switch lane does not run)
+    name: Live Virtual Accelerator E2E (${{ matrix.group }}; every suite the switch lane does not run)
     runs-on: ubuntu-latest
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. This lane holds no credential of any kind, and that is a property
@@ -7053,12 +6995,52 @@ jobs:
     #   - the real-facility lane on the NSLS-II stand-in, one install of a two-model
     #     export — init, import, set, build — and one boot under that
     #     module's own `BOOT_TIMEOUT_S` of 240 s, capped at 10 minutes.
-    # A green run takes about 18–23 minutes on an ubuntu-latest runner, of which
-    # the image build is 2–5; the cap is about twice that. It is larger than
-    # va-substrate-equivalence-e2e and archiver-world-e2e, and than the switch
-    # lane's 30, because that lane runs five modules against containers two of
-    # its own images serve, while this one runs fifteen and boots fourteen.
-    timeout-minutes: 50
+    # Serially, in one job, these took 22–24 minutes on an ubuntu-latest
+    # runner (runs 42191862450, 42212691895): 4 for the image build and 18 of
+    # pytest. The suites are therefore split across three matrix cells, each
+    # building its own image and booting its own containers, balanced by the
+    # measured module times (each cell is 6–7 minutes of pytest): a cell is
+    # about 11–12 minutes green; the cap leaves room for both step caps
+    # below, the build and the capture step.
+    timeout-minutes: 40
+    # One cell per group of suites, every suite in exactly one cell (pinned by
+    # tests/deployment/test_ci_workflow_wiring.py, which reads `suites` as the
+    # run step's file list). Each group keeps the run order the single job had,
+    # so the modules that share the session container still run in one
+    # process, in the same order, against one container. `als_lane` marks the
+    # one cell that also runs the real-facility lane.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - group: session-container
+          # The seven modules that only share the session container, the
+          # put-surface module's one boot and the journal module's two, then
+          # the parity module, which reads the session container and boots one
+          # of its own, then the chain module (one install, one boot). ~6 min.
+          suites: >-
+            tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py
+            tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py
+            tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py
+            tests/va/e2e/test_sim_apply_va.py
+            tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py
+            tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py
+          als_lane: false
+        - group: measurements
+          # The guarded-measurement module, which builds two deployments and
+          # boots one container over each, then the check-B module, which
+          # installs the served export and builds the example deployment
+          # before one boot each. ~6.5 min.
+          suites: >-
+            tests/va/e2e/test_pyaml_measure_guarded.py tests/va/e2e/test_check_b_served.py
+          als_lane: false
+        - group: facility-trees
+          # The harvested-tree module, which installs a facility export from
+          # scratch before each of its three boots, then the real-facility lane
+          # on the NSLS-II stand-in. ~6 min.
+          suites: >-
+            tests/va/e2e/test_mml_trees_boot.py
+          als_lane: true
 
     steps:
     - name: Checkout repository
@@ -7101,19 +7083,19 @@ jobs:
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it. A green run of this step takes
-      # about 11–15 minutes; the cap is about twice that, and still bounds the
-      # realistic hang here — a read of a channel nobody serves, which the
-      # connector itself gives up on after 120 s.
-      timeout-minutes: 30
+      # about 6–7 minutes in any cell; the cap is about three times that, and
+      # still bounds the realistic hang here — a read of a channel nobody
+      # serves, which the connector itself gives up on after 120 s.
+      timeout-minutes: 20
       env:
         # Without it every test in tests/va/e2e/ skips by design (the directory
         # must collect and skip cleanly on a laptop with no runtime). The
         # zero-skip gate below is what turns a lost flag into a red lane
         # instead of a green one over nothing.
         OSPREY_VA_E2E_ENABLE: "1"
-      # One pytest process, no xdist: the directory conftest keeps ONE
+      # One pytest process per cell, no xdist: the directory conftest keeps ONE
       # session-scoped container per process, and eight of these modules are
-      # written against that single endpoint.
+      # written against that single endpoint (all eight in one cell).
       #
       # Named by path rather than by marker: these modules are the whole
       # subject of this lane, and a path that stops existing exits pytest 4 and
@@ -7123,26 +7105,11 @@ jobs:
       # asserted by its final test), so a file that survives a refactor while
       # losing tests to it reds the step rather than passing on what is left.
       #
-      # Ordered cheapest first — the seven that only share the session
-      # container, then the put-surface module's one boot and the journal
-      # module's two, then the parity module, which reads the session container
-      # and boots one of its own, then the chain module, which installs the
-      # two-model tree before its one boot, then the guarded-measurement
-      # module, which builds two deployments and boots one container over
-      # each, then the harvested-tree module, which installs a facility export
-      # from scratch before each of its three boots, then the check-B module,
-      # which installs the served export and builds the example deployment
-      # before one boot each — so a failure in the cheap set is reported
-      # before the expensive work starts.
+      # The cell's paths come from its `suites` (the matrix above), ordered
+      # cheapest first within each cell, so a failure in the cheap set is
+      # reported before the expensive work starts.
       run: |
-        uv run pytest tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py \
-          tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py \
-          tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py \
-          tests/va/e2e/test_sim_apply_va.py \
-          tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py \
-          tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py \
-          tests/va/e2e/test_pyaml_measure_guarded.py \
-          tests/va/e2e/test_mml_trees_boot.py tests/va/e2e/test_check_b_served.py \
+        uv run pytest ${{ matrix.suites }} \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
     - name: Run the real-facility lane on the NSLS-II stand-in
@@ -7156,6 +7123,9 @@ jobs:
       # job cap so a hang leaves the capture step room to run.
       # A green run takes about 2–3 minutes; the cap is several times that
       # because one slow boot alone may take the module's 240 s boot bound.
+      # One cell runs it (`als_lane`), facility-trees, whose pytest
+      # step is the shortest.
+      if: matrix.als_lane
       timeout-minutes: 10
       env:
         OSPREY_ALS_LANE_STAND_IN: tests/fixtures/mml/nsls2
@@ -7163,6 +7133,8 @@ jobs:
         uv run pytest tests/cli/test_als_lane.py -v --tb=short --junitxml=junit-als-lane.xml
 
     - name: Fail the lane on any skipped test
+      env:
+        ALS_LANE: ${{ matrix.als_lane }}
       run: |
         # The gate reads the reports rather than pytest's exit codes because an
         # exit code cannot express the difference: a run that skipped every
@@ -7170,13 +7142,20 @@ jobs:
         # modules without `OSPREY_VA_E2E_ENABLE`, and the real-facility lane without
         # `OSPREY_ALS_LANE_STAND_IN`. Unset, either collects cleanly and skips,
         # and the job goes green having built an image and measured nothing.
-        # One report per step, each named here.
+        # One report per step, each named here; the real-facility lane's only
+        # in the cell that runs it, read from the matrix rather than from
+        # whether the file exists, so a cell that should have run it and did
+        # not reds here.
         uv run python - <<'PY'
+        import os
         import sys
         import xml.etree.ElementTree as ET
 
+        reports = ["junit-va-live-e2e.xml"]
+        if os.environ["ALS_LANE"] == "true":
+            reports.append("junit-als-lane.xml")
         failed = False
-        for report in ("junit-va-live-e2e.xml", "junit-als-lane.xml"):
+        for report in reports:
             total = skipped = 0
             for suite in ET.parse(report).getroot().iter("testsuite"):
                 total += int(suite.get("tests", 0))
@@ -7198,7 +7177,7 @@ jobs:
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
       with:
-        name: va-live-e2e
+        name: va-live-e2e-${{ matrix.group }}
         engine: docker
 
     - name: Clean up the target images

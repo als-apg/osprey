@@ -263,7 +263,7 @@ def test_orm_params_rejects_an_unknown_sweep() -> None:
 
 
 def test_orm_params_regressor_defaults_to_setpoint() -> None:
-    """The fit regresses on the commanded current unless the caller asks otherwise."""
+    """The fit regresses on the commanded setpoint unless the caller asks otherwise."""
     params = ORMParams(correctors=["hcm1"], readbacks=["bpm1"], span=2.0, num=5)
     assert params.regressor == "setpoint"
     assert (
@@ -351,7 +351,7 @@ def test_mock_settable_locates_its_demand_and_its_readback() -> None:
 
 def _corrector_sweep_setpoints(params: ORMParams, working_point: float = 0.0) -> list[float]:
     """Run `orm` against a corrector idling at *working_point* and collect,
-    in order, the current values it commands onto that corrector — the sweep
+    in order, the setpoint values it commands onto that corrector — the sweep
     points followed by the restore in the `finally`.
 
     Driven by a real `RunEngine` with a `msg_hook`, NOT by iterating the

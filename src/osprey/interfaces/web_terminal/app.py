@@ -37,7 +37,7 @@ from osprey.interfaces.common_middleware import (
     resolve_storage_scope,
 )
 from osprey.interfaces.vendor import vendor_url
-from osprey.interfaces.web_terminal import session_meta
+from osprey.interfaces.web_terminal import scenario_sessions, session_meta
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
 from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.feedback_destination import (
@@ -1954,6 +1954,12 @@ def _create_lifespan(
         # ledger file exists yet; it reads the transcript map, the transcripts
         # on disk and the artifact store under this root. Never raises.
         await asyncio.to_thread(session_meta.backfill_ledger, app)
+        # Seeded scenario sessions, laid down after the backfill so a missing
+        # ledger is seeded from real sessions first. Never fatal.
+        try:
+            await asyncio.to_thread(scenario_sessions.lay_down_scenario_sessions, app)
+        except Exception:
+            logger.warning("The scenario-session lay-down failed", exc_info=True)
         app.state.panel_status_dir = shared_data_root / PANEL_STATUS_DIRNAME
         # Workspace-relative form of the store: the *file watcher's* form,
         # used below to drop change events for writes into it. The file

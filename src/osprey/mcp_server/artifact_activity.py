@@ -126,9 +126,11 @@ def notify_bulk_delete(scope: str, count: int) -> None:
     per-entry flood and reports the whole action here instead. A zero count is
     dropped — nothing was destroyed, so there is no action to report — and a
     non-agent caller is dropped for the same reason every frame is: these are
-    *agent* activity.
+    *agent* activity. A process that never registered the listeners (or has
+    unregistered them) has no worker draining the queue, so the frame is
+    dropped there too rather than parked for a later registration to deliver.
     """
-    if count <= 0 or current_artifact_mutation_actor() != "agent":
+    if not _registered or count <= 0 or current_artifact_mutation_actor() != "agent":
         return
     noun = "artifact" if count == 1 else "artifacts"
     try:

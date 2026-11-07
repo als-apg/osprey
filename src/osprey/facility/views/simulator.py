@@ -115,6 +115,7 @@ _SCENARIO_BLOCKS = (
     "overrides",
     "archiver",
     "logbook",
+    "sessions",
     "drivers",
     "couple",
     "noise",

@@ -33,6 +33,13 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Buttons do not inherit font properties by default: the browser gives them
+   its own system font at 13.33px. Inherit, so a button with no font rule of
+   its own draws in the surrounding text's face and size. */
+button {
+  font: inherit;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

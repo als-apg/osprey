@@ -79,6 +79,7 @@ INVARIANT_TESTS = (
     "tests/scripts/test_changelog_fragments.py",
     "tests/interfaces/test_js_module_tests.py",
     "tests/deployment/test_ci_workflow_wiring.py",
+    "tests/deployment/test_e2e_scenario_pin.py",
     "tests/deployment/test_retired_spellings_at_parse_point.py",
     "tests/deployment/web_terminals/test_roster_entries.py",
     "tests/infrastructure/test_import_time_audit.py",

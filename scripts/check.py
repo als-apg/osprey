@@ -48,7 +48,7 @@ untracked), so one verdict judges one range. A check whose scope
 the range does not touch is reported as not touched; a path the range deleted or
 moved away touches the scope it left. The test runners get only the tests the
 changed paths map to. A path the mapping cannot place widens that runner to its
-whole selection; scoping never narrows. A script a check runs through, and a
+whole selection, and ``list --changed`` names that path; scoping never narrows. A script a check runs through, and a
 checks module, selects ``tests/scripts/``; a file under ``tests/<dir>/`` selects
 that directory when it holds a test module and widens otherwise; a conftest
 below ``tests/<dir>/`` selects its own directory unless a module outside imports
@@ -1063,7 +1063,7 @@ def _list(tier: str | None, as_json: bool, changed: str | None = None) -> int:
     widened = widened_by(plan) if plan else {}
     if as_json:
         data = declaration(tier)
-        if hit is not None:
+        if plan is not None:
             data["touched"] = hit
             data["widened"] = widened
         print(json.dumps(data, indent=2))

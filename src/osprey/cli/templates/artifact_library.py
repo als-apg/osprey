@@ -15,6 +15,8 @@ from pathlib import Path
 
 import yaml
 
+from osprey_connectors import yaml_loader
+
 logger = logging.getLogger("osprey.cli.templates")
 
 # Artifact type → subdirectory name under claude_code/claude/
@@ -110,7 +112,7 @@ def _read_hook_frontmatter(hook_path: Path) -> dict | None:
     yaml_block = parts[1]
 
     try:
-        meta = yaml.safe_load(yaml_block)
+        meta = yaml_loader.safe_load(yaml_block)
     except yaml.YAMLError:
         logger.warning("Malformed YAML frontmatter in %s", hook_path)
         return None
