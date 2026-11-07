@@ -130,42 +130,37 @@ describe('open', () => {
     expect(open.mock.calls[0][0]).toBe('/u/alice/static/attached-window.html');
   });
 
-  test('the window has a bar with the pane’s name and Reattach, above the node', () => {
-    const onReattach = vi.fn();
+  test('the node leaves at the pagehide, before the old document can strip it', () => {
+    /** @type {boolean[]} */
+    const order = [];
     const win = mod.openAttached({
       key: 'k',
-      title: 'Agent · OSPREY',
-      label: 'Agent',
+      title: 't',
       content,
       name: 'w-k',
       anchor: anchorEl(),
-      onReattach,
+      onPageHide: () => order.push(content.isConnected),
     });
-    const root = win.document.querySelector('.attached-window-root');
-    const bar = root.firstElementChild;
-    expect(bar.className).toBe('attached-window-bar');
-    expect(bar.querySelector('.attached-window-title').textContent).toBe('Agent');
-    expect(root.lastElementChild).toBe(content);
-    const button = bar.querySelector('button.attached-window-reattach');
-    expect(button.textContent).toBe('Reattach');
-
-    // What Reattach means is the caller's: nothing moves until it says so.
-    button.click();
-
-    expect(onReattach).toHaveBeenCalledTimes(1);
-    expect(content.parentElement).toBe(root);
+    win.dispatchEvent(new Event('pagehide'));
+    // The hook read what it needed first; the node is out now, and in no document.
+    expect(order).toEqual([true]);
+    expect(content.isConnected).toBe(false);
     expect(mod.hasWindow('k')).toBe(true);
   });
 
-  test('the bar names the title when no label is given', () => {
+  test('the window has no bar of its own: onDress hands the caller the mount', () => {
+    const onDress = vi.fn();
     const win = mod.openAttached({
       key: 'k',
-      title: 'Ariel',
+      title: 'Agent · OSPREY',
       content,
       name: 'w-k',
       anchor: anchorEl(),
+      onDress,
     });
-    expect(win.document.querySelector('.attached-window-title').textContent).toBe('Ariel');
+    const root = win.document.querySelector('.attached-window-root');
+    expect([...root.children]).toEqual([content]);
+    expect(onDress).toHaveBeenCalledExactlyOnceWith(root);
   });
 
   test('the node moves only once the shell has loaded', () => {
@@ -525,7 +520,7 @@ describe('a reload of the shell', () => {
     vi.advanceTimersByTime(mod.READY_POLL_MS);
     expect(win.document).not.toBe(first);
     expect(win.document.title).toBe('Ariel');
-    expect(win.document.querySelector('.attached-window-bar')).not.toBeNull();
+    expect(win.document.querySelector('.attached-window-root')).not.toBeNull();
     expect(content.ownerDocument).toBe(win.document);
     expect(onDress).toHaveBeenCalledTimes(2);
     expect(onReturn).not.toHaveBeenCalled();

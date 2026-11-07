@@ -3387,6 +3387,34 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         page.close()
 
 
+def test_agent_header_menu_opens_while_the_panel_list_is_still_loading(tmp_path, chromium_browser):
+    """The Agent tile is on screen before ``/api/panels`` answers, and so is its menu.
+
+    The dock boots beside the panel manager, which then waits on the panel list.
+    Under load that wait is seconds long, and a right-click in it must not fall
+    through to the browser's own menu: the Agent's verbs need no panel list.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(workspace, enabled_panels={"artifacts"}) as (base_url, _app):
+        page = chromium_browser.new_page()
+        held = []
+        page.route("**/api/panels", lambda route: held.append(route))
+        arm_terminal_tab(page)
+        page.goto(base_url, wait_until="domcontentloaded")
+        expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
+        assert held, "the panel list was answered before the menu could be tried"
+
+        _open_agent_header_menu(page)
+        assert "Reset layout" in _menu_labels(page), _menu_labels(page)
+
+        page.keyboard.press("Escape")
+        for route in held:
+            route.continue_()
+        page.close()
+
+
 def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_browser):
     """A right-click inside a contributed header input keeps the browser's menu.
 

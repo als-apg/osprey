@@ -70,10 +70,20 @@ const BLOCKED_MESSAGE = 'Pop-ups are blocked for this site.';
  * @property {(iframe: HTMLIFrameElement) => void} sendThemeToIframe
  * @property {(listener: () => void) => unknown} subscribeTheme
  * @property {(id: string) => void} clearAccent - the rail accent leaves the panel, if on it
- * @property {(message: string) => void} showNotice
+ * @property {(message: string, doc?: Document) => void} showNotice - in `doc`, or the hub's
+ * @property {(id: string, options: {mode: 'detached', onReattach: () => void}) => WindowBar} createTileTab
  * @property {() => HTMLElement | null} agentPaneContent - the Agent's subtree once adopted
  * @property {() => void} fitAgent - refit the Agent's terminal to its box
  * @property {<T>(fn: () => T) => T} withEchoSuppressed - run without reporting a focus
+ */
+
+/**
+ * The bar of a window: the tile's own header bar (dock-tab.js).
+ * @typedef {object} WindowBar
+ * @property {HTMLElement} element
+ * @property {(params: {title: string}) => void} init
+ * @property {() => void} attached - `element` is in the window's document
+ * @property {() => void} dispose
  */
 
 /** @type {Partial<PaneWindowDeps>} */
@@ -81,6 +91,14 @@ const deps = {};
 
 /** @type {Set<(id: string, detached: boolean) => void>} */
 const listeners = new Set();
+
+/**
+ * Where the hub sent a detached frame, until the frame's `load` says it arrived.
+ * Until then the frame still shows the page it is leaving, or has no document at
+ * all: what it reports is not where it is going.
+ * @type {Map<string, string>}
+ */
+const navigating = new Map();
 
 let unloadWired = false;
 
@@ -101,6 +119,29 @@ function sendThemeToDetached() {
     const iframe = deps.managedIframe?.(id)?.iframe;
     if (iframe) deps.sendThemeToIframe?.(iframe);
   }
+}
+
+/**
+ * The page a detached frame is on, or on its way to.
+ * @param {string} id
+ * @returns {string | null}
+ */
+function readPage(id) {
+  return navigating.get(id) ?? deps.getPanelPage?.(id) ?? null;
+}
+
+/**
+ * The hub sent a frame to a new page. A detached frame's next document loads
+ * what the holder's entry says (a reload of its window, a reattach), so the entry
+ * has to know first. A no-op for a pane that is not detached.
+ * @param {string} id
+ * @param {string} page
+ */
+export function noteDetachedNavigation(id, page) {
+  const holder = getLayoutHolder();
+  if (!holder?.isDetached(id)) return;
+  navigating.set(id, page);
+  holder.setDetachedPage(id, page);
 }
 
 /**
@@ -194,13 +235,44 @@ function windowSpec(id, label, content) {
     key: id,
     name: scopedStorageKey(WINDOW_NAME_PREFIX + id),
     title: `${label} · OSPREY`,
-    label,
     content,
     anchor,
-    onReattach: () => void reattach(id),
     // The window was navigated away from the shell: the pane still has a way home.
     onShellLost: () => {
       if (!reattach(id)) closeDetached(id);
+    },
+  };
+}
+
+/**
+ * The window's bar, built again on every dress: a reload of the window brings a
+ * new document with nothing on it (R10).
+ * @param {string} id
+ * @param {string} label
+ * @returns {{dress: (mount: HTMLElement) => void, dispose: () => void}}
+ */
+function windowBar(id, label) {
+  /** @type {WindowBar | null} */
+  let tab = null;
+  const dispose = () => {
+    tab?.dispose();
+    tab?.element.remove();
+    tab = null;
+  };
+  return {
+    dispose,
+    dress: (mount) => {
+      dispose();
+      const doc = mount.ownerDocument;
+      tab =
+        deps.createTileTab?.(id, {
+          mode: 'detached',
+          onReattach: () => void reattach(id, doc),
+        }) ?? null;
+      if (!tab) return;
+      tab.init({ title: label });
+      mount.prepend(tab.element);
+      tab.attached();
     },
   };
 }
@@ -214,17 +286,21 @@ function detachAgent(hadTile) {
   if (!content) return false;
   let told = false;
   const fit = () => deps.fitAgent?.();
+  const bar = windowBar(TERMINAL_RAIL_ID, 'Agent');
   return (
     openAttached({
       ...windowSpec(TERMINAL_RAIL_ID, 'Agent', content),
       beforeMove: () => leaveDock(TERMINAL_RAIL_ID, null, hadTile),
       onDress: (mount) => {
         mount.setAttribute(DETACHED_ATTRIBUTE, 'true');
+        bar.dress(mount);
         fit();
         if (!told) notify(TERMINAL_RAIL_ID, true);
         told = true;
       },
+      onPageHide: bar.dispose,
       onResize: fit,
+      beforeReturn: bar.dispose,
       onReturn: (reason) => {
         if (reason === 'closed') getLayoutHolder()?.forget(TERMINAL_RAIL_ID);
         fit();
@@ -243,16 +319,23 @@ function detachService(id, hadTile) {
   const managed = deps.managedIframe?.(id);
   if (!managed) return false;
   const { iframe, title } = managed;
-  /** The page the frame loads next: where it was, as last read. @type {string | null} */
+  const bar = windowBar(id, titleCase(title));
+  /** Where it was, as last read: the holder's entry is gone once it has docked. @type {string | null} */
   let page = null;
   let told = false;
   /** Read the page the frame is on into the holder's entry (and its saved copy). */
   const notePage = () => {
-    page = deps.getPanelPage?.(id) ?? page;
+    page = readPage(id) ?? page;
     getLayoutHolder()?.setDetachedPage(id, page);
   };
+  /** The frame has arrived: from here on it says where it is. */
+  const onFrameLoad = () => {
+    navigating.delete(id);
+    notePage();
+  };
   const loadPage = () => {
-    if (page !== null && deps.buildEmbedSrc) iframe.src = deps.buildEmbedSrc(page);
+    const target = getLayoutHolder()?.detachedEntry(id)?.page ?? page;
+    if (target !== null && deps.buildEmbedSrc) iframe.src = deps.buildEmbedSrc(target);
   };
   return (
     openAttached({
@@ -274,17 +357,23 @@ function detachService(id, hadTile) {
       beforeDress: loadPage,
       onDress: (mount) => {
         mount.setAttribute(DETACHED_ATTRIBUTE, 'true');
+        bar.dress(mount);
         if (!told) {
-          iframe.addEventListener('load', notePage);
+          iframe.addEventListener('load', onFrameLoad);
           notify(id, true);
         }
         told = true;
       },
-      onPageHide: notePage,
-      beforeReturn: () => {
+      onPageHide: () => {
         notePage();
-        iframe.removeEventListener('load', notePage);
+        bar.dispose();
+      },
+      beforeReturn: () => {
+        bar.dispose();
+        notePage();
+        iframe.removeEventListener('load', onFrameLoad);
         loadPage();
+        navigating.delete(id);
       },
       onReturn: (reason) => {
         if (reason === 'closed') {
@@ -312,16 +401,18 @@ export function focusWindow(id) {
  * Dock a detached pane where it was and close its window. With no room for it
  * the operator is told, and the pane and its window stay as they are.
  * @param {string} id
+ * @param {Document} [noticeIn]  where to say so, when the gesture came from the
+ *   pane's window (default: the hub)
  * @returns {boolean} whether it docked
  */
-export function reattach(id) {
+export function reattach(id, noticeIn) {
   const holder = getLayoutHolder();
   if (!holder?.isDetached(id)) return false;
   // Read while the frame still shows it: the window closes below.
-  holder.setDetachedPage(id, deps.getPanelPage?.(id) ?? null);
+  holder.setDetachedPage(id, readPage(id));
   const back = deps.withEchoSuppressed?.(() => holder.reattach(id));
   if (!back) {
-    deps.showNotice?.(`No room to reattach ${paneLabel(id)}.`);
+    deps.showNotice?.(`No room to reattach ${paneLabel(id)}.`, noticeIn);
     return false;
   }
   returnAttached(id);

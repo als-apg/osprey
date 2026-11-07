@@ -117,6 +117,7 @@ function settleBootLayout() {
 // chain (panel-iframe-sync reads the live session id from it), so a whole-module
 // stub would strand that reader — these are partial mocks, registered per
 // import next to the dock-iframe one below for the same freshness reason.
+const JS_DIR = '../../../src/osprey/interfaces/web_terminal/static/js';
 const TERMINAL_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/terminal.js';
 const SESSIONS_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/sessions.js';
 const { restartTerminal, startTerminal, focusTerminal, startNewSession } = vi.hoisted(() => ({
@@ -669,6 +670,48 @@ describe('rail state for custom panels without a health endpoint', () => {
   });
 });
 
+describe('a hub navigation of a detached frame', () => {
+  test('tells pane-window where the frame is going', async () => {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (/** @type {string} */ url) => {
+        if (url === '/api/panels') {
+          return jsonOk({
+            enabled: ['ariel'],
+            custom: [],
+            default: null,
+            visible: ['ariel'],
+            active: null,
+            labels: {},
+          });
+        }
+        if (url === '/api/ariel-server') return jsonOk({ url: '/panel/ariel', available: true });
+        return jsonOk({ status: 'ok' });
+      })
+    );
+    stubEventSource();
+    const mod = await freshImport();
+    await mod.initPanelManager('panel-manager');
+    await settled(() => expect(mod.getPanelStandaloneUrl('ariel')).not.toBeNull());
+    const entry = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="ariel"]'));
+    await settled(() => expect(entry.classList.contains('disabled')).toBe(false));
+    const { initLayoutHolder } = await import(`${JS_DIR}/dock-apply.js`);
+    const holder = initLayoutHolder({ dockPx: { width: 1200, height: 800 } });
+    holder.restore({ tile: 't1', tabs: ['ariel'], showing: 'ariel' });
+    mod.activateTab('ariel');
+    await settled(() =>
+      expect(document.querySelector('iframe[data-panel-id="ariel"]')).not.toBeNull()
+    );
+    holder.detach('ariel', '/panel/ariel/');
+
+    mod.navigateAndActivatePanel('ariel', '/panel/ariel/#entry?id=Z');
+
+    expect(holder.detachedEntry('ariel')?.page).toBe('/panel/ariel/#entry?id=Z');
+  });
+});
+
 describe('rail reachability — a panel that stops answering dims, stays clickable, recovers', () => {
   beforeEach(() => stampFacilityZone(FACILITY_ZONE));
 
@@ -763,6 +806,22 @@ describe('rail reachability — a panel that stops answering dims, stays clickab
     await tick();
     expect(entry.classList.contains('unreachable')).toBe(false);
     expect(entry.title).toBe(baseTitle);
+  });
+
+  test('a panel with a url that never answered stays blocked and opens no window', async () => {
+    const mod = (await bootPolled()) && (await import(`${JS_DIR}/panel-manager.js`));
+    const { initLayoutHolder } = await import(`${JS_DIR}/dock-apply.js`);
+    const paneWindow = await import(`${JS_DIR}/pane-window.js`);
+    initLayoutHolder({ dockPx: { width: 1200, height: 800 } });
+    const open = vi.fn();
+    vi.stubGlobal('open', open);
+
+    expect(mod.getPanelStandaloneUrl('jupyter')).not.toBeNull();
+    expect(paneWindow.detachBlocker('jupyter')).toBe('This panel has not loaded yet.');
+    expect(paneWindow.detach('jupyter')).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+    // The contrast: one that answered may go.
+    expect(paneWindow.detachBlocker('system-health')).toBeNull();
   });
 
   test('a panel that never answered stays disabled and is never marked unreachable', async () => {

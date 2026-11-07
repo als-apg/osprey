@@ -60,6 +60,9 @@ const contributions = new Map();
 const localDispatch = new Map();
 /** @type {Map<string, HTMLElement>} live contribution region per panel id */
 const hosts = new Map();
+/** @type {Map<string, AbortController>} what stops a host's own listeners */
+const hostListeners = new Map();
+
 /** @type {Map<string, ResizeObserver>} per-host overflow re-measurers */
 const observers = new Map();
 
@@ -244,31 +247,56 @@ export function contributeLocal(panelId, items, dispatch) {
  * @param {HTMLElement} host
  */
 export function registerContribHost(panelId, host) {
+  // The host this one replaces (a rebuilt tile, or a move into the pane's window)
+  // stops being watched; its tab may not be disposed until later, or at all.
+  const previous = hosts.get(panelId);
+  releaseHost(panelId);
+  if (previous && previous !== host) disposeItems(previous);
   hosts.set(panelId, host);
+  const listening = new AbortController();
+  hostListeners.set(panelId, listening);
+  const { signal } = listening;
   // A collapsed search expands (and re-collapses on blur) via delegation on
   // the host: the wrap elements come and go with every reconcile, while the
   // host lives as long as its TileTab — one listener each, never stacked.
-  host.addEventListener('click', (e) => {
-    const wrap = e.target instanceof Element ? e.target.closest('.contrib-search-collapsed') : null;
-    if (wrap instanceof HTMLElement) expandSearch(wrap);
-  });
-  host.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    const wrap = e.target instanceof Element ? e.target.closest('.contrib-search-collapsed') : null;
-    if (wrap instanceof HTMLElement) {
-      e.preventDefault();
-      expandSearch(wrap);
-    }
-  });
-  host.addEventListener('focusout', (e) => {
-    const wrap = e.target instanceof Element ? e.target.closest('.contrib-search') : null;
-    if (wrap instanceof HTMLElement && wrap.dataset.searchPinned) {
-      delete wrap.dataset.searchPinned;
-      applyOverflowLadder(panelId, host);
-    }
-  });
+  host.addEventListener(
+    'click',
+    (e) => {
+      const wrap =
+        e.target instanceof Element ? e.target.closest('.contrib-search-collapsed') : null;
+      if (wrap instanceof HTMLElement) expandSearch(wrap);
+    },
+    { signal }
+  );
+  host.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const wrap =
+        e.target instanceof Element ? e.target.closest('.contrib-search-collapsed') : null;
+      if (wrap instanceof HTMLElement) {
+        e.preventDefault();
+        expandSearch(wrap);
+      }
+    },
+    { signal }
+  );
+  host.addEventListener(
+    'focusout',
+    (e) => {
+      const wrap = e.target instanceof Element ? e.target.closest('.contrib-search') : null;
+      if (wrap instanceof HTMLElement && wrap.dataset.searchPinned) {
+        delete wrap.dataset.searchPinned;
+        applyOverflowLadder(panelId, host);
+      }
+    },
+    { signal }
+  );
   render(panelId, host);
-  const ro = new ResizeObserver(() => applyOverflowLadder(panelId, host));
+  // From the host's realm: an observer only hears the rendering of its own
+  // window, and a pane's window is not the hub's.
+  const Observer = host.ownerDocument.defaultView?.ResizeObserver ?? ResizeObserver;
+  const ro = new Observer(() => applyOverflowLadder(panelId, host));
   ro.observe(host);
   observers.set(panelId, ro);
 }
@@ -297,9 +325,26 @@ function expandSearch(wrap) {
 export function unregisterContribHost(panelId, host) {
   if (hosts.get(panelId) !== host) return;
   hosts.delete(panelId);
+  releaseHost(panelId);
+  disposeItems(host);
+}
+
+/**
+ * Stop watching the panel's registered host: its observer and its listeners.
+ * @param {string} panelId
+ */
+function releaseHost(panelId) {
   observers.get(panelId)?.disconnect();
   observers.delete(panelId);
-  // A menu popover lives on document.body, so it would outlive its button.
+  hostListeners.get(panelId)?.abort();
+  hostListeners.delete(panelId);
+}
+
+/**
+ * A menu popover lives on its document's body, so it would outlive its button.
+ * @param {HTMLElement} host
+ */
+function disposeItems(host) {
   for (const node of host.children) disposeItem(/** @type {HTMLElement} */ (node));
 }
 

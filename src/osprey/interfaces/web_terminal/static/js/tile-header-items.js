@@ -377,11 +377,21 @@ function patchNav(item, nav) {
 }
 
 /* ---- menu popover ----
- * Appended to document.body rather than inside the bar: the contribution
- * region is overflow:clip and only 36px tall, so an in-place popover would
- * be clipped to nothing. It closes on a capture-phase outside pointerdown, on
- * Escape, and on a resize or a scroll that moves its button, rather than
- * running a reposition loop. */
+ * Appended to its button's document's body rather than inside the bar: the
+ * contribution region is overflow:clip and only 36px tall, so an in-place popover
+ * would be clipped to nothing. That document may be a pane's own window, so every
+ * listener sits on it and its window, and a target may be of that window's realm.
+ * It closes on a capture-phase outside pointerdown, on Escape, on the window losing
+ * focus (a click into a panel's iframe never reaches this document), and on a resize
+ * or a scroll that moves its button, rather than running a reposition loop. */
+
+/**
+ * @param {unknown} target
+ * @returns {target is Node} whichever realm the node belongs to
+ */
+function isNode(target) {
+  return typeof (/** @type {any} */ (target)?.nodeType) === 'number';
+}
 
 /**
  * Open an empty popover anchored to btn and register it as THE open menu
@@ -392,14 +402,16 @@ function patchNav(item, nav) {
  */
 function openPopover(btn) {
   closeMenu();
+  const doc = btn.ownerDocument;
+  const view = doc.defaultView ?? window;
   const pop = document.createElement('div');
   pop.className = 'contrib-menu-popover';
   pop.setAttribute('role', 'menu');
-  document.body.appendChild(pop);
+  doc.body.appendChild(pop);
 
   const onDocDown = (/** @type {Event} */ e) => {
     const t = e.target;
-    if (t instanceof Node && (pop.contains(t) || btn.contains(t))) return;
+    if (isNode(t) && (pop.contains(t) || btn.contains(t))) return;
     closeMenu();
   };
   const onKey = (/** @type {KeyboardEvent} */ e) => {
@@ -410,22 +422,24 @@ function openPopover(btn) {
   // button closes it.
   const onReflow = (/** @type {Event} */ e) => {
     const t = e.target;
-    if (t instanceof Node && !t.contains(btn)) return;
+    if (isNode(t) && !t.contains(btn)) return;
     closeMenu();
   };
-  document.addEventListener('pointerdown', onDocDown, true);
-  document.addEventListener('keydown', onKey, true);
-  window.addEventListener('resize', onReflow);
-  window.addEventListener('scroll', onReflow, true);
+  doc.addEventListener('pointerdown', onDocDown, true);
+  doc.addEventListener('keydown', onKey, true);
+  view.addEventListener('resize', onReflow);
+  view.addEventListener('scroll', onReflow, true);
+  view.addEventListener('blur', closeMenu);
 
   openMenu = {
     btn,
     pop,
     off: () => {
-      document.removeEventListener('pointerdown', onDocDown, true);
-      document.removeEventListener('keydown', onKey, true);
-      window.removeEventListener('resize', onReflow);
-      window.removeEventListener('scroll', onReflow, true);
+      doc.removeEventListener('pointerdown', onDocDown, true);
+      doc.removeEventListener('keydown', onKey, true);
+      view.removeEventListener('resize', onReflow);
+      view.removeEventListener('scroll', onReflow, true);
+      view.removeEventListener('blur', closeMenu);
     },
   };
   btn.setAttribute('aria-expanded', 'true');
@@ -547,10 +561,11 @@ function place(pop, btn) {
   const w = pop.offsetWidth;
   const h = pop.offsetHeight;
   const margin = 4;
+  const view = btn.ownerDocument.defaultView ?? window;
   let left = r.right - w;
   let top = r.bottom + margin;
-  left = Math.max(margin, Math.min(left, window.innerWidth - w - margin));
-  if (top + h > window.innerHeight - margin) top = Math.max(margin, r.top - h - margin);
+  left = Math.max(margin, Math.min(left, view.innerWidth - w - margin));
+  if (top + h > view.innerHeight - margin) top = Math.max(margin, r.top - h - margin);
   pop.style.left = `${Math.round(left)}px`;
   pop.style.top = `${Math.round(top)}px`;
 }

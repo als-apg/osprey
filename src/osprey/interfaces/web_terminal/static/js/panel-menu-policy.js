@@ -333,14 +333,25 @@ export function openRailContextMenu(id, x, y) {
  * polling has since gone quiet.
  *
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
- * @param {{x: number, y: number, anchorEl: HTMLElement}} opts
+ * @param {{x: number, y: number, anchorEl: HTMLElement, mode?: import('./dock-tab.js').TileMode}} opts
  * @returns {boolean} true when a menu was opened
  */
 export function openTileContextMenu(id, opts) {
   // The header bar is the anchor — the menu rides out the panel's own scrolls,
   // including the terminal streaming output underneath it.
-  return openSurfaceMenu(id, opts.x, opts.y, opts.anchorEl);
+  return openSurfaceMenu(id, opts.x, opts.y, opts.anchorEl, {
+    mode: opts.mode ?? 'tile',
+    noticeIn: opts.anchorEl.ownerDocument,
+  });
 }
+
+/**
+ * Which bar a menu is for. A bar in the pane's own window (`mode: 'detached'`)
+ * offers nothing that acts on the dock or the sidebar's arrangement: there is no
+ * tile to focus, move or close from there. `noticeIn` is where a refused Reattach
+ * says so: the window the gesture came from.
+ * @typedef {{mode?: import('./dock-tab.js').TileMode, noticeIn?: Document}} MenuSurface
+ */
 
 /**
  * The shared tail of both surface openers: build the id's verb rows, decline
@@ -350,10 +361,12 @@ export function openTileContextMenu(id, opts) {
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
  * @param {number} x  @param {number} y
  * @param {HTMLElement} anchorEl  scopes the menu's scroll dismissal
+ * @param {MenuSurface} [surface]
  * @returns {boolean} true when a menu was opened
  */
-function openSurfaceMenu(id, x, y, anchorEl) {
-  const items = id === TERMINAL_RAIL_ID ? buildTerminalMenuItems() : buildServiceMenuItems(id);
+function openSurfaceMenu(id, x, y, anchorEl, surface) {
+  const items =
+    id === TERMINAL_RAIL_ID ? buildTerminalMenuItems(surface) : buildServiceMenuItems(id, surface);
   // No rows is a decline, never an empty popover.
   if (!items.length) return false;
   const label = id === TERMINAL_RAIL_ID ? TERMINAL_PANE_LABEL : ctx().labelOf(id);
@@ -402,9 +415,11 @@ export function setServiceMenuExtras(panelId, fn) {
  * membership row is "Pin to rail", which adds it where any new member goes,
  * and there is no sidebar row to move.
  * @param {string} id
+ * @param {MenuSurface} [surface]
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
-export function buildServiceMenuItems(id) {
+export function buildServiceMenuItems(id, { mode = 'tile', noticeIn } = {}) {
+  const inWindow = mode === 'detached';
   const label = ctx().labelOf(id);
   const member = ctx().isMember(id);
   const popped = isDetached(id);
@@ -416,20 +431,22 @@ export function buildServiceMenuItems(id) {
     // "Focus" and made the panel disappear would say the opposite of what it
     // does, so on the already-active panel this row is deliberately a no-op.
     // Off the rail it is focused without the report a member's focus sends.
-    { label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) },
+    ...(inWindow
+      ? []
+      : [{ label: `Focus ${label}`, run: () => ctx().activateTab(id, { userInitiated: member }) }]),
     ...(popped ? [] : [newTile]),
     // Pop out is the tile's own button, so it is offered while the panel has a
     // tile.
-    ...(!popped && isPanelDocked(id) ? [paneWindowRow(id)] : []),
+    ...(!popped && isPanelDocked(id) ? [paneWindowRow(id, noticeIn)] : []),
     popped
-      ? { label: 'Bring back', glyph: '⊟', run: () => reattach(id) }
+      ? { label: 'Bring back', glyph: '⊟', run: () => reattach(id, noticeIn) }
       : {
           label: 'Open in new window',
           glyph: '↗',
           disabled: detachBlocker(id) !== null,
           run: () => detach(id),
         },
-    ...(member ? groupMoveItems(id) : []),
+    ...(member && !inWindow ? groupMoveItems(id) : []),
     { divider: true },
     // The one server-side membership change in the menu.
     member
@@ -487,11 +504,12 @@ function moveToNewGroup(id) {
  * The tile header's Pop out button as a row (pane-window.js): Pop out, or
  * Reattach while the content is in its window.
  * @param {string} id  service panel id, or TERMINAL_RAIL_ID
+ * @param {Document} [noticeIn]  where a refused Reattach says so
  * @returns {import('./panel-context-menu.js').MenuItem}
  */
-function paneWindowRow(id) {
+function paneWindowRow(id, noticeIn) {
   return isDetached(id)
-    ? { label: 'Reattach', glyph: '⊟', run: () => reattach(id) }
+    ? { label: 'Reattach', glyph: '⊟', run: () => reattach(id, noticeIn) }
     : { label: 'Pop out', glyph: '⧉', disabled: detachBlocker(id) !== null, run: () => detach(id) };
 }
 
@@ -523,24 +541,28 @@ function closedAgentRows() {
  * In chat the tile hosts the operator console, so the PTY verb would act on a
  * surface the operator cannot see and is withheld (the palette never offers
  * it). The layout rows are the same on both surfaces.
+ * @param {MenuSurface} [surface]
  * @returns {import('./panel-context-menu.js').MenuItem[]}
  */
-export function buildTerminalMenuItems() {
-  const layout = [
-    { divider: true },
-    { label: 'Reset layout', run: () => resetDockLayout() },
-    { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },
-  ];
+export function buildTerminalMenuItems({ mode = 'tile', noticeIn } = {}) {
+  const layout =
+    mode === 'detached'
+      ? []
+      : [
+          { divider: true },
+          { label: 'Reset layout', run: () => resetDockLayout() },
+          { label: 'Close Agent pane', glyph: '×', danger: true, run: () => closeTerminalTile() },
+        ];
   if (!isTerminalSurface()) {
     return [
-      paneWindowRow(TERMINAL_RAIL_ID),
+      paneWindowRow(TERMINAL_RAIL_ID, noticeIn),
       // The conversation as a Markdown file (chat-export.js).
       { label: 'Export conversation', run: () => void exportConversation() },
       ...layout,
     ];
   }
   return [
-    paneWindowRow(TERMINAL_RAIL_ID),
+    paneWindowRow(TERMINAL_RAIL_ID, noticeIn),
     // restartTerminal tears the PTY down but does NOT reconnect — pairing it
     // with startTerminal is what keeps the card from being left stranded. The
     // palette's "Restart terminal" runs the identical pair.

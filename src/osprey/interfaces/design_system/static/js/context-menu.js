@@ -30,7 +30,13 @@
  *     an unscoped listener would dismiss on any inner scroller's own scrolls,
  *     the terminal's streaming output above all.
  *
- * Focus contract — opening records `document.activeElement` and focuses the
+ * Documents — the menu opens in the anchor's document (`document` with no
+ * anchor), which may be a window of its own (the web terminal's detached panes):
+ * it mounts on that body, clamps to that viewport, and hears dismissal on that
+ * document and its window. The press and scroll targets may belong to that
+ * window's realm, so nothing here tests them with `instanceof Node`.
+ *
+ * Focus contract — opening records the document's `activeElement` and focuses the
  * first enabled row. That focus is handed back only on the KEYBOARD dismissals
  * (Escape/Tab) and on close-before-run, where it is restored before the action
  * runs so an action that moves focus itself still wins. Pointer, blur, scroll
@@ -95,6 +101,20 @@ let anchorEl = null;
 /** @type {HTMLElement | null} what had focus when the menu opened */
 let previousFocus = null;
 
+/** @type {Document | null} the document the open menu lives in */
+let ownerDoc = null;
+
+/** @type {(Window & typeof globalThis) | null} that document's window */
+let ownerView = null;
+
+/**
+ * @param {unknown} target
+ * @returns {target is Node} whichever realm the node belongs to
+ */
+function isNode(target) {
+  return typeof (/** @type {any} */ (target)?.nodeType) === 'number';
+}
+
 /** @returns {string} selector for the open menu's enabled rows */
 function enabledRows() {
   return `.${prefix}-item:not([aria-disabled="true"])`;
@@ -102,7 +122,7 @@ function enabledRows() {
 
 /** @param {MouseEvent} e */
 function onDocPointerDown(e) {
-  if (menuEl && e.target instanceof Node && !menuEl.contains(e.target)) dismiss(false);
+  if (menuEl && isNode(e.target) && !menuEl.contains(e.target)) dismiss(false);
 }
 
 /** @param {KeyboardEvent} e */
@@ -123,7 +143,7 @@ function onDocKeydown(e) {
     e.stopPropagation();
     const rows = /** @type {HTMLElement[]} */ ([...menuEl.querySelectorAll(enabledRows())]);
     if (!rows.length) return;
-    const idx = rows.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+    const idx = rows.indexOf(/** @type {HTMLElement} */ (ownerDoc?.activeElement));
     const next =
       e.key === 'ArrowDown'
         ? rows[(idx + 1 + rows.length) % rows.length]
@@ -149,11 +169,11 @@ function onWindowResize() {
  */
 function onDocScroll(e) {
   if (!menuEl) return;
-  if (e.target === document) {
+  if (e.target === ownerDoc) {
     dismiss(false);
     return;
   }
-  if (anchorEl && e.target instanceof Node && e.target.contains(anchorEl)) dismiss(false);
+  if (anchorEl && isNode(e.target) && e.target.contains(anchorEl)) dismiss(false);
 }
 
 /**
@@ -168,12 +188,23 @@ function dismiss(restoreFocus) {
   anchorEl = null;
   const restoreTo = previousFocus;
   previousFocus = null;
-  document.removeEventListener('pointerdown', onDocPointerDown, true);
-  document.removeEventListener('keydown', onDocKeydown, true);
-  document.removeEventListener('scroll', onDocScroll, true);
-  window.removeEventListener('blur', onWindowBlur);
-  window.removeEventListener('resize', onWindowResize);
+  ownerDoc?.removeEventListener('pointerdown', onDocPointerDown, true);
+  ownerDoc?.removeEventListener('keydown', onDocKeydown, true);
+  ownerDoc?.removeEventListener('scroll', onDocScroll, true);
+  ownerView?.removeEventListener('blur', onWindowBlur);
+  ownerView?.removeEventListener('resize', onWindowResize);
+  ownerDoc = null;
+  ownerView = null;
   if (restoreFocus && restoreTo && restoreTo.isConnected) restoreTo.focus();
+}
+
+/**
+ * Close the open menu, if any, without moving focus: the surface it belongs to is
+ * going away.
+ * @returns {void}
+ */
+export function closeContextMenu() {
+  dismiss(false);
 }
 
 /**
@@ -256,11 +287,16 @@ export function openContextMenu(opts) {
   // Capture the focus to hand back BEFORE tearing down any open menu — when
   // one menu replaces another the active element is the old menu's row, so
   // the earlier capture is the one worth keeping.
-  const active = document.activeElement;
-  const held = menuEl && active instanceof Node && menuEl.contains(active) ? previousFocus : active;
+  const doc = opts.anchorEl?.ownerDocument ?? document;
+  const view = /** @type {Window & typeof globalThis} */ (doc.defaultView ?? window);
+  const active = (ownerDoc ?? doc).activeElement;
+  const held = menuEl && isNode(active) && menuEl.contains(active) ? previousFocus : active;
   dismiss(false);
-  previousFocus = held instanceof HTMLElement ? held : null;
+  // Not `instanceof HTMLElement`: the active element may be of a window's realm.
+  previousFocus = /** @type {HTMLElement | null} */ (held);
   anchorEl = opts.anchorEl ?? null;
+  ownerDoc = doc;
+  ownerView = view;
   prefix = opts.classPrefix || DEFAULT_PREFIX;
 
   const menu = document.createElement('div');
@@ -275,23 +311,23 @@ export function openContextMenu(opts) {
 
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
-  document.body.appendChild(menu);
+  doc.body.appendChild(menu);
   menuEl = menu;
 
   // Clamp into the viewport: near the right/bottom edge the menu flips to
   // sit on the cursor's other side rather than overflowing.
   const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
-  if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
+  if (rect.right > view.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
+  if (rect.bottom > view.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
 
   // Capture-phase pointerdown (not click) so a drag started outside also
   // dismisses, and before the outside target acts on the press. Scroll is
   // capture-phase because element scrolls do not bubble.
-  document.addEventListener('pointerdown', onDocPointerDown, true);
-  document.addEventListener('keydown', onDocKeydown, true);
-  document.addEventListener('scroll', onDocScroll, true);
-  window.addEventListener('blur', onWindowBlur);
-  window.addEventListener('resize', onWindowResize);
+  doc.addEventListener('pointerdown', onDocPointerDown, true);
+  doc.addEventListener('keydown', onDocKeydown, true);
+  doc.addEventListener('scroll', onDocScroll, true);
+  view.addEventListener('blur', onWindowBlur);
+  view.addEventListener('resize', onWindowResize);
 
   const first = /** @type {HTMLElement | null} */ (menu.querySelector(enabledRows()));
   first?.focus();

@@ -162,7 +162,7 @@ describe('the Agent tile header', () => {
     paneWindow.isDetached.mockReturnValue(true);
     items = policy.buildTerminalMenuItems();
     items.find((i) => i.label === 'Reattach')?.run?.();
-    expect(paneWindow.reattach).toHaveBeenCalledExactlyOnceWith(TERMINAL_RAIL_ID);
+    expect(paneWindow.reattach).toHaveBeenCalledExactlyOnceWith(TERMINAL_RAIL_ID, undefined);
     paneWindow.isDetached.mockReturnValue(false);
   });
 
@@ -278,5 +278,28 @@ describe('the Agent row’s click', () => {
     expect(sidebar.isListOpen('agent')).toBe(false);
     await Promise.resolve();
     expect(tree.toggleAllSessions).not.toHaveBeenCalled();
+  });
+});
+
+describe('the Agent bar in its own window', () => {
+  const labels = (/** @type {any[]} */ items) => items.map((i) => i.label).filter(Boolean);
+
+  test('offers nothing that acts on the dock', () => {
+    surface.terminal = true;
+    expect(labels(policy.buildTerminalMenuItems({ mode: 'detached' }))).toEqual([
+      'Pop out',
+      'Restart terminal',
+    ]);
+    surface.terminal = false;
+    expect(labels(policy.buildTerminalMenuItems({ mode: 'detached' }))).toEqual([
+      'Pop out',
+      'Export conversation',
+    ]);
+  });
+
+  test('the docked bar is as it was', () => {
+    surface.terminal = false;
+    expect(labels(policy.buildTerminalMenuItems())).toContain('Reset layout');
+    expect(labels(policy.buildTerminalMenuItems({ mode: 'tile' }))).toContain('Close Agent pane');
   });
 });

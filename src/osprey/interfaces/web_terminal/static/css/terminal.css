@@ -1979,30 +1979,16 @@ html[data-sidebar-resizing] {
 }
 
 /* ---- Attached pop-out window ----
-   The window's own bar (attached-window.js): the pane's name and Reattach,
-   in a tile header bar's metrics and type (dockview-overrides.css .tile-tab).
+   The window's bar is the tile's own (dock-tab.js, dockview-overrides.css
+   .tile-tab), minus what the dock gives a tile's bar: its row, and a drag.
    The pane fills the rest of the window edge to edge. */
-.attached-window-bar {
+.attached-window-root > .tile-tab {
   flex: 0 0 var(--wt-pane-head-height);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   box-sizing: border-box;
   height: var(--wt-pane-head-height);
-  padding: 0 var(--space-2) 0 var(--space-4);
   background: var(--surface-card);
   border-bottom: 1px solid var(--surface-hairline);
-}
-.attached-window-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  color: var(--text-primary);
+  cursor: default;
 }
 /* The Agent pane is the window's interior, as it is the tile's when docked
    (dockview-overrides.css .dock-root .terminal-card): no inset, no second

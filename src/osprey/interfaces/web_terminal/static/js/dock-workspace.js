@@ -307,6 +307,7 @@ export function initDockWorkspace() {
     agentPaneContent: () => agentContent,
     fitAgent: fitTerminal,
     withEchoSuppressed,
+    createTileTab,
   });
 
   // Bind dockview's light/dark base theme (root classes + the api's own theme

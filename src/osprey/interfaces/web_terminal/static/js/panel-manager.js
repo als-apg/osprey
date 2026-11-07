@@ -104,6 +104,7 @@ import {
 import { initAgentAttention, flashAgentTile, clearBadge } from './panel-agent-attention.js';
 import { subscribePanelEvents } from './panel-sse.js';
 import { detachBlocker, focusWindow, initPaneWindow, onDetachedChange } from './pane-window.js';
+import { noteDetachedNavigation } from './pane-window.js';
 import { isDetached } from './dock-apply.js';
 import { showUndoNotice } from './undo-notice.js';
 import { subscribe as subscribeTheme } from '/design-system/js/theme-manager.js';
@@ -387,12 +388,14 @@ export async function initPanelManager(panelId) {
     sendThemeToIframe,
     subscribeTheme,
     withEchoSuppressed,
-    canLoadFrame: (id) => getPanelStandaloneUrl(id) !== null,
+    // An address alone is not enough: a panel that has not answered would open
+    // a window on an error page, and nothing reloads a frame there.
+    canLoadFrame: (id) => !!panelState[id]?.healthy && getPanelStandaloneUrl(id) !== null,
     loadFrame: (id) => createIframe(id, { dock: false }),
     clearAccent: (id) => {
       if (activeTabId === id) markSurfaced(null);
     },
-    showNotice: (message) => showUndoNotice({ message }),
+    showNotice: (message, doc) => showUndoNotice({ message, doc }),
   });
   onDetachedChange((id, out) => {
     if (id !== TERMINAL_RAIL_ID) setEntryPoppedOut(railEl, id, out);
@@ -403,6 +406,12 @@ export async function initPanelManager(panelId) {
   // it through the engine and the holder — and the landing reveals it through
   // the same activate/show tail every other open path uses.
   initRailDrag({ onRailDrop: landDroppedPanel, labelOf });
+
+  // The dock boots beside this function, not after it, so the Agent tile is on
+  // screen for as long as the panel list below takes (seconds, on a loaded host).
+  // Its verbs need no panel list; a service tile's do, and it keeps the browser's
+  // menu until the list has come.
+  setTileContextMenuHandler((id, opts) => id === TERMINAL_RAIL_ID && openTileContextMenu(id, opts));
 
   // Fetch panel config and filter PANELS before rendering
   let panelConfig = null;
@@ -917,6 +926,7 @@ function navigatePanel(panelId, url) {
   if (!state.healthy) return;
 
   if (navigateInPlace(state, url)) return; // the document routes it, keeping its state
+  noteDetachedNavigation(panelId, url);
   // Through frame resolution, as at first load: an opaque panel is re-framed
   // at a freshly minted cap (its old one may have lapsed), a first-party one
   // at the plain url, which buildEmbedSrc keeps verbatim (already prefixed).

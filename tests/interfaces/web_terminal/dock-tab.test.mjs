@@ -818,6 +818,7 @@ describe('the bars on a real dock', () => {
       x: 40,
       y: 12,
       anchorEl: barOf('t1'),
+      mode: 'tile',
     });
     expect(press.defaultPrevented).toBe(true);
     mod.setTileContextMenuHandler(null);
@@ -842,5 +843,184 @@ describe('the bars on a real dock', () => {
     api.getPanel('iframe:ariel').api.setTitle('KNOWLEDGE');
     expect(barOf('t1').querySelector('.tile-tab-title')?.textContent).toBe('Knowledge');
     expect(barOf('t1').getAttribute('aria-label')).toBe('Knowledge');
+  });
+});
+
+/**
+ * The contract S3's renderer keeps: a bar in the pane's own window is this same
+ * TileTab in `mode: 'detached'`, with Reattach far right, a name, and no verb that
+ * acts on the dock.
+ */
+describe('the bar of a pane in its own window', () => {
+  const REATTACH = { mode: 'detached' };
+
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = '';
+  });
+
+  test('Reattach is the far-right slot, alone: no open-in-window button and no ×', async () => {
+    const { createTileTab } = await import(MOD);
+    const onReattach = vi.fn();
+    const tab = createTileTab('ariel', { mode: 'detached', onReattach });
+    tab.init({ title: 'ARIEL' });
+    const actions = tab.element.querySelector('.tile-tab-actions');
+    expect(tab.element.lastElementChild).toBe(actions);
+    expect(actions.children).toHaveLength(1);
+    const reattach = actions.lastElementChild;
+    expect(reattach.classList.contains('tile-tab-reattach')).toBe(true);
+    expect(reattach.textContent).toBe('Reattach');
+    expect(reattach.title).toBe('Put Ariel back in the workspace');
+    expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
+    expect(tab.element.querySelector('.tile-tab-close')).toBeNull();
+    reattach.click();
+    expect(onReattach).toHaveBeenCalledTimes(1);
+  });
+
+  test('it has the pane’s name, and no tile', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('ariel', REATTACH);
+    tab.init({ title: 'ARIEL' });
+    expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('Ariel');
+    expect(tab.element.getAttribute('aria-label')).toBe('Ariel');
+    expect(tab.element.dataset.tile).toBeUndefined();
+  });
+
+  test('a docked bar keeps its two buttons and no Reattach', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    expect(tab.element.querySelector('.tile-tab-reattach')).toBeNull();
+    expect(tab.element.querySelector('.tile-tab-popout')).not.toBeNull();
+    expect(tab.element.querySelector('.tile-tab-close')).not.toBeNull();
+  });
+
+  test('the contribution host registers from the window, at attached(), not at build', async () => {
+    const { createTileTab } = await import(MOD);
+    const contrib = await import(`${JS}/tile-header-contrib.js`);
+    const dispatch = vi.fn();
+    contrib.contributeLocal('ariel', [{ kind: 'text', id: 'a', text: 'hello' }], dispatch);
+    const tab = createTileTab('ariel', REATTACH);
+    tab.init({ title: 'ARIEL' });
+    const host = tab.element.querySelector('.tile-tab-contrib');
+    expect(host.children).toHaveLength(0);
+    document.body.append(tab.element);
+    tab.attached();
+    expect(host.textContent).toContain('hello');
+    tab.dispose();
+    const next = createTileTab('ariel', REATTACH);
+    next.init({ title: 'ARIEL' });
+    document.body.append(next.element);
+    next.attached();
+    expect(next.element.querySelector('.tile-tab-contrib').textContent).toContain('hello');
+    next.dispose();
+  });
+
+  test('a right-click asks for the menu with the mode at that moment, Agent bar included', async () => {
+    const { createTileTab, setTerminalConsoleBarSource, setTileContextMenuHandler } = await import(
+      MOD
+    );
+    const { initLayoutHolder } = await import(`${JS}/dock-apply.js`);
+    const holder = initLayoutHolder({ dockPx: { width: 1200, height: 800 } });
+    holder.restore({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['ariel'], showing: 'ariel', size: 0.5 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.5 },
+      ],
+    });
+    /** @type {any} */
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const bar = detachedConsoleBar();
+    setTerminalConsoleBarSource(bar);
+    const led = /** @type {HTMLElement} */ (bar.querySelector('.op-session-led'));
+    const docked = createTileTab('terminal');
+    document.body.append(docked.element);
+    led.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(handler.mock.lastCall?.[1].mode).toBe('tile');
+
+    // The same node, wired once, in the window.
+    holder.detach('terminal', null);
+    docked.dispose();
+    const tab = createTileTab('terminal', REATTACH);
+    document.body.append(tab.element);
+    expect(tab.element.contains(bar)).toBe(true);
+    led.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(handler.mock.lastCall?.[0]).toBe('terminal');
+    expect(handler.mock.lastCall?.[1].mode).toBe('detached');
+    tab.dispose();
+  });
+
+  test('disposed, it sends the Agent bar home, intact', async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    const bar = detachedConsoleBar();
+    const home = bar.parentElement;
+    const first = home?.firstElementChild;
+    expect(first).toBe(bar);
+    setTerminalConsoleBarSource(bar);
+    home?.append(document.createElement('main'));
+    const tab = createTileTab('terminal', REATTACH);
+    expect(tab.element.contains(bar)).toBe(true);
+    expect(bar.querySelector('.op-session-new')).not.toBeNull();
+    tab.dispose();
+    expect(bar.parentElement).toBe(home);
+    expect(home?.firstElementChild).toBe(bar);
+    expect(bar.querySelector('.op-session-new')).not.toBeNull();
+  });
+
+  test('a tile that adopted the Agent bar first keeps it when the window’s bar goes', async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    const bar = detachedConsoleBar();
+    setTerminalConsoleBarSource(bar);
+    const inWindow = createTileTab('terminal', REATTACH);
+    const docked = createTileTab('terminal');
+    expect(docked.element.contains(bar)).toBe(true);
+    inWindow.dispose();
+    expect(docked.element.contains(bar)).toBe(true);
+  });
+
+  test('a tile bar disposed in the dock leaves the Agent bar for its reopen, as it did', async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    const bar = detachedConsoleBar();
+    setTerminalConsoleBarSource(bar);
+    const docked = createTileTab('terminal');
+    docked.dispose();
+    expect(docked.element.contains(bar)).toBe(true);
+  });
+});
+
+describe('a window bar going away takes what it opened', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = '';
+  });
+
+  test('an open popover and an open context menu close', async () => {
+    const { createTileTab } = await import(MOD);
+    const { openPopover } = await import('/design-system/js/popover.js');
+    const { openContextMenu } = await import('/design-system/js/context-menu.js');
+    const tab = createTileTab('ariel', { mode: 'detached' });
+    tab.init({ title: 'ARIEL' });
+    document.body.append(tab.element);
+    tab.attached();
+    const anchor = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-reattach'));
+    const pop = document.createElement('div');
+    pop.className = 'osprey-popover';
+    pop.hidden = true;
+    document.body.append(pop);
+    openPopover(pop, anchor);
+    openContextMenu({
+      x: 1,
+      y: 1,
+      anchorEl: anchor,
+      ariaLabel: 'Actions',
+      items: [{ label: 'A' }],
+    });
+    expect(pop.hidden).toBe(false);
+    expect(document.querySelector('.osprey-context-menu')).not.toBeNull();
+    tab.dispose();
+    expect(pop.hidden).toBe(true);
+    expect(document.querySelector('.osprey-context-menu')).toBeNull();
   });
 });

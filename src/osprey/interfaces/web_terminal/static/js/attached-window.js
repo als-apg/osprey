@@ -4,9 +4,9 @@
  * A window the hub drives: the hub opens it on a shell page of its own
  * (static/attached-window.html — a real same-origin URL, so the address bar
  * shows the hub's address and the window takes the hub's zoom), mirrors its
- * stylesheets and its <html> attributes (theme, view, Agent state) into it, puts
- * a bar with the pane's name and Reattach on top, and moves a live node of its
- * own page under it. The node keeps every listener, every reference the hub's
+ * stylesheets and its <html> attributes (theme, view, Agent state) into it, and
+ * moves a live node of its own page under them; the caller puts its bar on top
+ * from `onDress`. The node keeps every listener, every reference the hub's
  * modules hold and every connection behind it, because nothing is rebuilt: the
  * hub still runs it, the window only shows it. This is the mechanic of Canopy's
  * DetachedWindow (react-trace), without React: a node move where Canopy renders
@@ -43,6 +43,11 @@
  * `pagehide` the window is watched for a NEW document carrying the marker: a
  * reload, which {@link dressWindow} dresses again with the same node. A window
  * whose marker does not come back was navigated away (`onShellLost`).
+ *
+ * The node leaves at that `pagehide`, while its listeners are still on it: a
+ * browser strips every listener from a document it discards, nodes included, and
+ * the node has to work when the next document takes it in. The same goes for
+ * whatever the caller put in the window, so `onPageHide` takes its own out.
  *
  * Cross-document moves reload an iframe: a browser discards a frame's
  * document when the frame leaves its document. A panel iframe therefore loads
@@ -95,16 +100,15 @@ const MOUNT_STYLE =
  * @property {string} key - one window per key
  * @property {string} name - the window's name; a window left under it is reused
  * @property {string} title - the window's title
- * @property {string} [label] - the name on the window's bar (default: `title`)
  * @property {HTMLElement} content - the live node that moves into the window
  * @property {HTMLElement} anchor - hidden; takes the node's place meanwhile
  * @property {() => boolean} [beforeMove] - the shell has loaded, once; false
  *   closes the window and moves nothing
  * @property {() => void} [beforeDress] - before each move into a dressed shell
  * @property {(mount: HTMLElement) => void} [onDress] - the node is in the window
- *   (again, after a reload of the shell)
- * @property {() => void} [onReattach] - the bar's Reattach was pressed
- * @property {() => void} [onPageHide] - the shell page is going away
+ *   (again, after a reload of the shell); `mount` holds it, ready for a bar above it
+ * @property {() => void} [onPageHide] - the shell page is going away; what the
+ *   caller keeps and has in the window leaves now
  * @property {() => void} [onShellLost] - the shell did not come back after a
  *   `pagehide`, and the window is still open
  * @property {() => void} [onResize] - the window was resized
@@ -244,8 +248,7 @@ function moveIn(entry) {
 
 /**
  * Put the loaded shell in order — the hub's stylesheets and <html> attributes,
- * the bar, the window's listeners — and move the node under the bar. The one
- * path for a new window and for a reload of the shell, which brings a new
+ * the window's listeners — and move the node into it. The one path for a new window and for a reload of the shell, which brings a new
  * document with nothing on it.
  * @param {Attached} entry
  */
@@ -266,7 +269,6 @@ function dressWindow(entry) {
   const mount = doc.createElement('div');
   mount.className = 'attached-window-root';
   mount.style.cssText = MOUNT_STYLE;
-  mount.append(buildBar(doc, spec));
   doc.body.append(mount);
 
   runHook(spec.beforeDress);
@@ -287,6 +289,7 @@ function dressWindow(entry) {
   };
   const onPageHide = () => {
     runHook(spec.onPageHide);
+    content.remove();
     entry.teardown();
     waitForShell(
       entry,
@@ -308,29 +311,6 @@ function dressWindow(entry) {
   };
   entry.ready = true;
   runHook(() => spec.onDress?.(mount));
-}
-
-/**
- * The window's bar: the pane's name and Reattach, in the look of a tile's
- * header bar (`.attached-window-bar`, terminal.css).
- * @param {Document} doc
- * @param {AttachSpec} spec
- * @returns {HTMLElement}
- */
-function buildBar(doc, spec) {
-  const bar = doc.createElement('header');
-  bar.className = 'attached-window-bar';
-  const name = doc.createElement('span');
-  name.className = 'attached-window-title';
-  name.textContent = spec.label ?? spec.title;
-  const back = doc.createElement('button');
-  back.type = 'button';
-  back.className = 'osprey-btn attached-window-reattach';
-  back.textContent = 'Reattach';
-  back.title = 'Put this back in its tile and close the window';
-  back.addEventListener('click', () => spec.onReattach?.());
-  bar.append(name, back);
-  return bar;
 }
 
 /**

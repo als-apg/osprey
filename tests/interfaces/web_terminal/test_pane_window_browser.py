@@ -15,18 +15,29 @@ the tile leaves the dock. Pins:
   window open brings it back docked (R7).
 - An agent's arrangement naming a detached panel is refused by name and changes
   nothing.
+- The window's bar is the tile's own: the panel's contributed search and menu work
+  there and its overflow ladder follows the window's width, a right-click opens
+  there without the dock's verbs, Reattach is top right, and a reload of the window
+  keeps all of it on the same page (R10).
 """
 
 from __future__ import annotations
 
 import json
 import re
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 
 import pytest
 from docs.screenshots.contact_sheet import hermetic_hub
 
-from tests.interfaces.web_terminal.test_panels_browser import _palette_live_server
+from tests.interfaces.web_terminal.test_panels_browser import (
+    _contributing_panel,
+    _live_server,
+    _open_second_tile,
+    _palette_live_server,
+    _search_menu_panel_backend,
+    _service_tab,
+)
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -45,8 +56,9 @@ _COMPOSER = '#operator-container textarea[aria-label="Message the agent"]'
 _AGENT_TILE = '.tile-tab[data-panel-id="terminal"]'
 _ARTIFACTS_TILE = '.tile-tab[data-panel-id="iframe:artifacts"]'
 _ARTIFACTS_FRAME = 'iframe.panel-iframe[data-panel-id="artifacts"]'
-_BAR_TITLE = ".attached-window-bar .attached-window-title"
-_BAR_REATTACH = ".attached-window-bar button.attached-window-reattach"
+_BAR = ".attached-window-root > .tile-tab"
+_BAR_REATTACH = f"{_BAR} button.tile-tab-reattach"
+_MENU = ".rail-context-menu"
 
 #: The dock as it stands: every tile bar's panel id, and the stored layouts.
 _DOCK_JS = """() => ({
@@ -148,12 +160,14 @@ def test_the_agent_pane_leaves_the_dock_chats_from_the_window_and_reattaches(hub
     # The window is on the hub's own shell page, not about:blank, and its bar
     # names the pane above the chat, which fills the window.
     assert popup.url == f"{hub.base_url.rstrip('/')}/static/attached-window.html"
-    expect(popup.locator(_BAR_TITLE)).to_have_text("Agent")
+    expect(popup.locator(f"{_BAR} .op-session-bar .op-session-led")).to_be_visible()
     expect(popup.locator(_BAR_REATTACH)).to_have_text("Reattach")
     # The mirrored stylesheets load on their own time, so the box settles once they have.
     popup.wait_for_function(
         """() => {
-          const bar = document.querySelector('.attached-window-bar').getBoundingClientRect();
+          const bar = document
+            .querySelector('.attached-window-root > .tile-tab')
+            .getBoundingClientRect();
           const pane = document
             .querySelector('.attached-window-root > .terminal-panel')
             .getBoundingClientRect();
@@ -559,3 +573,209 @@ def test_an_agent_arrangement_naming_a_detached_panel_is_refused_and_changes_not
     assert json.loads(body)["reason"] == "popped_out"
     assert _tiles(page) == before
     assert not popup.is_closed()
+
+
+@contextmanager
+def _panel_with_controls_in_a_window(tmp_path, chromium_browser):
+    """A panel contributing a search and a menu, detached, its window at 900 wide."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+    with _search_menu_panel_backend() as stub_url:
+        custom = _contributing_panel("search-demo", "SEARCHY", stub_url)
+        with _live_server(workspace, enabled_panels={"artifacts"}, custom_panels=[custom]) as (
+            base_url,
+            _app,
+        ):
+            ctx = chromium_browser.new_context(viewport={"width": 1400, "height": 900})
+            page = ctx.new_page()
+            page.goto(base_url, wait_until="domcontentloaded")
+            expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+            _open_second_tile(page, base_url, "search-demo", "SEARCHY")
+            tab = _service_tab(page, "SEARCHY")
+            expect(tab.locator(".contrib-search-input")).to_be_visible(timeout=_TIMEOUT_MS)
+            with page.expect_popup() as info:
+                tab.locator(".tile-tab-popout").click()
+            popup = info.value
+            expect(popup.locator(f"{_BAR} .contrib-search-input")).to_be_visible(
+                timeout=_TIMEOUT_MS
+            )
+            popup.set_viewport_size({"width": 900, "height": 600})
+            try:
+                yield page, popup
+            finally:
+                ctx.close()
+
+
+def test_a_detached_panel_shows_its_search_and_the_ladder_follows_the_window(
+    tmp_path, chromium_browser
+):
+    with _panel_with_controls_in_a_window(tmp_path, chromium_browser) as (_page, popup):
+        expect(popup.locator(f"{_BAR} .tile-tab-title")).to_have_text("Searchy")
+        search = popup.locator(f"{_BAR} .contrib-search")
+        expect(search).not_to_have_class(re.compile(r"contrib-search-collapsed"))
+
+        # The observer that hears this is the window's: the hub's never fires here.
+        popup.set_viewport_size({"width": 240, "height": 600})
+        expect(search).to_have_class(re.compile(r"contrib-search-collapsed"), timeout=5_000)
+
+        popup.set_viewport_size({"width": 900, "height": 600})
+        expect(search).not_to_have_class(re.compile(r"contrib-search-collapsed"), timeout=5_000)
+
+
+def test_a_contributed_menu_opens_in_the_window_and_closes_on_a_click_into_the_panel(
+    tmp_path, chromium_browser
+):
+    with _panel_with_controls_in_a_window(tmp_path, chromium_browser) as (page, popup):
+        popover = popup.locator(".contrib-menu-popover")
+        popup.locator(f"{_BAR} .contrib-menu-btn").click()
+        expect(popover).to_be_visible()
+        expect(popover.locator(".contrib-menu-item")).to_have_count(2)
+        expect(page.locator(".contrib-menu-popover")).to_have_count(0)
+
+        frame = popup.locator('iframe.panel-iframe[data-panel-id="search-demo"]').bounding_box()
+        popup.mouse.click(frame["x"] + frame["width"] / 2, frame["y"] + frame["height"] / 2)
+        expect(popover).to_have_count(0, timeout=5_000)
+
+        # A press on the bar itself: the window's own node, of the window's realm.
+        popup.locator(f"{_BAR} .contrib-menu-btn").click()
+        expect(popover).to_be_visible()
+        popup.locator(f"{_BAR} .tile-tab-title").click()
+        expect(popover).to_have_count(0, timeout=5_000)
+
+
+def test_a_right_click_on_the_window_bar_opens_there_without_the_docks_verbs(
+    tmp_path, chromium_browser
+):
+    with _panel_with_controls_in_a_window(tmp_path, chromium_browser) as (page, popup):
+        popup.locator(f"{_BAR} .tile-tab-title").click(button="right")
+        menu = popup.locator(_MENU)
+        expect(menu).to_be_visible(timeout=5_000)
+        expect(page.locator(_MENU)).to_have_count(0)
+        labels = menu.locator(".rail-context-label").all_inner_texts()
+        for verb in ("Focus", "Open in a new tile", "Move to", "Reset layout"):
+            assert not any(verb in label for label in labels), labels
+        assert labels, "the menu has rows"
+
+        popup.keyboard.press("Escape")
+        expect(menu).to_have_count(0, timeout=5_000)
+
+
+def test_a_right_click_on_the_agent_windows_bar_has_no_layout_rows(hub, page):
+    _boot(page, hub)
+    popup = _detach_agent(page)
+    popup.locator(f"{_BAR} .op-session-led").click(button="right")
+    menu = popup.locator(_MENU)
+    expect(menu).to_be_visible(timeout=5_000)
+    labels = menu.locator(".rail-context-label").all_inner_texts()
+    assert "Export conversation" in labels, labels
+    assert "Reset layout" not in labels, labels
+    assert "Close Agent pane" not in labels, labels
+
+
+def test_reattach_is_top_right_and_the_window_has_no_dock_buttons(hub, page):
+    _boot_with_artifacts(page, hub)
+    popups = [_detach_agent(page), _detach_artifacts(page)]
+    for popup in popups:
+        popup.set_viewport_size({"width": 800, "height": 600})
+        box = popup.locator(_BAR_REATTACH).bounding_box()
+        assert box["y"] < 40, box
+        assert box["x"] + box["width"] > 800 - 24, box
+        expect(popup.locator(f"{_BAR} .tile-tab-popout")).to_have_count(0)
+        expect(popup.locator(f"{_BAR} .tile-tab-close")).to_have_count(0)
+
+
+def test_reloading_a_service_panels_window_keeps_it_detached_on_its_page_with_its_bar(
+    tmp_path, chromium_browser
+):
+    with _panel_with_controls_in_a_window(tmp_path, chromium_browser) as (page, popup):
+        frame = 'iframe.panel-iframe[data-panel-id="search-demo"]'
+        # The bar shows the cached contribution before the moved frame has loaded,
+        # and a hash set on a frame still loading is lost with its first document.
+        popup.wait_for_function(
+            """(sel) => { const w = document.querySelector(sel).contentWindow;
+                return w.location.pathname.startsWith('/panel/search-demo')
+                  && w.document.readyState === 'complete'; }""",
+            arg=frame,
+            polling=100,
+            timeout=_TIMEOUT_MS,
+        )
+        popup.evaluate(
+            "(sel) => { document.querySelector(sel).contentWindow.location.hash = '#page-two'; }",
+            frame,
+        )
+        popup.reload(wait_until="domcontentloaded")
+
+        expect(popup.locator(f"{_BAR} .tile-tab-title")).to_have_text(
+            "Searchy", timeout=_TIMEOUT_MS
+        )
+        expect(popup.locator(f"{_BAR} .contrib-search-input")).to_be_visible(timeout=_TIMEOUT_MS)
+        expect(popup.locator(frame)).to_be_visible(timeout=_TIMEOUT_MS)
+        popup.wait_for_function(
+            "(sel) => document.querySelector(sel).contentWindow.location.hash === '#page-two'",
+            arg=frame,
+            polling=100,
+            timeout=_TIMEOUT_MS,
+        )
+        assert not any("search-demo" in tile for tile in _tiles(page))
+
+        # What was bound to the old document is bound to this one.
+        popup.locator(f"{_BAR} .contrib-menu-btn").click()
+        expect(popup.locator(".contrib-menu-popover")).to_be_visible()
+        popup.keyboard.press("Escape")
+        popup.locator(f"{_BAR} .tile-tab-title").click(button="right")
+        expect(popup.locator(_MENU)).to_be_visible(timeout=5_000)
+        popup.keyboard.press("Escape")
+
+        popup.locator(_BAR_REATTACH).click()
+        expect(_service_tab(page, "SEARCHY")).to_have_count(1, timeout=_TIMEOUT_MS)
+        expect(_service_tab(page, "SEARCHY").locator(".contrib-search-input")).to_be_visible(
+            timeout=_TIMEOUT_MS
+        )
+
+
+def test_reloading_the_agent_window_keeps_it_detached_with_its_bar_and_reattaches(hub, page):
+    _boot(page, hub)
+    popup = _detach_agent(page)
+    # A switcher left open over the reload must not swallow the next click.
+    popup.locator(f"{_BAR} .op-session-label").click()
+    expect(popup.locator("#session-switcher-menu")).to_be_visible(timeout=5_000)
+    popup.reload(wait_until="domcontentloaded")
+
+    expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(popup.locator(f"{_BAR} .op-session-bar .op-session-led")).to_be_visible(
+        timeout=_TIMEOUT_MS
+    )
+    expect(popup.locator(_BAR_REATTACH)).to_be_visible()
+    assert "terminal" not in _tiles(page)
+
+    # The console and its bar kept their listeners over the reload: a discarded
+    # document takes every listener on its nodes with it.
+    popup.locator(f"{_BAR} .op-session-led").click(button="right")
+    expect(popup.locator(_MENU)).to_be_visible(timeout=5_000)
+    popup.keyboard.press("Escape")
+    popup.locator(f"{_BAR} .op-session-label").click()
+    expect(popup.locator("#session-switcher-menu")).to_be_visible(timeout=5_000)
+    popup.keyboard.press("Escape")
+    expect(popup.locator("#session-switcher-menu")).to_be_hidden(timeout=5_000)
+    _send(popup.locator(_COMPOSER), "after the reload")
+    expect(popup.locator(".op-messages")).to_contain_text("after the reload", timeout=_TIMEOUT_MS)
+
+    popup.locator(_BAR_REATTACH).click()
+    expect(page.locator(_AGENT_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
+    expect(page.locator(f"{_AGENT_TILE} .op-session-bar .op-session-led")).to_be_visible()
+    expect(page.locator(_COMPOSER)).to_be_visible()
+
+
+def test_the_console_bar_comes_home_when_the_agent_window_closes(hub, page):
+    _boot(page, hub)
+    popup = _detach_agent(page)
+    expect(popup.locator(f"{_BAR} .op-session-new")).to_be_visible()
+    expect(page.locator(".op-session-bar")).to_have_count(0)
+
+    popup.close()
+    expect(page.locator("html")).to_have_attribute("data-agent", "closed", timeout=_TIMEOUT_MS)
+
+    # Reopened, the tile adopts the same bar, buttons and all.
+    page.evaluate("() => document.querySelector('#sidebar-agent-row')?.click()")
+    expect(page.locator(f"{_AGENT_TILE} .op-session-new")).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(page.locator(".op-session-bar")).to_have_count(1)

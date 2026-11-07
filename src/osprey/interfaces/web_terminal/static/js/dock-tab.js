@@ -22,6 +22,13 @@
  * Pop out, on every tile, moves the tile's content into a window the hub
  * drives and closes the tile (pane-window.js).
  *
+ * A pane in its own window keeps this same bar, built in `mode: 'detached'` and
+ * moved into the window (pane-window.js): the name, the contributed controls or
+ * the adopted Agent bar as above, with Reattach alone in the far-right slot and
+ * none of the tile's layout verbs. dockview plays no part there: the caller runs
+ * `init` with the title, moves `element` into the window, then calls `attached`,
+ * which registers what belongs to the window's document.
+ *
  * dockview builds one tab component per panel, so a tile has exactly one bar,
  * stretched over the tile by dockview's single-tab fullwidth mode
  * (dock-workspace.js). Registered via dockview's createTabComponent /
@@ -40,13 +47,22 @@
 
 import { TERMINAL_RAIL_ID, titleCase } from './panel-catalog.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
-import { PLACEHOLDER_PREFIX, TAB_KEY_ATTRIBUTE, TERMINAL_KEY, keyOfPanelId } from './dock-apply.js';
+import {
+  PLACEHOLDER_PREFIX,
+  TAB_KEY_ATTRIBUTE,
+  TERMINAL_KEY,
+  isDetached,
+  keyOfPanelId,
+} from './dock-apply.js';
 import { withEchoSuppressed } from './dock-sync.js';
 import { closeDockPanel } from './dock-workspace.js';
 import { closeTerminalTile } from './panel-menu-policy.js';
 import { detach, detachBlocker } from './pane-window.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
+import { closeContextMenu } from '/design-system/js/context-menu.js';
 import { icon } from '/design-system/js/icons.js';
+import { closeAllPopovers } from '/design-system/js/popover.js';
+import { initTooltips } from '/design-system/js/tooltip.js';
 
 /** @typedef {import('/static/vendor/dock-engine.mjs').Source} Source */
 /** @typedef {import('/static/vendor/dock-engine.mjs').TabRects} TabRects */
@@ -166,6 +182,18 @@ function syncAgentBar() {
 
 onSurfaceChange(syncAgentBar);
 
+/**
+ * A bar in a window is going away: an Agent bar it still holds goes back where it
+ * lives, out of a document that may be closing. A tile that has already adopted
+ * the bar keeps it, and one built later adopts it from there.
+ * @param {HTMLElement} root  the tab root letting go
+ */
+function sendAgentBarsHome(root) {
+  for (const bar of [terminalHeaderEl, terminalConsoleBarEl]) {
+    if (bar?.parentElement === root) barHomes.get(bar)?.prepend(bar);
+  }
+}
+
 /** Matches the interactive children of a bar: they act, they never drag. */
 const INTERACTIVE = 'button, select, input, a, [role="button"]';
 
@@ -184,8 +212,15 @@ let tileContextMenuHandler = null;
 /**
  * Where the menu should appear and what it belongs to. `anchorEl` is the
  * header bar: the menu scopes its scroll dismissal to it, so a panel
- * scrolling its own content underneath leaves the menu standing.
- * @typedef {{ x: number, y: number, anchorEl: HTMLElement }} TileMenuRequest
+ * scrolling its own content underneath leaves the menu standing. `mode` says
+ * whether the bar is on a tile or in the pane's own window, read when the menu is
+ * asked for: the Agent bar is wired once and travels between the two.
+ * @typedef {{ x: number, y: number, anchorEl: HTMLElement, mode: TileMode }} TileMenuRequest
+ */
+
+/**
+ * On a tile in the dock, or in the pane's own window.
+ * @typedef {'tile' | 'detached'} TileMode
  */
 
 /**
@@ -217,6 +252,7 @@ function wireTileContextMenu(el, idOf) {
       x: e.clientX,
       y: e.clientY,
       anchorEl: el,
+      mode: isDetached(id) ? 'detached' : 'tile',
     });
     if (opened) e.preventDefault();
   });
@@ -362,14 +398,47 @@ function buildPopoutButton(panelId) {
 }
 
 /**
+ * The far-right slot of a bar in the pane's own window.
+ * @param {(() => void) | undefined} onReattach
+ * @returns {HTMLButtonElement}
+ */
+function buildReattachButton(onReattach) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'tile-tab-reattach osprey-btn';
+  btn.textContent = 'Reattach';
+  btn.addEventListener('click', (e) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    onReattach?.();
+  });
+  return btn;
+}
+
+/**
+ * @typedef {object} TileTabOptions
+ * @property {TileMode} [mode] - default 'tile'
+ * @property {() => void} [onReattach] - the Reattach of a 'detached' bar
+ */
+
+/**
  * The tile-tab renderer (dockview ITabRenderer: element / init / dispose).
  */
 class TileTab {
-  /** @param {string} id  dockview panel id ('terminal' or 'iframe:<panelId>') */
-  constructor(id) {
+  /**
+   * @param {string} id  dockview panel id ('terminal' or 'iframe:<panelId>'), or
+   *   the bare panel id of a pane in its own window
+   * @param {TileTabOptions} [options]
+   */
+  constructor(id, { mode = 'tile', onReattach } = {}) {
     this._panelId = id;
+    this._mode = mode;
     /** @type {{ dispose: () => void }[]} */
     this._disposables = [];
+    /** @type {HTMLElement | null} Reattach (a bar in the pane's own window) */
+    this._reattachEl = null;
+    /** @type {(() => void) | null} stops the window's tooltips */
+    this._stopTooltips = null;
 
     const root = document.createElement('div');
     root.className = 'tile-tab';
@@ -420,7 +489,8 @@ class TileTab {
       this._servicePanelId = id.startsWith(PLACEHOLDER_PREFIX)
         ? id.slice(PLACEHOLDER_PREFIX.length)
         : id;
-      registerContribHost(this._servicePanelId, contrib);
+      // A bar on its way to a window registers from there (attached).
+      if (mode === 'tile') registerContribHost(this._servicePanelId, contrib);
       // The bar is the panel's second home for its verbs, alongside the
       // sidebar row. Wired per construction because a service tab's root IS
       // rebuilt with the tab — unlike the long-lived adopted Agent bar.
@@ -435,6 +505,15 @@ class TileTab {
       e.preventDefault();
       e.stopPropagation();
     });
+    root.appendChild(actions);
+    this._element = root;
+
+    if (mode === 'detached') {
+      this._reattachEl = buildReattachButton(onReattach);
+      actions.appendChild(this._reattachEl);
+      return;
+    }
+
     actions.appendChild(
       buildPopoutButton(terminal ? TERMINAL_RAIL_ID : (this._servicePanelId ?? id))
     );
@@ -458,9 +537,6 @@ class TileTab {
       );
     });
     actions.appendChild(close);
-    root.appendChild(actions);
-
-    this._element = root;
   }
 
   get element() {
@@ -469,6 +545,9 @@ class TileTab {
 
   /** @param {any} params  dockview TabPartInitParameters (title, params, api, …) */
   init(params) {
+    if (this._reattachEl) {
+      this._reattachEl.title = `Put ${titleCase(params.title ?? '')} back in the workspace`;
+    }
     // The tile id the bar belongs to, for the drop bridge's hit test and the
     // holder's focus restore; it follows the panel across group changes.
     const stamp = () => {
@@ -496,20 +575,44 @@ class TileTab {
     if (sub?.dispose) this._disposables.push(sub);
   }
 
+  /**
+   * A bar built for a window is in that window's document now: what is bound to a
+   * document binds to this one. Called after every move, so after a reload of the
+   * window as well, with a new tab and a new document.
+   */
+  attached() {
+    if (this._contribEl && this._servicePanelId) {
+      registerContribHost(this._servicePanelId, this._contribEl);
+    }
+    this._stopTooltips?.();
+    this._stopTooltips = initTooltips(this._element.ownerDocument.body);
+  }
+
   dispose() {
     for (const d of this._disposables.splice(0)) d.dispose();
+    // A window's document may be on its way out (R10): nothing stays open in it,
+    // or the opener's next click would only close what can no longer be seen.
+    if (this._mode === 'detached') {
+      closeAllPopovers();
+      closeContextMenu();
+    }
+    this._stopTooltips?.();
+    this._stopTooltips = null;
     if (agentTabRoot === this._element) agentTabRoot = null;
     if (this._contribEl && this._servicePanelId) {
       unregisterContribHost(this._servicePanelId, this._contribEl);
     }
+    if (this._mode === 'detached') sendAgentBarsHome(this._element);
   }
 }
 
 /**
- * Factory for dockview's createTabComponent option.
+ * Factory for dockview's createTabComponent option, and for the bar of a pane in
+ * its own window (`mode: 'detached'`).
  * @param {string} id
+ * @param {TileTabOptions} [options]
  * @returns {TileTab}
  */
-export function createTileTab(id) {
-  return new TileTab(id);
+export function createTileTab(id, options) {
+  return new TileTab(id, options);
 }

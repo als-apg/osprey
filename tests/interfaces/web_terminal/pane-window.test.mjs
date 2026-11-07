@@ -51,6 +51,29 @@ function fakePopup(loaded = true) {
   return win;
 }
 
+/**
+ * The window's bar as the module sees it; dock-tab.test.mjs pins the real one.
+ * @param {string} id
+ * @param {{mode: string, onReattach: () => void}} options
+ */
+function fakeTab(id, options) {
+  const element = document.createElement('header');
+  element.className = 'fake-tab';
+  const button = document.createElement('button');
+  button.className = 'fake-reattach';
+  button.addEventListener('click', options.onReattach);
+  element.append(button);
+  return {
+    id,
+    mode: options.mode,
+    element,
+    init: vi.fn(),
+    attached: vi.fn(() => tabDocuments.push(element.ownerDocument)),
+    dispose: vi.fn(),
+  };
+}
+
+/** @type {Document[]} */ let tabDocuments;
 /** @type {any} */ let mod;
 /** @type {any} */ let holder;
 /** @type {any} */ let attached;
@@ -97,7 +120,9 @@ beforeEach(async () => {
 
   pages = new Map([['ariel', '/panel/ariel/#entry?id=X']]);
   themeListeners = [];
+  tabDocuments = [];
   deps = {
+    createTileTab: vi.fn(fakeTab),
     managedIframe: vi.fn((/** @type {string} */ id) =>
       id === 'ariel' ? { iframe, title: 'LOGBOOK' } : null
     ),
@@ -407,6 +432,60 @@ describe('the stored page follows the frame', () => {
   });
 });
 
+describe('a hub navigation of a detached frame stands', () => {
+  const TARGET = '/panel/ariel/#entry?id=Z';
+  const TARGET_SRC = 'http://hub/panel/ariel/#entry?id=Z?embedded=true';
+
+  /** @param {ReturnType<typeof fakePopup>} win */
+  function finishReload(win) {
+    win.document = shellDocument();
+    vi.advanceTimersByTime(attached.READY_POLL_MS);
+  }
+
+  test('navigated between the pagehide and the re-dress, the new document loads it', () => {
+    vi.useFakeTimers();
+    mod.detach('ariel');
+    popups[0].dispatchEvent(new Event('pagehide'));
+    pages.set('ariel', null);
+    mod.noteDetachedNavigation('ariel', TARGET);
+    finishReload(popups[0]);
+    expect(iframe.src).toBe(TARGET_SRC);
+    expect(holder.detachedEntry('ariel').page).toBe(TARGET);
+  });
+
+  test('navigated and reloaded before the new page loaded, the old page does not come back', () => {
+    vi.useFakeTimers();
+    mod.detach('ariel');
+    // The frame still shows the old page: its `load` has not fired.
+    mod.noteDetachedNavigation('ariel', TARGET);
+    popups[0].dispatchEvent(new Event('pagehide'));
+    finishReload(popups[0]);
+    expect(iframe.src).toBe(TARGET_SRC);
+    expect(holder.detachedEntry('ariel').page).toBe(TARGET);
+  });
+
+  test('reattached before the new page loaded, it docks on the target', () => {
+    mod.detach('ariel');
+    mod.noteDetachedNavigation('ariel', TARGET);
+    expect(mod.reattach('ariel')).toBe(true);
+    expect(iframe.src).toBe(TARGET_SRC);
+  });
+
+  test('once the page has loaded, the frame says where it is again', () => {
+    mod.detach('ariel');
+    mod.noteDetachedNavigation('ariel', TARGET);
+    pages.set('ariel', '/panel/ariel/#entry?id=W');
+    iframe.dispatchEvent(new Event('load'));
+    expect(holder.detachedEntry('ariel').page).toBe('/panel/ariel/#entry?id=W');
+  });
+
+  test('a pane that is not detached has nothing to note', () => {
+    expect(() => mod.noteDetachedNavigation('ariel', TARGET)).not.toThrow();
+    mod.detach('ariel');
+    expect(holder.detachedEntry('ariel').page).toBe('/panel/ariel/#entry?id=X');
+  });
+});
+
 describe('reattach', () => {
   test('docks beside the neighbour, sets src from the live page, moves back, closes the window', () => {
     mod.detach('ariel');
@@ -427,7 +506,10 @@ describe('reattach', () => {
     holder.resized(null, { width: 70, height: 200 });
     mod.detach('ariel');
     expect(mod.reattach('ariel')).toBe(false);
-    expect(deps.showNotice).toHaveBeenCalledExactlyOnceWith('No room to reattach Logbook.');
+    expect(deps.showNotice).toHaveBeenCalledExactlyOnceWith(
+      'No room to reattach Logbook.',
+      undefined
+    );
     expect(holder.isDetached('ariel')).toBe(true);
     expect(popups[0].closed).toBe(false);
     expect(iframe.ownerDocument).toBe(popups[0].document);
@@ -435,9 +517,7 @@ describe('reattach', () => {
 
   test('the bar’s Reattach is this path', () => {
     mod.detach('terminal');
-    /** @type {HTMLElement} */ (
-      popups[0].document.querySelector('.attached-window-reattach')
-    ).click();
+    /** @type {HTMLElement} */ (popups[0].document.querySelector('.fake-reattach')).click();
     expect(holder.isDetached('terminal')).toBe(false);
     expect(agent.parentElement).toBe(host);
     expect(popups[0].closed).toBe(true);
@@ -529,13 +609,13 @@ describe('a reload of the window keeps the pane detached (R10)', () => {
     const doc = popups[0].document;
     expect(iframe.ownerDocument).toBe(doc);
     expect(iframe.src).toBe('http://hub/panel/ariel/#entry?id=Y?embedded=true');
-    expect(doc.querySelector('.attached-window-bar')).not.toBeNull();
+    expect(doc.querySelector('.fake-tab')).not.toBeNull();
     expect(doc.querySelector('.attached-window-root')?.getAttribute('data-osprey-detached')).toBe(
       'true'
     );
     expect(onChange).toHaveBeenCalledTimes(1);
     // The new document's Reattach works, and only one return follows.
-    /** @type {HTMLElement} */ (doc.querySelector('.attached-window-reattach')).click();
+    /** @type {HTMLElement} */ (doc.querySelector('.fake-reattach')).click();
     expect(holder.isDetached('ariel')).toBe(false);
     expect(iframe.parentElement).toBe(overlay);
   });
@@ -616,5 +696,71 @@ describe('theme', () => {
   test('a second init does not subscribe twice', () => {
     mod.initPaneWindow({ subscribeTheme: deps.subscribeTheme });
     expect(themeListeners).toHaveLength(1);
+  });
+});
+
+describe('the window’s bar is the tile’s bar', () => {
+  /** @returns {any} the tab built last */
+  const lastTab = () => deps.createTileTab.mock.results.at(-1).value;
+
+  test.each([
+    ['ariel', 'Logbook'],
+    ['terminal', 'Agent'],
+  ])('%s: a detached tab, named, above the content, attached once in the window', (id, title) => {
+    mod.detach(id);
+    const tab = lastTab();
+    expect(tab.id).toBe(id);
+    expect(tab.mode).toBe('detached');
+    expect(tab.init).toHaveBeenCalledExactlyOnceWith({ title });
+    const mount = popups[0].document.querySelector('.attached-window-root');
+    expect(mount?.firstElementChild).toBe(tab.element);
+    expect(tabDocuments).toEqual([popups[0].document]);
+  });
+
+  test('the tab is disposed on reattach, and on a close', () => {
+    mod.detach('ariel');
+    const tab = lastTab();
+    expect(mod.reattach('ariel')).toBe(true);
+    expect(tab.dispose).toHaveBeenCalledTimes(1);
+
+    mod.detach('terminal');
+    const agentTab = lastTab();
+    mod.closeDetached('terminal');
+    expect(agentTab.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  test('a window closed by the operator disposes its tab too', () => {
+    vi.useFakeTimers();
+    mod.detach('ariel');
+    const tab = lastTab();
+    popups[0].close();
+    vi.advanceTimersByTime(attached.CLOSED_POLL_MS);
+    expect(tab.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  test('a reload builds a new tab on the new document and disposes the old (R10)', () => {
+    vi.useFakeTimers();
+    mod.detach('ariel');
+    const first = lastTab();
+    popups[0].dispatchEvent(new Event('pagehide'));
+    popups[0].document = shellDocument(true);
+    vi.advanceTimersByTime(attached.READY_POLL_MS);
+    const second = lastTab();
+    expect(second).not.toBe(first);
+    expect(first.dispose).toHaveBeenCalledTimes(1);
+    expect(tabDocuments).toEqual([expect.anything(), popups[0].document]);
+    expect(popups[0].document.querySelectorAll('.fake-tab')).toHaveLength(1);
+    expect(second.dispose).not.toHaveBeenCalled();
+  });
+
+  test('“No room” from the window’s own bar shows in that window', () => {
+    mod.detach('ariel');
+    holder.reattach = vi.fn(() => false);
+    /** @type {HTMLElement} */ (popups[0].document.querySelector('.fake-reattach')).click();
+    expect(deps.showNotice).toHaveBeenCalledExactlyOnceWith(
+      'No room to reattach Logbook.',
+      popups[0].document
+    );
+    expect(popups[0].closed).toBe(false);
   });
 });
