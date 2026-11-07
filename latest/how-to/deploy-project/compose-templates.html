@@ -434,6 +434,7 @@
 <li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/slack.html">Slack</a></li>
 </ul>
 </details></li>
 </ul>
@@ -643,7 +644,7 @@ catalogued in <a class="reference internal" href="../../reference/configuration/
 <p>A service is built on the deploy host only when its rendered compose document
 carries a <code class="docutils literal notranslate"><span class="pre">build:</span></code> block. Upstream pins never do. The OSPREY-built services
 (the event dispatcher, the Bluesky bridge, the Bluesky web panel, the Google
-Chat, Nextcloud and Teams bridges, the qmd sidecar and the virtual
+Chat, Nextcloud, Teams and Slack bridges, the qmd sidecar and the virtual
 accelerator) each do while they run the image OSPREY builds. A service whose
 <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;.image</span></code> names any other image renders without <code class="docutils literal notranslate"><span class="pre">build:</span></code>, and
 that image is pulled and run as named. Where one template renders several

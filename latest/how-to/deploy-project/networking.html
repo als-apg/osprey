@@ -434,6 +434,7 @@
 <li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/slack.html">Slack</a></li>
 </ul>
 </details></li>
 </ul>
@@ -657,8 +658,8 @@ event dispatcher from off-host is then a deliberate act:
 <code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.bind</span></code>.</p></li>
 <li><p>Addresses OSPREY writes between services become <code class="docutils literal notranslate"><span class="pre">localhost:&lt;port&gt;</span></code> instead
 of compose service names — the dispatcher’s target for its workers, and the
-Nextcloud Talk, Google Chat and Microsoft Teams bridges’ URLs for the dispatch
-pair.</p></li>
+Nextcloud Talk, Google Chat, Microsoft Teams and Slack bridges’ URLs for the
+dispatch pair.</p></li>
 </ul>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> reads each host-mode service’s bind address from the variable it
 declares with <code class="docutils literal notranslate"><span class="pre">bind_env:</span></code>. A service that declares <code class="docutils literal notranslate"><span class="pre">listens:</span> <span class="pre">false</span></code> opens no
