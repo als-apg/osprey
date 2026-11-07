@@ -195,7 +195,7 @@ The config block
          no ports.
          Each user's host ports come from the deployment's port layout — one
          hundred-port family per companion panel (artifact gallery, ARIEL,
-         channel finder, lattice dashboard, …) plus the terminal itself, and
+         channel finder, knowledge panel, …) plus the terminal itself, and
          each user takes the family's first port plus their index. At the
          default ``deployment.port_base`` that puts alice (index 0) on
          ``10100``, bob (index 1) on ``10101`` and carol (index 2) on

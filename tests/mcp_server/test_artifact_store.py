@@ -313,7 +313,6 @@ class TestArtifactStore:
         saved = [store.save_object(f"# {i}", title=f"Entry {i}") for i in range(4)]
 
         assert [e.id for e in store.list_entries()] == [e.id for e in saved]
-        assert [e.id for e in store.list_entries(last_n=2)] == [e.id for e in saved[-2:]]
 
     def test_get_entry(self, tmp_path):
         from osprey.stores.artifact_store import ArtifactStore
@@ -1162,41 +1161,37 @@ class TestArtifactGalleryApp:
         assert client.app.state.focused_artifact_id is None
 
     def test_delete_pinned_unfocused_refreshes_focus_state(self, app_client):
-        """Deleting a pinned-but-unfocused artifact refreshes focus_state.txt.
+        """Deleting an artifact rewrites focus_state.txt, which carries focus only.
 
-        Regression test for the secondary bug where ``_write_focus_file()`` was
-        only called when the focused artifact was deleted — leaving stale
-        ``pinned:`` lines when an unfocused pin was removed.
+        Pins never appear in the file (the hook reads them from the index), so
+        deleting a pinned-but-unfocused artifact leaves exactly the focus lines.
         """
         client, tmp_path = app_client
         store = client.app.state.artifact_store
+        t_a = "11111111-1111-4111-8111-111111111111"
+        t_b = "22222222-2222-4222-8222-222222222222"
 
-        pinned_a = store.save_object("# Pinned A", title="Pinned A")
-        pinned_b = store.save_object("# Pinned B", title="Pinned B")
-        store.set_pinned(pinned_a.id, True)
-        store.set_pinned(pinned_b.id, True)
+        pinned = store.save_object("# Pinned", title="Pinned")
+        store.set_pinned(pinned.id, True)
+        focused_a = store.save_object("# Focused A", title="Focused A")
+        focused_b = store.save_object("# Focused B", title="Focused B")
 
-        focused = store.save_object("# Focused", title="Focused")
-
-        # Setting focus via the HTTP endpoint also writes focus_state.txt
-        # (the listener path doesn't run on save, only on delete).
-        resp = client.post("/api/focus", json={"artifact_id": focused.id})
-        assert resp.status_code == 200
+        for entry, transcript in ((focused_a, t_a), (focused_b, t_b)):
+            resp = client.post(
+                "/api/focus", json={"artifact_id": entry.id, "transcript_id": transcript}
+            )
+            assert resp.status_code == 200
 
         focus_file = tmp_path / "focus_state.txt"
-        baseline = focus_file.read_text() if focus_file.exists() else ""
-        assert f"id={pinned_a.id}" in baseline
-        assert f"id={pinned_b.id}" in baseline
+        line_a = f'  artifact: "Focused A" (id={focused_a.id}) (session={t_a})'
+        line_b = f'  artifact: "Focused B" (id={focused_b.id}) (session={t_b})'
+        assert focus_file.read_text().splitlines() == ["[Gallery Focus]", line_a, line_b]
 
-        # Delete a pinned but UNFOCUSED artifact via HTTP.
-        resp = client.delete(f"/api/artifacts/{pinned_a.id}")
-        assert resp.status_code == 200
+        assert client.delete(f"/api/artifacts/{pinned.id}").status_code == 200
+        assert focus_file.read_text().splitlines() == ["[Gallery Focus]", line_a, line_b]
 
-        # focus_state.txt should no longer mention the deleted pin.
-        contents = focus_file.read_text() if focus_file.exists() else ""
-        assert f"id={pinned_a.id}" not in contents
-        assert f"id={pinned_b.id}" in contents
-        assert f"id={focused.id}" in contents
+        assert client.delete(f"/api/artifacts/{focused_a.id}").status_code == 200
+        assert focus_file.read_text().splitlines() == ["[Gallery Focus]", line_b]
 
     @pytest.mark.asyncio
     async def test_mcp_artifact_delete_clears_focus(self, app_client, monkeypatch):
@@ -1250,8 +1245,8 @@ class TestArtifactGalleryApp:
         assert client.app.state.focused_artifact_id is None
 
     @pytest.mark.asyncio
-    async def test_mcp_artifact_delete_all(self, app_client, monkeypatch):
-        """artifact_delete_all(scope="everything") clears the store and empties focus_state."""
+    async def test_mcp_artifact_delete_all(self, app_client, monkeypatch, web_session):
+        """artifact_delete_all("everything") clears this session's artifacts and the focus."""
         from osprey.mcp_server.workspace.tools.artifact_register import artifact_delete_all
         from osprey.stores.artifact_store import initialize_artifact_store
 
@@ -1268,6 +1263,7 @@ class TestArtifactGalleryApp:
         payload = extract_response_dict(result)
         assert payload["status"] == "success"
         assert payload["scope"] == "everything"
+        assert payload["session"] == web_session.transcript
         assert payload["deleted_count"] == 3
         assert set(payload["artifact_ids"]) == {e.id for e in entries}
 

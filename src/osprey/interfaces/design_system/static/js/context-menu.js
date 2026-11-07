@@ -65,6 +65,7 @@
  * @property {string} [glyph]     - trailing glyph tying the row to the surface's iconography
  * @property {boolean} [checked]  - a toggle row: true draws ✓, false draws nothing; undefined is a plain verb
  * @property {boolean} [disabled] - render the row inert (aria-disabled, no run)
+ * @property {string} [tip]       - a hover tip, e.g. why a disabled row is disabled
  * @property {boolean} [danger]   - destructive verb — hover styles error-red
  * @property {() => void} [run]   - the caller-bound action; the menu closes first
  */
@@ -224,6 +225,7 @@ function buildRow(item) {
     btn.appendChild(glyph);
   }
 
+  if (item.tip) btn.title = item.tip;
   if (item.disabled) {
     btn.setAttribute('aria-disabled', 'true');
   } else {

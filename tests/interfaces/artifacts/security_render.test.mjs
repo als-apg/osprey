@@ -156,6 +156,8 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
         filename: 'x.png',
         artifact_type: payload,
         category: payload,
+        form: payload,
+        form_label: payload,
         pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 10,
@@ -171,7 +173,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
   afterEach(resetTypeRegistry);
 
   test.each(Object.entries(HOSTILE))(
-    'tree mode: a hostile %s payload in title/category/artifact_type renders inert',
+    'tree mode: a hostile %s payload in title/form/form_label/artifact_type renders inert',
     (_name, payload) => {
       setArtifacts(makeHostileArtifact(payload));
       const renderer = createSidebarRenderer(makeSidebarCallbacks());
@@ -200,7 +202,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
   );
 
   test.each(Object.entries(HOSTILE))(
-    'activity mode: a hostile %s payload in category/artifact_type renders inert in the timeline-item',
+    'activity mode: a hostile %s payload in form/form_label/artifact_type renders inert in the timeline-item',
     (_name, payload) => {
       setArtifacts(makeHostileArtifact(payload));
       const renderer = createSidebarRenderer(makeSidebarCallbacks());
@@ -221,7 +223,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
   );
 
   test.each(Object.entries(HOSTILE))(
-    'gallery layout: a hostile %s payload in category/artifact_type renders inert in the gallery-card',
+    'gallery layout: a hostile %s payload in form/form_label/artifact_type renders inert in the gallery-card',
     (_name, payload) => {
       setArtifacts(makeHostileArtifact(payload));
       const renderer = createSidebarRenderer(makeSidebarCallbacks());
@@ -243,7 +245,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
-        json: () => Promise.resolve({ categories: { evilcat: { label: HOSTILE.DQ_ATTR } } }),
+        json: () => Promise.resolve({ base_forms: [{ key: 'evilform', label: HOSTILE.DQ_ATTR }] }),
       })
     );
     await initTypeRegistry();
@@ -255,6 +257,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
         filename: 'c.png',
         artifact_type: 'evilcat',
         category: 'evilcat',
+        form: 'evilform',
         pinned: false,
         timestamp: '2026-07-04T10:00:00Z',
         size_bytes: 10,
@@ -263,7 +266,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
     const renderer = createSidebarRenderer(makeSidebarCallbacks());
     renderer.renderSidebar();
 
-    const header = document.querySelector('.tree-section-header[data-type="evilcat"]');
+    const header = document.querySelector('.tree-section-header[data-type="evilform"]');
     expect(header).not.toBeNull();
     if (header === null) throw new Error('unreachable: header asserted non-null above');
     expectNoLiveInjection(document.body);
@@ -305,10 +308,16 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
   });
 
   test.each(Object.entries(HOSTILE))(
-    'a hostile %s payload in title/category/artifact_type is inert in the header badge + title',
+    'a hostile %s payload in title/form/form_label/artifact_type is inert in the header badge + title',
     (_name, payload) => {
       setSelectedArtifact(
-        makeArtifact({ title: payload, category: payload, artifact_type: payload })
+        makeArtifact({
+          title: payload,
+          category: payload,
+          artifact_type: payload,
+          form: payload,
+          form_label: payload,
+        })
       );
       createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
@@ -320,6 +329,8 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
       // Round-trip proof the whole payload landed intact as ONE class
       // attribute value (an early-closed `"` would truncate/split this).
       expect(badge.className).toBe(`badge badge-${payload}`);
+      // The form_label lands as the badge's text, whole and inert.
+      expect(badge.textContent).toBe(payload);
       expect(qs(previewContent, '.preview-header-title').textContent).toBe(payload);
     }
   );

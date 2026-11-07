@@ -11,6 +11,7 @@ from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -48,12 +49,16 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     write_server_report,
 )
 from osprey_connectors_tests._harness._ports import port_reserver
-from tests import _canopy_contract, _scoped_temp
+from tests import _canopy_contract, _scoped_temp, _wallclock_files
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
     built_control_assistant,
+    built_control_assistant_watchdog_on,
     offline_build_env,
 )
+
+if TYPE_CHECKING:
+    from tests._graphdb_container import WatchedStore
 
 # ===================================================================
 # Provider gateway stand-in
@@ -229,11 +234,9 @@ def no_project_venv_outlives_the_session(tmp_path_factory):
     """Fail the session if a real project venv is still in the temp tree.
 
     A real ``osprey build`` installs the whole dependency tree into
-    ``build/.venv``, gigabytes per build. Pytest removes a passing test's
-    ``tmp_path`` but never a ``mktemp`` directory, and under xdist the whole
-    tree is only removed when the run ends green, so a fixture that leaves its
-    venv behind fills the disk during the run and keeps it full after a red
-    one. A fixture that runs a real build removes the venv itself, as soon as
+    ``build/.venv``, gigabytes per build. A fixture's tree is removed when its
+    scope ends, but a venv inside it costs gigabytes while the scope is live,
+    so a fixture that runs a real build removes the venv itself, as soon as
     nothing reads it any more.
 
     A real venv is told from a stub by its interpreter: ``uv venv`` links
@@ -1090,6 +1093,26 @@ _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] 
 }
 
 
+@pytest.hookimpl(specname="pytest_collection_modifyitems")
+def pytest_collection_modifyitems_wallclock_guard(items):
+    """Hold the wall-clock scan to pytest's marks.
+
+    This runs before `-m` deselects anything, so the sweep, which deselects the
+    `wallclock` marker, still sees every marked test it collects; one in a file
+    tests/_wallclock_files.py does not find would be timed by nothing, and the
+    run stops with its name. A hook of its own, so the resource auto-skip below
+    keeps the narrow item contract its tests drive it with.
+    """
+    strays = _wallclock_files.unscanned(
+        item.path for item in items if item.get_closest_marker(_wallclock_files.MARKER)
+    )
+    if strays:
+        # Written out as well as raised: an xdist worker's UsageError reaches
+        # the controller only as an INTERNALERROR without its text.
+        print("\n".join(strays), file=sys.stderr, flush=True)
+        raise pytest.UsageError("\n".join(strays))
+
+
 def pytest_collection_modifyitems(items):
     """Auto-skip items whose `requires_<resource>` marker's resource is missing.
 
@@ -1320,8 +1343,7 @@ def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     Every lane that starts a real graph store mounts the same two jars, and the
     expensive half of resolving them is a release download — so this is shared
-    across lanes even though the *stores* are not (two of them wipe the graph
-    between corpora and therefore run their own module-scoped container).
+    across lanes, as is the store in :func:`graphdb_session_store`.
 
     Skips, with the reason, on a host that could not start the container:
     see :func:`tests._graphdb_container.resolve_plugin_dir`.
@@ -1329,6 +1351,65 @@ def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from tests._graphdb_container import resolve_plugin_dir
 
     return resolve_plugin_dir(tmp_path_factory)
+
+
+@pytest.fixture(scope="session")
+def graphdb_session_store(graphdb_plugin_dir: Path) -> Iterator["WatchedStore"]:
+    """One started graph store for every lane that seeds a corpus of its own.
+
+    Starting the container is most of what such a lane costs, and the corpus
+    is the lane's own, so each lane takes this store through
+    :func:`tests._graphdb_container.wiped_graphdb_store`, which empties it to
+    the state a fresh deploy starts from before the lane seeds. Those lanes are
+    all in the ``docker`` xdist group, so they run on one worker, one module
+    after another, and share this container. A lane that proves something of a
+    store nothing has touched yet starts a container of its own.
+    """
+    from tests._graphdb_container import watched_graphdb_store
+
+    with watched_graphdb_store(
+        graphdb_plugin_dir, label="graphdb (neo4j + n10s) shared by the session"
+    ) as store:
+        yield store
+
+
+@pytest.fixture(scope="session")
+def mongodb_container() -> Iterator[dict[str, object]]:
+    """Start a MongoDB container for the test session.
+
+    Yields a dict with connection parameters. Skips the entire chain
+    of dependent tests if Docker isn't available.
+
+    Defined here rather than beside the connector tests so that the connector,
+    recorder and simulation lanes share one container: a fixture imported into
+    a test module is a fixture of that module, with a container of its own.
+    Every lane that uses it is in the ``docker`` xdist group, which puts them on
+    one worker. Each lane works in a collection of its own and empties it.
+    """
+    from tests._container_support import is_docker_available
+    from tests._mongo_container import MONGO_AUTH_DB, started_mongo
+
+    if not is_docker_available():
+        pytest.skip(
+            "Docker not available — install Docker Desktop or Podman "
+            "to run MongoDB archiver integration tests."
+        )
+
+    username = "testuser"
+    password = "testpass123"
+    db_name = "test_archiver_db"
+    collection_name = "test_archiver_collection"
+
+    with started_mongo("mongodb", username=username, password=password) as (host, port):
+        yield {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "auth_db": MONGO_AUTH_DB,
+            "db_name": db_name,
+            "collection_name": collection_name,
+        }
 
 
 # ===================================================================

@@ -13,9 +13,9 @@ help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 	@echo ""
 	@echo "Additional targets:"
-	@echo "  test-build          Test documentation build (like GitHub Actions)"
+	@echo "  test-build          Test documentation build, warnings as errors (like CI)"
 	@echo "  test-deps           Install documentation dependencies"
-	@echo "  pre-commit-test     Quick test (assumes deps installed)"
+	@echo "  pre-commit-test     Quick test, warnings as errors (assumes deps installed)"
 	@echo "  screenshots         Regenerate default (standalone) doc screenshots"
 	@echo "  screenshots-<name>  Regenerate one recipe by name (e.g. screenshots-display_menu)"
 	@echo "  doc-videos          Record and encode every docs video (VIDEOOPTS=\"--video landing --theme dark\")"
@@ -78,35 +78,12 @@ test-deps:
 	@echo "Installing documentation dependencies..."
 	cd .. && uv sync --extra docs
 
-# Test documentation build (replicates GitHub Actions)
+# Test documentation build as CI does: every warning is an error.
+test-build pre-commit-test: SPHINXOPTS += -W --keep-going
 test-build: test-deps clean
-	@echo "\033[1;34mTesting documentation build (GitHub Actions simulation)...\033[0m"
-	@echo "   This shows the same errors/warnings as CI"
-	@echo ""
-	@FORCE_COLOR=1 $(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O) 2>&1 | tee build.log
-	@echo ""
-	@echo "\033[1;36mBUILD SUMMARY\033[0m"
-	@echo "\033[1;36m================\033[0m"
-	@if grep -E "(WARNING|ERROR):" build.log > build_issues.log 2>/dev/null; then \
-		echo "\033[1;33mIssues found ($$(wc -l < build_issues.log 2>/dev/null || echo 0)):\033[0m" ; \
-		echo "" ; \
-		sed 's/WARNING:/\x1b[33mWARNING:\x1b[0m/g; s/ERROR:/\x1b[31mERROR:\x1b[0m/g' build_issues.log ; \
-		echo "" ; \
-		echo "\033[1;34mFull log saved to: build.log\033[0m" ; \
-	else \
-		echo "\033[1;32mNo warnings or errors found!\033[0m" ; \
-	fi
-	@echo ""
-	@if [ -f "$(BUILDDIR)/html/index.html" ]; then \
-		echo "\033[1;32mDocumentation build successful!\033[0m" ; \
-		echo "\033[1;34mBuilt files are in: $(BUILDDIR)/html/\033[0m" ; \
-		echo "\033[1;34mOpen $(BUILDDIR)/html/index.html in your browser\033[0m" ; \
-	else \
-		echo "\033[1;31mDocumentation build failed!\033[0m" ; \
-		echo "\033[1;33mCheck the issues above and build.log for details\033[0m" ; \
-		exit 1 ; \
-	fi
-	@rm -f build_issues.log
+	@echo "Testing documentation build (warnings fail it, as in CI)..."
+	@$(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
+	@echo "Documentation build successful: $(BUILDDIR)/html/index.html"
 
 # Quick pre-commit test (faster, assumes deps installed)
 pre-commit-test: clean

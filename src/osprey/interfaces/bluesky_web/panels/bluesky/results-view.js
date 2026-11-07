@@ -65,7 +65,7 @@ import { TERMINAL_RUN_STATUSES, describeProgress } from './queue-client.js';
 
 /** @typedef {{
  *   run_uid?: string|null,
- *   columns: string[],
+ *   columns: Array<{name: string, unit: string|null}>,
  *   rows: Array<Array<unknown>>,
  *   row_count: number,
  *   truncated: boolean,
@@ -569,7 +569,15 @@ export function createResultsView({
 
     for (const column of data.columns) {
       const th = document.createElement('th');
-      th.textContent = column;
+      th.textContent = column.name;
+      if (column.unit != null) {
+        // The same `label (unit)` spelling the figure's axis titles use, so the
+        // table and the plot name a column's unit identically.
+        const unit = document.createElement('span');
+        unit.className = 'muted';
+        unit.textContent = `(${column.unit})`;
+        th.append(' ', unit);
+      }
       elements.tableHeadRow.appendChild(th);
     }
 
@@ -647,7 +655,8 @@ export function createResultsView({
       if (state.runId !== runId) return;
 
       const filename = exportFilename(state.planName, runId);
-      const result = await saveFile(filename, toCsv(body.columns, body.rows));
+      const names = body.columns.map((/** @type {{name: string}} */ column) => column.name);
+      const result = await saveFile(filename, toCsv(names, body.rows));
       if (!result.saved) {
         // Cancelled at the dialog. Nothing was written, so nothing is claimed.
         setExportNote(null);

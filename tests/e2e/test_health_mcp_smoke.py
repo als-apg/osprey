@@ -40,7 +40,6 @@ from tests.e2e.sdk_helpers import (
 # ``tests/conftest.py`` hook auto-skips when the key is missing. The test passes
 # ``provider="als-apg"`` to ``init_project`` (the GitHub-Actions default).
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.e2e_smoke,
     pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,

@@ -224,6 +224,24 @@ describe('describeQueueStatus', () => {
     expect(described.note).toContain('manager_unreachable');
   });
 
+  test("an unavailable summary's hint is the bridge's own sentence", () => {
+    const unavailable = {
+      available: false,
+      reason: 'manager_not_configured',
+      retryable: false,
+      detail: 'No queue server is configured for this deployment.',
+    };
+    expect(describeQueueStatus(unavailable).hint).toBe(unavailable.detail);
+  });
+
+  test('an unavailable summary with no sentence falls back to the generic hint', () => {
+    for (const detail of [undefined, '', 42]) {
+      expect(
+        describeQueueStatus({ available: false, reason: 'manager_unreachable', detail }).hint
+      ).toBe('The queue server cannot be reached.');
+    }
+  });
+
   test('the badge speaks the operator vocabulary, never the raw manager word', () => {
     // "idle" is the queue server's word for "nothing to do"; to an operator it
     // reads as "waiting for input", which is exactly wrong for a queue that
@@ -1426,7 +1444,10 @@ describe('createResultsView', () => {
 
   const DATA = {
     run_uid: null,
-    columns: ['time', 'signal'],
+    columns: [
+      { name: 'time', unit: null },
+      { name: 'signal', unit: null },
+    ],
     rows: [
       [1, 10],
       [2, 20],
@@ -1450,6 +1471,8 @@ describe('createResultsView', () => {
         y_label: 'signal',
         x_units: 's',
         y_units: 'counts',
+        x_columns: { names: ['time'], per: [] },
+        y_columns: { names: ['signal'], per: [] },
         annotations: [],
         mark: {
           kind: 'lines',
@@ -1520,6 +1543,36 @@ describe('createResultsView', () => {
     expect(elements.figurePanels.querySelectorAll('.figure-panel')).toHaveLength(1);
     expect(elements.figureNote.hidden).toBe(false);
     expect(elements.figureNote.textContent).toContain('live data');
+  });
+
+  test('a table header states the unit the run declares for its column', async () => {
+    vi.stubGlobal(
+      'fetch',
+      stubFetch({
+        '/runs/r1': { status: 200, body: { id: 'r1', status: 'completed', plan_name: 'scan' } },
+        '/runs/r1/data': {
+          status: 200,
+          body: {
+            ...DATA,
+            columns: [
+              { name: 'time', unit: null },
+              { name: 'signal', unit: 'mm' },
+            ],
+          },
+        },
+        '/runs/r1/figure': { status: 200, body: FIGURE },
+      })
+    );
+    const elements = mountElements();
+    view = createResultsView({ api: (p) => p, elements });
+    view.follow('r1');
+    await vi.waitFor(() => expect(elements.tableCard.hidden).toBe(false));
+
+    const [time, signal] = elements.tableHeadRow.querySelectorAll('th');
+    expect(time.textContent).toBe('time');
+    expect(time.querySelector('span')).toBeNull();
+    expect(signal.querySelector('span.muted').textContent).toBe('(mm)');
+    expect(signal.textContent).toBe('signal (mm)');
   });
 
   test('"Remove from history" is offered for a finished run only, and hands the id up', async () => {
@@ -3678,7 +3731,7 @@ describe('the merged panel shell', () => {
             ok: true,
             status: 200,
             json: async () => ({
-              columns: ['x'],
+              columns: [{ name: 'x', unit: null }],
               rows: [[1]],
               row_count: 1,
               truncated: false,
@@ -3735,7 +3788,7 @@ describe('the merged panel shell', () => {
             ok: true,
             status: 200,
             json: async () => ({
-              columns: ['x'],
+              columns: [{ name: 'x', unit: null }],
               rows: [[1]],
               row_count: 1,
               truncated: false,

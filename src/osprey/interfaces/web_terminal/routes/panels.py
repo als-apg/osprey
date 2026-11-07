@@ -47,6 +47,11 @@ from osprey.interfaces.web_terminal.dock_layout import (
 )
 from osprey.interfaces.web_terminal.feedback_destination import resolve_feedback_destination
 from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox
+from osprey.interfaces.web_terminal.presets import (
+    ONE_PANEL_PER_TILE,
+    ONE_PANEL_PER_TILE_TEXT,
+    crowded_tile,
+)
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
 from osprey.profiles.web_panels import (
@@ -146,14 +151,6 @@ async def channel_finder_server_config(request: Request):
     """Return the Channel Finder server URL for iframe embedding."""
     url = getattr(request.app.state, "channel_finder_server_url", None)
     proxy_url = f"{compute_url_prefix()}/panel/channel-finder" if url else None
-    return {"url": proxy_url, "available": proxy_url is not None}
-
-
-@router.get("/api/lattice-server")
-async def lattice_server_config(request: Request):
-    """Return the lattice dashboard server URL for iframe embedding."""
-    url = getattr(request.app.state, "lattice_dashboard_server_url", None)
-    proxy_url = f"{compute_url_prefix()}/panel/lattice" if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -342,9 +339,9 @@ async def get_panels(request: Request):
     at startup against the live panel set and carried in config order. It is
     empty unless a deployment opts in, so the "+" popover renders unchanged by
     default. Each entry is ``{"name": <label>, "panels": [<member id>, ...],
-    "layout": <dock layout>}``: ``layout`` is the collection form with panel-id
-    tabs, pruned to the panels known now and normalised, and ``panels`` its tabs
-    in reading order.
+    "layout": <dock layout>}``: ``layout`` is the collection form, each tile
+    naming one panel id in its ``tabs``, pruned to the panels known now and
+    normalised, and ``panels`` the panels it places, in reading order.
 
     ``allow_runtime_panels`` mirrors the config gate the ``POST /api/panels/register``
     route enforces, so the frontend can show or hide the "new panel from URL" input
@@ -352,7 +349,7 @@ async def get_panels(request: Request):
 
     ``default`` is not validated here — the frontend falls back to
     ``DEFAULT_PANEL_FALLBACK`` when it is unknown so a typo doesn't leave the
-    user staring at a blank tabset.
+    user staring at an empty workspace.
 
     ``active`` mirrors ``GET /api/panel-focus`` so the agent can read back the
     full panel state in a single round-trip.
@@ -598,7 +595,7 @@ def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> Non
 
 
 class PanelFocusRequest(BaseModel):
-    """A person's tab switch, reported by ``panel-commands.js``.
+    """A person's switch to a panel, reported by ``panel-commands.js``.
 
     Extra fields are refused: the agent's ``source``/``url`` form of this body is
     retired (an agent opens a panel through ``POST /api/panel-op/open``), and an
@@ -619,10 +616,10 @@ async def get_panel_focus(request: Request):
 
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
-    """Mirror a person's tab switch as ``active_panel``; broadcast nothing.
+    """Mirror a person's switch to a panel as ``active_panel``; broadcast nothing.
 
     This is a gesture REPORT, not a command: the server records the active
-    panel for the agent's gaze, and one operator's tab switches never move
+    panel for the agent's gaze, and one operator's panel switches never move
     another client's workspace. The gesturing client applies its own focus.
 
     A report naming a panel that is not on the launcher rail is dropped whole:
@@ -789,7 +786,7 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
 
     This is the reporter's endpoint, not a command: it is how the browser's dock
     tells the server what the operator's workspace actually looks like. The body
-    is the holder's dock layout tree (tiles, their tabs, each tile's showing tab and
+    is the holder's dock layout tree (its tiles, the panel each one shows and
     the terminal tile, keyed ``"terminal"``), the panels that client shows in
     pop-out windows of their own (``popouts``, which the tree never names), the
     page's ``client_id`` and the client's ``dock`` capability flag. Nothing is
@@ -797,7 +794,9 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
     (report-only, last-writer-wins).
 
     A ``dock: true`` report must carry a layout that passes
-    :func:`~osprey.interfaces.web_terminal.dock_layout.layout_refusal` and whose
+    :func:`~osprey.interfaces.web_terminal.dock_layout.layout_refusal`, holds
+    one panel per tile (``one_panel_per_tile``,
+    :func:`~osprey.interfaces.web_terminal.presets.crowded_tile`) and whose
     every key other than the terminal is a known panel id; a pop-out is a known
     panel id that is not in the tree. The layout is stored normalised, its
     ``client_id`` becomes the current dock client, and a changed layout or
@@ -820,9 +819,9 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
         keeps as its ``ackedRev``.
 
     Raises:
-        HTTPException: 422 when the layout breaks a dock layout rule, a key or
-            a pop-out is unknown, a pop-out is also in the tree, or a dock
-            report carries no layout.
+        HTTPException: 422 when the layout breaks a dock layout rule, puts
+            several panels in one tile, names an unknown key or pop-out, has a
+            pop-out also in the tree, or a dock report carries no layout.
     """
     layout = _checked_dock_layout(request, body.layout) if body.dock else None
     popouts = _checked_popouts(request, body.popouts, layout) if body.dock else []
@@ -842,9 +841,13 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
 def _checked_dock_layout(request: Request, layout: dict | None) -> dict:
     """``layout`` normalised, once it passes the dock layout rules and names only known panels.
 
+    The same check guards a dock's report (``/api/panel-layout``) and an op's
+    result (``/api/panel-op-result``).
+
     Raises:
-        HTTPException: 422 when the layout is missing, breaks a dock layout rule or
-            names a key that is neither the terminal nor a known panel id.
+        HTTPException: 422 when the layout is missing, breaks a dock layout rule,
+            puts several panels in one tile (``one_panel_per_tile``) or names a
+            key that is neither the terminal nor a known panel id.
     """
     if layout is None:
         raise HTTPException(status_code=422, detail="A dock report must carry its layout")
@@ -852,6 +855,12 @@ def _checked_dock_layout(request: Request, layout: dict | None) -> dict:
     if refusal is not None:
         reason, where = refusal
         raise HTTPException(status_code=422, detail=f"{where}: {reason}: {REASON_TEXT[reason]}")
+    crowded = crowded_tile(layout)
+    if crowded is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{crowded}: {ONE_PANEL_PER_TILE}: {ONE_PANEL_PER_TILE_TEXT}",
+        )
     known = _known_panel_ids(request)
     unknown = [key for key in layout_keys(layout) if key != _TERMINAL_PANEL_ID and key not in known]
     if unknown:
@@ -867,7 +876,7 @@ def _checked_popouts(request: Request, popouts: list[str], layout: dict | None) 
 
     Raises:
         HTTPException: 422 when a pop-out is the terminal or an unknown id, or is
-            also a tab of the tree (a panel is in a window or in a tile, never both).
+            also in the tree (a panel is in a window or in a tile, never both).
     """
     known = _known_panel_ids(request)
     bad = [key for key in popouts if key == _TERMINAL_PANEL_ID or key not in known]
@@ -877,7 +886,7 @@ def _checked_popouts(request: Request, popouts: list[str], layout: dict | None) 
     both = sorted(set(popouts) & docked)
     if both:
         raise HTTPException(
-            status_code=422, detail=f"A pop-out cannot also be a tab of the layout: {both}"
+            status_code=422, detail=f"A pop-out cannot also be in the layout: {both}"
         )
     return sorted(set(popouts))
 

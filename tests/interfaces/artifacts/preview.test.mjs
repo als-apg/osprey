@@ -35,6 +35,8 @@ import {
   getSelectedArtifact,
   setFocusedArtifact,
   getFocusedArtifact,
+  setCurrentSessionId,
+  setShowAllSessions,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 
 vi.mock('../../../src/osprey/interfaces/artifacts/static/js/logbook.js', () => ({
@@ -71,6 +73,8 @@ function makeArtifact(overrides = {}) {
     filename: 'beam_profile.png',
     artifact_type: 'plot_png',
     category: 'visualization',
+    form: 'plots',
+    form_label: 'Plots',
     pinned: false,
     timestamp: '2026-07-01T10:00:00Z',
     size_bytes: 2048,
@@ -92,6 +96,8 @@ beforeEach(() => {
   setArtifacts([]);
   setSelectedArtifact(null);
   setFocusedArtifact(null);
+  setCurrentSessionId(null);
+  setShowAllSessions(false);
   vi.stubGlobal(
     'confirm',
     vi.fn(() => true)
@@ -239,8 +245,12 @@ describe('renderPreview: per-type viewport dispatch', () => {
     expect(callbacks.onTimeseriesNeeded.mock.calls[0][1]).toBe(artifact);
   });
 
-  test('archiver_data category with a data_file also routes to the timeseries viewport', () => {
-    const artifact = makeArtifact({ category: 'archiver_data', data_file: 'y.parquet' });
+  test('an archiver entry saved before data_type existed (tool_source archiver_read) routes to the timeseries viewport', () => {
+    const artifact = makeArtifact({
+      artifact_type: 'json',
+      tool_source: 'archiver_read',
+      data_file: 'y.parquet',
+    });
     setSelectedArtifact(artifact);
     const callbacks = makeCallbacks();
     const renderer = createPreviewRenderer(callbacks);
@@ -248,6 +258,93 @@ describe('renderPreview: per-type viewport dispatch', () => {
 
     expect(document.querySelector('.preview-viewport .ts-viewport-container')).not.toBeNull();
     expect(callbacks.onTimeseriesNeeded).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('renderPreview: timeseries is told by data_type and the archiver, never the category', () => {
+  /** @param {any} artifact */
+  function render(artifact) {
+    setSelectedArtifact(artifact);
+    const callbacks = makeCallbacks();
+    createPreviewRenderer(callbacks).renderPreview();
+    return callbacks;
+  }
+
+  test('an array channel read (data_type timeseries, no category) gets the timeseries viewport', () => {
+    const callbacks = render(
+      makeArtifact({
+        artifact_type: 'json',
+        category: '',
+        tool_source: 'channel_read',
+        metadata: { data_type: 'timeseries', channel: 'SR:BPM:X', data_file: 'w.parquet' },
+      })
+    );
+    expect(document.querySelector('.preview-viewport .ts-viewport-container')).not.toBeNull();
+    expect(callbacks.onTimeseriesNeeded).toHaveBeenCalledTimes(1);
+  });
+
+  test('a scalar channel snapshot does not, even when it carries the archiver_data category', () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, text: async () => '', json: async () => ({}) }))
+    );
+    for (const category of ['channel_values', 'archiver_data']) {
+      const callbacks = render(
+        makeArtifact({
+          artifact_type: 'json',
+          filename: 'snapshot.json',
+          category,
+          tool_source: 'channel_read',
+          data_file: 'snap.parquet',
+          metadata: { channel: 'SR:DCCT' },
+        })
+      );
+      expect(document.querySelector('.ts-viewport-container')).toBeNull();
+      expect(callbacks.onTimeseriesNeeded).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('renderPreview: header badge names the form', () => {
+  test("the badge reads the entry's form_label, never its file format", () => {
+    setSelectedArtifact(
+      makeArtifact({ artifact_type: 'plot_html', form: 'plots', form_label: 'Plots' })
+    );
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    const badge = qs(document, '.preview-header .badge');
+    expect(badge.textContent).toBe('Plots');
+    expect(badge.className).toBe('badge badge-plots');
+  });
+
+  test("an extension type's badge reads its own label", () => {
+    setSelectedArtifact(
+      makeArtifact({ artifact_type: 'table_html', form: 'beam_log', form_label: 'Beam Log' })
+    );
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    expect(qs(document, '.preview-header .badge').textContent).toBe('Beam Log');
+  });
+
+  test("a run's part (form null) is badged by its role", () => {
+    setSelectedArtifact(
+      makeArtifact({
+        artifact_type: 'markdown',
+        filename: 'review.md',
+        form: null,
+        form_label: null,
+        run_part: 'preview',
+      })
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, text: async () => '', json: async () => ({}) }))
+    );
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    const badge = qs(document, '.preview-header .badge');
+    expect(badge.textContent).toBe('Approval preview');
+    expect(badge.className).toBe('badge badge-run_part');
   });
 });
 
@@ -317,7 +414,7 @@ describe('renderPreview without a header (the embedded viewer)', () => {
   });
 
   test('mounts a timeseries viewport through onTimeseriesNeeded, as with a header', () => {
-    const artifact = makeArtifact({ category: 'archiver_data', data_file: 'y.parquet' });
+    const artifact = makeArtifact({ tool_source: 'archiver_read', data_file: 'y.parquet' });
     setSelectedArtifact(artifact);
     const callbacks = makeCallbacks();
     createPreviewRenderer(callbacks, { header: false }).renderPreview();
@@ -655,9 +752,16 @@ describe('fullscreen mode', () => {
 });
 
 describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
-  test('a hostile category is escaped in the badge class attribute — no element injection, no attribute breakout', () => {
+  test('a hostile form and form_label are escaped in the badge — no element injection, no attribute breakout', () => {
     const hostile = '"><img src=x onerror=alert(1)>';
-    setSelectedArtifact(makeArtifact({ category: hostile, artifact_type: hostile }));
+    setSelectedArtifact(
+      makeArtifact({
+        category: hostile,
+        artifact_type: hostile,
+        form: hostile,
+        form_label: hostile,
+      })
+    );
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
     expect(document.querySelector('.preview-header img')).toBeNull();
@@ -668,12 +772,12 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     expect(badge).not.toBeNull();
   });
 
-  test('benign category renders the badge class byte-identical (regression guard)', () => {
-    setSelectedArtifact(makeArtifact({ category: 'visualization' }));
+  test('benign form renders the badge class byte-identical (regression guard)', () => {
+    setSelectedArtifact(makeArtifact({ form: 'plots' }));
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
     const badge = qs(document, '.badge');
-    expect(badge.className).toBe('badge badge-visualization');
+    expect(badge.className).toBe('badge badge-plots');
   });
 });
 
@@ -703,5 +807,58 @@ describe('setAsFocus', () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
     const renderer = createPreviewRenderer(makeCallbacks());
     await expect(renderer.setAsFocus(makeArtifact())).resolves.toBeUndefined();
+  });
+});
+
+describe('pin and focus say which session they were set in', () => {
+  /** @param {any} fetchMock */
+  function sentBody(fetchMock) {
+    return JSON.parse(fetchMock.mock.calls[0][1].body);
+  }
+
+  test('a pin in the session view carries the gallery key', async () => {
+    setCurrentSessionId('key-a');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createPreviewRenderer(makeCallbacks(), { header: false }).setPinned(makeArtifact(), true);
+
+    expect(sentBody(fetchMock)).toEqual({ pinned: true, session_key: 'key-a' });
+  });
+
+  test('a focus in the session view carries the gallery key', async () => {
+    setCurrentSessionId('key-a');
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createPreviewRenderer(makeCallbacks()).setAsFocus(makeArtifact());
+
+    expect(sentBody(fetchMock)).toEqual({ artifact_id: 'a1', session_key: 'key-a' });
+  });
+
+  test('a pin and a focus in the all-sessions view carry no session field', async () => {
+    setCurrentSessionId('key-a');
+    setShowAllSessions(true);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const renderer = createPreviewRenderer(makeCallbacks(), { header: false });
+
+    await renderer.setPinned(makeArtifact(), false);
+    await renderer.setAsFocus(makeArtifact());
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ pinned: false });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ artifact_id: 'a1' });
+  });
+
+  test('with no session id, a pin and a focus carry no session field', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const renderer = createPreviewRenderer(makeCallbacks(), { header: false });
+
+    await renderer.setPinned(makeArtifact(), true);
+    await renderer.setAsFocus(makeArtifact());
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ pinned: true });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ artifact_id: 'a1' });
   });
 });

@@ -69,9 +69,9 @@ FOREIGN_BROWSER_HEADERS = [
 #: The panel ops a browser-borne request could aim at.
 PANEL_OPS = [
     ("/api/panel-op/open", {"request_id": "r1", "member": CANOPY_PANEL_ID}),
-    ("/api/panel-op/open-set", {"request_id": "r1", "members": [CANOPY_PANEL_ID], "as": "tabs"}),
+    ("/api/panel-op/open-set", {"request_id": "r1", "members": [CANOPY_PANEL_ID], "as": "side"}),
     ("/api/panel-op/open-arrangement", {"request_id": "r1", "name": "x"}),
-    ("/api/panel-op/close-tab", {"request_id": "r1", "key": CANOPY_PANEL_ID}),
+    ("/api/panel-op/close", {"request_id": "r1", "key": CANOPY_PANEL_ID}),
 ]
 
 

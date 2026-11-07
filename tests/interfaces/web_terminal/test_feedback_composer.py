@@ -5,10 +5,13 @@ Four behaviours are pinned here:
 * ``collect_material`` reads each source **exactly once** per request (the
   render tiers reuse the struct rather than re-reading), and degrades without
   raising when the session is dead or absent.
-* ``select_artifacts`` builds the session's time window from *parsed*
-  timestamps only and compares aware datetimes, never strings — transcripts
-  stamp ``…Z`` while :class:`ArtifactEntry` stamps ``…+00:00``, and those two
-  suffixes do not order together lexicographically.
+* ``collect_material`` keeps the artifacts the read transcript owns as its
+  gallery sidebar row lists them (``owned_by`` + ``listed_rows``), and
+  ``select_artifacts`` keeps only the artifacts *no session owns* in the
+  session's time window, built from *parsed* timestamps only and compared as
+  aware datetimes, never strings — transcripts stamp ``…Z`` while
+  :class:`ArtifactEntry` stamps ``…+00:00``, and those two suffixes do not
+  order together lexicographically.
 * ``render_bundle`` renders the tiers in priority order into a UTF-8 **byte**
   budget, trimming each section oldest-first, and produces byte-identical
   output for identical input.
@@ -34,12 +37,12 @@ from osprey.interfaces.web_terminal.feedback_composer import (
     CONTEXT_OK,
     CONTEXT_RECORD_UNAVAILABLE,
     CONTEXT_TRANSCRIPT_NOT_FOUND,
+    NEARBY_ARTIFACTS_HEADER,
     NO_WINDOW_ARTIFACTS_HEADER,
+    OWNED_ARTIFACTS_HEADER,
     PAYLOAD_CAP_BYTES,
     PAYLOAD_SEPARATOR,
-    TAGGED_ARTIFACTS_HEADER,
     TEXT_TRUNCATION_MARKER,
-    UNTAGGED_ARTIFACTS_HEADER,
     Material,
     assemble_payload,
     bundle_for_copy,
@@ -54,14 +57,45 @@ from osprey.interfaces.web_terminal.feedback_composer import (
     validate_session_id,
 )
 from osprey.mcp_server.session import MAX_TIMELINE_PAGES
-from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
+from osprey.stores.artifact_inventory import listed_rows
+from osprey.stores.artifact_scope import owned_by, scope_for
+from osprey.stores.artifact_store import (
+    EXAMPLE_ORIGIN,
+    RUN_RECORD_KEY,
+    WATCHDOG_ORIGIN,
+    ArtifactEntry,
+    ArtifactStore,
+)
+from osprey.stores.session_ledger import EPOCH, Ledger, LedgerRow
 from tests.agent_record.fakes import FakeRecordClient
 
 SESSION_ID = "8f14e45f-ceea-4d0a-b6f0-1c2d3e4f5a6b"
 OTHER_SESSION_ID = "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"
+THIRD_TRANSCRIPT = "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f"
+"""Another key's transcript: what another terminal tab owns."""
+OTHER_KEY = "9e8d7c6b-5a49-4382-a716-ffeeddccbbaa"
+
+#: SESSION_ID's key names its own transcript, then a ``/clear`` at 11:00 moves
+#: it to OTHER_SESSION_ID; OTHER_KEY is another tab on THIRD_TRANSCRIPT.
+CLEAR_AT = "2026-08-20T11:00:00+00:00"
+LEDGER = Ledger(
+    rows=(
+        LedgerRow(SESSION_ID, SESSION_ID, EPOCH),
+        LedgerRow(OTHER_KEY, THIRD_TRANSCRIPT, EPOCH),
+        LedgerRow(SESSION_ID, OTHER_SESSION_ID, CLEAR_AT),
+    )
+)
 
 
-def _entry(artifact_id: str, timestamp: str, session_id: str = "") -> ArtifactEntry:
+def _entry(
+    artifact_id: str,
+    timestamp: str,
+    session_id: str = "",
+    *,
+    metadata: dict | None = None,
+    origin: str = "",
+    run_id: str = "",
+) -> ArtifactEntry:
     """Build a real :class:`ArtifactEntry` with only the fields under test set."""
     return ArtifactEntry(
         id=artifact_id,
@@ -74,6 +108,9 @@ def _entry(artifact_id: str, timestamp: str, session_id: str = "") -> ArtifactEn
         timestamp=timestamp,
         tool_source="test",
         session_id=session_id,
+        metadata=dict(metadata or {}),
+        origin=origin,
+        run_id=run_id,
     )
 
 
@@ -124,6 +161,7 @@ def _reader(*, transcript_found: bool = True) -> FakeRecordClient:
 def _store(entries: list[ArtifactEntry] | None = None) -> Mock:
     store = Mock(spec=ArtifactStore)
     store.list_entries.return_value = entries if entries is not None else []
+    store.run_groups.return_value = {}
     return store
 
 
@@ -189,19 +227,126 @@ def test_collect_material_reads_each_source_exactly_once():
     assert material.artifact_entries == store.list_entries.return_value
     assert material.scrollback == "tail"
     assert material.metadata == {"app_name": "OSPREY"}
+    # No scope given: the key names its own transcript, and with no ledger
+    # only an entry stamped with that transcript would be owned.
+    assert material.scope == scope_for(SESSION_ID, None, False)
+    assert material.owned == []
 
 
 def test_collect_material_reads_the_session_a_cleared_key_moved_to():
     reader = _reader()
+    scope = scope_for(OTHER_SESSION_ID, LEDGER, True)
 
-    material = collect_material(
-        reader, _store(), SESSION_ID, "", {}, transcript_id=OTHER_SESSION_ID
-    )
+    material = collect_material(reader, _store(), SESSION_ID, "", {}, scope=scope)
 
     (timeline,) = reader.calls_to("timeline")
     assert timeline["session_id"] == OTHER_SESSION_ID
     assert timeline["wait"] == Drain(session_id=OTHER_SESSION_ID)
     assert material.session_id == SESSION_ID
+    assert material.scope is scope
+
+
+# ---- the owned section (req 14) ------------------------------------------
+
+
+def _save(store: ArtifactStore, title: str, *, session_id: str, at: str, **metadata):
+    """Save one plot tagged *session_id*, first stamped *at*."""
+    return store.save_file(
+        b"png",
+        f"{title}.png",
+        "image",
+        title,
+        mime_type="image/png",
+        tool_source="execute",
+        session_id=session_id,
+        metadata={"first_ts": at, **metadata},
+    )
+
+
+def _run(store: ArtifactStore, *, session_id: str, at: str) -> tuple[ArtifactEntry, ...]:
+    """A run: its preview (a part, never listed) and its result (the head)."""
+    exec_id = f"toolu_{at[-14:-6].replace(':', '')}"
+    preview = store.save_file(
+        b"{}",
+        "review.ipynb",
+        "notebook",
+        "Review: fit",
+        mime_type="application/x-ipynb+json",
+        tool_source="osprey_approval",
+        session_id=session_id,
+        metadata={"run_part": "preview", RUN_RECORD_KEY: True, "first_ts": at},
+        exec_id=exec_id,
+    )
+    result = store.save_file(
+        b"{}",
+        "result.json",
+        "json",
+        "fit",
+        mime_type="application/json",
+        tool_source="execute",
+        session_id=session_id,
+        metadata={
+            "run_part": "result",
+            RUN_RECORD_KEY: True,
+            "run_status": "succeeded",
+            "first_ts": at,
+        },
+        exec_id=exec_id,
+    )
+    return preview, result
+
+
+@pytest.fixture
+def real_store(tmp_path) -> ArtifactStore:
+    return ArtifactStore(workspace_root=tmp_path / "_agent_data", auto_launch=False)
+
+
+def _sidebar_row(store: ArtifactStore, transcript: str) -> list[str]:
+    """The ids the gallery sidebar lists under *transcript*: its owned rows."""
+    scope = scope_for(transcript, LEDGER, True)
+    owned = [e for e in store.list_entries(exclude_examples=True) if owned_by(e, scope)]
+    return sorted(entry.id for entry, _form, _label in listed_rows(store, owned))
+
+
+@pytest.mark.parametrize(
+    "transcript", [SESSION_ID, OTHER_SESSION_ID], ids=["before-clear", "after-clear"]
+)
+def test_collect_material_owned_section_equals_the_read_transcripts_sidebar_row(
+    real_store, transcript
+):
+    before = _save(real_store, "before", session_id=SESSION_ID, at="2026-08-20T10:30:00+00:00")
+    before_run = _run(real_store, session_id=SESSION_ID, at="2026-08-20T10:40:00+00:00")
+    after = _save(real_store, "after", session_id=SESSION_ID, at="2026-08-20T11:30:00+00:00")
+    after_run = _run(real_store, session_id=SESSION_ID, at="2026-08-20T11:40:00+00:00")
+    _save(real_store, "other-tab", session_id=OTHER_KEY, at="2026-08-20T10:45:00+00:00")
+    _save(real_store, "unowned", session_id="", at="2026-08-20T10:50:00+00:00")
+
+    material = collect_material(
+        _reader(), real_store, SESSION_ID, "", {}, scope=scope_for(transcript, LEDGER, True)
+    )
+
+    owned = sorted(e.id for e in material.owned)
+    assert owned == _sidebar_row(real_store, transcript)
+    # The run's preview is folded under its head, as the sidebar does.
+    expected = (before, before_run[1]) if transcript == SESSION_ID else (after, after_run[1])
+    assert owned == sorted(e.id for e in expected)
+
+
+def test_collect_material_owns_nothing_another_transcript_owns(real_store):
+    _save(real_store, "other-tab", session_id=OTHER_KEY, at="2026-08-20T10:45:00+00:00")
+    _save(
+        real_store,
+        "stamped",
+        session_id="",
+        at="2026-08-20T10:46:00+00:00",
+        transcript_id=THIRD_TRANSCRIPT,
+    )
+
+    material = collect_material(
+        _reader(), real_store, SESSION_ID, "", {}, scope=scope_for(SESSION_ID, LEDGER, True)
+    )
+
+    assert material.owned == []
 
 
 def test_collect_material_follows_every_page_of_the_timeline():
@@ -368,24 +513,74 @@ def test_parse_timestamp_returns_none_for_unusable(raw):
 # --------------------------------------------------------------------------
 
 WINDOW_EVENTS = ["2026-08-20T10:00:00.000Z", "2026-08-20T12:00:00.000Z"]
+SCOPE = scope_for(SESSION_ID, LEDGER, True)
+NO_LEDGER = scope_for(SESSION_ID, Ledger(), False)
 
 
-def test_select_artifacts_tags_this_session_and_windows_untagged():
-    tagged_entry = _entry("tagged", "2026-08-19T00:00:00.000000+00:00", session_id=SESSION_ID)
+def test_select_artifacts_windows_only_unowned_entries():
     inside = _entry("inside", "2026-08-20T11:00:00.000000+00:00")
     outside_before = _entry("before", "2026-08-20T09:59:59.000000+00:00")
     outside_after = _entry("after", "2026-08-20T12:00:01.000000+00:00")
-    other = _entry("other", "2026-08-20T11:00:00.000000+00:00", session_id=OTHER_SESSION_ID)
+    mine = _entry("mine", "2026-08-20T10:30:00.000000+00:00", session_id=SESSION_ID)
+    other_tab = _entry("other", "2026-08-20T11:00:00.000000+00:00", session_id=OTHER_KEY)
 
-    tagged, windowed, window_ok = select_artifacts(
-        [tagged_entry, inside, outside_before, outside_after, other],
-        SESSION_ID,
-        WINDOW_EVENTS,
+    nearby, window_ok = select_artifacts(
+        [inside, outside_before, outside_after, mine, other_tab], SCOPE, WINDOW_EVENTS
     )
 
     assert window_ok is True
-    assert [e.id for e in tagged] == ["tagged"]
-    assert [e.id for e in windowed] == ["inside"]
+    # Owned (this transcript) and owned by another tab are both excluded.
+    assert [e.id for e in nearby] == ["inside"]
+
+
+def test_select_artifacts_excludes_what_another_transcript_owns():
+    stamped = _entry(
+        "stamped", "2026-08-20T11:00:00.000000+00:00", metadata={"transcript_id": THIRD_TRANSCRIPT}
+    )
+    stamped_mine = _entry(
+        "stamped-mine", "2026-08-20T11:00:00.000000+00:00", metadata={"transcript_id": SESSION_ID}
+    )
+    keyed = _entry("keyed", "2026-08-20T11:00:00.000000+00:00", session_id=OTHER_KEY)
+
+    nearby, _ = select_artifacts([stamped, stamped_mine, keyed], SCOPE, WINDOW_EVENTS)
+
+    assert nearby == []
+
+
+def test_select_artifacts_includes_cli_conversation_artifacts():
+    """A ``cli:`` tag names no hub ledger row: no session row lists it in the gallery."""
+    cli = _entry("cli", "2026-08-20T11:00:00.000000+00:00", session_id="cli:abc")
+
+    nearby, _ = select_artifacts([cli], SCOPE, WINDOW_EVENTS)
+
+    assert [e.id for e in nearby] == ["cli"]
+
+
+def test_select_artifacts_with_the_ledger_unavailable_keeps_only_untagged_unstamped():
+    untagged = _entry("untagged", "2026-08-20T11:00:00.000000+00:00")
+    keyed = _entry("keyed", "2026-08-20T11:00:00.000000+00:00", session_id=OTHER_KEY)
+    mine = _entry("mine", "2026-08-20T11:00:00.000000+00:00", session_id=SESSION_ID)
+    cli = _entry("cli", "2026-08-20T11:00:00.000000+00:00", session_id="cli:abc")
+    stamped = _entry(
+        "stamped", "2026-08-20T11:00:00.000000+00:00", metadata={"transcript_id": THIRD_TRANSCRIPT}
+    )
+
+    for scope in (NO_LEDGER, scope_for(SESSION_ID, None, True), None):
+        nearby, window_ok = select_artifacts(
+            [untagged, keyed, mine, cli, stamped], scope, WINDOW_EVENTS
+        )
+        assert window_ok is True
+        assert [e.id for e in nearby] == ["untagged"]
+
+
+def test_select_artifacts_leaves_out_runs_watchdogs_and_the_example():
+    dispatch = _entry("dispatch", "2026-08-20T11:00:00.000000+00:00", run_id="run-1")
+    judge = _entry("judge", "2026-08-20T11:00:00.000000+00:00", origin=WATCHDOG_ORIGIN)
+    example = _entry("example", "2026-08-20T11:00:00.000000+00:00", origin=EXAMPLE_ORIGIN)
+
+    nearby, _ = select_artifacts([dispatch, judge, example], SCOPE, WINDOW_EVENTS)
+
+    assert nearby == []
 
 
 def test_select_artifacts_compares_instants_not_strings():
@@ -398,13 +593,10 @@ def test_select_artifacts_compares_instants_not_strings():
     boundary = _entry("boundary", "2026-08-20T10:00:00.000000+00:00")
     upper_edge = _entry("upper", "2026-08-20T12:00:00.000000+00:00")
 
-    tagged, windowed, window_ok = select_artifacts(
-        [boundary, upper_edge], SESSION_ID, WINDOW_EVENTS
-    )
+    nearby, window_ok = select_artifacts([boundary, upper_edge], SCOPE, WINDOW_EVENTS)
 
     assert window_ok is True
-    assert tagged == []
-    assert [e.id for e in windowed] == ["boundary", "upper"]
+    assert [e.id for e in nearby] == ["boundary", "upper"]
 
 
 def test_select_artifacts_window_ignores_empty_and_malformed_event_stamps():
@@ -413,59 +605,41 @@ def test_select_artifacts_window_ignores_empty_and_malformed_event_stamps():
     outside = _entry("outside", "2026-08-20T13:00:00.000000+00:00")
     events = ["", None, "garbage", "2026-08-20T10:00:00.000Z", "2026-08-20T12:00:00.000Z", ""]
 
-    tagged, windowed, window_ok = select_artifacts([inside, outside], SESSION_ID, events)
+    nearby, window_ok = select_artifacts([inside, outside], SCOPE, events)
 
     assert window_ok is True
-    assert tagged == []
-    assert [e.id for e in windowed] == ["inside"]
+    assert [e.id for e in nearby] == ["inside"]
 
 
 @pytest.mark.parametrize("events", [["", None, "garbage"], []], ids=["nothing-parses", "no-events"])
 def test_select_artifacts_reports_no_window_when_nothing_parses(events):
-    tagged_entry = _entry("tagged", "2026-08-20T11:00:00.000000+00:00", session_id=SESSION_ID)
     untagged = _entry("untagged", "2026-08-20T11:00:00.000000+00:00")
 
-    tagged, windowed, window_ok = select_artifacts([tagged_entry, untagged], SESSION_ID, events)
+    nearby, window_ok = select_artifacts([untagged], SCOPE, events)
 
     assert window_ok is False
-    assert windowed == []
-    assert [e.id for e in tagged] == ["tagged"]
+    assert nearby == []
 
 
-def test_select_artifacts_skips_untagged_entries_with_unusable_stamps():
+def test_select_artifacts_skips_entries_with_unusable_stamps():
     undated = _entry("undated", "")
     malformed = _entry("malformed", "not-a-timestamp")
     inside = _entry("inside", "2026-08-20T11:00:00.000000+00:00")
 
-    _, windowed, window_ok = select_artifacts(
-        [undated, malformed, inside], SESSION_ID, WINDOW_EVENTS
-    )
+    nearby, window_ok = select_artifacts([undated, malformed, inside], SCOPE, WINDOW_EVENTS)
 
     assert window_ok is True
-    assert [e.id for e in windowed] == ["inside"]
-
-
-def test_select_artifacts_without_session_id_tags_nothing():
-    """An empty session id must not be read as "matches every untagged entry"."""
-    untagged = _entry("untagged", "2026-08-20T11:00:00.000000+00:00")
-
-    tagged, windowed, window_ok = select_artifacts([untagged], "", WINDOW_EVENTS)
-
-    assert tagged == []
-    assert window_ok is True
-    assert [e.id for e in windowed] == ["untagged"]
+    assert [e.id for e in nearby] == ["inside"]
 
 
 def test_select_artifacts_single_event_makes_a_degenerate_window():
     exact = _entry("exact", "2026-08-20T10:00:00.000000+00:00")
     later = _entry("later", "2026-08-20T10:00:01.000000+00:00")
 
-    _, windowed, window_ok = select_artifacts(
-        [exact, later], SESSION_ID, ["2026-08-20T10:00:00.000Z"]
-    )
+    nearby, window_ok = select_artifacts([exact, later], SCOPE, ["2026-08-20T10:00:00.000Z"])
 
     assert window_ok is True
-    assert [e.id for e in windowed] == ["exact"]
+    assert [e.id for e in nearby] == ["exact"]
 
 
 # --------------------------------------------------------------------------
@@ -510,25 +684,31 @@ def _material(**overrides) -> Material:
             _entry("untagged-1", "2026-08-20T10:00:01.000000+00:00"),
         ],
         "session_id": SESSION_ID,
+        "scope": SCOPE,
     }
     base.update(overrides)
+    if "owned" not in base:
+        base["owned"] = [e for e in base["artifact_entries"] if owned_by(e, base["scope"])]
     return Material(**base)
 
 
 def _oversized_material() -> Material:
     """Material far larger than any budget under test (~6 MB)."""
+    owned = [
+        _entry(f"tag-{i}", f"2026-08-20T10:00:{i % 60:02d}.000000+00:00", session_id=SESSION_ID)
+        for i in range(500)
+    ]
     return Material(
         metadata={"osprey_version": "1.2.3", "app_name": "OSPREY"},
         context_status=CONTEXT_OK,
         events=[_event(i, error=i % 7 == 0) for i in range(4000)],
         chat=[_turn(i, "user" if i % 2 else "assistant", body="chat " * 300) for i in range(400)],
         scrollback="".join(f"scrollback line {i} {'x' * 80}\n" for i in range(60_000)),
-        artifact_entries=[
-            _entry(f"tag-{i}", f"2026-08-20T10:00:{i % 60:02d}.000000+00:00", session_id=SESSION_ID)
-            for i in range(500)
-        ]
+        artifact_entries=owned
         + [_entry(f"free-{i}", f"2026-08-20T10:00:{i % 60:02d}.000000+00:00") for i in range(500)],
         session_id=SESSION_ID,
+        scope=SCOPE,
+        owned=owned,
     )
 
 
@@ -544,8 +724,8 @@ def test_render_bundle_emits_tiers_in_order():
         text.index("## event log"),
         text.index("## chat history"),
         text.index("## terminal scrollback"),
-        text.index(TAGGED_ARTIFACTS_HEADER),
-        text.index(UNTAGGED_ARTIFACTS_HEADER),
+        text.index(OWNED_ARTIFACTS_HEADER),
+        text.index(NEARBY_ARTIFACTS_HEADER),
     ]
     assert positions == sorted(positions)
     assert truncated is False
@@ -587,16 +767,49 @@ def test_render_bundle_renders_chat_newest_turn_first():
     assert text.index("newest") < text.index("oldest")
 
 
-def test_render_bundle_untagged_block_uses_the_exact_header():
+def test_render_bundle_nearby_block_uses_the_exact_header():
     text, _ = render_bundle(_material(), GENEROUS_BUDGET)
 
-    assert UNTAGGED_ARTIFACTS_HEADER == (
-        "artifacts created on this deployment during this session's time window "
-        "(not session-tagged; may include other terminal tabs or the chat panel)"
+    assert NEARBY_ARTIFACTS_HEADER == (
+        "artifacts no session owns, from the same time window "
+        "(not this session's; may come from the chat panel or a CLI conversation)"
     )
-    assert UNTAGGED_ARTIFACTS_HEADER in text
+    assert OWNED_ARTIFACTS_HEADER == "artifacts this session owns (titles and ids only)"
+    assert NEARBY_ARTIFACTS_HEADER in text
     assert NO_WINDOW_ARTIFACTS_HEADER not in text
     assert "untagged-1" in text
+
+
+def _section(text: str, header: str) -> str:
+    """The body of the ``## <header>`` section of *text*, up to the next one."""
+    body = text.split(f"## {header}\n", 1)[1]
+    return body.split("\n## ", 1)[0]
+
+
+def test_render_bundle_lists_an_unowned_artifact_only_under_the_unowned_header():
+    text, _ = render_bundle(_material(), GENEROUS_BUDGET)
+
+    owned = _section(text, OWNED_ARTIFACTS_HEADER)
+    nearby = _section(text, NEARBY_ARTIFACTS_HEADER)
+    assert "tag-1" in owned and "tag-1" not in nearby
+    assert "untagged-1" in nearby and "untagged-1" not in owned
+
+
+def test_render_bundle_lists_another_transcripts_artifact_in_neither_section():
+    entries = [
+        _entry("other-tab", "2026-08-20T10:00:10.000000+00:00", session_id=OTHER_KEY),
+        _entry(
+            "stamped",
+            "2026-08-20T10:00:20.000000+00:00",
+            metadata={"transcript_id": THIRD_TRANSCRIPT},
+        ),
+        _entry("untagged-1", "2026-08-20T10:00:01.000000+00:00"),
+    ]
+    for scope in (SCOPE, NO_LEDGER):
+        text, _ = render_bundle(_material(artifact_entries=entries, scope=scope), GENEROUS_BUDGET)
+        assert "other-tab" not in text
+        assert "stamped" not in text
+        assert "untagged-1" in _section(text, NEARBY_ARTIFACTS_HEADER)
 
 
 def test_render_bundle_labels_artifacts_when_no_window_is_derivable():
@@ -607,8 +820,8 @@ def test_render_bundle_labels_artifacts_when_no_window_is_derivable():
     text, _ = render_bundle(material, GENEROUS_BUDGET)
 
     assert NO_WINDOW_ARTIFACTS_HEADER in text
-    assert UNTAGGED_ARTIFACTS_HEADER not in text
-    assert TAGGED_ARTIFACTS_HEADER not in text
+    assert NEARBY_ARTIFACTS_HEADER not in text
+    assert OWNED_ARTIFACTS_HEADER not in text
     assert "tag-1" in text
     assert "untagged-1" not in text
 
@@ -628,6 +841,7 @@ def test_render_bundle_artifact_inventory_is_titles_and_ids_only():
         metadata={"path": "/private/path"},
     )
     text, _ = render_bundle(_material(artifact_entries=[entry]), GENEROUS_BUDGET)
+    assert OWNED_ARTIFACTS_HEADER in text
 
     assert "art-1" in text
     assert "Beam current" in text
@@ -645,7 +859,7 @@ def test_render_bundle_omits_empty_sections():
     assert "## event log" not in text
     assert "## chat history" not in text
     assert "## terminal scrollback" not in text
-    assert TAGGED_ARTIFACTS_HEADER not in text
+    assert OWNED_ARTIFACTS_HEADER not in text
     assert truncated is False
 
 
@@ -664,7 +878,7 @@ def test_render_bundle_replaces_context_tiers_with_a_status_note(status, note_te
     assert "## event log" not in text
     assert "## chat history" not in text
     assert "## terminal scrollback" not in text
-    assert TAGGED_ARTIFACTS_HEADER not in text
+    assert OWNED_ARTIFACTS_HEADER not in text
     assert truncated is False
     note = text.split("## session context\n", 1)[1].strip()
     assert len(note.splitlines()) == 1
@@ -742,7 +956,7 @@ def test_render_bundle_later_tiers_yield_to_earlier_ones():
     assert truncated is True
     assert "## deployment" in text
     assert "## event log" in text
-    assert TAGGED_ARTIFACTS_HEADER not in text
+    assert OWNED_ARTIFACTS_HEADER not in text
 
 
 def test_render_bundle_never_splits_a_multibyte_character():

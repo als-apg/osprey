@@ -111,9 +111,9 @@ from tests.e2e._deploy_support import (
 from tests.e2e._facility_select import bounded_corrector, repo_view, seeded_readback
 from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT, knowledge_services_off
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 RUNTIME = "docker"
 
@@ -369,6 +369,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
             "--preset",
             PRESET,
             "--no-git",
+            *e2e_scenario_pin(PRESET),
             *set_pairs(_profile_edits()),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",

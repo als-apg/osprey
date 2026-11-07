@@ -33,11 +33,6 @@ from typing import Literal
 OUTPUT_SUBDIR = "source/_static/screenshots"
 MANIFEST_NAME = "manifest.json"
 
-# Determinism anchor: seeded ARIEL logbook dates resolve their relative
-# ``days_ago``/``at_time`` against this frozen instant, so ``--stack`` captures
-# are byte-stable across runs. Passed to ``osprey sim apply --now``.
-ANCHOR = "2024-03-18T12:00:00"
-
 _ALLOWED_THEMES = frozenset({"light", "dark"})
 
 
@@ -45,15 +40,15 @@ _ALLOWED_THEMES = frozenset({"light", "dark"})
 class SubView:
     """One captured view within a single environment (env → many output files).
 
-    ARIEL, for example, is one running app whose ``#search``/``#browse``/
-    ``#create``/``#status`` hash routes each become a separate PNG.
+    An anchor starting with ``#`` is a hash route; anything else is a selector
+    clicked after load.
     """
 
     anchor: str
-    """Hash route (``"#search"``) or activation selector navigated before capture."""
+    """Hash route (``"#create"``) or a selector clicked before capture."""
 
     out: str
-    """Output filename stem, e.g. ``"ariel_search"`` → ``ariel_search.png``."""
+    """Output filename stem, e.g. ``"ariel_screen"`` → ``ariel_screen.png``."""
 
     wait_selector: str | None = None
     """Optional selector to await (attached) after navigating, before shooting."""
@@ -176,22 +171,22 @@ REGISTRY: list[DocShot] = [
         themes=("light", "dark"),
         viewport=(1400, 1000),
     ),
-    # ARIEL views (opt-in ``--stack``). One tutorial stack → four PNGs, one per
-    # hash-routed view. ``#search`` shows the search form in ARIEL's default mode
-    # with no extra activation.
-    # Single-theme (light) → no theme suffix, matching the committed filenames;
-    # viewport 1280x900 matches the committed aspect so the .rst needs no re-layout.
+    # ARIEL (opt-in ``--stack``). One tutorial stack → one PNG of the one
+    # screen: rail, list and the seeded logbook's newest entry, clicked into the
+    # reader. Single-theme (light) → no theme suffix; viewport 1280x900.
     DocShot(
         name="ariel",
         environment="tutorial_stack",
         kind="static",
         themes=("light",),
         viewport=(1280, 900),
+        wait_selector='#ariel-list [data-entry-id][aria-selected="true"]',
         subviews=(
-            SubView("#search", "ariel_search", wait_selector="#view-search"),
-            SubView("#browse", "ariel_browse", wait_selector="#view-browse"),
-            SubView("#create", "ariel_create", wait_selector="#view-create"),
-            SubView("#status", "ariel_status", wait_selector="#view-status"),
+            SubView(
+                ".ariel-row >> nth=0",
+                "ariel_screen",
+                wait_selector="#ariel-reader-body .entry-detail",
+            ),
         ),
     ),
     # Web Terminal hero (opt-in ``--agentic``). Drives a live agent session on the

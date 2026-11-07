@@ -70,7 +70,7 @@ from tests.e2e._deploy_support import (
     wait_for_health,
 )
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 
 #: This deploy's own thousand-port block — same convention as
@@ -127,7 +127,6 @@ DATA_FILE = "overlay_visibility.json"
 SURFACE_TOKEN = "SURFACE=e2e-generic-webhook"  # emitted only if surface_prompt lands
 
 pytestmark = [
-    pytest.mark.e2e,
     # Gates on the credential of whichever provider the run builds with.
     pytest.mark.requires_e2e_provider,
     pytest.mark.slow,
@@ -315,6 +314,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "control-assistant",
             "--no-git",
+            *e2e_scenario_pin(),
             *set_pairs({"config": {"modules.web_terminals.enabled": False}}),
             "--set",
             f"provider={e2e_provider()}",

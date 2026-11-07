@@ -30,6 +30,7 @@ import {
   setSelectedArtifact,
   getFocusedArtifact,
   setFocusedArtifact,
+  getCurrentSessionId,
   setCurrentSessionId,
   getShowAllSessions,
   setShowAllSessions,
@@ -37,6 +38,8 @@ import {
   removeArtifact,
   hasMoreArtifacts,
   inCurrentScope,
+  liveVerdict,
+  followsFocus,
   fetchArtifacts as fetchArtifactsData,
   fetchMoreArtifacts as fetchMoreArtifactsData,
   fetchFocus,
@@ -411,9 +414,11 @@ function connectSSE() {
     const eventType = eventData && eventData.type;
 
     if (eventType === 'focus') {
-      // The agent called artifact_focus.
+      // The agent called artifact_focus. The session view follows only its
+      // held transcript's focus (contract C6).
       const focusId = eventData.id;
       if (!focusId) return;
+      if (!followsFocus(eventData.session ?? null)) return;
       const wantFullscreen = !!eventData.fullscreen;
       const held = getArtifacts().find((x) => x.id === focusId);
       if (held) {
@@ -442,6 +447,7 @@ function connectSSE() {
     }
 
     if (eventType === 'artifact_updated') {
+      // Never a refetch: an update changes no listing the session view holds.
       const fields = { ...eventData };
       delete fields.type;
       applyUpdated(fields);
@@ -449,10 +455,13 @@ function connectSSE() {
     }
 
     if (eventType === 'artifact' || !eventType) {
-      if (previewRenderer.isFullscreen()) previewRenderer.noteNewArtifactArrival();
       const entry = { ...eventData };
       delete entry.type;
-      if (eventType && entry.id && addArtifact(entry)) {
+      // An untyped frame says only that something changed: read the list again.
+      const verdict = eventType && entry.id ? liveVerdict(entry, 'new') : 'refetch';
+      if (verdict === 'out') return;
+      if (previewRenderer.isFullscreen()) previewRenderer.noteNewArtifactArrival();
+      if (verdict === 'in' && addArtifact(entry)) {
         renderSidebar();
         if (previewRenderer.isFullscreen()) previewRenderer.updateNewArtifactBadge();
         return;
@@ -562,9 +571,13 @@ document.addEventListener(
 window.addEventListener('message', (e) => {
   if (e.origin !== window.location.origin) return;
   if (e.data && e.data.type === 'osprey-session-change' && e.data.session_id) {
-    setCurrentSessionId(e.data.session_id);
-    setShowAllSessions(false);
-    updateScopeUi();
+    // The same key again means its transcript moved (contract C11): read the
+    // list again and keep the all-sessions toggle. A new key resets the scope.
+    if (e.data.session_id !== getCurrentSessionId()) {
+      setCurrentSessionId(e.data.session_id);
+      setShowAllSessions(false);
+      updateScopeUi();
+    }
     fetchArtifacts();
   }
 });

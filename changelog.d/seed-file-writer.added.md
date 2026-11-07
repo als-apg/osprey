@@ -1,0 +1,1 @@
+Simulation: a deploy that activates a default set holding scenario `sessions` writes their history (transcripts plus artifacts, anchored on the scenario clock) for the first readwrite roster user and the host identity; `osprey sim apply` and archive reseeds write none.

@@ -395,6 +395,8 @@ function requireEl(id) {
     readerEl.appendChild(bodyEl);
 
     currentFacilityReferences = doc.facility_references || null;
+    // The reader's statement of the concept it shows; present only while one is rendered.
+    readerEl.dataset.conceptId = id;
     afterRender(readerEl);
   }
 
@@ -402,6 +404,7 @@ function requireEl(id) {
    * @param {string} msg
    */
   function renderMessage(msg) {
+    delete readerEl.dataset.conceptId;
     readerEl.innerHTML = '';
     readerEl.appendChild(el('p', { class: 'muted', text: msg }));
     afterRender(readerEl);
@@ -431,6 +434,7 @@ function requireEl(id) {
       return;
     }
 
+    delete readerEl.dataset.conceptId;
     readerEl.innerHTML = '';
     const container = el('div', { class: 'osprey-md-rendered' });
     renderMarkdownInto(container, data.markdown);

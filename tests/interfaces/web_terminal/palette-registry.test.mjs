@@ -146,11 +146,11 @@ describe('buildRegistry', () => {
     });
 
     const labels = inGroup(items, 'Panels').map((it) => it.label);
-    expect(labels).toContain('Pop out ARIEL');
+    expect(labels).toContain('Open ARIEL in new window');
     // Opening the active panel beside itself is a no-op, so the row is absent.
     expect(labels).not.toContain('Open ARIEL in a new tile');
     // A non-active member gets both verbs.
-    expect(labels).toContain('Pop out Facility');
+    expect(labels).toContain('Open Facility in new window');
     expect(labels).toContain('Open Facility in a new tile');
   });
 
@@ -164,7 +164,7 @@ describe('buildRegistry', () => {
     });
 
     const labels = inGroup(items, 'Panels').map((it) => it.label);
-    expect(labels).toEqual(['Focus ARIEL', 'Pop out ARIEL', 'Open ARIEL in a new tile']);
+    expect(labels).toEqual(['Focus ARIEL', 'Open ARIEL in new window', 'Open ARIEL in a new tile']);
   });
 
   it('POP OUT / NEW TILE ROWS: run calls popoutPanel / openPanelBeside with the panel id', () => {
@@ -181,7 +181,7 @@ describe('buildRegistry', () => {
 
     const byLabel = (/** @type {string} */ label) =>
       inGroup(items, 'Panels').find((it) => it.label === label);
-    byLabel('Pop out Facility').run();
+    byLabel('Open Facility in new window').run();
     byLabel('Open Facility in a new tile').run();
     expect(poppedOut).toEqual(['okf']);
     expect(besided).toEqual(['okf']);
@@ -199,7 +199,7 @@ describe('buildRegistry', () => {
     });
 
     const labels = inGroup(items, 'Panels').map((it) => it.label);
-    expect(labels).toEqual(['Focus Facility', 'Pop out Facility']);
+    expect(labels).toEqual(['Focus Facility', 'Open Facility in new window']);
   });
 
   it('NO POPOUT GETTER: omitting getPopoutPanels drops every Pop out row', () => {
@@ -214,9 +214,9 @@ describe('buildRegistry', () => {
 
   it('SYNONYMS: a panel domain alias matches EVERY row for that panel', () => {
     const items = buildRegistry({
-      getHiddenPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
-      getVisiblePanels: () => [{ id: 'ariel', label: 'ARIEL' }],
-      getPopoutPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
+      getHiddenPanels: () => [{ id: 'ariel', label: 'LOGBOOK' }],
+      getVisiblePanels: () => [{ id: 'ariel', label: 'LOGBOOK' }],
+      getPopoutPanels: () => [{ id: 'ariel', label: 'LOGBOOK' }],
       openPanelBeside: () => {},
     });
 
@@ -226,8 +226,9 @@ describe('buildRegistry', () => {
       // Only searchText is scored by the matcher, so the alias has to live there.
       expect(row.searchText).toContain('logbook');
       expect(row.searchText).toContain('elog');
-      // The label and id stay searchable alongside the aliases.
-      expect(row.searchText).toContain('ARIEL');
+      // The label and id stay searchable alongside the aliases: the id keeps
+      // the panel's old name, "ariel", reachable.
+      expect(row.searchText).toContain('LOGBOOK');
       expect(row.searchText).toContain('ariel');
     }
   });
@@ -242,7 +243,7 @@ describe('buildRegistry', () => {
 
     const byLabel = (/** @type {string} */ label) =>
       inGroup(items, 'Panels').find((it) => it.label === label);
-    const popout = byLabel('Pop out Facility').searchText;
+    const popout = byLabel('Open Facility in new window').searchText;
     for (const token of ['pop out', 'window', 'popout', 'standalone']) {
       expect(popout).toContain(token);
     }

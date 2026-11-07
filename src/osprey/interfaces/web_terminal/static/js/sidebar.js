@@ -14,26 +14,30 @@
  *     width (sidebar-resize.js). The rows' tips come from the page's one
  *     tooltip layer (`data-tip`, `data-tip-detail`, tooltip.js; started in
  *     app.js).
- *   - DISCLOSURE. The Artifacts and Script runs rows open and close their
- *     lists (`aria-expanded` on the row, `hidden` on the list). Which lists are
- *     open is kept per user under `scopedStorageKey('osprey-sidebar-open')`, a
- *     JSON array of row ids, `["artifacts"]` by default. A click on the
- *     Artifacts row opens its list (the row's other half, activating the
- *     panel, is panel-rail.js's); a click on its chevron (`[data-disc]`)
- *     toggles the list only; ArrowRight / ArrowLeft open and close it from the
- *     keyboard. While the sidebar is collapsed the Artifacts row opens the
- *     same list as a flyout beside the sidebar (`#sidebar-artifacts-flyout`),
- *     and Script runs, which has no flyout, does nothing.
+ *   - DISCLOSURE. The Agent row wraps the session tree (sidebar-artifacts.js
+ *     draws it) and opens and closes it (`aria-expanded` on the row, `hidden`
+ *     on the tree). Whether it is open is kept per user under
+ *     `scopedStorageKey('osprey-sidebar-open')`, a JSON array of row ids,
+ *     `["agent"]` by default. A click on the Agent row is the row's activation
+ *     (panel-menu-policy.js): with the Agent pane closed it opens the pane and
+ *     the tree, with the pane open it folds or unfolds the tree and leaves the
+ *     pane alone. The row has no chevron of its own; ArrowRight / ArrowLeft
+ *     open and close the tree from the keyboard. While
+ *     the sidebar is collapsed the Agent row opens the same tree as a flyout
+ *     beside the sidebar (`#sidebar-sessions-flyout`) instead.
  *   - THE AGENT ROW. Its open/closed look comes from `html[data-agent]`
  *     (dock-workspace.js); this module keeps its tooltip and description in
  *     step and shows how many cards wait on the operator (the chat bus's
  *     `attention` count) on its badge while the pane is closed — the one time
  *     the operator cannot see them.
- *   - FADES. Each list, and the group that holds the lists (the one section
+ *   - FADES. The tree, and the group that holds it (the one section
  *     of the sidebar that gives up height), fade at an edge that has more to
  *     scroll to (`.fade`, `.fade-top`), so a cut-off row reads as scrolled
  *     rather than clipped. A group made later is watched from the render
  *     that adds it.
+ *
+ *   - GROUPS. A double-click folds a group to its heading (sidebar-fold.js);
+ *     a divider below the Sessions group sets its height (sidebar-divider.js).
  *
  * Changing the width closes every sidebar popover and the tooltip, since each
  * is placed against a sidebar edge that is about to move.
@@ -48,6 +52,9 @@ import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
 import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
 import { initSidebarResize } from './sidebar-resize.js';
+import { initSidebarFold } from './sidebar-fold.js';
+import { initSidebarDivider } from './sidebar-divider.js';
+import { allSessionsClick } from './sidebar-artifact-rows.js';
 
 /** The width's storage key, shared with sidebar-boot.js (pre-paint). */
 export const SIDEBAR_STORAGE_KEY = 'osprey-sidebar';
@@ -56,19 +63,18 @@ export const SIDEBAR_STORAGE_KEY = 'osprey-sidebar';
 export const OPEN_LISTS_STORAGE_KEY = 'osprey-sidebar-open';
 
 /** The lists open on a first visit. */
-const DEFAULT_OPEN = Object.freeze(['artifacts']);
+const DEFAULT_OPEN = Object.freeze(['agent']);
 
 /**
  * The rows that disclose a list: the row's button and the list it controls.
  * @type {Readonly<Record<string, {toggle: string, kids: string}>>}
  */
 const DISCLOSURES = Object.freeze({
-  artifacts: { toggle: '#sidebar-artifacts-row > .osprey-nav-row', kids: 'sidebar-artifacts-kids' },
-  runs: { toggle: '#sidebar-runs-toggle', kids: 'sidebar-runs-kids' },
+  agent: { toggle: '#sidebar-agent-row', kids: 'sidebar-session-tree' },
 });
 
-/** The collapsed sidebar's Artifacts flyout. */
-const FLYOUT_ID = 'sidebar-artifacts-flyout';
+/** The collapsed sidebar's sessions flyout. */
+const FLYOUT_ID = 'sidebar-sessions-flyout';
 
 /** The Agent row (panel-rail.js's `terminal` entry, shipped by index.html). */
 const AGENT_ROW_ID = 'sidebar-agent-row';
@@ -152,9 +158,8 @@ function disclosure(id) {
 
 /**
  * Paint one row's list open or closed: `hidden` on the list, and on the row
- * `aria-expanded` with `aria-controls` naming the list (the collapsed
- * Artifacts row points both at its flyout while that is open; this puts them
- * back).
+ * `aria-expanded` with `aria-controls` naming the list (the collapsed Agent
+ * row points both at its flyout while that is open; this puts them back).
  * @param {string} id
  * @param {boolean} open
  */
@@ -171,15 +176,35 @@ function paintDisclosure(id, open) {
 let openLists = new Set(DEFAULT_OPEN);
 
 /**
+ * Whether a row's list is open.
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function isListOpen(id) {
+  return openLists.has(id);
+}
+
+/**
  * Open or close a row's list and remember it.
  * @param {string} id
  * @param {boolean} open
  */
-function setListOpen(id, open) {
+export function setListOpen(id, open) {
   if (open) openLists.add(id);
   else openLists.delete(id);
   paintDisclosure(id, open);
   writeOpenLists(openLists);
+}
+
+/**
+ * Expand or collapse every session in the open tree: what a ⌥-click on the
+ * Agent row does, and what its menu's Expand all / Collapse all do. The list
+ * is opened first; the sessions are sidebar-artifacts.js's, imported lazily.
+ * @param {boolean} [force]  expand (true) or collapse (false) instead of toggling
+ */
+export function toggleEverySession(force) {
+  setListOpen('agent', true);
+  void import('./sidebar-artifacts.js').then((m) => m.toggleAllSessions(force));
 }
 
 /** Paint every row's list from {@link openLists}. */
@@ -188,9 +213,10 @@ function paintAllDisclosures() {
 }
 
 /**
- * Wire a disclosing row: `primary` runs on a click on the row itself, a click
- * on its chevron toggles the list only, and ArrowRight / ArrowLeft open and
- * close the list from the keyboard.
+ * Wire a disclosing row: `primary` runs on a click on the row itself, and
+ * ArrowRight / ArrowLeft open and close the list from the keyboard. The
+ * expanded row's click is the row's own activation (panel-menu-policy.js),
+ * which decides whether it folds the list.
  * @param {string} id
  * @param {(event: MouseEvent) => void} primary
  */
@@ -198,13 +224,6 @@ function wireDisclosure(id, primary) {
   const { toggle } = disclosure(id);
   if (!toggle) return;
   toggle.addEventListener('click', primary);
-  const disc = toggle.querySelector('[data-disc]');
-  disc?.addEventListener('click', (event) => {
-    // The chevron is the list's own control: the row's activation (and its
-    // flyout) never ride along.
-    event.stopPropagation();
-    if (!isCollapsed()) setListOpen(id, !openLists.has(id));
-  });
   toggle.addEventListener('keydown', (event) => {
     if (isCollapsed() || (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft')) return;
     event.preventDefault();
@@ -217,17 +236,16 @@ function initDisclosures(sidebar) {
   openLists = readOpenLists();
   paintAllDisclosures();
 
-  wireDisclosure('artifacts', (event) => {
+  wireDisclosure('agent', (event) => {
+    // Expanded, the row's click is its activation alone (panel-menu-policy.js).
+    if (!isCollapsed()) return;
     const row = /** @type {HTMLElement} */ (event.currentTarget);
-    if (isCollapsed()) {
-      const flyout = document.getElementById(FLYOUT_ID);
-      if (flyout) togglePopover(row, flyout, { place: 'beside-right', edge: sidebar });
-      return;
-    }
-    setListOpen('artifacts', true);
-  });
-  wireDisclosure('runs', () => {
-    if (!isCollapsed()) setListOpen('runs', !openLists.has('runs'));
+    const flyout = document.getElementById(FLYOUT_ID);
+    if (!flyout) return;
+    // The collapsed rail button opens the flyout; the Agent pane opens from
+    // a session name in it, so the row's pane half does not ride along.
+    event.stopImmediatePropagation();
+    togglePopover(row, flyout, { place: 'beside-right', edge: sidebar });
   });
 }
 
@@ -247,13 +265,16 @@ function paintAgentRow() {
     badge.hidden = !showBadge;
     badge.textContent = showBadge ? String(waiting) : '';
   }
+  const all = `${allSessionsClick()} to expand or collapse every session`;
   if (!closed) {
     row.dataset.tip = 'Agent';
+    row.dataset.tipDetail = `Click to fold the session list · ${all}`;
     row.removeAttribute('aria-description');
     return;
   }
   const state = showBadge ? `${waiting} waiting` : 'closed';
   row.dataset.tip = `Agent · ${state} — click to open`;
+  row.dataset.tipDetail = `Click to open the Agent pane · ${all}`;
   row.setAttribute(
     'aria-description',
     showBadge
@@ -269,6 +290,25 @@ function initAgentRow() {
     waiting = Number.isFinite(detail?.waiting) ? Math.max(0, detail.waiting) : 0;
     paintAgentRow();
   });
+}
+
+// ---- The session tree's keys ----
+
+/**
+ * Up and Down move between the session tree's artifact rows (its buttons, so
+ * Enter and Space pick); sidebar-artifacts.js draws the rows.
+ * @param {KeyboardEvent} event
+ */
+function onTreeKeydown(event) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  const row = event.target instanceof HTMLElement ? event.target.closest('.osprey-list-row') : null;
+  const tree = row?.closest('[data-session-tree]');
+  if (!row || !tree) return;
+  const rows = [...tree.querySelectorAll('.osprey-list-row')];
+  const next = rows[rows.indexOf(row) + (event.key === 'ArrowDown' ? 1 : -1)];
+  if (!(next instanceof HTMLElement)) return;
+  event.preventDefault();
+  next.focus();
 }
 
 // ---- Fades ----
@@ -308,9 +348,9 @@ const fadingGroups = new WeakSet();
 
 /**
  * Watch the fades of every sidebar group not watched yet. Only the group
- * that holds the lists scrolls (terminal.css), and which group that is
- * changes when the operator moves the Artifacts row, so every group is
- * watched; a group that does not scroll never shows a fade.
+ * that holds the tree scrolls (terminal.css), and which group that is
+ * changes when the groups are reordered, so every group is watched; a group
+ * that does not scroll never shows a fade.
  */
 function watchGroupFades() {
   for (const group of document.querySelectorAll('#panel-rail > .sidebar-group')) {
@@ -324,8 +364,8 @@ function watchGroupFades() {
 function initFades(sidebar) {
   watchGroupFades();
   const lists = new Set([
-    ...sidebar.querySelectorAll('.sidebar-kids-list'),
-    ...(document.getElementById(FLYOUT_ID)?.querySelectorAll('.sidebar-kids-list') ?? []),
+    ...sidebar.querySelectorAll('[data-session-tree]'),
+    ...(document.getElementById(FLYOUT_ID)?.querySelectorAll('[data-session-tree]') ?? []),
   ]);
   for (const list of lists) watchFade(/** @type {HTMLElement} */ (list), false);
 }
@@ -351,6 +391,9 @@ export function initSidebar() {
   initDisclosures(sidebar);
   initAgentRow();
   initFades(sidebar);
+  initSidebarFold(document.getElementById('panel-rail'));
+  initSidebarDivider(document.getElementById('panel-rail'));
+  document.addEventListener('keydown', onTreeKeydown);
 
   document.addEventListener('osprey-collapsible-change', (event) => {
     if (/** @type {CustomEvent} */ (event).detail?.attribute !== 'data-sidebar') return;

@@ -23,7 +23,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-__all__ = ["HEADER_CAPABLE", "Classification", "bundled_origin", "classify", "header_line"]
+__all__ = [
+    "HEADER_CAPABLE",
+    "Classification",
+    "bundled_origin",
+    "classify",
+    "header_line",
+    "under_former_header",
+]
 
 #: The suffixes of the files that carry the bundled-origin line.
 HEADER_CAPABLE = frozenset({".yaml", ".yml", ".md"})
@@ -71,6 +78,13 @@ def _is_seeded(path: Path) -> bool:
     from osprey.facility.layers import HEADER
 
     return path.suffix in HEADER_CAPABLE and _first_line(path) == HEADER
+
+
+def under_former_header(path: Path) -> bool:
+    """Whether a file opens with the seed header an import wrote before the current one."""
+    from osprey.facility.layers import FORMER_HEADER
+
+    return path.suffix in HEADER_CAPABLE and _first_line(path) == FORMER_HEADER
 
 
 @dataclass(frozen=True)

@@ -43,6 +43,7 @@ import { sendHeaderActionToIframe } from './panel-iframe-sync.js';
 import { createItem, disposeItem, patchItem, toggleOverflowMenu } from './tile-header-items.js';
 import { svgIcon } from './svg-icons.js';
 import { ICON_NAMES } from '/design-system/js/icons.js';
+import { queryAllDocuments } from './attached-window.js';
 
 /** Hard caps so a misbehaving panel cannot flood the bar. */
 const MAX_ITEMS = 12;
@@ -97,7 +98,7 @@ export function initHeaderContrib() {
  */
 function panelIdForSource(source) {
   if (!source) return null;
-  for (const el of document.querySelectorAll('iframe.panel-iframe')) {
+  for (const el of queryAllDocuments('iframe.panel-iframe')) {
     const iframe = /** @type {HTMLIFrameElement} */ (el);
     if (iframe.contentWindow === source && iframe.dataset.panelId) {
       return iframe.dataset.panelId;
@@ -108,7 +109,7 @@ function panelIdForSource(source) {
 
 /** @param {string} panelId @returns {HTMLIFrameElement | null} */
 function iframeForPanel(panelId) {
-  for (const el of document.querySelectorAll('iframe.panel-iframe')) {
+  for (const el of queryAllDocuments('iframe.panel-iframe')) {
     const iframe = /** @type {HTMLIFrameElement} */ (el);
     if (iframe.dataset.panelId === panelId) return iframe;
   }

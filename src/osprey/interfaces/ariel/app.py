@@ -520,7 +520,7 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     from osprey.services.ariel_search.exceptions import DatabaseQueryError
 
     app = FastAPI(
-        title="ARIEL Search Interface",
+        title="Logbook Search Interface",
         description="Agentic Retrieval Interface for Electronic Logbooks",
         version="1.0.0",
         lifespan=_create_lifespan(config_path),

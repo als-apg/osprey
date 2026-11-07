@@ -21,16 +21,28 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import uuid
-from collections.abc import Callable, Iterable, Iterator
+import warnings
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, suppress
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
+from osprey.stores.artifact_forms import (
+    RUN_RECORD_KEY,
+    extension_key,
+    form_of,
+    is_run_record,
+)
 from osprey.stores.base_store import BaseStore, _sanitize_for_json
+from osprey.stores.session_ledger import aware_time
 from osprey_connectors.safety_file import atomic_replace
+
+if TYPE_CHECKING:
+    from osprey.stores.artifact_scope import SessionScope
 
 logger = logging.getLogger("osprey.stores.artifact_store")
 
@@ -132,6 +144,29 @@ def _decode_cursor(token: str) -> tuple[str, str]:
     return (timestamp, entry_id)
 
 
+def page_of(entries: list[ArtifactEntry], limit: int, cursor: str | None = None) -> ArtifactPage:
+    """One newest-first page of *entries*.
+
+    The entries are ordered by ``(timestamp, id)`` descending; ``cursor`` (a
+    previous page's ``next_cursor``) resumes strictly after the entry it names.
+    The cursor is a key, not an offset, so an artifact saved or deleted between
+    two requests does not shift the next page. A cursor past every entry yields
+    an empty page rather than an error.
+
+    Raises:
+        ValueError: ``cursor`` is not a token a listing issued.
+    """
+    ordered = sorted(entries, key=_page_key, reverse=True)
+    total = len(ordered)
+    start = 0
+    if cursor is not None:
+        key = _decode_cursor(cursor)
+        start = sum(1 for e in ordered if _page_key(e) >= key)
+    page = ordered[start : start + limit]
+    next_cursor = _encode_cursor(page[-1]) if page and total > start + len(page) else None
+    return ArtifactPage(entries=page, total=total, next_cursor=next_cursor)
+
+
 @dataclass
 class ArtifactEntry:
     """Metadata for a single artifact stored on disk."""
@@ -169,10 +204,22 @@ class ArtifactEntry:
     the run *before* the agent starts: such entries are excluded from the run's
     produced-artifact listing yet remain reachable through the created-by byte
     route, so an input image can be served back without appearing as something
-    the agent generated."""
+    the agent generated. ``"watchdog"`` (:data:`WATCHDOG_ORIGIN`) marks a
+    watchdog judge's artifact, which :func:`operator_visible` hides. A save with
+    no explicit origin takes ``OSPREY_ARTIFACT_ORIGIN``."""
+    exec_id: str = ""
+    """The Claude Code ``tool_use_id`` of the script run this artifact is part of
+    (preview, code, output or result), empty when it belongs to no run. Entries
+    sharing a non-empty ``exec_id`` form one run group (:func:`classify`)."""
+    kind: str = ""
+    """The registered extension type this artifact is (``osprey.stores.type_registry``),
+    empty for none. ``artifact_type`` stays the file format."""
 
     def to_dict(self) -> dict[str, Any]:
-        sanitized: dict[str, Any] = _sanitize_for_json(asdict(self))
+        # ``_sanitize_for_json`` already rebuilds every nested dict and list, so
+        # ``asdict``'s deep copy before it only doubled the cost of every index
+        # write (each one serialises the whole store).
+        sanitized: dict[str, Any] = _sanitize_for_json(dict(vars(self)))
         return sanitized
 
     def to_tool_response(self, gallery_url: str | None = None) -> dict[str, Any]:
@@ -190,8 +237,10 @@ class ArtifactEntry:
             "size_bytes": self.size_bytes,
             "pinned": self.pinned,
         }
-        if self.category:
-            resp["category"] = self.category
+        if self.kind:
+            resp["kind"] = self.kind
+        if self.exec_id:
+            resp["exec_id"] = self.exec_id
         if self.summary:
             resp["summary"] = self.summary
         if self.access_details:
@@ -337,58 +386,344 @@ def _artifact_type_from_mime(mime: str) -> str:
 
 EXAMPLE_ORIGIN = "demo"
 """``origin`` of an artifact shipped with OSPREY rather than produced in a
-run: the example the gallery seeds into an empty workspace. Listed by the
+run: the example older galleries seeded into an empty workspace (no longer
+seeded; one already in a store stays until deleted). Listed by the
 gallery, hidden from every agent-facing listing (``exclude_examples``)."""
 
-RUN_RECORD_KEY = "run_record"
-"""``metadata`` key, set to True, on an artifact that records a script run rather
-than holding its result: the approval hook's approval preview, and the
-executor's notebook and result record. Plots and files the script saves carry no
-such key. The web terminal's sidebar lists these under "Script runs" (it asks the
-gallery for them through ``GET /api/artifacts?run=true``) and keeps them out of its
-Artifacts list; :func:`is_run_record` is the verdict both listings share."""
+WATCHDOG_ORIGIN = "watchdog"
+"""``origin`` of an artifact a watchdog judge run saved (its env overlay sets
+``OSPREY_ARTIFACT_ORIGIN``). Hidden from the operator's tree by
+:func:`operator_visible`."""
+
+ARTIFACT_ORIGIN_ENV = "OSPREY_ARTIFACT_ORIGIN"
+"""Env var a save without an explicit ``origin`` takes its origin from."""
+
+CATEGORY_DEPRECATION = (
+    "The `category` argument of the artifact save APIs is deprecated and ignored; "
+    "artifacts are grouped by form (and an extension type's `kind`) instead"
+)
+"""The ``DeprecationWarning`` a save with a non-empty ``category`` raises."""
 
 
-def is_run_record(entry: ArtifactEntry) -> bool:
-    """Whether ``entry`` records a script run rather than holding its result.
+def _warn_category(category: str) -> None:
+    """Warn that ``category`` is deprecated when a caller passed one."""
+    if category:
+        warnings.warn(CATEGORY_DEPRECATION, DeprecationWarning, stacklevel=3)
 
-    True when the entry carries :data:`RUN_RECORD_KEY` in its metadata, or — for
-    entries saved before that key existed — when it has what the writers always
-    gave a run record: the ``code_output`` category, the ``osprey_approval`` tool
-    source, or a notebook titled ``Notebook: …`` from ``execute`` or
-    ``execute_file``. The gallery sends this verdict to the browser as the
-    ``run_record`` field so no client re-derives it.
+
+_ENTRY_ID_SHAPE = re.compile(r"[0-9a-f]{12}")
+"""The shape of every artifact id (:meth:`ArtifactStore._make_id`); a stated
+``entry_id`` must match it whole."""
+
+
+def _resolved_origin(origin: str) -> str:
+    """An explicit *origin*, else ``OSPREY_ARTIFACT_ORIGIN``, else ``""``."""
+    return origin or os.environ.get(ARTIFACT_ORIGIN_ENV, "")
+
+
+def _stamped_metadata(metadata: Mapping[str, Any] | None, now: str) -> dict[str, Any]:
+    """A new entry's metadata with the first-save stamps.
+
+    ``first_ts`` is the first save's time (ownership reads it; a touch never
+    refreshes it). ``call_id`` is the tool call in scope, as provenance only.
+    A value the caller already set wins.
     """
-    if entry.metadata.get(RUN_RECORD_KEY) is True:
-        return True
+    from osprey.audit.call import current_tool_use_id
+
+    stamped = dict(metadata or {})
+    stamped.setdefault("first_ts", now)
+    call_id = current_tool_use_id()
+    if call_id is not None:
+        stamped.setdefault("call_id", call_id)
+    return stamped
+
+
+def _is_channel_reading(entry: ArtifactEntry) -> bool:
+    """Whether *entry* is a channel reading retention may prune.
+
+    New readings are told by their writer (``tool_source="channel_read"``);
+    readings saved before category retired still carry ``channel_values``.
+    """
+    return entry.tool_source == "channel_read" or entry.category == "channel_values"
+
+
+# ---- run groups ------------------------------------------------------------
+
+RunRole = Literal["preview", "code", "output", "result"]
+RunStatus = Literal["succeeded", "failed", "not_run"]
+
+RUN_ROLES: frozenset[str] = frozenset({"preview", "code", "output", "result"})
+"""Every value ``metadata.run_part`` may take."""
+
+RUN_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "not_run"})
+"""Every value a result head's ``metadata.run_status`` may take."""
+
+_EXECUTOR_TOOLS = frozenset({"execute", "execute_file"})
+
+
+@dataclass(frozen=True)
+class RunGroup:
+    """How one ``exec_id`` group's entries are read: its head, status and roles.
+
+    Attributes:
+        head_id: The entry listed as the run (``runs``); ``""`` only for a
+            group with no result, preview or notebook (outputs alone).
+        run_status: ``succeeded``/``failed``/``not_run`` from stored state, or
+            ``None`` while the run is in flight.
+        roles: Every member's id mapped to its role.
+    """
+
+    head_id: str
+    run_status: RunStatus | None
+    roles: dict[str, RunRole]
+
+    @property
+    def in_flight(self) -> bool:
+        """Whether no stored head or settle has finished the run yet."""
+        return self.run_status is None
+
+
+def _is_legacy_result(entry: ArtifactEntry) -> bool:
+    """A result record the executor saved before ``run_part`` existed."""
+    if entry.tool_source not in _EXECUTOR_TOOLS:
+        return False
     if entry.category == "code_output":
         return True
+    return entry.artifact_type == "json" and entry.metadata.get(RUN_RECORD_KEY) is True
+
+
+def run_role(entry: ArtifactEntry) -> RunRole:
+    """The role *entry* plays in a run: its ``metadata.run_part``, else the legacy shape.
+
+    Legacy shapes: the executor's result record → ``result``, the approval
+    hook's review → ``preview``, the executor's ``Notebook: …`` → ``code``;
+    anything else → ``output``.
+    """
+    part = entry.metadata.get("run_part")
+    if part in RUN_ROLES:
+        return cast(RunRole, part)
+    if _is_legacy_result(entry):
+        return "result"
     if entry.tool_source == "osprey_approval":
-        return True
-    return (
+        return "preview"
+    if (
         entry.artifact_type == "notebook"
-        and entry.tool_source in ("execute", "execute_file")
+        and entry.tool_source in _EXECUTOR_TOOLS
         and entry.title.startswith("Notebook: ")
+    ):
+        return "code"
+    return "output"
+
+
+def _result_status(entry: ArtifactEntry) -> RunStatus:
+    """A result head's status: its stored ``run_status``, else what its result says."""
+    stored = entry.metadata.get("run_status")
+    if stored in RUN_STATUSES:
+        return cast(RunStatus, stored)
+    summary = entry.summary or {}
+    if summary.get("has_errors") is True or summary.get("status") == "Failed":
+        return "failed"
+    return "succeeded"
+
+
+def _latest(entries: Sequence[ArtifactEntry]) -> ArtifactEntry | None:
+    return max(entries, key=_page_key) if entries else None
+
+
+def classify(group: Iterable[ArtifactEntry]) -> RunGroup:
+    """Read one ``exec_id`` group from stored state alone.
+
+    Precedence: a result record is the head with its stored status (a legacy
+    result: ``succeeded`` unless it says failed); else a preview settled
+    ``not_run`` or ``failed`` is the head with that status; else the run is in
+    flight — its preview, else its notebook, heads it with ``run_status=None``.
+    Among several candidates of one kind the newest wins.
+    """
+    members = list(group)
+    roles: dict[str, RunRole] = {e.id: run_role(e) for e in members}
+
+    def of(role: str) -> list[ArtifactEntry]:
+        return [e for e in members if roles[e.id] == role]
+
+    result = _latest(of("result"))
+    if result is not None:
+        return RunGroup(result.id, _result_status(result), roles)
+    previews = of("preview")
+    settled = _latest([e for e in previews if e.metadata.get("settled") in ("not_run", "failed")])
+    if settled is not None:
+        return RunGroup(settled.id, settled.metadata["settled"], roles)
+    head = _latest(previews) or _latest(of("code"))
+    return RunGroup(head.id if head is not None else "", None, roles)
+
+
+def run_parts(
+    run_group: RunGroup, members: Iterable[ArtifactEntry], registry: Any = None
+) -> list[dict[str, Any]]:
+    """The parts a run head lists: ``[{id, role, title, form}]``, oldest first.
+
+    Every one of the group's *members* but the head; ``form`` is the part's
+    intrinsic form, except that an output takes the form it lists under on its
+    own row (:func:`listed_form`), so an extension ``kind`` keeps its key.
+    """
+    return [
+        {
+            "id": e.id,
+            "role": run_group.roles[e.id],
+            "title": e.title,
+            "form": (
+                listed_form(e, run_group, registry) if run_group.roles[e.id] == "output" else None
+            )
+            or form_of(e, registry),
+        }
+        for e in sorted(members, key=_page_key)
+        if e.id != run_group.head_id
+    ]
+
+
+def listed_form(
+    entry: ArtifactEntry, run_group: RunGroup | None, registry: Any = None
+) -> str | None:
+    """The form *entry* is listed under, or ``None`` for a run's part.
+
+    In a group: the head → ``runs``; a preview, notebook or second result → a
+    part (``None``); an output → its intrinsic form (it is also a part of its
+    run). Outside a group (``exec_id == ""``): a result record → ``runs``, a
+    legacy preview or notebook → ``documents``, anything else its intrinsic form.
+
+    An entry whose ``kind`` is an extension key in *registry* (it declares an
+    eligible base form) lists under that ``kind`` instead — unless it is a run
+    head (``runs``) or a run part (``None``), which stay as they are.
+    """
+    listed = _listed_base_form(entry, run_group, registry)
+    if listed is None or listed == "runs":
+        return listed
+    return extension_key(entry, registry) or listed
+
+
+def _listed_base_form(
+    entry: ArtifactEntry, run_group: RunGroup | None, registry: Any
+) -> str | None:
+    """:func:`listed_form` before an extension ``kind`` is applied."""
+    role = run_role(entry)
+    if not entry.exec_id or run_group is None or entry.id not in run_group.roles:
+        if role == "result":
+            return "runs"
+        if role in ("preview", "code"):
+            return "documents"
+        return form_of(entry, registry)
+    if entry.id == run_group.head_id:
+        return "runs"
+    if run_group.roles[entry.id] == "output":
+        return form_of(entry, registry)
+    return None
+
+
+def operator_visible(entry: ArtifactEntry) -> bool:
+    """Whether *entry* belongs in the operator's session tree and its counts.
+
+    Dispatch-run artifacts (non-empty ``run_id``) and watchdog judge artifacts
+    (``origin == "watchdog"``) do not; the palette search still finds them.
+    """
+    return not entry.run_id and entry.origin != WATCHDOG_ORIGIN
+
+
+def _reuse_rule(scope: SessionScope) -> Callable[[ArtifactEntry], bool]:
+    """Which existing entries a sha256 save under *scope* may reuse (contract C4)."""
+    if scope.kind in ("web", "cli"):
+        from osprey.stores.artifact_scope import owned_by
+
+        return lambda entry: owned_by(entry, scope)
+    if scope.kind == "none":
+        return untagged
+    return lambda entry: False
+
+
+def untagged(entry: ArtifactEntry) -> bool:
+    """Whether *entry* is operator-visible and names no session: no ``session_id``
+    and no stamped ``transcript_id``, so no ledger can give it an owner."""
+    return (
+        operator_visible(entry) and not entry.session_id and not entry.metadata.get("transcript_id")
     )
 
 
-EXAMPLE_REMOVED_SENTINEL = ".example-removed"
-"""File in the artifact directory written when an example is deleted, so no
-later launch seeds it again. Removing the file brings the example back."""
+# ---- ownership -------------------------------------------------------------
 
-UNREGISTERED_CATEGORY_WARNING = (
-    "Unregistered category %r — declare it under `artifact_server.categories` "
-    "in profile.yml and run `osprey build`"
-)
-"""What the three save paths log for a category the registry does not know.
 
-Names the config seam rather than ``type_registry.py``: that module is
-packaged code, so editing it patches an installed file the next upgrade
-overwrites, while ``artifact_server.categories`` is read out of the
-deployment's own config at startup by
-:func:`osprey.stores.type_registry.load_categories_from_config`. The artifact
-is stored either way — an unknown category costs the badge its label and
-colour, never the data."""
+class Ledger(Protocol):
+    """The read side of the session ledger (``stores/session_ledger.py``).
+
+    ``rows`` are ``(session_key, transcript_id, from_ts)`` in append order,
+    as tuples or objects with those attributes; ``from_ts`` is an aware
+    ISO-8601 string or datetime.
+    """
+
+    @property
+    def rows(self) -> Sequence[Any]: ...
+
+
+def _row_fields(row: Any) -> tuple[str, str, Any]:
+    if isinstance(row, (tuple, list)):
+        return row[0], row[1], row[2]
+    return row.session_key, row.transcript_id, row.from_ts
+
+
+def owner_of(entry: ArtifactEntry, ledger: Ledger | None) -> str | None:
+    """The transcript that owns *entry*, or ``None`` (no session lists it).
+
+    1. ``metadata.transcript_id`` when stamped;
+    2. else, when ``entry.session_id`` is a ledger key, the transcript of that
+       key's latest row with ``from_ts <= first_ts``, or of its first row when
+       none is (a key's first transcript has an open lower bound). ``first_ts``
+       is ``metadata.first_ts``, falling back to ``timestamp``;
+    3. else ``None``.
+
+    Times are compared as aware datetimes, never as strings.
+    """
+    stamped = entry.metadata.get("transcript_id")
+    if isinstance(stamped, str) and stamped:
+        return stamped
+    if ledger is None or not entry.session_id:
+        return None
+    rows = [r for r in (_row_fields(row) for row in ledger.rows) if r[0] == entry.session_id]
+    if not rows:
+        return None
+    first_ts = aware_time(entry.metadata.get("first_ts")) or aware_time(entry.timestamp)
+    owner = rows[0][1]
+    if first_ts is None:
+        return owner
+    best: datetime | None = None
+    for _key, transcript_id, from_ts in rows:
+        start = aware_time(from_ts)
+        if start is None or start > first_ts:
+            continue
+        if best is None or start >= best:
+            best, owner = start, transcript_id
+    return owner
+
+
+def _window_bound(value: str | datetime | None, name: str) -> datetime | None:
+    if value is None:
+        return None
+    parsed = aware_time(value)
+    if parsed is None:
+        raise ValueError(f"{name} must be an aware ISO-8601 time: {value!r}")
+    return parsed
+
+
+def in_window(
+    entry: ArtifactEntry, after: str | datetime | None, before: str | datetime | None
+) -> bool:
+    """Whether *entry*'s ``timestamp`` lies in the half-open window ``[after, before)``.
+
+    Raises:
+        ValueError: A bound is not an aware ISO-8601 time.
+    """
+    low = _window_bound(after, "after")
+    high = _window_bound(before, "before")
+    ts = aware_time(entry.timestamp)
+    if ts is None:
+        return low is None and high is None
+    return (low is None or ts >= low) and (high is None or ts < high)
 
 
 class ArtifactStore(BaseStore[ArtifactEntry]):
@@ -436,10 +771,22 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         d.setdefault("session_id", "")
         d.setdefault("run_id", "")
         d.setdefault("origin", "")
+        d.setdefault("exec_id", "")
+        d.setdefault("kind", "")
         return ArtifactEntry(**d)
 
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
         return entry.to_dict()
+
+    def _session_tag(self) -> str:
+        """The default ``session_id`` of a save from this process (C2 ``session_tag``).
+
+        Reads the environment and the CLI pointer under this store's workspace
+        root, never the ledger, so it is safe under the index lock.
+        """
+        from osprey.stores.artifact_scope import session_tag
+
+        return session_tag(root=self._workspace)
 
     def _make_id(self) -> str:
         return uuid.uuid4().hex[:12]
@@ -447,15 +794,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     @property
     def artifact_dir(self) -> Path:
         return self._store_dir
-
-    @property
-    def example_removed(self) -> bool:
-        """Whether someone deleted the shipped example from this store."""
-        return (self._store_dir / EXAMPLE_REMOVED_SENTINEL).exists()
-
-    def _mark_example_removed(self) -> None:
-        with suppress(OSError):
-            (self._store_dir / EXAMPLE_REMOVED_SENTINEL).touch()
 
     # ---- public API --------------------------------------------------------
 
@@ -473,6 +811,11 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         run_id: str | None = None,
         origin: str = "",
         session_id: str | None = None,
+        *,
+        exec_id: str = "",
+        kind: str = "",
+        at: datetime | None = None,
+        entry_id: str | None = None,
     ) -> ArtifactEntry:
         """Low-level save: write raw bytes to disk and register in the index.
 
@@ -480,11 +823,23 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         dispatched agent's own tools tag their output). A caller that writes on
         behalf of a run whose id is not in its environment — e.g. the worker
         ingesting input files before the agent starts — passes it explicitly.
-        ``session_id`` likewise defaults to ``OSPREY_SESSION_ID``; pass ``""``
-        for an entry that belongs to no session (the shipped example).
+        ``session_id`` defaults to :func:`~osprey.stores.artifact_scope.session_tag`
+        (the web key, ``cli:<transcript>``, else ``""``); pass ``""`` for an
+        entry that belongs to no session (the shipped example).
         ``origin`` tags the entry's provenance within the run (``"input"`` for
         an ingested caller file, :data:`EXAMPLE_ORIGIN` for the shipped
-        example; empty for produced output)."""
+        example; empty for produced output). An empty ``origin`` takes
+        ``OSPREY_ARTIFACT_ORIGIN``. ``exec_id`` links the entry into a run group;
+        ``kind`` names its extension type. ``category`` is deprecated and
+        ignored.
+
+        ``at`` (timezone-aware) states the save's time: it becomes
+        ``timestamp`` and, unless *metadata* already names one,
+        ``metadata.first_ts``, so ownership reads the stated time. ``entry_id``
+        replaces the random id; it must be of the store's id shape
+        (12 lowercase hex digits) and not already held by an entry, else
+        ``ValueError``. Both default to today's behaviour (now, a random id)."""
+        _warn_category(category)
         with self._with_index_lock():
             entry = self._save_file_locked(
                 file_content,
@@ -495,10 +850,13 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 mime_type=mime_type,
                 tool_source=tool_source,
                 metadata=metadata,
-                category=category,
                 run_id=run_id,
                 origin=origin,
                 session_id=session_id,
+                exec_id=exec_id,
+                kind=kind,
+                at=at,
+                entry_id=entry_id,
             )
 
         self._notify_listeners(entry)
@@ -521,19 +879,29 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         run_id: str | None = None,
         origin: str = "",
         session_id: str | None = None,
+        *,
+        exec_id: str = "",
+        kind: str = "",
+        at: datetime | None = None,
+        entry_id: str | None = None,
     ) -> ArtifactEntry:
         """Write the bytes and the index row and save the index.
 
         The caller holds :meth:`_with_index_lock` (the flock is not reentrant)
-        and fires the listeners after releasing it.
+        and fires the listeners after releasing it. ``category`` is accepted
+        for old ``save_kwargs`` and never stored.
         """
-        if category:
-            from osprey.stores.type_registry import valid_category_keys
-
-            if category not in valid_category_keys():
-                logger.warning(UNREGISTERED_CATEGORY_WARNING, category)
-
-        art_id = self._make_id()
+        del category  # deprecated and ignored; the public callers warned
+        if at is not None and at.utcoffset() is None:
+            raise ValueError(f"a stated save time needs a timezone: {at!r}")
+        if entry_id is None:
+            art_id = self._make_id()
+        else:
+            if not isinstance(entry_id, str) or not _ENTRY_ID_SHAPE.fullmatch(entry_id):
+                raise ValueError(f"artifact id {entry_id!r} is not 12 lowercase hex digits")
+            if any(e.id == entry_id for e in self._entries):
+                raise ValueError(f"artifact id {entry_id!r} is already in the store")
+            art_id = entry_id
         # Prefix filename with id to avoid collisions
         safe_filename = f"{art_id}_{filename}"
         filepath = self._store_dir / safe_filename
@@ -547,15 +915,14 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             filename=safe_filename,
             mime_type=mime_type,
             size_bytes=len(file_content),
-            timestamp=datetime.now(UTC).isoformat(),
+            timestamp=(now := (at or datetime.now(UTC)).isoformat()),
             tool_source=tool_source,
-            metadata=metadata or {},
-            category=category,
-            session_id=(
-                session_id if session_id is not None else os.environ.get("OSPREY_SESSION_ID", "")
-            ),
+            metadata=_stamped_metadata(metadata, now),
+            session_id=(session_id if session_id is not None else self._session_tag()),
             run_id=(run_id if run_id is not None else os.environ.get("OSPREY_DISPATCH_RUN_ID", "")),
-            origin=origin,
+            origin=_resolved_origin(origin),
+            exec_id=exec_id,
+            kind=kind,
         )
         self._entries.append(entry)
         self._save_index()
@@ -567,20 +934,29 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         *,
         origin: str,
         save_kwargs: dict[str, Any],
+        scope: SessionScope,
     ) -> ArtifactEntry:
-        """The entry of *origin* holding bytes with this *sha256*, saved once.
+        """The entry of *origin* holding bytes with this *sha256*, saved once per scope.
 
-        Under one index lock: an existing entry with this ``origin`` and
-        ``metadata["sha256"]`` gets a fresh timestamp (so retention keeps it as
-        long as it is still being seen); otherwise ``save_kwargs`` (the
+        A match is an entry with this ``origin`` and ``metadata["sha256"]``.
+        Under one index lock, the newest match that qualifies for *scope* gets a
+        fresh timestamp (so retention keeps it as long as it is still being
+        seen) and nothing else — ``metadata.first_ts`` keeps the first save's
+        time, which ownership reads. Otherwise ``save_kwargs`` (the
         :meth:`save_file` arguments) are saved as a new entry with *origin*.
-        Lookup and save share the lock, so two concurrent callers with the same
-        bytes produce one entry. Listeners fire for a new entry only.
+        A match qualifies for a ``web`` or ``cli`` scope when the scope owns
+        it; for a ``none`` scope when it is operator-visible and untagged (no
+        ``session_id``, no stamped ``transcript_id``); for a ``dispatch`` scope
+        never. Lookup and save share the lock, so two concurrent callers with
+        the same bytes and scope produce one entry. Listeners fire for a new
+        entry only.
         """
         kwargs = {k: v for k, v in save_kwargs.items() if k != "origin"}
+        _warn_category(kwargs.pop("category", ""))
+        qualifies = _reuse_rule(scope)
         with self._with_index_lock():
-            for e in self._entries:
-                if e.origin == origin and e.metadata.get("sha256") == sha256:
+            for e in reversed(self._entries):
+                if e.origin == origin and e.metadata.get("sha256") == sha256 and qualifies(e):
                     e.timestamp = datetime.now(UTC).isoformat()
                     self._save_index()
                     return e
@@ -599,12 +975,18 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         tool_source: str = "execute",
         metadata: dict[str, Any] | None = None,
         category: str = "",
+        *,
+        exec_id: str = "",
+        kind: str = "",
+        origin: str = "",
     ) -> ArtifactEntry:
         """Smart-serialize a Python object and save it.
 
         Detects Plotly figures, matplotlib figures, DataFrames, strings, dicts
-        and numpy arrays (saved as ``.npy``).
+        and numpy arrays (saved as ``.npy``). ``category`` is deprecated and
+        ignored.
         """
+        _warn_category(category)
         content, detected_type, filename, mime = serialize_object(obj, title)
 
         return self.save_file(
@@ -616,7 +998,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             mime_type=mime,
             tool_source=tool_source,
             metadata=metadata,
-            category=category,
+            origin=origin,
+            exec_id=exec_id,
+            kind=kind,
         )
 
     def save_from_path(
@@ -628,8 +1012,13 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         tool_source: str = "artifact_register",
         metadata: dict[str, Any] | None = None,
         category: str = "",
+        *,
+        exec_id: str = "",
+        kind: str = "",
+        origin: str = "",
     ) -> ArtifactEntry:
-        """Copy an existing file into the artifact store."""
+        """Copy an existing file into the artifact store. ``category`` is deprecated and ignored."""
+        _warn_category(category)
         source = Path(source_path)
         if not source.exists():
             raise FileNotFoundError(f"Source file not found: {source}")
@@ -647,7 +1036,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             mime_type=mime,
             tool_source=tool_source,
             metadata=metadata,
-            category=category,
+            origin=origin,
+            exec_id=exec_id,
+            kind=kind,
         )
 
     def save_data(
@@ -662,17 +1053,18 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         source_agent: str = "",
         artifact_type: str = "json",
         metadata: dict[str, Any] | None = None,
+        *,
+        exec_id: str = "",
+        kind: str = "",
+        origin: str = "",
     ) -> ArtifactEntry:
         """Save structured data as an artifact.  Replaces ``DataContext.save()``.
 
         Writes raw JSON (no envelope) to ``artifacts/{id}_{tool}.json`` and
-        registers the entry in the unified artifact index.
+        registers the entry in the unified artifact index. ``category`` is
+        deprecated and ignored.
         """
-        from osprey.stores.type_registry import valid_category_keys
-
-        if category and category not in valid_category_keys():
-            logger.warning(UNREGISTERED_CATEGORY_WARNING, category)
-
+        _warn_category(category)
         content = json.dumps(data, indent=2, default=str).encode()
         filename = f"{tool}.json"
 
@@ -700,16 +1092,18 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 filename=safe_filename,
                 mime_type="application/json",
                 size_bytes=len(content),
-                timestamp=datetime.now(UTC).isoformat(),
+                timestamp=(now := datetime.now(UTC).isoformat()),
                 tool_source=tool,
-                metadata=metadata or {},
-                category=category,
+                metadata=_stamped_metadata(metadata, now),
                 summary=summary or {},
                 access_details=access_details or {},
                 data_file=agent_path,
                 source_agent=source_agent,
-                session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                session_id=self._session_tag(),
                 run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
+                origin=_resolved_origin(origin),
+                exec_id=exec_id,
+                kind=kind,
             )
             self._entries.append(entry)
             self._save_index()
@@ -727,11 +1121,15 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         title: str,
         summary: dict[str, Any] | None = None,
         access_details: dict[str, Any] | None = None,
-        category: str = "channel_values",
+        category: str = "",
         metadata: dict[str, Any] | None = None,
         description: str = "",
         tool_source: str = "channel_read",
         source_agent: str = "",
+        *,
+        exec_id: str = "",
+        kind: str = "",
+        origin: str = "",
     ) -> ArtifactEntry:
         """Save a multi-dimensional channel reading as a PNG plus its raw array.
 
@@ -759,8 +1157,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             title: Human-facing artifact title.
             summary: Compact shape/statistics description for the agent.
             access_details: How to load the payload back (agent-facing).
-            category: Registered artifact category; defaults to the reserved
-                ``channel_values`` slot.
+            category: Deprecated and ignored.
             metadata: Free-form index metadata. ``metadata["channel"]`` is
                 REQUIRED — the channel address is the only queryable key that
                 selects an address's readings, so retention pruning needs it.
@@ -774,11 +1171,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         Raises:
             ValueError: If ``metadata["channel"]`` is missing or empty.
         """
-        from osprey.stores.type_registry import valid_category_keys
-
-        if category and category not in valid_category_keys():
-            logger.warning(UNREGISTERED_CATEGORY_WARNING, category)
-
+        _warn_category(category)
         metadata = dict(metadata or {})
         channel = metadata.get("channel")
         if not channel:
@@ -820,16 +1213,18 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                     filename=png_path.name,
                     mime_type="image/png",
                     size_bytes=len(png_bytes) + len(npy_bytes),
-                    timestamp=datetime.now(UTC).isoformat(),
+                    timestamp=(now := datetime.now(UTC).isoformat()),
                     tool_source=tool_source,
-                    metadata=metadata,
-                    category=category,
+                    metadata=_stamped_metadata(metadata, now),
                     summary=summary or {},
                     access_details=access_details or {},
                     data_file=agent_path,
                     source_agent=source_agent,
-                    session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                    session_id=self._session_tag(),
                     run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
+                    origin=_resolved_origin(origin),
+                    exec_id=exec_id,
+                    kind=kind,
                 )
                 self._entries.append(entry)
                 appended = True
@@ -853,20 +1248,20 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         type_filter: str | None = None,
         search: str | None = None,
         pinned: bool | None = None,
-        category_filter: str | None = None,
         tool_filter: str | None = None,
-        source_agent_filter: str | None = None,
-        session_filter: str | None = None,
         run_filter: str | None = None,
         run_record: bool | None = None,
-        last_n: int | None = None,
         exclude_examples: bool = False,
+        *,
+        form_filter: str | None = None,
+        after: str | datetime | None = None,
+        before: str | datetime | None = None,
+        registry: Any = None,
     ) -> list[ArtifactEntry]:
         """Return artifact entries, optionally filtered.
 
         ``run_filter`` is the strict dispatch-run isolation boundary — see the
-        note on its clause below. ``session_filter`` is deliberately NOT such a
-        boundary (it also matches untagged artifacts).
+        note on its clause below.
 
         ``run_record`` keeps run records (``True``) or everything else
         (``False``) by :func:`is_run_record`; it has nothing to do with
@@ -879,25 +1274,25 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
 
         ``search`` is a case-insensitive substring match on the title, file
         name, description and artifact type.
+
+        ``form_filter`` keeps the entries listed under that form
+        (:func:`listed_form`, with run groups read from the whole index;
+        ``registry`` defaults to the process's extension registry). ``after`` /
+        ``before`` keep the half-open time window ``[after, before)`` (aware
+        ISO-8601; :func:`in_window`).
         """
         self._refresh_if_stale()
         entries = list(self._entries)
+        if after is not None or before is not None:
+            entries = [e for e in entries if in_window(e, after, before)]
+        if form_filter:
+            entries = self._filter_form(entries, form_filter, registry)
         if exclude_examples:
             entries = [e for e in entries if e.origin != EXAMPLE_ORIGIN]
         if type_filter:
             entries = [e for e in entries if e.artifact_type == type_filter]
-        if category_filter:
-            entries = [e for e in entries if e.category == category_filter]
         if tool_filter:
             entries = [e for e in entries if e.tool_source == tool_filter]
-        if source_agent_filter:
-            entries = [e for e in entries if e.source_agent == source_agent_filter]
-        if session_filter:
-            # NOT an isolation boundary: this OR-empty clause also matches
-            # untagged (empty session_id) artifacts. Dispatch callers needing
-            # strict per-run isolation must use ``run_filter`` / ``get_run_entry``
-            # instead, which never match empty tags.
-            entries = [e for e in entries if e.session_id == session_filter or not e.session_id]
         if run_filter is not None:
             # Strict created-by isolation: an artifact belongs to a run only if
             # it was tagged with that run's id at WRITE time. Deliberately does
@@ -923,8 +1318,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 or q in e.description.lower()
                 or q in e.artifact_type.lower()
             ]
-        if last_n is not None:
-            entries = entries[-last_n:]
         return entries
 
     def page_entries(
@@ -935,26 +1328,19 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         type_filter: str | None = None,
         search: str | None = None,
         pinned: bool | None = None,
-        category_filter: str | None = None,
         tool_filter: str | None = None,
-        source_agent_filter: str | None = None,
-        session_filter: str | None = None,
         run_filter: str | None = None,
         run_record: bool | None = None,
         exclude_examples: bool = False,
+        form_filter: str | None = None,
+        after: str | datetime | None = None,
+        before: str | datetime | None = None,
+        registry: Any = None,
     ) -> ArtifactPage:
         """Return one newest-first page of the entries the filters admit.
 
-        Filtering is exactly :meth:`list_entries`'s. The entries are ordered by
-        ``(timestamp, id)`` descending; ``cursor`` (a previous page's
-        ``next_cursor``) resumes strictly after the entry it names. The cursor
-        is a key, not an offset, so an artifact saved or deleted between two
-        requests does not shift the next page. A cursor past every entry
-        yields an empty page rather than an error.
-
-        This does not reuse ``last_n``: ``last_n`` takes the tail in index
-        order, the store's chronology convention for a single reader, while a
-        page boundary has to be a value the next request can name.
+        Filtering is exactly :meth:`list_entries`'s; ordering and the cursor are
+        :func:`page_of`'s.
 
         Raises:
             ValueError: ``cursor`` is not a token this method issued.
@@ -963,31 +1349,35 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             type_filter=type_filter,
             search=search,
             pinned=pinned,
-            category_filter=category_filter,
             tool_filter=tool_filter,
-            source_agent_filter=source_agent_filter,
-            session_filter=session_filter,
             run_filter=run_filter,
             run_record=run_record,
             exclude_examples=exclude_examples,
+            form_filter=form_filter,
+            after=after,
+            before=before,
+            registry=registry,
         )
-        ordered = sorted(entries, key=_page_key, reverse=True)
-        total = len(ordered)
-        if cursor is None:
-            start = 0
-        else:
-            key = _decode_cursor(cursor)
-            start = sum(1 for e in ordered if _page_key(e) >= key)
-        page = ordered[start : start + limit]
-        next_cursor = _encode_cursor(page[-1]) if page and total > start + len(page) else None
-        return ArtifactPage(entries=page, total=total, next_cursor=next_cursor)
+        return page_of(entries, limit, cursor)
 
-    def set_pinned(self, artifact_id: str, pinned: bool = True) -> ArtifactEntry | None:
-        """Toggle the pinned flag on an artifact. Returns the updated entry or None."""
+    def set_pinned(
+        self, artifact_id: str, pinned: bool = True, *, set_in: str | None = None
+    ) -> ArtifactEntry | None:
+        """Toggle the pinned flag on an artifact. Returns the updated entry or None.
+
+        A pin records the transcript it was set in as ``metadata["pinned_in"]``;
+        re-pinning moves that record, and a pin with ``set_in=None`` leaves none.
+        Unpinning clears both the flag and the record. The record lives in
+        ``metadata`` so an older reader of the index still loads the entry.
+        """
         with self._with_index_lock():
             for e in self._entries:
                 if e.id == artifact_id:
                     e.pinned = pinned
+                    metadata = {k: v for k, v in e.metadata.items() if k != "pinned_in"}
+                    if pinned and set_in is not None:
+                        metadata["pinned_in"] = set_in
+                    e.metadata = metadata
                     self._save_index()
                     return e
         return None
@@ -1097,10 +1487,6 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if data_file is not None:
             with suppress(OSError):
                 data_file.unlink()
-        if entry.origin == EXAMPLE_ORIGIN:
-            # Every delete path (single, category, whole store) comes through
-            # here, so a removed example stays removed whichever one ran.
-            self._mark_example_removed()
 
     def _delete_entry_locked(
         self, artifact_id: str, *, persist: bool = True
@@ -1185,15 +1571,12 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         # let ``keep`` pinned frames permanently starve the rolling window.
         #
         # Order is the index's insertion order, which is the store's house
-        # convention for chronology (``list_entries(last_n=...)`` takes the
-        # tail for the same reason): entries are only ever appended, so the
+        # convention for chronology: entries are only ever appended, so the
         # oldest reading for an address is the earliest surviving match.
         candidates = [
             e
             for e in self._entries
-            if e.category == "channel_values"
-            and not e.pinned
-            and e.metadata.get("channel") == address
+            if _is_channel_reading(e) and not e.pinned and e.metadata.get("channel") == address
         ]
         excess = len(candidates) - keep
         if excess <= 0:
@@ -1214,8 +1597,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
 
         The retention half of the channel-read artifact path: an
         approval-free read in a polling loop would otherwise grow the gallery
-        without bound. Entries qualify when their category is
-        ``channel_values`` and their ``metadata["channel"]`` equals *address*,
+        without bound. Entries qualify when they are channel readings
+        (``tool_source == "channel_read"``, or the legacy ``channel_values``
+        category) and their ``metadata["channel"]`` equals *address*,
         which covers both shapes a reading is stored in — the JSON series from
         :meth:`save_data` and the PNG-plus-``.npy`` pair from
         :meth:`save_channel_reading`.
@@ -1278,10 +1662,9 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     def delete_category(self, category: str) -> list[ArtifactEntry]:
         """Delete every artifact whose ``category`` equals *category*.
 
-        The scoped destructive path: it honours exactly the partition the read
-        path honours (:meth:`list_entries` ``category_filter``), so clearing
-        one category never touches another. Pass ``""`` to delete only
-        uncategorised entries.
+        The scoped destructive path for entries saved before categories
+        retired: clearing one category never touches another. Pass ``""`` to
+        delete only uncategorised entries.
 
         Deletion is not recoverable — files are unlinked outright.
 
@@ -1308,25 +1691,121 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             return []
         return self._delete_where(lambda e: e.id in wanted)
 
-    def delete_everything(self) -> list[ArtifactEntry]:
-        """Delete EVERY artifact in the store, across all categories.
+    # ---- run groups and forms ----------------------------------------------
 
-        Named for its blast radius. This is the whole-store clear, not a
-        scoped delete: it destroys archiver datasets, run results and data
-        files written by :meth:`save_data` alongside plots, documents and
-        screenshots, and the files are unlinked outright — there is no trash.
-        Callers that mean a single partition must use :meth:`delete_category`.
+    def run_members(self, exec_id: str) -> list[ArtifactEntry]:
+        """The entries of run group *exec_id*, in index order (none for ``""``)."""
+        if not exec_id:
+            return []
+        self._refresh_if_stale()
+        return [e for e in self._entries if e.exec_id == exec_id]
+
+    def run_group(self, exec_id: str) -> RunGroup | None:
+        """:func:`classify` of group *exec_id*, or ``None`` when it has no entries."""
+        members = self.run_members(exec_id)
+        return classify(members) if members else None
+
+    def run_groups(self) -> dict[str, RunGroup]:
+        """Every run group in the store, classified."""
+        return _groups_of(self.list_entries())
+
+    def _filter_form(
+        self, entries: list[ArtifactEntry], form: str, registry: Any
+    ) -> list[ArtifactEntry]:
+        groups = _groups_of(self._entries)
+        registry = registry_or_default(registry)
+        return [e for e in entries if listed_form(e, groups.get(e.exec_id), registry) == form]
+
+    def delete_with_group(self, artifact_id: str) -> list[ArtifactEntry]:
+        """Delete an artifact; deleting a run's head deletes its whole group.
+
+        A stored or in-flight head takes every entry sharing its ``exec_id``;
+        any other entry (an output, a part, an ungrouped artifact) goes alone.
 
         Returns:
-            Every removed entry.
+            The removed entries (empty when the id is unknown).
         """
-        return self._delete_where(lambda e: True)
+        entry = self.get_entry(artifact_id)
+        if entry is None:
+            return []
+        if entry.exec_id:
+            group = self.run_group(entry.exec_id)
+            if group is not None and group.head_id == entry.id:
+                exec_id = entry.exec_id
+                return self._delete_where(lambda e: e.exec_id == exec_id)
+        return self._delete_where(lambda e: e.id == artifact_id)
+
+    def delete_owned(
+        self, scope: SessionScope, form: str | None = None, registry: Any = None
+    ) -> list[ArtifactEntry]:
+        """Delete what *scope* owns (:func:`~osprey.stores.artifact_scope.owned_by`).
+
+        ``form=None`` deletes everything the scope owns, run parts included.
+        ``"runs"`` deletes each owned run head with the owned members of its
+        group. Any other form or extension key deletes the owned entries listed
+        under it. An entry another session owns is never touched, even inside a
+        run group split by a ``/clear``; a scope with no transcript deletes
+        nothing. Runs are classified over the whole index under the delete's own
+        lock; delete listeners fire after it.
+
+        Returns:
+            The removed entries, in index order.
+        """
+        from osprey.stores.artifact_scope import owned_by
+
+        if scope.transcript is None:
+            return []
+        if form is not None:
+            registry = registry_or_default(registry)
+        with self._with_index_lock():
+            owned = [e for e in self._entries if owned_by(e, scope)]
+            if form is None:
+                gone = {e.id for e in owned}
+            else:
+                groups = _groups_of(self._entries)
+                gone = {
+                    e.id for e in owned if listed_form(e, groups.get(e.exec_id), registry) == form
+                }
+                heads = {exec_id for exec_id, group in groups.items() if group.head_id in gone}
+                gone |= {e.id for e in owned if e.exec_id in heads}
+            doomed = [e for e in self._entries if e.id in gone]
+            for e in doomed:
+                self._unlink_entry_files(e)
+            if doomed:
+                self._entries[:] = [e for e in self._entries if e.id not in gone]
+                self._save_index()
+
+        for entry in doomed:
+            self._notify_delete_listeners(entry)
+        return doomed
 
     def get_file_path(self, artifact_id: str) -> Path | None:
         entry = self.get_entry(artifact_id)
         if entry is None:
             return None
         return self._store_dir / entry.filename
+
+
+def _groups_of(entries: Iterable[ArtifactEntry]) -> dict[str, RunGroup]:
+    """Every non-empty ``exec_id`` among *entries*, classified."""
+    members: dict[str, list[ArtifactEntry]] = {}
+    for e in entries:
+        if e.exec_id:
+            members.setdefault(e.exec_id, []).append(e)
+    return {exec_id: classify(group) for exec_id, group in members.items()}
+
+
+def registry_or_default(registry: Any = None) -> Any:
+    """*registry*, else the process's extension registry (empty on failure)."""
+    if registry is not None:
+        return registry
+    try:
+        from osprey.stores.type_registry import get_extension_types
+
+        return get_extension_types()
+    except Exception:  # a broken registry never breaks a listing
+        logger.debug("Extension registry unavailable", exc_info=True)
+        return None
 
 
 _artifact_store: ArtifactStore | None = None

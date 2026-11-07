@@ -161,6 +161,20 @@ def test_the_byte_specification_lives_with_the_exemplar() -> None:
 # ── Template lookup ──────────────────────────────────────────────────────────
 
 
+def test_golden_exemplar_is_unaffected_by_the_seeded_history(exemplar: dict[str, Any]) -> None:
+    """The exemplar is a deployment with no start set, and it stays one.
+
+    Seeding a sidebar history is the control-assistant preset's default, never a
+    key a deployment without a start set acquires: the exemplar names no
+    ``simulation.default_scenarios`` and no ``demo-history``.
+    """
+    config = exemplar["config"]
+    assert "simulation.default_scenarios" not in config
+    assert "default_scenarios" not in (config.get("simulation") or {})
+    text = (EXEMPLAR_DIR / "profile.yml").read_text(encoding="utf-8")
+    assert "demo-history" not in text
+
+
 def test_every_supported_platform_has_a_template() -> None:
     """``deploy.ci`` accepts exactly the platforms with a shipped pipeline."""
     assert set(CI_TEMPLATES) == set(SUPPORTED_CI_PLATFORMS)

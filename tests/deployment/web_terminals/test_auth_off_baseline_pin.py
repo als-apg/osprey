@@ -420,7 +420,6 @@ _RENDERED_FAMILIES = (
     "web",
     "artifact",
     "ariel",
-    "lattice",
     "channel_finder",
     "okf",
     "system_health",
@@ -572,6 +571,11 @@ _RETIRED_COMPOSE_LINES = frozenset(
         "      - ZO_INGEST_SA_TOKEN=${ZO_INGEST_SA_TOKEN:-}",
     }
 )
+
+#: The retired LATTICE panel's per-user port line, port-masked as the edit
+#: script sees it. The panel and its port family are gone, so the line is
+#: deleted from the `token` render, not replaced.
+_RETIRED_PANEL_COMPOSE_LINES = frozenset({"      - OSPREY_LATTICE_DASHBOARD_PORT=<port>"})
 
 #: The per-user healthcheck comment as the pre-feature render worded it, when
 #: `osprey web`'s bare default was the fixed constant 8087. The port-block
@@ -837,6 +841,10 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
         assert line in compose, (
             f"the frozen baseline lacks the retired store line it is said to carry: {line!r}"
         )
+    for line in _RETIRED_PANEL_COMPOSE_LINES:
+        assert line in _masked(compose), (
+            f"the frozen baseline lacks the retired panel line it is said to carry: {line!r}"
+        )
 
     nginx = (_BASELINE_DIR / "nginx.conf").read_text()
     for line in _REPLACED_NGINX_LINES:
@@ -981,7 +989,10 @@ def test_no_pre_feature_line_is_removed_or_reworded() -> None:
     for name in _ARTIFACTS:
         old, new, opcodes = _opcodes(name)
         replaceable = (
-            _REPLACED_COMPOSE_LINES | _REWORDED_COMPOSE_LINES | _RETIRED_COMPOSE_LINES
+            _REPLACED_COMPOSE_LINES
+            | _REWORDED_COMPOSE_LINES
+            | _RETIRED_COMPOSE_LINES
+            | _RETIRED_PANEL_COMPOSE_LINES
             if name == "docker-compose.web.yml"
             else _REPLACED_NGINX_LINES | _REWORDED_NGINX_LINES
             if name == "nginx.conf"

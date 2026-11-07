@@ -262,7 +262,8 @@ def create_project_structure(
         (CONFIG_TEMPLATE, "config.yml"),
         ("env.example.j2", ".env.example"),
         ("README.md.j2", "README.md"),
-        # Reference container image — rendered once at build; regen never touches it
+        # Reference container image — rendered into the render on every build;
+        # regenerate_claude_code never touches it
         ("Dockerfile.j2", "Dockerfile"),
     ]
 

@@ -24,6 +24,7 @@ from osprey.services.watchdog.config import ENGINE_AGENT, ENGINE_DECISION
 from osprey.services.watchdog.definitions import load_profile_watchdogs
 from osprey.services.watchdog.history import build_session_view_from_nodes, rough_tokens
 from osprey_connectors.errors import BuildProfileError
+from tests._builds import BuiltProject
 from tests._preset_data import copy_bundle_data
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
@@ -108,22 +109,18 @@ def test_the_source_zone_lists_the_watchdogs() -> None:
     assert "`watchdogs/`" in _source_zone_prose()
 
 
-def test_the_build_succeeds_disabled_and_enabled(tmp_path: Path) -> None:
-    repo = _init(tmp_path / "repo")
+def test_the_build_succeeds_disabled_and_enabled(
+    built_control_assistant: BuiltProject, built_control_assistant_watchdog_on: Path
+) -> None:
+    """The preset builds with the watchdog off, and the same repo rebuilds with it on.
 
-    built = invoke_build(repo)
-    assert built.exit_code == 0, built.output
-    assert "watchdogs" not in rendered_config(repo)
-    assert not (repo / "build" / "watchdogs").exists()
+    The enabled build is a copy of the disabled one whose profile was edited and
+    rebuilt in place (``tests/_builds.py``).
+    """
+    assert "watchdogs" not in rendered_config(built_control_assistant.repo)
+    assert not (built_control_assistant.build_dir / "watchdogs").exists()
 
-    profile = repo / "profile.yml"
-    text = profile.read_text(encoding="utf-8")
-    off = f"  {NAME}:\n    engine: decision\n    enabled: false\n"
-    assert text.count(off) == 1
-    profile.write_text(text.replace(off, off.replace("false", "true")), encoding="utf-8")
-
-    built = invoke_build(repo)
-    assert built.exit_code == 0, built.output
+    repo = built_control_assistant_watchdog_on
     assert rendered_config(repo)["watchdogs"][NAME]["enabled"] is True
     copied = repo / "build" / "watchdogs" / NAME / "instructions.md"
     assert copied.read_bytes() == PACKAGED.read_bytes()
