@@ -1,0 +1,154 @@
+<div class="osprey-diagram">
+<svg viewBox="0 0 1000 700" role="img" aria-labelledby="fgp-title fgp-desc">
+  <title id="fgp-title">A knowledge graph of a storage ring: one fact, the ontology, the facts about the machine, and one question answered as a walk</title>
+  <desc id="fgp-desc">One fact is a triple: SR/HCM01 hasBinding SR:MAG:HCM:01:CURRENT:SP. The ontology holds the kinds of thing: HCorrector and VCorrector are subclasses of Corrector; Corrector and Dipole of Magnet; BeamPositionMonitor of Instrumentation; Magnet and Instrumentation of AcceleratorDevice. Corrector carries the synonym steerer. The facts below hold four devices, SR/HCM01, SR/VCM01, SR/DIPOLE01 and SR/BPM01, each typed by a class and carrying its section and position. Each device has a binding to a channel address, and each channel reads or writes a signal, which channels share. The highlighted walk answers: what are the steerer setpoints in section 1? It goes from the word steerer to Corrector, down to its subclasses, to their devices in section SECT1, to the channels that write. On the demo machine it returns 12 addresses in beam order, though the word steerer appears in none of them.</desc>
+  <defs>
+    <marker id="fgp-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/></marker>
+    <marker id="fgp-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse"><polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/></marker>
+  </defs>
+
+  <!-- 1. one fact -->
+  <rect class="zone" x="20" y="14" width="960" height="72" rx="8"/>
+  <text class="te" x="36" y="33">1 · ONE FACT</text>
+  <rect class="nb" x="130" y="44" width="120" height="28" rx="14"/>
+  <text class="ts" x="190" y="62" text-anchor="middle">SR/HCM01</text>
+  <line class="e" x1="250" y1="58" x2="360" y2="58" marker-end="url(#fgp-arr)"/>
+  <text class="ta" x="304" y="52" text-anchor="middle">HASBINDING</text>
+  <rect class="nb-st" x="360" y="44" width="180" height="28" rx="4"/>
+  <text class="ts" x="450" y="62" text-anchor="middle">SR:MAG:HCM:01:CURRENT:SP</text>
+  <text class="ta" x="190" y="33" text-anchor="middle">SUBJECT</text>
+  <text class="ta" x="304" y="33" text-anchor="middle">PREDICATE</text>
+  <text class="ta" x="450" y="33" text-anchor="middle">OBJECT</text>
+  <text class="tn" x="580" y="54">A graph is many such facts,</text>
+  <text class="tn" x="580" y="71">joined wherever two of them name the same thing.</text>
+
+  <!-- 2. the ontology -->
+  <rect class="zone" x="20" y="98" width="960" height="202" rx="8"/>
+  <text class="te" x="36" y="117">2 · THE ONTOLOGY</text>
+  <text class="ts" x="150" y="117">the kinds of thing, and what each kind is a kind of</text>
+  <text class="ta" x="964" y="222" text-anchor="end">CLASSES</text>
+
+  <!-- subclass edges -->
+  <line class="e" x1="370" y1="160" x2="485" y2="136" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="790" y1="160" x2="635" y2="136" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="230" y1="202" x2="340" y2="188" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="510" y1="202" x2="405" y2="188" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="790" y1="202" x2="790" y2="188" marker-end="url(#fgp-arr)"/>
+  <line class="e-acc" x1="130" y1="244" x2="200" y2="230" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="330" y1="244" x2="260" y2="230" marker-end="url(#fgp-arr-acc)"/>
+  <rect class="mask" x="672" y="139" width="66" height="12" rx="2"/>
+  <text class="ta" x="705" y="148" text-anchor="middle">SUBCLASSOF</text>
+
+  <!-- classes -->
+  <rect class="nb-in" x="485" y="118" width="150" height="28" rx="14"/>
+  <text class="ts" x="560" y="136" text-anchor="middle">AcceleratorDevice</text>
+  <rect class="nb-in" x="320" y="160" width="100" height="28" rx="14"/>
+  <text class="ts" x="370" y="178" text-anchor="middle">Magnet</text>
+  <rect class="nb-in" x="725" y="160" width="130" height="28" rx="14"/>
+  <text class="ts" x="790" y="178" text-anchor="middle">Instrumentation</text>
+  <rect class="nb-foc" x="180" y="202" width="100" height="28" rx="14"/>
+  <text class="ts t-acc" x="230" y="220" text-anchor="middle">Corrector</text>
+  <rect class="nb-in" x="465" y="202" width="90" height="28" rx="14"/>
+  <text class="ts" x="510" y="220" text-anchor="middle">Dipole</text>
+  <rect class="nb-in" x="705" y="202" width="170" height="28" rx="14"/>
+  <text class="ts" x="790" y="220" text-anchor="middle">BeamPositionMonitor</text>
+  <rect class="nb-foc" x="75" y="244" width="110" height="28" rx="14"/>
+  <text class="ts t-acc" x="130" y="262" text-anchor="middle">HCorrector</text>
+  <rect class="nb-foc" x="275" y="244" width="110" height="28" rx="14"/>
+  <text class="ts t-acc" x="330" y="262" text-anchor="middle">VCorrector</text>
+
+  <!-- the synonym -->
+  <rect class="nb-foc" x="40" y="202" width="86" height="28" rx="4"/>
+  <text class="ts t-acc" x="83" y="220" text-anchor="middle">"steerer"</text>
+  <line class="e-acc e-dash" x1="126" y1="216" x2="180" y2="216"/>
+  <text class="ta ta-acc" x="153" y="197" text-anchor="middle">ALTLABEL</text>
+
+  <!-- 3. the facts -->
+  <rect class="zone" x="20" y="312" width="960" height="240" rx="8"/>
+  <text class="te" x="36" y="331">3 · THE FACTS</text>
+  <text class="ts" x="142" y="331">what is on this machine</text>
+  <text class="ta" x="964" y="375" text-anchor="end">DEVICES</text>
+  <text class="ta" x="964" y="449" text-anchor="end">CHANNELS</text>
+  <text class="ta" x="964" y="528" text-anchor="end">SIGNALS</text>
+
+  <!-- type edges cross from facts up to classes -->
+  <line class="e-acc e-dash" x1="130" y1="350" x2="130" y2="272" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc e-dash" x1="330" y1="350" x2="330" y2="272" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e e-dash" x1="510" y1="350" x2="510" y2="230" marker-end="url(#fgp-arr)"/>
+  <line class="e e-dash" x1="790" y1="350" x2="790" y2="230" marker-end="url(#fgp-arr)"/>
+  <text class="ta" x="520" y="280">TYPE</text>
+
+  <!-- binding edges -->
+  <line class="e-acc" x1="130" y1="394" x2="130" y2="430" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="330" y1="394" x2="330" y2="430" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e" x1="510" y1="394" x2="510" y2="430" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="790" y1="394" x2="790" y2="430" marker-end="url(#fgp-arr)"/>
+  <text class="ta" x="520" y="416">HASBINDING</text>
+
+  <!-- signal edges -->
+  <line class="e-acc" x1="130" y1="460" x2="205" y2="510" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="330" y1="460" x2="255" y2="510" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e" x1="510" y1="460" x2="510" y2="510" marker-end="url(#fgp-arr)"/>
+  <line class="e" x1="790" y1="460" x2="790" y2="510" marker-end="url(#fgp-arr)"/>
+  <text class="ta ta-acc" x="300" y="490">WRITESSIGNAL</text>
+  <text class="ta" x="520" y="490">READSSIGNAL</text>
+
+  <!-- devices -->
+  <rect class="nb-foc" x="55" y="350" width="150" height="44" rx="6"/>
+  <text class="tn" x="130" y="368" text-anchor="middle">SR/HCM01</text>
+  <text class="ts" x="130" y="384" text-anchor="middle">SECT1 · s = 4.80 m</text>
+  <rect class="nb-foc" x="255" y="350" width="150" height="44" rx="6"/>
+  <text class="tn" x="330" y="368" text-anchor="middle">SR/VCM01</text>
+  <text class="ts" x="330" y="384" text-anchor="middle">SECT1 · s = 4.80 m</text>
+  <rect class="nb" x="435" y="350" width="150" height="44" rx="6"/>
+  <text class="tn" x="510" y="368" text-anchor="middle">SR/DIPOLE01</text>
+  <text class="ts" x="510" y="384" text-anchor="middle">SECT1 · s = 6.78 m</text>
+  <rect class="nb" x="715" y="350" width="150" height="44" rx="6"/>
+  <text class="tn" x="790" y="368" text-anchor="middle">SR/BPM01</text>
+  <text class="ts" x="790" y="384" text-anchor="middle">SECT1 · s = 4.80 m</text>
+
+  <!-- channels -->
+  <rect class="nb-foc" x="45" y="430" width="170" height="30" rx="4"/>
+  <text class="ts t-acc" x="130" y="449" text-anchor="middle">SR:MAG:HCM:01:CURRENT:SP</text>
+  <rect class="nb-foc" x="245" y="430" width="170" height="30" rx="4"/>
+  <text class="ts t-acc" x="330" y="449" text-anchor="middle">SR:MAG:VCM:01:CURRENT:SP</text>
+  <rect class="nb-st" x="420" y="430" width="180" height="30" rx="4"/>
+  <text class="ts" x="510" y="449" text-anchor="middle">SR:MAG:DIPOLE:01:CURRENT:RB</text>
+  <rect class="nb-st" x="705" y="430" width="170" height="30" rx="4"/>
+  <text class="ts" x="790" y="449" text-anchor="middle">SR:DIAG:BPM:01:POSITION:X</text>
+
+  <!-- signals -->
+  <rect class="nb-ext" x="160" y="510" width="140" height="28" rx="14"/>
+  <text class="ts" x="230" y="528" text-anchor="middle">current_setpoint</text>
+  <rect class="nb-ext" x="440" y="510" width="140" height="28" rx="14"/>
+  <text class="ts" x="510" y="528" text-anchor="middle">current_readback</text>
+  <rect class="nb-ext" x="710" y="510" width="160" height="28" rx="14"/>
+  <text class="ts" x="790" y="528" text-anchor="middle">position_x_readback</text>
+
+  <!-- 4. one question, one walk -->
+  <rect class="nb-foc" x="20" y="564" width="960" height="122" rx="8"/>
+  <text class="te" x="36" y="583">4 · ONE QUESTION IS ONE WALK</text>
+  <text class="tn" x="36" y="604">"What are the steerer setpoints in section 1?"</text>
+
+  <line class="e-acc" x1="126" y1="632" x2="146" y2="632" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="226" y1="632" x2="246" y2="632" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="376" y1="632" x2="396" y2="632" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="526" y1="632" x2="546" y2="632" marker-end="url(#fgp-arr-acc)"/>
+  <line class="e-acc" x1="676" y1="632" x2="696" y2="632" marker-end="url(#fgp-arr-acc)"/>
+
+  <rect class="nb" x="36" y="618" width="90" height="28" rx="4"/>
+  <text class="ts" x="81" y="636" text-anchor="middle">"steerer"</text>
+  <rect class="nb" x="146" y="618" width="80" height="28" rx="14"/>
+  <text class="ts" x="186" y="636" text-anchor="middle">Corrector</text>
+  <rect class="nb" x="246" y="618" width="130" height="28" rx="14"/>
+  <text class="ts" x="311" y="636" text-anchor="middle">its subclasses</text>
+  <rect class="nb" x="396" y="618" width="130" height="28" rx="6"/>
+  <text class="ts" x="461" y="636" text-anchor="middle">devices in SECT1</text>
+  <rect class="nb" x="546" y="618" width="130" height="28" rx="4"/>
+  <text class="ts" x="611" y="636" text-anchor="middle">channels that write</text>
+  <rect class="nb nb-acc-stroke" x="696" y="618" width="268" height="28" rx="4"/>
+  <text class="tn t-acc" x="830" y="636" text-anchor="middle">12 addresses, in beam order</text>
+
+  <text class="ts" x="36" y="670">The word "steerer" appears in none of the 12 addresses. The ontology supplies the meaning, and the facts supply the machine.</text>
+</svg>
+</div>
