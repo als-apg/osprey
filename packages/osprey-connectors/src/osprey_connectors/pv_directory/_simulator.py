@@ -236,9 +236,10 @@ class SimulatorDirectory(PVDirectory):
         deadline: float,  # noqa: ARG002
     ) -> DirectoryRecord | Literal[Outcome.NOT_LISTED] | Unavailable:
         records = self._records()
-        return (
-            records if isinstance(records, Unavailable) else records.get(name, Outcome.NOT_LISTED)
-        )
+        if isinstance(records, Unavailable):
+            return records
+        record = records.get(name)
+        return Outcome.NOT_LISTED if record is None else record
 
     async def property_names(self, deadline: float) -> list[str] | Unavailable:  # noqa: ARG002
         records = self._records()
