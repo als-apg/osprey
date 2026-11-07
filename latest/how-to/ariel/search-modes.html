@@ -545,10 +545,10 @@
   <section id="search-modes">
 <h1>Search Modes<a class="headerlink" href="#search-modes" title="Link to this heading">#</a></h1>
 <p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the OSPREY agent layer, which calls these search modules through ARIEL’s MCP tools.</p>
-<p><strong>Dispatch is registry-driven.</strong> A search request names a mode as a plain string — <code class="docutils literal notranslate"><span class="pre">&quot;keyword&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;semantic&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hybrid&quot;</span></code>. The <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> looks that name up in Osprey’s central registry and calls the module’s own <code class="docutils literal notranslate"><span class="pre">execute</span></code>; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface’s capabilities API and the agent’s MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.</p>
+<p><strong>Dispatch is registry-driven.</strong> A search request names a mode as a plain string — <code class="docutils literal notranslate"><span class="pre">&quot;keyword&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;semantic&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hybrid&quot;</span></code>. The <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> looks that name up in Osprey’s central registry and calls the module’s own <code class="docutils literal notranslate"><span class="pre">execute</span></code>; it carries no per-mode branch of its own. The registry is the only source of routable modes. The service, the web interface’s capabilities API and the agent’s MCP tools therefore cannot disagree about which modes exist. Adding a module needs no change to the service.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code> is a <strong>tool, not a search mode.</strong> It runs read-only SQL against the same database, which is precision filtering — exact matches, exhaustive date and author ranges, counts — not ranked retrieval. It has no relevance score to merge with the others, so it is exposed only as its own MCP tool and never appears as a <code class="docutils literal notranslate"><span class="pre">--mode</span></code> value.</p>
+<p><code class="docutils literal notranslate"><span class="pre">sql_query</span></code> is a <strong>tool, not a search mode.</strong> It runs read-only SQL against the same database. That is precision filtering — exact matches, exhaustive date and author ranges, counts — not ranked retrieval. It has no relevance score to merge with the others, so it is exposed only as its own MCP tool and never appears as a <code class="docutils literal notranslate"><span class="pre">--mode</span></code> value.</p>
 </div>
 <section id="search-architecture">
 <h2>Search Architecture<a class="headerlink" href="#search-architecture" title="Link to this heading">#</a></h2>
@@ -598,7 +598,7 @@ osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>hybrid
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> choices are read from the registry when the command runs, so a facility that registers its own search module gets it as a choice — and in <code class="docutils literal notranslate"><span class="pre">--help</span></code> — without any code change.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> choices are read from the registry when the command runs. A facility that registers its own search module therefore gets it as a choice — and in <code class="docutils literal notranslate"><span class="pre">--help</span></code> — without any code change.</p>
 <section id="search-modules">
 <h3>Search Modules<a class="headerlink" href="#search-modules" title="Link to this heading">#</a></h3>
 <p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL’s capabilities API; each built-in module is exposed to the OSPREY agent through its own ARIEL MCP tool (<code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code>, <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>). The framework ships with the following built-in search modules:</p>
@@ -643,7 +643,7 @@ SR01C___BPM*
 <li><p><code class="docutils literal notranslate"><span class="pre">websearch_to_tsquery</span></code> — for queries with Boolean operators (AND, OR, NOT)</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">phraseto_tsquery</span></code> — for quoted phrases</p></li>
 </ul>
-<p>When multiple components are present (e.g. terms <em>and</em> phrases), they are combined with <code class="docutils literal notranslate"><span class="pre">&amp;&amp;</span></code> (tsquery AND).</p>
+<p>When multiple components are present (terms <em>and</em> phrases, for example), they are combined with <code class="docutils literal notranslate"><span class="pre">&amp;&amp;</span></code> (tsquery AND).</p>
 </li>
 <li><p>Executes full-text search against the entry text (and, on a migrated store, its attachment captions) with <code class="docutils literal notranslate"><span class="pre">ts_rank</span></code> scoring, applying any field filters (<code class="docutils literal notranslate"><span class="pre">author</span> <span class="pre">ILIKE</span></code>, date range) and time range constraints</p></li>
 <li><p>If no entry holds every plain word, returns the entries holding most of them instead (see <em>Which entries match</em> below)</p></li>
@@ -653,7 +653,7 @@ SR01C___BPM*
 <p><strong>Which entries match.</strong> A query of plain words is answered in up to three steps, all inside the same date, author and source filters:</p>
 <ol class="arabic simple">
 <li><p><strong>Every word.</strong> Entries containing all the plain words. If there are any, these are the answer.</p></li>
-<li><p><strong>Most of the words.</strong> Only when no entry has them all, and the query has at least two plain words: entries containing at least half of them — the same share hybrid search uses to decide that a picture caption matched — ranked by how many words they hold, then by <code class="docutils literal notranslate"><span class="pre">ts_rank</span></code>. Each of these hits carries <code class="docutils literal notranslate"><span class="pre">matched_terms</span></code> and <code class="docutils literal notranslate"><span class="pre">missing_terms</span></code>, and the response carries an INFO diagnostic of category <code class="docutils literal notranslate"><span class="pre">partial</span></code>, for example <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">entry</span> <span class="pre">contains</span> <span class="pre">every</span> <span class="pre">term;</span> <span class="pre">showing</span> <span class="pre">entries</span> <span class="pre">with</span> <span class="pre">at</span> <span class="pre">least</span> <span class="pre">4</span> <span class="pre">of</span> <span class="pre">8;</span> <span class="pre">terms</span> <span class="pre">found</span> <span class="pre">in</span> <span class="pre">no</span> <span class="pre">hit:</span> <span class="pre">oct,</span> <span class="pre">6</span></code>. With vocabulary expansion on, a word counts as present when it or any of its alternatives is.</p></li>
+<li><p><strong>Most of the words.</strong> Only when no entry has them all, and the query has at least two plain words. The answer is the entries containing at least half of them, ranked by how many words they hold, then by <code class="docutils literal notranslate"><span class="pre">ts_rank</span></code>. Half is the same share hybrid search uses to decide that a picture caption matched. Each of these hits carries <code class="docutils literal notranslate"><span class="pre">matched_terms</span></code> and <code class="docutils literal notranslate"><span class="pre">missing_terms</span></code>. The response carries an INFO diagnostic of category <code class="docutils literal notranslate"><span class="pre">partial</span></code>, for example <code class="docutils literal notranslate"><span class="pre">no</span> <span class="pre">entry</span> <span class="pre">contains</span> <span class="pre">every</span> <span class="pre">term;</span> <span class="pre">showing</span> <span class="pre">entries</span> <span class="pre">with</span> <span class="pre">at</span> <span class="pre">least</span> <span class="pre">4</span> <span class="pre">of</span> <span class="pre">8;</span> <span class="pre">terms</span> <span class="pre">found</span> <span class="pre">in</span> <span class="pre">no</span> <span class="pre">hit:</span> <span class="pre">oct,</span> <span class="pre">6</span></code>. With vocabulary expansion on, a word counts as present when it or any of its alternatives is.</p></li>
 <li><p><strong>Similar spelling.</strong> Only when both steps above found nothing: the trigram fuzzy fallback.</p></li>
 </ol>
 <p>Quoted phrases stay required in every step. A query with <code class="docutils literal notranslate"><span class="pre">AND</span></code>, <code class="docutils literal notranslate"><span class="pre">OR</span></code> or <code class="docutils literal notranslate"><span class="pre">NOT</span></code> means exactly what its operators say and is never relaxed, and neither is a query carrying a <code class="docutils literal notranslate"><span class="pre">*</span></code> glob or a <code class="docutils literal notranslate"><span class="pre">/regex/</span></code> token. To widen a search on purpose, join the alternatives with <code class="docutils literal notranslate"><span class="pre">OR</span></code>.</p>
@@ -716,7 +716,7 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <li><p>the <code class="docutils literal notranslate"><span class="pre">qmd_export</span></code> <a class="reference internal" href="data-ingestion.html#enhancement-pipeline"><span class="std std-ref">enhancement module</span></a>, which writes the markdown mirror the sidecar indexes; and</p></li>
 <li><p>the same configured embedding model and populated pgvector table used by <code class="docutils literal notranslate"><span class="pre">semantic</span></code> search.</p></li>
 </ol>
-<p>Either one alone is useless: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> template enables both, together with the sidecar itself. A web-terminal tier or app deploys no sidecar of its own and reaches the hosting deployment’s through <code class="docutils literal notranslate"><span class="pre">services.qmd.port</span></code> instead — a key the build copies from the hosting deployment’s render into every tier and app, so nothing pins it by hand — and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a render that keeps <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> on with no sidecar to dial (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
+<p>The sidecar and the export need each other: an export with no sidecar indexes nothing, and a sidecar with no export searches an empty corpus. The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> template enables both, together with the sidecar itself. A web-terminal tier or app deploys no sidecar of its own. It reaches the hosting deployment’s sidecar through <code class="docutils literal notranslate"><span class="pre">services.qmd.port</span></code> instead. The build copies that key from the hosting deployment’s render into every tier and app, so nothing pins it by hand. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a render that keeps <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> on with no sidecar to dial (<a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">hybrid</span></code> also does not degrade the way semantic search does. A query against a sidecar that is not there is reported as <em>search is down</em>, deliberately, so that the agent cannot read an outage as “nothing matched”.</p>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
@@ -759,7 +759,7 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 </tbody>
 </table>
 </div>
-<p>An LLM reviews every candidate before the results come back, which is what makes reranking the dominant term: its cost is dominated by the candidate pool and grows far more slowly than the corpus does, so no logbook is small enough to outrun it. Both surfaces ship with the quality path on.</p>
+<p>An LLM reviews every candidate before the results come back, which is what makes reranking the dominant term. Its cost is dominated by the candidate pool and grows far more slowly than the corpus does, so no logbook is small enough to outrun it. Both surfaces ship with the quality path on.</p>
 <p><strong>One key, both surfaces.</strong> For the <code class="docutils literal notranslate"><span class="pre">qmd</span></code> strategy, <code class="docutils literal notranslate"><span class="pre">search_modules.hybrid.settings.rerank</span></code> governs the agent-facing <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> tool <em>and</em> the web interface’s search panel — and <code class="docutils literal notranslate"><span class="pre">candidate_limit</span></code> likewise. There is no separate panel key. When the deployment enables reranking, the panel toggle and tool argument may turn it off for an individual search. Setting the deployment key to <code class="docutils literal notranslate"><span class="pre">false</span></code> is a hard disable: the panel offers no toggle and a request cannot turn the reranker back on. The <code class="docutils literal notranslate"><span class="pre">rrf</span></code> strategy also omits that toggle because reranking does not participate. (The OKF bundle is a different key over a different corpus and defaults the other way; see <a class="reference internal" href="../facility-knowledge/okf-bundle.html"><span class="doc">The OKF Bundle</span></a>.)</p>
 <p><strong>What the panel does with a reranked search.</strong> Rather than hold an empty screen for the length of a reranked query, the panel runs it in two phases: it fetches and paints the fast ranking first, under a status line saying the results are being reranked, then replaces them with the reranked ranking under a line saying they were updated. The second response is drawn from a larger candidate pool, so <em>which</em> entries come back can change, not only the order they come back in.</p>
 <p><strong>Reranking is never load-bearing.</strong> A reranked query that fails, for any reason, is retried once without the reranker; the results come back normally, carrying a WARNING diagnostic that says the ranking was not improved. The panel keeps the fast results on screen and says so in its status line. Only a failure of that retry is a failed search.</p>
@@ -792,15 +792,21 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <span class="p">)</span>
 </pre></div>
 </div>
-<p>Once registered and enabled under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">ariel.search_modules.my_search.enabled:</span> <span class="pre">true</span></code>), the module is routable by name — through <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">search</span> <span class="pre">--mode</span> <span class="pre">my_search</span></code> and through the web interface’s capabilities API — with no change to <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code>. Making it callable by the OSPREY agent additionally requires a matching ARIEL MCP tool (contributions welcome). The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>, whose <code class="docutils literal notranslate"><span class="pre">search_mode</span></code> field is simply the registered module name:</p>
+<p>Once the module is registered, enable it under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">ariel.search_modules.my_search.enabled:</span> <span class="pre">true</span></code>). It is then routable by name, with no change to <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code>: through <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">search</span> <span class="pre">--mode</span> <span class="pre">my_search</span></code> and through the web interface’s capabilities API. Making it callable by the OSPREY agent additionally requires a matching ARIEL MCP tool (contributions welcome). The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>, whose <code class="docutils literal notranslate"><span class="pre">search_mode</span></code> field is simply the registered module name:</p>
 <p><code class="xref py py-class docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code> — a frozen dataclass whose key fields are <code class="docutils literal notranslate"><span class="pre">execute</span></code> (the async search function), <code class="docutils literal notranslate"><span class="pre">format_result</span></code> (formats results for agent consumption), and <code class="docutils literal notranslate"><span class="pre">args_schema</span></code> (a Pydantic model for input validation). See the class definition in the source for the full field list.</p>
 <p>Modules may also export <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code> to declare tunable parameters for the frontend capabilities API. Each <code class="xref py py-class docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> describes a single knob — its name, type, default, range, and UI grouping — so the web interface can render controls dynamically.</p>
-<p><strong>What a module returns.</strong> <code class="docutils literal notranslate"><span class="pre">execute</span></code> may return a plain list of entries, as it always could, or a <code class="docutils literal notranslate"><span class="pre">ModuleOutput</span></code> when it has something to report alongside them: <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code> for the notices the caller should see (a truncated query, a skipped step), <code class="docutils literal notranslate"><span class="pre">expansion</span></code> for the <a class="reference internal" href="#vocabulary-expansion"><span class="std std-ref">vocabulary groups</span></a> that actually reached the query it ran, and optionally <code class="docutils literal notranslate"><span class="pre">total</span></code>, <code class="docutils literal notranslate"><span class="pre">total_exact</span></code>, <code class="docutils literal notranslate"><span class="pre">has_more</span></code>, <code class="docutils literal notranslate"><span class="pre">tier</span></code> and <code class="docutils literal notranslate"><span class="pre">filter_applied</span></code> for paging and counts. A bare list stays valid and needs no change.</p>
-<p><strong>Opting into the shared query work.</strong> Five descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called as before, except that <code class="docutils literal notranslate"><span class="pre">max_results</span></code> is widened to <code class="docutils literal notranslate"><span class="pre">min(offset</span> <span class="pre">+</span> <span class="pre">page_size</span> <span class="pre">*</span> <span class="pre">2,</span> <span class="pre">200)</span></code>.</p>
+<p><strong>What a module returns.</strong> <code class="docutils literal notranslate"><span class="pre">execute</span></code> may return a plain list of entries, as it always could. When it has something to report alongside them, it may return a <code class="docutils literal notranslate"><span class="pre">ModuleOutput</span></code> instead:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">diagnostics</span></code> holds the notices the caller should see (a truncated query, a skipped step).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">expansion</span></code> holds the <a class="reference internal" href="#vocabulary-expansion"><span class="std std-ref">vocabulary groups</span></a> that actually reached the query it ran.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">total</span></code>, <code class="docutils literal notranslate"><span class="pre">total_exact</span></code> and <code class="docutils literal notranslate"><span class="pre">has_more</span></code> report counts and paging; <code class="docutils literal notranslate"><span class="pre">tier</span></code> names the step that answered; <code class="docutils literal notranslate"><span class="pre">filter_applied</span></code> says the module applied the entry filter itself. All are optional.</p></li>
+</ul>
+<p>A bare list stays valid and needs no change.</p>
+<p><strong>Opting into the shared query work.</strong> Descriptor fields, all off by default, let a module receive work the service has already done. Declare none and the module is called as before, except for paging (see <code class="docutils literal notranslate"><span class="pre">accepts_offset</span></code>).</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">accepts_expansion</span></code> — set it to <code class="docutils literal notranslate"><span class="pre">True</span></code> and the service passes <code class="docutils literal notranslate"><span class="pre">query_expansion=</span></code> when, and only when, expansion was resolved for that request. The module never sees the <code class="docutils literal notranslate"><span class="pre">expand_query</span></code> request argument itself: whether to expand is settled once, in the service.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">accepts_entry_filter</span></code> — set it to <code class="docutils literal notranslate"><span class="pre">True</span></code> and the service passes <code class="docutils literal notranslate"><span class="pre">entry_filter=</span></code> (an <code class="docutils literal notranslate"><span class="pre">EntryFilter</span></code>, possibly empty) for the module to apply. The service post-filters every result with <code class="docutils literal notranslate"><span class="pre">EntryFilter.matches</span></code> either way.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">accepts_offset</span></code> — set it to <code class="docutils literal notranslate"><span class="pre">True</span></code> and the service passes <code class="docutils literal notranslate"><span class="pre">offset=</span></code>, with <code class="docutils literal notranslate"><span class="pre">max_results</span></code> as the page size; otherwise the service slices the page out of the module’s results.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">accepts_offset</span></code> — set it to <code class="docutils literal notranslate"><span class="pre">True</span></code> and the service passes <code class="docutils literal notranslate"><span class="pre">offset=</span></code>, with <code class="docutils literal notranslate"><span class="pre">max_results</span></code> as the page size. Otherwise the module gets no <code class="docutils literal notranslate"><span class="pre">offset</span></code> and is asked for <code class="docutils literal notranslate"><span class="pre">min(offset</span> <span class="pre">+</span> <span class="pre">max_results</span> <span class="pre">*</span> <span class="pre">2,</span> <span class="pre">200)</span></code> results. The service then cuts the page out of them.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">needs_search_calls</span></code> — set it to <code class="docutils literal notranslate"><span class="pre">True</span></code> and the service passes its search-call pool as <code class="docutils literal notranslate"><span class="pre">search_calls=</span></code>. A module that calls a provider at search time runs that call on the pool it receives, with <code class="docutils literal notranslate"><span class="pre">await</span> <span class="pre">search_calls.run(fn,</span> <span class="pre">*args,</span> <span class="pre">timeout_s=...)</span></code>, and never builds a pool of its own. The service closes the pool when it stops.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">query_parser</span></code> — an optional callable that takes the raw query string and returns a <code class="docutils literal notranslate"><span class="pre">ParsedKeywordQuery</span></code> (search text, field filters, phrases, pattern spans, diagnostics). The service calls it once and hands the result to the module as <code class="docutils literal notranslate"><span class="pre">parsed=</span></code>. Keyword search declares its own <code class="docutils literal notranslate"><span class="pre">parse_keyword_query</span></code> here; a module that wants a different query language supplies its own parser, and one that wants none is never given ARIEL’s.</p></li>
 </ul>
@@ -813,14 +819,14 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <span id="vocabulary-expansion"></span><h3>Vocabulary Expansion and Pattern Search<a class="headerlink" href="#vocabulary-expansion-and-pattern-search" title="Link to this heading">#</a></h3>
 <p>Control rooms search in shorthand and write logbook entries in words. A search
 for <code class="docutils literal notranslate"><span class="pre">t/s</span> <span class="pre">the</span> <span class="pre">bpm</span> <span class="pre">offset</span></code> will not find the entry that says “troubleshoot the
-beam position monitor offset” — stemming clips word endings, it does not know
+beam position monitor offset”. Stemming clips word endings; it does not know
 that <code class="docutils literal notranslate"><span class="pre">bpm</span></code> and “beam position monitor” are the same thing.</p>
 <p>A <strong>vocabulary</strong> is where a facility says that they are. It is a data file
 listing each concept once: the words your prose uses, and the spellings your
 operators type. Before a search runs, ARIEL rewrites the query using that file,
 so the shorthand spelling reaches the prose spelling and the other way round.
-It is plain dictionary matching — no model, no network call, microseconds —
-and every rewrite is reported back with the results, so a hit that looks
+It is plain dictionary matching — no model, no network call, microseconds.
+Every rewrite is reported back with the results, so a hit that looks
 surprising always arrives with the reason it appeared.</p>
 <p>Nothing is built in. With no vocabulary configured, no query is ever rewritten.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> turns expansion on when the facility ships
@@ -858,15 +864,27 @@ ungated and always bidirectional.</p>
 canonical.</p>
 </dd>
 </dl>
-<p>Anything else is refused rather than ignored — an unknown key, a missing
-field, an unknown <code class="docutils literal notranslate"><span class="pre">kind</span></code>, a duplicate canonical, an empty list, a file that is
-not a YAML mapping. The check reports <strong>every</strong> problem in one pass, so a file
+<p>Anything else is refused rather than ignored:</p>
+<ul class="simple">
+<li><p>an unknown key;</p></li>
+<li><p>a missing field;</p></li>
+<li><p>an unknown <code class="docutils literal notranslate"><span class="pre">kind</span></code>;</p></li>
+<li><p>a duplicate canonical;</p></li>
+<li><p>an empty list;</p></li>
+<li><p>a file that is not a YAML mapping.</p></li>
+</ul>
+<p>The check reports <strong>every</strong> problem in one pass, so a file
 with three mistakes takes one run to fix, not three.</p>
 <p><strong>How text is matched.</strong> The file, the query and — when <code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> is
-on — the entry text all go through the same rule before anything is compared:
-lowercase; <code class="docutils literal notranslate"><span class="pre">-</span></code> becomes a space (so <code class="docutils literal notranslate"><span class="pre">Beam-Position</span> <span class="pre">Monitor</span></code> and <code class="docutils literal notranslate"><span class="pre">beam</span>
-<span class="pre">position</span> <span class="pre">monitor</span></code> are one phrase); <code class="docutils literal notranslate"><span class="pre">/</span></code> is <strong>kept</strong> (so <code class="docutils literal notranslate"><span class="pre">t/s</span></code> and <code class="docutils literal notranslate"><span class="pre">i/o</span></code>
-stay a single token); runs of whitespace collapse to one. The punctuation
+on — the entry text all go through the same rule before anything is compared:</p>
+<ul class="simple">
+<li><p>lowercase;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">-</span></code> becomes a space (so <code class="docutils literal notranslate"><span class="pre">Beam-Position</span> <span class="pre">Monitor</span></code> and <code class="docutils literal notranslate"><span class="pre">beam</span>
+<span class="pre">position</span> <span class="pre">monitor</span></code> are one phrase);</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/</span></code> is <strong>kept</strong> (so <code class="docutils literal notranslate"><span class="pre">t/s</span></code> and <code class="docutils literal notranslate"><span class="pre">i/o</span></code> stay a single token);</p></li>
+<li><p>runs of whitespace collapse to one.</p></li>
+</ul>
+<p>The punctuation
 characters <code class="docutils literal notranslate"><span class="pre">,</span> <span class="pre">.</span> <span class="pre">:</span> <span class="pre">;</span> <span class="pre">!</span> <span class="pre">?</span> <span class="pre">(</span> <span class="pre">)</span> <span class="pre">[</span> <span class="pre">]</span> <span class="pre">&quot;</span> <span class="pre">'</span></code> are stripped from the edges of each
 token, so <code class="docutils literal notranslate"><span class="pre">BPM,</span></code>, <code class="docutils literal notranslate"><span class="pre">(BPM)</span></code> and <code class="docutils literal notranslate"><span class="pre">BPM?</span></code> all match the form <code class="docutils literal notranslate"><span class="pre">bpm</span></code>. No
 stemming happens here — PostgreSQL’s stemmer runs afterwards, on the text this
@@ -916,17 +934,17 @@ short form — is what <code class="docutils literal notranslate"><span class="p
 a search for “beam position monitor” should also reach the entries that wrote
 “BPM”. An ordinary word is not so lucky: expanding “calibration” into <code class="docutils literal notranslate"><span class="pre">cal</span></code>
 pulls in every entry that abbreviated something else that way.</p>
-<p><strong>The third kind: synonym.</strong> <code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">synonym</span></code> is not gated by either switch,
-and it is the one kind where every member reaches <em>every other member</em> — the
+<p><strong>The third kind: synonym.</strong> <code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">synonym</span></code> is not gated by either switch.
+It is the one kind where every member reaches <em>every other member</em>. The
 canonical reaches every form, each form reaches the canonical, and each form
 also reaches its sibling forms. Given the <code class="docutils literal notranslate"><span class="pre">beam</span> <span class="pre">loss</span></code> concept above, a search
 for <code class="docutils literal notranslate"><span class="pre">beam</span> <span class="pre">dump</span></code> finds entries that wrote “beam loss” and entries that wrote
-“lost beam”, and so does a search for either of the other two, whatever
+“lost beam”. So does a search for either of the other two, whatever
 <code class="docutils literal notranslate"><span class="pre">canonical_to_acronym</span></code> and <code class="docutils literal notranslate"><span class="pre">canonical_to_shorthand</span></code> are set to.</p>
 <p>Use it for different <strong>phrasings</strong> of one thing. Do not use it when one
 spelling is simply the other written short: a clipped or slang word is
 <code class="docutils literal notranslate"><span class="pre">shorthand</span></code>, an initialism is <code class="docutils literal notranslate"><span class="pre">acronym</span></code>. Those two are one thing written two
-ways, which is why their gates are asymmetric; a synonym is one thing <em>said</em> two
+ways, which is why their gates are asymmetric. A synonym is one thing <em>said</em> two
 ways, with no short side and nothing to gate. Put the phrasing your prose uses
 most often in <code class="docutils literal notranslate"><span class="pre">canonical</span></code>, since that is what a matched form is rewritten
 into.</p>
@@ -934,10 +952,12 @@ into.</p>
 query containing it expands to <em>both</em> canonicals rather than picking a winner.
 <code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> warns about it and lists every canonical the form reaches, so
 the widening is a decision you made rather than something you discover from odd
-results. Two other things warn without failing: a form that can never fire
-because a longer form always wins on the same text, and a word PostgreSQL’s
-English text search discards outright, which would make expanding to it match
-nothing.</p>
+results. Two other things warn without failing:</p>
+<ul class="simple">
+<li><p>a form that can never fire because a longer form always wins on the same text;</p></li>
+<li><p>a word PostgreSQL’s English text search discards outright, which would make
+expanding to it match nothing.</p></li>
+</ul>
 </section>
 <section id="what-gets-expanded-and-where">
 <h4>What gets expanded, and where<a class="headerlink" href="#what-gets-expanded-and-where" title="Link to this heading">#</a></h4>
@@ -960,17 +980,17 @@ sidecar.</p>
 <code class="docutils literal notranslate"><span class="pre">expand_modes</span></code> limits which modes expand at all. Unset — the default —
 means every enabled search module once the entries are expanded too, and only
 the modes other than <code class="docutils literal notranslate"><span class="pre">semantic</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> until then (see below).</p>
-<p>With <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_entries:</span> <span class="pre">true</span></code> the <strong>entries</strong> are expanded too,
-once, when they are embedded and when they are written to the qmd mirror: every
-matched span gets its alternatives inserted right after it, in the text itself
-(<code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">drifted</span></code> is embedded as <code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span> <span class="pre">drifted</span></code>), under the
-same direction gates as the query. An entry that already spells both terms
+<p>With <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_entries:</span> <span class="pre">true</span></code> the <strong>entries</strong> are expanded too.
+That happens once, when they are embedded and when they are written to the qmd
+mirror. Every matched span gets its alternatives inserted right after it, in the
+text itself (<code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">drifted</span></code> is embedded as <code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span>
+<span class="pre">drifted</span></code>). The same direction gates apply as for the query. An entry that already spells both terms
 next to each other (<code class="docutils literal notranslate"><span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span> <span class="pre">(BPM)</span></code>) gains nothing. Keyword
 search never sees entry expansion: it searches the stored text, which is not
 changed.</p>
 <p>Both sides matter for the dense lanes. JLAB-TN-26-024 measured that expanding
 only the query makes <code class="docutils literal notranslate"><span class="pre">semantic</span></code> retrieval worse than not expanding at all
-(17–22 % lower), while expanding both the query and the entries raised <a class="reference external" href="mailto:P&#37;&#52;&#48;10">P<span>&#64;</span>10</a>
+(17–22 % lower). Expanding both the query and the entries raised <a class="reference external" href="mailto:P&#37;&#52;&#48;10">P<span>&#64;</span>10</a>
 by 29 % and <a class="reference external" href="mailto:MRR&#37;&#52;&#48;10">MRR<span>&#64;</span>10</a> by 19 %. The default therefore never expands one side
 alone: while <code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> is off, <code class="docutils literal notranslate"><span class="pre">semantic</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> search the
 query as typed and only <code class="docutils literal notranslate"><span class="pre">keyword</span></code> expands it. Turning <code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> on and
@@ -996,13 +1016,16 @@ expansion on, drop that one mode rather than the feature:</p>
 read, and a stale <code class="docutils literal notranslate"><span class="pre">path</span></code> left behind is inert rather than a startup failure.
 A profile that states <code class="docutils literal notranslate"><span class="pre">true</span></code> and no <code class="docutils literal notranslate"><span class="pre">path</span></code> of its own, for a facility that
 ships no <code class="docutils literal notranslate"><span class="pre">data/facility/ariel/vocabulary.yml</span></code>, is refused at <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
-<p>For a single search, every surface takes an <code class="docutils literal notranslate"><span class="pre">expand_query</span></code> argument — the
-<strong>Expand vocabulary</strong> toggle in the web interface’s advanced options, and an
-argument on the <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> and <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>
-MCP tools. Leave it unset and it follows <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_by_default</span></code>;
-pass <code class="docutils literal notranslate"><span class="pre">false</span></code> and that one search runs on exactly the words you typed, with no
+<p>For a single search, every surface takes an <code class="docutils literal notranslate"><span class="pre">expand_query</span></code> argument:</p>
+<ul class="simple">
+<li><p>the <strong>Expand vocabulary</strong> toggle in the web interface’s advanced options;</p></li>
+<li><p>an argument on the <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> and
+<code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code> MCP tools.</p></li>
+</ul>
+<p>Leave it unset and it follows <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_by_default</span></code>. Pass
+<code class="docutils literal notranslate"><span class="pre">false</span></code> and that one search runs on exactly the words you typed, with no
 expansions reported. It is the switch to reach for when you want to see what a
-query finds on its own, and the OSPREY agent can use it the same way when a
+query finds on its own. The OSPREY agent can use it the same way when a
 rewrite looks like it widened a search too far. With the vocabulary disabled the
 toggle is not advertised at all and the argument does nothing.</p>
 <p><code class="docutils literal notranslate"><span class="pre">expand_query</span></code> acts on the query only. Entries embedded or mirrored with
@@ -1020,17 +1043,17 @@ pairing the matched span, as normalized, with the terms that were added:</p>
 <p>It reports only what the search actually used: a mode that skipped expansion, or
 a request that turned it off, reports an empty list. In the web interface the
 pairs render as a strip above the results. The MCP tools carry
-the same list in their result envelopes, and <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> and
-<code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> also carry <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code> — the notices explaining a
+the same list in their result envelopes. <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> and
+<code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> also carry <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code>: the notices explaining a
 truncated query, a skipped expansion, or a pattern searched as text.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">search</span></code> does not print the expansion — use the panel or an MCP
 tool to see it.</p>
 <p><code class="docutils literal notranslate"><span class="pre">expanded_terms</span></code> lists only what was added to the <strong>query</strong>. Terms inserted
 into entries are not listed there. They do show up in one place: the web
-panel’s <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> result previews are snippets of the qmd mirror, which holds
-the expanded text, so a preview can read <code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span> <span class="pre">drifted</span></code>
-where the stored entry says <code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">drifted</span></code>. The entry itself, the <code class="docutils literal notranslate"><span class="pre">keyword</span></code>
-and <code class="docutils literal notranslate"><span class="pre">semantic</span></code> previews, and the MCP tools (which return no snippets or
+panel’s <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> result previews. Those previews are snippets of the qmd
+mirror, which holds the expanded text. A preview can therefore read
+<code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">beam</span> <span class="pre">position</span> <span class="pre">monitor</span> <span class="pre">drifted</span></code> where the stored entry says
+<code class="docutils literal notranslate"><span class="pre">BPM</span> <span class="pre">drifted</span></code>. The entry itself, the <code class="docutils literal notranslate"><span class="pre">keyword</span></code> and <code class="docutils literal notranslate"><span class="pre">semantic</span></code> previews, and the MCP tools (which return no snippets or
 highlights) show the stored text unchanged. The inserted terms also count
 toward the sidecar’s BM25 half of <code class="docutils literal notranslate"><span class="pre">hybrid</span></code> scoring.</p>
 </section>
@@ -1057,21 +1080,21 @@ t/s /SR0[1-4]C___BPM\d+/   one pattern, plus the t/s expansion
 </pre></div>
 </div>
 <p>One trailing <code class="docutils literal notranslate"><span class="pre">?</span></code> is stripped from the query before patterns are read, so
-asking <code class="docutils literal notranslate"><span class="pre">/SR0[1-4]C___BPM\d+/?</span></code> as a question still works; a <code class="docutils literal notranslate"><span class="pre">?</span></code> <em>inside</em> the
+asking <code class="docutils literal notranslate"><span class="pre">/SR0[1-4]C___BPM\d+/?</span></code> as a question still works. A <code class="docutils literal notranslate"><span class="pre">?</span></code> <em>inside</em> the
 body is left alone (<code class="docutils literal notranslate"><span class="pre">/BPMs?/</span></code> keeps it).</p>
 <p><strong>A pattern that is too generic is searched as text.</strong> A pattern needs at least
-three consecutive literal characters to use the trigram index; below that it
-would scan the whole logbook. Such a token is neither rejected nor dropped — it
-goes back into the query as ordinary search text (a rejected <code class="docutils literal notranslate"><span class="pre">/…/</span></code> contributes
-the words of its body, without the slashes), and the search says so in its
-diagnostics. That is why <code class="docutils literal notranslate"><span class="pre">test</span> <span class="pre">UNION</span> <span class="pre">SELECT</span> <span class="pre">*</span> <span class="pre">FROM</span> <span class="pre">users</span> <span class="pre">--</span></code>, <code class="docutils literal notranslate"><span class="pre">5</span> <span class="pre">*</span> <span class="pre">3</span></code> and
+three consecutive literal characters to use the trigram index. Below that it
+would scan the whole logbook. Such a token is neither rejected nor dropped. It
+goes back into the query as ordinary search text, and the search says so in its
+diagnostics. A rejected <code class="docutils literal notranslate"><span class="pre">/…/</span></code> contributes the words of its body, without the
+slashes. That is why <code class="docutils literal notranslate"><span class="pre">test</span> <span class="pre">UNION</span> <span class="pre">SELECT</span> <span class="pre">*</span> <span class="pre">FROM</span> <span class="pre">users</span> <span class="pre">--</span></code>, <code class="docutils literal notranslate"><span class="pre">5</span> <span class="pre">*</span> <span class="pre">3</span></code> and
 <code class="docutils literal notranslate"><span class="pre">flow</span> <span class="pre">rate</span> <span class="pre">5</span> <span class="pre">/</span> <span class="pre">6</span> <span class="pre">/</span> <span class="pre">7</span></code> produce no pattern at all. The one exception is an empty
 pattern (<code class="docutils literal notranslate"><span class="pre">//</span></code>), which is ignored outright with an INFO notice.</p>
 <p><strong>When a pattern is too slow, you are told.</strong> A pattern query runs under
 <code class="docutils literal notranslate"><span class="pre">pattern_timeout_seconds</span></code>; an ordinary keyword search never opens that
-envelope. On expiry the search returns a timeout diagnostic — through MCP, a
-<code class="docutils literal notranslate"><span class="pre">search_timeout</span></code> error envelope — rather than an empty result, so the agent
-can tell “too slow” from “nothing matched”. A regular expression PostgreSQL
+envelope. On expiry the search returns a timeout diagnostic rather than an
+empty result; through MCP it is a <code class="docutils literal notranslate"><span class="pre">search_timeout</span></code> error envelope. The agent
+can therefore tell “too slow” from “nothing matched”. A regular expression PostgreSQL
 cannot compile comes back the same way, as an <code class="docutils literal notranslate"><span class="pre">invalid_pattern</span></code> error naming
 the pattern. Both carry the expansion groups the query was going to use.</p>
 <p>Setting <code class="docutils literal notranslate"><span class="pre">patterns_enabled:</span> <span class="pre">false</span></code> makes <code class="docutils literal notranslate"><span class="pre">*</span></code> and <code class="docutils literal notranslate"><span class="pre">/…/</span></code> ordinary words again
@@ -1100,10 +1123,10 @@ the pattern. Both carry the expansion groups the query was going to use.</p>
 </pre></div>
 </div>
 <p>A relative <code class="docutils literal notranslate"><span class="pre">path</span></code> resolves against the project root of the <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-that was loaded (the deployment repo, not its <code class="docutils literal notranslate"><span class="pre">build/</span></code> render) — the same
-rule as <code class="docutils literal notranslate"><span class="pre">qmd_export.mirror_path</span></code> and <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> —
-so the panel, the CLI and the MCP server all read the same file no matter
-where the process was started.</p>
+that was loaded (the deployment repo, not its <code class="docutils literal notranslate"><span class="pre">build/</span></code> render). That is the
+same rule as <code class="docutils literal notranslate"><span class="pre">qmd_export.mirror_path</span></code> and <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code>.
+The panel, the CLI and the MCP server therefore all read the same file, no
+matter where the process was started.</p>
 <p><code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> expands entry text before it is embedded and before it is
 written to the qmd mirror. It has no effect while <code class="docutils literal notranslate"><span class="pre">enabled</span></code> is <code class="docutils literal notranslate"><span class="pre">false</span></code>
 (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> warns <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_entries</span> <span class="pre">is</span> <span class="pre">on</span> <span class="pre">and</span> <span class="pre">has</span>
@@ -1134,21 +1157,25 @@ osprey<span class="w"> </span>ariel<span class="w"> </span>vocab-check<span clas
 database. <code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> exits <code class="docutils literal notranslate"><span class="pre">0</span></code> when the file loads and <code class="docutils literal notranslate"><span class="pre">1</span></code> when it does
 not, listing every error it found. Warnings are printed either way and never
 fail the check.</p>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> reports one vocabulary line — <code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">OK</span> <span class="pre">(20</span>
-<span class="pre">concepts)</span></code>, <code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">OK</span> <span class="pre">(20</span> <span class="pre">concepts,</span> <span class="pre">entries</span> <span class="pre">expanded,</span> <span class="pre">key</span>
-<span class="pre">e1:3f9a0c1d2b7e4a55)</span></code> when <code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> is on,
-<code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">INVALID</span> <span class="pre">(1</span> <span class="pre">errors).</span> <span class="pre">Run:</span> <span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">vocab-check</span></code>, or
-<code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">disabled</span></code> — and its <code class="docutils literal notranslate"><span class="pre">--json</span></code> output carries the same verdict
-under <code class="docutils literal notranslate"><span class="pre">vocabulary</span></code>. Run <code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> on every edit, before you deploy: the
-file is read once, when the configuration is parsed, so a mistake in it is a
-startup problem rather than a search that quietly stops expanding.</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">status</span></code> reports one vocabulary line, one of:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">OK</span> <span class="pre">(20</span> <span class="pre">concepts)</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">OK</span> <span class="pre">(20</span> <span class="pre">concepts,</span> <span class="pre">entries</span> <span class="pre">expanded,</span> <span class="pre">key</span> <span class="pre">e1:3f9a0c1d2b7e4a55)</span></code>
+when <code class="docutils literal notranslate"><span class="pre">expand_entries</span></code> is on;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">INVALID</span> <span class="pre">(1</span> <span class="pre">errors).</span> <span class="pre">Run:</span> <span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">vocab-check</span></code>;</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Vocabulary:</span> <span class="pre">disabled</span></code>.</p></li>
+</ul>
+<p>Its <code class="docutils literal notranslate"><span class="pre">--json</span></code> output carries the same verdict under <code class="docutils literal notranslate"><span class="pre">vocabulary</span></code>. Run
+<code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> on every edit, before you deploy. The file is read once, when
+the configuration is parsed, so a mistake in it is a startup problem rather
+than a search that quietly stops expanding.</p>
 <p>The <code class="docutils literal notranslate"><span class="pre">e1:…</span></code> value is the <strong>vocabulary key</strong>: the expansion rule and a
 fingerprint of the file and the two gates. Any edit to a concept’s spellings,
 its kind or the order of the concepts changes it, and so does flipping a gate;
 comments and layout do not. Every command that writes entries or vectors
-(<code class="docutils literal notranslate"><span class="pre">sync</span></code>, <code class="docutils literal notranslate"><span class="pre">watch</span></code>, <code class="docutils literal notranslate"><span class="pre">reembed</span></code>, …) prints the same line when it starts, and
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">qmd-resync</span></code> prints the key as <code class="docutils literal notranslate"><span class="pre">Expansion</span> <span class="pre">key</span></code>, so you can
-check that the host and the running image read the same file.</p>
+(<code class="docutils literal notranslate"><span class="pre">sync</span></code>, <code class="docutils literal notranslate"><span class="pre">watch</span></code>, <code class="docutils literal notranslate"><span class="pre">reembed</span></code>, …) prints the same line when it starts.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">qmd-resync</span></code> prints the key as <code class="docutils literal notranslate"><span class="pre">Expansion</span> <span class="pre">key</span></code>. You can
+therefore check that the host and the running image read the same file.</p>
 <p>Every stored vector also records the <strong>running key</strong> it was built with —
 <code class="docutils literal notranslate"><span class="pre">r1</span></code> without entry expansion, <code class="docutils literal notranslate"><span class="pre">r1:e1:…</span></code> with it. When a table holds vectors
 built differently from the running configuration, status prints one line per
@@ -1177,7 +1204,7 @@ a search that found nothing.</p></li>
 <li><p>A search request returns <code class="docutils literal notranslate"><span class="pre">503</span></code> naming <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code>, not a
 generic failure.</p></li>
 <li><p>Browsing entries, status and publishing keep working, and so does the settings
-editor — which is the point: you can set <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.enabled:</span> <span class="pre">false</span></code>
+editor. That is the point: you can set <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.enabled:</span> <span class="pre">false</span></code>
 or repoint <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code> from the panel itself, then restart.</p></li>
 <li><p>The MCP server refuses to start, naming the same key, so the OSPREY agent
 never gets a half-working search.</p></li>
@@ -1222,9 +1249,9 @@ as <code class="docutils literal notranslate"><span class="pre">default_search_m
 <p><code class="docutils literal notranslate"><span class="pre">semantic</span></code> is worth keeping — or choosing — when any of the following applies:</p>
 <ul class="simple">
 <li><p><strong>You want a stronger embedding model than the sidecar bakes in.</strong> <code class="docutils literal notranslate"><span class="pre">semantic</span></code>
-takes its embeddings from a configured provider, so a facility with its own
-inference endpoint can point it at a far larger model than the 300M embedder
-qmd ships.</p></li>
+takes its embeddings from a configured provider. A facility with its own
+inference endpoint can therefore point it at a far larger model than the 300M
+embedder qmd ships.</p></li>
 <li><p><strong>You need the ranking to be inspectable.</strong> <code class="docutils literal notranslate"><span class="pre">semantic</span></code> is cosine distance
 over a pgvector column and nothing else — no reranker. It does apply
 deterministic <a class="reference internal" href="#vocabulary-expansion"><span class="std std-ref">vocabulary expansion</span></a> when one is
@@ -1233,8 +1260,8 @@ configured, and reports every term it added; drop <code class="docutils literal 
 explained with a single SQL query, which matters where retrieval has to be
 auditable.</p></li>
 <li><p><strong>You want it composable with structured filters.</strong> The embeddings live in
-<code class="docutils literal notranslate"><span class="pre">text_embeddings_*</span></code> tables in the logbook database, so they join against
-ordinary columns and are reachable from the <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> tool. <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>
+<code class="docutils literal notranslate"><span class="pre">text_embeddings_*</span></code> tables in the logbook database. They therefore join
+against ordinary columns and are reachable from the <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> tool. <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>
 ranks a markdown mirror and post-filters instead.</p></li>
 <li><p><strong>Query latency matters more than reranking quality.</strong> Reranking dominates a
 qmd hybrid query’s cost; a pure vector lookup is the fast path. The RRF
@@ -1254,9 +1281,9 @@ synthesis, custom prompting? That lives in the OSPREY agent layer; see
 connects as its own Postgres role — <code class="docutils literal notranslate"><span class="pre">&lt;username&gt;_ro</span></code>, derived from
 <code class="docutils literal notranslate"><span class="pre">services.postgresql.username</span></code> — which can log in, read the tables in the
 <code class="docutils literal notranslate"><span class="pre">public</span></code> schema, and do nothing else. It is not the role ingestion writes
-with, and it is not a superuser, so a query naming a server-side function such
-as <code class="docutils literal notranslate"><span class="pre">pg_read_file()</span></code> is refused by Postgres rather than by a pattern match over
-the query text. Only the agent’s ARIEL server opens that role; ingestion and the
+with, and it is not a superuser. A query naming a server-side function such
+as <code class="docutils literal notranslate"><span class="pre">pg_read_file()</span></code> is therefore refused by Postgres rather than by a pattern
+match over the query text. Only the agent’s ARIEL server opens that role; ingestion and the
 other <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span></code> commands connect as the owner role alone.</p>
 <p>The role is created by an init script the Postgres entrypoint runs <strong>once,
 while it initializes a fresh data volume</strong>, the same window
@@ -1264,12 +1291,12 @@ while it initializes a fresh data volume</strong>, the same window
 in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, minted by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> beside
 <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>. A new deployment gets all of this with no action from
 you.</p>
-<p>Tables created later are covered: the script grants <code class="docutils literal notranslate"><span class="pre">SELECT</span></code> on the schema’s
-tables and sets default privileges for the owner, so the <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code>
+<p>Tables created later are covered. The script grants <code class="docutils literal notranslate"><span class="pre">SELECT</span></code> on the schema’s
+tables and sets default privileges for the owner. The <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code>
 table the migrations create and the per-model <code class="docutils literal notranslate"><span class="pre">text_embeddings_*</span></code> tables an
-enhancement module adds are readable without a second grant.</p>
-<p>A deployment that points ARIEL at a database it does not run, with the <code class="docutils literal notranslate"><span class="pre">uri</span></code>
-key, gets no derived role. Name a SELECT-only login on that database in
+enhancement module adds are therefore readable without a second grant.</p>
+<p>A deployment that names its own database with the <code class="docutils literal notranslate"><span class="pre">uri</span></code> key gets no
+<code class="docutils literal notranslate"><span class="pre">&lt;username&gt;_ro</span></code> role. Name a SELECT-only login on that database in
 <code class="docutils literal notranslate"><span class="pre">ariel.database.readonly_uri</span></code>; without it the SQL tool is not offered (see
 <a class="reference internal" href="../../reference/configuration/config.html#config-ariel-database-readonly-uri"><span class="std std-ref">ariel.database.readonly_uri — the SQL tool’s login on your own database</span></a>).</p>
 <section id="adopting-the-role-on-an-existing-database">
