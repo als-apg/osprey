@@ -327,17 +327,85 @@ def test_main_dockless_client_still_reports_rail_changes(
 @pytest.mark.parametrize(
     "tiles",
     [
-        [],
         [{"panel": ""}],
         [{"panel": 1}],
         [{"tile": "t1"}],
         ["a", {"panel": "b"}],
         [{"tile": "t1", "tabs": ["a"], "showing": "a"}],
     ],
-    ids=["empty", "blank-panel", "non-string-panel", "no-panel", "mixed", "tabs-form"],
+    ids=["blank-panel", "non-string-panel", "no-panel", "mixed", "tabs-form"],
 )
 def test_normalize_tiles_wrong_shapes_are_unknown(tiles):
     assert delta._normalize_tiles(tiles) is None
+
+
+def test_normalize_tiles_empty_is_an_empty_dock():
+    """Every pane in a window of its own: nothing docked, which is known."""
+    assert delta._normalize_tiles([]) == []
+
+
+def test_workspace_state_null_layout_with_pop_outs_from_a_dock_is_empty():
+    data = {"layout": None, "layout_dock": True, "popouts": ["terminal"], "visible": []}
+    assert delta._occupancy_is_known(data) is True
+    state = delta._workspace_state(data)
+    assert state["tiles"] == []
+    assert state["popouts"] == ["terminal"]
+
+
+def test_workspace_state_null_layout_and_no_pop_outs_from_a_dock_is_empty():
+    import osprey.templates.claude_code.claude.hooks.osprey_panels_context as panels
+
+    data = {"layout": None, "layout_dock": True, "popouts": [], "visible": []}
+    assert delta._occupancy_is_known(data) is True
+    assert panels._occupancy_is_known(data) is True
+    state = delta._workspace_state(data)
+    assert state["tiles"] == []
+    assert state["popouts"] == []
+
+
+def test_the_last_detached_pane_going_is_reported_as_back_from_its_window():
+    out = _state([], None, [], popouts=["terminal"])
+    gone = _state([], None, [], popouts=[])
+    assert "terminal back from its window" in (delta._build_delta_line(out, gone) or "")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"layout": None, "layout_dock": False, "popouts": ["terminal"]},
+        {"layout": None, "layout_dock": None, "popouts": ["terminal"]},
+    ],
+    ids=["dockless", "never-reported"],
+)
+def test_occupancy_of_a_null_layout_matches_sibling_hook(payload):
+    import osprey.templates.claude_code.claude.hooks.osprey_panels_context as panels
+
+    assert delta._occupancy_is_known(payload) is False
+    assert panels._occupancy_is_known(payload) is False
+
+
+def test_the_agent_pane_leaving_the_dock_empty_is_one_line_per_facet():
+    before = _state(["terminal"], None, [])
+    out = _state([], None, [], popouts=["terminal"])
+    line = delta._build_delta_line(before, out) or ""
+    assert "terminal tile closed" in line
+    assert "terminal moved to a window" in line
+    assert "tiles now none" in (delta._build_delta_line(_state(None, None, []), out) or "")
+
+
+def test_main_reports_the_agent_pane_detached_from_the_default_layout(
+    monkeypatch, capsys, snapshot_file
+):
+    snapshot_file.write(_state(["terminal"], None, []))
+    live = {"layout": None, "layout_dock": True, "popouts": ["terminal"], "visible": []}
+    _stub_urlopen(monkeypatch, payload=live)
+    _stub_stdin(monkeypatch, {"session_id": "s1"})
+
+    assert delta.main() == 0
+
+    out = capsys.readouterr().out
+    assert "terminal moved to a window" in out
+    assert snapshot_file.read()["tiles"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -508,7 +576,7 @@ def test_merge_state_carries_forward_last_known_tiles():
 def test_a_pop_out_and_its_return_are_each_one_clause():
     before = _state(["a", "b"], "a", ["a", "b"])
     out = _state(["a"], "a", ["a", "b"], popouts=["b"])
-    assert "b tile closed; b popped out to a window" in (delta._build_delta_line(before, out) or "")
+    assert "b tile closed; b moved to a window" in (delta._build_delta_line(before, out) or "")
     back = _state(["a", "b"], "a", ["a", "b"])
     assert "b back from its window" in (delta._build_delta_line(out, back) or "")
 

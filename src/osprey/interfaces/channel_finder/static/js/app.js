@@ -2,31 +2,27 @@
 /**
  * OSPREY Channel Finder — Application Entry Point
  *
- * Hash routing, module initialization, nav tab management.
+ * Hash routing and module initialization. The view switch is the panel
+ * toolbar's (panel-toolbar.js): a press sets the hash, and this routes on it.
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
-import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
-import '/design-system/js/components/osprey-display-menu.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { fetchJSON, putJSON } from './api.js';
 import { esc, messageOf } from './utils.js';
 import { state } from './state.js';
 import { mountExplore, unmountExplore } from './explore.js';
+import { initToolbar, TOOLBAR_IDS } from './panel-toolbar.js';
 import { mountFeedback, unmountFeedback } from './feedback.js';
 import { mountAllPvs, unmountAllPvs } from './allpvs.js';
 import { mountPvPage, unmountPvPage } from './pv-page.js';
 import { mountIocPage, unmountIocPage } from './ioc-page.js';
 import { refreshStatsBadges, renderProvenance } from './stats-badges.js';
 
-// Standalone, this page owns its own theme chrome (the header
-// <osprey-display-menu>), so it runs theme-manager.js in the hub role:
-// persistence, OS auto-follow and ?theme= handling all come with it, and
-// broadcast is a structural no-op on a page with no iframes. Embedded in the
-// Web Terminal hub it is a follower instead: theme-boot.js already applied
-// data-theme pre-paint, and this attaches the postMessage listener for the
-// hub's live broadcasts.
-initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
+// A follower of the Web Terminal hub: theme-boot.js already applied data-theme
+// pre-paint, and this attaches the postMessage listener for the hub's live
+// broadcasts.
+initTheme({ role: 'follower' });
 
 applyEmbedded();
 
@@ -64,6 +60,7 @@ let _initialized = false;
 async function init() {
   if (_initialized) return;
   _initialized = true;
+  initToolbar();
   // Load pipeline info
   try {
     const info = await fetchJSON('/api/info');
@@ -83,20 +80,9 @@ async function init() {
   // Load stats badges
   refreshStatsBadges();
 
-  // Set up navigation
-  setupNav();
-  onHeaderAction((id, value) => {
-    if (id === 'view') {
-      if (value && viewAvailable(value)) location.hash = value;
-      return;
-    }
-    state.viewHeader?.onAction(id, value);
-  });
-  state.on('viewHeaderChanged', () => contributeViewNav());
-  state.on('directoryLabel', () => {
-    renderHeaderNav();
-    contributeViewNav();
-  });
+  // The scope switch: rewritten when an All PVs page names its directory.
+  renderViewSwitch();
+  state.on('directoryLabel', renderViewSwitch);
 
   // Route to initial view
   routeFromHash();
@@ -171,37 +157,19 @@ function activateView(viewName, params) {
   // Clear container
   container.innerHTML = '';
 
-  // Update nav links
-  document.querySelectorAll('.nav-link').forEach((link) => {
-    link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
-  });
-
-  // Mount new view
+  // Mount new view; the toolbar follows the active view (panel-toolbar.js).
   currentView = viewName;
   currentRouteKey = routeKey;
   state.setActiveView(viewName);
   VIEWS[viewName].mount(container, params);
-  contributeViewNav();
 }
 
-// ---- Navigation ----
-
-function setupNav() {
-  // On the nav and not on its links, which renderHeaderNav rewrites.
-  document.querySelector('.header-nav')?.addEventListener('click', (e) => {
-    const link = /** @type {HTMLElement} */ (e.target).closest('.nav-link');
-    if (!link) return;
-    e.preventDefault();
-    const view = /** @type {HTMLElement} */ (link).dataset.view;
-    if (view) location.hash = view;
-  });
-  renderHeaderNav();
-}
+// ---- Scope switch ----
 
 /**
- * The panel's tabs: the scope switch when /api/info carries the directory
- * descriptor, with Curated being whichever paradigm runs, and today's tabs
- * otherwise.
+ * The view switch's buttons: the scope switch when /api/info carries the
+ * directory descriptor, with Curated being whichever paradigm runs, and
+ * Explore | Feedback otherwise.
  * @returns {{ id: string, label: string }[]}
  */
 function viewTabs() {
@@ -219,38 +187,31 @@ function viewTabs() {
 }
 
 /**
- * Write the tabs into the standalone `.header-nav`. Unchanged tabs are left
- * alone, so an All PVs page repeating its label keeps the focus on the tab.
+ * Write the view switch into the toolbar seg. A button already right is left
+ * in place, so an All PVs page repeating its label keeps the focus on it. A
+ * new button starts unpressed: every caller routes next, and panel-toolbar.js
+ * presses the active view's button on the view change.
+ * @returns {void}
  */
-function renderHeaderNav() {
-  const nav = document.querySelector('.header-nav');
-  if (!nav) return;
-  const html = viewTabs()
-    .map(({ id, label }) => {
-      const active = id === currentView ? ' active' : '';
-      return `<a href="#${id}" class="nav-link${active}" data-view="${id}">${esc(label)}</a>`;
-    })
-    .join('');
-  if (nav.innerHTML !== html) nav.innerHTML = html;
-}
-
-/**
- * Publish the tabs into the hub's tile bar, marking the current view active,
- * behind whatever the active view adds of its own (the
- * graph finder's search box and ⋯ menu). The view's items come first: they
- * exist only in one view, and the header contract puts conditional items
- * before the persistent switcher so the switcher never slides. Sent whole on
- * every change — the hub renders only the latest contribution. No-op standalone, where `.header-nav` carries the same tabs.
- */
-function contributeViewNav() {
-  contributeHeader([
-    ...(state.viewHeader?.items ?? []),
-    {
-      kind: 'nav',
-      id: 'view',
-      items: viewTabs().map((tab) => ({ ...tab, active: currentView === tab.id })),
-    },
-  ]);
+function renderViewSwitch() {
+  const seg = document.getElementById(TOOLBAR_IDS.views);
+  if (!seg) return;
+  const tabs = viewTabs();
+  const buttons = [...seg.querySelectorAll('button[data-view]')];
+  tabs.forEach(({ id, label }, index) => {
+    let button = buttons[index];
+    if (!button || button.getAttribute('data-view') !== id) {
+      const created = document.createElement('button');
+      created.type = 'button';
+      created.setAttribute('data-view', id);
+      created.setAttribute('aria-pressed', 'false');
+      seg.insertBefore(created, buttons[index] ?? null);
+      buttons.splice(index, 0, created);
+      button = created;
+    }
+    if (button.textContent !== label) button.textContent = label;
+  });
+  for (const extra of buttons.slice(tabs.length)) extra.remove();
 }
 
 // ---- Pipeline Switcher ----
@@ -334,7 +295,7 @@ async function switchPipeline(newType) {
     state.dbPath = info.db_path || null;
     state.setGraphInfo(info.tools, info.graph_store);
     state.directory = info.directory ?? null;
-    renderHeaderNav();
+    renderViewSwitch();
     renderProvenance();
     updatePipelineBadge(info.pipeline_type);
 

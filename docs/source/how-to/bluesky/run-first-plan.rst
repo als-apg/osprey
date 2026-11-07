@@ -15,7 +15,7 @@ a simulated machine, so nothing real can move.
    - What **Run** does, and when it reads **Add to queue** instead
    - Where the results appear, and how to stop a plan at any moment
 
-   **Prerequisites:** the Demo tutorial project
+   **Prerequisites:** the demo tutorial project
    (:doc:`/getting-started/demo`). It ships the whole plan stack
    ready to go, with the Virtual Accelerator as its default machine — there is
    nothing to configure first.
@@ -56,8 +56,8 @@ Step 3: Run it
 Click **Run**, then confirm. This puts *exactly the plan on your screen* into
 the plan queue — if anyone changed the draft in the meantime, the panel
 refuses and shows you the current version to review instead — and, because
-the tutorial project's queue comes up armed, the plan starts right away. A
-line under the button says so: *Runs now.* The panel offers an **Open
+the tutorial project's queue comes up armed, the plan starts right away. The
+tooltip of the button says so: *Runs now.* The panel offers an **Open
 BLUESKY** button that takes you straight to it.
 
 If the button reads **Add to queue** instead, the queue is stopped — someone
@@ -76,9 +76,9 @@ in order, not only your item, so glance at the list first.
 Step 4: Follow it
 =================
 
-On the **BLUESKY** tab the badge in the status strip reads *running*, and
+On the **BLUESKY** tab the status chip in the toolbar reads *running*, and
 the plan sits at the top of the **Queue** view with its progress. When it
-finishes it moves to **History** below, and the badge reads *ready* again:
+finishes it moves to **History** below, and the chip reads *ready* again:
 the queue is still armed, and the next plan you run goes straight through.
 
 Step 5: Watch the results

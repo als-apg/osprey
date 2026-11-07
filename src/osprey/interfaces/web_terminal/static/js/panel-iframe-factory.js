@@ -189,8 +189,10 @@ const LOAD_NOTICE_MS = 15000;
  * @param {string} panelId
  * @param {PanelIframeState} state        panel-manager's live state record
  * @param {HTMLElement} contentEl         resize-observed host (#panel-content)
+ * @param {{ dock?: boolean }} [options]  `dock: false` builds the frame with no
+ *   tile: it is about to leave for a window of its own (pane-window.js)
  */
-export function createPanelIframe(panel, panelId, state, contentEl) {
+export function createPanelIframe(panel, panelId, state, contentEl, { dock = true } = {}) {
   if (!state.url) return;
 
   const iframe = document.createElement('iframe');
@@ -238,7 +240,8 @@ export function createPanelIframe(panel, panelId, state, contentEl) {
   // the iframe's geometry from here; panel-manager keeps owning its src, sandbox,
   // health and the theme/session postMessage protocol above.
   state.iframe = iframe;
-  adoptIframe(panelId, iframe, { title: panel?.label || panelId });
+  const title = panel?.label || panelId;
+  adoptIframe(panelId, iframe, dock ? { title } : { title, dock });
 
   // Forward resize events to the iframe so embedded apps re-render. Observing
   // #panel-content covers the fallback (in-content) mount and the workspace-panel

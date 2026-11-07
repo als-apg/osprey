@@ -818,7 +818,7 @@ def test_more_sessions_loads_the_page_after_the_first(crowded_hub, page):
 # --- the extension viewer -----------------------------------------------------------
 
 
-def test_beam_profile_renders_through_its_stub_viewer_and_falls_back(hub, page, context):
+def test_beam_profile_renders_through_its_stub_viewer_and_falls_back(hub, page):
     store = _store(hub)
     profile = next(e for e in store.list_entries() if e.kind == BEAM_PROFILE_KIND)
     broken = store.save_file(
@@ -847,12 +847,6 @@ def test_beam_profile_renders_through_its_stub_viewer_and_falls_back(hub, page, 
     expect(frame.locator(f".{BEAM_PROFILE_MARKER_CLASS}")).to_have_count(0, timeout=_TIMEOUT_MS)
     expect(frame.locator("#preview-content .preview-viewport")).to_be_visible()
     _wait_for(lambda: any("failed; showing the base view" in w for w in warnings))
-
-    # The standalone gallery renders it through the same viewer.
-    gallery = context.new_page()
-    gallery.goto(hub.artifact_url, wait_until="domcontentloaded")
-    gallery.get_by_text(profile.title).first.click()
-    expect(gallery.locator(f".{BEAM_PROFILE_MARKER_CLASS}")).to_be_visible(timeout=_TIMEOUT_MS)
 
 
 # --- the palette and delete ---------------------------------------------------------

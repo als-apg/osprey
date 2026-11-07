@@ -159,9 +159,6 @@ config:
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read.
   control_system.read_inline_max_elements: 2000
-  # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
-  # on save. Pinned entries are never pruned. 0 keeps everything.
-  control_system.channel_read_artifact_retention: 20
 
   # ── Archiver ───────────────────────────────────────────────────────────────
   # Historical channel data behind the archiver_read tool. "mock_archiver"

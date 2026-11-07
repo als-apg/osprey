@@ -43,6 +43,7 @@ import {
   openSet,
   planDrop,
   removeTab,
+  reopen,
   tileIdsOf,
   tileOf,
   validateLayout,
@@ -305,6 +306,112 @@ export function closeKeys(layout, keys) {
     }
   }
   return { layout: next, changed };
+}
+
+// ---- a detached pane coming back ----
+
+/**
+ * Whether a placement step may be taken: it changed the layout and left one
+ * panel per tile, and (`keepDocked`) every panel docked before is still docked.
+ * @param {Layout|null} before
+ * @param {OpResult|null|undefined} result
+ * @param {boolean} keepDocked
+ * @returns {boolean}
+ */
+function acceptsStep(before, result, keepDocked) {
+  if (!result || !result.changed || crowdedTile(result.layout) !== null) return false;
+  if (!keepDocked) return true;
+  const after = new Set(keysOf(result.layout));
+  return keysOf(before).every((key) => after.has(key));
+}
+
+/**
+ * The open rule for a returning pane: the Agent pane at its home side, a
+ * service by {@link openPanel}.
+ * @param {Layout|null} layout
+ * @param {string} key
+ * @param {OpContext} ctx
+ * @returns {OpResult}
+ */
+function openReturning(layout, key, ctx) {
+  return key === TERMINAL_KEY ? reopenTerminal(layout, ctx.dock) : openPanel(layout, key, ctx);
+}
+
+/**
+ * Where a detached pane lands (dock-apply.js's `Placement`; dock-workspace
+ * hands it to the holder). The entry's record already names its neighbour's
+ * current tile, found by key, or null when the neighbour is gone.
+ *
+ *   - `reattach` (live, R6): beside the old neighbour on the same side — the
+ *     engine's `reopen` — and, when there is no room there, nowhere: the
+ *     engine's own fallback would crowd a tile, and the open rule would take an
+ *     unrelated panel's tile. With the neighbour gone, the open rule, which may
+ *     replace the last-used service as any open does (the replaced panel keeps
+ *     its sidebar row).
+ *   - `persist` (the stored copy, R7): never at a docked panel's cost. Beside
+ *     the neighbour; else the Agent pane at its home side, a service right of
+ *     the focused tile ({@link openAt}); else at the dock's right edge. Null
+ *     when none fits.
+ */
+export const detachPlacement = Object.freeze({
+  /**
+   * @param {Layout|null} layout
+   * @param {string} key
+   * @param {import('./dock-apply.js').DetachedEntry} entry
+   * @param {OpContext} ctx
+   * @returns {OpResult|null}
+   */
+  reattach(layout, key, entry, ctx) {
+    if (entry.record === null) {
+      const opened = openReturning(layout, key, ctx);
+      return acceptsStep(layout, opened, false) ? opened : null;
+    }
+    if (layout === null) {
+      const alone = reopen(null, entry.record, ctx);
+      return acceptsStep(layout, alone, true) ? alone : null;
+    }
+    if (neighbourIn(layout, entry)) {
+      const beside = reopen(layout, entry.record, ctx);
+      return acceptsStep(layout, beside, true) ? beside : null;
+    }
+    const opened = openReturning(layout, key, ctx);
+    return acceptsStep(layout, opened, false) ? opened : null;
+  },
+
+  /**
+   * @param {Layout|null} layout
+   * @param {string} key
+   * @param {import('./dock-apply.js').DetachedEntry} entry
+   * @param {OpContext} ctx
+   * @returns {OpResult|null}
+   */
+  persist(layout, key, entry, ctx) {
+    const { record } = entry;
+    const steps = [
+      ...(record === null ? [] : [() => reopen(layout, record, ctx)]),
+      () =>
+        key === TERMINAL_KEY ? reopenTerminal(layout, ctx.dock) : openAt(layout, key, null, ctx),
+      () => openAt(layout, key, { direction: 'right' }, ctx),
+    ];
+    for (const step of steps) {
+      const result = step();
+      if (acceptsStep(layout, result, true)) return result;
+    }
+    return null;
+  },
+});
+
+/**
+ * Whether the entry's record names a neighbour tile the layout holds.
+ * @param {Layout} layout
+ * @param {import('./dock-apply.js').DetachedEntry} entry
+ * @returns {boolean}
+ */
+function neighbourIn(layout, entry) {
+  const { record } = entry;
+  return (
+    record?.kind === 'tile' && record.neighbour !== null && !!findTile(layout, record.neighbour)
+  );
 }
 
 /**

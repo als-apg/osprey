@@ -57,6 +57,96 @@
   });
 </script>
 
+<script type="module">
+  // Panel chrome specimen (DESIGN.md §12): the real panel-sidebar.js (under
+  // its own storage keys), panel-state.js, info-popover.js and
+  // content-strip.js. The narrow panel is 520 px wide, so its search field is
+  // folded and its sidebar is an overlay.
+  import { initPanelSidebar } from './js/panel-sidebar.js';
+  import { renderState } from './js/panel-state.js';
+  import { openInfoPopover } from './js/info-popover.js';
+  import { createContentStrip } from './js/content-strip.js';
+
+  const byId = (id) => document.getElementById(id);
+  for (const name of ['ref-ps', 'ref-ps-narrow']) {
+    initPanelSidebar({
+      sidebar: byId(name),
+      handle: byId(`${name}-handle`),
+      toggle: byId(`${name}-toggle`),
+      storageKey: `osprey-reference-${name}`,
+    });
+  }
+  for (const seg of document.querySelectorAll('.ref-panel .osprey-seg')) {
+    seg.addEventListener('click', (event) => {
+      const pressed = event.target.closest('button');
+      if (!pressed) return;
+      for (const button of seg.querySelectorAll('button')) {
+        button.setAttribute('aria-pressed', String(button === pressed));
+      }
+    });
+  }
+  byId('ref-chip-issues').addEventListener('click', (event) =>
+    openInfoPopover(event.currentTarget, {
+      title: 'Bundle health',
+      rows: [
+        { label: 'sr-lattice', value: 'Broken link to bpm-14' },
+        { label: 'injector', value: 'No owner in the frontmatter' },
+      ],
+    })
+  );
+  byId('ref-info-opener').addEventListener('click', (event) =>
+    openInfoPopover(event.currentTarget, {
+      title: 'SR lattice betatron tunes',
+      text: 'Tunes from the storage-ring lattice model.',
+      rows: [
+        { label: 'Created', value: '2026-11-04 02:48' },
+        { label: 'Size', value: '49.2 KB' },
+        { label: 'Path', value: '_agent_data/artifacts/sr-tunes.html', copy: true },
+      ],
+    })
+  );
+  renderState(byId('ref-state-loading'), {
+    icon: 'refresh',
+    message: 'Connecting to the queue server',
+    detail: 'This takes a few seconds.',
+  });
+  renderState(byId('ref-state-empty'), {
+    icon: 'search',
+    message: 'No plans match the filter',
+    action: { label: 'Clear filter', onClick: () => {} },
+  });
+  renderState(byId('ref-state-error'), {
+    icon: 'x',
+    message: 'The queue server cannot be reached',
+    detail: 'The panel tries again in 10 s.',
+    action: { label: 'Retry', onClick: () => {} },
+  });
+  const strip = createContentStrip(byId('ref-strip-host'), {
+    label: 'Plot controls',
+    groups: [
+      {
+        id: 'mode',
+        items: [
+          { id: 'zoom', icon: 'box-zoom', title: 'Box zoom', detail: 'Drag across the plot to zoom in.', mode: true, pressed: true },
+          { id: 'pan', icon: 'move', title: 'Pan', mode: true },
+        ],
+      },
+      {
+        id: 'view',
+        items: [
+          { id: 'zoom-in', icon: 'zoom-in', title: 'Zoom in' },
+          { id: 'zoom-out', icon: 'zoom-out', title: 'Zoom out' },
+          { id: 'autoscale', icon: 'autoscale', title: 'Autoscale' },
+          { id: 'reset', icon: 'reset-axes', title: 'Reset axes' },
+        ],
+      },
+      { id: 'output', items: [{ id: 'png', icon: 'image-down', title: 'Export PNG' }] },
+    ],
+    onAction: () => {},
+  });
+  strip.show();
+</script>
+
 <style>
   /* base.css sets html/body to height:100%/overflow:hidden for apps that
      manage their own internal scroll regions (e.g. web-terminal's panes).
@@ -208,6 +298,25 @@
   .ref-well { flex: 1; display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-4); padding: var(--space-4); background: var(--surface-well); }
   .ref-static-pop { position: static; }
   .ref-dots { display: flex; align-items: center; gap: var(--space-3); color: var(--text-secondary); font-size: var(--text-md); }
+
+  /* Panel chrome specimen: two panel roots laid out like a tile, one of them
+     narrow, plus the chips and the three states. */
+  .ref-panel {
+    display: flex;
+    flex-direction: column;
+    height: 340px;
+    margin-bottom: var(--space-4);
+    overflow: hidden;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+  }
+  .ref-panel-narrow { width: 520px; }
+  .ref-panel-body { flex: 1; min-height: 0; display: flex; }
+  .ref-panel .osprey-panel-sidebar { gap: 2px; padding: var(--space-1) var(--space-2); }
+  .ref-panel-main { flex: 1; min-width: 0; display: grid; place-items: center; padding: var(--space-4); color: var(--text-muted); font-size: var(--text-md); }
+  .ref-states { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); margin-bottom: var(--space-4); }
+  .ref-state-box { height: 220px; background: var(--bg-panel); border: 1px solid var(--surface-hairline); border-radius: var(--radius-lg); }
 </style>
 </head>
 <body>
@@ -278,7 +387,7 @@
             <div class="osprey-list-head">Plots</div>
             <button class="osprey-list-row" type="button" role="option" aria-selected="false"><span data-icon="chart-line"></span><span class="osprey-list-title">Damped betatron oscillation</span><time>02:31</time></button>
           </div>
-          <div class="osprey-section-label">Tools</div>
+          <div class="osprey-section-label">Apps</div>
           <button class="osprey-nav-row" type="button" data-tip="Jupyter" data-tip-detail="JupyterLab with kernels that follow the terminal session" aria-label="Jupyter">
             <span data-icon="notebook" data-icon-class="osprey-nav-icon"></span><span class="osprey-nav-label">Jupyter</span>
           </button>
@@ -323,6 +432,80 @@
             </div>
           </div>
         </section>
+      </div>
+    </section>
+
+    <section>
+      <h2>Panel chrome</h2>
+      <div class="ref-panel" data-panel-root>
+        <div class="osprey-panel-toolbar">
+          <div class="osprey-panel-toolbar__start">
+            <button class="osprey-icon-btn" id="ref-ps-toggle" type="button" data-tip-place="below"></button>
+            <div class="osprey-seg" role="group" aria-label="View">
+              <button type="button" aria-pressed="true">Plans</button>
+              <button type="button" aria-pressed="false">Queue</button>
+              <button type="button" aria-pressed="false" disabled>Results</button>
+            </div>
+            <span class="osprey-panel-toolbar__text">12 plans on 2 lanes</span>
+          </div>
+          <div class="osprey-panel-toolbar__end">
+            <button class="osprey-chip osprey-chip--warn" id="ref-chip-issues" type="button"><span class="osprey-chip-label">2 issues</span></button>
+            <label class="osprey-search-field">
+              <span data-icon="search"></span>
+              <input type="search" placeholder="Filter plans" aria-label="Filter plans">
+            </label>
+            <button class="osprey-icon-btn" type="button" aria-label="Refresh" title="Refresh" data-tip-place="below"><span data-icon="refresh"></span></button>
+            <button class="osprey-btn primary" type="button"><span class="osprey-btn-label">Start</span></button>
+          </div>
+        </div>
+        <div class="ref-panel-body">
+          <aside class="osprey-panel-sidebar" id="ref-ps" data-open="false" aria-label="Plans">
+            <div class="osprey-section-label">Plans</div>
+            <button class="osprey-list-row" type="button" aria-selected="true"><span data-icon="flask"></span><span class="osprey-list-title">count</span></button>
+            <button class="osprey-list-row" type="button" aria-selected="false"><span data-icon="activity"></span><span class="osprey-list-title">scan</span></button>
+            <button class="osprey-list-row" type="button" aria-selected="false"><span data-icon="chart-line"></span><span class="osprey-list-title">grid_scan</span></button>
+          </aside>
+          <div class="osprey-splitter" id="ref-ps-handle" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize sidebar"></div>
+          <div class="ref-panel-main" id="ref-strip-host">Plot content: point at it to show its content strip.</div>
+        </div>
+      </div>
+      <div class="specimen-row">
+        <span class="osprey-chip osprey-chip--ok">Connected</span>
+        <span class="osprey-chip osprey-chip--warn">2 issues</span>
+        <span class="osprey-chip osprey-chip--err">Not authorised</span>
+        <span class="osprey-chip osprey-chip--info">running</span>
+        <span class="osprey-chip osprey-chip--connecting">connecting</span>
+        <span class="osprey-chip">idle</span>
+        <button class="osprey-icon-btn" id="ref-info-opener" type="button" aria-label="Artifact details" title="Artifact details"><span data-icon="info"></span></button>
+      </div>
+      <div class="ref-states">
+        <div class="ref-state-box" id="ref-state-loading"></div>
+        <div class="ref-state-box" id="ref-state-empty"></div>
+        <div class="ref-state-box" id="ref-state-error"></div>
+      </div>
+      <div class="ref-panel ref-panel-narrow" data-panel-root>
+        <div class="osprey-panel-toolbar">
+          <div class="osprey-panel-toolbar__start">
+            <button class="osprey-icon-btn" id="ref-ps-narrow-toggle" type="button" data-tip-place="below"></button>
+            <span class="osprey-panel-toolbar__text">Narrow panel, 520 px</span>
+          </div>
+          <div class="osprey-panel-toolbar__end">
+            <span class="osprey-chip osprey-chip--ok">Connected</span>
+            <label class="osprey-search-field">
+              <span data-icon="search"></span>
+              <input type="search" placeholder="Filter plans" aria-label="Filter plans">
+            </label>
+          </div>
+        </div>
+        <div class="ref-panel-body">
+          <aside class="osprey-panel-sidebar" id="ref-ps-narrow" data-open="false" aria-label="Plans">
+            <div class="osprey-section-label">Plans</div>
+            <button class="osprey-list-row" type="button" aria-selected="true"><span data-icon="flask"></span><span class="osprey-list-title">count</span></button>
+            <button class="osprey-list-row" type="button" aria-selected="false"><span data-icon="activity"></span><span class="osprey-list-title">scan</span></button>
+          </aside>
+          <div class="osprey-splitter" id="ref-ps-narrow-handle" role="separator" aria-orientation="vertical" tabindex="0" aria-label="Resize sidebar"></div>
+          <div class="ref-panel-main">The sidebar opens over this content, above a scrim.</div>
+        </div>
       </div>
     </section>
   </main>

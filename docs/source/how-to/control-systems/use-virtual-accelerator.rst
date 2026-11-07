@@ -4,7 +4,7 @@
 Use the Virtual Accelerator
 ===========================
 
-How to run the Demo tutorial against a **Virtual Accelerator** — a
+How to run the demo tutorial against a **Virtual Accelerator** — a
 containerized simulator that serves real EPICS Channel Access, with PyAT physics
 behind the channels your facility wires to a lattice, so correctors move and
 BPMs respond.
@@ -24,13 +24,13 @@ How it is put together is :doc:`/architecture/virtual-accelerator`.
    - Write limits
    - The stored archive the stack deploys, and the one pairing it refuses
 
-   **Prerequisites:** Docker (or Podman) installed; the Demo
+   **Prerequisites:** Docker (or Podman) installed; the demo
    tutorial project (see :doc:`/getting-started/demo`).
 
 Overview
 ========
 
-The Demo tutorial ships interchangeable control-system backends,
+The demo tutorial ships interchangeable control-system backends,
 selected by a single ``control_system.type`` value. The value picks the machine
 the deployment **starts** on:
 
@@ -101,7 +101,7 @@ physics runs behind either.
 Quickstart
 ==========
 
-The Demo stack ships pointed at the Virtual Accelerator and
+The demo stack ships pointed at the Virtual Accelerator and
 **already deploys** it: the preset's ``virtual_accelerator:`` block renders a
 compose service, so ``osprey up`` brings the Virtual Accelerator up alongside the
 rest of the stack and the connector is already talking to it. There is nothing

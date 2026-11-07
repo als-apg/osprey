@@ -231,7 +231,7 @@ async def _run_suite(
 @click.option(
     "--full",
     is_flag=True,
-    help="Also run on_demand categories (live model chat, pinned CLI download).",
+    help="Also run on_demand categories (live model chat, pinned CLI download, ARIEL module checks).",
 )
 @click.option("--basic", "-b", is_flag=True, hidden=True)
 def health(
@@ -248,7 +248,7 @@ def health(
     Python environment, container infrastructure, agent record, API
     providers, and the agent CLI — grouped into categories. Cheap poll-class
     categories run by default; costly on_demand categories (live model chat
-    completions, pinned-CLI verification) run only with --full.
+    completions, pinned-CLI verification, ARIEL module checks) run only with --full.
 
     With no --project, the report covers the deployment repo enclosing the
     working directory, found the same way every other verb finds it — so any

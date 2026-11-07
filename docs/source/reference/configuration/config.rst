@@ -673,8 +673,8 @@ reported in the log and ``true`` is used.
 Offering the terminal
 ~~~~~~~~~~~~~~~~~~~~~
 
-``web.terminal: false`` removes **Open terminal** from the Agent bar's **⋯**
-menu on every login the render serves, and ``/ws/terminal`` closes with code
+``web.terminal: false`` removes **Open terminal** from the Agent pane's session
+switcher on every login the render serves, and ``/ws/terminal`` closes with code
 ``4403`` before any process starts. The default is ``true``. A value that is
 not a boolean is reported in the log and ``true`` is used; a config file that
 cannot be read closes it. ``osprey build`` refuses a profile that still states

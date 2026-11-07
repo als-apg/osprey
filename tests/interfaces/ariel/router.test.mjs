@@ -211,12 +211,7 @@ describe('parseHash: aliases', () => {
     expect(router.parseHash('#browse')).toEqual(LIST);
   });
 
-  test('#status opens the Status drawer standalone', () => {
-    expect(router.parseHash('#status')).toEqual({ drawer: 'status', rerank: 'now' });
-  });
-
-  test('#status shows the list when embedded', () => {
-    go('/?embedded=true');
+  test('#status shows the list', () => {
     expect(router.parseHash('#status')).toEqual(LIST);
   });
 
@@ -226,76 +221,53 @@ describe('parseHash: aliases', () => {
 });
 
 /**
- * One row per alias: the hash, and the state it must leave in each frame.
- * @type {Array<[string, Record<string, unknown>, Record<string, unknown>]>}
+ * One row per alias: the hash, and the state it must leave.
+ * @type {Array<[string, Record<string, unknown>]>}
  */
 const ALIASES = [
-  [
-    '#entry?id=E1&attachment=A1',
-    { sel: 'E1', att: 'A1', narrowView: 'reader' },
-    { sel: 'E1', att: 'A1', narrowView: 'reader' },
-  ],
-  [
-    '#entry?id=E1',
-    { sel: 'E1', att: null, narrowView: 'reader' },
-    { sel: 'E1', att: null, narrowView: 'reader' },
-  ],
-  ['#create', { compose: { draft: null } }, { compose: { draft: null } }],
-  ['#create?draft=D1', { compose: { draft: 'D1' } }, { compose: { draft: 'D1' } }],
-  [
-    '#search',
-    { query: '', sel: null, compose: null, narrowView: 'list' },
-    { query: '', sel: null, compose: null, narrowView: 'list' },
-  ],
-  [
-    '#browse',
-    { query: '', sel: null, compose: null, narrowView: 'list' },
-    { query: '', sel: null, compose: null, narrowView: 'list' },
-  ],
-  ['#status', { drawer: 'status' }, { drawer: null, query: '', sel: null, narrowView: 'list' }],
+  ['#entry?id=E1&attachment=A1', { sel: 'E1', att: 'A1', narrowView: 'reader' }],
+  ['#entry?id=E1', { sel: 'E1', att: null, narrowView: 'reader' }],
+  ['#create', { compose: { draft: null } }],
+  ['#create?draft=D1', { compose: { draft: 'D1' } }],
+  ['#search', { query: '', sel: null, compose: null, narrowView: 'list' }],
+  ['#browse', { query: '', sel: null, compose: null, narrowView: 'list' }],
+  ['#status', { drawer: null, query: '', sel: null, narrowView: 'list' }],
 ];
 
-for (const [frame, prefix] of /** @type {const} */ ([
-  ['standalone', '/'],
-  ['embedded', '/?embedded=true'],
-])) {
-  describe(`initRouter (${frame})`, () => {
-    for (const [hash, standalone, embedded] of ALIASES) {
-      const expected = frame === 'standalone' ? standalone : embedded;
+describe('initRouter: aliases', () => {
+  for (const [hash, expected] of ALIASES) {
+    test(`${hash} applied at init`, () => {
+      store.setState({ query: 'old', sel: 'S0', compose: null });
+      go(`/?embedded=true${hash}`);
+      router.initRouter();
+      expect(store.getState()).toMatchObject({ ...expected, rerank: 'now' });
+    });
 
-      test(`${hash} applied at init`, () => {
-        store.setState({ query: 'old', sel: 'S0', compose: null });
-        go(prefix + hash);
-        router.initRouter();
-        expect(store.getState()).toMatchObject({ ...expected, rerank: 'now' });
-      });
+    test(`${hash} applied on hashchange, with force, and re-applied when repeated`, () => {
+      router.initRouter();
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
 
-      test(`${hash} applied on hashchange, with force, and re-applied when repeated`, () => {
-        router.initRouter();
-        const changed = vi.fn();
-        store.subscribe((_s, _p, c) => changed([...c]));
+      go(`/?embedded=true${hash}`);
+      hashchange();
+      expect(store.getState()).toMatchObject(expected);
+      expect(changed).toHaveBeenCalledTimes(1);
+      // Forced: every patch key reported, even ones already at that value.
+      const keys = Object.keys(router.parseHash(hash));
+      expect(new Set(changed.mock.calls[0][0])).toEqual(new Set(keys));
 
-        go(prefix + hash);
-        hashchange();
-        expect(store.getState()).toMatchObject(expected);
-        expect(changed).toHaveBeenCalledTimes(1);
-        // Forced: every patch key reported, even ones already at that value.
-        const keys = Object.keys(router.parseHash(hash));
-        expect(new Set(changed.mock.calls[0][0])).toEqual(new Set(keys));
+      // The alias was replaced by the canonical hash ...
+      expect(window.location.hash).not.toBe(hash);
+      expect(window.location.hash).toBe(router.serializeState(store.getState()));
 
-        // The alias was replaced by the canonical hash ...
-        expect(window.location.hash).not.toBe(hash);
-        expect(window.location.hash).toBe(router.serializeState(store.getState()));
-
-        // ... so following the same link again changes the fragment and re-applies.
-        go(prefix + hash);
-        hashchange();
-        expect(changed).toHaveBeenCalledTimes(2);
-        expect(store.getState()).toMatchObject(expected);
-      });
-    }
-  });
-}
+      // ... so following the same link again changes the fragment and re-applies.
+      go(`/?embedded=true${hash}`);
+      hashchange();
+      expect(changed).toHaveBeenCalledTimes(2);
+      expect(store.getState()).toMatchObject(expected);
+    });
+  }
+});
 
 describe('initRouter: canonical hash and write-back', () => {
   test('a canonical hash at init is applied', () => {
@@ -748,17 +720,6 @@ describe('canopy-host-navigate (A12)', () => {
       deliver({ type: 'canopy-host-navigate-probe' }, { source: window });
       deliver({ type: 'canopy-host-navigate-probe' }, { origin: 'http://evil.example' });
       expect(readies()).toHaveLength(1);
-    });
-
-    test('standalone: no ready and navigate messages are ignored', () => {
-      go(`${MOUNT}#q=keep`);
-      router.initRouter();
-      expect(readies()).toHaveLength(0);
-      navigate('#sel=E1');
-      deliver({ type: 'canopy-host-navigate-probe' });
-      expect(readies()).toHaveLength(0);
-      expect(store.getState().sel).toBeNull();
-      expect(store.getState().query).toBe('keep');
     });
 
     test('initRouter twice sends no second ready', () => {

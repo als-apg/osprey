@@ -156,12 +156,24 @@ async def test_no_record_is_one_warning_row_and_probes_nothing(
 ) -> None:
     argv: list[tuple] = []
     _patch_version(monkeypatch, version_proc=FakeProc(b"Docker version 27.0.0"), argv=argv)
+    monkeypatch.setattr("osprey.health.core.containers.in_container", lambda: False)
     results = await containers(_config(repo, ["web"]), probe=_boom_probe)()
 
     assert len(results) == 1
     assert results[0].status is Status.WARNING
     assert results[0].message == NOTHING_DEPLOYED
     assert argv == []
+
+
+async def test_no_record_inside_a_container_is_not_applicable(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("osprey.health.core.containers.in_container", lambda: True)
+    results = await containers(_config(repo, ["web"]), probe=_boom_probe)()
+
+    assert [(r.name, r.status, r.value) for r in results] == [
+        ("container_runtime", Status.SKIP, "n/a in container")
+    ]
 
 
 async def test_an_unreadable_record_is_one_row_naming_it(

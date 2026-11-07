@@ -414,10 +414,17 @@ def install_osprey_into(venv: Path, env: Mapping[str, str]) -> subprocess.Comple
     """Create *venv* afresh and install osprey into it as a build of this tree does.
 
     The requirement is the one ``osprey build`` resolves for this
-    installation, so what this install needs from uv's cache is what a
-    preset's build needs.
+    installation, under the same lock constraints that build applies
+    (:func:`~osprey.cli.build_environment.source_lock_constraints`), so what
+    this install needs from uv's cache is what a preset's build needs: a fill
+    resolved without them could cache versions an offline build never asks for
+    and miss the ones it does.
     """
-    from osprey.cli.build_environment import _pins_prerelease, _resolve_osprey_spec
+    from osprey.cli.build_environment import (
+        _pins_prerelease,
+        _resolve_osprey_spec,
+        source_lock_constraints,
+    )
 
     uv = uv_path()
     assert uv is not None
@@ -432,6 +439,11 @@ def install_osprey_into(venv: Path, env: Mapping[str, str]) -> subprocess.Comple
     command = [uv, "pip", "install", "--quiet", "-p", str(venv / "bin" / "python")]
     if _pins_prerelease(spec):
         command += ["--prerelease", "allow"]
+    lock = source_lock_constraints(spec)
+    if lock is not None:
+        lock_file = venv / "osprey-lock-constraints.txt"
+        lock_file.write_text(lock, encoding="utf-8")
+        command += ["-c", str(lock_file)]
     return subprocess.run(
         [*command, spec],
         capture_output=True,

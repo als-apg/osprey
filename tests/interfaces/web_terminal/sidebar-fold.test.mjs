@@ -28,7 +28,7 @@ const HTML = `
     </div>
     <div class="sidebar-group" data-group="tools">
       <div class="osprey-section-label sidebar-group-head">
-        <span class="sidebar-group-name" id="n2">Tools</span>
+        <span class="sidebar-group-name" id="n2">Apps</span>
       </div>
     </div>
   </div>`;
@@ -111,7 +111,7 @@ describe('folding a group', () => {
 
   test('the spacer is the exact scroll shortfall, recomputed and never accumulated', async () => {
     await boot();
-    // Layout is stubbed: clientHeight 531, content 664 open / 464 with Tools folded.
+    // Layout is stubbed: clientHeight 531, content 664 open / 464 with Apps folded.
     // scrollHeight never reads below clientHeight, as in a browser.
     let top = 133;
     const spacer = () => rail().querySelector('.sidebar-fold-spacer');

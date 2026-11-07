@@ -5,10 +5,10 @@
  * While an approval, plan, or question card is pending, the tab title carries
  * a count, and the chat bus carries it as `attention` `{waiting}` — emitted on
  * every change of the count, and `0` on reset and turn end — for the
- * sidebar's Agent row, which badges it while the Agent pane is closed. An
- * opt-in bell in the Agent bar sends a desktop notification when a card
- * arrives while the page is hidden, and one more when a turn ends while it is
- * hidden.
+ * sidebar's Agent row, which badges it while the Agent pane is closed. The
+ * opt-in "Desktop notifications" row in the Agent pane's ⋯ (agent-menu.js)
+ * sends a desktop notification when a card arrives while the page is hidden,
+ * and one more when a turn ends while it is hidden.
  *
  * Replayed history never badges and never notifies: a frame's `replay` flag
  * says whether it is a past turn being redrawn. Pending cards come from the
@@ -21,26 +21,26 @@
  * @module chat-attention
  */
 
-import { barButton } from './chat-console.js';
+import { setAgentMenuRow } from './agent-menu.js';
 import { emitChat, onChat } from './chat-events.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 
-/** Storage base for the bell's state; scoped per operator on a multi-user mount. */
+/** Storage base for the opt-in's state; scoped per operator on a multi-user mount. */
 const STORAGE_BASE = 'osprey-chat-notify';
 
 /** Tag for the one "agent finished" notification; a newer one replaces it. */
 const TURN_TAG = 'osprey-turn-finished';
 
-const BELL_TITLE = 'Desktop notifications, when the agent needs you while this tab is hidden';
-const BLOCKED_TITLE =
-  "Notifications are blocked for this site. Allow them in the browser's site settings.";
+/** The opt-in's ⋯ row, and the same row where the browser blocks notifications. */
+const OPT_IN_LABEL = 'Desktop notifications';
+const BLOCKED_LABEL = 'Desktop notifications (blocked by the browser)';
 
 /** The `Notification` constructor when the browser has one, else null. Read at call time. */
 function notifier() {
   return typeof Notification === 'undefined' ? null : /** @type {any} */ (Notification);
 }
 
-/** @returns {boolean} whether the operator turned the bell on last time */
+/** @returns {boolean} whether the operator turned notifications on last time */
 function readStored() {
   try {
     return localStorage.getItem(scopedStorageKey(STORAGE_BASE)) === '1';
@@ -55,7 +55,7 @@ function writeStored(on) {
     if (on) localStorage.setItem(scopedStorageKey(STORAGE_BASE), '1');
     else localStorage.removeItem(scopedStorageKey(STORAGE_BASE));
   } catch {
-    /* storage blocked: the bell still works for this page view */
+    /* storage blocked: the choice still holds for this page view */
   }
 }
 
@@ -130,33 +130,22 @@ function titleBadge() {
 }
 
 /**
- * The opt-in bell. It is on only when the operator turned it on and the browser
- * has granted permission. A denied or unsupported browser leaves it off: the
- * button is disabled or hidden, and nothing throws.
- * @returns {{ button: HTMLButtonElement, isOn: () => boolean }}
+ * The opt-in, as the Agent pane's ⋯ row "Desktop notifications", checked
+ * while on. It is on only when the operator turned it on and the browser has
+ * granted permission. A browser without notifications gets no row, and one
+ * that blocks them an inert row that says so; nothing throws.
+ * @returns {{ isOn: () => boolean, row: () => import('./tile-menu.js').PanelRow | null }}
  */
-function createBell() {
-  const api = notifier();
-  const button = barButton('op-attention-toggle', 'bell', 'Desktop notifications');
-  button.title = BELL_TITLE;
-
-  let on = api?.permission === 'granted' && readStored();
-  button.setAttribute('aria-pressed', String(on));
-  if (!api) {
-    button.hidden = true;
-  } else if (api.permission === 'denied') {
-    button.disabled = true;
-    button.title = BLOCKED_TITLE;
-  }
+function createOptIn() {
+  let on = notifier()?.permission === 'granted' && readStored();
 
   /** @param {boolean} next */
   const set = (next) => {
     on = next;
     writeStored(next);
-    button.setAttribute('aria-pressed', String(next));
   };
 
-  button.addEventListener('click', () => {
+  const toggle = () => {
     if (on) {
       set(false);
       return;
@@ -168,8 +157,8 @@ function createBell() {
       return;
     }
     if (browser.permission !== 'default') return;
-    // The request is made inside the click, so the browser treats it as the
-    // operator's gesture. Dismissing or denying leaves the bell off.
+    // The menu runs a row inside its click, so the browser treats the request
+    // as the operator's gesture. Dismissing or denying leaves it off.
     let asked;
     try {
       asked = browser.requestPermission();
@@ -181,19 +170,31 @@ function createBell() {
         if (answer === 'granted') set(true);
       },
       () => {
-        /* the browser refused to ask: the bell stays off */
+        /* the browser refused to ask: it stays off */
       }
     );
-  });
+  };
 
-  return { button, isOn: () => on };
+  const row = () => {
+    const browser = notifier();
+    if (!browser) return null;
+    const blocked = browser.permission === 'denied';
+    return {
+      label: blocked ? BLOCKED_LABEL : OPT_IN_LABEL,
+      checked: on && !blocked,
+      disabled: blocked,
+      run: toggle,
+    };
+  };
+
+  return { isOn: () => on, row };
 }
 
 /**
  * Start the attention signal for the console. Call once, from
  * {@link ../chat-features.js initChatFeatures}.
  * @param {import('./chat-features.js').ChatFeatureContext} ctx
- * @returns {() => void} stop listening, remove the bell, and restore the title
+ * @returns {() => void} stop listening, take the ⋯ row away, and restore the title
  */
 export function initChatAttention(ctx) {
   /** @type {Map<string, { kind: string, toolName: string }>} waiting cards, by request id */
@@ -208,8 +209,8 @@ export function initChatAttention(ctx) {
   const open = new Map();
 
   const title = titleBadge();
-  const bell = createBell();
-  ctx.bar.append(bell.button);
+  const optIn = createOptIn();
+  setAgentMenuRow('notifications', optIn.row);
 
   /**
    * The notification is taken away once its request is answered or cancelled.
@@ -255,7 +256,7 @@ export function initChatAttention(ctx) {
    * @returns {{ close?: () => void } | null}
    */
   function notify(tag, text, onClick) {
-    if (!bell.isOn() || document.visibilityState !== 'hidden') return null;
+    if (!optIn.isOn() || document.visibilityState !== 'hidden') return null;
     const browser = notifier();
     if (!browser || browser.permission !== 'granted') return null;
     try {
@@ -332,6 +333,6 @@ export function initChatAttention(ctx) {
     stopReset();
     clearPending();
     title.dispose();
-    bell.button.remove();
+    setAgentMenuRow('notifications', null);
   };
 }

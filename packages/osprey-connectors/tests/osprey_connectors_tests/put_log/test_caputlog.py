@@ -1,4 +1,4 @@
-"""The caPutLog backend, against the shapes the ALS caputlog-server answered."""
+"""The caPutLog backend, against the response shapes a caputlog server answers."""
 
 from __future__ import annotations
 

@@ -180,7 +180,7 @@ def build_family_labels(entries: Sequence[ThemeManifestEntry]) -> dict[str, str]
     Only families with an explicit ``$extensions.family_label`` appear. A family
     that declares none is absent from the map entirely rather than present with a
     derived value: deriving is the *consumer's* fallback (``familyLabel()`` in
-    display-menu.js and osprey-theme-switcher.js), and baking a derived value in
+    osprey-theme-switcher.js), and baking a derived value in
     here would make the map look authoritative when it is not.
 
     Validation (``check_theme_metadata``) already rejects a family whose members

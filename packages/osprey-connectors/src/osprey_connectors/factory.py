@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from osprey_connectors import types
 from osprey_connectors.control_system._base import ControlSystemConnector
@@ -39,6 +39,12 @@ __all__ = [
 ]
 
 logger = get_logger("connector_factory")
+
+#: One directory kind's backend base; a create call returns the kind it builds.
+_DirectoryBackend = TypeVar("_DirectoryBackend", "PVDirectory", "AlarmLog", "AlarmState", "PutLog")
+
+#: A directory kind's name, as ``BackendSpec.kind`` spells it.
+_DirectoryKind = Literal["pv_directory", "alarm_log", "alarm_state", "put_log"]
 
 
 def _dotted_class(connector_type: str) -> Any:
@@ -372,11 +378,11 @@ class ConnectorFactory:
     @classmethod
     def _build_directory_backend(
         cls,
-        registry: dict[str, Any],
+        registry: dict[str, type[_DirectoryBackend]],
         spec: BackendSpec,
         project_dir: Path | None,
         seams: dict[str, Any],
-    ) -> Any:
+    ) -> _DirectoryBackend:
         """Build the backend a spec names, registering the builtins first.
 
         The panel and the directory MCP server never register builtins themselves,
@@ -566,7 +572,7 @@ class _DirectoryBuiltin:
 
     #: The type name a ``BackendSpec`` selects it by, and the key it registers under.
     name: str
-    kind: Literal["pv_directory", "alarm_log", "alarm_state", "put_log"]
+    kind: _DirectoryKind
     module_path: str
     class_name: str
     description: str
@@ -630,9 +636,22 @@ _BUILTIN_ALARM_STATES = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "
 _BUILTIN_PUT_LOGS = tuple(c.name for c in _DIRECTORY_BUILTINS if c.kind == "put_log")
 
 
-def _directory_registry(kind: str) -> dict[str, Any]:
+def _directory_registry(
+    kind: _DirectoryKind,
+) -> (
+    dict[str, type[PVDirectory]]
+    | dict[str, type[AlarmLog]]
+    | dict[str, type[AlarmState]]
+    | dict[str, type[PutLog]]
+):
     """The factory's registry for one directory kind."""
-    return getattr(ConnectorFactory, f"_{kind}_connectors")
+    if kind == "pv_directory":
+        return ConnectorFactory._pv_directory_connectors
+    if kind == "alarm_log":
+        return ConnectorFactory._alarm_log_connectors
+    if kind == "alarm_state":
+        return ConnectorFactory._alarm_state_connectors
+    return ConnectorFactory._put_log_connectors
 
 
 def register_builtin_connectors() -> None:
@@ -653,9 +672,7 @@ def register_builtin_connectors() -> None:
         name for name in _BUILTIN_ARCHIVERS if name not in ConnectorFactory._archiver_connectors
     ]
     missing_directory_rows = [
-        builtin
-        for builtin in _DIRECTORY_BUILTINS
-        if builtin.name not in _directory_registry(builtin.kind)
+        row for row in _DIRECTORY_BUILTINS if row.name not in _directory_registry(row.kind)
     ]
     if not missing_control_systems and not missing_archivers and not missing_directory_rows:
         return
@@ -681,5 +698,5 @@ def register_builtin_connectors() -> None:
             )
 
     # Their optional client (aiokafka) is imported on start, not at module scope.
-    for builtin in missing_directory_rows:
-        _directory_registry(builtin.kind)[builtin.name] = builtin.load()
+    for row in missing_directory_rows:
+        _directory_registry(row.kind)[row.name] = row.load()

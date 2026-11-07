@@ -1648,7 +1648,6 @@ _EXPECTED_OPERATOR_ROUTES = [
     ("GET", "/ws/operator"),
     ("DELETE", "/api/artifacts/abc"),
     ("GET", "/api/artifacts"),
-    ("POST", "/api/artifacts/abc/pin"),
 ]
 
 

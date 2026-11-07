@@ -50,12 +50,16 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js
   setPanelFocus: vi.fn(),
   setPanelVisibility: vi.fn(),
 }));
-// Which panels live in windows of their own; popout.js's own behaviour is its
+// Which panels live in windows of their own; the holder's own behaviour is its
 // test's contract.
 const { popped } = vi.hoisted(() => ({ popped: new Set() }));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
-  isPoppedOut: (/** @type {string} */ id) => popped.has(id),
-}));
+vi.mock(
+  '../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js',
+  async (original) => ({
+    .../** @type {object} */ (await original()),
+    isDetached: (/** @type {string} */ id) => popped.has(id),
+  })
+);
 
 const DOCK_PX = { width: 1000, height: 600 };
 
@@ -589,7 +593,7 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
   });
 
   describe('a panel in its own window', () => {
-    /** The classic dock with c popped out: its tile left the dock with it. */
+    /** The classic dock with c detached: its tile left the dock with it. */
     function seedPoppedOut() {
       const holder = seedClassic();
       holder.run((/** @type {any} */ l) => dockOpen.closeKey(l, 'c'));

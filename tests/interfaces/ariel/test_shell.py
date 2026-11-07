@@ -1,14 +1,15 @@
 """Real-browser suite for ARIEL's one screen: rail | list | reader.
 
 Covers what only a live page proves: the numbered Requirements of the
-one-screen plan (standalone landing, selection in the hash and its reload,
-deep links and their error states, search surfaces, create and draft review,
-per-frame persistence, the stacked layout), each rail mailbox, the rail's
-drag / snap / toggle, each key of the keyboard table, every legacy hash alias
-standalone (``test_embedded_nav.py`` holds the embedded side), and the shared
-design-system primitives the panes are built from.
+one-screen plan (the landing, selection in the hash and its reload, deep links
+and their error states, search surfaces, create and draft review, persistence,
+the stacked layout), each rail mailbox, the rail's drag / snap / toggle, each
+key of the keyboard table, every legacy hash alias (``test_embedded_nav.py``
+holds the tile-bar contract), and the shared design-system primitives the panes
+are built from.
 
-The panel is the real ``create_app()`` on a real server (``launch_ariel``);
+The panel is the real ``create_app()`` on a real server (``launch_ariel``),
+framed with ``embedded=true`` by the host fixture page (``_panel_host.py``);
 the database it lacks is faked at the network layer by ``FakeBackend``, which
 answers every ``/api/...`` request the screen makes from fixed fixtures and
 records each one, so a test can assert what the panel asked for.
@@ -36,7 +37,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
-from tests.interfaces._browser import assert_page_loads_clean
+from tests.interfaces._panel_host import PanelHost, open_panel_host
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -60,7 +61,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 @pytest.fixture(scope="module")
 def _ariel_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[Any, str]]:
-    """One DB-less standalone ARIEL for the whole module, as ``launch_ariel`` boots it."""
+    """One DB-less ARIEL for the whole module, as ``launch_ariel`` boots it."""
     from osprey.interfaces._serving import run_app_server
     from osprey.interfaces.ariel.app import create_app
 
@@ -621,13 +622,43 @@ def open_panel(
     backend: FakeBackend | None = None,
     *,
     viewport: dict[str, int] | None = None,
-) -> tuple[Page, FakeBackend]:
-    """A new page on *url* behind a fake backend, with the list settled."""
+) -> tuple[PanelHost, FakeBackend]:
+    """The panel at *url*, framed by the host page behind a fake backend, its list settled."""
     page = browser.new_page(viewport=viewport or {"width": 1280, "height": 800})
     backend = (backend or FakeBackend()).install(page)
-    page.goto(url, wait_until="load")
-    expect(page.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
-    return page, backend
+    host = open_panel_host(page, url)
+    expect(host.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
+    return host, backend
+
+
+def search(page: PanelHost, text: str) -> None:
+    """Type *text* into the host bar's search field, which reports it to the panel."""
+    page.search_box().fill(text)
+
+
+def compose(page: PanelHost) -> None:
+    """Press the host bar's Compose button."""
+    page.bar_item("ariel-compose").click()
+
+
+def expand_rail(page: PanelHost) -> None:
+    """Open the rail from its default icon strip, which is the only way to its facets."""
+    page.keyboard.press("[")
+    expect(page.locator(".app-container")).not_to_have_attribute(
+        "data-rail-collapsed", re.compile(".*")
+    )
+
+
+def scratch_input(page: PanelHost) -> None:
+    """Focus a text field inside the panel, for the keys that must not fire while typing.
+
+    The panel's own fields live behind other screens (the search box is the host's),
+    and which field it is does not matter to the guard.
+    """
+    page.evaluate(
+        "() => { const i = document.createElement('input'); i.id = 'scratch-input';"
+        " document.body.append(i); i.focus(); }"
+    )
 
 
 def row(page: Page, entry_id: str):
@@ -708,21 +739,19 @@ def app(page: Page):
 
 
 # ---------------------------------------------------------------------------
-# Requirement 1: the standalone landing
+# Requirement 1: the landing
 # ---------------------------------------------------------------------------
 
 
-def test_req1_standalone_shows_rail_newest_entries_and_empty_reader(
+def test_req1_shows_rail_newest_entries_and_empty_reader(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
     """Rail, newest-first list with day separators, empty reader; no page navigation."""
-    page = chromium_browser.new_page()
-    FakeBackend().install(page)
-    assert_page_loads_clean(page, f"{ariel_url}/")
+    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
 
     expect(page.locator("#ariel-rail button[data-box]")).to_have_count(3)
     expect(page.locator("#ariel-rail")).to_be_visible()
-    expect(app(page)).not_to_have_attribute("data-rail-collapsed", re.compile(".*"))
+    expect(app(page)).to_have_attribute("data-rail-collapsed", "")
     ids = page.locator("#ariel-list [data-entry-id]")
     expect(ids).to_have_count(3)
     assert ids.evaluate_all("rows => rows.map(r => r.dataset.entryId)") == ["E1", "E2", "E3"]
@@ -774,7 +803,7 @@ def test_req2_reload_restores_query_mode_selection_and_attachment(
     """A canonical hash brings back the query, the mode, the entry and its open picture."""
     page, backend = open_panel(chromium_browser, f"{ariel_url}/#q=beam&mode=semantic&sel=E1&att=A1")
 
-    expect(page.locator("#ariel-search-input")).to_have_value("beam")
+    expect(page.search_box()).to_have_value("beam")
     expect(page.locator("#ariel-mode-chip")).to_have_attribute("data-mode", "semantic")
     expect(reader_title(page)).to_have_text("Beam dump at injection")
     expect(page.locator("#image-lightbox")).to_be_visible()
@@ -784,7 +813,7 @@ def test_req2_reload_restores_query_mode_selection_and_attachment(
     assert searches[-1].json()["mode"] == "semantic"
 
     page.reload(wait_until="load")
-    expect(page.locator("#ariel-search-input")).to_have_value("beam")
+    expect(page.search_box()).to_have_value("beam")
     expect(page.locator("#ariel-mode-chip")).to_have_attribute("data-mode", "semantic")
     expect(page.locator("#image-lightbox")).to_be_visible()
     wait_for_hash(page, canonical(q="beam", mode="semantic", sel="E1", att="A1"))
@@ -827,10 +856,10 @@ def test_req3_unfetchable_draft_leaves_the_form_empty_with_an_error(
     The draft is gone (404) and nothing was typed under it, so the sheet becomes
     a new entry (Decision 8).
     """
-    page = chromium_browser.new_page()
-    backend = FakeBackend().install(page)
-    with page.expect_console_message(lambda m: "Failed to load draft" in m.text):
-        page.goto(f"{ariel_url}/#create?draft=missing", wait_until="load")
+    outer = chromium_browser.new_page()
+    backend = FakeBackend().install(outer)
+    with outer.expect_console_message(lambda m: "Failed to load draft" in m.text):
+        page = open_panel_host(outer, f"{ariel_url}/#create?draft=missing")
 
     expect(page.locator("#ariel-compose")).to_be_visible()
     assert backend.calls("GET", "/api/drafts/missing")
@@ -862,8 +891,7 @@ def test_req4_search_shows_diagnostics_and_no_answer_box(
     )
     page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
 
-    page.fill("#ariel-search-input", "vacuum")
-    page.press("#ariel-search-input", "Enter")
+    search(page, "vacuum")
 
     expect(page.locator("#ariel-list .ariel-row")).to_have_count(1)
     expect(row(page, "E2")).to_be_visible()
@@ -886,13 +914,13 @@ def test_req4_search_shows_diagnostics_and_no_answer_box(
 def test_req4_invalid_configuration_disables_search(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
-    """``configuration_invalid`` shows the blocking banner and disables the box and chip."""
+    """``configuration_invalid`` shows the blocking banner, omits the search item, disables the chip."""
     page, _ = open_panel(
         chromium_browser, f"{ariel_url}/", FakeBackend(capabilities=dict(INVALID_CAPABILITIES))
     )
 
     expect(page.locator("#config-invalid-banner")).to_be_visible()
-    expect(page.locator("#ariel-search-input")).to_be_disabled()
+    assert not [item for item in page.items() if item["kind"] == "search"]
     expect(page.locator("#ariel-mode-chip")).to_be_disabled()
     # The newest-first listing still shows under the banner.
     expect(row(page, "E1")).to_be_visible()
@@ -916,7 +944,7 @@ def test_req5_create_selects_the_new_entry_and_remembers_the_author(
     """Compose opens over the list; submitting shows the new entry and feeds Mine."""
     page, backend = open_panel(chromium_browser, f"{ariel_url}/")
 
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#ariel-compose")).to_be_visible()
     expect(page.locator("#ariel-reader")).to_be_visible()  # never over the reader
     expect(page.locator("#publish-credentials")).to_be_hidden()
@@ -954,7 +982,7 @@ def test_req5_create_with_attachment_and_credentials(
     backend.publish_info["requires_auth"] = True
     page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
 
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#publish-credentials")).to_be_visible()
     _fill_entry(page)
     page.fill("#entry-auth-user", "opsuser")
@@ -975,7 +1003,7 @@ def test_req5_create_with_attachment_and_credentials(
 def test_req5_cancel_returns_to_the_list(ariel_url: str, chromium_browser: Browser) -> None:
     """Cancel hides the form and leaves the list in place."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#ariel-compose")).to_be_visible()
     page.click("#create-cancel-btn")
     expect(page.locator("#ariel-compose")).to_be_hidden()
@@ -1008,39 +1036,23 @@ def _storage_keys(page: Page, prefix: str) -> list[str]:
     )
 
 
-def test_req6_pane_sizes_survive_reload_per_frame_kind(
-    ariel_url: str, chromium_browser: Browser
-) -> None:
-    """Standalone and embedded each restore their own sizes and never overwrite each other."""
+def test_req6_pane_sizes_survive_reload(ariel_url: str, chromium_browser: Browser) -> None:
+    """The rail's state and both pane widths come back after a reload."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
 
+    page.keyboard.press("[")
+    expect(app(page)).not_to_have_attribute("data-rail-collapsed", re.compile(".*"))
     drag(page, "#ariel-rail-splitter", 80)  # 208 -> ~288
     drag(page, "#ariel-list-splitter", 60)
     rail_w, list_w = width(page, "#ariel-rail"), width(page, "#ariel-list-col")
     assert rail_w > 260, rail_w
-    assert all("embedded" not in k for k in _storage_keys(page, "ariel-"))
+    assert any("ariel-rail-embedded" in k for k in _storage_keys(page, "ariel-rail-"))
 
     page.reload(wait_until="load")
     expect(page.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
+    expect(app(page)).not_to_have_attribute("data-rail-collapsed", re.compile(".*"))
     assert abs(width(page, "#ariel-rail") - rail_w) <= 2
     assert abs(width(page, "#ariel-list-col") - list_w) <= 2
-
-    # Embedded: its own default (collapsed strip), then its own remembered state.
-    page.goto(f"{ariel_url}/?embedded=true", wait_until="load")
-    expect(app(page)).to_have_attribute("data-rail-collapsed", "")
-    assert width(page, "#ariel-rail") < 60
-    page.keyboard.press("[")
-    expect(app(page)).not_to_have_attribute("data-rail-collapsed", re.compile(".*"))
-    page.reload(wait_until="load")
-    expect(app(page)).not_to_have_attribute("data-rail-collapsed", re.compile(".*"))
-    assert any("ariel-rail-embedded" in k for k in _storage_keys(page, "ariel-rail-"))
-
-    # Collapsing embedded leaves the standalone rail as it was.
-    page.keyboard.press("[")
-    expect(app(page)).to_have_attribute("data-rail-collapsed", "")
-    page.goto(f"{ariel_url}/", wait_until="load")
-    expect(app(page)).not_to_have_attribute("data-rail-collapsed", re.compile(".*"))
-    assert abs(width(page, "#ariel-rail") - rail_w) <= 2
     page.close()
 
 
@@ -1150,8 +1162,7 @@ def test_mailbox_saved_search_saves_runs_and_removes(
     """A saved search keeps query + mode under a name, reruns them, and can be removed."""
     page, backend = open_panel(chromium_browser, f"{ariel_url}/")
 
-    page.fill("#ariel-search-input", "beam")
-    page.press("#ariel-search-input", "Enter")
+    search(page, "beam")
     expect(page.locator("#ariel-list .results-count")).to_be_visible()
 
     page.click('#ariel-rail [data-rail-action="save-search"]')
@@ -1163,12 +1174,11 @@ def test_mailbox_saved_search_saves_runs_and_removes(
     expect(saved).to_be_visible()
 
     # Back to the plain listing, then rerun the saved search.
-    page.fill("#ariel-search-input", "")
-    page.press("#ariel-search-input", "Enter")
+    search(page, "")
     expect(page.locator("#ariel-list .ariel-day-sep").first).to_be_visible()
     before = len(backend.calls("POST", "/api/search"))
     saved.click()
-    expect(page.locator("#ariel-search-input")).to_have_value("beam")
+    expect(page.search_box()).to_have_value("beam")
     expect(saved).to_have_attribute("aria-current", "page")
     wait_for_hash(page, canonical(q="beam", box="saved:Beam"))
     expect(page.locator("#ariel-list .results-count")).to_be_visible()
@@ -1184,19 +1194,13 @@ def test_mailbox_saved_search_saves_runs_and_removes(
 
 
 # ---------------------------------------------------------------------------
-# Rail: drag, snap, toggle, default per frame
+# Rail: drag, snap, toggle, default
 # ---------------------------------------------------------------------------
 
 
-def test_rail_default_state_per_frame(ariel_url: str, chromium_browser: Browser) -> None:
-    """Expanded standalone, an icon strip embedded."""
+def test_rail_default_state(ariel_url: str, chromium_browser: Browser) -> None:
+    """The rail starts as an icon strip."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
-    expect(app(page)).not_to_have_attribute("data-rail-collapsed", re.compile(".*"))
-    expect(page.locator("#ariel-rail .osprey-nav-label").first).to_be_visible()
-    assert width(page, "#ariel-rail") > 150
-    page.close()
-
-    page, _ = open_panel(chromium_browser, f"{ariel_url}/?embedded=true")
     expect(app(page)).to_have_attribute("data-rail-collapsed", "")
     assert width(page, "#ariel-rail") < 60
     page.close()
@@ -1207,6 +1211,7 @@ def test_rail_drag_resizes_and_snaps_to_the_icon_strip(
 ) -> None:
     """Dragging the border resizes; releasing below ~110 px snaps to the strip."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+    expand_rail(page)
     start = width(page, "#ariel-rail")
 
     drag(page, "#ariel-rail-splitter", 60)
@@ -1230,6 +1235,7 @@ def test_rail_double_click_enter_and_bracket_toggle(
 ) -> None:
     """Double-click and Enter on the border, and ``[``, each toggle the rail."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+    expand_rail(page)
     collapsed = app(page)
 
     page.dblclick("#ariel-rail-splitter")
@@ -1270,11 +1276,11 @@ def test_key_j_and_k_move_the_selection_and_the_reader_follows(
     expect(row(page, "E2")).to_have_attribute("aria-selected", "true")
     expect(reader_title(page)).to_have_text("Vacuum spike sector 3")
 
-    # Typing in the search box is not a shortcut.
-    page.focus("#ariel-search-input")
+    # Typing in a field is not a shortcut.
+    scratch_input(page)
     page.keyboard.press("j")
     expect(row(page, "E2")).to_have_attribute("aria-selected", "true")
-    expect(page.locator("#ariel-search-input")).to_have_value("j")
+    expect(page.locator("#scratch-input")).to_have_value("j")
     page.close()
 
 
@@ -1293,18 +1299,10 @@ def test_key_enter_opens_the_selection_in_the_reader(
     page.close()
 
 
-def test_key_slash_focuses_the_search_box(ariel_url: str, chromium_browser: Browser) -> None:
-    """``/`` puts the cursor in the standalone search box (the key itself is not typed)."""
-    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
-    page.keyboard.press("/")
-    expect(page.locator("#ariel-search-input")).to_be_focused()
-    expect(page.locator("#ariel-search-input")).to_have_value("")
-    page.close()
-
-
 def test_key_bracket_toggles_the_rail(ariel_url: str, chromium_browser: Browser) -> None:
     """``[`` collapses and expands the rail."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+    expand_rail(page)
     page.keyboard.press("[")
     expect(app(page)).to_have_attribute("data-rail-collapsed", "")
     page.keyboard.press("[")
@@ -1337,7 +1335,7 @@ def test_key_escape_closes_one_layer_at_a_time(ariel_url: str, chromium_browser:
     page.keyboard.press("Escape")
     expect(page.locator("#ariel-filters-popover")).to_be_hidden()
 
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#ariel-compose")).to_be_visible()
     page.focus("#entry-subject")
     page.keyboard.press("Escape")  # Esc works while typing
@@ -1346,7 +1344,7 @@ def test_key_escape_closes_one_layer_at_a_time(ariel_url: str, chromium_browser:
 
 
 # ---------------------------------------------------------------------------
-# Legacy hash aliases, standalone
+# Legacy hash aliases
 # ---------------------------------------------------------------------------
 
 
@@ -1382,18 +1380,20 @@ def test_alias_search_and_browse_show_the_list(
     page, _ = open_panel(chromium_browser, f"{ariel_url}/#q=beam&sel=E1")
     expect(reader_title(page)).to_be_visible()
     page.evaluate("(a) => { location.hash = a; }", alias)
-    expect(page.locator("#ariel-search-input")).to_have_value("")
+    expect(page.search_box()).to_have_value("")
     expect(page.locator("#ariel-list [data-entry-id]")).to_have_count(3)
     expect(page.locator("#ariel-reader-body")).to_be_empty()
     wait_for_hash(page, canonical())
     page.close()
 
 
-def test_alias_status_opens_the_status_drawer(ariel_url: str, chromium_browser: Browser) -> None:
-    """Standalone ``#status`` opens the Status drawer over the list."""
+def test_alias_status_shows_the_list(ariel_url: str, chromium_browser: Browser) -> None:
+    """``#status`` shows the list: no control opens the Status drawer from a link."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/#status")
-    expect(page.locator("osprey-drawer#status-drawer")).to_have_attribute("open", re.compile(".*"))
-    expect(page.locator("#ariel-list")).to_be_attached()
+    expect(page.locator("osprey-drawer#status-drawer")).not_to_have_attribute(
+        "open", re.compile(".*")
+    )
+    expect(page.locator("#ariel-list [data-entry-id]")).to_have_count(3)
     page.close()
 
 
@@ -1430,14 +1430,8 @@ def test_panes_use_the_shared_primitives(ariel_url: str, chromium_browser: Brows
     expect(page.locator("#ariel-list .osprey-pane-head")).to_have_count(1)
     expect(page.locator("#ariel-reader > .osprey-pane-head")).to_have_count(1)
     expect(page.locator("#ariel-compose .osprey-pane-head")).to_have_count(1)
-    expect(page.locator("label.osprey-search #ariel-search-input")).to_have_count(1)
     expect(page.locator("#ariel-rail button[data-box].osprey-nav-row")).to_have_count(3)
     expect(page.locator("#ariel-filters-popover.osprey-popover")).to_have_count(1)
-    expect(page.locator("#ariel-gear-menu.osprey-popover")).to_have_count(1)
-
-    page.click("#ariel-gear-btn")
-    expect(page.locator("#ariel-gear-menu")).to_be_visible()
-    expect(page.locator("#ariel-gear-menu .osprey-popover-item")).not_to_have_count(0)
     page.close()
 
 
@@ -1516,24 +1510,6 @@ def test_list_rows_contain_their_content_inside_the_list_column(
     page.close()
 
 
-def test_list_head_controls_do_not_collide(ariel_url: str, chromium_browser: Browser) -> None:
-    """Search box, mode control and compose sit side by side inside the pane head."""
-    page, _ = open_panel(chromium_browser, f"{ariel_url}/", FakeBackend(entries=_long_entries()))
-
-    head = page.locator("#ariel-list .osprey-pane-head").bounding_box()
-    boxes = [
-        page.locator(sel).bounding_box()
-        for sel in ("label.osprey-search", "#ariel-mode-chip", "#ariel-compose-btn")
-    ]
-    assert page.locator("#ariel-mode-chip.osprey-btn").count() == 1
-    for box in boxes:
-        assert box["y"] >= head["y"] and box["y"] + box["height"] <= head["y"] + head["height"]
-    for left, right in zip(boxes, boxes[1:], strict=False):
-        assert left["x"] + left["width"] <= right["x"], "head controls overlap"
-    assert boxes[-1]["x"] + boxes[-1]["width"] <= head["x"] + head["width"]
-    page.close()
-
-
 def test_clicking_a_row_of_long_entries_opens_the_reader(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
@@ -1592,28 +1568,6 @@ def test_every_row_of_the_seeded_logbook_takes_its_own_click(
     page.close()
 
 
-def test_gear_does_not_repeat_the_display_menus_sliders(
-    ariel_url: str, chromium_browser: Browser
-) -> None:
-    """The display menu trigger draws ``sliders``; the gear draws a gear."""
-    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
-
-    gear = page.locator("#ariel-gear-btn svg").first.inner_html()
-    assert "M1 14h6" not in gear, "the gear draws the sliders icon"
-    assert "circle" in gear
-    page.close()
-
-
-def test_brand_link_goes_to_the_canonical_empty_hash(
-    ariel_url: str, chromium_browser: Browser
-) -> None:
-    """The logo points at the bare screen, not at a legacy alias."""
-    page, _ = open_panel(chromium_browser, f"{ariel_url}/")
-
-    assert page.locator("header a.logo").get_attribute("href") == "#"
-    page.close()
-
-
 # ---------------------------------------------------------------------------
 # Facets, query operators, paging, the badge strip
 # ---------------------------------------------------------------------------
@@ -1663,6 +1617,7 @@ def test_facet_click_filters_the_list_and_writes_f(
 ) -> None:
     """Counts come from the entries; a value click narrows the list, presses the row, writes ``f``."""
     page, backend = open_panel(chromium_browser, f"{ariel_url}/", _with_alice())
+    expand_rail(page)
     expect(page.locator(".ariel-rail-facets")).to_have_attribute("aria-busy", "false")
 
     # alice and Alice are one value: matching ignores case.
@@ -1685,6 +1640,7 @@ def test_facet_click_filters_the_list_and_writes_f(
 def test_facet_filter_survives_reload(ariel_url: str, chromium_browser: Browser) -> None:
     """A reload restores the filter from ``f``: the list, the pressed row and the request."""
     page, backend = open_panel(chromium_browser, f"{ariel_url}/", _with_alice())
+    expand_rail(page)
     _facet(page, "author", "alice").click()
     wait_for_hash(page, canonical(f={"author": ["alice"]}))
 
@@ -1720,6 +1676,7 @@ def test_facet_counts_equal_the_list_under_mine(ariel_url: str, chromium_browser
 def test_histogram_day_click_lists_only_that_day(ariel_url: str, chromium_browser: Browser) -> None:
     """A histogram bar sets a one-day ``time`` window; the list shows only that day."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
+    expand_rail(page)
     day = page.locator('.ariel-rail-facets button.ariel-facet-day[data-day="2026-08-19"]')
     expect(day).to_have_attribute("aria-label", "2026-08-19: 1")
     # A year of bars in the rail is sub-pixel wide each, so a pointer click
@@ -1754,6 +1711,7 @@ def test_facets_failure_falls_back_to_the_plain_list(
     """A failing facets route shows no counts and no error; the list and mount stay usable."""
     backend = FakeBackend(facets_status=500)
     page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
+    expand_rail(page)
 
     expect(page.locator(".ariel-rail-facets")).to_have_attribute("aria-busy", "false")
     wait_for_call(page, backend, "GET", "/api/facets")
@@ -1763,20 +1721,16 @@ def test_facets_failure_falls_back_to_the_plain_list(
     page.close()
 
 
-def test_standalone_search_lifts_operators_into_the_filter(
-    ariel_url: str, chromium_browser: Browser
-) -> None:
-    """``beam author:alice`` + Enter searches ``beam`` filtered to alice, and writes ``f``."""
+def test_search_lifts_operators_into_the_filter(ariel_url: str, chromium_browser: Browser) -> None:
+    """``beam author:alice`` searches ``beam`` filtered to alice, and writes ``f``."""
     page, backend = open_panel(chromium_browser, f"{ariel_url}/", _with_alice())
-    page.fill("#ariel-search-input", "beam author:alice")
-    page.press("#ariel-search-input", "Enter")
+    search(page, "beam author:alice")
 
     call = wait_for_call(
         page, backend, "POST", "/api/search", lambda r: r.filters() == {"author": ["alice"]}
     )
     assert call.json()["query"] == "beam"
     wait_for_hash(page, canonical(q="beam", f={"author": ["alice"]}))
-    expect(page.locator("#ariel-search-input")).to_have_value("beam")
     page.close()
 
 
@@ -1803,8 +1757,7 @@ def test_search_loads_more_results_to_the_end(ariel_url: str, chromium_browser: 
     entries = _paged_entries(45)
     backend = FakeBackend(entries=entries, search=search_response(entries))
     page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
-    page.fill("#ariel-search-input", "paged")
-    page.press("#ariel-search-input", "Enter")
+    search(page, "paged")
     more = page.locator("#ariel-list [data-load-more]")
 
     expect(more).to_be_visible()
@@ -1819,14 +1772,14 @@ def test_search_loads_more_results_to_the_end(ariel_url: str, chromium_browser: 
     page.close()
 
 
-def test_badge_strip_is_on_by_default_and_its_switch_persists(
+def test_badge_strip_is_on_by_default_and_its_menu_entry_persists(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
-    """Standalone shows the strip; the display-menu switch turns it off, across a reload."""
+    """A wide panel shows the strip; the ⋯ entry turns it off, across a reload."""
     backend = FakeBackend()
     backend.entries[0]["metadata"] = {"enhancements": {"text_embedding": "failed"}}
     page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
-    toggle = page.locator("#ariel-strip-toggle")
+    toggle = page.bar_item("ariel-more", "toggle-strip")
     cells = page.locator("#ariel-list .ariel-strip-cell")
 
     expect(
@@ -1835,7 +1788,6 @@ def test_badge_strip_is_on_by_default_and_its_switch_persists(
     expect(cells).to_have_count(1)  # only E1 has a state; n/a cells render nothing
     expect(toggle).to_have_attribute("aria-checked", "true")
 
-    page.click("osprey-display-menu .display-menu-trigger")
     toggle.click()
     expect(toggle).to_have_attribute("aria-checked", "false")
     expect(cells).to_have_count(0)
@@ -1874,6 +1826,7 @@ def test_filters_popover_author_and_facet_click_agree(
 
     # The facet click.
     page, fake = open_panel(chromium_browser, f"{ariel_url}/", backend())
+    expand_rail(page)
     _facet(page, "author", "alice").click()
     by_facet = wait_for_call(
         page, fake, "GET", "/api/entries", lambda r: r.filters().get("author") == ["alice"]
@@ -1975,7 +1928,7 @@ def test_compose_sheet_leaves_the_reader_showing_the_selection(
     page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E2')}")
     expect(reader_title(page)).to_have_text("Vacuum spike sector 3")
 
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(_sheet(page)).to_be_visible()
     expect(_sheet_title(page)).to_have_text("New entry")
     expect(reader_title(page)).to_be_visible()
@@ -1992,7 +1945,7 @@ def test_compose_sheet_leaves_the_reader_showing_the_selection(
 def test_compose_sheet_maximises_and_restores(ariel_url: str, chromium_browser: Browser) -> None:
     """Maximise widens the sheet across the panel; restore returns it to the list column."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(_sheet(page)).to_be_visible()
     narrow = width(page, "#ariel-compose")
     sheet_width = "() => document.querySelector('#ariel-compose').getBoundingClientRect().width"
@@ -2228,7 +2181,7 @@ def test_compose_sheet_names_the_destination(
     backend = FakeBackend()
     backend.publish_info.update(publish)
     page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#ariel-compose-dest")).to_have_text(destination)
     page.close()
 
@@ -2244,7 +2197,7 @@ def test_compose_autosave_survives_reload_and_close_never_credentials(
     backend.publish_info["requires_auth"] = True
     page, _ = open_panel(chromium_browser, f"{ariel_url}/", backend)
 
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#publish-credentials")).to_be_visible()
     page.fill("#entry-auth-user", "opsuser")
     page.fill("#entry-auth-password", "s3cret")
@@ -2262,7 +2215,7 @@ def test_compose_autosave_survives_reload_and_close_never_credentials(
     page.reload(wait_until="load")
     expect(page.locator("#ariel-list-body")).to_have_attribute("aria-busy", "false")
     expect(_sheet(page)).to_be_hidden()
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#entry-subject")).to_have_value("Autosaved subject")
     expect(page.locator("#entry-details")).to_have_value("Some details.")
     expect(page.locator("#entry-auth-user")).to_have_value("")
@@ -2273,13 +2226,13 @@ def test_compose_autosave_survives_reload_and_close_never_credentials(
     page.fill("#entry-subject", "Edited after reload")
     page.click("#ariel-compose-close")
     expect(_sheet(page)).to_be_hidden()
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#entry-subject")).to_have_value("Edited after reload")
 
     # Discard clears it.
     page.click("#create-cancel-btn")
     expect(_sheet(page)).to_be_hidden()
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#entry-subject")).to_have_value("")
     expect(page.locator("#entry-details")).to_have_value("")
 
@@ -2291,7 +2244,7 @@ def test_compose_autosave_survives_reload_and_close_never_credentials(
     _submit(page)
     expect(_sheet(page)).to_be_hidden()
     expect(reader_title(page)).to_have_text("Freshly created entry")
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(page.locator("#entry-subject")).to_have_value("")
     dump = _storage_dump(page)
     for secret in ("opsuser", "s3cret", "plot.png"):
@@ -2336,7 +2289,7 @@ def test_late_draft_response_never_fills_a_later_sheet(
     page.click("#ariel-compose-close")
     expect(_sheet(page)).to_be_hidden()
     release_a()
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(_sheet_title(page)).to_have_text("New entry")
     expect(page.locator("#entry-subject")).to_have_value("")
     expect(page.locator("#entry-details")).to_have_value("")
@@ -2351,7 +2304,7 @@ def test_tag_with_a_quote_adds_and_removes_without_an_error(
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
     errors: list[str] = []
     page.on("pageerror", lambda error: errors.append(str(error)))
-    page.click("#ariel-compose-btn")
+    compose(page)
 
     for tag in ['a"b', "c\\d", 'a"b']:
         page.fill("#entry-tags-input", tag)
@@ -2377,11 +2330,10 @@ def test_key_c_and_r_open_compose_but_not_while_typing(
 
     page.keyboard.press("r")  # nothing selected: nothing to follow up
     expect(_sheet(page)).to_be_hidden()
-    page.focus("#ariel-search-input")
+    scratch_input(page)
     page.keyboard.type("cr")
-    expect(page.locator("#ariel-search-input")).to_have_value("cr")
+    expect(page.locator("#scratch-input")).to_have_value("cr")
     expect(_sheet(page)).to_be_hidden()
-    page.fill("#ariel-search-input", "")
     page.evaluate("document.activeElement.blur()")
 
     page.keyboard.press("c")
@@ -2413,7 +2365,7 @@ def test_key_escape_closes_the_lightbox_before_the_sheet(
     """With the sheet open, Esc closes a lightbox first, then the sheet from any of its fields."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E1')}")
     expect(reader_title(page)).to_have_text("Beam dump at injection")
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(_sheet(page)).to_be_visible()
 
     page.click("#ariel-reader-body [data-lightbox-url]")
@@ -2555,9 +2507,9 @@ def test_key_e_opens_the_enhancements_tab_and_the_entry_tab_returns(
 
     # Typed in a field, ``e`` is text, not the tab.
     _tab(page, "").click()
-    page.focus("#ariel-search-input")
+    scratch_input(page)
     page.keyboard.type("e")
-    expect(page.locator("#ariel-search-input")).to_have_value("e")
+    expect(page.locator("#scratch-input")).to_have_value("e")
     expect(_tab(page, "")).to_have_attribute("aria-selected", "true")
     page.close()
 
@@ -2618,7 +2570,8 @@ def test_status_drawer_lists_every_enabled_module_with_its_coverage(
     ariel_url: str, chromium_browser: Browser
 ) -> None:
     """The Status drawer's coverage table has one row per enabled module, labelled, with counts."""
-    page, backend = open_panel(chromium_browser, f"{ariel_url}/#status")
+    page, backend = open_panel(chromium_browser, f"{ariel_url}/")
+    page.evaluate("document.getElementById('status-drawer').open()")
     expect(page.locator("osprey-drawer#status-drawer")).to_have_attribute("open", re.compile(".*"))
     wait_for_call(page, backend, "GET", "/api/status")
 
@@ -2640,23 +2593,6 @@ def test_status_drawer_lists_every_enabled_module_with_its_coverage(
     page.close()
 
 
-def test_ask_agent_is_absent_standalone(ariel_url: str, chromium_browser: Browser) -> None:
-    """Standalone ARIEL has no assistant prompt: no Ask agent action, and ``a`` does nothing."""
-    page, _ = open_panel(chromium_browser, f"{ariel_url}/{canonical(sel='E1')}")
-    errors: list[str] = []
-    page.on("pageerror", lambda error: errors.append(str(error)))
-    expect(reader_title(page)).to_have_text("Beam dump at injection")
-    expect(_tab(page, "enhancements")).to_be_visible()  # the reader's seam has rendered
-    expect(page.locator('[data-reader-action="ask-agent"]')).to_have_count(0)
-    expect(page.locator("#ariel-reader-body")).not_to_contain_text("Ask agent")
-
-    page.keyboard.press("a")
-    expect(reader_title(page)).to_have_text("Beam dump at injection")
-    expect(_sheet(page)).to_be_hidden()
-    assert errors == []
-    page.close()
-
-
 # ---------------------------------------------------------------------------
 # Compose focus and the one banner
 # ---------------------------------------------------------------------------
@@ -2666,11 +2602,11 @@ def test_ask_agent_is_absent_standalone(ariel_url: str, chromium_browser: Browse
 def test_compose_returns_focus_to_its_opener(
     ariel_url: str, chromium_browser: Browser, closer: str
 ) -> None:
-    """Close, Discard and Esc each hand focus back to the button that opened the sheet."""
+    """Close, Discard and Esc each hand focus back to where the sheet was opened from."""
     page, _ = open_panel(chromium_browser, f"{ariel_url}/")
-    opener = page.locator("#ariel-compose-btn")
+    opener = page.locator("#ariel-mode-chip")
     opener.focus()
-    page.keyboard.press("Enter")
+    page.keyboard.press("c")
     expect(_sheet(page)).to_be_visible()
     page.focus("#entry-subject")
     expect(opener).not_to_be_focused()
@@ -2727,7 +2663,7 @@ def test_compose_sheet_shows_exactly_one_banner(ariel_url: str, chromium_browser
 
     page.click("#ariel-compose-close")
     expect(_sheet(page)).to_be_hidden()
-    page.click("#ariel-compose-btn")
+    compose(page)
     expect(_sheet_title(page)).to_have_text("New entry")
     expect(shown).to_have_count(0)
     page.close()

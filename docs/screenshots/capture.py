@@ -15,7 +15,7 @@ Two environments are dispatched by :func:`run`:
 * ``tutorial_stack`` — delegated to :func:`capture_tutorial_stack`, which owns
   the full container lifecycle: it builds the ``demo`` tutorial
   project, brings up Postgres detached, seeds ARIEL at the frozen anchor, and
-  captures either the static ARIEL views or the agentic web-terminal hero. In an
+  captures the live web terminal, statically or with an agent turn. In an
   environment without that runtime (no ``osprey`` binary, no container engine,
   Postgres never ready) it raises :class:`ScreenshotSkip` so a ``--stack`` run
   degrades to a clean one-line notice instead of a traceback.
@@ -1175,6 +1175,56 @@ def _capture_web_terminal_static(browser: Browser, project_dir: Path, shot: DocS
         return written
 
 
+def _capture_web_terminal_panel(browser: Browser, project_dir: Path, shot: DocShot) -> list[Path]:
+    """Capture a panel as the web terminal shows it (no agent turn).
+
+    Logs in with ``?token=`` on a first visit, then opens
+    ``/?open=<panel>``, the address a direct visit to a panel lands on. The
+    recipe's wait selectors and sub-view clicks run inside the panel's frame;
+    the shot is the whole viewport, once per theme and view.
+    """
+    from playwright.sync_api import expect
+
+    frame_selector = f'iframe.panel-iframe[data-panel-id="{shot.panel}"]'
+    with web_terminal(project_dir) as web:
+        token = urllib.parse.quote(web.operator_secret, safe="")
+        dest_dir = output_dir()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        n_themes = len(shot.themes)
+        written: list[Path] = []
+
+        for theme in shot.themes:
+            for view in _views(shot):
+                page = browser.new_page(
+                    viewport={"width": shot.viewport[0], "height": shot.viewport[1]},
+                )
+                try:
+                    page.goto(
+                        f"{web.base_url}/?theme={theme}&token={token}",
+                        wait_until="domcontentloaded",
+                        timeout=30_000,
+                    )
+                    page.goto(
+                        f"{web.base_url}/?theme={theme}&open={shot.panel}",
+                        wait_until="domcontentloaded",
+                        timeout=30_000,
+                    )
+                    frame = page.frame_locator(frame_selector)
+                    if view.click_selector:
+                        frame.locator(view.click_selector).click(timeout=30_000)
+                    for selector in view.wait_selectors:
+                        expect(frame.locator(selector)).to_be_attached(timeout=30_000)
+                    page.wait_for_timeout(600)
+                    reject_error_state(page, f"{shot.name} ({view.out}, {theme})")
+
+                    dest = dest_dir / _output_filename(view.out, theme, n_themes)
+                    dest.write_bytes(page.screenshot())
+                    written.append(dest)
+                finally:
+                    page.close()
+        return written
+
+
 def capture_tutorial_stack(
     browser_factory: Callable[[], Browser], shot: DocShot, *, agentic: bool
 ) -> list[Path]:
@@ -1195,11 +1245,11 @@ def capture_on_stack(
 ) -> list[Path]:
     """Capture a ``tutorial_stack`` recipe on an already running tutorial stack.
 
-    Dispatches on ``shot.kind`` and ``shot.stack_app``: ``"static"`` boots the
-    ARIEL app on a throwaway port and reuses :func:`capture_shot` — or, for
-    ``stack_app="web_terminal"``, drives the live web terminal statically via
-    :func:`_capture_web_terminal_static`; ``"agentic"`` drives it with a real
-    agent turn via :func:`_capture_agentic` (only when ``agentic`` is set).
+    Dispatches on ``shot.kind``: ``"static"`` drives the live web terminal with
+    no agent turn — a recipe's ``panel`` via :func:`_capture_web_terminal_panel`,
+    otherwise the control-target popover via :func:`_capture_web_terminal_static`;
+    ``"agentic"`` drives it with a real agent turn via :func:`_capture_agentic`
+    (only when ``agentic`` is set).
     """
     artifact_port = rendered_artifact_port(project_dir)
 
@@ -1216,33 +1266,9 @@ def capture_on_stack(
                 f"{shot.name}: agent did not produce a {shot.wait_for!r} artifact in time"
             ) from exc
 
-    if shot.stack_app == "web_terminal":
-        return _capture_web_terminal_static(browser, project_dir, shot)
-
-    from osprey.interfaces.ariel.app import create_app
-
-    # The rendered config moved under build/; older layouts kept it at the repo root.
-    config_path = project_dir / "build" / "config.yml"
-    if not config_path.is_file():
-        config_path = project_dir / "config.yml"
-
-    # `osprey up` minted the database password into the repo's `.env`; the
-    # in-process app reads it from the environment, as the container does.
-    from dotenv import dotenv_values
-
-    password = dotenv_values(project_dir / ".env").get("ARIEL_DB_PASSWORD")
-    previous = os.environ.get("ARIEL_DB_PASSWORD")
-    if password:
-        os.environ["ARIEL_DB_PASSWORD"] = password
-    try:
-        app = create_app(config_path=str(config_path))
-        with run_app_server(app) as ariel_url:
-            return capture_shot(browser, ariel_url, shot)
-    finally:
-        if previous is None:
-            os.environ.pop("ARIEL_DB_PASSWORD", None)
-        else:
-            os.environ["ARIEL_DB_PASSWORD"] = previous
+    if shot.panel is not None:
+        return _capture_web_terminal_panel(browser, project_dir, shot)
+    return _capture_web_terminal_static(browser, project_dir, shot)
 
 
 # ---------------------------------------------------------------------------

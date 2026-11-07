@@ -116,6 +116,18 @@ concurrency:
 # Note: This workflow runs tests, linting, docs build, and package checks
 # For documentation deployment to GitHub Pages, see .github/workflows/docs.yml
 
+# Every lane tests the dependency versions uv.lock holds, and only those. A
+# plain `uv sync`, or a `uv run` before any sync, re-locks a stale lockfile on
+# the runner and installs whatever that fresh resolution picks: with
+# pyproject.toml and uv.lock split, each such lane would go green against
+# versions nobody locked. So every `uv sync` carries `--locked`, which fails on
+# a stale lock instead of healing it, and every `uv run` follows one (a `uv run`
+# against a lock just proven current re-locks nothing). The lanes that test
+# outside the lock on purpose (dependency-floor, framework-at-connectors-floor,
+# connectors-compat) sync from the lock first where they sync at all, and then
+# move off it in a step of their own that says so.
+# test_ci_workflow_wiring.py holds every workflow and local action to this.
+
 env:
   # ALS-APG endpoint. The probes address the gateway themselves rather than
   # through the provider catalog, so every LLM-touching job (probes and pytest
@@ -256,7 +268,7 @@ jobs:
       # imports with `pytest.importorskip` and would SKIP silently if the stack
       # ever left the install set — test_ci_workflow_wiring.py pins the stack in
       # [project] dependencies for that reason.
-      run: uv sync --extra dev --extra virtual-accelerator
+      run: uv sync --locked --extra dev --extra virtual-accelerator
 
     - name: Install the pinned Claude Code CLI
       # One Claude Code runs in this lane: the version OSPREY pins, installed
@@ -562,7 +574,7 @@ jobs:
       # The `test` job's install, for the reason given there: the live Channel
       # Access step needs the virtual-accelerator serving stack, and without
       # it the suites would skip.
-      run: uv sync --extra dev --extra virtual-accelerator
+      run: uv sync --locked --extra dev --extra virtual-accelerator
 
     - name: Install the pinned Claude Code CLI
       # The `test` job's environment, so a suite here sees what it saw there.
@@ -657,7 +669,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pin pandas and numpy to the declared floor
       # Must come after `uv sync`, which would otherwise resolve them back up.
@@ -988,15 +1000,15 @@ jobs:
       run: uv python install 3.11
 
     - name: Lockfile is current with pyproject
-      # pyproject.toml and uv.lock must move together. Every other lane runs
-      # a plain `uv sync`, which silently re-locks a stale lockfile in the
-      # runner and goes green — so a split pair (e.g. a floor bump without a
-      # re-lock) is invisible everywhere except here. Ordering is
-      # load-bearing: this must run BEFORE `uv sync` rewrites the lock.
+      # pyproject.toml and uv.lock must move together. Every lane's
+      # `uv sync --locked` fails on a split pair (e.g. a floor bump without a
+      # re-lock); this step is where the failure is named, as the same check
+      # the local quick tier runs. It runs before the sync, ahead of anything
+      # that could rewrite the lock.
       run: python3 scripts/check.py run lockfile
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run ruff (linting)
       run: uv run python scripts/check.py run ruff
@@ -1174,7 +1186,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends graphviz
 
     - name: Install dependencies
-      run: uv sync --extra docs
+      run: uv sync --locked --extra docs
 
     # Warnings are errors: an orphaned page, a duplicate label, a missing
     # :file: include, or a broken :doc:/:ref: target fails this job. So does a
@@ -1258,7 +1270,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run Tier 0 static checks
       timeout-minutes: 15
@@ -1467,7 +1479,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # The artifact pages are served opaque, and the suites that prove it run
     # with OSPREY_OFFLINE=1 so every vendor library comes through the proxy's
@@ -1570,6 +1582,7 @@ jobs:
           tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/design_system/test_theme_lab.py \
           tests/interfaces/design_system/test_dispatch_dashboard_unauthorized.py \
+          tests/interfaces/design_system/test_dispatch_dashboard_toolbar.py \
           tests/interfaces/design_system/test_panel_browser.py \
           tests/interfaces/design_system/test_dispatch_run_crosslinks.py \
           tests/interfaces/design_system/test_dispatch_run_thinking_browser.py \
@@ -1578,7 +1591,6 @@ jobs:
           tests/interfaces/design_system/test_dispatch_dashboard_trigger_tools.py \
           tests/interfaces/design_system/test_dispatch_run_owner.py \
           tests/interfaces/design_system/test_osprey_drawer.py \
-          tests/interfaces/design_system/test_splitter_surfaces.py \
           tests/interfaces/artifacts/test_gallery_interactions.py \
           tests/interfaces/artifacts/test_plot_theme_browser.py \
           tests/interfaces/artifacts/test_plot_export_browser.py \
@@ -1614,15 +1626,17 @@ jobs:
           tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
           tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py \
           tests/interfaces/web_terminal/test_sidebar_group_headings_browser.py \
-          tests/interfaces/web_terminal/test_attached_popout_browser.py \
+          tests/interfaces/web_terminal/test_sidebar_sessions_browser.py \
+          tests/interfaces/web_terminal/test_pane_window_browser.py \
+          tests/interfaces/web_terminal/test_panel_direct_visit_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
           tests/interfaces/ariel/test_embedded_nav.py \
-          tests/interfaces/ariel/test_display_menu.py \
           tests/interfaces/ariel/test_vocabulary_banner.py \
           tests/interfaces/ariel/test_shell.py \
           tests/interfaces/history/test_history_page_browser.py \
+          tests/interfaces/test_events_notice_browser.py \
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 
@@ -1662,7 +1676,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # See the visual-theming lane's step of the same name.
     - name: Fetch vendor assets
@@ -1872,7 +1886,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync
+      run: uv sync --locked
 
     - name: Install the pinned Claude Code CLI
       # One Claude Code runs in this lane: the version OSPREY pins, installed
@@ -1923,7 +1937,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Cache uv project-venv downloads
       uses: actions/cache@v6
@@ -1982,7 +1996,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2093,7 +2107,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2431,7 +2445,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # A file here that needs containers skips itself when `docker` is
@@ -2581,7 +2595,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # The replay skips itself when `docker` is absent, and this lane treats
@@ -2689,7 +2703,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2779,7 +2793,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2853,7 +2867,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Create hello_world deployment repo
       env:
@@ -2966,7 +2980,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3080,7 +3094,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3194,7 +3208,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3329,7 +3343,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3436,7 +3450,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run bluesky deploy E2E
       timeout-minutes: 55
@@ -3492,7 +3506,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run optimizer deploy E2E
       timeout-minutes: 55
@@ -3550,7 +3564,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run bluesky web deploy E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3627,7 +3641,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run VA substrate equivalence E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3742,7 +3756,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # Step caps under the job cap, each sized from its module's own internal
     # timeouts (see the job-cap note above), so a hang fails THAT step and the
@@ -3846,7 +3860,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run Bluesky queue E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3941,7 +3955,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -4112,7 +4126,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run archiver world E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4173,7 +4187,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Fetch the pinned neosemantics (n10s) jar
       # The store fixture can download the jar itself, but a failed download
@@ -4246,7 +4260,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run Tiled roundtrip E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4319,7 +4333,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run bluesky catalog E2E
       timeout-minutes: 55
@@ -4393,7 +4407,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run bluesky sandbox escape E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4488,7 +4502,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Install the pinned Claude Code CLI
       # The dispatch worker this lane starts refuses to run without an
@@ -4623,7 +4637,7 @@ jobs:
       # entire pytestmark when that stack is missing — a green check over zero
       # executed tests. The zero-skip gate at the bottom of this job is the
       # backstop; this is the fix.
-      run: uv sync --extra dev --extra gchat
+      run: uv sync --locked --extra dev --extra gchat
 
     - name: Install the pinned Claude Code CLI
       # The dispatch worker this lane starts refuses to run without an
@@ -4780,7 +4794,7 @@ jobs:
       # e2e module needs `azure.servicebus` and skips itself without it, so a
       # job that syncs only `dev` collects nothing here. The zero-skip gate at
       # the bottom of this job is the backstop; this is the fix.
-      run: uv sync --extra dev --extra teams
+      run: uv sync --locked --extra dev --extra teams
 
     - name: Install the pinned Claude Code CLI
       # The dispatch worker this lane starts refuses to run without an
@@ -4890,7 +4904,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run privilege split E2E
       timeout-minutes: 85
@@ -5022,7 +5036,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run Dockerfile E2E
       timeout-minutes: 55
@@ -5165,7 +5179,11 @@ jobs:
       # `osprey up --dev` stages an `osprey-local-requirements.txt` beside the
       # Dockerfile and the COPY that picks it up is an optional glob. Staging an
       # empty one keeps that glob's cross-runtime behaviour out of this lane, so
-      # the proxy bridge stays the only thing that can fail here.
+      # the proxy bridge stays the only thing that can fail here. No
+      # `osprey-lock-constraints.txt` is staged, deliberately: without it the
+      # deps layer takes the index-resolving path a release build takes, which
+      # is the path a site behind a proxy builds its released images on, and
+      # the image is never run, so nothing is tested against what it resolved.
       #
       # OSPREY_VERSION is required by the Dockerfile (it exits non-zero when
       # empty) and OSPREY_DEV=1 is what lets a branch version that is not on
@@ -5290,7 +5308,7 @@ jobs:
     # PyPI osprey and the parity assertions would describe released code
     # instead of the branch under review.
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run execution environment parity E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -5351,7 +5369,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run deploy write-back E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -5431,7 +5449,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run multi-user deploy lifecycle E2E
       timeout-minutes: 55
@@ -5526,7 +5544,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # `osprey up --dev` builds the sidecar image and stages a locally-built
     # wheel into its context, so the whole run exercises THIS branch's code
@@ -5645,7 +5663,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into the render image, so
@@ -5775,7 +5793,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # `--with-deps` apt-installs chromium's system debs from the runner's
     # default mirror, azure.archive.ubuntu.com, which some days serves them at
@@ -5944,7 +5962,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # The module skips itself when docker is unavailable, which is right for
@@ -6036,7 +6054,7 @@ jobs:
     - name: Set up rootless Podman
       run: |
         podman --version
-        pip install --user podman-compose
+        pip install --user podman-compose==1.0.6
         podman compose version
         # Docker auto-treats localhost registries as insecure (plain HTTP);
         # rootless podman defaults to tls-verify=true, so the test's throwaway
@@ -6052,7 +6070,7 @@ jobs:
         EOF
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run multi-user deploy lifecycle E2E (podman)
       timeout-minutes: 55
@@ -6162,7 +6180,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       # This lane exists to certify OSPREY against podman-compose specifically:
@@ -6394,7 +6412,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # Needed by the multi-user shared-bundle step below, which drives a real
     # `osprey up` (and therefore `docker compose`). Same step the two
@@ -6615,7 +6633,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # Every module in this lane drives real containers, and their fixtures
@@ -6791,7 +6809,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -7051,7 +7069,7 @@ jobs:
       # The sync has to be the one that populates THIS checkout's `.venv`: the
       # directory conftest resolves the CLI by path at `.venv/bin/osprey` and
       # shells it to apply a scenario, rather than going through `uv run`.
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # Every module in this lane drives real containers, and their fixtures
@@ -7222,7 +7240,7 @@ jobs:
       # the running interpreter and hands every child an absolute PYTHONPATH,
       # so a deployment built from another checkout's code would satisfy every
       # assertion about the wrong source tree.
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # This module makes an absent `docker` a module-level skip, so without
@@ -7498,13 +7516,22 @@ jobs:
           echo "::error::a git URL rewrite is still configured; refusing to run the build beside it"
           exit 1
         fi
-        uv sync --extra dev
+        uv sync --locked --extra dev
+        # The contract runs against the versions uv.lock holds, like every
+        # other lane: the lock's own install set (the synced extra, workspace
+        # members left out) constrains the install, so CANOPY adds the
+        # distributions the lock does not hold and moves none it does. A
+        # requirement of the pair that excludes a locked version fails here,
+        # as it fails the project image's constrained install.
+        uv export --frozen --no-hashes --no-emit-workspace --extra dev \
+          > "$RUNNER_TEMP/lock-constraints.txt"
         # CANOPY names a source of its own for PyDMConverter. The override
         # makes the local clone the one source, so the resolver sees a single
         # URL for it and the install reaches no remote.
         pydm="PyDMConverter @ git+file://${PYDM_CLONE}@${PYDM_COMMIT}"
         printf '%s\n' "$pydm" > "$RUNNER_TEMP/canopy-overrides.txt"
-        uv pip install --override "$RUNNER_TEMP/canopy-overrides.txt" \
+        uv pip install -c "$RUNNER_TEMP/lock-constraints.txt" \
+          --override "$RUNNER_TEMP/canopy-overrides.txt" \
           "canopy[mcp,convert] @ git+file://${CANOPY_CLONE}@${CANOPY_COMMIT}" \
           "PyDMConverter @ git+file://${PYDM_CLONE}@${PYDM_COMMIT}"
 

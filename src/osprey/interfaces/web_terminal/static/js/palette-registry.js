@@ -62,11 +62,13 @@
  *   getHiddenPanels?: () => Array<{ id: string, label: string }>,
  *   getVisiblePanels?: () => Array<{ id: string, label: string }>,
  *   getPopoutPanels?: () => Array<{ id: string, label: string }>,
+ *   getDetachedPanels?: () => Array<{ id: string, label: string }>,
  *   getPresets?: () => Array<{ name: string, panels: string[] }>,
  *   actions?: Array<{ label: string, detail?: string, run: () => void }>,
  *   showPanel?: (id: string) => void,
  *   focusPanel?: (id: string) => void,
  *   popoutPanel?: (id: string) => void,
+ *   reattachPanel?: (id: string) => void,
  *   openPanelBeside?: (id: string) => void,
  *   applyPreset?: (name: string) => void,
  *   resetLayout?: () => void,
@@ -105,8 +107,8 @@ const PANEL_SYNONYMS = {
   canopy: 'screens gui operator',
 };
 
-/** Verb vocabulary for "Open … in new window" rows. */
-const POPOUT_ALIASES = 'window popout pop out standalone';
+/** Verb vocabulary for the "Open … in new window" and "Reattach …" rows. */
+const POPOUT_ALIASES = 'window pop out detach reattach';
 
 /** Verb vocabulary for "Open … in a new tile" rows. */
 const BESIDE_ALIASES = 'tile beside split';
@@ -260,16 +262,17 @@ function buildSettingsFiles(deps) {
 /**
  * Build the Panels group: a "Show <label>" item per hidden panel, a
  * "Focus <label>" item per visible (non-active) panel, an "Open <label> in
- * new window" item (the standalone pop-out, popout.js) per pop-out-able panel, and an "Open <label> in a new tile" item per
- * visible (non-active) panel.
+ * new window" item (pane-window.js) per panel that can leave for a window, a
+ * "Reattach <label>" item per panel in its window, and an "Open <label> in a new
+ * tile" item per visible (non-active) panel.
  *
- * The pop-out and new-tile verbs draw on DIFFERENT sources on purpose, and
+ * The new-window and new-tile verbs draw on DIFFERENT sources on purpose, and
  * the difference is the whole point of FR8:
  *
- *   - pop out ← `getPopoutPanels`, which INCLUDES the active panel (popping
- *     out the panel you are looking at is the verb's commonest use) and is
- *     already filtered to members that can pop out: a standalone URL has
- *     resolved and no window is open for them yet.
+ *   - new window ← `getPopoutPanels`, which INCLUDES the active panel (moving
+ *     the panel you are looking at is the verb's commonest use) and is
+ *     already filtered to members that can leave: a URL has resolved and no
+ *     window is open for them yet.
  *   - new tile ← `getVisiblePanels`, which EXCLUDES the active panel (opening
  *     it beside itself is a guaranteed no-op), and carries no URL gate — the
  *     rail corner this verb replaces never had one.
@@ -284,6 +287,7 @@ function buildPanels(deps) {
   const showPanel = deps.showPanel;
   const focusPanel = deps.focusPanel;
   const popoutPanel = deps.popoutPanel;
+  const reattachPanel = deps.reattachPanel;
   const openPanelBeside = deps.openPanelBeside;
 
   /** @type {Item[]} */
@@ -331,6 +335,21 @@ function buildPanels(deps) {
       run: () => {
         if (typeof popoutPanel === 'function') {
           popoutPanel(id);
+        }
+      },
+    });
+  }
+
+  for (const panel of safeList(deps.getDetachedPanels)) {
+    const id = panel.id;
+    items.push({
+      group: 'Panels',
+      label: `Reattach ${panel.label}`,
+      searchText: panelSearchText('reattach', panel, POPOUT_ALIASES),
+      names: panelNames(panel),
+      run: () => {
+        if (typeof reattachPanel === 'function') {
+          reattachPanel(id);
         }
       },
     });

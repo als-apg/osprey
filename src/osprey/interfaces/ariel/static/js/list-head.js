@@ -2,16 +2,13 @@
 /**
  * ARIEL List Pane head
  *
- * The list pane's head, built once by list.js: the standalone search box and
- * compose button, the mode chip, and the body-level Filters & Options popover
- * shell. A search's diagnostics paint on the chip as a dot, its tooltip and
+ * The list pane's head, built once by list.js: the mode chip and the body-level
+ * Filters & Options popover shell. A search's diagnostics paint on the chip as a dot, its tooltip and
  * accessible description, and the top of the popover. list.js fills the chip's
  * label and the popover's controls.
  */
 
 import { renderDiagnosticsBar, diagnosticsLevel, diagnosticsText } from './components.js';
-import { setState, getState } from './store.js';
-import { isEmbedded } from '/design-system/js/frame-params.js';
 import { icon } from '/design-system/js/icons.js';
 
 /** The mode chip's own tooltip, before any search issue is appended. */
@@ -53,31 +50,13 @@ export function paintChipIssues(chip, popover, diagnostics) {
 }
 
 /**
- * The pane head: search box and compose button standalone, the mode chip always.
+ * The pane head: the mode chip. The tile bar holds the search box and compose.
  * `paintChip` fills the chip's label.
- * @returns {{head: HTMLElement, input: HTMLInputElement|null, chip: HTMLButtonElement}}
+ * @returns {{head: HTMLElement, chip: HTMLButtonElement}}
  */
 export function buildHead() {
-  const embedded = isEmbedded();
   const head = document.createElement('div');
   head.className = 'osprey-pane-head ariel-list-head';
-
-  /** @type {HTMLInputElement|null} */
-  let input = null;
-  if (!embedded) {
-    const search = document.createElement('label');
-    search.className = 'osprey-search ariel-list-search';
-    search.append(icon('search'));
-    input = document.createElement('input');
-    input.type = 'search';
-    input.id = 'ariel-search-input';
-    input.placeholder = 'Search entries';
-    input.setAttribute('aria-label', 'Search entries');
-    input.autocomplete = 'off';
-    input.value = getState().query ?? '';
-    search.append(input);
-    head.append(search);
-  }
 
   const chip = document.createElement('button');
   chip.type = 'button';
@@ -89,19 +68,7 @@ export function buildHead() {
   chipLabel.className = 'osprey-btn-label ariel-mode-chip-label';
   chip.append(chipLabel, icon('chevron-down'));
   head.append(chip);
-
-  if (!embedded) {
-    const compose = document.createElement('button');
-    compose.type = 'button';
-    compose.className = 'osprey-icon-btn ariel-compose-btn';
-    compose.id = 'ariel-compose-btn';
-    compose.setAttribute('aria-label', 'New entry');
-    compose.title = 'New entry';
-    compose.append(icon('plus'));
-    compose.addEventListener('click', () => setState({ compose: { draft: null } }));
-    head.append(compose);
-  }
-  return { head, input, chip };
+  return { head, chip };
 }
 
 /**

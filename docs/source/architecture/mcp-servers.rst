@@ -161,7 +161,6 @@ tools into several functional areas.
   in a single call. The ``scope`` argument is required.
 - ``artifact_export`` -- Export an artifact to a different format (e.g., PNG, SVG, PDF).
 - ``artifact_focus`` -- Select an artifact in the gallery so the user sees it.
-- ``artifact_pin`` -- Pin or unpin an artifact for quick-access filtering.
 
 **Visualization:**
 

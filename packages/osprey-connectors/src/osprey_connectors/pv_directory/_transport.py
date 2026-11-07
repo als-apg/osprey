@@ -143,13 +143,14 @@ class ReadOnlyTransport:
         """
         if not self._allows(method, path):
             return Unavailable(f"refused: {method} {path!r} is not a request this backend may send")
-        if self._connection is None:
+        connection = self._connection
+        if connection is None:
             return Unavailable(self._block_reason)
-        bound = min(deadline, self._connection.timeout_or(deadline))
+        bound = min(deadline, connection.timeout_or(deadline))
         no_answer = Unavailable(f"no answer within {bound:g} s")
         if bound <= 0:
             return no_answer
-        request = self._build_request(method, path, params, json_body)
+        request = self._build_request(connection, method, path, params, json_body)
         if isinstance(request, Unavailable):
             return request
         try:
@@ -168,9 +169,14 @@ class ReadOnlyTransport:
         )
 
     def _build_request(
-        self, method: str, path: str, params: Any, json_body: Any
+        self,
+        connection: ConnectionSettings,
+        method: str,
+        path: str,
+        params: Any,
+        json_body: Any,
     ) -> urllib.request.Request | Unavailable:
-        base = self._connection.url or ""
+        base = connection.url or ""
         if "?" in base or "#" in base:
             # The allowed path would land in the query or fragment, not in the path sent.
             return Unavailable(f"`{self._where}.url` must not carry a query or fragment")
@@ -194,6 +200,8 @@ class ReadOnlyTransport:
 
     def _open(self) -> urllib.request.OpenerDirector:
         if self._opener is None:
+            if self._connection is None:  # request() answers before a request is built
+                raise ConnectionError(self._block_reason)
             opener = urllib_opener(self._connection)
             opener.add_handler(_RefuseRedirects())
             self._opener = opener

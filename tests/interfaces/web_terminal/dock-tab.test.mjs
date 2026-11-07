@@ -4,7 +4,7 @@
  * tab that IS each tile's header bar. A tile holds ONE panel, so every tile
  * gets one bar — identity on the left, actions right-anchored, no tab strip;
  * the bar itself is the drag handle. Service tiles carry a visible
- * `.tile-tab-title`, the panel's contribution region, a Pop out button and a
+ * `.tile-tab-title`, the panel's contribution region, an Open in new window button and a
  * close; the Agent tile adopts a live bar instead — the chat console's
  * `.op-session-bar` in chat, the `.terminal-header` on the terminal surface.
  * The last suite builds the bars on the pinned real dockview (see
@@ -23,28 +23,34 @@ const MOD = `${JS}/dock-tab.js`;
 // size, and dockview observes its grid. The harness installs an inert one.
 loadDockview();
 
-const { closeTerminalPanel, closeDockPanel } = vi.hoisted(() => ({
+const { closeTerminalPanel, closeTerminalTile, closeDockPanel } = vi.hoisted(() => ({
   closeTerminalPanel: vi.fn(() => true),
+  closeTerminalTile: vi.fn(),
   closeDockPanel: vi.fn(() => true),
 }));
-const { popOutAttached, attachBlocker } = vi.hoisted(() => ({
-  popOutAttached: vi.fn(() => true),
-  attachBlocker: vi.fn(() => /** @type {string | null} */ (null)),
+const { detach, detachBlocker } = vi.hoisted(() => ({
+  detach: vi.fn(() => true),
+  detachBlocker: vi.fn(() => /** @type {string | null} */ (null)),
 }));
 
 /** What the gate says about an opaque-origin panel. */
-const OPAQUE = 'This panel runs at an opaque origin and cannot be popped out.';
+const OPAQUE = 'This panel runs at an opaque origin and cannot open in a new window.';
 
-// The pop-out itself (the attached window, the stand-in) is attached-popout's
-// contract; the bar only has to ask it the right things at the right times.
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/attached-popout.js', () => ({
-  popOutAttached,
-  attachBlocker,
+// The window itself is pane-window's contract; the bar only has to ask it the
+// right things at the right times.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/pane-window.js', () => ({
+  detach,
+  detachBlocker,
 }));
 
 // dock-tab closes every tile through dock-workspace (the layout holder); the
 // rest of that module (dockview itself) is out of scope here. The doubles
 // cover what the modules dock-tab imports read from it.
+// The Agent close goes through the Undo-offering path the Delete key uses.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js', () => ({
+  closeTerminalTile,
+}));
+
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   closeTerminalPanel,
   closeDockPanel,
@@ -95,21 +101,15 @@ function detachedTerminalHeader() {
 
 /**
  * The chat console's Agent bar as the page has it before the dock adopts it:
- * built by chat-console.js, with the bell the feature modules add,
- * and its label marked as the session switcher's button the way
- * attachSessionSwitcher marks it, inside a detached console container.
+ * built by chat-console.js (agent-bar.js), with its label marked as the
+ * session switcher's button the way attachSessionSwitcher marks it, inside a
+ * detached console container.
  * @returns {HTMLElement}
  */
 function detachedConsoleBar() {
   const { bar, label: switcher } = buildConsole();
   switcher.setAttribute('role', 'button');
   switcher.setAttribute('aria-label', 'Switch session');
-  for (const [cls, label] of [['op-attention-toggle', 'Desktop notifications']]) {
-    const btn = document.createElement('button');
-    btn.className = `osprey-icon-btn ${cls}`;
-    btn.setAttribute('aria-label', label);
-    bar.append(btn);
-  }
   document.createElement('div').append(bar);
   return bar;
 }
@@ -120,9 +120,10 @@ describe('tile-tab renderer', () => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
     closeTerminalPanel.mockClear();
+    closeTerminalTile.mockClear();
     closeDockPanel.mockClear();
-    popOutAttached.mockClear();
-    attachBlocker.mockReset().mockReturnValue(null);
+    detach.mockClear();
+    detachBlocker.mockReset().mockReturnValue(null);
   });
 
   test('service tab renders visible title and close', async () => {
@@ -151,7 +152,7 @@ describe('tile-tab renderer', () => {
     expect(closeTerminalPanel).not.toHaveBeenCalled();
   });
 
-  test('the Agent close runs closeTerminalPanel, never the bare api.close()', async () => {
+  test('the Agent close runs closeTerminalTile (the Undo path), never the bare api.close()', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const api = fakeApi();
@@ -160,43 +161,45 @@ describe('tile-tab renderer', () => {
     const close = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'));
     expect(close.getAttribute('aria-label')).toBe('Close Agent pane');
     close.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(closeTerminalPanel).toHaveBeenCalledTimes(1);
+    expect(closeTerminalTile).toHaveBeenCalledTimes(1);
+    expect(closeTerminalPanel).not.toHaveBeenCalled();
     expect(closeDockPanel).not.toHaveBeenCalled();
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('a service tile has a Pop out button before its close, an icon button with the popout icon', async () => {
+  test('a service tile has ⋯, then an Open in new window button before its close, an icon button with the popout icon', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
 
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
-    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-popout'));
+    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-window'));
     expect([...actions.children].map((el) => el.className)).toEqual([
-      'tile-tab-popout osprey-icon-btn',
+      'tile-tab-more osprey-icon-btn',
+      'tile-tab-window osprey-icon-btn',
       'tile-tab-close osprey-icon-btn',
     ]);
-    expect(popout.title).toBe('Pop out');
-    expect(popout.getAttribute('aria-label')).toBe('Pop out');
+    expect(popout.title).toBe('Open in new window');
+    expect(popout.getAttribute('aria-label')).toBe('Open in new window');
     expect(popout.disabled).toBe(false);
     expect(popout.querySelector('svg.osprey-ic')).not.toBeNull();
   });
 
-  test('Pop out pops the service panel out, inside the click', async () => {
+  test('Open in new window moves the service panel, inside the click', async () => {
     const { createTileTab } = await import(MOD);
     const api = fakeApi();
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api });
 
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-popout')).dispatchEvent(
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-window')).dispatchEvent(
       new MouseEvent('click', { bubbles: true, cancelable: true })
     );
 
-    expect(popOutAttached).toHaveBeenCalledExactlyOnceWith('ariel');
+    expect(detach).toHaveBeenCalledExactlyOnceWith('ariel');
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('the Agent tile has the same Pop out, before its close, popping the Agent pane out', async () => {
+  test('the Agent tile has ⋯ and its close only: Open in new window is a ⋯ row', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const tab = createTileTab('terminal');
@@ -204,22 +207,18 @@ describe('tile-tab renderer', () => {
 
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
-      'Pop out',
+      'Panel menu',
       'Close Agent pane',
     ]);
-    /** @type {HTMLElement} */ (actions.querySelector('.tile-tab-popout')).dispatchEvent(
-      new MouseEvent('click', { bubbles: true, cancelable: true })
-    );
-    expect(popOutAttached).toHaveBeenCalledExactlyOnceWith('terminal');
-    expect(closeTerminalPanel).not.toHaveBeenCalled();
+    expect(actions.querySelector('.tile-tab-window')).toBeNull();
   });
 
   test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
-    attachBlocker.mockReturnValue(OPAQUE);
+    detachBlocker.mockReturnValue(OPAQUE);
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
-    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
 
     // Built enabled: the URL and frame kind are not known yet, and a button
     // disabled now would never get the pointer event that re-reads the gate.
@@ -228,30 +227,30 @@ describe('tile-tab renderer', () => {
     expect(popout.disabled).toBe(true);
     expect(popout.title).toBe(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(popOutAttached).not.toHaveBeenCalled();
+    expect(detach).not.toHaveBeenCalled();
   });
 
   test('the gate is read again at click time: a frame that resolved opaque after the bar was built', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
-    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
     expect(popout.disabled).toBe(false);
 
-    attachBlocker.mockReturnValue(OPAQUE);
+    detachBlocker.mockReturnValue(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-    expect(popOutAttached).not.toHaveBeenCalled();
+    expect(detach).not.toHaveBeenCalled();
     expect(popout.disabled).toBe(true);
     expect(popout.title).toBe(OPAQUE);
   });
 
-  test('Pop out pointerdown is prevented so it cannot start a tile drag', async () => {
+  test('Open in new window pointerdown is prevented so it cannot start a tile drag', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
     const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-popout')).dispatchEvent(ev);
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-window')).dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
   });
 
@@ -360,7 +359,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: dot, session switcher, pen, bell, share, close', async () => {
+    test('the chat adopts the console bar: session switcher, +, then ⋯ and close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -379,11 +378,9 @@ describe('tile-tab renderer', () => {
         (el) => el.getAttribute('aria-label') ?? el.textContent
       );
       expect(parts).toEqual([
-        '',
         'Switch session',
         'New conversation',
-        'Desktop notifications',
-        'Pop out',
+        'Panel menu',
         'Close Agent pane',
       ]);
     });
@@ -759,7 +756,7 @@ describe('the bars on a real dock', () => {
     return { mod, api, root, holder, barOf };
   }
 
-  test('a service bar: its title, contribution region, Pop out and Close tile — no strip', async () => {
+  test('a service bar: its title, contribution region, ⋯, Open in new window and Close tile — no strip', async () => {
     const { root, barOf } = await mountBars();
     expect(root.querySelectorAll('.tile-tab')).toHaveLength(2);
     const bar = barOf('t1');
@@ -773,7 +770,8 @@ describe('the bars on a real dock', () => {
     expect(bar.querySelector('.tile-tab-title')?.textContent).toBe('Ariel');
     const actions = /** @type {HTMLElement} */ (bar.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
-      'Pop out',
+      'Panel menu',
+      'Open in new window',
       'Close tile',
     ]);
     expect(bar.querySelector('.tile-tab-tabs, .tile-tab-item')).toBeNull();
@@ -810,6 +808,7 @@ describe('the bars on a real dock', () => {
       x: 40,
       y: 12,
       anchorEl: barOf('t1'),
+      mode: 'tile',
     });
     expect(press.defaultPrevented).toBe(true);
     mod.setTileContextMenuHandler(null);
@@ -834,5 +833,224 @@ describe('the bars on a real dock', () => {
     api.getPanel('iframe:ariel').api.setTitle('KNOWLEDGE');
     expect(barOf('t1').querySelector('.tile-tab-title')?.textContent).toBe('Knowledge');
     expect(barOf('t1').getAttribute('aria-label')).toBe('Knowledge');
+  });
+});
+
+/**
+ * The contract S3's renderer keeps: a bar in the pane's own window is this same
+ * TileTab in `mode: 'detached'`, with Reattach far right, a name, and no verb that
+ * acts on the dock.
+ */
+describe('the bar of a pane in its own window', () => {
+  const REATTACH = { mode: 'detached' };
+
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = '';
+  });
+
+  test('Reattach is the far-right slot, after the ⋯: no open-in-window button and no ×', async () => {
+    const { createTileTab } = await import(MOD);
+    const onReattach = vi.fn();
+    const tab = createTileTab('ariel', { mode: 'detached', onReattach });
+    tab.init({ title: 'ARIEL' });
+    const actions = tab.element.querySelector('.tile-tab-actions');
+    expect(tab.element.lastElementChild).toBe(actions);
+    expect([...actions.children].map((el) => el.className)).toEqual([
+      'tile-tab-more osprey-icon-btn',
+      'tile-tab-reattach osprey-btn',
+    ]);
+    const reattach = actions.lastElementChild;
+    expect(reattach.classList.contains('tile-tab-reattach')).toBe(true);
+    expect(reattach.textContent).toBe('Reattach');
+    expect(reattach.title).toBe('Put Ariel back in the workspace');
+    expect(tab.element.querySelector('.tile-tab-window')).toBeNull();
+    expect(tab.element.querySelector('.tile-tab-close')).toBeNull();
+    reattach.click();
+    expect(onReattach).toHaveBeenCalledTimes(1);
+  });
+
+  test('its ⋯ asks for the tile menu hung under it, in detached mode; docked, in tile mode', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const { initLayoutHolder } = await import(`${JS}/dock-apply.js`);
+    const holder = initLayoutHolder({ dockPx: { width: 1200, height: 800 } });
+    holder.restore({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['ariel'], showing: 'ariel', size: 0.5 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.5 },
+      ],
+    });
+    /** @type {any} */
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const docked = createTileTab('iframe:ariel');
+    docked.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    const dockedMore = /** @type {HTMLElement} */ (docked.element.querySelector('.tile-tab-more'));
+    dockedMore.click();
+    expect(handler.mock.lastCall?.[0]).toBe('ariel');
+    expect(handler.mock.lastCall?.[1]).toMatchObject({
+      anchorEl: docked.element,
+      triggerEl: dockedMore,
+      mode: 'tile',
+    });
+
+    holder.detach('ariel', null);
+    docked.dispose();
+    const tab = createTileTab('ariel', REATTACH);
+    tab.init({ title: 'ARIEL' });
+    const more = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-more'));
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    more.click();
+    expect(handler.mock.lastCall?.[0]).toBe('ariel');
+    expect(handler.mock.lastCall?.[1]).toMatchObject({ triggerEl: more, mode: 'detached' });
+    setTileContextMenuHandler(null);
+  });
+
+  test('it has the pane’s name, and no tile', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('ariel', REATTACH);
+    tab.init({ title: 'ARIEL' });
+    expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('Ariel');
+    expect(tab.element.getAttribute('aria-label')).toBe('Ariel');
+    expect(tab.element.dataset.tile).toBeUndefined();
+  });
+
+  test('a docked bar keeps its two buttons and no Reattach', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    expect(tab.element.querySelector('.tile-tab-reattach')).toBeNull();
+    expect(tab.element.querySelector('.tile-tab-window')).not.toBeNull();
+    expect(tab.element.querySelector('.tile-tab-close')).not.toBeNull();
+  });
+
+  test('the contribution host registers from the window, at attached(), not at build', async () => {
+    const { createTileTab } = await import(MOD);
+    const contrib = await import(`${JS}/tile-header-contrib.js`);
+    const dispatch = vi.fn();
+    contrib.contributeLocal('ariel', [{ kind: 'button', id: 'a', label: 'hello' }], dispatch);
+    const tab = createTileTab('ariel', REATTACH);
+    tab.init({ title: 'ARIEL' });
+    const host = tab.element.querySelector('.tile-tab-contrib');
+    expect(host.children).toHaveLength(0);
+    document.body.append(tab.element);
+    tab.attached();
+    expect(host.textContent).toContain('hello');
+    tab.dispose();
+    const next = createTileTab('ariel', REATTACH);
+    next.init({ title: 'ARIEL' });
+    document.body.append(next.element);
+    next.attached();
+    expect(next.element.querySelector('.tile-tab-contrib').textContent).toContain('hello');
+    next.dispose();
+  });
+
+  test('a right-click asks for the menu with the mode at that moment, Agent bar included', async () => {
+    const { createTileTab, setTerminalConsoleBarSource, setTileContextMenuHandler } = await import(
+      MOD
+    );
+    const { initLayoutHolder } = await import(`${JS}/dock-apply.js`);
+    const holder = initLayoutHolder({ dockPx: { width: 1200, height: 800 } });
+    holder.restore({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['ariel'], showing: 'ariel', size: 0.5 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.5 },
+      ],
+    });
+    /** @type {any} */
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const bar = detachedConsoleBar();
+    setTerminalConsoleBarSource(bar);
+    const led = /** @type {HTMLElement} */ (bar.querySelector('.agent-bar-spacer'));
+    const docked = createTileTab('terminal');
+    document.body.append(docked.element);
+    led.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(handler.mock.lastCall?.[1].mode).toBe('tile');
+
+    // The same node, wired once, in the window.
+    holder.detach('terminal', null);
+    docked.dispose();
+    const tab = createTileTab('terminal', REATTACH);
+    document.body.append(tab.element);
+    expect(tab.element.contains(bar)).toBe(true);
+    led.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(handler.mock.lastCall?.[0]).toBe('terminal');
+    expect(handler.mock.lastCall?.[1].mode).toBe('detached');
+    tab.dispose();
+  });
+
+  test('disposed, it sends the Agent bar home, intact', async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    const bar = detachedConsoleBar();
+    const home = bar.parentElement;
+    const first = home?.firstElementChild;
+    expect(first).toBe(bar);
+    setTerminalConsoleBarSource(bar);
+    home?.append(document.createElement('main'));
+    const tab = createTileTab('terminal', REATTACH);
+    expect(tab.element.contains(bar)).toBe(true);
+    expect(bar.querySelector('.op-session-new')).not.toBeNull();
+    tab.dispose();
+    expect(bar.parentElement).toBe(home);
+    expect(home?.firstElementChild).toBe(bar);
+    expect(bar.querySelector('.op-session-new')).not.toBeNull();
+  });
+
+  test('a tile that adopted the Agent bar first keeps it when the window’s bar goes', async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    const bar = detachedConsoleBar();
+    setTerminalConsoleBarSource(bar);
+    const inWindow = createTileTab('terminal', REATTACH);
+    const docked = createTileTab('terminal');
+    expect(docked.element.contains(bar)).toBe(true);
+    inWindow.dispose();
+    expect(docked.element.contains(bar)).toBe(true);
+  });
+
+  test('a tile bar disposed in the dock leaves the Agent bar for its reopen, as it did', async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    const bar = detachedConsoleBar();
+    setTerminalConsoleBarSource(bar);
+    const docked = createTileTab('terminal');
+    docked.dispose();
+    expect(docked.element.contains(bar)).toBe(true);
+  });
+});
+
+describe('a window bar going away takes what it opened', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = '';
+  });
+
+  test('an open popover and an open context menu close', async () => {
+    const { createTileTab } = await import(MOD);
+    const { openPopover } = await import('/design-system/js/popover.js');
+    const { openContextMenu } = await import('/design-system/js/context-menu.js');
+    const tab = createTileTab('ariel', { mode: 'detached' });
+    tab.init({ title: 'ARIEL' });
+    document.body.append(tab.element);
+    tab.attached();
+    const anchor = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-reattach'));
+    const pop = document.createElement('div');
+    pop.className = 'osprey-popover';
+    pop.hidden = true;
+    document.body.append(pop);
+    openPopover(pop, anchor);
+    openContextMenu({
+      x: 1,
+      y: 1,
+      anchorEl: anchor,
+      ariaLabel: 'Actions',
+      items: [{ label: 'A' }],
+    });
+    expect(pop.hidden).toBe(false);
+    expect(document.querySelector('.osprey-context-menu')).not.toBeNull();
+    tab.dispose();
+    expect(pop.hidden).toBe(true);
+    expect(document.querySelector('.osprey-context-menu')).toBeNull();
   });
 });

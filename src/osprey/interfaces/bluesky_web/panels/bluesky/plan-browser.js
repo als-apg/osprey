@@ -8,14 +8,16 @@
  * name-first with trust compressed into a single status dot.
  *
  * Rendering is a pure function of what is passed in (the catalog, the current
- * selection, the filter text) and touches only the three elements handed to
- * it, so the browser has no state of its own and nothing to keep in sync with
- * the detail pane. Selection is handled by the host through event delegation
- * on `data-plan-name` — the rows carry the plan name, not a closure.
+ * selection, the filter text) and touches only the tree element handed to it,
+ * so the browser has no state of its own and nothing to keep in sync with the
+ * detail pane. It reports how many rows it drew; when that is none, the host
+ * shows the list's centred state instead (plan-states.js). Selection is
+ * handled by the host through event delegation on `data-plan-name` — the rows
+ * carry the plan name, not a closure.
  *
- * Provenance is also the panel's trust vocabulary: `dotClass` is exported
- * because the detail header stamps the same dot for the selected plan, and a
- * second reading of the tiers there could silently disagree with the sidebar.
+ * The rows are the panel sidebar's: `.osprey-section-label` folder captions
+ * and `.osprey-list-row` rows, the selected one on `--surface-selected`
+ * (`aria-selected`), with the trust dot leading the name.
  *
  * @module plan-browser
  */
@@ -45,7 +47,7 @@ export const PROVENANCE_ORDER = ['shipped', 'preset', 'facility', 'session', 'un
  * @param {string} provenance
  * @returns {string}
  */
-export function dotClass(provenance) {
+function dotClass(provenance) {
   if (provenance === 'shipped' || provenance === 'preset' || provenance === 'facility') {
     return 'ok';
   }
@@ -111,51 +113,28 @@ export function matchesFilter(plan, filterText) {
 }
 
 /**
- * (Re)build the sidebar tree, and show the right empty state.
- *
- * The two empty states are distinct on purpose: "no plans at all" is a
- * deployment fact, "no match" is something the operator can undo by clearing
- * the filter.
+ * (Re)build the sidebar tree.
  *
  * Built with `h` (createElement/textContent) — plan names and descriptions
  * reach the DOM as text, never as markup.
  *
  * @param {object} opts
  * @param {HTMLElement} opts.treeEl Container the tree is rendered into.
- * @param {HTMLElement} opts.emptyEl "No plans available" note.
- * @param {HTMLElement} opts.filteredEmptyEl "No match" note.
  * @param {PlanSummary[]} opts.plans The whole catalog, unfiltered.
  * @param {string|null} opts.selectedName Currently-selected plan, if any.
  * @param {string} opts.filterText Current search-box text.
+ * @returns {number} How many plans the tree shows. None means the host shows
+ *   a state: "no plans at all" is a deployment fact, "no match" something the
+ *   operator undoes by clearing the filter.
  */
-export function renderPlanTree({
-  treeEl,
-  emptyEl,
-  filteredEmptyEl,
-  plans,
-  selectedName,
-  filterText,
-}) {
+export function renderPlanTree({ treeEl, plans, selectedName, filterText }) {
   treeEl.replaceChildren();
-
-  if (plans.length === 0) {
-    emptyEl.hidden = false;
-    filteredEmptyEl.hidden = true;
-    return;
-  }
-  emptyEl.hidden = true;
-
   const visible = plans.filter((plan) => matchesFilter(plan, filterText));
-  if (visible.length === 0) {
-    filteredEmptyEl.hidden = false;
-    return;
-  }
-  filteredEmptyEl.hidden = true;
 
   for (const group of groupByProvenance(visible)) {
     const summary = h(
       'summary',
-      { class: 'folder-summary' },
+      { class: 'folder-summary osprey-section-label' },
       h('span', { class: 'folder-name', text: group.provenance }),
       h('span', { class: 'folder-count', text: String(group.items.length) })
     );
@@ -168,18 +147,19 @@ export function renderPlanTree({
           'button',
           {
             type: 'button',
-            class: `plan-row${isSelected ? ' selected' : ''}`,
+            class: `plan-row osprey-list-row${isSelected ? ' selected' : ''}`,
             role: 'treeitem',
             'aria-selected': isSelected ? 'true' : 'false',
             'data-plan-name': plan.name,
             title: rowTooltip(plan),
           },
           h('span', { class: `dot ${dotClass(plan.provenance)}` }),
-          h('span', { class: 'plan-row-name', text: plan.name })
+          h('span', { class: 'plan-row-name osprey-list-title', text: plan.name })
         )
       );
     }
     folder.appendChild(items);
     treeEl.appendChild(folder);
   }
+  return visible.length;
 }

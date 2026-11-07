@@ -26,11 +26,13 @@ import { fakeEventSourceClass } from '../_support/event-source.mjs';
 
 import {
   ABORT_LABEL,
-  CLEAR_LABEL,
+  CANCEL_CLEAR_LABEL,
   CONFIRM_ABORT_LABEL,
   CONFIRM_CLEAR_LABEL,
   CONTROL_HINTS,
   CONFIRM_WITHDRAW_STOP_LABEL,
+  MENU_ENTRY,
+  MENU_ID,
   QUEUE_ACTIVE_MANAGER_STATES,
   START_LABEL,
   STOP_LABEL,
@@ -43,6 +45,7 @@ import {
   abortSuccessMessage,
   classifyQueueRefusal,
   clearControl,
+  clearMenuEntries,
   createInitialQueueState,
   createQueueStream,
   describeProgress,
@@ -61,6 +64,9 @@ import {
   moveDownBody,
   moveUpBody,
   queueArmed,
+  queueChip,
+  queueChipDetail,
+  queueClearConfirmNote,
   queueControls,
   queueEmptyState,
   reduceQueueFrame,
@@ -303,6 +309,65 @@ describe('describeQueueStatus', () => {
   });
 });
 
+describe('queueChip', () => {
+  /** @param {Record<string, unknown>} overrides */
+  const connected = (overrides = {}) => ({
+    ...createInitialQueueState(),
+    connected: true,
+    status: summary(overrides),
+  });
+
+  test('no frame yet is the pulsing connecting chip, whatever the stale summary says', () => {
+    const chip = queueChip(createInitialQueueState());
+    expect(chip).toMatchObject({ label: 'connecting…', tone: 'connecting' });
+    expect(chip.hint).toBe('Waiting for the queue stream.');
+    // A dropped stream reads the same, even over a summary that was ready.
+    const dropped = { ...connected({ queue_autostart_enabled: true }), connected: false };
+    expect(queueChip(dropped).tone).toBe('connecting');
+  });
+
+  test('every badge state maps onto a chip state; the stopped queue is the plain chip', () => {
+    expect(queueChip(connected()).tone).toBeNull();
+    expect(queueChip(connected({ queue_autostart_enabled: true })).tone).toBe('ok');
+    expect(queueChip(connected({ manager_state: 'executing_queue' })).tone).toBe('info');
+    expect(queueChip(connected({ manager_state: 'paused' })).tone).toBe('warn');
+    const unreadable = { ...createInitialQueueState(), connected: true, status: null };
+    expect(queueChip(unreadable)).toMatchObject({ label: 'unavailable', tone: 'err' });
+    // The label is the badge's own word, so the two can never disagree.
+    expect(queueChip(connected({ manager_state: 'executing_task' })).label).toBe(
+      describeQueueStatus(summary({ manager_state: 'executing_task' })).label
+    );
+  });
+
+  test('the popover carries the technical detail and one sentence per control', () => {
+    const unreadable = {
+      ...createInitialQueueState(),
+      connected: true,
+      status: { available: false, reason: 'manager_unreachable' },
+    };
+    const detail = queueChipDetail(unreadable);
+    expect(detail.title).toBe('Queue: unavailable');
+    // The bridge's reason lives here, off the page.
+    expect(detail.text).toContain('manager_unreachable');
+    expect(detail.rows.map((row) => row.label)).toEqual([
+      START_LABEL,
+      STOP_LABEL,
+      ABORT_LABEL,
+      'Clear waiting plans',
+    ]);
+    expect(detail.rows.map((row) => row.value)).toEqual([
+      CONTROL_HINTS.start,
+      CONTROL_HINTS.stop,
+      CONTROL_HINTS.abort,
+      CONTROL_HINTS.clear,
+    ]);
+    // The manager's own word rides in the state sentence.
+    expect(queueChipDetail(connected({ manager_state: 'executing_queue' })).text).toContain(
+      'manager: executing_queue'
+    );
+  });
+});
+
 describe('queueArmed', () => {
   test('armed means the manager will drain what it is given', () => {
     expect(queueArmed(summary({ queue_autostart_enabled: true }))).toBe(true);
@@ -500,38 +565,35 @@ describe('stripControls', () => {
     return { status, items: [], runningItem, connected: true, frames: 1 };
   }
 
-  test('the Queue tab is the control panel: every control, every state', () => {
+  test('the Queue view is the control panel: every control, every state', () => {
     expect(stripControls(stateWith(summary()), 'queue')).toEqual({
       start: true,
       halts: true,
-      clear: true,
       dormant: true,
     });
     expect(
       stripControls(stateWith(summary({ manager_state: 'executing_queue' })), 'queue')
-    ).toEqual({ start: true, halts: true, clear: true, dormant: false });
+    ).toEqual({ start: true, halts: true, dormant: false });
     expect(stripControls(createInitialQueueState(), 'queue')).toEqual({
       start: true,
       halts: true,
-      clear: true,
       dormant: false,
     });
   });
 
-  test('on the other tabs a dormant queue is a badge, nothing more', () => {
+  test('on the other views a dormant queue is its chip, nothing more', () => {
     for (const view of ['plans', 'results']) {
       expect(stripControls(stateWith(summary()), view)).toMatchObject({
         start: false,
         halts: false,
-        clear: false,
       });
       expect(
         stripControls(stateWith(summary({ queue_autostart_enabled: true })), view)
-      ).toMatchObject({ start: false, halts: false, clear: false });
+      ).toMatchObject({ start: false, halts: false });
     }
   });
 
-  test('on the other tabs the halts appear the moment anything is moving or in doubt', () => {
+  test('on the other views the halts appear the moment anything is moving or in doubt', () => {
     for (const view of ['plans', 'results']) {
       expect(stripControls(stateWith(summary(), item()), view)).toMatchObject({
         start: false,
@@ -551,10 +613,9 @@ describe('stripControls', () => {
     }
   });
 
-  test('start and clear never leave the Queue tab', () => {
+  test('start never leaves the Queue view', () => {
     for (const view of ['plans', 'results']) {
       expect(stripControls(stateWith(summary(), item()), view).start).toBe(false);
-      expect(stripControls(stateWith(summary(), item()), view).clear).toBe(false);
       expect(stripControls(createInitialQueueState(), view).start).toBe(false);
     }
   });
@@ -603,28 +664,55 @@ describe('historyClearControl', () => {
 
 describe('historyClearConfirmNote', () => {
   test('names the half that is there, singular and plural', () => {
-    expect(historyClearConfirmNote(1, 0)).toBe(
-      'Click again to remove the completed run from the list.'
-    );
-    expect(historyClearConfirmNote(3, 0)).toBe(
-      'Click again to remove all 3 completed runs from the list.'
-    );
-    expect(historyClearConfirmNote(0, 1)).toBe(
-      'Click again to remove the removed-plan row from the list.'
-    );
-    expect(historyClearConfirmNote(0, 2)).toBe(
-      'Click again to remove the 2 removed-plan rows from the list.'
-    );
+    expect(historyClearConfirmNote(1, 0)).toBe('Remove the completed run from the list?');
+    expect(historyClearConfirmNote(3, 0)).toBe('Remove all 3 completed runs from the list?');
+    expect(historyClearConfirmNote(0, 1)).toBe('Remove the removed-plan row from the list?');
+    expect(historyClearConfirmNote(0, 2)).toBe('Remove the 2 removed-plan rows from the list?');
   });
 
   test('names both halves when the card holds both', () => {
     expect(historyClearConfirmNote(3, 2)).toBe(
-      'Click again to remove all 3 completed runs and the 2 removed-plan rows from the list.'
+      'Remove all 3 completed runs and the 2 removed-plan rows from the list?'
     );
   });
 
   test('nothing listed has nothing to say', () => {
     expect(historyClearConfirmNote(0, 0)).toBeNull();
+  });
+});
+
+describe('queueClearConfirmNote', () => {
+  test('says what the confirm removes, and that the running plan stays', () => {
+    expect(queueClearConfirmNote(1)).toBe(
+      'Remove the waiting plan? The running plan is not touched.'
+    );
+    expect(queueClearConfirmNote(3)).toBe(
+      'Remove all 3 waiting plans? The running plan is not touched.'
+    );
+    expect(queueClearConfirmNote(0)).toBeNull();
+  });
+});
+
+describe('clearMenuEntries', () => {
+  const LIVE = { disabled: false, reason: null };
+  const DEAD = { disabled: true, reason: 'Nothing is waiting.' };
+
+  test('the two Clears, destructive, each naming how many rows it removes', () => {
+    expect(clearMenuEntries({ queue: LIVE, waiting: 3, history: LIVE, listed: 2 })).toEqual([
+      {
+        id: MENU_ENTRY.clearQueue,
+        label: 'Clear waiting plans (3)…',
+        disabled: false,
+        danger: true,
+      },
+      { id: MENU_ENTRY.clearHistory, label: 'Clear history (2)…', disabled: false, danger: true },
+    ]);
+  });
+
+  test('a dead Clear is disabled and claims no count it has not read', () => {
+    const entries = clearMenuEntries({ queue: DEAD, waiting: 2, history: DEAD, listed: 0 });
+    expect(entries.map((entry) => entry.label)).toEqual(['Clear waiting plans…', 'Clear history…']);
+    expect(entries.every((entry) => entry.disabled)).toBe(true);
   });
 });
 
@@ -672,7 +760,7 @@ describe('clearControl', () => {
 
   test('both confirming controls arm to the same one-word label', () => {
     expect(CONFIRM_CLEAR_LABEL).toBe(CONFIRM_ABORT_LABEL);
-    expect(CLEAR_LABEL).toBe('Clear');
+    expect(CANCEL_CLEAR_LABEL).toBe('Cancel');
   });
 });
 
@@ -758,17 +846,17 @@ describe('stop button presentation', () => {
 
   test('a plain stop is one click and never wears the caution class', () => {
     expect(stopButtonLabel(plain, false)).toBe(STOP_LABEL);
-    expect(stopButtonClass(plain, false)).toBe('btn');
+    expect(stopButtonClass(plain, false)).toBe('osprey-btn');
     // Even if a stale armed flag survives, a plain stop must not be painted as
     // the consequential action.
-    expect(stopButtonClass(plain, true)).toBe('btn');
+    expect(stopButtonClass(plain, true)).toBe('osprey-btn');
   });
 
   test('the withdrawal is two-step, and only the armed step is caution-styled', () => {
     expect(stopButtonLabel(withdrawal, false)).toBe(WITHDRAW_STOP_LABEL);
-    expect(stopButtonClass(withdrawal, false)).toBe('btn');
+    expect(stopButtonClass(withdrawal, false)).toBe('osprey-btn');
     expect(stopButtonLabel(withdrawal, true)).toBe(CONFIRM_WITHDRAW_STOP_LABEL);
-    expect(stopButtonClass(withdrawal, true)).toBe('btn confirm');
+    expect(stopButtonClass(withdrawal, true)).toBe('osprey-btn confirm');
   });
 
   test('the caution class means armed-and-consequential, not merely "stop"', () => {
@@ -1330,6 +1418,40 @@ describe('createQueueStream', () => {
     stream.close();
     vi.advanceTimersByTime(60000);
     expect(FakeEventSource.opened).toHaveLength(1);
+  });
+
+  test('reconnect() dials again now, skipping the backoff wait, from the first step', () => {
+    const stream = createQueueStream('/queue/events', {
+      onFrame: () => {},
+      EventSourceCtor: /** @type {any} */ (FakeEventSource),
+    });
+    // Two failures: the next dial would wait 2 s.
+    FakeEventSource.opened[0].onerror?.();
+    vi.advanceTimersByTime(1000);
+    FakeEventSource.opened[1].onerror?.();
+
+    stream.reconnect();
+    expect(FakeEventSource.opened).toHaveLength(3);
+    // The pending backoff dial was cancelled, not added to the Retry's.
+    vi.advanceTimersByTime(60000);
+    expect(FakeEventSource.opened).toHaveLength(3);
+    // A failure after the Retry waits the first step again.
+    FakeEventSource.opened[2].onerror?.();
+    vi.advanceTimersByTime(1000);
+    expect(FakeEventSource.opened).toHaveLength(4);
+  });
+
+  test('reconnect() closes the source it replaces, and does nothing once closed', () => {
+    const stream = createQueueStream('/queue/events', {
+      onFrame: () => {},
+      EventSourceCtor: /** @type {any} */ (FakeEventSource),
+    });
+    stream.reconnect();
+    expect(FakeEventSource.opened[0].closed).toBe(true);
+    expect(FakeEventSource.opened).toHaveLength(2);
+    stream.close();
+    stream.reconnect();
+    expect(FakeEventSource.opened).toHaveLength(2);
   });
 });
 
@@ -2317,15 +2439,15 @@ describe('abort button label and class', () => {
   });
 
   test('the CSS floor on Abort covers its longest label, so Stop cannot move', () => {
-    // The strip is a right-anchored cluster, so a member's position depends
-    // only on the widths of the members AFTER it — which makes Abort, the
-    // rightmost, the thing that positions the plain Stop beside it. panel.css
-    // floors #abort-btn at one `ch` per character of its LONGEST label; a
-    // label past the floor pushes the box wider and drags Stop sideways at the
-    // moment an operator is choosing between the two halts — and the widened
-    // Abort lands on the pixels Stop just vacated, so a click meant for Stop
-    // commits the abort. That is the defect the two-step confirm exists to
-    // prevent, so the confirm must not reintroduce it.
+    // The toolbar's end is a right-anchored cluster, so a member's position
+    // depends only on the widths of the members AFTER it — which makes Abort,
+    // the rightmost halt, the thing that positions the plain Stop beside it.
+    // panel.css floors #abort-btn at one `ch` per character of its LONGEST
+    // label (plus its own padding); a label past the floor pushes the box wider
+    // and drags Stop sideways at the moment an operator is choosing between the
+    // two halts — and the widened Abort lands on the pixels Stop just vacated,
+    // so a click meant for Stop commits the abort. That is the defect the
+    // two-step confirm exists to prevent, so the confirm must not reintroduce it.
     //
     // Asserted on the constants against the stylesheet, not rendered geometry:
     // the floor is safe by construction (1ch clears any Latin glyph), the copy
@@ -2336,7 +2458,7 @@ describe('abort button label and class', () => {
       `${cwd()}/src/osprey/interfaces/bluesky_web/panels/bluesky/panel.css`,
       'utf-8'
     );
-    const floor = css.match(/#abort-btn\s*\{[^}]*min-width:\s*(\d+)ch/);
+    const floor = css.match(/#abort-btn\s*\{[^}]*min-width:\s*(?:calc\(\s*)?(\d+)ch/);
     expect(floor).not.toBeNull();
     if (!floor) throw new Error('unreachable: floor asserted present');
     const longest = Math.max(ABORT_LABEL.length, CONFIRM_ABORT_LABEL.length);
@@ -2346,8 +2468,8 @@ describe('abort button label and class', () => {
   test('the caution class is on the armed step only', () => {
     // At rest this is a halt, and painting a halt as the dangerous action is
     // the inversion the sibling stop control already had to fix.
-    expect(abortButtonClass(false)).toBe('btn');
-    expect(abortButtonClass(true)).toBe('btn confirm');
+    expect(abortButtonClass(false)).toBe('osprey-btn');
+    expect(abortButtonClass(true)).toBe('osprey-btn confirm');
   });
 });
 
@@ -2416,27 +2538,55 @@ describe('bundle wiring', () => {
     expect(manifest.entry).toBe('index.html');
   });
 
-  test('the panel chrome agrees with the manifest', () => {
+  test('the toolbar is the page’s top row: no header of its own, no tab strip', () => {
+    // One header row (DESIGN.md §12): no in-body header, no tab strip.
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
     expect(html).toContain('<title>Bluesky</title>');
-    expect(html).toContain('<h1>Bluesky</h1>');
-    expect(html).toContain('OSPREY Bluesky');
-  });
-
-  test('the queue controls render OUTSIDE the three view containers', () => {
-    // The whole point of the control strip: a halt must never be a tab switch
-    // away while a plan is moving. If either halt ever migrates inside a view
-    // container, it becomes invisible on the other two tabs. Start lives in
-    // the same strip — the Queue tab is where it is SHOWN (stripControls),
-    // but there is exactly one set of controls, not one per tab.
-    const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
-    const firstView = html.indexOf('id="view-plans"');
-    expect(firstView).toBeGreaterThan(-1);
-    for (const id of ['start-btn', 'stop-btn', 'abort-btn', 'queue-state-badge', 'queue-banner']) {
-      expect(html.indexOf(`id="${id}"`), `${id} must precede the view containers`).toBeLessThan(
-        firstView
+    for (const retired of ['<h1>', 'panel-chrome', 'panel-tabs', 'status-strip', 'role="tab"']) {
+      expect(html.slice(html.indexOf('<body>'), html.indexOf('id="view-plans"'))).not.toContain(
+        retired
       );
     }
+    const root = html.indexOf('id="panel-root"');
+    const toolbar = html.indexOf('class="osprey-panel-toolbar"');
+    expect(toolbar).toBeGreaterThan(root);
+    // Nothing but a comment sits between the root and its toolbar.
+    expect(
+      html
+        .slice(html.indexOf('>', root) + 1, toolbar)
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .trim()
+    ).toBe('<div');
+  });
+
+  test('the queue controls render OUTSIDE the three view containers, in the toolbar', () => {
+    // The whole point of the toolbar's end: a halt must never be a view switch
+    // away while a plan is moving. If either halt ever migrates inside a view
+    // container, it becomes invisible on the other two views. Start lives in
+    // the same toolbar — the Queue view is where it is SHOWN (stripControls),
+    // but there is exactly one set of controls, not one per view.
+    const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
+    const toolbar = html.indexOf('class="osprey-panel-toolbar"');
+    const firstView = html.indexOf('id="view-plans"');
+    expect(firstView).toBeGreaterThan(-1);
+    for (const id of [
+      'plan-sidebar-toggle',
+      'view-switch',
+      'lane-select',
+      'queue-state-chip',
+      'start-btn',
+      'stop-btn',
+      'abort-btn',
+    ]) {
+      const at = html.indexOf(`id="${id}"`);
+      expect(at, `${id} must sit in the toolbar`).toBeGreaterThan(toolbar);
+      expect(at, `${id} must precede the view containers`).toBeLessThan(firstView);
+    }
+    expect(html.indexOf('id="queue-banner"')).toBeLessThan(firstView);
+    // Start is the one primary button; the halts are plain buttons.
+    expect(html).toMatch(/<button[^>]*id="start-btn"[^>]*class="osprey-btn primary"/);
+    expect(html).toMatch(/<button[^>]*id="stop-btn"[^>]*class="osprey-btn"/);
+    expect(html).toMatch(/<button[^>]*id="abort-btn"[^>]*class="osprey-btn"/);
     // The folded "Queue controls ▸" disclosure is gone for good: the halts
     // hide and show by state, never behind a click.
     expect(html).not.toContain('halts-toggle');
@@ -2458,55 +2608,6 @@ describe('bundle wiring', () => {
     // restore exactly the behaviour this replaces.
     const details = html.slice(html.indexOf('id="table-details"'));
     expect(details.slice(0, details.indexOf('>'))).not.toContain('open');
-  });
-
-  test('the in-body view switcher and filter hide whenever embedded', () => {
-    // Checked as resolved style rather than as matching source text. Embedded,
-    // the hub's tile bar carries the view switcher (SPEC §5.1: one header row
-    // per pane), so the in-body strip would be a second switcher under the
-    // first. Standalone, `contributeHeader` is a no-op and the in-body strip is
-    // the ONLY way to navigate.
-    const style = document.createElement('style');
-    style.textContent = readFileSync(`${BUNDLE}panel.css`, 'utf-8');
-    document.head.appendChild(style);
-    const tabs = document.createElement('nav');
-    tabs.className = 'panel-tabs';
-    const filter = document.createElement('div');
-    filter.className = 'sidebar-head';
-    const strip = document.createElement('div');
-    strip.className = 'status-strip';
-    document.body.append(tabs, filter, strip);
-
-    /** @param {boolean} embedded */
-    function shown(embedded) {
-      document.body.classList.toggle('embedded', embedded);
-      return {
-        tabs: getComputedStyle(tabs).display !== 'none',
-        filter: getComputedStyle(filter).display !== 'none',
-        strip: getComputedStyle(strip).display !== 'none',
-      };
-    }
-
-    try {
-      expect(shown(false)).toEqual({
-        tabs: true,
-        filter: true,
-        strip: true,
-      });
-      // Embedded: the hub draws both in the tile bar, and the safety strip stays
-      // on screen.
-      expect(shown(true)).toEqual({
-        tabs: false,
-        filter: false,
-        strip: true,
-      });
-    } finally {
-      style.remove();
-      tabs.remove();
-      filter.remove();
-      strip.remove();
-      document.body.classList.remove('embedded');
-    }
   });
 
   test('the abort button never ships disabled either', () => {
@@ -2601,6 +2702,21 @@ describe('booting the shipped bundle', () => {
     };
   }
 
+  /**
+   * Pick one of the panel's ⋯ entries exactly as the hub's round-trip
+   * delivers it (`canopy-host-header-action` with the menu id and the entry).
+   *
+   * @param {string} entry
+   */
+  function pickMenuEntry(entry) {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'canopy-host-header-action', id: MENU_ID, value: entry },
+        origin: window.location.origin,
+      })
+    );
+  }
+
   beforeEach(() => {
     BootEventSource.opened = [];
     vi.resetModules();
@@ -2616,7 +2732,9 @@ describe('booting the shipped bundle', () => {
     document.body.innerHTML = '';
   });
 
-  test('the plan browser width is read under the storage scope', async () => {
+  test('the plan sidebar width is read under the storage scope, from the old key', async () => {
+    // The shared panel sidebar keeps the key the old splitter stored under, so
+    // a width an operator chose before the redesign carries over.
     document.documentElement.setAttribute('data-osprey-storage-scope', 'bob');
     localStorage.setItem('osprey-plan-sidebar-width', '420');
     localStorage.setItem('osprey-plan-sidebar-width--bob', '300');
@@ -2624,7 +2742,8 @@ describe('booting the shipped bundle', () => {
       boot();
       await import(`${BUNDLE}panel.js`);
       const sidebar = /** @type {HTMLElement} */ (document.getElementById('plan-sidebar'));
-      expect(sidebar.style.flexBasis).toBe('300px');
+      expect(sidebar.style.width).toBe('300px');
+      expect(sidebar.dataset.open).toBe('true');
     } finally {
       document.documentElement.removeAttribute('data-osprey-storage-scope');
       localStorage.clear();
@@ -2714,14 +2833,16 @@ describe('booting the shipped bundle', () => {
     expect(panel.abortBtn.className).not.toContain('halt-idle');
   });
 
-  test('clear is two clicks, dead with nothing waiting, and sends DELETE /queue/items', async () => {
+  test('the ⋯ Clear arms a note on the Queued card; its Confirm sends DELETE /queue/items', async () => {
     const panel = boot();
     await import(`${BUNDLE}panel.js`);
     const fetchMock = /** @type {any} */ (globalThis.fetch);
-    const clearBtn = /** @type {any} */ (document.getElementById('clear-btn'));
+    const note = /** @type {any} */ (document.getElementById('clear-note'));
 
+    // Nothing waiting: a (stale) pick arms nothing.
     panel.pushFrame({ type: 'queue', status: summary(), items: [], running_item: null });
-    expect(clearBtn.disabled).toBe(true);
+    pickMenuEntry(MENU_ENTRY.clearQueue);
+    expect(note.hidden).toBe(true);
 
     panel.pushFrame({
       type: 'queue',
@@ -2729,28 +2850,36 @@ describe('booting the shipped bundle', () => {
       items: [item(), item({ item_uid: 'uid-2' })],
       running_item: null,
     });
-    expect(clearBtn.disabled).toBe(false);
-    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
-
     const before = fetchMock.mock.calls.length;
-    clearBtn.click();
+    pickMenuEntry(MENU_ENTRY.clearQueue);
     expect(fetchMock.mock.calls.length).toBe(before); // armed only
-    expect(clearBtn.textContent).toBe(CONFIRM_CLEAR_LABEL);
-    expect(document.getElementById('clear-note')?.textContent).toContain('2 waiting plans');
+    // The Queue view opens on it, with the note at the top of the Queued card.
+    expect(/** @type {any} */ (document.getElementById('view-queue')).hidden).toBe(false);
+    expect(note.hidden).toBe(false);
+    expect(note.closest('#queue-card')).not.toBeNull();
+    expect(note.textContent).toContain('all 2 waiting plans');
+    const [confirm, cancel] = note.querySelectorAll('button');
+    expect(confirm.textContent).toBe(CONFIRM_CLEAR_LABEL);
+    expect(cancel.textContent).toBe(CANCEL_CLEAR_LABEL);
 
-    clearBtn.click();
+    confirm.click();
     expect(fetchMock.mock.calls.length).toBe(before + 1);
     const [url, init] = fetchMock.mock.calls[before];
     expect(String(url)).toContain('/queue/items');
     expect(String(url)).not.toContain('/queue/items/');
     expect(init.method).toBe('DELETE');
-    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+    expect(note.hidden).toBe(true);
 
+    // Cancel disarms and sends nothing.
+    pickMenuEntry(MENU_ENTRY.clearQueue);
+    note.querySelectorAll('button')[1].click();
+    expect(note.hidden).toBe(true);
+    expect(fetchMock.mock.calls.length).toBe(before + 1);
     // A frame with nothing waiting disarms a half-armed confirm.
-    clearBtn.click();
-    expect(clearBtn.textContent).toBe(CONFIRM_CLEAR_LABEL);
+    pickMenuEntry(MENU_ENTRY.clearQueue);
+    expect(note.hidden).toBe(false);
     panel.pushFrame({ type: 'queue', status: summary(), items: [], running_item: null });
-    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+    expect(note.hidden).toBe(true);
   });
 
   test('a success banner is a receipt: it leaves by itself, a refusal stays', async () => {
@@ -2788,24 +2917,36 @@ describe('booting the shipped bundle', () => {
     }
   });
 
-  test('the help tip is the shared info tip, on the Queue tab, with four plain sentences', async () => {
-    boot();
+  test('the queue chip says the state and opens one sentence per control', async () => {
+    const panel = boot();
     await import(`${BUNDLE}panel.js`);
-    const helpBtn = /** @type {any} */ (document.getElementById('queue-help-btn'));
-    const tip = /** @type {any} */ (document.getElementById('queue-help'));
-    // The design system's hover/focus tip, not a click toggle: the bubble
-    // lives inside the disc, and no open state is kept on the button.
-    expect(helpBtn.classList.contains('osprey-info')).toBe(true);
-    expect(tip.classList.contains('osprey-tip')).toBe(true);
-    expect(tip.getAttribute('role')).toBe('tooltip');
-    expect(tip.parentElement).toBe(helpBtn);
-    expect(helpBtn.hasAttribute('aria-expanded')).toBe(false);
-    expect(helpBtn.getAttribute('aria-label')).toBeTruthy();
-    const text = tip.textContent.replace(/\s+/g, ' ').trim();
-    for (const verb of ['Start', 'Stop', 'Abort', 'Clear']) expect(text).toContain(verb);
-    expect(text.split('. ').length).toBe(4);
-    // Boot lands on Plans: the help affordance is hidden with the controls.
-    expect(helpBtn.hidden).toBe(true);
+    const chip = /** @type {any} */ (document.getElementById('queue-state-chip'));
+    // First paint: connecting, as a button that opens its detail.
+    expect(chip.tagName).toBe('BUTTON');
+    expect(chip.className).toBe('osprey-chip osprey-chip--connecting');
+    expect(chip.textContent).toBe('connecting…');
+
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ manager_state: 'executing_queue' }),
+      items: [],
+      running_item: null,
+    });
+    expect(chip.className).toBe('osprey-chip osprey-chip--info');
+    expect(chip.textContent).toBe('running');
+    expect(chip.getAttribute('aria-label')).toBe('Queue status: running');
+    panel.pushFrame({ type: 'queue', status: summary(), items: [], running_item: null });
+    expect(chip.className).toBe('osprey-chip');
+
+    chip.click();
+    const popover = /** @type {any} */ (document.getElementById('osprey-info-popover'));
+    expect(popover.hidden).toBe(false);
+    for (const sentence of [CONTROL_HINTS.start, CONTROL_HINTS.stop, CONTROL_HINTS.abort]) {
+      expect(popover.textContent).toContain(sentence);
+    }
+    expect(popover.textContent).toContain('manager: idle');
+    // The retired "?" tip beside the buttons is gone for good.
+    expect(document.querySelector('.osprey-info, .osprey-tip')).toBeNull();
   });
 
   /**
@@ -2906,34 +3047,45 @@ describe('booting the shipped bundle', () => {
     }
   });
 
-  test('the history Clear is dead until runs are listed, then two clicks send DELETE /history', async () => {
-    const fetchMock = stubHistoryFetch();
+  test('the history Clear arms only once runs are listed; its Confirm sends DELETE /history', async () => {
+    /** @type {(value: any) => void} */
+    let answerRuns = () => {};
+    const fetchMock = vi.fn((/** @type {any} */ url, /** @type {any} */ init) => {
+      const method = init?.method || 'GET';
+      if (method === 'GET' && String(url).endsWith('/runs')) {
+        return new Promise((resolve) => {
+          answerRuns = resolve;
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({}) });
+    });
     vi.stubGlobal('fetch', fetchMock);
     boot();
-    const clearBtn = /** @type {any} */ (document.getElementById('history-clear-btn'));
-    // The shipped markup ships it dead: nothing has been read yet.
-    expect(clearBtn.disabled).toBe(true);
+    const note = /** @type {any} */ (document.getElementById('history-clear-note'));
     await import(`${BUNDLE}panel.js`);
-    await vi.waitFor(() => expect(clearBtn.disabled).toBe(false));
-    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+    // Before the read lands there is nothing to clear: a pick arms nothing.
+    pickMenuEntry(MENU_ENTRY.clearHistory);
+    expect(note.hidden).toBe(true);
+    answerRuns({ ok: true, status: 200, json: async () => HISTORY_RUNS });
+    const list = /** @type {any} */ (document.getElementById('history-items'));
+    await vi.waitFor(() => expect(list.querySelectorAll('.queue-row')).toHaveLength(2));
 
     const before = fetchMock.mock.calls.length;
-    clearBtn.click();
+    pickMenuEntry(MENU_ENTRY.clearHistory);
     expect(fetchMock.mock.calls.length).toBe(before); // armed only
-    expect(clearBtn.textContent).toBe(CONFIRM_CLEAR_LABEL);
-    expect(document.getElementById('history-clear-note')?.textContent).toContain(
-      '2 completed runs'
-    );
+    expect(note.hidden).toBe(false);
+    expect(note.closest('#history-card')).not.toBeNull();
+    expect(note.textContent).toContain('all 2 completed runs');
 
-    clearBtn.click();
-    expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+    note.querySelector('button').click();
+    expect(note.hidden).toBe(true);
     await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(before + 1));
     const [url, init] = fetchMock.mock.calls[before];
     expect(String(url)).toMatch(/\/history$/);
     expect(init.method).toBe('DELETE');
   });
 
-  test('withdrawals alone keep the Clear live, and the note says what goes', async () => {
+  test('withdrawals alone keep the history Clear live, and the note says what goes', async () => {
     const fetchMock = vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
       const method = init?.method || 'GET';
       if (method === 'GET' && String(url).endsWith('/runs')) {
@@ -2954,17 +3106,18 @@ describe('booting the shipped bundle', () => {
     vi.stubGlobal('fetch', fetchMock);
     boot();
     await import(`${BUNDLE}panel.js`);
-    const clearBtn = /** @type {any} */ (document.getElementById('history-clear-btn'));
+    const list = /** @type {any} */ (document.getElementById('history-items'));
+    const note = /** @type {any} */ (document.getElementById('history-clear-note'));
 
     // No completed runs at all, and the Clear is still the way these rows go.
-    await vi.waitFor(() => expect(clearBtn.disabled).toBe(false));
-    clearBtn.click();
-    expect(document.getElementById('history-clear-note')?.textContent).toBe(
-      'Click again to remove the 2 removed-plan rows from the list.'
+    await vi.waitFor(() => expect(list.querySelectorAll('.queue-row.removal')).toHaveLength(2));
+    pickMenuEntry(MENU_ENTRY.clearHistory);
+    expect(note.querySelector('.confirm-note-text').textContent).toBe(
+      'Remove the 2 removed-plan rows from the list?'
     );
 
     const before = fetchMock.mock.calls.length;
-    clearBtn.click();
+    note.querySelector('button').click();
     await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(before + 1));
     const [url, init] = fetchMock.mock.calls[before];
     expect(String(url)).toMatch(/\/history$/);
@@ -3425,18 +3578,15 @@ describe('the merged panel shell', () => {
   /**
    * Mount the shipped markup and pretend to be inside the web terminal.
    *
-   * `embedded` decides whether `contributeHeader` does anything at all — it is
-   * a strict no-op outside a frame — so a test that wants to see the
-   * contribution has to claim both the body class and a distinct parent.
-   *
-   * @param {{embedded?: boolean}} [options]
+   * `contributeHeader` is a strict no-op outside a frame, so a test that wants to
+   * see the contribution has to claim both the body class and a distinct parent.
    */
-  function mount({ embedded = true } = {}) {
+  function mount() {
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
     const body = html.match(/<body>([\s\S]*)<\/body>/);
     if (!body) throw new Error('could not extract <body> from index.html');
     document.body.innerHTML = body[1].replace(/<script[\s\S]*?<\/script>/g, '');
-    if (embedded) document.body.classList.add('embedded');
+    document.body.classList.add('embedded');
     Object.defineProperty(window, 'parent', {
       configurable: true,
       value: {
@@ -3463,24 +3613,15 @@ describe('the merged panel shell', () => {
   const byId = (id) => /** @type {any} */ (document.getElementById(id));
 
   /**
-   * The nav item of the most recent contribution, with its entries typed as
-   * the loose wire objects they are.
+   * The panel's one contribution item, asserted alone: a migrated panel sends
+   * a single v3 `menu` and nothing else to the tile bar.
    *
-   * @returns {{id: string, items: Array<{id: string, label: string, active?: boolean}>}}
+   * @returns {{kind: string, id: string, items: Array<{id: string, label: string, disabled?: boolean, danger?: boolean}>}}
    */
-  function navContribution() {
-    return lastContribution().find((entry) => entry.kind === 'nav');
-  }
-
-  /**
-   * The Results nav entry of the most recent contribution. Asserted present
-   * rather than optional-chained: an absent Results entry is itself the
-   * regression these tests exist to catch.
-   */
-  function resultsNavEntry() {
-    const entry = navContribution().items.find((candidate) => candidate.id === 'results');
-    if (!entry) throw new Error('no Results entry in the contribution');
-    return entry;
+  function menuContribution() {
+    const items = lastContribution();
+    expect(items).toHaveLength(1);
+    return items[0];
   }
 
   /** @param {any} frameObject */
@@ -3552,7 +3693,210 @@ describe('the merged panel shell', () => {
     return ['plans', 'queue', 'results'].filter((id) => !byId(`view-${id}`).hidden);
   }
 
-  test('the detail pane says what to do until a plan is selected, then shows that plan', async () => {
+  test('while nothing has answered, both panes say so; then the first plan shows', async () => {
+    /** @type {(value: any) => void} */
+    let answerPlans = () => {};
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url) =>
+        String(url).endsWith('/plans')
+          ? new Promise((resolve) => {
+              answerPlans = resolve;
+            })
+          : Promise.resolve({ ok: true, status: 200, json: async () => ({}) })
+      )
+    );
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    // No blank panes: the list is loading, and the detail pane names the
+    // queue's state — the halts are live — and offers Retry.
+    expect(byId('plan-tree').hidden).toBe(true);
+    expect(byId('plan-list-state').textContent).toContain('Loading plans…');
+    const empty = byId('detail-empty');
+    expect(empty.hidden).toBe(false);
+    expect(byId('detail-body').hidden).toBe(true);
+    expect(empty.querySelector('.osprey-state-message').textContent).toBe(
+      'Connecting to the queue server…'
+    );
+    expect(empty.textContent).toContain('Stop and Abort are live while this connects.');
+    expect(empty.querySelector('button').textContent).toBe('Retry');
+
+    answerPlans({
+      ok: true,
+      status: 200,
+      json: async () => [{ name: 'orm', provenance: 'shipped', description: '' }],
+    });
+    // The first plan is auto-selected once the list lands: the state goes, the detail comes.
+    await vi.waitFor(() => expect(byId('detail-body').hidden).toBe(false));
+    expect(empty.hidden).toBe(true);
+    expect(byId('plan-list-state').hidden).toBe(true);
+    expect(byId('plan-tree').textContent).toContain('orm');
+  });
+
+  test('an unreachable bridge says so in the detail pane, and Retry dials again', async () => {
+    const fetchMock = vi.fn(async (/** @type {any} */ url) =>
+      String(url).endsWith('/plans')
+        ? { ok: false, status: 502, json: async () => ({ detail: 'bridge unreachable' }) }
+        : { ok: true, status: 200, json: async () => ({}) }
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    const empty = byId('detail-empty');
+    await vi.waitFor(() =>
+      expect(empty.querySelector('.osprey-state-message').textContent).toBe(
+        'Queue server unreachable'
+      )
+    );
+    expect(empty.textContent).toContain('Stop and Abort are still sent when you click them.');
+    // The status code is a technical detail, not page content.
+    expect(empty.textContent).not.toContain('502');
+    expect(byId('plan-list-state').textContent).toContain('No plans available.');
+
+    const queueStreams = () =>
+      ShellEventSource.opened.filter((source) => source.url.includes('/queue/events')).length;
+    const planReads = () =>
+      fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/plans')).length;
+    const streamsBefore = queueStreams();
+    const readsBefore = planReads();
+    empty.querySelector('button').click();
+    expect(queueStreams()).toBe(streamsBefore + 1);
+    expect(planReads()).toBe(readsBefore + 1);
+  });
+
+  test('a manager the bridge cannot read is unreachable too, with the err chip', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (url) =>
+          new Promise((resolve) => {
+            // The plan read never answers; the queue frame decides the state.
+            if (!String(url).endsWith('/plans')) {
+              resolve({ ok: true, status: 200, json: async () => ({}) });
+            }
+          })
+      )
+    );
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    pushQueueFrame({ type: 'queue', status: { available: false, reason: 'manager_unreachable' } });
+    expect(byId('detail-empty').querySelector('.osprey-state-message').textContent).toBe(
+      'Queue server unreachable'
+    );
+    expect(byId('queue-state-chip').className).toBe('osprey-chip osprey-chip--err');
+    // The bridge's reason stays off the page.
+    expect(byId('detail-empty').textContent).not.toContain('manager_unreachable');
+  });
+
+  test('exactly one view shows at a time, and Plans is the one on boot', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    expect(visibleViews()).toEqual(['plans']);
+    expect(byId('view-tab-plans').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('the toolbar switcher switches views, and presses the one showing', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+
+    byId('view-tab-queue').click();
+    expect(visibleViews()).toEqual(['queue']);
+    expect(byId('view-tab-queue').getAttribute('aria-pressed')).toBe('true');
+    expect(byId('view-tab-plans').getAttribute('aria-pressed')).toBe('false');
+
+    byId('view-tab-results').click();
+    expect(visibleViews()).toEqual(['results']);
+    // The switcher is the panel's own: the hub's retired nav action does nothing.
+    sendHeaderAction('view', 'plans');
+    expect(visibleViews()).toEqual(['results']);
+  });
+
+  test('the tile bar gets ONE v3 menu: the two Clears, live with their counts', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+
+    // Before anything is read both are dead, and neither claims a count.
+    expect(menuContribution()).toEqual({
+      kind: 'menu',
+      id: MENU_ID,
+      items: [
+        {
+          id: MENU_ENTRY.clearQueue,
+          label: 'Clear waiting plans…',
+          disabled: true,
+          danger: true,
+        },
+        { id: MENU_ENTRY.clearHistory, label: 'Clear history…', disabled: true, danger: true },
+      ],
+    });
+
+    pushQueueFrame({
+      type: 'queue',
+      status: summary({ items_in_queue: 2 }),
+      items: [item(), item({ item_uid: 'uid-2' })],
+      running_item: null,
+    });
+    const [clearQueue] = menuContribution().items;
+    expect(clearQueue).toMatchObject({ label: 'Clear waiting plans (2)…', disabled: false });
+
+    // No legacy kind, on any view: no nav, no search, no text.
+    for (const view of ['queue', 'results', 'plans']) {
+      byId(`view-tab-${view}`).click();
+      expect(lastContribution().map((entry) => entry.kind)).toEqual(['menu']);
+    }
+    // An entry the menu did not list is ignored, whatever frame sent it.
+    sendHeaderAction(MENU_ID, 'nonsense');
+    expect(visibleViews()).toEqual(['plans']);
+  });
+
+  test('a menu pick arms its Clear on the Queue view', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    pushQueueFrame({
+      type: 'queue',
+      status: summary({ items_in_queue: 1 }),
+      items: [item()],
+      running_item: null,
+    });
+    sendHeaderAction(MENU_ID, MENU_ENTRY.clearQueue);
+    expect(visibleViews()).toEqual(['queue']);
+    expect(byId('clear-note').hidden).toBe(false);
+    expect(byId('clear-note').textContent).toContain('the waiting plan');
+  });
+
+  test('the plan sidebar opens on Plans; off Plans its toggle is disabled in place', async () => {
+    mount();
+    await import(`${BUNDLE}panel.js`);
+    const sidebar = byId('plan-sidebar');
+    const toggle = byId('plan-sidebar-toggle');
+    expect(sidebar.dataset.open).toBe('true');
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(toggle.getAttribute('aria-controls')).toBe('plan-sidebar');
+    expect(toggle.title).toBe('Hide sidebar');
+    expect(toggle.dataset.tip).toBeUndefined();
+    // Always the toolbar's first control.
+    expect(toggle.parentElement.firstElementChild).toBe(toggle);
+
+    for (const view of ['queue', 'results']) {
+      byId(`view-tab-${view}`).click();
+      // Still in its slot, so the switcher beside it never shifts.
+      expect(toggle.closest('[hidden]')).toBeNull();
+      expect(toggle.disabled).toBe(true);
+      // The reason is its tooltip; the tooltip layer reads `data-tip` first.
+      expect(toggle.dataset.tip).toBe('The plan list belongs to Plans');
+      expect(sidebar.dataset.open).toBe('false');
+    }
+
+    byId('view-tab-plans').click();
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.dataset.tip).toBeUndefined();
+    expect(sidebar.dataset.open).toBe('true');
+    // Those were automatic: nothing was stored for the operator.
+    expect(localStorage.getItem('osprey-plan-sidebar-width')).toBeNull();
+  });
+
+  test('the operator’s own toggle is kept, and the filter sits atop the list', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url) =>
@@ -3560,56 +3904,39 @@ describe('the merged panel shell', () => {
           ? {
               ok: true,
               status: 200,
-              json: async () => [{ name: 'orm', provenance: 'shipped', description: '' }],
+              json: async () => [
+                { name: 'grid_scan', provenance: 'shipped', description: '' },
+                { name: 'orm', provenance: 'shipped', description: '' },
+              ],
             }
           : { ok: true, status: 200, json: async () => ({}) }
       )
     );
-    mount();
-    // Before any plan is chosen the pane is not a bare box: it carries the sentence.
-    const empty = byId('detail-empty');
-    expect(empty.hidden).toBe(false);
-    expect(empty.textContent).toContain('Select a plan to see its parameters.');
-    expect(byId('detail-body').hidden).toBe(true);
+    try {
+      mount();
+      await import(`${BUNDLE}panel.js`);
+      await vi.waitFor(() => expect(byId('plan-tree').textContent).toContain('grid_scan'));
 
-    await import(`${BUNDLE}panel.js`);
-    // The first plan is auto-selected once the list lands: the sentence goes, the detail comes.
-    await vi.waitFor(() => expect(byId('detail-body').hidden).toBe(false));
-    expect(empty.hidden).toBe(true);
-  });
+      // The filter is the sidebar's own control, at the top of the list.
+      const search = byId('plan-search');
+      expect(search.closest('#plan-sidebar')).not.toBeNull();
+      expect(search.closest('.osprey-search-field')).not.toBeNull();
+      search.value = 'orm';
+      search.dispatchEvent(new Event('input'));
+      expect(byId('plan-tree').textContent).not.toContain('grid_scan');
+      expect(byId('plan-tree').textContent).toContain('orm');
+      search.value = 'nothing-matches';
+      search.dispatchEvent(new Event('input'));
+      expect(byId('plan-list-state').textContent).toContain('No plan matches the filter.');
 
-  test('exactly one view shows at a time, and Plans is the one on boot', async () => {
-    mount();
-    await import(`${BUNDLE}panel.js`);
-    expect(visibleViews()).toEqual(['plans']);
-    expect(byId('view-tab-plans').getAttribute('aria-selected')).toBe('true');
-  });
-
-  test('the in-body strip switches views, and the tabs track it', async () => {
-    mount();
-    await import(`${BUNDLE}panel.js`);
-
-    byId('view-tab-queue').click();
-    expect(visibleViews()).toEqual(['queue']);
-    expect(byId('view-tab-queue').getAttribute('aria-selected')).toBe('true');
-    expect(byId('view-tab-plans').getAttribute('aria-selected')).toBe('false');
-
-    byId('view-tab-results').click();
-    expect(visibleViews()).toEqual(['results']);
-  });
-
-  test('the hub nav action drives the same switch as the in-body strip', async () => {
-    mount();
-    await import(`${BUNDLE}panel.js`);
-
-    sendHeaderAction('view', 'results');
-    expect(visibleViews()).toEqual(['results']);
-    expect(byId('view-tab-results').classList.contains('active')).toBe(true);
-
-    // An id the panel does not know must be ignored rather than blanking every
-    // view — the value comes from another frame, not from this module.
-    sendHeaderAction('view', 'nonsense');
-    expect(visibleViews()).toEqual(['results']);
+      byId('plan-sidebar-toggle').click();
+      expect(byId('plan-sidebar').dataset.open).toBe('false');
+      expect(JSON.parse(localStorage.getItem('osprey-plan-sidebar-width') || '{}')).toMatchObject({
+        collapsed: true,
+      });
+    } finally {
+      localStorage.clear();
+    }
   });
 
   test('picking a run in the Queue view opens the Results view on it', async () => {
@@ -3647,78 +3974,7 @@ describe('the merged panel shell', () => {
     }
   });
 
-  test('the three views are contributed as one nav item, active flag and all', async () => {
-    mount();
-    await import(`${BUNDLE}panel.js`);
-
-    const nav = navContribution();
-    expect(nav.id).toBe('view');
-    expect(nav.items.map((entry) => entry.id)).toEqual(['plans', 'queue', 'results']);
-    expect(nav.items.map((entry) => entry.label)).toEqual(['Plans', 'Queue', 'Results']);
-    expect(nav.items.filter((entry) => entry.active).map((entry) => entry.id)).toEqual(['plans']);
-
-    byId('view-tab-queue').click();
-    const after = navContribution();
-    expect(after.items.filter((entry) => entry.active).map((entry) => entry.id)).toEqual(['queue']);
-  });
-
-  test('the plan filter is contributed only while Plans is showing', async () => {
-    mount();
-    await import(`${BUNDLE}panel.js`);
-    expect(lastContribution().some((entry) => entry.kind === 'search')).toBe(true);
-
-    byId('view-tab-queue').click();
-    expect(lastContribution().some((entry) => entry.kind === 'search')).toBe(false);
-
-    byId('view-tab-plans').click();
-    const search = lastContribution().find((entry) => entry.kind === 'search');
-    expect(search.id).toBe('plan-filter');
-    expect(search.placeholder).toContain('Filter plans');
-  });
-
-  test('the view switcher is contributed last, so the conditional filter cannot move it', async () => {
-    // The hub right-anchors the interactive items into ONE cluster against the
-    // close button and lays it out in contribution order, so an item's arrival
-    // or departure moves everything BEFORE it and nothing after it. The filter
-    // is conditional (Plans view only); the switcher is what an
-    // operator aims at repeatedly. Switcher last therefore keeps the tab strip
-    // still, and the filter comes and goes in the slack to its left.
-    //
-    // Swap these and the strip jumps right by the filter's whole width the
-    // moment you click away from Plans — the target sliding out from under the
-    // cursor that just hit it.
-    mount();
-    await import(`${BUNDLE}panel.js`);
-
-    expect(lastContribution().map((entry) => entry.kind)).toEqual(['search', 'nav']);
-  });
-
-  test('the hub search action filters the same plans the in-body box does', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url) =>
-        String(url).endsWith('/plans')
-          ? {
-              ok: true,
-              status: 200,
-              json: async () => [
-                { name: 'grid_scan', provenance: 'shipped', description: '' },
-                { name: 'orm', provenance: 'shipped', description: '' },
-              ],
-            }
-          : { ok: true, status: 200, json: async () => ({}) }
-      )
-    );
-    mount();
-    await import(`${BUNDLE}panel.js`);
-    await vi.waitFor(() => expect(byId('plan-tree').textContent).toContain('grid_scan'));
-
-    sendHeaderAction('plan-filter', 'orm');
-    expect(byId('plan-tree').textContent).not.toContain('grid_scan');
-    expect(byId('plan-tree').textContent).toContain('orm');
-  });
-
-  test('the Results tab carries a marker while data arrives for an unwatched run', async () => {
+  test('the Results button carries a marker while data arrives for an unwatched run', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url) => {
@@ -3744,6 +4000,7 @@ describe('the merged panel shell', () => {
     );
     mount();
     await import(`${BUNDLE}panel.js`);
+    const results = byId('view-tab-results');
 
     byId('view-tab-queue').click();
     pushQueueFrame({
@@ -3756,15 +4013,15 @@ describe('the merged panel shell', () => {
     // Selecting opened Results, so no marker: the operator IS watching. Wait
     // for the first poll to land, which is what starts the polling.
     await vi.waitFor(() => expect(byId('data-card').hidden).toBe(false));
-    expect(resultsNavEntry().label).toBe('Results');
+    expect(results.textContent).toBe('Results');
 
     // Walk away while it is still filling in.
     byId('view-tab-queue').click();
-    expect(resultsNavEntry().label).toBe('Results •');
+    expect(results.textContent).toBe('Results •');
 
     // Coming back clears it.
-    byId('view-tab-results').click();
-    expect(resultsNavEntry().label).toBe('Results');
+    results.click();
+    expect(results.textContent).toBe('Results');
   });
 
   test('a run finishing with nothing selected fills Results without switching tabs', async () => {
@@ -3837,16 +4094,6 @@ describe('the merged panel shell', () => {
     );
   });
 
-  test('standalone, the panel contributes nothing and stays navigable', async () => {
-    // The single most important correctness point of the merge: with no hub
-    // there is no contributed strip, so the in-body one must still work.
-    mount({ embedded: false });
-    await import(`${BUNDLE}panel.js`);
-    expect(contributions).toEqual([]);
-    byId('view-tab-results').click();
-    expect(visibleViews()).toEqual(['results']);
-  });
-
   test('the two halts are live on every view while a plan is moving', async () => {
     mount();
     await import(`${BUNDLE}panel.js`);
@@ -3866,17 +4113,19 @@ describe('the merged panel shell', () => {
     }
   });
 
-  test('before the first frame the halts are on every view — doubt shows them', async () => {
+  test('before the first frame the halts are live on every view — doubt shows them', async () => {
     mount();
     await import(`${BUNDLE}panel.js`);
     for (const view of ['plans', 'queue', 'results']) {
       byId(`view-tab-${view}`).click();
       expect(byId('stop-btn').closest('[hidden]'), `stop hidden on ${view}`).toBeNull();
       expect(byId('abort-btn').closest('[hidden]'), `abort hidden on ${view}`).toBeNull();
+      expect(byId('stop-btn').disabled, `stop dead on ${view}`).toBe(false);
+      expect(byId('abort-btn').disabled, `abort dead on ${view}`).toBe(false);
     }
   });
 
-  test('a dormant queue keeps its controls on the Queue tab only', async () => {
+  test('a dormant queue keeps its controls on the Queue view only', async () => {
     mount();
     await import(`${BUNDLE}panel.js`);
     pushQueueFrame({ type: 'queue', status: summary(), items: [], running_item: null });
@@ -3890,12 +4139,12 @@ describe('the merged panel shell', () => {
       for (const id of ['start-btn', 'stop-btn', 'abort-btn']) {
         expect(byId(id).closest('[hidden]'), `${id} shown on ${view}`).not.toBeNull();
       }
-      // The badge stays: the queue's state is never a tab switch away.
-      expect(byId('queue-state-badge').closest('[hidden]')).toBeNull();
+      // The chip stays: the queue's state is never a view switch away.
+      expect(byId('queue-state-chip').closest('[hidden]')).toBeNull();
     }
   });
 
-  test('start shows on the Queue tab alone, even while a plan is moving', async () => {
+  test('start shows on the Queue view alone, even while a plan is moving', async () => {
     mount();
     await import(`${BUNDLE}panel.js`);
     pushQueueFrame({
@@ -3908,5 +4157,7 @@ describe('the merged panel shell', () => {
     expect(byId('start-btn').closest('[hidden]')).not.toBeNull();
     byId('view-tab-queue').click();
     expect(byId('start-btn').closest('[hidden]')).toBeNull();
+    // The one primary button of the toolbar.
+    expect(byId('start-btn').classList.contains('primary')).toBe(true);
   });
 });
