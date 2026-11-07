@@ -81,8 +81,8 @@ Under ``network: host`` the render changes in four ways:
   ``services.event_dispatcher.bind``.
 * Addresses OSPREY writes between services become ``localhost:<port>`` instead
   of compose service names — the dispatcher's target for its workers, and the
-  Nextcloud Talk, Google Chat and Microsoft Teams bridges' URLs for the dispatch
-  pair.
+  Nextcloud Talk, Google Chat, Microsoft Teams and Slack bridges' URLs for the
+  dispatch pair.
 
 ``osprey up`` reads each host-mode service's bind address from the variable it
 declares with ``bind_env:``. A service that declares ``listens: false`` opens no

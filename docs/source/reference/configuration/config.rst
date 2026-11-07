@@ -1079,6 +1079,10 @@ default. One row per image:
      - ``OSPREY_TEAMS_BRIDGE_IMAGE``
      - ``services.teams_bridge.image``
      - ``<project>-teams-bridge``
+   * - slack_bridge
+     - ``OSPREY_SLACK_BRIDGE_IMAGE``
+     - ``services.slack_bridge.image``
+     - ``<project>-slack-bridge``
    * - ariel_sync
      - ``OSPREY_WORKER_IMAGE``
      - ``services.ariel_sync.image``
