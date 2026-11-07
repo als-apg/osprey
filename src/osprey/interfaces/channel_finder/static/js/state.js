@@ -23,6 +23,22 @@
  * }} ViewHeader
  */
 
+/**
+ * The scope descriptor of GET /api/info: present only when the `pv_directory`
+ * section is configured.
+ * @typedef {{
+ *   label: string,
+ *   configured_services: ('alarm_log'|'alarm_state'|'put_log'|'logbook')[],
+ *   canopy: boolean,
+ *   ariel: boolean,
+ * }} DirectoryDescriptor
+ */
+
+/**
+ * Payload of `curatedResults`, emitted by a curated renderer after every search.
+ * @typedef {{ query: string, total: number }} CuratedResults
+ */
+
 class ChannelFinderState {
   constructor() {
     /** @type {Record<string, StateListener[]>} */
@@ -54,6 +70,23 @@ class ChannelFinderState {
     // its actions route to. Null when the view adds nothing.
     /** @type {ViewHeader|null} */
     this.viewHeader = null;
+
+    // The search words, carried across the Curated and All PVs tabs in both
+    // directions.
+    /** @type {string} */
+    this.scopeQuery = '';
+
+    // Set by app.js on each /api/info fetch; null when the section is not
+    // configured, and the allpvs, pv and ioc routes then do not exist.
+    /** @type {DirectoryDescriptor|null} */
+    this.directory = null;
+
+    // Events: `curatedResults` (CuratedResults) after every curated search,
+    // `directoryLabel` (string) after each All PVs page. Registered first, so
+    // every other listener of `directoryLabel` reads the new label here.
+    this.on('directoryLabel', (label) => {
+      if (this.directory) this.directory = { ...this.directory, label };
+    });
   }
 
   // ---- Event Emitter ----
