@@ -32,7 +32,6 @@ from osprey.services.bluesky_bridge.queue_backend import (
 )
 from osprey.services.bluesky_bridge.session_upload import (
     SESSION_PLAN_MODULE,
-    SessionPlanEnvironmentBusyError,
     SessionPlanNotReadyError,
     SessionPlanUploader,
     SessionPlanUploadError,
@@ -462,12 +461,6 @@ class FakeBackend:
         self.calls.append("task_result")
         return {"success": True, "status": self.task_status, "result": dict(self.task_outcome)}
 
-    async def close_environment(self) -> dict[str, Any]:
-        self.calls.append("close_environment")
-        self.environment_open = False
-        self.cycle_environment()
-        return {"success": True}
-
     async def ensure_environment(self) -> bool:
         self.calls.append("ensure_environment")
         self.environment_open = True
@@ -847,33 +840,6 @@ async def test_sync_on_a_closed_environment_uploads_nothing(
     assert await uploader.sync_namespace() == []
     assert len(backend.uploads) == 1
     assert uploader.uploaded_hashes() == {}
-
-
-async def test_reload_restores_the_validated_set(
-    tmp_path: Path,
-    backend: FakeBackend,
-    records: ValidationRecordStore,
-    uploader: SessionPlanUploader,
-) -> None:
-    write_plan(tmp_path, "sample_scan")
-    validate_plan(records, tmp_path, "sample_scan")
-    await uploader.upload_validated("sample_scan")
-
-    assert await uploader.reload_environment() == ["sample_scan"]
-    assert "close_environment" in backend.calls and "ensure_environment" in backend.calls
-    assert "sample_scan" in backend.namespace
-    await uploader.check_ready("sample_scan")
-
-
-async def test_reload_is_refused_while_a_run_is_active(
-    backend: FakeBackend, uploader: SessionPlanUploader
-) -> None:
-    backend.manager_state = "executing_queue"
-
-    with pytest.raises(SessionPlanEnvironmentBusyError, match="Stop the queue first"):
-        await uploader.reload_environment()
-
-    assert "close_environment" not in backend.calls
 
 
 # ---------------------------------------------------------------------------
