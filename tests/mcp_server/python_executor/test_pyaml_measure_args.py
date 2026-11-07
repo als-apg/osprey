@@ -17,9 +17,9 @@ from typing import Any
 import pytest
 from fastmcp.exceptions import ToolError
 
+from osprey.facility.kinds import registered
 from osprey.facility.render import render_facility_outputs
 from osprey.mcp_server.python_executor.tools._pyaml_measure_args import (
-    KINDS,
     MeasureArgs,
     resolve_measure_args,
 )
@@ -178,14 +178,25 @@ def test_a_model_without_a_view_is_refused_listing_those_with_one(config_path: P
 
 
 def test_an_unknown_kind_is_refused_naming_the_kinds(config_path: Path):
-    assert _refusal(config_path, kind="bba") == f"kind 'bba' is not one of {', '.join(KINDS)}"
+    """The kinds are the render's ``measurement_kinds`` table: every registered kind."""
+    assert _refusal(config_path, kind="bba") == (
+        f"kind 'bba' is not one of {', '.join(registered())}"
+    )
+
+
+def test_a_kind_resolves_to_its_rendered_plan_and_shape(config_path: Path):
+    orm = registered()["orm"]
+    args = _resolve(config_path)
+
+    assert args.plan == json.loads(json.dumps(dict(orm.measure_plan)))
+    assert args.matrix is orm.matrix
 
 
 @pytest.mark.parametrize(
     ("kind", "model", "lacking"),
     [
         ("crm", "SR", "sext"),
-        ("chromaticity_monitor", "LINE", "tune and rf"),
+        ("chromaticity_monitor", "LINE", "rf and tune"),
         ("dispersion", "LINE", "rf"),
         ("trm", "LINE", "tune"),
     ],
@@ -239,7 +250,7 @@ def test_by_group_with_bipolar_named_is_refused(config_path: Path):
 @pytest.mark.parametrize("kind", ["orm", "dispersion"])
 def test_by_outside_trm_and_crm_is_refused(config_path: Path, kind: str):
     assert _refusal(config_path, kind=kind, by="group").startswith(
-        "by is taken by trm and crm alone"
+        "by is taken by crm and trm alone"
     )
 
 

@@ -2,6 +2,9 @@
 
 The tool is registered on the ``python`` server when the render records a
 pyAML view, through :func:`register`; importing this module registers nothing.
+The ``kind`` the tool advertises lists the kinds the render's facts table
+``measurement_kinds`` names, read once at server start, so a kind a deployment
+package registers is callable by name like a built-in one.
 
 One call:
 
@@ -33,6 +36,8 @@ line, killed at its timeout above all, fails naming the channels it attempted
 
 from __future__ import annotations
 
+import functools
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -82,13 +87,41 @@ _SETTLE_KEYS: dict[str, float | int] = {
 }
 
 
-def register(server: Any) -> None:
-    """Add ``pyaml_measure`` to ``server``.
+def register(server: Any, render_root: Path) -> None:
+    """Add ``pyaml_measure`` to ``server``, its ``kind`` listing the render's kinds.
 
     Args:
         server: The FastMCP server to register on; nothing else is touched.
+        render_root: The directory holding the rendered ``config.yml``, whose
+            facts name the kinds.
     """
-    server.tool(pyaml_measure, name="pyaml_measure")
+    server.tool(advertised(render_root), name="pyaml_measure")
+
+
+def advertised(render_root: Path) -> Any:
+    """:func:`pyaml_measure` with its ``kind`` annotated by the render's kinds.
+
+    A render whose facts name no kind advertises ``kind`` as a string; the
+    resolver refuses every value it is given.
+    """
+    from osprey.facility.views.facts import read_facts
+    from osprey.mcp_server.python_executor.tools._pyaml_measure_args import kinds
+
+    named = kinds(read_facts(Path(render_root), ""))
+
+    @functools.wraps(pyaml_measure)
+    async def measure(*args: Any, **kwargs: Any) -> str:
+        return await pyaml_measure(*args, **kwargs)
+
+    signature = inspect.signature(pyaml_measure)
+    annotation: Any = Literal.__getitem__(named) if named else str
+    parameters = [
+        parameter.replace(annotation=annotation) if parameter.name == "kind" else parameter
+        for parameter in signature.parameters.values()
+    ]
+    measure.__signature__ = signature.replace(parameters=parameters)  # type: ignore[attr-defined]
+    measure.__annotations__ = {**pyaml_measure.__annotations__, "kind": annotation}
+    return measure
 
 
 def _refuse(message: str, suggestion: str) -> NoReturn:
@@ -146,6 +179,7 @@ def _script(args: MeasureArgs, approved_view_sha256: str | None) -> MeasureScrip
         settle=float(waits["sleep_between_step"]),
         n_avg_meas=int(waits["n_avg_meas"]),
         sleep_between_meas=float(waits["sleep_between_meas"]),
+        plan=args.plan,
     )
 
 
@@ -264,7 +298,7 @@ def _save_measurement(result: dict[str, Any], args: MeasureArgs, folder: Path | 
 
 
 async def pyaml_measure(
-    kind: Literal["orm", "dispersion", "trm", "crm", "chromaticity_monitor"],
+    kind: str,
     model: str | None = None,
     correctors: list[str] | None = None,
     modulation: Literal["bipolar", "unipolar"] | None = None,
@@ -283,24 +317,20 @@ async def pyaml_measure(
     view is ``data/pyaml/<model>/configuration.yaml``; each step is sized so
     no setpoint's largest single write exceeds half its limits.yaml max_step.
 
-    Kinds:
-      * ``orm`` — orbit response of the corrector setpoints;
-      * ``dispersion`` — orbit response to the RF frequency;
-      * ``trm`` — tune response of the quadrupoles;
-      * ``crm`` — chromaticity response of the sextupoles (steps the RF);
-      * ``chromaticity_monitor`` — the chromaticity [xi_x, xi_y] (steps the RF).
+    The kinds this deployment measures, and what each steps, are listed in
+    the pyaml-tools skill.
 
     Args:
-        kind: The measurement.
+        kind: The measurement kind; one of the kinds this deployment registers.
         model: The model measured; omit when exactly one model has a pyAML view.
-        correctors: Corrector setpoint addresses to step, ``orm`` only; omit for
-            every corrector.
+        correctors: Corrector setpoint addresses to step, for a kind that steps
+            correctors; omit for every corrector.
         modulation: ``bipolar`` steps each setting to both sides of its present
             value, ``unipolar`` to one; omit for bipolar, or for unipolar with
             ``by`` ``group``.
         by: ``magnet`` steps one magnet per column, ``group`` steps every magnet
-            of the group by the same integrated strength as one column
-            (``trm`` and ``crm`` only); group stepping is unipolar and refuses
+            of the group by the same integrated strength as one column (a
+            kind that takes ``by`` only); group stepping is unipolar and refuses
             ``bipolar``; omit for magnet.
         approved_target: Set by the approval hook; a value you pass is
             overwritten.
@@ -353,7 +383,9 @@ async def pyaml_measure(
     _note_writes(exec_result)
 
     try:
-        result = parse_measure_result(exec_result.stdout, args.kind)
+        result = parse_measure_result(
+            exec_result.stdout, args.kind, matrix=args.matrix, scalar=args.plan.get("scalar")
+        )
     except MeasureResultError as error:
         _raise_unparsed(exec_result, error, args.kind, exec_result.execution_folder)
 
