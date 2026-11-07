@@ -3936,9 +3936,10 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
         const m = url.match(/\/api\/panels\/([^/]+)\/cap$/);
         if (m) {
           capCalls.push(url);
-          if (!cap)
-            return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) };
-          return cap(decodeURIComponent(m[1]));
+          const id = decodeURIComponent(m[1]);
+          // The hub's answer for a first-party panel when the test names none.
+          if (!cap) return jsonOk({ id, opaque: false, cap_url: null });
+          return cap(id);
         }
         if (url.endsWith('/api/artifact-server')) {
           return jsonOk({ url: `${prefix}/panel/artifacts`, available: true });
@@ -4052,7 +4053,7 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     expect(new URL(el.src).pathname).toBe(capUrl);
   });
 
-  test("a config-defined custom panel (the hub mints no cap: 404) keeps today's attributes", async () => {
+  test("a config-defined custom panel (the hub answers opaque: false) keeps today's attributes", async () => {
     await bootOne({
       custom: [
         {
@@ -4077,6 +4078,7 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
       'a 500',
       () => ({ ok: false, status: 500, statusText: 'Server Error', json: async () => ({}) }),
     ],
+    ['a 404', () => ({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) })],
     [
       'a 401',
       () => ({ ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }),

@@ -1416,14 +1416,21 @@ async def mint_panel_cap(panel_id: str, request: Request):
     bound to the login that asked for it and is never shared between browsers
     (so it is never part of ``GET /api/panels`` or a broadcast frame).
 
+    The hub asks for every panel it has no catalog entry for, config-defined
+    ones included, so "this panel is first-party" is an answer, not an error.
+
     Returns:
-        ``{"id": <id>, "cap_url": "<prefix>/panel-static|panel/<id>/~c/<cap>/"}``,
-        or ``404`` for a panel that is not opaque or a caller naming no login.
+        ``{"id": <id>, "opaque": true, "cap_url": "<prefix>/panel-static|panel/<id>/~c/<cap>/"}``
+        for an opaque panel, ``{"id": <id>, "opaque": false, "cap_url": null}``
+        for a first-party one, or ``404`` for an unknown panel or an opaque one
+        asked for by a caller naming no login (the hub frames it opaque, uncapped).
     """
+    if panel_cap.is_first_party_panel(request, panel_id):
+        return {"id": panel_id, "opaque": False, "cap_url": None}
     url = panel_cap.cap_url(request, panel_id)
     if url is None:
         raise HTTPException(status_code=404, detail=f"No capability path for panel {panel_id!r}")
-    return {"id": panel_id, "cap_url": url}
+    return {"id": panel_id, "opaque": True, "cap_url": url}
 
 
 def _resolve_bundle_file(request: Request, panel_id: str, path: str) -> Path | None:
