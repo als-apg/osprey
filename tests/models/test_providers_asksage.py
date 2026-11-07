@@ -54,10 +54,6 @@ class TestAskSageMetadata:
         """Test provider requires base URL."""
         assert AskSageProviderAdapter.requires_base_url is True
 
-    def test_requires_model_id(self):
-        """Test provider requires model ID."""
-        assert AskSageProviderAdapter.requires_model_id is True
-
     def test_supports_proxy(self):
         """Test provider supports HTTP proxy."""
         assert AskSageProviderAdapter.supports_proxy is True

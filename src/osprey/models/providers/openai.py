@@ -32,7 +32,6 @@ class OpenAIProviderAdapter(LiteLLMDelegatingProvider):
     description = "OpenAI (GPT models)"
     requires_api_key = True
     requires_base_url = False
-    requires_model_id = True
     supports_proxy = True
     default_base_url = "https://api.openai.com/v1"
     models_probe = "bearer"
