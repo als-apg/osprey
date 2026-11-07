@@ -503,17 +503,9 @@ def _panel_cli_port_defaults(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) 
     keeps the decision in the command body, where the config — and therefore
     the deployment's own base — is reachable.
     """
-    from osprey.cli.ariel import web_command as ariel_web
-    from osprey.cli.artifacts_cmd import web as artifacts_web
-    from osprey.cli.channel_finder_cmd import web as channel_finder_web
     from osprey.cli.web_cmd import web as terminal_web
 
-    commands = {
-        "osprey ariel web": ariel_web,
-        "osprey artifacts web": artifacts_web,
-        "osprey channel-finder web": channel_finder_web,
-        "osprey web": terminal_web,
-    }
+    commands = {"osprey web": terminal_web}
     actual = {
         label: next(p.default for p in command.params if p.name == "port")
         for label, command in commands.items()

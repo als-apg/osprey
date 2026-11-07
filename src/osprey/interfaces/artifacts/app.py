@@ -30,7 +30,6 @@ from osprey.interfaces.artifacts import inline_assets
 from osprey.interfaces.artifacts.content_sandbox import ContentSandboxMiddleware, not_content
 from osprey.interfaces.opaque_origin import document_headers, opaque_headers
 from osprey.interfaces.vendor import html_has_plotly_bundle, is_offline, vendor_url
-from osprey.port_layout import default_port
 from osprey.utils.timeseries import (
     downsample_channel_map,
     extract_channel_series,
@@ -1708,51 +1707,3 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
-
-
-def run_server(
-    host: str = "127.0.0.1",
-    port: int = default_port("artifact"),
-    workspace_root: Path | None = None,
-) -> None:
-    """Run the artifact gallery server.
-
-    Direct-serve entry point: this same process builds the app and answers
-    requests. It mints this process's operator secret and prints the one-time
-    ``?token=`` login URL — the operator's only way past the auth middleware —
-    before constructing the app. The print is suppressed when the secret was
-    already supplied by an ancestor launcher or a multi-user deployment, so a
-    supplied secret is never re-echoed.
-
-    Args:
-        host: Host to bind to.
-        port: Port to run on. The default is the ``artifact`` slot at the
-            layout's *default* base, which is right only for a programmatic
-            caller with no config to resolve a base from. ``osprey artifacts
-            web`` — the one caller — passes the port it resolved from this
-            deployment's ``deployment.port_base``. A multi-user deployment does
-            not come through here at all: its launcher builds the app from the
-            registry's factory and serves it itself.
-        workspace_root: Agent-data root containing the ``artifacts/`` dir.
-            Omitted, it is the deployment's shared agent-data root.
-    """
-    import os
-
-    import uvicorn
-
-    from osprey.interfaces.common_middleware import WEB_PORT_ENV
-    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
-
-    # Publish the settled port before the app is constructed: cookies ignore
-    # ports, so two OSPREY servers on this host share an origin as far as the
-    # browser is concerned, and the port is the only thing keeping their session
-    # cookies apart. ``session_cookie_name()`` reads it from here.
-    os.environ[WEB_PORT_ENV] = str(port)
-
-    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
-    login_url = mint_and_announce(host, port)
-    if announce:
-        print(f"Open: {login_url}")  # noqa: T201 -- the server announces its login URL on stdout
-
-    app = create_app(workspace_root=workspace_root)
-    uvicorn.run(app, host=host, port=port, log_level="info")
