@@ -23,6 +23,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 RUNTIME_EXTRAS: tuple[str, ...] = (
+    "alarm-state",
     "ariel",
     "ariel-proxy",
     "gchat",
@@ -47,6 +48,7 @@ RUNTIME_ENABLERS: dict[str, str] = {
 # because the import check never asks for its modules.
 STATIC_MODULES: dict[str, tuple[str, ...]] = {
     "aioca": ("aioca",),
+    "aiokafka": ("aiokafka",),
     "aiohttp-socks": ("aiohttp_socks",),
     "azure-servicebus": ("azure.servicebus",),
     "google-api-python-client": ("googleapiclient",),
