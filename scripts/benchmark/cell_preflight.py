@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -23,6 +24,7 @@ from pathlib import Path
 RETRY_DELAYS_S = (5, 15)
 TIMEOUT_S = 120
 ASK = [{"role": "user", "content": "Reply with the word ok."}]
+_IP_ADDRESS = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[0-9a-fA-F]{1,4}:){3,}[0-9a-fA-F:]*")
 
 
 def _post(url: str, headers: dict[str, str], body: dict) -> tuple[int | None, str]:
@@ -54,6 +56,18 @@ def _request(protocol: str, base_url: str, key: str, model: str) -> tuple[str, d
     return f"{base.removesuffix('/v1')}/v1/messages", headers, body
 
 
+def _readable(text: str, key: str) -> str:
+    """The provider's own words, short, with nothing a published board should not carry."""
+    try:
+        error = json.loads(text).get("error", {})
+        text = str(error.get("message", text)) if isinstance(error, dict) else str(error)
+    except (ValueError, AttributeError):
+        pass
+    if key:
+        text = text.replace(key, "***")
+    return _IP_ADDRESS.sub("<address>", text)[:300].strip()
+
+
 def check(
     protocol: str,
     base_url: str,
@@ -73,9 +87,7 @@ def check(
             break
         if delay is not None:
             sleep(delay)
-    if key:
-        text = text.replace(key, "***")
-    return f"{status if status is not None else 'unreachable'}: {text[:300].strip()}"
+    return f"{status if status is not None else 'unreachable'}: {_readable(text, key)}"
 
 
 def _parse_cell(argv: list[str] | None) -> argparse.Namespace:

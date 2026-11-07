@@ -514,6 +514,14 @@ class TestCellPreflight:
     def test_the_key_never_reaches_the_reason(self):
         assert "secret" not in self._check([(403, "your key secret is bad")])[0]
 
+    def test_the_reason_is_the_providers_words_without_the_callers_address(self):
+        body = json.dumps(
+            {"error": {"message": "Access denied: IP address 2001:5a8:47c3::36b8 no"}}
+        )
+        assert self._check([(403, body)])[0] == "403: Access denied: IP address <address> no"
+        body = json.dumps({"error": {"message": "IP address 10.1.2.3 is not recognized"}})
+        assert "10.1.2.3" not in self._check([(403, body)])[0]
+
     def test_the_openai_route_calls_chat_completions(self):
         url, headers, _body = self._module()._request("openai", "http://h/v1/", "", "m")
         assert url == "http://h/v1/chat/completions"
