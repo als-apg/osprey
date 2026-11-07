@@ -507,6 +507,15 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 [project.entry-points."osprey.simulation.engines"]
 pyat = "osprey.simulation.engines.pyat"
 
+# Measurement kinds, each entry naming its KindDeclaration; a facility build
+# reaches a kind only through this group. The five below are the built-in ones.
+[project.entry-points."osprey.facility.kinds"]
+orm = "osprey.facility.kinds:ORM"
+dispersion = "osprey.facility.kinds:DISPERSION"
+trm = "osprey.facility.kinds:TRM"
+crm = "osprey.facility.kinds:CRM"
+chromaticity_monitor = "osprey.facility.kinds:CHROMATICITY_MONITOR"
+
 # Resolver exemptions for packages published more recently than the
 # ambient `exclude-newer` window some developer machines set (a rolling
 # "nothing newer than N days" policy). Each is an exact pin this project needs

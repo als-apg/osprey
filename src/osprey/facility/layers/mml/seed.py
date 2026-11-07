@@ -21,7 +21,7 @@ What :func:`seed_once` writes, relative to ``data/facility/``:
   and the import says how many it skipped.
 * ``measurement/<model>.yaml``: for each model that carries wiring, the groups
   and instruments its wiring names, every measurement kind they allow
-  (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) and pyAML's step and
+  (:func:`osprey.facility.kinds.builtin_kinds`) and pyAML's step and
   settle keys (:data:`TUNING`). ``quad`` and ``sext`` list the families the
   export tags as tune and chromaticity correctors; the import names the
   wired families each leaves out, and a role it does not write.
@@ -467,13 +467,14 @@ def _measurement(
     wired families the export tags none of is not written, and one line says
     so. ``rf`` is the first setpoint wired to the engine's frequency, and
     ``tune`` the tune readback the model's ``tune`` block wires: its ``x``
-    plane's address, or its one waveform address. ``kinds`` lists every kind
-    whose members (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) the file
-    names, those a single-pass model allows only. A group role names the
+    plane's address, or its one waveform address. ``kinds`` lists every
+    built-in kind (:func:`osprey.facility.kinds.builtin_kinds`) whose members
+    the file names, those a single-pass model allows only; an import never
+    seeds a kind a deployment package registers. A group role names the
     group that holds the family, which is a fold of plane twins where the
     import folded them.
     """
-    from osprey.facility.views.pyaml import KIND_MEMBERS, SINGLE_PASS_KINDS
+    from osprey.facility.kinds import builtin_kinds
 
     groups: dict[str, Any] = {}
     monitors: dict[str, str] = {}
@@ -535,9 +536,9 @@ def _measurement(
     periodic = settings.get("solve") != _SINGLE_PASS
     kinds = [
         kind
-        for kind, members in KIND_MEMBERS.items()
-        if all(member in ordered or member in instruments for member in members)
-        and (periodic or kind in SINGLE_PASS_KINDS)
+        for kind, declaration in builtin_kinds().items()
+        if all(member in ordered or member in instruments for member in declaration.members)
+        and (periodic or declaration.single_pass)
     ]
 
     document: dict[str, Any] = {"kinds": kinds, "groups": ordered}

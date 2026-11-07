@@ -514,8 +514,9 @@ what they use:
    sextu_delta: 0.01
    frequency_delta: 100.0
 
-``kinds`` names the allowed measurements: ``orm``, ``dispersion``, ``trm``,
-``crm`` and ``chromaticity_monitor``. ``groups`` names the group, or the list
+``kinds`` names the allowed measurements, from the registered kinds (the built-ins
+``orm``, ``dispersion``, ``trm``, ``crm`` and ``chromaticity_monitor``, plus any an
+installed package registers). ``groups`` names the group, or the list
 of groups taken together, that plays each part (``bpm``, ``hcor``, ``vcor``,
 ``quad``, ``sext``) and
 ``instruments`` the channel each instrument is read or stepped on (``tune``,

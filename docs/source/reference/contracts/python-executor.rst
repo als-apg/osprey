@@ -98,7 +98,7 @@ is refused without asking.
      - Description
    * - ``kind``
      - *(required)*
-     - ``orm``, ``dispersion``, ``trm``, ``crm`` or ``chromaticity_monitor``.
+     - A kind the deployment registers: the built-ins ``orm``, ``dispersion``, ``trm``, ``crm`` and ``chromaticity_monitor``, or one an installed package declares.
        A kind the model's measurement file does not list is refused, naming
        the group or instrument the model lacks, or the kinds the file lists.
    * - ``model``

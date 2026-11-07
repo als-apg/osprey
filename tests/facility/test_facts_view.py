@@ -85,6 +85,7 @@ def test_every_render_writes_the_facts_and_their_page(
             "channel_count",
             "device_classes",
             "identity",
+            "measurement_kinds",
             "measurement_models",
             "models",
             "place_levels",
@@ -520,17 +521,23 @@ def test_the_measurement_block_reads_each_view_the_facts_record(tmp_path: Path) 
 
     block = hook_measurement(facts, render)
 
+    line = measurement_groups(FacilityRecords(document), "LINE")
+    sr = measurement_groups(FacilityRecords(document), "SR")
     assert block == {
         "LINE": {
             "kinds": {"orm": {"hcor": "LINE_HCM", "vcor": "LINE_VCM"}},
-            "groups": measurement_groups(FacilityRecords(document), "LINE"),
+            "groups": {role: line[role] for role in ("bpm", "hcor", "vcor")},
             "rf": [],
+            "by_kinds": [],
+            "corrector_roles": {"orm": ["hcor", "vcor"]},
             "view_sha256": facts["measurement_models"]["LINE"]["sha256"],
         },
         "SR": {
             "kinds": {"trm": {"quad": "SR_Q"}},
-            "groups": measurement_groups(FacilityRecords(document), "SR"),
+            "groups": {"quad": sr["quad"]},
             "rf": [],
+            "by_kinds": ["trm"],
+            "corrector_roles": {},
             "view_sha256": facts["measurement_models"]["SR"]["sha256"],
         },
     }

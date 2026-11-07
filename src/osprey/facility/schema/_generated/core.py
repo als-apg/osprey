@@ -771,17 +771,6 @@ class FixOpEnum(str, Enum):
     drop = "drop"
 
 
-class MeasurementKindEnum(str, Enum):
-    """
-    The measurements a model's measurement file allows.
-    """
-    orm = "orm"
-    dispersion = "dispersion"
-    trm = "trm"
-    crm = "crm"
-    chromaticity_monitor = "chromaticity_monitor"
-
-
 
 class AcceleratorDevice(ConfiguredBaseModel):
     """
@@ -1696,7 +1685,7 @@ class Measurement(ConfiguredBaseModel):
     """
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
-    kinds: Optional[list[MeasurementKindEnum]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
+    kinds: Optional[list[str]] = Field(default=None, description="""The measurement kinds the model allows, each a kind registered under the osprey.facility.kinds entry points; the build refuses any other.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     groups: Optional[MeasurementGroups] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Facility', 'Device', 'Measurement']} })
     instruments: Optional[MeasurementInstruments] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     n_step: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })

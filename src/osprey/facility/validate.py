@@ -2127,20 +2127,24 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
 
     Runs once every wiring slot is filled, so a group or instrument is judged
     by the setpoints and readbacks its model actually wires. A group plays one
-    group role; only ``hcor`` and ``vcor`` may name the same group. For each kind the
-    file allows, every group and instrument the kind needs
-    (:data:`osprey.facility.views.pyaml.KIND_MEMBERS`) must be named by the file
-    and wired by the model, a ``single_pass`` model allows ``orm`` alone, and
-    every step or settle key the kind's tool takes
-    (:data:`osprey.facility.views.pyaml.TOOL_KEYS`) must be stated.
+    group role; only ``hcor`` and ``vcor`` may name the same group. Every kind
+    the file allows is a registered kind (:mod:`osprey.facility.kinds`); each
+    member the kind declares is judged by its requirement: ``wired`` must be
+    named by the file and wired by the model, ``exists`` named and present in
+    the facility, ``optional`` either absent or present. A ``single_pass``
+    model allows only the kinds that run single pass, every step or settle key
+    the kind's tool takes must be stated, and the kind's ``build_stops`` hook,
+    when it has one, is handed the document and the kind's sub-block.
 
     Args:
         validated: What the earlier stages produced.
 
     Returns:
-        Every stop: ``reference-missing`` naming the kind and the member it
-        lacks, ``value-invalid`` naming the kind and the key it lacks, or the
-        two group roles that name one group.
+        Every stop: ``value-invalid`` naming a kind the registry refuses,
+        ``reference-missing`` naming a kind no installed package registers or
+        the kind and the member it lacks, ``value-invalid`` naming the kind and
+        the key it lacks or what its hook refuses, or the two group roles that
+        name one group.
     """
     document: dict[str, Any] = need(validated.document)
     return list(_measurement_stops(document))
@@ -2155,17 +2159,29 @@ def _groups_text(value: Any) -> str:
 
 
 def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]:
+    from osprey.facility.kinds import ENTRY_POINT_GROUP, KindRegistryError, registered
     from osprey.facility.views.pyaml import (
         GROUP_ROLES,
-        KIND_MEMBERS,
         ROLE_PLANES,
-        SINGLE_PASS_KINDS,
-        TOOL_KEYS,
         measurement_groups,
         tune_references,
     )
 
+    try:
+        declared = registered()
+    except KindRegistryError as refused:
+        yield FacilityBuildError(
+            "value-invalid",
+            refused.kind,
+            [refused.source],
+            refused.remedy,
+            record_kind="measurement kind",
+            detail=f"{refused.detail}; declared by {refused.source}",
+        )
+        return
+    single_pass_kinds = [name for name, declaration in declared.items() if declaration.single_pass]
     records = FacilityRecords(document)
+    channels = {str(channel["id"]) for channel in document.get("channels") or []}
     for model in sorted(document.get("models", []), key=lambda record: str(record["name"])):
         measurement = model.get("measurement")
         if not isinstance(measurement, dict):
@@ -2195,25 +2211,44 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
             )
         grouped = measurement_groups(records, name)
         for kind in measurement.get("kinds") or []:
-            if kind not in SINGLE_PASS_KINDS and _single_pass(model):
+            declaration = declared.get(str(kind))
+            if declaration is None:
+                yield _measurement_missing(
+                    name,
+                    f"kind {kind} is not registered under {ENTRY_POINT_GROUP} by any installed "
+                    "package",
+                    f"install the kind's package, or remove {kind} from `kinds`",
+                )
+                continue
+            if not declaration.single_pass and _single_pass(model):
                 yield _measurement_missing(
                     name,
                     f"kind {kind} needs a periodic solve; model {name} solves single_pass",
-                    f"remove {kind} from `kinds`; a single_pass model allows orm alone",
+                    f"remove {kind} from `kinds`; a single_pass model allows "
+                    f"{' and '.join(single_pass_kinds) or 'no kind'} alone",
                 )
                 continue
-            for member in KIND_MEMBERS[kind]:
-                slot = f"groups.{member}" if member in GROUP_ROLES else f"instruments.{member}"
-                named = (
-                    groups_named.get(member) if member in GROUP_ROLES else instruments.get(member)
-                )
+            for member, requirement in declaration.members.items():
+                is_group = member in GROUP_ROLES
+                slot = f"groups.{member}" if is_group else f"instruments.{member}"
+                named = groups_named.get(member) if is_group else instruments.get(member)
                 if named is None:
-                    yield _measurement_missing(
-                        name,
-                        f"kind {kind} needs `{slot}`, which the file does not name",
-                        f"name `{slot}`, or remove {kind} from `kinds`",
-                    )
-                elif member in GROUP_ROLES and not grouped.get(member):
+                    if requirement != "optional":
+                        yield _measurement_missing(
+                            name,
+                            f"kind {kind} needs `{slot}`, which the file does not name",
+                            f"name `{slot}`, or remove {kind} from `kinds`",
+                        )
+                    continue
+                if requirement != "wired":
+                    if not is_group and str(named) not in channels:
+                        yield _measurement_missing(
+                            name,
+                            f"kind {kind} needs `{slot}`; {named} is no channel of the facility",
+                            f"name a channel of the facility as `{slot}`",
+                        )
+                    continue
+                if is_group and not grouped.get(member):
                     plane = ROLE_PLANES.get(member)
                     wiring = (
                         "monitor"
@@ -2228,7 +2263,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         f"model {name} wires",
                         f"name a group holding a {wiring} model {name} wires as `{slot}`",
                     )
-                elif member not in GROUP_ROLES and str(named) not in wired:
+                elif not is_group and str(named) not in wired:
                     yield _measurement_missing(
                         name,
                         f"kind {kind} needs `{slot}`; model {name} does not wire {named}",
@@ -2242,7 +2277,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         f"wire the other plane's tune reading in model {name}, or name a reading "
                         f"of both planes as `{slot}`",
                     )
-            for key in TOOL_KEYS[kind]:
+            for key in declaration.tool_keys:
                 if key not in measurement:
                     yield FacilityBuildError(
                         "value-invalid",
@@ -2251,6 +2286,17 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         f"state `{key}`, or remove {kind} from `kinds`",
                         record_kind="measurement",
                         detail=f"kind {kind} needs `{key}`, which the file does not state",
+                    )
+            if declaration.build_stops is not None:
+                block = (measurement.get("kind_blocks") or {}).get(str(kind))
+                for stop in declaration.build_stops(document, block):
+                    yield FacilityBuildError(
+                        "value-invalid",
+                        name,
+                        files,
+                        stop.remedy,
+                        record_kind="measurement",
+                        detail=f"kind {kind}: {stop.detail}",
                     )
 
 
