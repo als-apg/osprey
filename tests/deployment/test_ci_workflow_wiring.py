@@ -1,6 +1,6 @@
 """Assertions against the parsed `.github/workflows/ci.yml`, proving the
 secret-free Docker-stack e2e lanes (Tiled roundtrip, VA substrate
-equivalence, control-assistant demo) are correctly wired — and that every
+equivalence, demo) are correctly wired — and that every
 ``dockerbuild``-marked e2e file stays out of the shared e2e-tests lane.
 
 Everything here loads ci.yml with ``yaml.safe_load`` and asserts against the
@@ -213,14 +213,15 @@ NO_MODEL_TEST_FILES = (
     "tests/e2e/claude_code/test_chat_attachment_read_scripted.py",
 )
 
-#: The agent record's replay: model-free, but its own lane, because it deploys
-#: two stacks in turn and waits out a stopped source twice.
+#: The agent record's replay: model-free, but its own lane, because each case
+#: deploys a whole stack and waits out a stopped source. One matrix cell per case.
 RECORD_E2E_JOB = "agent-record-e2e"
 RECORD_E2E_RUN_STEP = "Run the agent record replay"
 RECORD_E2E_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 RECORD_E2E_FILE = "tests/e2e/test_agent_record_e2e.py"
-#: The two stopped-source waits of five minutes each, plus two deploys: the
-#: run step's floor. Below it the lane reds on its own waits, not on a fault.
+#: A stopped-source wait of five minutes plus a deploy, with the headroom of
+#: the two-case size: the run step's floor. Below it the lane reds on its own
+#: waits, not on a fault.
 RECORD_E2E_MIN_STEP_MINUTES = 40
 #: Every model-free file, whichever of the two model-free lanes runs it.
 MODEL_FREE_TEST_FILES = (*NO_MODEL_TEST_FILES, RECORD_E2E_FILE)
@@ -1140,7 +1141,7 @@ def test_boot_smoke_matrix_runs_every_preset__mutation_drops_a_matrix_preset() -
     the silent half: those tests are selected by no cell and nothing reds."""
     mutated = copy.deepcopy(_load_workflow())
     presets = _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"]["preset"]
-    presets.remove("control-assistant")
+    presets.remove("demo")
     with pytest.raises(AssertionError):
         test_boot_smoke_matrix_runs_every_preset_the_module_parametrises(mutated)
 
@@ -4000,8 +4001,8 @@ def test_model_free_lane_fails_on_any_skipped_test__mutation_gate_stops_failing(
 
 
 def test_record_lane_runs_exactly_the_replay(workflow: dict[str, Any]) -> None:
-    """The replay deploys two stacks one after the other on one port block, so
-    it runs alone, serially, and by path — a path that stops existing exits
+    """Each replay case deploys a stack on the module's one port block, so it
+    runs alone, serially, and by path — a path that stops existing exits
     pytest 4 instead of selecting nothing."""
     paths = _record_lane_paths(workflow)
     assert paths == [RECORD_E2E_FILE], f"'{RECORD_E2E_RUN_STEP}' runs {paths}, not the replay alone"
@@ -4028,6 +4029,56 @@ def test_record_lane_runs_exactly_the_replay__mutation_adds_a_file() -> None:
     )
     with pytest.raises(AssertionError, match="replay alone"):
         test_record_lane_runs_exactly_the_replay(mutated)
+
+
+def _record_lane_cases(wf: dict[str, Any]) -> list[str]:
+    """The case names the record lane's matrix cells select, one per cell."""
+    include = _jobs(wf)[RECORD_E2E_JOB]["strategy"]["matrix"]["include"]
+    return [str(cell["case"]) for cell in include]
+
+
+def _record_file_cases() -> set[str]:
+    """The test functions the replay module defines, read from source."""
+    tree = ast.parse((REPO_ROOT / RECORD_E2E_FILE).read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+    }
+
+
+def test_record_lane_cells_cover_every_case_once(workflow: dict[str, Any]) -> None:
+    """The lane runs one case per matrix cell, picked by ``-k``: every case in
+    the module is one cell's, no cell's name is a substring of another case
+    (``-k`` matches substrings), the cells do not cancel each other, and the
+    run step selects the cell's case."""
+    cases = _record_lane_cases(workflow)
+    defined = _record_file_cases()
+    assert sorted(cases) == sorted(defined), (
+        f"'{RECORD_E2E_JOB}' cells run {sorted(cases)}; {RECORD_E2E_FILE} defines {sorted(defined)}"
+    )
+    for case in cases:
+        assert [c for c in defined if case in c] == [case], f"-k {case!r} selects more than itself"
+    strategy = _jobs(workflow)[RECORD_E2E_JOB]["strategy"]
+    assert strategy.get("fail-fast") is False, "a red cell must not cancel the other backend"
+    run = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_RUN_STEP)["run"]
+    assert '-k "${{ matrix.case }}"' in run, (
+        f"'{RECORD_E2E_RUN_STEP}' does not select its cell's case"
+    )
+
+
+def test_record_lane_cells_cover_every_case_once__mutation_drops_a_cell() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[RECORD_E2E_JOB]["strategy"]["matrix"]["include"].pop()
+    with pytest.raises(AssertionError, match="defines"):
+        test_record_lane_cells_cover_every_case_once(mutated)
+
+
+def test_record_lane_cells_cover_every_case_once__mutation_fails_fast() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[RECORD_E2E_JOB]["strategy"]["fail-fast"] = True
+    with pytest.raises(AssertionError, match="must not cancel"):
+        test_record_lane_cells_cover_every_case_once(mutated)
 
 
 def test_record_lane_is_not_in_the_model_free_lane(workflow: dict[str, Any]) -> None:
@@ -5961,6 +6012,39 @@ def test_podman_compose_is_pinned_and_forced__mutation_drops_the_force(job_name:
     assert _podman_compose_is_pinned_and_forced(mutated, job_name) == ["force"]
 
 
+#: A pip install of podman-compose, with whatever it names after it.
+_PODMAN_COMPOSE_INSTALL_RE = re.compile(r"\bpip3? install\b[^\n]*\bpodman-compose\S*")
+
+
+def _podman_compose_installs(wf: dict[str, Any]) -> list[tuple[str, str]]:
+    return [
+        (job_id, match.group(0))
+        for job_id, job in _jobs(wf).items()
+        for step in job.get("steps") or []
+        for match in _PODMAN_COMPOSE_INSTALL_RE.finditer(str(step.get("run", "")))
+    ]
+
+
+def test_every_podman_compose_install_is_pinned(workflow: dict[str, Any]) -> None:
+    """Every lane that installs podman-compose installs the release the
+    provider-pinned lanes are written against, so no podman lane reports on
+    an engine that moved under it."""
+    installs = _podman_compose_installs(workflow)
+    assert len(installs) >= 3, f"expected the three podman lanes' installs, found {installs}"
+    unpinned = [(job, line) for job, line in installs if PODMAN_COMPOSE_PIN not in line.split()]
+    assert unpinned == [], f"podman-compose installed without `{PODMAN_COMPOSE_PIN}`: {unpinned}"
+
+
+def test_every_podman_compose_install_is_pinned__mutation_unpins_the_lifecycle_lane() -> None:
+    mutated = _load_workflow()
+    job = "multi-user-deploy-lifecycle-e2e-podman"
+    mutated["jobs"][job] = json.loads(
+        json.dumps(mutated["jobs"][job]).replace(PODMAN_COMPOSE_PIN, "podman-compose")
+    )
+    with pytest.raises(AssertionError, match=job):
+        test_every_podman_compose_install_is_pinned(mutated)
+
+
 @pytest.mark.parametrize("job_name", [TWO_SHAPE_JOB, PARSE_ONLY_JOB])
 def test_podman_compose_is_pinned_and_forced__mutation_drops_the_env_override(
     job_name: str,
@@ -7188,9 +7272,35 @@ def _va_live_lane_named_files(wf: dict[str, Any], job_name: str) -> list[str]:
 
     A list rather than a set: a file named twice in one lane is a duplicate
     the partition check below must still see.
+
+    A lane split into matrix cells names its files in each cell's ``suites``
+    and the run step reads them as ``${{ matrix.suites }}``; the lane's files
+    are then every cell's, concatenated, so a file in two cells is a duplicate
+    too.
     """
     run = _find_named_step(wf, job_name, VA_LIVE_LANE_RUN_STEPS[job_name])["run"]
+    if VA_LIVE_MATRIX_SUITES in run:
+        cells = " ".join(str(cell["suites"]) for cell in _va_live_cells(wf, job_name))
+        run = run.replace(VA_LIVE_MATRIX_SUITES, cells)
     return [token for token in run.split() if token.endswith(".py")]
+
+
+VA_LIVE_MATRIX_SUITES = "${{ matrix.suites }}"
+
+
+def _va_live_cells(wf: dict[str, Any], job_name: str = VA_LIVE_JOB) -> list[dict[str, Any]]:
+    """The matrix cells of a live lane that runs its suites split across runners."""
+    return list(_jobs(wf)[job_name]["strategy"]["matrix"]["include"])
+
+
+def _drop_va_live_suite(wf: dict[str, Any], path: str) -> None:
+    """Mutation helper: take *path* out of whichever VA live cell names it."""
+    for cell in _va_live_cells(wf):
+        tokens = str(cell["suites"]).split()
+        if path in tokens:
+            cell["suites"] = " ".join(t for t in tokens if t != path)
+            return
+    raise AssertionError(f"no {VA_LIVE_JOB} cell names {path}")
 
 
 def _va_live_suites_named_by_any_lane(wf: dict[str, Any]) -> list[str]:
@@ -7224,8 +7334,7 @@ def test_every_live_va_suite_is_named_by_one_lane(workflow: dict[str, Any]) -> N
 
 def test_every_live_va_suite_is_named_by_one_lane__mutation_drops_one_suite() -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(f"{VA_LIVE_SUITE_DIR}/test_full_sweep.py ", "")
+    _drop_va_live_suite(mutated, f"{VA_LIVE_SUITE_DIR}/test_full_sweep.py")
     with pytest.raises(AssertionError):
         test_every_live_va_suite_is_named_by_one_lane(mutated)
 
@@ -7256,6 +7365,103 @@ def test_no_live_va_suite_is_named_by_two_lanes__mutation_names_a_suite_in_both_
         test_every_live_va_suite_is_named_by_one_lane(mutated)
 
 
+# The VA live lane runs its suites split across matrix cells, one runner and
+# one image build each, balanced by measured module time. The partition above
+# already sees every cell's files (a file in two cells is a duplicate, a file
+# in none is unrun); this pins the rest of the split: the run step reads its
+# cell's files, every cell runs something, no cell's red cancels another, and
+# the real-facility lane runs in exactly one cell, whose zero-skip gate then
+# requires its report.
+
+
+def test_va_live_cells_split_the_suites_once(workflow: dict[str, Any]) -> None:
+    cells = _va_live_cells(workflow)
+    groups = [str(cell["group"]) for cell in cells]
+    assert len(groups) == len(set(groups)), f"'{VA_LIVE_JOB}' repeats a cell: {groups}"
+    per_cell = {str(cell["group"]): str(cell["suites"]).split() for cell in cells}
+    for group, files in per_cell.items():
+        assert files, f"'{VA_LIVE_JOB}' cell {group!r} runs no suite"
+        assert all(f.endswith(".py") for f in files), f"cell {group!r} names {files}"
+    seen = [f for files in per_cell.values() for f in files]
+    repeats = sorted({f for f in seen if seen.count(f) > 1})
+    assert not repeats, f"suites in more than one '{VA_LIVE_JOB}' cell: {repeats}"
+    strategy = _jobs(workflow)[VA_LIVE_JOB]["strategy"]
+    assert strategy.get("fail-fast") is False, "a red cell must not cancel the other cells"
+    run = _find_named_step(workflow, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])["run"]
+    named_in_run = [t for t in run.replace(VA_LIVE_MATRIX_SUITES, "").split() if t.endswith(".py")]
+    assert VA_LIVE_MATRIX_SUITES in run and not named_in_run, (
+        f"'{VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB]}' must run its cell's suites and only them"
+    )
+    als = [group for group, cell in zip(groups, cells, strict=True) if cell.get("als_lane") is True]
+    assert len(als) == 1, f"the real-facility lane must run in exactly one cell; runs in {als}"
+    assert _find_named_step(workflow, VA_LIVE_JOB, ALS_LANE_STEP).get("if") == "matrix.als_lane"
+    gate = _find_named_step(workflow, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)
+    assert gate.get("env", {}).get("ALS_LANE") == "${{ matrix.als_lane }}", gate.get("env")
+    assert 'os.environ["ALS_LANE"] == "true"' in gate["run"], "the gate must require the report"
+
+
+def test_va_live_cells_split_the_suites_once__mutation_names_a_suite_in_two_cells() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    first, second = _va_live_cells(mutated)[:2]
+    second["suites"] = f"{second['suites']} {str(first['suites']).split()[0]}"
+    with pytest.raises(AssertionError, match="more than one"):
+        test_va_live_cells_split_the_suites_once(mutated)
+    with pytest.raises(AssertionError):
+        test_no_live_va_suite_is_named_by_two_lanes(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_drops_a_cell() -> None:
+    """Covered by the partition rather than the split: its files go unrun."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[VA_LIVE_JOB]["strategy"]["matrix"]["include"].pop(0)
+    with pytest.raises(AssertionError, match="no live lane runs"):
+        test_every_live_va_suite_is_named_by_one_lane(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_fails_fast() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[VA_LIVE_JOB]["strategy"]["fail-fast"] = True
+    with pytest.raises(AssertionError, match="must not cancel"):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_names_a_suite_in_the_run_step() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    step["run"] = step["run"].replace(
+        VA_LIVE_MATRIX_SUITES, f"{VA_LIVE_MATRIX_SUITES} {CHAIN_BOOT_MODULE}"
+    )
+    with pytest.raises(AssertionError, match="only them"):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+@pytest.mark.parametrize("cells_running_it", [0, 2])
+def test_va_live_cells_split_the_suites_once__mutation_moves_the_real_facility_lane(
+    cells_running_it: int,
+) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    for index, cell in enumerate(_va_live_cells(mutated)):
+        cell["als_lane"] = index < cells_running_it
+    with pytest.raises(AssertionError, match="exactly one cell"):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_runs_the_real_facility_lane_everywhere() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, VA_LIVE_JOB, ALS_LANE_STEP)["if"]
+    with pytest.raises(AssertionError):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
+def test_va_live_cells_split_the_suites_once__mutation_gate_ignores_the_matrix() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)["env"]
+    with pytest.raises(AssertionError):
+        test_va_live_cells_split_the_suites_once(mutated)
+
+
 # The chain's boot half runs in the lane whose job builds the image it boots.
 # The partition above is satisfied by any one lane naming the module, so the
 # lane is pinned here by name, with the collection floor the run step's
@@ -7278,8 +7484,7 @@ def test_chain_boot_suite_runs_in_the_va_live_run_step(
 def test_chain_boot_suite_runs_in_the_va_live_run_step__mutation_moves_it_to_another_lane() -> None:
     """The partition still holds on this mutation, so only the pin sees it."""
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(f"{CHAIN_BOOT_MODULE} ", "")
+    _drop_va_live_suite(mutated, CHAIN_BOOT_MODULE)
     other = _find_named_step(mutated, TARGET_SWITCH_JOB, VA_LIVE_LANE_RUN_STEPS[TARGET_SWITCH_JOB])
     other["run"] = f"{other['run']} {CHAIN_BOOT_MODULE}\n"
     test_every_live_va_suite_is_named_by_one_lane(mutated)
@@ -7339,8 +7544,7 @@ def test_each_measurement_suite_runs_in_the_va_live_run_step__mutation_drops_it(
     module: str,
 ) -> None:
     mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
-    step["run"] = step["run"].replace(f"{module} ", "")
+    _drop_va_live_suite(mutated, module)
     with pytest.raises(AssertionError):
         test_each_measurement_suite_runs_in_the_va_live_run_step(module, mutated)
 
@@ -7810,6 +8014,10 @@ def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(
     for hashed in (
         "docker/virtual-accelerator/Containerfile",
         "'pyproject.toml'",
+        # The image's third-party install is the lock's export, so a lock bump
+        # must change the key: a cache entry is never overwritten, and under an
+        # unchanged key the new closure's layers would never be saved.
+        "'uv.lock'",
         VA_CACHE_MEMBER_GLOB,
     ):
         assert hashed in cache_with["key"], f"the cache key no longer hashes {hashed}"
@@ -8542,11 +8750,10 @@ def _step_names(wf: dict[str, Any], job_name: str) -> list[str]:
 
 
 def test_lint_checks_the_lockfile_before_installing(workflow: dict[str, Any]) -> None:
-    """`uv lock --check` is the only place a pyproject/uv.lock split can
-    surface: every other lane runs a plain `uv sync`, which re-locks a stale
-    lockfile in the runner and goes green. Ordering is the pin's sharp edge —
-    `uv sync` rewrites the lock on disk, so a check placed after the install
-    step always passes."""
+    """`uv lock --check` names a pyproject/uv.lock split, the same check the
+    local quick tier runs; every lane's `uv sync --locked` then fails on it
+    too. Ordering is the pin's sharp edge — a sync that re-locks rewrites the
+    lock on disk, so a check placed after the install step always passes."""
     step = _find_named_step(workflow, LINT_JOB, LOCK_CHECK_STEP)
     assert "uv lock --check" in step["run"]
     names = _step_names(workflow, LINT_JOB)
@@ -8571,6 +8778,174 @@ def test_lint_checks_the_lockfile__mutation_moves_it_after_sync() -> None:
     steps.insert(next(i for i, s in enumerate(steps) if s.get("name") == INSTALL_STEP) + 1, check)
     with pytest.raises(AssertionError):
         test_lint_checks_the_lockfile_before_installing(mutated)
+
+
+# ---------------------------------------------------------------------------
+# Every lane installs the versions uv.lock holds
+# ---------------------------------------------------------------------------
+#
+# CI tests the dependency versions uv.lock records, and only those. A plain
+# `uv sync`, or a `uv run` before any sync, re-locks a stale lockfile on the
+# runner and installs that fresh resolution: with pyproject.toml and uv.lock
+# split, every lane but lint would go green against versions nobody locked.
+# `--locked` turns the split into a failure of every lane that installs. Read
+# from the files as written, for every workflow and every local action; the
+# lanes that move off the lock on purpose do it with `uv pip install` after a
+# locked sync, which these statements leave to their own tests.
+
+GITHUB_DIR = REPO_ROOT / ".github"
+LOCAL_ACTION_PREFIX = "./.github/actions/"
+#: One `uv sync` or `uv run` command, up to the end of its shell command.
+_UV_COMMAND_RE = re.compile(r"\buv (?P<verb>sync|run)\b[^\n;&|]*")
+#: The `uv run` flags under which it re-locks nothing: it checks the lock is
+#: current first (`--locked`), reads it as written (`--frozen`, and
+#: `--no-sync`, which implies it), or ignores the project (`--no-project`).
+_UV_RUN_LOCK_SAFE_FLAGS = frozenset({"--locked", "--frozen", "--no-sync", "--no-project"})
+
+
+def _github_documents() -> dict[str, dict[str, Any]]:
+    """Every workflow and local action under `.github/`, parsed, by repo path."""
+    paths = sorted(
+        [*(GITHUB_DIR / "workflows").glob("*.y*ml"), *(GITHUB_DIR / "actions").rglob("action.y*ml")]
+    )
+    return {str(path.relative_to(REPO_ROOT)): yaml.safe_load(path.read_text()) for path in paths}
+
+
+def _uv_commands(script: str) -> Iterator[tuple[str, str]]:
+    """``(verb, command)`` for each `uv sync` / `uv run` of a script, comments left out."""
+    for line in script.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        for match in _UV_COMMAND_RE.finditer(line):
+            yield match["verb"], match.group(0).strip()
+
+
+def _expanded_step_scripts(
+    step: dict[str, Any], documents: dict[str, dict[str, Any]]
+) -> Iterator[tuple[str, str]]:
+    """``(where, script)`` a step runs; a local composite action's steps run in its place."""
+    if isinstance(step.get("run"), str):
+        yield str(step.get("name", "")), step["run"]
+    uses = str(step.get("uses", ""))
+    if uses.startswith(LOCAL_ACTION_PREFIX):
+        action = next(
+            path
+            for path in documents
+            if path.startswith(f"{uses[2:].rstrip('/')}/") and Path(path).stem == "action"
+        )
+        for inner in documents[action]["runs"].get("steps") or []:
+            for where, script in _expanded_step_scripts(inner, documents):
+                yield f"{uses} > {where}", script
+
+
+def _every_step(document: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
+    """``(job id or "", step)`` for each step of a workflow or composite action."""
+    for job_id, job in (document.get("jobs") or {}).items():
+        for step in job.get("steps") or []:
+            yield job_id, step
+    for step in (document.get("runs") or {}).get("steps") or []:
+        yield "", step
+
+
+def _unlocked_syncs(documents: dict[str, dict[str, Any]]) -> list[str]:
+    """Each `uv sync` of the workflows and actions that lacks `--locked`."""
+    return [
+        f"{path}: {job_id}/{step.get('name', '')}: {command}"
+        for path, document in documents.items()
+        for job_id, step in _every_step(document)
+        if isinstance(step.get("run"), str)
+        for verb, command in _uv_commands(step["run"])
+        if verb == "sync" and "--locked" not in command.split()
+    ]
+
+
+def _runs_before_a_locked_sync(documents: dict[str, dict[str, Any]]) -> list[str]:
+    """Each `uv run` that can re-lock, in a job no `uv sync --locked` has yet
+    run in. A `uv run` after one meets a lock just proven current."""
+    found: list[str] = []
+    for path, document in documents.items():
+        for job_id, job in (document.get("jobs") or {}).items():
+            locked = False
+            for step in job.get("steps") or []:
+                for where, script in _expanded_step_scripts(step, documents):
+                    for verb, command in _uv_commands(script):
+                        flags = set(command.split())
+                        if verb == "sync":
+                            locked = locked or "--locked" in flags
+                        elif not locked and flags.isdisjoint(_UV_RUN_LOCK_SAFE_FLAGS):
+                            found.append(f"{path}: {job_id}/{where}: {command}")
+    return found
+
+
+def test_every_uv_sync_is_locked() -> None:
+    """A `uv sync` without `--locked` re-locks a stale lockfile and installs
+    versions the lock does not hold; with it, the stale lock fails the lane."""
+    documents = _github_documents()
+    syncs = [
+        command
+        for document in documents.values()
+        for _, step in _every_step(document)
+        if isinstance(step.get("run"), str)
+        for verb, command in _uv_commands(step["run"])
+        if verb == "sync"
+    ]
+    assert len(syncs) > 50, (
+        f"the scan found only {len(syncs)} `uv sync` commands; it has gone blind"
+    )
+    assert _unlocked_syncs(documents) == []
+
+
+def test_every_uv_sync_is_locked__mutation_drops_the_flag() -> None:
+    documents = _github_documents()
+    steps = documents[".github/workflows/docs.yml"]["jobs"]["build"]["steps"]
+    (step,) = [s for s in steps if "uv sync --locked" in str(s.get("run", ""))]
+    step["run"] = step["run"].replace("uv sync --locked", "uv sync")
+    assert _unlocked_syncs(documents) == [
+        f".github/workflows/docs.yml: build/{step['name']}: uv sync --extra docs"
+    ]
+
+
+def test_every_uv_sync_is_locked__mutation_adds_one_to_an_action() -> None:
+    documents = _github_documents()
+    action = documents[".github/actions/install-pinned-claude-code/action.yml"]
+    action["runs"]["steps"].append({"name": "sync", "run": "uv sync --extra dev\n"})
+    assert _unlocked_syncs(documents) == [
+        ".github/actions/install-pinned-claude-code/action.yml: /sync: uv sync --extra dev"
+    ]
+
+
+def test_no_uv_run_relocks() -> None:
+    """Every `uv run` that would lock and sync on its own runs after the job's
+    `uv sync --locked`, or carries a flag under which it re-locks nothing. A
+    local action's commands count where its caller runs it: the virtual
+    accelerator's build action runs a bare `uv run`, held by its callers'
+    locked syncs."""
+    assert _runs_before_a_locked_sync(_github_documents()) == []
+
+
+def test_no_uv_run_relocks__mutation_runs_before_the_sync() -> None:
+    documents = _github_documents()
+    steps = documents[".github/workflows/ci.yml"]["jobs"]["build-boot-smoke"]["steps"]
+    steps.insert(0, {"name": "early", "run": "uv run pytest tests/integration\n"})
+    assert _runs_before_a_locked_sync(documents) == [
+        ".github/workflows/ci.yml: build-boot-smoke/early: uv run pytest tests/integration"
+    ]
+
+
+def test_no_uv_run_relocks__mutation_unlocks_an_action_and_its_caller() -> None:
+    """The action's own `--locked` and the caller's locked sync each hold the
+    line: with both gone, the action's `uv run` re-locks in the caller's job."""
+    documents = _github_documents()
+    action = documents[".github/actions/install-pinned-claude-code/action.yml"]
+    for step in action["runs"]["steps"]:
+        if "run" in step:
+            step["run"] = step["run"].replace("uv run --locked", "uv run")
+    caller = documents[".github/workflows/ci.yml"]["jobs"]["plugin-smoke"]
+    for step in caller["steps"]:
+        if "run" in step:
+            step["run"] = step["run"].replace("uv sync --locked", "uv sync")
+    found = _runs_before_a_locked_sync(documents)
+    assert found and all("plugin-smoke/" in line for line in found), found
 
 
 # ---------------------------------------------------------------------------
@@ -13306,6 +13681,52 @@ def test_canopy_contract_installs_at_the_package_pin__mutation_installs_a_branch
         test_canopy_contract_installs_at_the_package_pin(mutated)
 
 
+#: The install step's export of uv.lock as constraints, and the file it writes.
+_CANOPY_LOCK_EXPORT_RE = re.compile(
+    r"uv export --frozen --no-hashes --no-emit-workspace(?P<extras>(?: --extra [\w-]+)+) \\\n"
+    r'\s*> "(?P<file>[^"]+)"'
+)
+
+
+def test_canopy_contract_installs_under_the_lock(workflow: dict[str, Any]) -> None:
+    """The pair installs with uv.lock's own install set as constraints, so it
+    adds the distributions the lock does not hold and moves none it does: the
+    contract reports on the versions every other lane tests. The constraints
+    are exported after the locked sync, from the lock as written, for the
+    extras that sync installed, without the workspace members (installed
+    editable, which a constraint cannot name)."""
+    install = _canopy_step(workflow, "install")["run"]
+    sync = re.search(r"uv sync --locked(?P<extras>(?: --extra [\w-]+)+)\n", install)
+    assert sync is not None, "the install step must sync from the lock"
+    export = _CANOPY_LOCK_EXPORT_RE.search(install)
+    assert export is not None, "the install step must export uv.lock's install set"
+    assert export["extras"] == sync["extras"], "the constraints must cover the synced extras"
+    constrained = re.search(r'uv pip install -c "' + re.escape(export["file"]) + '"', install)
+    assert constrained is not None, "the install must be constrained by the exported lock"
+    assert sync.start() < export.start() < constrained.start(), (
+        "the sync, the export and the constrained install must run in that order"
+    )
+
+
+def test_canopy_contract_installs_under_the_lock__mutation_drops_the_constraints() -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "install")
+    assert 'uv pip install -c "$RUNNER_TEMP/lock-constraints.txt" \\\n' in step["run"]
+    step["run"] = step["run"].replace('-c "$RUNNER_TEMP/lock-constraints.txt" \\\n', "")
+    with pytest.raises(AssertionError, match="constrained by the exported lock"):
+        test_canopy_contract_installs_under_the_lock(mutated)
+
+
+def test_canopy_contract_installs_under_the_lock__mutation_exports_another_extra() -> None:
+    mutated = _load_workflow()
+    step = _canopy_step(mutated, "install")
+    step["run"] = step["run"].replace(
+        "--no-emit-workspace --extra dev", "--no-emit-workspace --extra docs"
+    )
+    with pytest.raises(AssertionError, match="synced extras"):
+        test_canopy_contract_installs_under_the_lock(mutated)
+
+
 _PROVEN = {"canopy": "a" * 40, "PyDMConverter": "b" * 40}
 _PROVEN_MODULE = REPO_ROOT / "src/osprey/integrations/canopy/proven.py"
 _PROVEN_COMMITS_RE = re.compile(r"^PROVEN_COMMITS: dict\[str, str\] = \{\n.*?^\}\n", re.S | re.M)
@@ -13893,7 +14314,7 @@ def test_canopy_contract_summary_is_the_checks_verdict__mutation(
 #: nothing.
 _SETUP_RUN_RES = (
     re.compile(r"uv python install \S+(?: \S+)*"),
-    re.compile(r"uv sync(?: --extra [\w-]+)*"),
+    re.compile(r"uv sync --locked(?: --extra [\w-]+)*"),
     re.compile(r"npm ci"),
     re.compile(r"sudo apt-get update && sudo apt-get install -y --no-install-recommends [\w -]+"),
     re.compile(
@@ -14663,7 +15084,7 @@ CACHE_SAVING_ACTIONS = ("actions/cache@", "actions/cache/save@")
 QMD_WARM_INPUT = "warm"
 
 #: Every step that starts the qmd sidecar, by job and step name. Each deploys
-#: the control-assistant preset with qmd left in, or (qmd-sidecar-e2e) starts
+#: the demo preset with qmd left in, or (qmd-sidecar-e2e) starts
 #: the sidecar directly. Kept by hand: which module's ``osprey up`` renders a
 #: qmd service is a fact about its fixture, not about the workflow. A lane whose
 #: fixture merges ``tests/e2e/_orm_stack.knowledge_services_off`` deploys no qmd

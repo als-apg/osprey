@@ -405,7 +405,7 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
     """Install fixture ``name`` into ``destination`` and build it.
 
     The literal recipe the setup skill tells an operator to type, driven
-    through the real verbs: the deployment is a control-assistant one because
+    through the real verbs: the deployment is a demo one because
     that is the preset a facility harvest lands on, every refusal is obeyed as
     printed, and the build is the ordinary one -- no flag here tells it to
     treat a served tree differently.
@@ -427,7 +427,7 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
 
     runner = CliRunner()
     repo = destination / "deployment"
-    recipes.invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
+    recipes.invoke(runner, "init", str(repo), "--preset", "demo", "--no-git")
     recipes.import_facility(runner, repo, exports, recipes.facility_mapping(fixture))
     recipes.invoke(
         runner,

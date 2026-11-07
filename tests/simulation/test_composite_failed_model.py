@@ -82,10 +82,10 @@ def _composite(view: Path) -> Composite:
 
 
 @pytest.fixture
-def demo_view(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
+def demo_view(built_demo: BuiltProject, tmp_path: Path) -> Path:
     prefix = "data/simulator/"
     view = tmp_path / "demo" / "data" / "simulator"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith(prefix):
             target = view / name[len(prefix) :]
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -270,9 +270,9 @@ async def test_a_live_line_corrector_write_that_loses_the_beam_is_refused(
 @pytest.mark.slow
 @pytest.mark.usefixtures("contain_env_written_by_the_cli")
 def test_an_applied_line_fault_that_loses_the_beam_fails_line(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
-    repo, view = stage_built_simulator_view(built_control_assistant, tmp_path)
+    repo, view = stage_built_simulator_view(built_demo, tmp_path)
     _with_scenario(
         view,
         {

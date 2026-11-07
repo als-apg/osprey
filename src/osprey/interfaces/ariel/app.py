@@ -18,7 +18,6 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.port_layout import default_port
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -569,75 +568,3 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
-
-
-def run_web(
-    host: str = "127.0.0.1",
-    port: int = default_port("ariel"),
-    reload: bool = False,
-    config_path: str | None = None,
-) -> None:
-    """Run the ARIEL web interface.
-
-    CLI entry point for launching the web server — the launcher parent for both
-    shapes. It mints this deployment's operator secret and prints the one-time
-    ``?token=`` login URL (the operator's only way past the auth middleware)
-    before serving. Under ``--reload`` the mint MUST precede the worker spawn:
-    the ChangeReload worker uvicorn starts re-imports the factory in a fresh
-    process and inherits the secret through ``os.environ[OSPREY_TERMINAL_SECRET]``
-    that ``mint_and_announce`` sets, popping it at its own ``create_app``. The
-    print is suppressed when the secret was already supplied upstream (an
-    ancestor launcher or a multi-user deployment), so a supplied secret is
-    never re-echoed.
-
-    Args:
-        host: Host to bind to.
-        port: Port to run on. The default is the ``ariel`` slot at the layout's
-            *default* base, which is right only for a programmatic caller with
-            no config to resolve a base from. ``osprey ariel web`` — the one
-            caller — passes the port it resolved from this deployment's
-            ``deployment.port_base``. A multi-user deployment does not come
-            through here at all: its launcher builds the app from the registry's
-            factory and serves it itself.
-        reload: Enable auto-reload for development.
-        config_path: Optional path to config file.
-    """
-    import uvicorn
-
-    from osprey.interfaces.common_middleware import WEB_PORT_ENV
-    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
-
-    # Publish the settled port before the app is constructed — and before the
-    # --reload worker is spawned, which inherits it. Cookies ignore ports, so
-    # two OSPREY servers on this host share an origin as far as the browser is
-    # concerned; the port is what keeps their session cookies from overwriting
-    # each other, and ``session_cookie_name()`` reads it from here.
-    os.environ[WEB_PORT_ENV] = str(port)
-
-    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
-    login_url = mint_and_announce(host, port)
-    if announce:
-        print(f"Open: {login_url}")  # noqa: T201 -- the server announces its login URL on stdout
-
-    if reload:
-        # Reload mode requires a string import path (uvicorn re-imports on
-        # change). The mint above ran in THIS parent, before the spawn, so the
-        # fresh worker inherits and pops OSPREY_TERMINAL_SECRET — minting in the
-        # factory instead would hand each reload a different secret and
-        # invalidate the URL just announced.
-        uvicorn.run(
-            "osprey.interfaces.ariel.app:create_app",
-            factory=True,
-            host=host,
-            port=port,
-            reload=reload,
-            log_level="info",
-        )
-    else:
-        app = create_app(config_path)
-        uvicorn.run(
-            app,
-            host=host,
-            port=port,
-            log_level="info",
-        )

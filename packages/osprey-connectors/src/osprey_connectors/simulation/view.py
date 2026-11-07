@@ -32,8 +32,12 @@ __all__ = [
     "ADDRESSES_SCHEMA",
     "DECKS_DIR",
     "ENGINE_ROLES",
+    "MONITOR",
     "NO_VIEW_MESSAGE",
+    "OUTPUT",
+    "PERIODIC",
     "PLANES",
+    "READBACK",
     "REFRESH",
     "SCENARIOS_DIR",
     "SCENARIOS_FILE",
@@ -43,6 +47,7 @@ __all__ = [
     "SEEDS_SCHEMA",
     "SERVED_MODELS_FILE",
     "SERVED_MODELS_SCHEMA",
+    "SETPOINT",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
     "VIEW_RELPATH",
@@ -87,13 +92,18 @@ SCHEMAS: Mapping[str, str] = MappingProxyType(
 #: The engine of the model that serves every channel no physics model wires.
 _TEXTURE = "texture"
 
+SETPOINT = "setpoint"
+READBACK = "readback"
+MONITOR = "monitor"
+OUTPUT = "output"
 #: The engine roles a wiring record's description names.
-ENGINE_ROLES = ("setpoint", "readback", "monitor", "output")
+ENGINE_ROLES = (SETPOINT, READBACK, MONITOR, OUTPUT)
 #: The planes a wiring record's description names; ``None`` is no plane.
 PLANES = ("x", "y")
+PERIODIC = "periodic"
 #: The refresh a wiring record's description names: ``pass`` with each
 #: write's solve, ``periodic`` with the periodic solve alone.
-REFRESH = ("pass", "periodic")
+REFRESH = ("pass", PERIODIC)
 
 #: The text a missing view reports.
 NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"

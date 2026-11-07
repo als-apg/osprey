@@ -6,27 +6,27 @@
     "status": "frozen"
   },
   {
-    "directory": "control-assistant/in_context",
+    "directory": "demo/in_context",
     "mode": "in_context",
-    "preset": "control-assistant",
+    "preset": "demo",
     "status": "frozen"
   },
   {
-    "directory": "control-assistant/hierarchical",
+    "directory": "demo/hierarchical",
     "mode": "hierarchical",
-    "preset": "control-assistant",
+    "preset": "demo",
     "status": "frozen"
   },
   {
-    "directory": "control-assistant/middle_layer",
+    "directory": "demo/middle_layer",
     "mode": "middle_layer",
-    "preset": "control-assistant",
+    "preset": "demo",
     "status": "frozen"
   },
   {
-    "directory": "control-assistant/graph",
+    "directory": "demo/graph",
     "mode": "graph",
-    "preset": "control-assistant",
+    "preset": "demo",
     "status": "frozen"
   }
 ]

@@ -45,6 +45,8 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
 }
 
 #: Interim: the listed names that had no user when this check was added. Each
@@ -105,7 +107,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.recovery.Supervised",
         "osprey_connectors.session_hold.EXCERPT_LIMIT",
         "osprey_connectors.session_hold.SCHEMA_VERSION",
-        "osprey_connectors.session_hold.UNREADABLE_FLAG_ID",
         "osprey_connectors.settle.POLL_INTERVAL_S",
         "osprey_connectors.simulation.ACTIVE_SCENARIOS_FILENAME",
         "osprey_connectors.simulation.DEFAULT_SCENARIO",
@@ -188,7 +189,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.write_authorization.authorization_verdict",
         "osprey_connectors.write_authorization.grant_in_force",
         "osprey_connectors.write_authorization.issue_grant",
-        "osprey_connectors.write_authorization.list_grants",
         "osprey_connectors.write_authorization.parse_grant",
         "osprey_connectors.write_authorization.parse_ledger",
         "osprey_connectors.write_authorization.parse_request",

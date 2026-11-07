@@ -187,7 +187,7 @@ class TestAPresetKeyARenderInherits:
     refuse every render built from a preset that names a projected service.
     """
 
-    #: Projected keys the control-assistant preset states itself. Read off the
+    #: Projected keys the demo preset states itself. Read off the
     #: resolved preset rather than hardcoded, so the test moves with the file.
     PROJECTED = ("services.postgresql.username", "services.postgresql.database_name")
 
@@ -195,7 +195,7 @@ class TestAPresetKeyARenderInherits:
     def _preset_config() -> dict[str, Any]:
         from osprey.cli.build_profile_resolve import resolve_build_profile
 
-        profile, _preset_dir = resolve_build_profile(None, "control-assistant")
+        profile, _preset_dir = resolve_build_profile(None, "demo")
         return dict(profile.config)
 
     def test_an_inherited_preset_key_is_not_a_reach_override(self) -> None:

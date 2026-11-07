@@ -74,11 +74,11 @@ SAMPLED_MINUTES = 8
 
 
 @pytest.fixture(scope="module")
-def demo_view(built_control_assistant: BuiltProject, tmp_path_factory) -> Path:
+def demo_view(built_demo: BuiltProject, tmp_path_factory) -> Path:
     """The example facility's simulator view, as the build renders it."""
     root = tmp_path_factory.mktemp("equivalence") / "simulator"
     prefix = "data/simulator/"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith(prefix):
             target = root / name[len(prefix) :]
             target.parent.mkdir(parents=True, exist_ok=True)

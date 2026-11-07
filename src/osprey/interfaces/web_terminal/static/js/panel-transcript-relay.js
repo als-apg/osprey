@@ -7,8 +7,7 @@
  * panel-iframe-sync.js.
  */
 
-import { sendSessionToIframe, sendSessionToWindow } from './panel-iframe-sync.js';
-import { broadcastToPopouts } from './popout.js';
+import { sendSessionToIframe } from './panel-iframe-sync.js';
 import { getCurrentSessionId } from './terminal.js';
 
 /**
@@ -17,17 +16,16 @@ import { getCurrentSessionId } from './terminal.js';
  * `session_transcript` frame for it reaches only this page's own stream
  * (session-model.js), so a panel scoped to that key would keep the old
  * transcript's view. When the frame names the key the panels show, every panel
- * iframe and every pop-out window is told that same key again
+ * iframe, in a tile or in a window of its own, is told that same key again
  * (`osprey-session-change`), and each re-reads its view for it.
  *
  * Unlike terminal.js's notifySessionChange this fires no session-change
- * listener: the key did not change, so the first-contact reset and the pop-out
- * broadcast those listeners drive must not run.
+ * listener: the key did not change, so the first-contact reset those listeners
+ * drive must not run.
  * @param {string} sessionKey - The key whose transcript moved.
  * @param {Iterable<{iframe: HTMLIFrameElement | null}>} panels - Every panel's state.
  */
 export function relayTranscriptMove(sessionKey, panels) {
   if (!sessionKey || sessionKey !== getCurrentSessionId()) return;
   for (const state of panels) sendSessionToIframe(state.iframe);
-  broadcastToPopouts(sendSessionToWindow);
 }

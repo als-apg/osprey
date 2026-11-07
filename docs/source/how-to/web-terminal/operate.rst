@@ -50,19 +50,20 @@ The window has a sidebar on the left and two panes:
 - **Sidebar** (left) — the list of everything you can open:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
-  **Agent** row, the **Tools** and **System** sections, and a footer with **Docs**,
+  **Sessions** row, the **Apps** and **System** sections, and a footer with **Docs**,
   **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
 - **Agent** (right) — the operator chat, or a real terminal running the OSPREY
-  agent when you open one from the pane's **⋯** menu. It survives reconnects,
-  and you can keep a few background conversations alive and hop between them.
-  Close the pane with its **×**; the **Agent** row in the sidebar opens it again.
+  agent when you open one from the pane's session switcher (the session title
+  at the left of the Agent bar). It survives reconnects, and you can keep a
+  few background conversations alive and hop between them.
+  Close the pane with its **×**; the **Sessions** row in the sidebar opens it again.
 - **Work pane** (middle) — the artifacts and panels you open from the sidebar,
   in tiles you arrange by dragging (`Tiles`_). New artifacts,
   plots, and data files appear under their session in the sidebar
   (`Sessions and artifacts`_) as the agent creates them, with no refresh.
-  On a fresh control-assistant deployment the tree is not empty: its first
+  On a fresh demo deployment the tree is not empty: its first
   deploy lays down three past sessions from the ``demo-history`` scenario,
   with their transcripts and artifacts, which you can open and resume (see
   :ref:`how-to-run-scenarios`). Your
@@ -89,11 +90,17 @@ Tiles
 -----
 
 The work pane is tiles, and a tile shows one panel. Its header shows the
-panel's name, the panel's controls, **Pop out** and **×**.
+panel's name, up to three of the panel's icons, **⋯**, **Open in new window**
+and **×**.
+
+**⋯**, or a right-click on the header, opens the tile's menu. **This panel**
+lists the panel's own actions and any icons a narrow tile has no room for.
+**Tile** lists the tile's actions, among them **Reload** and, when the panel
+has a documentation page, **Help**.
 
 A panel you open — from its sidebar row, from a link, from the **+** menu,
-from a pop-out window coming back, or one the agent opens for you — takes the
-service tile you used last and replaces the panel it showed. Nothing resizes,
+or one the agent opens for you — takes the service tile you used last and
+replaces the panel it showed. Nothing resizes,
 and the panel it replaced stays in the sidebar, one click away. A panel
 already open is brought forward where it is. To open a panel in a tile of
 its own, pick **Open in a new tile** from its row's menu, or drag the row
@@ -122,8 +129,9 @@ showing the panel that was in front; the others are in the sidebar.
 The chat and the terminal
 -------------------------
 
-The Agent pane is the operator chat. To reach the agent's terminal, open the
-Agent bar's **⋯** menu and pick **Open terminal**; **Back to chat** returns.
+The Agent pane is the operator chat. To reach the agent's terminal, click the
+session title at the left of the Agent bar and pick **Open terminal**, the last
+row; **Back to chat** returns.
 The choice belongs to the browser tab, and a new tab opens on the chat. The
 chat and the terminal are two windows onto one conversation: they share one
 session, one write state and one transcript, and only the one you are looking
@@ -518,19 +526,18 @@ The sidebar is on the left. From top to bottom, it shows:
 
   - **Sessions**, the first group, has no heading. It starts with this row:
 
-    - **Agent** opens the agent pane and your session tree below it
+    - **Sessions** opens the agent pane and your session tree below it
       (`Sessions and artifacts`_); with the pane open, it folds or unfolds
-      the tree. When the pane
-      is closed, the row is dimmed. When the agent waits for your
-      answer, the row shows the number of open questions. **Agent** is always
-      the first row of the sidebar.
+      the tree. Its **+** starts a new session. When the pane is closed, the
+      row is dimmed. When the agent waits for your answer, the row shows the
+      number of open questions. It is always the first row of the sidebar.
 
-  - **Tools** starts with all other panels that this deployment enables.
+  - **Apps** starts with all other panels that this deployment enables.
   - **System** starts with **Events** (only when the deployment enables the
     events panel) and **Health**.
 
   In each group, the rows are in your order. **+ Add panel** is always the
-  last row of **Tools**. See :doc:`panels`.
+  last row of **Apps**. See :doc:`panels`.
 - The footer: **Docs**, **Feedback**, **Sign out** and **☰ More**. **Sign
   out** shows only on a multi-user deployment. See
   :ref:`web-terminal-sign-out`.
@@ -543,7 +550,7 @@ scrolls. The other groups and the footer always stay on the screen.
 Sessions and artifacts
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The **Agent** row's ▾ opens your sessions, newest first. A session is named
+The **Sessions** row lists your sessions, newest first. A session is named
 from your first prompt ("naming…" until the name arrives); ``/clear`` starts a
 new one. Under a session, its artifacts are grouped by day; **Group by Kind**
 sorts them into **Runs**, **Plots**, **Trends**, **Tables**, **Documents**,
@@ -559,18 +566,24 @@ opens on its proposed code. **More sessions** loads older ones.
   or older session keeps the layout on screen. The sidebar stays as it is.
   Click the current session's name to fold or unfold it. Only the current
   session shows its artifacts; the others stay folded until you switch to them.
-  ⌥-click (Alt+click) a session or **Agent** to expand every session, or
-  collapse them all if all are open.
+  ⌥-click (Alt+click) a session or **Sessions** to expand every session, or
+  collapse them all if all are open. The session the agent works in has a
+  breathing accent bar.
+- Hover a folded session to see its artifacts; click one to show it.
 - Click an artifact to show it. This never changes the session.
 - The title in the agent tile's header has its own ▾ switcher: your sessions
   with state, age and message count, and **+ New session**.
 - While the agent is answering in chat, a switch from any of these asks
   first: **Cancel**, or **Stop & switch**.
 
-Right-click a session to rename it, export its transcript or group its
-artifacts by day or by kind, or delete a past session with its artifacts;
-a run to open its result, approval preview or code; an artifact to pin it.
-Runs and artifacts also have **Delete…**.
+Right-click a session to pin it, rename it, export its transcript or group
+its artifacts by day or by kind, or delete a past session with its artifacts;
+a run to open its result, approval preview or code. Runs and artifacts also
+have **Delete…**.
+
+Pinned sessions (the pin button on a row) also show in the **Pinned** group
+above **Sessions**; right-click its heading to rename or hide it. **Show pinned
+sessions**, on the **Sessions** menu or on empty sidebar space, brings it back.
 
 A reload, a new tab or another device resumes your last session and its
 layout. Its last-open artifact is shown in the Artifacts panel if that panel
@@ -596,11 +609,11 @@ Shift+F10). The menu has these items:
   its name for editing.
 - **Move up** and **Move down**. These move the group in the sidebar.
 - **Delete group**. This item shows only for a group that you added. The
-  rows of the group go back to **Tools**. You cannot delete **Tools** or
+  rows of the group go back to **Apps**. You cannot delete **Apps** or
   **System**, but you can rename them.
 
 Double-click a group's name to fold it down to its heading, and double-click
-again to unfold it. **Sessions**, the group that holds **Agent**, has no
+again to unfold it. **Sessions**, the first group, has no
 heading, so it has no menu and always stays first. To make it taller, drag the
 faint line below it; double-click the line to go back to automatic height.
 
@@ -611,7 +624,7 @@ To move a row to a different group, do one of these:
   group. Then type the name of the new group.
 - Drag the row into the other group. Release it where it must go.
 
-You can move each row except **Agent**. A group without rows shows "No
+You can move each row except **Sessions**. A group without rows shows "No
 panels — move one here from a row's menu".
 
 Your groups are kept in this browser, for your user only. They do not change
@@ -622,7 +635,7 @@ Hide the labels
 
 To hide the labels, click the toggle at the top of the sidebar, or press ⌘\\
 (Ctrl+\\ on other systems). The sidebar then shows only icons. Put the pointer
-on an icon to see its name. In this state, a click on **Agent** opens the
+on an icon to see its name. In this state, a click on **Sessions** opens the
 session tree next to the sidebar. To show the labels again, click the toggle
 or press the same keys.
 
@@ -634,43 +647,25 @@ or press the same keys.
 
 .. _web-terminal-pop-out:
 
-Pop a pane out
-~~~~~~~~~~~~~~
+Open a pane in a new window
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Click **Pop out** in a tile's header, left of the close button, to move the
-tile's content into a window of its own. This works for the agent pane and for
-each service panel. The window stays attached to the terminal: the content
-keeps running there, and the window follows its theme. The tile keeps its
-place and shows **Reattach**. A service panel loads again when it moves into
-the window and when it comes back.
+To move a pane into a window of its own, click **Open in new window** in its
+tile's header, or pick it from the **Tile** section of its **⋯** menu or from
+a right-click on its sidebar row. The command palette has
+**Open <panel> in new window**. This works for the Agent pane and for each
+service panel. The tile leaves the workspace.
 
-To bring the content back, click **Reattach** in the window's bar or in the
-tile; closing the window does the same. When you reload or close the terminal,
-the window closes and the content is back in its tile.
+The window's bar is the tile's own bar, with **Reattach** at the top right.
+The pane's sidebar row shows the reattach icon: a click on the row brings the
+window to the front, a click on the icon reattaches the pane. Reattach puts
+the pane back where it was. With no room for it, the pane stays in its window
+and the terminal shows *No room to reattach <panel>.*
 
-To open a service panel as a page of its own instead, do one of these:
-
-- Right-click its row in the sidebar or its tile header and pick
-  **Open in new window**.
-- Open the command palette and run **Open <panel> in new window**.
-
-The panel opens in a new window the size of its tile. Its tile leaves the
-workspace, and its sidebar row shows a window glyph. The window follows the
-theme, the view and the session of the terminal. The agent can still show you
-the panel: a focus from the agent brings the window to the front.
-
-While the panel is in that window:
-
-- A click on its sidebar row brings the window to the front.
-- Its row menu offers **Bring back** in place of **Open in new window**.
-- A layout change in the workspace does not open a tile for it.
-
-To bring the panel back, close the window, or pick **Bring back** from its
-row menu. The tile returns next to the active tile.
-
-When you reload the terminal, these windows stay open and connect to the
-reloaded page again. When you close the terminal tab, they stay open as normal
-pages, and they no longer follow the terminal.
+Closing the window closes the pane. Reloading the window (Cmd+R) keeps the
+pane in it. After you reload the terminal, the windows are closed and their
+panes are back in place. The terminal's keyboard shortcuts do not work in the
+window.
 
 .. note::
 
@@ -678,9 +673,8 @@ pages, and they no longer follow the terminal.
    *Pop-ups are blocked for this site.* and the tile stays. Allow pop-ups for
    the site in the browser, then try again.
 
-   A panel that runs at an opaque origin (a page the agent wrote) cannot be
-   popped out. Its **Pop out** button and its **Open in new window** row are
-   disabled.
+   A panel that runs at an opaque origin (a page the agent wrote) cannot open
+   in a new window. Its **Open in new window** button and row are disabled.
 
 The More menu
 ~~~~~~~~~~~~~

@@ -149,7 +149,7 @@ pytestmark = [
 def safety_project(tmp_path_factory):
     """Module-scoped deployment repo for safety tests.
 
-    Builds a control_assistant deployment once per test file and reuses it
+    Builds a demo deployment once per test file and reuses it
     across all tests in that file. Writes are armed: the preset's tier is
     ``allowed`` and the switch of the login this process acts as is turned on
     for the baseline target (:func:`enable_writes_in_project`, which rebuilds —
@@ -246,7 +246,7 @@ def safety_project_mixed_render(tmp_path_factory):
     switch-capable the way the switch lifecycle tests do it:
     ``control_system.type`` is the in-process simulator by
     dotted path (so ``live`` resolves to it) with a connector block of its own,
-    beside the ``virtual_accelerator`` block the control-assistant render already
+    beside the ``virtual_accelerator`` block the demo render already
     carries. Nothing switches, so the session stays on the baseline ``live``
     target and the controls MCP server publishes exactly that in its target
     state file at startup.
@@ -297,7 +297,7 @@ def safety_project_selective(tmp_path_factory):
 
     Used by approval flow tests to verify that write operations trigger
     the approval callback while reads pass through silently. Mirrors the
-    rendered ``control_assistant/config.yml.j2`` defaults: channel reads
+    rendered ``demo/config.yml.j2`` defaults: channel reads
     skip approval, writes always ask, ``execute`` is content-aware.
     """
     tmp = tmp_path_factory.mktemp("safety-selective")

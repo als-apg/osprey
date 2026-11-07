@@ -25,7 +25,7 @@ so a second test starting the same directory is refused as stale. Use
 
 The preset is ``hello-world`` for one reason: it is the only bundled preset that
 both deploys services and comes up against a stubbed runtime alone. The
-control-assistant family reaches past the runtime to real network services (the
+demo family reaches past the runtime to real network services (the
 archiver's mongod, ARIEL's postgres) and blocks on them; the standalone presets
 deploy no services at all, so there is no start to watch.
 

@@ -91,7 +91,8 @@ html[data-sidebar-resizing] * {
   flex: none;
 }
 
-.sidebar-sections > .sidebar-group:first-child {
+.sidebar-sections > .sidebar-group:first-child,
+.sidebar-sections > .sidebar-pinned[hidden] + .sidebar-group {
   padding-top: var(--space-4);
 }
 
@@ -409,8 +410,8 @@ html[data-sidebar="collapsed"] .sidebar :is(
   box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
-/* Popped out (panel-rail.js setEntryPoppedOut): the panel runs in its own
-   window, so the row carries a trailing window glyph and a quieter label. */
+/* Detached (rail-row-state.js setEntryDetached): the pane runs in its own
+   window, so the row carries a trailing reattach icon and a quieter label. */
 .sidebar .panel-rail-button .osprey-nav-trail {
   margin-left: auto;
   display: inline-flex;
@@ -422,7 +423,7 @@ html[data-sidebar="collapsed"] .sidebar :is(
   height: 14px;
 }
 
-.sidebar .panel-rail-button.popped-out .osprey-nav-label {
+.sidebar .panel-rail-button.detached .osprey-nav-label {
   color: var(--text-secondary);
 }
 
@@ -440,7 +441,7 @@ html[data-sidebar="collapsed"] .sidebar :is(
   background: var(--color-accent);
 }
 
-/* ---- The Agent row: open, closed, waiting ---- */
+/* ---- The Sessions row: the Agent pane open, closed, waiting ---- */
 
 .sidebar-open-hint {
   display: none;
@@ -454,6 +455,12 @@ html[data-agent="closed"] #sidebar-agent-row .osprey-nav-icon {
   opacity: 0.45;
 }
 
+/* Expanded, the Sessions row is a heading and carries no icon; collapsed to
+   icons only, the row's icon is its only mark and shows. */
+html:not([data-sidebar="collapsed"]) #sidebar-agent-row .osprey-nav-icon {
+  display: none;
+}
+
 html[data-agent="closed"] #sidebar-agent-row .osprey-nav-label {
   color: var(--text-muted);
 }
@@ -462,10 +469,31 @@ html:not([data-sidebar="collapsed"])[data-agent="closed"] #sidebar-agent-row:is(
   display: inline;
 }
 
-/* ---- The row that discloses a tree: the Agent row and its sessions ---- */
+/* ---- The row that discloses a tree: the Sessions row and its sessions ---- */
 
 .sidebar-row {
   position: relative;
+}
+
+/* The Sessions row's "+" (a new session) sits over the row's right end; the
+   row keeps that room clear for its Open hint and badge. Collapsed, the
+   sidebar shows the row's icon alone and no "+". */
+html:not([data-sidebar="collapsed"]) #sidebar-agent-row {
+  padding-right: 32px;
+}
+
+.sidebar-new-session {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+}
+
+.sidebar-new-session .osprey-ic {
+  width: 14px;
+  height: 14px;
 }
 
 .sidebar-kids {
@@ -731,7 +759,8 @@ html[data-sidebar="collapsed"] :is(
   .sidebar-search-label,
   .sidebar .osprey-search .osprey-kbd,
   .sidebar-row > .sidebar-kids,
-  .sidebar-open-hint
+  .sidebar-open-hint,
+  .sidebar-new-session
 ) {
   display: none;
 }
@@ -1949,57 +1978,17 @@ html[data-sidebar-resizing] {
   text-overflow: ellipsis;
 }
 
-/* ---- Attached pop-out stand-in ----
-   What a tile shows while its content is in an attached window
-   (attached-popout.js): a centred line and the way back. In the dock overlay
-   it takes the iframe's place, so dock-iframe.js draws it with the iframe's
-   geometry; in the Agent tile it fills the tile body. */
-.attached-standin {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  box-sizing: border-box;
-  padding: var(--space-3);
-  background: var(--surface-card);
-  color: var(--text-secondary);
-  font-size: var(--text-md);
-  text-align: center;
-}
-.dock-iframe-overlay > .attached-standin {
-  position: absolute;
-  pointer-events: auto;
-  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
-}
-.attached-standin-text { margin: 0; }
-
 /* ---- Attached pop-out window ----
-   The window's own bar (attached-window.js): the pane's name and Reattach,
-   in a tile header bar's metrics and type (dockview-overrides.css .tile-tab).
+   The window's bar is the tile's own (dock-tab.js, dockview-overrides.css
+   .tile-tab), minus what the dock gives a tile's bar: its row, and a drag.
    The pane fills the rest of the window edge to edge. */
-.attached-window-bar {
+.attached-window-root > .tile-tab {
   flex: 0 0 var(--wt-pane-head-height);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   box-sizing: border-box;
   height: var(--wt-pane-head-height);
-  padding: 0 var(--space-2) 0 var(--space-4);
   background: var(--surface-card);
   border-bottom: 1px solid var(--surface-hairline);
-}
-.attached-window-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  color: var(--text-primary);
+  cursor: default;
 }
 /* The Agent pane is the window's interior, as it is the tile's when docked
    (dockview-overrides.css .dock-root .terminal-card): no inset, no second
@@ -2039,109 +2028,6 @@ html[data-sidebar-resizing] {
   border: 1px solid var(--surface-hairline);
   border-radius: var(--radius-xl);
   overflow: hidden;
-}
-
-/* The terminal surface's header row (LED · label · selector · "+ New" · ⋯),
-   with the pane-head metrics. Fallback mode (no dockview) shows it as the
-   card's own header; docked, dock-tab.js adopts it into the tile bar. */
-.terminal-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: var(--wt-pane-head-height);
-  padding: 0 var(--space-2) 0 var(--space-4);
-  background: var(--surface-card);
-  border-bottom: 1px solid var(--surface-hairline);
-  flex-shrink: 0;
-}
-
-/* Inside the tile header bar (dock-tab.js adoption) the header IS the bar:
- * it fills the tab, drops its own card border/background (the strip's
- * chrome shows through), and tightens padding to the bar's height. The
- * un-scoped rules above remain the fallback-mode (no dockview) look. */
-.tile-tab .terminal-header {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  background: transparent;
-  border-bottom: none;
-}
-
-/* In the bar, the session label is the tile's IDENTITY and renders exactly
- * like every service tile's name (.tile-tab-title in dockview-overrides.css)
- * — the green LED, selector and "+ New" are what keep the terminal
- * recognizable, not a divergent type treatment. The un-scoped .terminal-label
- * above stays the fallback-mode look. */
-.tile-tab .terminal-label {
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  text-transform: none;
-  letter-spacing: normal;
-  color: var(--text-primary);
-}
-
-/* "+ New" joins the bar's 28 px control geometry (its chip fill stays). */
-.tile-tab .new-session-btn {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 9px;
-}
-
-.session-led {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.session-led.active {
-  background: var(--color-success);
-}
-
-/* "SESSION <hex>" — one of the shell's two always-visible orientation marks;
-   the other is which panel is open (.panel-rail-button.active). Both ride the
-   secondary accent, distinct from the primary accent that means "you can act
-   here". --color-accent-secondary-light is the text-safe slot of the pair (the
-   base is decorative-only and is not gated for body text). */
-.terminal-label {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  color: var(--color-accent-secondary-light);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-/* "+ New" chip — bg-elevated fill, hairline border, matching the frame's chip
-   idiom (not the old bordered mono button). */
-.new-session-btn {
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: var(--weight-regular);
-  color: var(--text-secondary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  padding: 3px 9px;
-  cursor: pointer;
-  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease,
-    background var(--duration-fast) ease;
-  margin-left: auto;
-}
-
-.new-session-btn:hover {
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
-  background: var(--accent-tint-08);
-}
-
-.new-session-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* Terminal body surface — the darker bg.terminal, distinct from the panel-bg

@@ -39,7 +39,6 @@
 import { getState, setState, subscribe, mailboxKey, parseMailboxKey, savedName } from './store.js';
 import { normalizeFilter, sanitizeFilter, mergeFilter } from './filter-state.js';
 import { findSaved } from './saved-searches.js';
-import { isEmbedded } from '/design-system/js/frame-params.js';
 import { showToast } from '/design-system/js/toast.js';
 import { flashElement } from '/design-system/js/highlight.js';
 
@@ -175,11 +174,8 @@ export function parseHash(hash) {
     }
     case 'create':
       return { compose: { draft: params.get('draft') || null }, rerank: 'now' };
-    case 'status':
-      // Status is hidden in an embedded frame, so the link shows the list there.
-      return isEmbedded() ? listPatch() : { drawer: 'status', rerank: 'now' };
     default:
-      // `search`, `browse`, and any unknown name.
+      // `search`, `browse`, `status`, and any unknown name.
       return listPatch();
   }
 }
@@ -371,8 +367,6 @@ export function initRouter(opts = {}) {
   applyLocationHash();
   // After the initial hash, so a navigate never races the fresh load. A probe
   // the host sent before this point is answered by the unsolicited ready.
-  if (isEmbedded()) {
-    window.addEventListener('message', onMessage);
-    sayReady();
-  }
+  window.addEventListener('message', onMessage);
+  sayReady();
 }

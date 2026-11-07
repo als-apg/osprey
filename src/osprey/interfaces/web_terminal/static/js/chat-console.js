@@ -7,56 +7,26 @@
  * send and stop controls). It returns the handles the controller in chat.js
  * drives. Nothing here reads the session pointer or the transport.
  *
- * The Agent bar is the Agent pane's one header row. In the dock it does not
- * stay in the console: the Agent tile adopts it as its tile bar in chat
- * (dock-tab.js), so the console body below it is the card interior.
- * Left to right: the status dot, `Agent`, then the icon buttons — New
- * conversation, the notifications bell (chat-attention.js appends it),
- * Export (chat-export.js appends it) and ⋯, the earlier conversations with the
- * way to the terminal as its last row. The
- * ⋯ is returned unattached: chat.js appends it after the feature modules,
- * so it stays last, and sessions.js gives it its menu.
+ * The Agent bar is the Agent pane's one header row (agent-bar.js builds it:
+ * the session switcher's label, `+` New conversation and the divider). In the
+ * dock it does not stay in the console: the Agent tile adopts it as its tile
+ * bar in chat (dock-tab.js), so the console body below it is the card interior.
  *
  * @module chat-console
  */
 
+import { buildAgentBar } from './agent-bar.js';
 import { chatIcon } from './chat-icons.js';
 import { elem } from './chat-dom.js';
-import { icon } from '/design-system/js/icons.js';
-
-/**
- * One of the Agent bar's icon buttons: an `.osprey-icon-btn` whose name is
- * its `aria-label`, repeated as the tooltip.
- * @param {string} className
- * @param {string} iconName  a name from design-system icons.js
- * @param {string} label
- * @returns {HTMLButtonElement}
- */
-export function barButton(className, iconName, label) {
-  const btn = /** @type {HTMLButtonElement} */ (elem('button', `osprey-icon-btn ${className}`));
-  btn.type = 'button';
-  btn.title = label;
-  btn.setAttribute('aria-label', label);
-  btn.append(icon(iconName));
-  return btn;
-}
 
 /**
  * Build the operator console interior — Agent bar, message list, hand-off
  * overlay, and the command-line input row — and return the handles the
  * controller drives.
+ * @param {{ onNew?: () => void }} [options]  what the bar's `+` does
  */
-export function buildConsole() {
-  const bar = elem('div', 'op-session-bar');
-  // Nothing updates this dot, so it claims no state: decoration only. The
-  // label beside it names the pane.
-  const led = elem('span', 'osprey-dot ok op-session-led');
-  led.setAttribute('aria-hidden', 'true');
-  // The session switcher (session-switcher.js) fills it with the session's
-  // title and a ▾ once chat.js attaches it.
-  const label = elem('span', 'op-session-label', 'Agent');
-  const newBtn = barButton('op-session-new', 'pen', 'New conversation');
-  bar.append(led, label, newBtn);
+export function buildConsole({ onNew } = {}) {
+  const { bar, label, newBtn } = buildAgentBar({ onNew });
 
   const messages = elem('div', 'op-messages');
   // A log by role, but silent by itself: a log is polite by default, and streamed

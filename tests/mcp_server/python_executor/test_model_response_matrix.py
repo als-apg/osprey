@@ -68,9 +68,9 @@ SPIN_TIMEOUT_S = 60
 
 
 @pytest.fixture(scope="module")
-def sr_render(built_control_assistant: Any) -> Path:
+def sr_render(built_demo: Any) -> Path:
     """The built demo's render, read and never written."""
-    return Path(built_control_assistant.build_dir)
+    return Path(built_demo.build_dir)
 
 
 def _copy_render(source: Path, target: Path) -> Path:

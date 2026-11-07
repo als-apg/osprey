@@ -470,7 +470,7 @@ def test_main_appends_tile_state_to_context(monkeypatch, capsys):
 
 
 def test_main_omits_tile_state_when_never_reported(monkeypatch, capsys):
-    payload = dict(_TILED_PAYLOAD, layout=None, rev=0, layout_age_s=None)
+    payload = dict(_TILED_PAYLOAD, layout=None, rev=0, layout_age_s=None, layout_dock=None)
     _stub_urlopen(monkeypatch, payload=payload)
     _stub_stdin(monkeypatch, {"session_id": "sess-1"})
 
@@ -607,3 +607,57 @@ def test_workspace_state_names_the_pop_outs_beside_the_tiles():
 def test_tile_line_names_no_pop_outs_when_there_are_none():
     state = panels._workspace_state({"layout": _LAYOUT, "layout_dock": True, "active": "lattice"})
     assert "pop-outs" not in panels._build_tile_line(state)
+
+
+def test_workspace_state_terminal_in_pop_outs_beside_the_tiles():
+    data = {"layout": _tile("t1", "lattice"), "layout_dock": True, "popouts": ["terminal"]}
+    state = panels._workspace_state(data)
+    assert state["popouts"] == ["terminal"]
+    assert "Open tiles: [lattice]; pop-outs: terminal;" in panels._build_tile_line(state)
+
+
+def test_a_dock_report_with_a_null_layout_and_pop_outs_is_an_empty_dock():
+    """The Agent pane detached from the default layout: nothing docked, not unknown."""
+    data = {"layout": None, "layout_dock": True, "popouts": ["terminal"], "visible": []}
+    assert panels._occupancy_is_known(data) is True
+    state = panels._workspace_state(data)
+    assert state["tiles"] == []
+    assert state["popouts"] == ["terminal"]
+    assert panels._build_tile_line(state).startswith("Open tiles: none; pop-outs: terminal;")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"layout": None, "layout_dock": False, "popouts": ["terminal"]},
+        {"layout": None, "layout_dock": None, "popouts": ["terminal"]},
+    ],
+    ids=["dockless", "never-reported"],
+)
+def test_a_null_layout_stays_unknown_unless_a_dock_reported_it(payload):
+    assert panels._occupancy_is_known(payload) is False
+    assert panels._workspace_state(payload)["tiles"] is None
+
+
+def test_a_dock_report_with_a_null_layout_and_no_pop_outs_is_known_empty():
+    """The last detached pane's window closed: the dock says it is empty."""
+    data = {"layout": None, "layout_dock": True, "popouts": [], "visible": []}
+    assert panels._occupancy_is_known(data) is True
+    state = panels._workspace_state(data)
+    assert state["tiles"] == []
+    assert state["popouts"] == []
+    assert panels._build_tile_line(state) == "Open tiles: none (nothing on screen)."
+
+
+def test_main_names_the_detached_agent_pane(monkeypatch, capsys, temp_snapshot_dir):
+    payload = dict(_TILED_PAYLOAD, layout=None, layout_dock=True, popouts=["terminal"])
+    _stub_urlopen(monkeypatch, payload=payload)
+    _stub_stdin(monkeypatch, {"session_id": "sess-1"})
+
+    assert panels.main() == 0
+
+    out = capsys.readouterr().out
+    assert "pop-outs: terminal" in out
+    snapshot = json.loads((temp_snapshot_dir / "osprey-workspace-sess-1.json").read_text())
+    assert snapshot["tiles"] == []
+    assert snapshot["popouts"] == ["terminal"]

@@ -91,12 +91,12 @@ reasoning over results delegated to the OSPREY agent layer.
       .. tab-item:: 1. Configure
 
          The easiest way to get started is to create a new project from the
-         ``control-assistant`` template, which includes ARIEL pre-configured
+         ``demo`` template, which includes ARIEL pre-configured
          and ships the logbook app on a shared card:
 
          .. code-block:: bash
 
-            osprey init my-project --preset control-assistant
+            osprey init my-project --preset demo
             cd my-project
 
          Its build gives you a ready-to-use ``config.yml``
@@ -137,14 +137,11 @@ reasoning over results delegated to the OSPREY agent layer.
             .. tab-item:: Web Interface
                :selected:
 
-               Start the ARIEL web UI in a separate terminal, then open it in
-               your browser.
+               Start the web terminal and open the ARIEL panel.
 
                .. code-block:: bash
 
-                  osprey ariel web
-
-               Then open ``http://localhost:10300`` in your browser.
+                  osprey web
 
             .. tab-item:: CLI Search
 
@@ -260,8 +257,6 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
      - List embedding models and their tables
    * - ``reembed``
      - Re-embed entries with a new or existing model
-   * - ``web``
-     - Launch the ARIEL web interface
    * - ``purge``
      - Purge all ARIEL data from the database
 

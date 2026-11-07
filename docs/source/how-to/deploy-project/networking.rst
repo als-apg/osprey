@@ -54,7 +54,7 @@ with — and on a deployment that runs those beside it, those addresses are this
 machine's own ``localhost``. Inside a container on the compose network that
 name means the container, so writes and queue calls are refused on connect
 while every health check still passes. Put the pair on the host network and
-the addresses mean what they say. The bundled ``control-assistant`` preset does
+the addresses mean what they say. The bundled ``demo`` preset does
 exactly that, and any profile that keeps a control system or a co-deployed
 bridge at a loopback address should too.
 A container on the host network reaches whatever the host reaches;

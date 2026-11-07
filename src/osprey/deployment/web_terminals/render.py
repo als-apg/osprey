@@ -997,7 +997,7 @@ def render_web_terminals(
             block names under ``auth:`` (``auth.token_env``, or
             ``auth.password_env``), and each becomes one line in the user's
             ``environment:`` block carrying exactly that name (the
-            control-assistant preset spells it ``MONGO_ROOT_PASSWORD``, which
+            demo preset spells it ``MONGO_ROOT_PASSWORD``, which
             ``osprey up`` mints). Without it the agent's every archiver read
             fails with "Environment variable '…' is not set" while the same
             project works on the single-user host path, which reads the whole

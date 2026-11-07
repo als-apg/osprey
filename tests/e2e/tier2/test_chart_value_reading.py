@@ -241,7 +241,7 @@ def _init_args(repo: Path) -> list[str]:
     return [
         str(repo),
         "--preset",
-        "control-assistant",
+        "demo",
         "--no-git",
         *e2e_scenario_pin(),
         *set_pairs(_profile_edits()),

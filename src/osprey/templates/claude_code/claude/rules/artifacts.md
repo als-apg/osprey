@@ -88,8 +88,7 @@ subagent does not focus: it files its answer and hands back the id (see
 "Subagent Hand-Backs").
 
 The `[Gallery Focus]` block in your context carries this conversation's
-gallery selection and the artifacts pinned in it (`artifact_pin`). Use it to
-understand what the user is looking at.
+gallery selection. Use it to understand what the user is looking at.
 
 ## Subagent Hand-Backs
 

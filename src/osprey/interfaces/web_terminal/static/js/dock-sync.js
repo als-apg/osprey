@@ -140,7 +140,6 @@
 import { getDockApi, setLayoutRestoredHook } from './dock-workspace.js';
 import { setPanelFocus } from './panel-commands.js';
 import { withPrefix, getPageClientId } from './api.js';
-import { isPoppedOut, onPopoutChange } from './popout.js';
 // The layout holder keeps the dock's layout and resolves panels by these ids;
 // dockPanelAt() below places a placeholder the adapter then adopts by the same
 // id, so both modules share the single source of truth for them.
@@ -389,7 +388,11 @@ async function detailOf(resp) {
  * the last acknowledged report. Read at flush time (not at event time), so an
  * intermediate arrangement is never what gets reported. No holder, or a holder
  * with no layout yet, reports nothing and leaves the dedupe baseline untouched:
- * silence is honest, an invented empty workspace is not. A report the server
+ * silence is honest, an invented empty workspace is not. An empty dock whose
+ * panes are all detached is a real workspace, though — the Agent pane leaving
+ * the default layout for its window — and is reported as a null layout with
+ * the pop-outs beside it. So is the empty dock that last pane's window leaves
+ * behind when it closes: the server still names the pop-out until it is told. A report the server
  * refused with a 4xx is not sent again until the layout changes; a forced
  * report (`reportLayoutNow`) skips only the dedupe.
  *
@@ -409,7 +412,8 @@ function flushLayoutReport() {
   }
   const holder = getLayoutHolder();
   const layout = holder?.layout ?? null;
-  if (!holder || !layout) return;
+  if (!holder) return;
+  if (!layout && holder.detachedKeys().length === 0 && !lastReported?.popouts.length) return;
   const popouts = holder.popouts;
   const sent = { layout, popouts };
   if (!reportForced && sameReport(sent, lastReported)) {
@@ -612,8 +616,7 @@ function panelIdForTab(tab) {
  *
  * No-op in fallback mode (no dock to place into).
  * No-op too for a panel living in its own pop-out window — a placeholder for
- * it would be an empty tile: the panel comes back through popout.js when its
- * window closes.
+ * it would be an empty tile: it comes back by a reattach (pane-window.js).
  * The holder applies the layout inside the echo guard, so the rebuild's
  * active-panel change is never read as a human focus — the caller's show path
  * owns the focus POST.
@@ -626,7 +629,7 @@ function panelIdForTab(tab) {
  */
 export function dockPanelAt(serviceId, title = serviceId, position = null) {
   const holder = getLayoutHolder();
-  if (!getDockApi() || !holder || isPoppedOut(serviceId)) return;
+  if (!getDockApi() || !holder || holder.isDetached(serviceId)) return;
   holder.setPanelRecord(serviceId, { title });
   /** @type {import('./dock-open.js').Position | null} */
   let at = null;
@@ -695,9 +698,9 @@ export function initDockSync() {
   if (api && root) {
     api.onDidActivePanelChange(onActivePanelChange);
     api.onDidLayoutChange(scheduleLayoutReport);
-    // A panel leaving for its own window, or coming back, is a change the
+    // A pane detaching, reattaching or closing with its window is a change the
     // agent reads (the report's `popouts`), whether or not dockview's tree moved.
-    onPopoutChange(scheduleLayoutReport);
+    getLayoutHolder()?.onDetachedChange(scheduleLayoutReport);
     root.addEventListener('click', onDockClickCapture, true);
     wired = true;
     setLayoutRestoredHook(armBootReport);

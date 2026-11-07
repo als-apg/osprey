@@ -272,12 +272,12 @@ def test_a_non_positive_cadence_is_not_reported_twice() -> None:
     assert _cadence_mismatch_errors(errors) == []
 
 
-def test_the_control_assistant_presets_block_validates() -> None:
+def test_the_demo_presets_block_validates() -> None:
     """The shipped preset leaves the recorder tail at its default, which is the
     seed's cadence, so the guard leaves its block untouched."""
     from osprey.cli.build_profile import resolve_build_profile
 
-    profile, _ = resolve_build_profile(None, "control-assistant")
+    profile, _ = resolve_build_profile(None, "demo")
 
     assert profile.va_archiver is not None
     assert profile.va_archiver.recorder_tail_cadence_sec == profile.va_archiver.tail_cadence_sec
@@ -901,7 +901,7 @@ def test_an_unrelated_health_category_is_left_alone() -> None:
 
 @pytest.mark.slow
 def test_the_derived_canary_is_a_channel_the_virtual_accelerator_serves(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     """Same standard the L0 e2e holds its own canary to, applied to the derived one.
 
@@ -911,13 +911,11 @@ def test_the_derived_canary_is_a_channel_the_virtual_accelerator_serves(
     address list the VA serves, so a facility change that drops this channel
     fails here rather than in a deployed operator's face.
     """
-    config = yaml.safe_load(
-        (built_control_assistant.repo / "build" / "config.yml").read_text(encoding="utf-8")
-    )
+    config = yaml.safe_load((built_demo.repo / "build" / "config.yml").read_text(encoding="utf-8"))
     (check,) = config["health"]["categories"]["archiver"]["checks"]
     canary = check["channel"]
 
-    served = set(json.loads(built_control_assistant.outputs[0].files[SERVED_ADDRESSES])["channels"])
+    served = set(json.loads(built_demo.outputs[0].files[SERVED_ADDRESSES])["channels"])
     assert canary in served, (
         f"the derived freshness channel {canary!r} is not served by the built facility, "
         f"so the check could never see a sample."

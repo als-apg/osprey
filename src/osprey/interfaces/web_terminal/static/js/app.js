@@ -37,13 +37,14 @@ import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { initChat, enterFromTerminal, renderChatBootFailure } from './chat.js';
 import { initDockWorkspace } from './dock-workspace.js';
 import { initSessionLayout } from './session-layout.js';
+import { openDirectVisit, takeDirectVisit } from './direct-visit.js';
 import { panelFocusAnchor } from './dock-iframe.js';
 import { initHeaderContrib } from './tile-header-contrib.js';
 import { initControlTargetChip } from './control-target-chip.js';
 import { insertPrompt } from './first-contact.js';
 import { initControlTargetPopover } from './control-target-popover.js';
 import { initFeedback } from './feedback-boot.js';
-import { initSidebar } from './sidebar.js';
+import { hydrateIcons, initSidebar } from './sidebar.js';
 import { initSidebarTarget } from './sidebar-target.js';
 import {
   initSidebarArtifacts,
@@ -53,6 +54,7 @@ import {
 import { whilePanelServed } from './panel-availability.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
 import { queryAllDocuments } from './attached-window.js';
+import { initJupyterChrome } from './jupyter-chrome.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
   initTheme({ role: 'hub' });
@@ -105,18 +107,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Before the panel manager creates any iframe, so no contribution can
   // arrive without a listener.
   initHeaderContrib();
-  initPanelManager('right-panel');
+  const panelsReady = initPanelManager('right-panel');
+  // Before any panel's config read answers, so the notebook tile hears its start.
+  initJupyterChrome();
   attachSessionSwitcher(document.getElementById('terminal-label'));
   // Dock the terminal + workspace panels into the dockview shell (replaces the
   // old fixed resize-handle split). Guarded so a dock init failure can't break
   // the rest of boot — the source subtrees stay in the page if it no-ops.
   try {
     initDockWorkspace();
-    // Each session keeps its own layout from here on (after the dock exists).
-    initSessionLayout();
   } catch (err) {
     console.error('Failed to init dock workspace:', err);
   }
+  try {
+    // Each session keeps its own layout from here on (after the dock exists).
+    initSessionLayout();
+  } catch (err) {
+    console.error('Failed to init session layout:', err);
+  }
+  // A direct visit to a panel page landed here with that panel and page.
+  void openDirectVisit(takeDirectVisit(), panelsReady);
   // The Agent row's session tree: session rows always; their groups and
   // counts only while the artifacts panel is served (Decision 14). The tree
   // follows every later sidebar render through `osprey-sidebar-rendered`.
@@ -244,6 +254,9 @@ function initControlSystemBlock() {
 function initNewSessionButton() {
   const btn = /** @type {HTMLButtonElement} */ (document.getElementById('new-session-btn'));
   if (!btn) return;
+  // Its `+` is a placeholder svg; the dock may hold the bar off the page when
+  // the sidebar fills the page's icons.
+  hydrateIcons(btn);
 
   btn.addEventListener('click', async () => {
     btn.disabled = true;

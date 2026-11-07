@@ -20,7 +20,9 @@
  * those keydowns itself and calls the same opener with the element's rect.
  *
  * Dismissal contract — the menu closes on:
- *   - pointerdown outside it (capture phase, so the press dismisses first),
+ *   - pointerdown outside it (capture phase, so the press dismisses first);
+ *     a press on the `triggerEl` that opened it is exempt, so that button's
+ *     click can toggle the menu closed (see {@link openContextMenu}),
  *   - Escape or Tab,
  *   - running an item (the menu closes BEFORE the action),
  *   - window `blur` — a click into an iframe never reaches this document,
@@ -30,7 +32,13 @@
  *     an unscoped listener would dismiss on any inner scroller's own scrolls,
  *     the terminal's streaming output above all.
  *
- * Focus contract — opening records `document.activeElement` and focuses the
+ * Documents — the menu opens in the anchor's document (`document` with no
+ * anchor), which may be a window of its own (the web terminal's detached panes):
+ * it mounts on that body, clamps to that viewport, and hears dismissal on that
+ * document and its window. The press and scroll targets may belong to that
+ * window's realm, so nothing here tests them with `instanceof Node`.
+ *
+ * Focus contract — opening records the document's `activeElement` and focuses the
  * first enabled row. That focus is handed back only on the KEYBOARD dismissals
  * (Escape/Tab) and on close-before-run, where it is restored before the action
  * runs so an action that moves focus itself still wins. Pointer, blur, scroll
@@ -76,12 +84,20 @@
  * @property {number} y - viewport y
  * @property {HTMLElement | null} [anchorEl] - the surface the menu belongs to; scopes
  *   the scroll dismissal (omitting it leaves only document scrolls)
+ * @property {HTMLElement | null} [triggerEl] - the button that opened the menu (a ⋯).
+ *   The menu then sits under it, right edges aligned, instead of at x/y; the
+ *   button carries `aria-expanded` while the menu is open; a press on it
+ *   does not count as an outside press, and opening again from the same
+ *   button while its menu is open closes the menu instead (a toggle).
  * @property {string} ariaLabel - the menu's accessible name
  * @property {MenuItem[]} items - the rows, in order
  * @property {string} [classPrefix] - class-name stem, `osprey-context` by default
  */
 
 const DEFAULT_PREFIX = 'osprey-context';
+
+/** Space between a trigger button and the menu hanging under it, in px. */
+const TRIGGER_GAP = 4;
 
 /** @type {HTMLElement | null} the single open menu, or null */
 let menuEl = null;
@@ -92,8 +108,25 @@ let prefix = DEFAULT_PREFIX;
 /** @type {HTMLElement | null} the surface the menu belongs to (scroll scoping) */
 let anchorEl = null;
 
+/** @type {HTMLElement | null} the button the open menu hangs under, if any */
+let triggerEl = null;
+
 /** @type {HTMLElement | null} what had focus when the menu opened */
 let previousFocus = null;
+
+/** @type {Document | null} the document the open menu lives in */
+let ownerDoc = null;
+
+/** @type {(Window & typeof globalThis) | null} that document's window */
+let ownerView = null;
+
+/**
+ * @param {unknown} target
+ * @returns {target is Node} whichever realm the node belongs to
+ */
+function isNode(target) {
+  return typeof (/** @type {any} */ (target)?.nodeType) === 'number';
+}
 
 /** @returns {string} selector for the open menu's enabled rows */
 function enabledRows() {
@@ -102,7 +135,11 @@ function enabledRows() {
 
 /** @param {MouseEvent} e */
 function onDocPointerDown(e) {
-  if (menuEl && e.target instanceof Node && !menuEl.contains(e.target)) dismiss(false);
+  if (!menuEl || !isNode(e.target) || menuEl.contains(e.target)) return;
+  // The trigger's own press is the toggle's job (see openContextMenu), not an
+  // outside press: dismissing here would reopen the menu on the click.
+  if (triggerEl && triggerEl.contains(e.target)) return;
+  dismiss(false);
 }
 
 /** @param {KeyboardEvent} e */
@@ -123,7 +160,7 @@ function onDocKeydown(e) {
     e.stopPropagation();
     const rows = /** @type {HTMLElement[]} */ ([...menuEl.querySelectorAll(enabledRows())]);
     if (!rows.length) return;
-    const idx = rows.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+    const idx = rows.indexOf(/** @type {HTMLElement} */ (ownerDoc?.activeElement));
     const next =
       e.key === 'ArrowDown'
         ? rows[(idx + 1 + rows.length) % rows.length]
@@ -149,11 +186,11 @@ function onWindowResize() {
  */
 function onDocScroll(e) {
   if (!menuEl) return;
-  if (e.target === document) {
+  if (e.target === ownerDoc) {
     dismiss(false);
     return;
   }
-  if (anchorEl && e.target instanceof Node && e.target.contains(anchorEl)) dismiss(false);
+  if (anchorEl && isNode(e.target) && e.target.contains(anchorEl)) dismiss(false);
 }
 
 /**
@@ -166,14 +203,27 @@ function dismiss(restoreFocus) {
   menuEl.remove();
   menuEl = null;
   anchorEl = null;
+  triggerEl?.setAttribute('aria-expanded', 'false');
+  triggerEl = null;
   const restoreTo = previousFocus;
   previousFocus = null;
-  document.removeEventListener('pointerdown', onDocPointerDown, true);
-  document.removeEventListener('keydown', onDocKeydown, true);
-  document.removeEventListener('scroll', onDocScroll, true);
-  window.removeEventListener('blur', onWindowBlur);
-  window.removeEventListener('resize', onWindowResize);
+  ownerDoc?.removeEventListener('pointerdown', onDocPointerDown, true);
+  ownerDoc?.removeEventListener('keydown', onDocKeydown, true);
+  ownerDoc?.removeEventListener('scroll', onDocScroll, true);
+  ownerView?.removeEventListener('blur', onWindowBlur);
+  ownerView?.removeEventListener('resize', onWindowResize);
+  ownerDoc = null;
+  ownerView = null;
   if (restoreFocus && restoreTo && restoreTo.isConnected) restoreTo.focus();
+}
+
+/**
+ * Close the open menu, if any, without moving focus: the surface it belongs to is
+ * going away.
+ * @returns {void}
+ */
+export function closeContextMenu() {
+  dismiss(false);
 }
 
 /**
@@ -246,21 +296,33 @@ function buildRow(item) {
  *
  * Every child is assembled through DOM APIs (never innerHTML). After insertion
  * the menu is clamped so it never overflows the viewport (opened near an edge
- * it flips inward), and the first enabled row takes focus.
+ * it flips inward), and the first enabled row takes focus. With `triggerEl`
+ * the menu hangs under that button instead, right edges aligned, and a
+ * second open from the same button closes it.
  *
  * @param {OpenOptions} opts
  * @returns {void}
  */
 export function openContextMenu(opts) {
-  const { x, y, ariaLabel, items } = opts;
+  const { ariaLabel, items } = opts;
+  if (menuEl && opts.triggerEl && opts.triggerEl === triggerEl) {
+    dismiss(false);
+    return;
+  }
   // Capture the focus to hand back BEFORE tearing down any open menu — when
   // one menu replaces another the active element is the old menu's row, so
   // the earlier capture is the one worth keeping.
-  const active = document.activeElement;
-  const held = menuEl && active instanceof Node && menuEl.contains(active) ? previousFocus : active;
+  const doc = (opts.anchorEl ?? opts.triggerEl)?.ownerDocument ?? document;
+  const view = /** @type {Window & typeof globalThis} */ (doc.defaultView ?? window);
+  const active = (ownerDoc ?? doc).activeElement;
+  const held = menuEl && isNode(active) && menuEl.contains(active) ? previousFocus : active;
   dismiss(false);
-  previousFocus = held instanceof HTMLElement ? held : null;
+  // Not `instanceof HTMLElement`: the active element may be of a window's realm.
+  previousFocus = /** @type {HTMLElement | null} */ (held);
   anchorEl = opts.anchorEl ?? null;
+  triggerEl = opts.triggerEl ?? null;
+  ownerDoc = doc;
+  ownerView = view;
   prefix = opts.classPrefix || DEFAULT_PREFIX;
 
   const menu = document.createElement('div');
@@ -273,28 +335,49 @@ export function openContextMenu(opts) {
 
   for (const item of items) menu.appendChild(buildRow(item));
 
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-  document.body.appendChild(menu);
+  doc.body.appendChild(menu);
   menuEl = menu;
-
-  // Clamp into the viewport: near the right/bottom edge the menu flips to
-  // sit on the cursor's other side rather than overflowing.
-  const rect = menu.getBoundingClientRect();
-  if (rect.right > window.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
-  if (rect.bottom > window.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
+  place(menu, opts, view);
+  triggerEl?.setAttribute('aria-expanded', 'true');
 
   // Capture-phase pointerdown (not click) so a drag started outside also
   // dismisses, and before the outside target acts on the press. Scroll is
   // capture-phase because element scrolls do not bubble.
-  document.addEventListener('pointerdown', onDocPointerDown, true);
-  document.addEventListener('keydown', onDocKeydown, true);
-  document.addEventListener('scroll', onDocScroll, true);
-  window.addEventListener('blur', onWindowBlur);
-  window.addEventListener('resize', onWindowResize);
+  doc.addEventListener('pointerdown', onDocPointerDown, true);
+  doc.addEventListener('keydown', onDocKeydown, true);
+  doc.addEventListener('scroll', onDocScroll, true);
+  view.addEventListener('blur', onWindowBlur);
+  view.addEventListener('resize', onWindowResize);
 
   const first = /** @type {HTMLElement | null} */ (menu.querySelector(enabledRows()));
   first?.focus();
+}
+
+/**
+ * Position the inserted menu. At the cursor: clamped into the viewport, so a
+ * menu opened near the right or bottom edge flips to the cursor's other side
+ * rather than overflowing. Under a trigger button: right edges aligned, a
+ * small gap below it, flipped above it when the bottom edge is short of
+ * room. Measured after insertion, at x/y, so the menu's own size is known.
+ * @param {HTMLElement} menu
+ * @param {OpenOptions} opts
+ * @param {Window} view  the window the menu lives in
+ */
+function place(menu, opts, view) {
+  const { x, y } = opts;
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  const rect = menu.getBoundingClientRect();
+  if (opts.triggerEl) {
+    const r = opts.triggerEl.getBoundingClientRect();
+    const below = r.bottom + TRIGGER_GAP;
+    const fits = below + rect.height <= view.innerHeight;
+    menu.style.left = `${Math.max(0, r.right - rect.width)}px`;
+    menu.style.top = `${Math.max(0, fits ? below : r.top - rect.height - TRIGGER_GAP)}px`;
+    return;
+  }
+  if (rect.right > view.innerWidth) menu.style.left = `${Math.max(0, x - rect.width)}px`;
+  if (rect.bottom > view.innerHeight) menu.style.top = `${Math.max(0, y - rect.height)}px`;
 }
 
 /**

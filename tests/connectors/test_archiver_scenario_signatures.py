@@ -1,9 +1,9 @@
-"""The control-assistant scenarios' archived signatures, read through the mock archiver.
+"""The demo scenarios' archived signatures, read through the mock archiver.
 
 The agentic scenario suites grade an agent's diagnosis with an LLM judge; a
 diagnosis is only reachable if the archived data carries the signature the
 scenario documents. This module pins those signatures with no LLM: each case
-copies the control-assistant build's simulator view, pins one scenario in its
+copies the demo build's simulator view, pins one scenario in its
 ``active_scenarios`` state file and reads the history through
 ``MockArchiverConnector.get_data``, the path the agent's archiver tools take.
 
@@ -70,10 +70,10 @@ RF_ANCHOR = datetime(2026, 6, 13, 9, 30, tzinfo=UTC)
 Reader = Callable[[list[str], datetime, datetime, timedelta], dict[str, np.ndarray]]
 
 
-def _pinned_view(built_control_assistant, root: Path, state: str) -> Path:
+def _pinned_view(built_demo, root: Path, state: str) -> Path:
     """A copy of the build's simulator view whose state file reads ``state``."""
     view = root / "build" / "data" / "simulator"
-    shutil.copytree(built_control_assistant.build_dir / "data" / "simulator", view)
+    shutil.copytree(built_demo.build_dir / "data" / "simulator", view)
     state_dir = simulation_state_dir(view)
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "active_scenarios").write_text(state)
@@ -111,10 +111,8 @@ class TestVacuumBurst:
     """SR07 pressure spike anti-correlates with the DCCT beam-current dip."""
 
     @pytest.fixture(scope="class")
-    def window(self, built_control_assistant, tmp_path_factory) -> dict[str, np.ndarray]:
-        view = _pinned_view(
-            built_control_assistant, tmp_path_factory.mktemp("vacuum-burst"), "vacuum-burst\n"
-        )
+    def window(self, built_demo, tmp_path_factory) -> dict[str, np.ndarray]:
+        view = _pinned_view(built_demo, tmp_path_factory.mktemp("vacuum-burst"), "vacuum-burst\n")
         center = (datetime.now(UTC) - timedelta(days=1)).replace(
             hour=14, minute=32, second=8, microsecond=0
         )
@@ -154,16 +152,14 @@ class TestRfThermal:
     """The rf-thermal history tells the story its logbook entries tell."""
 
     @pytest.fixture(scope="class")
-    def scenario(self, built_control_assistant) -> dict:
-        path = built_control_assistant.facility_dir / "scenarios" / "rf-thermal.yaml"
+    def scenario(self, built_demo) -> dict:
+        path = built_demo.facility_dir / "scenarios" / "rf-thermal.yaml"
         return yaml.safe_load(path.read_text(encoding="utf-8"))
 
     @pytest.fixture(scope="class")
-    def read(self, built_control_assistant, tmp_path_factory) -> Reader:
+    def read(self, built_demo, tmp_path_factory) -> Reader:
         state = f"anchor={RF_ANCHOR.isoformat()}\nrf-thermal\n"
-        return _reader(
-            _pinned_view(built_control_assistant, tmp_path_factory.mktemp("rf-thermal"), state)
-        )
+        return _reader(_pinned_view(built_demo, tmp_path_factory.mktemp("rf-thermal"), state))
 
     @staticmethod
     def _narrated(when: dict) -> datetime:
@@ -292,10 +288,10 @@ class TestRfThermalLive:
     END = datetime.fromtimestamp(1_790_000_000, UTC)
 
     @pytest.fixture(scope="class")
-    def series(self, built_control_assistant, tmp_path_factory) -> dict[str, np.ndarray]:
+    def series(self, built_demo, tmp_path_factory) -> dict[str, np.ndarray]:
         read = _reader(
             _pinned_view(
-                built_control_assistant,
+                built_demo,
                 tmp_path_factory.mktemp("rf-thermal-live"),
                 "rf-thermal-live\n",
             )

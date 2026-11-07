@@ -5,6 +5,7 @@
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/design-system/css/primitives.css">
 <script type="module">
 // Follower role: the dashboard is never the theme hub (web-terminal is), so it
 // never persists a preference or broadcasts — it only applies whatever
@@ -13,10 +14,9 @@
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 initTheme({ role: 'follower' });
-// Stamps body.embedded when the hub frames this page as the EVENTS panel,
-// which drops .app-head below — a tile gets exactly ONE header, the hub's tile
-// bar — and arms the header-contribution helpers the main script publishes to.
-// Standalone the class never appears, so the in-body header stays.
+// Stamps body.embedded when the hub frames this page as the EVENTS panel and
+// arms the header-contribution helpers the main script publishes to. The hub's
+// tile bar adds the title above the panel toolbar.
 applyEmbedded();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -44,83 +44,28 @@ body {
 }
 
 /* ============================================================
-   Shell — one title row, one status line, two tabs.
+   Shell — the panel toolbar (primitives.css) over one scrolling main.
    ============================================================ */
 
-.app-head {
-  flex-shrink: 0;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-default);
-  padding: 14px 20px 12px;
-}
-/* Embedded, the hub's tile bar IS this panel's header: it carries the title,
-   and the main script contributes the tabs and the status sentence to it. A
-   second bar underneath would be a duplicate, so the whole thing goes. */
-body.embedded .app-head { display: none; }
-.head-row {
+.panel-root {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: baseline;
-  gap: 16px;
-}
-.app-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
+  flex-direction: column;
 }
 
-/* Underline-indicator tabs, matching the terminal's other panels. */
-.tabs {
-  margin-left: auto;
-  display: flex;
-  gap: 4px;
-  align-self: stretch;
-}
-.tabs button {
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 10px 8px;
-  margin-bottom: -13px;
-  cursor: pointer;
-  transition: color 120ms ease, border-color 120ms ease;
-}
-.tabs button:hover { color: var(--text-secondary); }
-.tabs button.on {
-  color: var(--color-accent-light);
-  border-bottom-color: var(--color-accent-light);
-}
-
-.status-line {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+/* The warnings nothing else on screen says (the dispatcher or its worker
+   unreachable, a full queue) show at the top of the body, only while they
+   hold. The tile bar carries no text, and the panel has no status line. */
+.embed-notice {
   flex-shrink: 0;
-  background: var(--color-success);
-  box-shadow: 0 0 5px var(--color-success);
+  padding: 8px 20px;
+  background: var(--error-tint-08);
+  border-bottom: 1px solid var(--error-tint-30);
+  color: var(--color-error);
+  font-size: 12px;
 }
-.status-line.is-busy .status-dot {
-  background: var(--color-warning);
-  box-shadow: 0 0 5px var(--color-warning);
-}
-.status-line.is-error .status-dot,
-.status-line.is-degraded .status-dot {
-  background: var(--color-error);
-  box-shadow: 0 0 5px var(--color-error);
-}
-.status-line.is-degraded { color: var(--color-error); }
+.embed-notice[hidden] { display: none; }
 
 /* ============================================================
    Views — exactly one is visible at a time.
@@ -133,6 +78,9 @@ main {
 }
 .view { display: none; padding: 18px 20px 28px; }
 .view.on { display: block; }
+/* A panel-wide state (connecting, not authorised, unreachable) replaces every view. */
+main.has-state > .view { display: none; }
+.panel-state { height: 100%; }
 
 .section-head {
   display: flex;
@@ -155,50 +103,11 @@ main {
   margin-left: auto;
 }
 
-/* Back link shared by both detail views. */
-.back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 0;
-  margin-bottom: 12px;
-}
-.back-link:hover { color: var(--color-accent-light); }
-
 /* ============================================================
    Timeline lanes — one thin lane per trigger.
    ============================================================ */
 
-.seg {
-  display: inline-flex;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  padding: 2px;
-  margin-left: auto;
-}
-.seg button {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  padding: 3px 9px;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: color 120ms ease, background 120ms ease;
-}
-.seg button:hover { color: var(--text-secondary); }
-.seg button.on {
-  background: var(--accent-tint-12);
-  color: var(--color-accent-light);
-}
+.section-head > .osprey-seg { margin-left: auto; }
 
 .lane-list {
   border: 1px solid var(--border-default);
@@ -268,61 +177,6 @@ main {
 /* ============================================================
    Run list — two lines per run, no table.
    ============================================================ */
-
-.filters {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-.chip {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 20px;
-  cursor: pointer;
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
-}
-.chip:hover { border-color: var(--color-accent-light); color: var(--color-accent-light); }
-.chip.on {
-  background: var(--accent-tint-10);
-  color: var(--color-accent-light);
-  border-color: var(--color-accent-light);
-}
-.search-box { position: relative; display: inline-flex; align-items: center; }
-/* Search icon lives on the wrapper's ::before as a themed mask (a data-URI
-   background-image can't reference a token, so a fixed color there never
-   tracks the theme). The mask SVG's stroke is a shape-only named color;
-   the visible color is the token-driven mask fill. */
-.search-box::before {
-  content: "";
-  position: absolute;
-  left: 8px;
-  top: 50%;
-  width: 12px;
-  height: 12px;
-  transform: translateY(-50%);
-  pointer-events: none;
-  background-color: var(--text-muted);
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
-}
-input.text-input {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  outline: none;
-  transition: border-color 120ms ease;
-}
-input.text-input:focus { border-color: var(--color-accent-light); }
-.search-box input.text-input { padding-left: 26px; width: 190px; }
 
 .row-list {
   border: 1px solid var(--border-default);
@@ -396,10 +250,15 @@ input.text-input:focus { border-color: var(--color-accent-light); }
   border: 1px dashed var(--border-default);
   border-radius: 6px;
 }
-.empty-state .empty-hint {
-  display: block;
-  margin-top: 6px;
-  font-size: 12px;
+/* The dashed box a section's centred state sits in (renderState inside). */
+.state-box {
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+}
+/* The Info icon after a state's message: a technical detail, as a tooltip. */
+.state-tip {
+  vertical-align: middle;
+  margin-left: var(--space-1);
   color: var(--text-muted);
 }
 
@@ -737,71 +596,76 @@ a.btn {
 </head>
 <body>
 
-<header class="app-head">
-  <div class="head-row">
-    <span class="app-title">Event dispatcher</span>
-    <nav class="tabs" role="tablist" aria-label="Dispatcher views">
-      <button id="tab-activity" role="tab" class="on">Activity</button>
-      <button id="tab-triggers" role="tab">Triggers</button>
-    </nav>
+<div class="panel-root" data-panel-root>
+
+<div class="osprey-panel-toolbar">
+  <div class="osprey-panel-toolbar__start">
+    <div class="osprey-seg" id="view-seg" role="group" aria-label="Dispatcher views">
+      <button type="button" data-view="activity" aria-pressed="true">Activity</button>
+      <button type="button" data-view="triggers" aria-pressed="false">Triggers</button>
+    </div>
+    <span class="osprey-panel-toolbar__text" id="toolbar-crumb" hidden></span>
   </div>
-  <div class="status-line" id="status-line">
-    <span class="status-dot"></span>
-    <span id="status-text">Checking the dispatcher…</span>
+  <div class="osprey-panel-toolbar__end">
+    <label class="osprey-search-field" id="search-field">
+      <span data-icon="search"></span>
+      <input type="search" id="search" placeholder="Search runs…" aria-label="Search runs" spellcheck="false" autocomplete="off">
+    </label>
   </div>
-</header>
+</div>
+
+<div class="embed-notice" id="embed-notice" role="status" hidden></div>
 
 <main id="main">
 
+  <!-- A panel-wide state: while it shows, every view is hidden -->
+  <div class="panel-state" id="panel-state" hidden></div>
+
   <!-- Activity: timeline lanes + recent runs -->
-  <section class="view on" id="view-activity" role="tabpanel">
+  <section class="view on" id="view-activity">
     <div class="section-head">
       <span class="section-title" id="timeline-title">Last 24 hours</span>
-      <div class="seg" id="timeline-window" role="group" aria-label="Timeline window">
-        <button data-hours="1">1h</button>
-        <button data-hours="24" class="on">24h</button>
-        <button data-hours="168">7d</button>
+      <div class="osprey-seg" id="timeline-window" role="group" aria-label="Timeline window">
+        <button type="button" data-hours="1" aria-pressed="false">1h</button>
+        <button type="button" data-hours="24" aria-pressed="true">24h</button>
+        <button type="button" data-hours="168" aria-pressed="false">7d</button>
       </div>
     </div>
     <div class="lane-list" id="lane-list"></div>
 
     <div class="section-head">
       <span class="section-title" id="runs-title">Recent runs</span>
-      <div class="filters">
-        <button class="chip on" data-status="">All</button>
-        <button class="chip" data-status="error">Failed</button>
-        <button class="chip" data-status="pending">Running</button>
-        <span class="search-box">
-          <input class="text-input" id="run-search" placeholder="Search runs…" spellcheck="false" autocomplete="off">
-        </span>
+      <div class="osprey-seg" id="status-filter" role="group" aria-label="Run status">
+        <button type="button" data-status="" aria-pressed="true">All</button>
+        <button type="button" data-status="error" aria-pressed="false">Failed</button>
+        <button type="button" data-status="pending" aria-pressed="false">Running</button>
       </div>
     </div>
     <div id="run-list"></div>
   </section>
 
   <!-- Triggers: the list -->
-  <section class="view" id="view-triggers" role="tabpanel">
+  <section class="view" id="view-triggers">
     <div class="section-head">
       <span class="section-title">Triggers</span>
-      <input class="text-input" id="trigger-filter" placeholder="Filter…" spellcheck="false" autocomplete="off">
       <span class="section-count" id="trigger-count"></span>
     </div>
     <div id="trigger-list"></div>
   </section>
 
-  <!-- Run detail -->
-  <section class="view" id="view-run" role="tabpanel">
-    <button class="back-link" id="run-back">← Back</button>
+  <!-- Run detail (the toolbar's Activity segment leads back) -->
+  <section class="view" id="view-run">
     <div id="run-detail"></div>
   </section>
 
-  <!-- Trigger detail -->
-  <section class="view" id="view-trigger" role="tabpanel">
-    <button class="back-link" id="trigger-back">← Back</button>
+  <!-- Trigger detail (the toolbar's Triggers segment leads back) -->
+  <section class="view" id="view-trigger">
     <div id="trigger-detail"></div>
   </section>
 
 </main>
+
+</div>
 
 <div class="toast" id="toast"></div>
 
@@ -811,7 +675,9 @@ a.btn {
    ============================================================ */
 
 let state = { pool: { running: 0, queued: 0, max: 0 }, triggers: [], runs: [], timeline: {}, server_time_iso: null, facility_timezone: null };
-let filters = { lane: '', status: '', search: '', timelineHours: 24 };
+/* `search` filters the Activity runs and `triggerQuery` the Triggers list: the
+   toolbar's one search field edits whichever list is on screen. */
+let filters = { lane: '', status: '', search: '', triggerQuery: '', timelineHours: 24 };
 
 /* The whole routing model: which of the four screens is showing, and what it
    is showing. There is no other navigation state — no open-tab list, no
@@ -822,6 +688,12 @@ let pollTimer = null;
 let pollMs = 3000;
 let authBlocked = false;
 let lastWorkerError = null;
+/* False until the first /dashboard/state answer: until then nothing is known,
+   so the panel shows a connecting state rather than an empty dispatcher. */
+let loaded = false;
+/* The last poll's failure when the dispatcher itself did not answer. */
+let dispatcherError = null;
+let searchTimer = null;
 /* The single live EventSource, owned by whichever run detail is open. */
 let stream = null;
 let streamRunId = null;
@@ -884,6 +756,52 @@ import('/design-system/js/facility-time.js')
     if (document.readyState !== 'loading') render();
   })
   .catch((e) => { console.warn('Facility time formatter unavailable:', e); });
+
+/* The design-system state, icon and tooltip modules arrive the same way. Until
+   they settle a state renders as plain text and the search icon is absent; the
+   settle fills both in and re-renders. */
+let ds = null;
+Promise.all([
+  import('/design-system/js/panel-state.js'),
+  import('/design-system/js/icons.js'),
+  import('/design-system/js/tooltip.js'),
+])
+  .then(([panelState, icons, tooltip]) => {
+    ds = { renderState: panelState.renderState, icon: icons.icon, writeTitle: tooltip.writeTitle };
+    tooltip.initTooltips(document.body);
+    if (document.readyState !== 'loading') { hydrateIcons(); render(); }
+  })
+  .catch((e) => { console.warn('Design-system state helpers unavailable:', e); });
+
+/** Replace each `<span data-icon="name">` slot with its icons.js glyph. */
+function hydrateIcons() {
+  if (!ds) return;
+  for (const slot of document.querySelectorAll('span[data-icon]')) slot.replaceWith(ds.icon(slot.dataset.icon));
+}
+function setTitle(node, text) {
+  if (ds) ds.writeTitle(node, text);
+  else node.title = text;
+}
+
+/** A centred state in `host`: icon, message, optional detail and one action.
+    `tip` is a technical detail (an env var name, an error string): it goes
+    behind an Info icon after the message, never on the page. */
+function showState(host, { icon, message, detail, action, tip }) {
+  if (!ds) { host.textContent = [message, detail].filter(Boolean).join(' '); return; }
+  const root = ds.renderState(host, { icon, message, detail, action });
+  if (tip) {
+    const info = el('button', { type: 'button', className: 'osprey-mini state-tip', 'aria-label': 'Details', dataset: { tip } });
+    info.appendChild(ds.icon('info', { size: 14 }));
+    root.querySelector('.osprey-state-message').appendChild(info);
+  }
+}
+/** The same state inside a section, in its dashed box. */
+function boxedState(host, opts) {
+  const box = el('div', { className: 'state-box' });
+  host.appendChild(box);
+  showState(box, opts);
+}
+const RETRY = { label: 'Retry', onClick: () => fetchState() };
 /** A clock trigger's next fire, shown in the facility zone its schedule is written in. */
 function formatNextFire(iso) {
   if (!facilityTime) return '';
@@ -1027,8 +945,14 @@ function bearer() {
  * a deployment fact they can act on, not a navigation mistake. */
 const IN_TERMINAL_PROXY = window.location.pathname.includes('/panel/events/');
 const UNAUTHORIZED_HINT = IN_TERMINAL_PROXY
-  ? 'Not authorised to read the dispatcher — this terminal has no EVENT_DISPATCHER_TOKEN.'
+  ? 'Not authorised to change the dispatcher — this terminal has no dispatcher token.'
   : 'Not authorised — open this panel from the terminal’s EVENTS tab.';
+/* The not-authorised state: the token name is a deployment detail, so it sits
+   behind the Info icon; the standalone advice is the next step, so it is the
+   state's second line. */
+const UNAUTHORIZED_STATE = IN_TERMINAL_PROXY
+  ? { tip: 'This terminal has no EVENT_DISPATCHER_TOKEN. Its tier or app must declare the EVENTS panel, and `osprey up` must mint the token into the deployment’s .env.' }
+  : { detail: 'Open this panel from the terminal’s EVENTS tab, which supplies a token.' };
 
 /** True when a response was rejected for auth; the caller explains rather than retries. */
 function explainIfUnauthorized(res) {
@@ -1043,6 +967,8 @@ async function fetchState() {
     state = data;
     stampFacilityTimezone(state.facility_timezone);
     if (authBlocked) { authBlocked = false; setPollInterval(POLL_OK_MS); }
+    loaded = true;
+    dispatcherError = null;
     lastWorkerError = data.worker_error || null;
     render();
   } catch (e) {
@@ -1055,7 +981,11 @@ async function fetchState() {
       render();
       return;
     }
+    // Anything else: the dispatcher did not answer. The banner says so, and the
+    // last state stays on screen rather than turning into an empty dispatcher.
+    dispatcherError = e.message || String(e);
     console.error('fetchState failed:', e);
+    render();
   }
 }
 function setPollInterval(ms) {
@@ -1069,7 +999,7 @@ function startPolling() {
 }
 
 /* ============================================================
-   Routing — four screens, one Back link
+   Routing — four screens; the toolbar's segments lead back
    ============================================================ */
 
 const VIEW_IDS = {
@@ -1086,24 +1016,85 @@ function navigate(next, { push = true } = {}) {
   for (const [name, id] of Object.entries(VIEW_IDS)) {
     document.getElementById(id).classList.toggle('on', name === view.name);
   }
-  // Detail screens are reached FROM a tab, so the tab they belong to stays lit.
-  const triggersSide = view.name === 'triggers' || view.name === 'trigger';
-  $('#tab-activity').classList.toggle('on', !triggersSide);
-  $('#tab-triggers').classList.toggle('on', triggersSide);
   $('#main').scrollTop = 0;
   if (push) saveUrl();
   render();
 }
 
 /* ============================================================
-   Tile-bar header contribution — the embedded panel's chrome
+   Panel toolbar — view switch, breadcrumb, search, section segs
+   ============================================================ */
 
-   Embedded, .app-head is hidden and the hub's tile bar carries this panel's
-   chrome instead: the two tabs, and the status sentence behind them. The
+function pressSeg(selector, isPressed) {
+  for (const b of document.querySelectorAll(selector + ' > button')) {
+    b.setAttribute('aria-pressed', String(isPressed(b)));
+  }
+}
+
+function syncToolbar() {
+  // A detail screen is reached FROM a list, so that list's segment stays pressed
+  // and pressing it again leads back.
+  const triggersSide = view.name === 'triggers' || view.name === 'trigger';
+  pressSeg('#view-seg', (b) => b.dataset.view === (triggersSide ? 'triggers' : 'activity'));
+
+  let leaf = '';
+  if (view.name === 'trigger') leaf = view.triggerName;
+  else if (view.name === 'run') {
+    const run = (state.runs || []).find(r => r.run_id === view.runId);
+    leaf = (run?.trigger_name || 'Run') + ' · ' + truncId(view.runId);
+  }
+  const crumb = $('#toolbar-crumb');
+  crumb.hidden = !leaf;
+  crumb.textContent = leaf ? '› ' + leaf : '';
+
+  // One search field: runs on Activity, trigger names on Triggers. A detail
+  // screen has no list to search, so the field keeps its slot, disabled.
+  const input = $('#search');
+  const onList = view.name === 'activity' || view.name === 'triggers';
+  const label = triggersSide ? 'Filter triggers' : 'Search runs';
+  input.placeholder = label + '…';
+  input.setAttribute('aria-label', label);
+  input.disabled = !onList;
+  setTitle($('#search-field'), onList ? '' : 'Search works on the Activity and Triggers lists');
+  const value = triggersSide ? filters.triggerQuery : filters.search;
+  if (input.value !== value && document.activeElement !== input) input.value = value;
+
+  pressSeg('#timeline-window', (b) => parseFloat(b.dataset.hours) === filters.timelineHours);
+  pressSeg('#status-filter', (b) => (b.dataset.status || '') === filters.status);
+}
+
+function hasRunFilters() {
+  return Boolean(filters.lane || filters.status || filters.search);
+}
+function hasFilters() {
+  return hasRunFilters() || Boolean(filters.triggerQuery) || filters.timelineHours !== 24;
+}
+/** A run filter changed: keep the URL, the list and the ⋯ entry in step. */
+function applyRunFilters() {
+  saveUrl();
+  renderRunList();
+  publishHeader();
+}
+/** ⋯ › Clear filters: the window, the status, the lane and both searches. */
+function clearFilters() {
+  clearTimeout(searchTimer);
+  const refetch = filters.timelineHours !== 24;
+  filters = { lane: '', status: '', search: '', triggerQuery: '', timelineHours: 24 };
+  $('#search').value = '';
+  saveUrl();
+  render();
+  if (refetch) fetchState();
+}
+
+/* ============================================================
+   Tile-bar header contribution — one ⋯ entry
+
+   The panel's controls live in its own toolbar; the hub's tile bar gets a v3
+   `menu`, whose entries land in the tile ⋯ "This panel" section, and never
+   inert text. The
    design-system helpers are ES modules while this is a classic inline script,
    so they arrive through a dynamic import() rather than a top-level one. Until
-   it settles — and standalone, where contributeHeader() is a no-op by
-   construction — every publish below simply does nothing.
+   it settles every publish below simply does nothing.
    ============================================================ */
 
 let headerContrib = null;
@@ -1116,26 +1107,16 @@ const headerContribReady = import('/design-system/js/header-contrib.js')
   });
 
 /* The hub renders exactly what the LAST contribution says and never mutates
-   item state itself, so the WHOLE contribution goes out again on every
-   navigation, status refresh and mode flip. render() is the single call site,
-   which is what keeps the bar and the body in step. */
+   item state itself, so the WHOLE contribution goes out again on every render
+   and filter change, which keeps the entry's disabled state current. */
 function publishHeader() {
   if (!headerContrib) return;
-  // A detail screen is reached FROM a tab, so the tab it belongs to stays lit
-  // — the same rule navigate() applies to the in-body tabs.
-  const triggersSide = view.name === 'triggers' || view.name === 'trigger';
   headerContrib.contributeHeader([
     {
-      kind: 'nav',
-      id: 'view',
-      items: [
-        { id: 'activity', label: 'Activity', active: !triggersSide },
-        { id: 'triggers', label: 'Triggers', active: triggersSide },
-      ],
+      kind: 'menu',
+      id: 'events',
+      items: [{ id: 'clear-filters', label: 'Clear filters', disabled: !hasFilters() }],
     },
-    // Longest item in the bar and the least urgent — a narrow tile drops the
-    // status sentence before it drops the way to change screens.
-    { kind: 'text', id: 'status', text: $('#status-text').textContent, priority: -1 },
   ]);
 }
 
@@ -1174,44 +1155,56 @@ function saveUrl() {
 }
 
 /* ============================================================
-   Status line — the four counters, in one sentence
+   Warning banner — what a stale screen must not hide
    ============================================================ */
 
-function renderStatus() {
-  const line = $('#status-line');
-  const text = $('#status-text');
-  line.classList.remove('is-busy', 'is-error', 'is-degraded');
+const DISPATCHER_UNREACHABLE = 'Cannot reach the dispatcher — the runs below may be out of date.';
+const WORKER_UNREACHABLE = 'Cannot reach the dispatch worker — the runs below may be out of date.';
 
+/* The body's banner: the dispatcher or its worker being unreachable, and a
+   full queue. Persistent, not a toast: a stale run list must never look
+   fresh. While reads are refused, or before the first state arrives, the
+   panel-wide state already says so, so the banner stays down. */
+function renderNotice() {
+  const box = $('#embed-notice');
+  const lines = [];
+  if (!authBlocked && loaded) {
+    if (dispatcherError) lines.push(DISPATCHER_UNREACHABLE);
+    else if (lastWorkerError) lines.push(WORKER_UNREACHABLE);
+    const queued = (state.pool || {}).queued;
+    if (queued) lines.push(`Queue full — ${queued} waiting.`);
+  }
+  box.replaceChildren(...lines.map((t) => el('div', { textContent: t })));
+  box.hidden = lines.length === 0;
+}
+
+/* ============================================================
+   Panel-wide state — connecting, not authorised, unreachable
+   ============================================================ */
+
+/** The state that stands in for every view, or null when the views can show. */
+function panelState() {
+  // A 401 leaves state.triggers empty, so every list would report "none
+  // registered" — a claim about a dispatcher we were not allowed to read.
   if (authBlocked) {
-    line.classList.add('is-degraded');
-    text.textContent = 'Not authorised to read the dispatcher.';
-    return;
+    return { icon: 'x', message: 'Not authorised to read the dispatcher.', ...UNAUTHORIZED_STATE, action: RETRY };
   }
-  if (lastWorkerError) {
-    // Persistent, not a toast: a stale run list must never look fresh.
-    line.classList.add('is-degraded');
-    text.textContent = 'Cannot reach the dispatch worker — the runs below may be out of date.';
-    return;
+  if (!loaded && dispatcherError) {
+    return { icon: 'x', message: 'Cannot reach the dispatcher.', tip: dispatcherError, action: RETRY };
   }
+  if (!loaded) return { icon: 'refresh', message: 'Connecting to the dispatcher…' };
+  return null;
+}
 
-  const runs = state.runs || [];
-  const triggers = state.triggers || [];
-  const armed = triggers.filter(t => t.status !== 'disabled').length;
-  const running = runs.filter(r => r.status === 'pending').length;
-  const failed = runs.filter(r => r.status === 'error').length;
-  const done = runs.filter(r => r.status === 'completed').length;
-  const pool = state.pool || {};
-
-  if (failed > 0) line.classList.add('is-error');
-  else if (running > 0) line.classList.add('is-busy');
-
-  const parts = [plural(armed, 'trigger') + ' armed'];
-  parts.push(plural(runs.length, 'recent run'));
-  if (running > 0) parts.push(running + ' running');
-  if (failed > 0) parts.push(failed + ' failed');
-  // Pool detail earns its place only when it is actually constraining work.
-  if (pool.queued) parts.push(`queue full — ${plural(pool.queued, 'waiting')}`);
-  text.textContent = parts.join(' · ');
+/** Paint the panel-wide state; true when it replaces the views. */
+function renderPanelState() {
+  const next = panelState();
+  const host = $('#panel-state');
+  $('#main').classList.toggle('has-state', next !== null);
+  host.hidden = next === null;
+  if (next) showState(host, next);
+  else host.textContent = '';
+  return next !== null;
 }
 
 /* ============================================================
@@ -1231,15 +1224,8 @@ function renderLanes() {
   list.textContent = '';
   const triggers = state.triggers || [];
 
-  // Order matters: a 401 leaves state.triggers empty, so an unguarded
-  // length check below would report "none registered" — a claim about the
-  // dispatcher we have not been allowed to read. Say what actually happened.
-  if (authBlocked) {
-    list.appendChild(el('div', { className: 'empty-state', textContent: UNAUTHORIZED_HINT }));
-    return;
-  }
   if (triggers.length === 0) {
-    list.appendChild(el('div', { className: 'empty-state', textContent: 'No triggers are registered.' }));
+    showState(list, { icon: 'activity', message: 'No triggers are registered.' });
     return;
   }
 
@@ -1254,7 +1240,7 @@ function renderLanes() {
       className: 'lane-name',
       textContent: t.name,
       title: 'Show only this trigger\u2019s runs below',
-      onclick: () => { filters.lane = filters.lane === t.name ? '' : t.name; saveUrl(); renderRunList(); },
+      onclick: () => { filters.lane = filters.lane === t.name ? '' : t.name; applyRunFilters(); },
     }));
 
     const rail = el('div', { className: 'lane-rail' });
@@ -1342,52 +1328,39 @@ function renderRunList() {
   const host = $('#run-list');
   host.textContent = '';
 
-  for (const chip of document.querySelectorAll('.filters .chip')) {
-    chip.classList.toggle('on', (chip.dataset.status || '') === filters.status);
-  }
+  // The lane filter has no control of its own: the title names it, and
+  // ⋯ › Clear filters (or a second press on the lane name) drops it.
+  $('#runs-title').textContent = filters.lane ? 'Recent runs · ' + filters.lane : 'Recent runs';
+  pressSeg('#status-filter', (b) => (b.dataset.status || '') === filters.status);
 
-  if (authBlocked) {
-    host.appendChild(el('div', { className: 'empty-state' }, IN_TERMINAL_PROXY ? [
-      // Already in the EVENTS tab: the proxy had no bearer to inject, so point
-      // at the deployment fact rather than repeating navigation advice the
-      // operator has manifestly already followed.
-      el('span', { textContent: 'Not authorised to read the dispatcher.' }),
-      el('span', { className: 'empty-hint', textContent: 'This terminal has no EVENT_DISPATCHER_TOKEN \u2014 its tier or app must declare the EVENTS panel, and `osprey up` must have minted the token into the deployment\u2019s .env.' }),
-    ] : [
-      el('span', { textContent: 'This panel needs a token when opened directly.' }),
-      el('span', { className: 'empty-hint', textContent: 'Open it from the terminal\u2019s EVENTS tab, which supplies one for you.' }),
-    ]));
+  if (lastWorkerError) {
+    // The dispatcher answered without runs: a down worker must not read as an
+    // empty history.
+    boxedState(host, { icon: 'x', message: 'Cannot reach the dispatch worker.', tip: lastWorkerError, action: RETRY });
     return;
   }
 
   const runs = (state.runs || []).filter(matchesFilter);
   if (runs.length === 0) {
-    const bare = !filters.lane && !filters.status && !filters.search;
-    host.appendChild(el('div', { className: 'empty-state' }, [
-      el('span', {
-        textContent: bare
-          ? 'No runs recorded yet.'
-          : 'No runs match the current filters.',
-      }),
-      bare
-        ? el('span', { className: 'empty-hint', textContent: 'Events will appear here as they happen.' })
-        : null,
-    ]));
+    if (hasRunFilters()) {
+      boxedState(host, {
+        icon: 'search',
+        message: 'No runs match the current filters.',
+        action: { label: 'Clear filters', onClick: clearFilters },
+      });
+    } else {
+      boxedState(host, {
+        icon: 'history',
+        message: 'No runs recorded yet.',
+        action: { label: 'View triggers', onClick: () => navigate({ name: 'triggers' }) },
+      });
+    }
     return;
   }
 
   const list = el('div', { className: 'row-list' });
   for (const r of runs) list.appendChild(renderRunRow(r));
   host.appendChild(list);
-
-  if (filters.lane) {
-    host.appendChild(el('button', {
-      className: 'back-link',
-      textContent: '× Clear ' + filters.lane + ' filter',
-      style: { marginTop: '10px' },
-      onclick: () => { filters.lane = ''; saveUrl(); renderRunList(); },
-    }));
-  }
 }
 
 /* ============================================================
@@ -1414,7 +1387,7 @@ function describeSource(t) {
 
 function renderTriggerList() {
   const triggers = state.triggers || [];
-  const q = ($('#trigger-filter').value || '').toLowerCase();
+  const q = filters.triggerQuery.toLowerCase();
   const visible = triggers.filter(t => !q || t.name.toLowerCase().includes(q));
 
   $('#trigger-count').textContent = plural(triggers.length, 'trigger');
@@ -1422,18 +1395,16 @@ function renderTriggerList() {
   const host = $('#trigger-list');
   host.textContent = '';
 
-  // Same guard as renderLanes(): unread is not the same as empty, and the
-  // count above is 0 for both. Checked before the filter branch so a stale
-  // filter box cannot turn a 401 into "no triggers match that filter" either.
-  if (authBlocked) {
-    host.appendChild(el('div', { className: 'empty-state', textContent: UNAUTHORIZED_HINT }));
-    return;
-  }
   if (visible.length === 0) {
-    host.appendChild(el('div', {
-      className: 'empty-state',
-      textContent: triggers.length === 0 ? 'No triggers are registered.' : 'No triggers match that filter.',
-    }));
+    if (triggers.length === 0) {
+      boxedState(host, { icon: 'activity', message: 'No triggers are registered.' });
+    } else {
+      boxedState(host, {
+        icon: 'search',
+        message: 'No triggers match that filter.',
+        action: { label: 'Clear filters', onClick: clearFilters },
+      });
+    }
     return;
   }
 
@@ -1929,9 +1900,10 @@ async function toggleTrigger(name, currentStatus) {
    ============================================================ */
 
 function render() {
-  renderStatus();
-  // After renderStatus(), so the contributed status text is the one on screen.
+  renderNotice();
+  syncToolbar();
   publishHeader();
+  if (renderPanelState()) return;
   if (view.name === 'activity') { renderLanes(); renderRunList(); }
   else if (view.name === 'triggers') renderTriggerList();
   else if (view.name === 'trigger') renderTriggerDetail();
@@ -1939,44 +1911,50 @@ function render() {
 }
 
 function wire() {
-  $('#tab-activity').addEventListener('click', () => navigate({ name: 'activity' }));
-  $('#tab-triggers').addEventListener('click', () => navigate({ name: 'triggers' }));
-  $('#run-back').addEventListener('click', () => navigate({ name: 'activity' }));
-  $('#trigger-back').addEventListener('click', () => navigate({ name: 'triggers' }));
+  for (const btn of document.querySelectorAll('#view-seg > button')) {
+    btn.addEventListener('click', () => navigate({ name: btn.dataset.view }));
+  }
 
-  for (const btn of document.querySelectorAll('#timeline-window button')) {
-    btn.classList.toggle('on', parseFloat(btn.dataset.hours) === filters.timelineHours);
+  for (const btn of document.querySelectorAll('#timeline-window > button')) {
     btn.addEventListener('click', () => {
       filters.timelineHours = parseFloat(btn.dataset.hours);
-      for (const b of document.querySelectorAll('#timeline-window button')) b.classList.remove('on');
-      btn.classList.add('on');
+      syncToolbar();
       saveUrl();
+      publishHeader();
       fetchState();
     });
   }
 
-  for (const chip of document.querySelectorAll('.filters .chip')) {
-    chip.addEventListener('click', () => {
-      filters.status = chip.dataset.status || '';
-      saveUrl();
-      renderRunList();
+  for (const btn of document.querySelectorAll('#status-filter > button')) {
+    btn.addEventListener('click', () => {
+      filters.status = btn.dataset.status || '';
+      applyRunFilters();
     });
   }
 
-  const search = $('#run-search');
-  search.value = filters.search;
-  let searchTimer = null;
+  const search = $('#search');
   search.addEventListener('input', () => {
+    // The list the operator typed into, even if the view changes before the debounce ends.
+    const target = view.name;
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => { filters.search = search.value; saveUrl(); renderRunList(); }, 180);
+    searchTimer = setTimeout(() => {
+      if (target === 'triggers') {
+        filters.triggerQuery = search.value;
+        renderTriggerList();
+        publishHeader();
+      } else if (target === 'activity') {
+        filters.search = search.value;
+        applyRunFilters();
+      }
+    }, 180);
   });
-
-  $('#trigger-filter').addEventListener('input', () => renderTriggerList());
 
   document.addEventListener('keydown', (e) => {
     if (e.key === '/' && document.activeElement && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
       e.preventDefault();
-      navigate({ name: 'activity' });
+      // A detail screen has no list to search: go back to the list it came from.
+      if (view.name === 'run') navigate({ name: 'activity' });
+      else if (view.name === 'trigger') navigate({ name: 'triggers' });
       search.focus();
     }
   });
@@ -1984,20 +1962,19 @@ function wire() {
 
 function init() {
   loadUrl();
+  hydrateIcons();
   wire();
   navigate(view, { push: false });
   startPolling();
 
-  // Tile-bar tabs route through the SAME navigate() the in-body tabs call, so
-  // there is one routing path however the operator reaches a screen. The
+  // ⋯ › This panel › Clear filters arrives as ('events', 'clear-filters'). The
   // publish here covers the ordinary case where navigate() above ran before
   // the helpers landed; re-publishing when they were already in hand is free,
   // since a contribution is an idempotent replace.
   headerContribReady.then(() => {
     if (!headerContrib) return;
     headerContrib.onHeaderAction((id, value) => {
-      if (id !== 'view') return;
-      if (value === 'activity' || value === 'triggers') navigate({ name: value });
+      if (id === 'events' && value === 'clear-filters') clearFilters();
     });
     publishHeader();
   });

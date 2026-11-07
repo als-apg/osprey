@@ -116,6 +116,18 @@ concurrency:
 # Note: This workflow runs tests, linting, docs build, and package checks
 # For documentation deployment to GitHub Pages, see .github/workflows/docs.yml
 
+# Every lane tests the dependency versions uv.lock holds, and only those. A
+# plain `uv sync`, or a `uv run` before any sync, re-locks a stale lockfile on
+# the runner and installs whatever that fresh resolution picks: with
+# pyproject.toml and uv.lock split, each such lane would go green against
+# versions nobody locked. So every `uv sync` carries `--locked`, which fails on
+# a stale lock instead of healing it, and every `uv run` follows one (a `uv run`
+# against a lock just proven current re-locks nothing). The lanes that test
+# outside the lock on purpose (dependency-floor, framework-at-connectors-floor,
+# connectors-compat) sync from the lock first where they sync at all, and then
+# move off it in a step of their own that says so.
+# test_ci_workflow_wiring.py holds every workflow and local action to this.
+
 env:
   # ALS-APG endpoint. The probes address the gateway themselves rather than
   # through the provider catalog, so every LLM-touching job (probes and pytest
@@ -256,7 +268,7 @@ jobs:
       # imports with `pytest.importorskip` and would SKIP silently if the stack
       # ever left the install set — test_ci_workflow_wiring.py pins the stack in
       # [project] dependencies for that reason.
-      run: uv sync --extra dev --extra virtual-accelerator
+      run: uv sync --locked --extra dev --extra virtual-accelerator
 
     - name: Install the pinned Claude Code CLI
       # One Claude Code runs in this lane: the version OSPREY pins, installed
@@ -562,7 +574,7 @@ jobs:
       # The `test` job's install, for the reason given there: the live Channel
       # Access step needs the virtual-accelerator serving stack, and without
       # it the suites would skip.
-      run: uv sync --extra dev --extra virtual-accelerator
+      run: uv sync --locked --extra dev --extra virtual-accelerator
 
     - name: Install the pinned Claude Code CLI
       # The `test` job's environment, so a suite here sees what it saw there.
@@ -657,7 +669,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pin pandas and numpy to the declared floor
       # Must come after `uv sync`, which would otherwise resolve them back up.
@@ -988,15 +1000,15 @@ jobs:
       run: uv python install 3.11
 
     - name: Lockfile is current with pyproject
-      # pyproject.toml and uv.lock must move together. Every other lane runs
-      # a plain `uv sync`, which silently re-locks a stale lockfile in the
-      # runner and goes green — so a split pair (e.g. a floor bump without a
-      # re-lock) is invisible everywhere except here. Ordering is
-      # load-bearing: this must run BEFORE `uv sync` rewrites the lock.
+      # pyproject.toml and uv.lock must move together. Every lane's
+      # `uv sync --locked` fails on a split pair (e.g. a floor bump without a
+      # re-lock); this step is where the failure is named, as the same check
+      # the local quick tier runs. It runs before the sync, ahead of anything
+      # that could rewrite the lock.
       run: python3 scripts/check.py run lockfile
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run ruff (linting)
       run: uv run python scripts/check.py run ruff
@@ -1174,7 +1186,7 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends graphviz
 
     - name: Install dependencies
-      run: uv sync --extra docs
+      run: uv sync --locked --extra docs
 
     # Warnings are errors: an orphaned page, a duplicate label, a missing
     # :file: include, or a broken :doc:/:ref: target fails this job. So does a
@@ -1258,7 +1270,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run Tier 0 static checks
       timeout-minutes: 15
@@ -1467,7 +1479,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # The artifact pages are served opaque, and the suites that prove it run
     # with OSPREY_OFFLINE=1 so every vendor library comes through the proxy's
@@ -1570,6 +1582,7 @@ jobs:
           tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/design_system/test_theme_lab.py \
           tests/interfaces/design_system/test_dispatch_dashboard_unauthorized.py \
+          tests/interfaces/design_system/test_dispatch_dashboard_toolbar.py \
           tests/interfaces/design_system/test_panel_browser.py \
           tests/interfaces/design_system/test_dispatch_run_crosslinks.py \
           tests/interfaces/design_system/test_dispatch_run_thinking_browser.py \
@@ -1578,7 +1591,6 @@ jobs:
           tests/interfaces/design_system/test_dispatch_dashboard_trigger_tools.py \
           tests/interfaces/design_system/test_dispatch_run_owner.py \
           tests/interfaces/design_system/test_osprey_drawer.py \
-          tests/interfaces/design_system/test_splitter_surfaces.py \
           tests/interfaces/artifacts/test_gallery_interactions.py \
           tests/interfaces/artifacts/test_plot_theme_browser.py \
           tests/interfaces/artifacts/test_plot_export_browser.py \
@@ -1614,15 +1626,17 @@ jobs:
           tests/interfaces/web_terminal/test_sidebar_panel_availability_browser.py \
           tests/interfaces/web_terminal/test_sidebar_groups_migration_browser.py \
           tests/interfaces/web_terminal/test_sidebar_group_headings_browser.py \
-          tests/interfaces/web_terminal/test_attached_popout_browser.py \
+          tests/interfaces/web_terminal/test_sidebar_sessions_browser.py \
+          tests/interfaces/web_terminal/test_pane_window_browser.py \
+          tests/interfaces/web_terminal/test_panel_direct_visit_browser.py \
           tests/interfaces/channel_finder/test_graph_finder_browser.py \
           tests/interfaces/bluesky_web/test_channel_combobox_browser.py \
           tests/interfaces/bluesky_web/test_lane_picker_browser.py \
           tests/interfaces/ariel/test_embedded_nav.py \
-          tests/interfaces/ariel/test_display_menu.py \
           tests/interfaces/ariel/test_vocabulary_banner.py \
           tests/interfaces/ariel/test_shell.py \
           tests/interfaces/history/test_history_page_browser.py \
+          tests/interfaces/test_events_notice_browser.py \
           tests/interfaces/test_browser_helper.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 
@@ -1662,7 +1676,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # See the visual-theming lane's step of the same name.
     - name: Fetch vendor assets
@@ -1872,7 +1886,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync
+      run: uv sync --locked
 
     - name: Install the pinned Claude Code CLI
       # One Claude Code runs in this lane: the version OSPREY pins, installed
@@ -1905,7 +1919,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [hello-world, control-assistant]
+        preset: [hello-world, demo]
 
     steps:
     - name: Checkout repository
@@ -1923,7 +1937,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Cache uv project-venv downloads
       uses: actions/cache@v6
@@ -1964,7 +1978,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [hello-world, control-assistant]
+        preset: [hello-world, demo]
 
     steps:
     - name: Checkout repository
@@ -1982,7 +1996,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2093,7 +2107,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2431,7 +2445,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # A file here that needs containers skips itself when `docker` is
@@ -2524,22 +2538,37 @@ jobs:
 
 
   agent-record-e2e:
-    name: Agent Record E2E (replays every captured fixture through the real stack, both backends)
+    name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
     runs-on: ubuntu-latest
     # Every pull request, fork pull requests included, for the reasons the
     # model-free lane gives: no gateway key, public images only, no label and
     # no actor guard. The replay is model-free — every test in it carries
-    # `model_free` — but it is its own lane because it deploys two stacks one
-    # after the other and waits out a stopped source twice.
+    # `model_free` — but it is its own lane because each case deploys a whole
+    # stack and waits out a stopped source.
     if: >-
       (github.event_name == 'pull_request')
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-    # Sized for its waits, not measured: two stopped-source waits of up to five
-    # minutes each; two deploys (hello-world, and control-assistant with its
-    # services and web terminals), each with a restart, an outage, a re-`up`
-    # that closes the day and a reset, and hello-world's rebuild after it; and
-    # a one-minute readability bound per step. The step cap sits under the job
-    # cap so a hang fails the run step and the capture step still runs.
+    # One cell per case, each on its own runner: the two cases share nothing
+    # but the module's project name and port block, which are per host, so
+    # side by side on two runners they cost the longer case (~17-22 min)
+    # instead of the sum (~33-39 min). Every case is in exactly one cell
+    # (tests/deployment/test_ci_workflow_wiring.py), and neither cell cancels
+    # the other, so a red one still reports both backends.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - backend: embedded
+          case: test_embedded_record_on_hello_world
+        - backend: clickhouse
+          case: test_clickhouse_record_on_demo
+    # Sized for its waits, not measured: one stopped-source wait of up to five
+    # minutes; one deploy (hello-world, or demo with its services
+    # and web terminals) with a restart, an outage, a re-`up` that closes the
+    # day and a reset, and hello-world's rebuild after it; and a one-minute
+    # readability bound per step. Kept at the two-case size so a cell never
+    # reds on the cap alone. The step cap sits under the job cap so a hang
+    # fails the run step and the capture step still runs.
     timeout-minutes: 135
     steps:
     # The project image's deps layer ran the runner out of disk: uv reported
@@ -2566,7 +2595,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # The replay skips itself when `docker` is absent, and this lane treats
@@ -2585,10 +2614,12 @@ jobs:
       timeout-minutes: 120
       run: |
         # Named by path: a path that stops existing exits pytest 4 and reds
-        # this step. Serial on purpose — the two cases share one host port
-        # block and run one after the other.
+        # this step; a case name that stops matching collects nothing, which
+        # exits pytest 5 and the skip gate below reds too. One case per cell,
+        # serial: the cases share one host port block.
         uv run pytest \
           tests/e2e/test_agent_record_e2e.py \
+          -k "${{ matrix.case }}" \
           -v --tb=short --durations=15 \
           --junitxml=junit-agent-record-e2e.xml
 
@@ -2624,7 +2655,7 @@ jobs:
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
       with:
-        name: agent-record-e2e
+        name: agent-record-e2e-${{ matrix.backend }}
         engine: docker
     # Belt and suspenders: the deploy's own teardown does not run when the job
     # is killed. A hosted runner is discarded with the job, but a self-hosted
@@ -2672,7 +2703,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2762,7 +2793,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2836,7 +2867,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Create hello_world deployment repo
       env:
@@ -2949,7 +2980,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2977,7 +3008,7 @@ jobs:
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
     - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # The demo preset deploys the qmd sidecar, which `osprey up`
       # would otherwise build cold here, fetching 2.1 GB of models from
       # huggingface.co. Built from the layer cache the main-branch warm-up
       # saves instead, and started through OSPREY_QMD_IMAGE below.
@@ -3063,7 +3094,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3091,7 +3122,7 @@ jobs:
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
     - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # The demo preset deploys the qmd sidecar, which `osprey up`
       # would otherwise build cold here, fetching 2.1 GB of models from
       # huggingface.co. Built from the layer cache the main-branch warm-up
       # saves instead, and started through OSPREY_QMD_IMAGE below.
@@ -3177,7 +3208,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3312,7 +3343,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3340,7 +3371,7 @@ jobs:
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
     - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # The demo preset deploys the qmd sidecar, which `osprey up`
       # would otherwise build cold here, fetching 2.1 GB of models from
       # huggingface.co. Built from the layer cache the main-branch warm-up
       # saves instead, and started through OSPREY_QMD_IMAGE below.
@@ -3419,7 +3450,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run bluesky deploy E2E
       timeout-minutes: 55
@@ -3475,7 +3506,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run optimizer deploy E2E
       timeout-minutes: 55
@@ -3533,7 +3564,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run bluesky web deploy E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3610,7 +3641,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run VA substrate equivalence E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3725,7 +3756,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # Step caps under the job cap, each sized from its module's own internal
     # timeouts (see the job-cap note above), so a hang fails THAT step and the
@@ -3829,7 +3860,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run Bluesky queue E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3924,7 +3955,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3959,7 +3990,7 @@ jobs:
       uses: ./.github/actions/install-pinned-claude-code
 
     - name: Build the qmd sidecar image
-      # The control-assistant preset deploys the qmd sidecar, which `osprey up`
+      # The demo preset deploys the qmd sidecar, which `osprey up`
       # would otherwise build cold here, fetching 2.1 GB of models from
       # huggingface.co. Built from the layer cache the main-branch warm-up
       # saves instead, and started through OSPREY_QMD_IMAGE below.
@@ -4095,7 +4126,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run archiver world E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4137,7 +4168,7 @@ jobs:
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-    # Three `osprey build`s of the control-assistant preset plus one
+    # Three `osprey build`s of the demo preset plus one
     # testcontainers Neo4j store; about a minute on a workstation.
     timeout-minutes: 30
 
@@ -4156,7 +4187,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Fetch the pinned neosemantics (n10s) jar
       # The store fixture can download the jar itself, but a failed download
@@ -4193,7 +4224,7 @@ jobs:
     if: >-
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
-    # Deploys the control-assistant preset, so the bring-up builds that preset's
+    # Deploys the demo preset, so the bring-up builds that preset's
     # images (bluesky-web ~2.4GB, va ~2.4GB) before the bridge image
     # and the Tiled image pull it actually tests. ~6.5min with
     # images cached, ~9-11min on a warm runner, but a fully cold one has been
@@ -4229,7 +4260,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run Tiled roundtrip E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4302,7 +4333,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run bluesky catalog E2E
       timeout-minutes: 55
@@ -4376,7 +4407,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run bluesky sandbox escape E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4471,7 +4502,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Install the pinned Claude Code CLI
       # The dispatch worker this lane starts refuses to run without an
@@ -4606,7 +4637,7 @@ jobs:
       # entire pytestmark when that stack is missing — a green check over zero
       # executed tests. The zero-skip gate at the bottom of this job is the
       # backstop; this is the fix.
-      run: uv sync --extra dev --extra gchat
+      run: uv sync --locked --extra dev --extra gchat
 
     - name: Install the pinned Claude Code CLI
       # The dispatch worker this lane starts refuses to run without an
@@ -4763,7 +4794,7 @@ jobs:
       # e2e module needs `azure.servicebus` and skips itself without it, so a
       # job that syncs only `dev` collects nothing here. The zero-skip gate at
       # the bottom of this job is the backstop; this is the fix.
-      run: uv sync --extra dev --extra teams
+      run: uv sync --locked --extra dev --extra teams
 
     - name: Install the pinned Claude Code CLI
       # The dispatch worker this lane starts refuses to run without an
@@ -4830,7 +4861,7 @@ jobs:
   privilege-split-e2e:
     name: Privilege Split E2E (built images, stat-level ownership proof)
     runs-on: ubuntu-latest
-    # Two image builds of the control-assistant preset (base + admin render);
+    # Two image builds of the demo preset (base + admin render);
     # they share every layer up to the render's own config, so the second is
     # mostly cache — but the first is the same cold EPICS-toolchain compile
     # dockerfile-e2e pays, hence the same order of budget plus the second image.
@@ -4873,7 +4904,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run privilege split E2E
       timeout-minutes: 85
@@ -5005,7 +5036,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run Dockerfile E2E
       timeout-minutes: 55
@@ -5148,7 +5179,11 @@ jobs:
       # `osprey up --dev` stages an `osprey-local-requirements.txt` beside the
       # Dockerfile and the COPY that picks it up is an optional glob. Staging an
       # empty one keeps that glob's cross-runtime behaviour out of this lane, so
-      # the proxy bridge stays the only thing that can fail here.
+      # the proxy bridge stays the only thing that can fail here. No
+      # `osprey-lock-constraints.txt` is staged, deliberately: without it the
+      # deps layer takes the index-resolving path a release build takes, which
+      # is the path a site behind a proxy builds its released images on, and
+      # the image is never run, so nothing is tested against what it resolved.
       #
       # OSPREY_VERSION is required by the Dockerfile (it exits non-zero when
       # empty) and OSPREY_DEV=1 is what lets a branch version that is not on
@@ -5273,7 +5308,7 @@ jobs:
     # PyPI osprey and the parity assertions would describe released code
     # instead of the branch under review.
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run execution environment parity E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -5334,7 +5369,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run deploy write-back E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -5414,7 +5449,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run multi-user deploy lifecycle E2E
       timeout-minutes: 55
@@ -5509,7 +5544,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # `osprey up --dev` builds the sidecar image and stages a locally-built
     # wheel into its context, so the whole run exercises THIS branch's code
@@ -5628,7 +5663,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into the render image, so
@@ -5758,7 +5793,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # `--with-deps` apt-installs chromium's system debs from the runner's
     # default mirror, azure.archive.ubuntu.com, which some days serves them at
@@ -5927,7 +5962,7 @@ jobs:
       uses: docker/setup-compose-action@v2
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # The module skips itself when docker is unavailable, which is right for
@@ -6019,7 +6054,7 @@ jobs:
     - name: Set up rootless Podman
       run: |
         podman --version
-        pip install --user podman-compose
+        pip install --user podman-compose==1.0.6
         podman compose version
         # Docker auto-treats localhost registries as insecure (plain HTTP);
         # rootless podman defaults to tls-verify=true, so the test's throwaway
@@ -6035,7 +6070,7 @@ jobs:
         EOF
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Run multi-user deploy lifecycle E2E (podman)
       timeout-minutes: 55
@@ -6145,7 +6180,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       # This lane exists to certify OSPREY against podman-compose specifically:
@@ -6377,7 +6412,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     # Needed by the multi-user shared-bundle step below, which drives a real
     # `osprey up` (and therefore `docker compose`). Same step the two
@@ -6598,7 +6633,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # Every module in this lane drives real containers, and their fixtures
@@ -6774,7 +6809,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Install osprey
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -6920,7 +6955,7 @@ jobs:
         extra-tags: bench-ioc:latest
 
   va-live-e2e:
-    name: Live Virtual Accelerator E2E (one container, every suite the switch lane does not run)
+    name: Live Virtual Accelerator E2E (${{ matrix.group }}; every suite the switch lane does not run)
     runs-on: ubuntu-latest
     # Same-repo PRs only — house policy for any extra Docker-build-and-deploy
     # job. This lane holds no credential of any kind, and that is a property
@@ -6966,12 +7001,52 @@ jobs:
     #   - the real-facility lane on the NSLS-II stand-in, one install of a two-model
     #     export — init, import, set, build — and one boot under that
     #     module's own `BOOT_TIMEOUT_S` of 240 s, capped at 10 minutes.
-    # A green run takes about 18–23 minutes on an ubuntu-latest runner, of which
-    # the image build is 2–5; the cap is about twice that. It is larger than
-    # va-substrate-equivalence-e2e and archiver-world-e2e, and than the switch
-    # lane's 30, because that lane runs five modules against containers two of
-    # its own images serve, while this one runs fifteen and boots fourteen.
-    timeout-minutes: 50
+    # Serially, in one job, these took 22–24 minutes on an ubuntu-latest
+    # runner (runs 42191862450, 42212691895): 4 for the image build and 18 of
+    # pytest. The suites are therefore split across three matrix cells, each
+    # building its own image and booting its own containers, balanced by the
+    # measured module times (each cell is 6–7 minutes of pytest): a cell is
+    # about 11–12 minutes green; the cap leaves room for both step caps
+    # below, the build and the capture step.
+    timeout-minutes: 40
+    # One cell per group of suites, every suite in exactly one cell (pinned by
+    # tests/deployment/test_ci_workflow_wiring.py, which reads `suites` as the
+    # run step's file list). Each group keeps the run order the single job had,
+    # so the modules that share the session container still run in one
+    # process, in the same order, against one container. `als_lane` marks the
+    # one cell that also runs the real-facility lane.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - group: session-container
+          # The seven modules that only share the session container, the
+          # put-surface module's one boot and the journal module's two, then
+          # the parity module, which reads the session container and boots one
+          # of its own, then the chain module (one install, one boot). ~6 min.
+          suites: >-
+            tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py
+            tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py
+            tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py
+            tests/va/e2e/test_sim_apply_va.py
+            tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py
+            tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py
+          als_lane: false
+        - group: measurements
+          # The guarded-measurement module, which builds two deployments and
+          # boots one container over each, then the check-B module, which
+          # installs the served export and builds the example deployment
+          # before one boot each. ~6.5 min.
+          suites: >-
+            tests/va/e2e/test_pyaml_measure_guarded.py tests/va/e2e/test_check_b_served.py
+          als_lane: false
+        - group: facility-trees
+          # The harvested-tree module, which installs a facility export from
+          # scratch before each of its three boots, then the real-facility lane
+          # on the NSLS-II stand-in. ~6 min.
+          suites: >-
+            tests/va/e2e/test_mml_trees_boot.py
+          als_lane: true
 
     steps:
     - name: Checkout repository
@@ -6994,7 +7069,7 @@ jobs:
       # The sync has to be the one that populates THIS checkout's `.venv`: the
       # directory conftest resolves the CLI by path at `.venv/bin/osprey` and
       # shells it to apply a scenario, rather than going through `uv run`.
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # Every module in this lane drives real containers, and their fixtures
@@ -7014,19 +7089,19 @@ jobs:
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it. A green run of this step takes
-      # about 11–15 minutes; the cap is about twice that, and still bounds the
-      # realistic hang here — a read of a channel nobody serves, which the
-      # connector itself gives up on after 120 s.
-      timeout-minutes: 30
+      # about 6–7 minutes in any cell; the cap is about three times that, and
+      # still bounds the realistic hang here — a read of a channel nobody
+      # serves, which the connector itself gives up on after 120 s.
+      timeout-minutes: 20
       env:
         # Without it every test in tests/va/e2e/ skips by design (the directory
         # must collect and skip cleanly on a laptop with no runtime). The
         # zero-skip gate below is what turns a lost flag into a red lane
         # instead of a green one over nothing.
         OSPREY_VA_E2E_ENABLE: "1"
-      # One pytest process, no xdist: the directory conftest keeps ONE
+      # One pytest process per cell, no xdist: the directory conftest keeps ONE
       # session-scoped container per process, and eight of these modules are
-      # written against that single endpoint.
+      # written against that single endpoint (all eight in one cell).
       #
       # Named by path rather than by marker: these modules are the whole
       # subject of this lane, and a path that stops existing exits pytest 4 and
@@ -7036,26 +7111,11 @@ jobs:
       # asserted by its final test), so a file that survives a refactor while
       # losing tests to it reds the step rather than passing on what is left.
       #
-      # Ordered cheapest first — the seven that only share the session
-      # container, then the put-surface module's one boot and the journal
-      # module's two, then the parity module, which reads the session container
-      # and boots one of its own, then the chain module, which installs the
-      # two-model tree before its one boot, then the guarded-measurement
-      # module, which builds two deployments and boots one container over
-      # each, then the harvested-tree module, which installs a facility export
-      # from scratch before each of its three boots, then the check-B module,
-      # which installs the served export and builds the example deployment
-      # before one boot each — so a failure in the cheap set is reported
-      # before the expensive work starts.
+      # The cell's paths come from its `suites` (the matrix above), ordered
+      # cheapest first within each cell, so a failure in the cheap set is
+      # reported before the expensive work starts.
       run: |
-        uv run pytest tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py \
-          tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py \
-          tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py \
-          tests/va/e2e/test_sim_apply_va.py \
-          tests/va/e2e/test_va_put_surface.py tests/va/e2e/test_planted_journal.py \
-          tests/va/e2e/test_substrate_parity.py tests/va/e2e/test_chain_boot.py \
-          tests/va/e2e/test_pyaml_measure_guarded.py \
-          tests/va/e2e/test_mml_trees_boot.py tests/va/e2e/test_check_b_served.py \
+        uv run pytest ${{ matrix.suites }} \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
     - name: Run the real-facility lane on the NSLS-II stand-in
@@ -7069,6 +7129,9 @@ jobs:
       # job cap so a hang leaves the capture step room to run.
       # A green run takes about 2–3 minutes; the cap is several times that
       # because one slow boot alone may take the module's 240 s boot bound.
+      # One cell runs it (`als_lane`), facility-trees, whose pytest
+      # step is the shortest.
+      if: matrix.als_lane
       timeout-minutes: 10
       env:
         OSPREY_ALS_LANE_STAND_IN: tests/fixtures/mml/nsls2
@@ -7076,6 +7139,8 @@ jobs:
         uv run pytest tests/cli/test_als_lane.py -v --tb=short --junitxml=junit-als-lane.xml
 
     - name: Fail the lane on any skipped test
+      env:
+        ALS_LANE: ${{ matrix.als_lane }}
       run: |
         # The gate reads the reports rather than pytest's exit codes because an
         # exit code cannot express the difference: a run that skipped every
@@ -7083,13 +7148,20 @@ jobs:
         # modules without `OSPREY_VA_E2E_ENABLE`, and the real-facility lane without
         # `OSPREY_ALS_LANE_STAND_IN`. Unset, either collects cleanly and skips,
         # and the job goes green having built an image and measured nothing.
-        # One report per step, each named here.
+        # One report per step, each named here; the real-facility lane's only
+        # in the cell that runs it, read from the matrix rather than from
+        # whether the file exists, so a cell that should have run it and did
+        # not reds here.
         uv run python - <<'PY'
+        import os
         import sys
         import xml.etree.ElementTree as ET
 
+        reports = ["junit-va-live-e2e.xml"]
+        if os.environ["ALS_LANE"] == "true":
+            reports.append("junit-als-lane.xml")
         failed = False
-        for report in ("junit-va-live-e2e.xml", "junit-als-lane.xml"):
+        for report in reports:
             total = skipped = 0
             for suite in ET.parse(report).getroot().iter("testsuite"):
                 total += int(suite.get("tests", 0))
@@ -7111,7 +7183,7 @@ jobs:
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
       with:
-        name: va-live-e2e
+        name: va-live-e2e-${{ matrix.group }}
         engine: docker
 
     - name: Clean up the target images
@@ -7168,7 +7240,7 @@ jobs:
       # the running interpreter and hands every child an absolute PYTHONPATH,
       # so a deployment built from another checkout's code would satisfy every
       # assertion about the wrong source tree.
-      run: uv sync --extra dev
+      run: uv sync --locked --extra dev
 
     - name: Assert a container runtime is present
       # This module makes an absent `docker` a module-level skip, so without
@@ -7444,13 +7516,22 @@ jobs:
           echo "::error::a git URL rewrite is still configured; refusing to run the build beside it"
           exit 1
         fi
-        uv sync --extra dev
+        uv sync --locked --extra dev
+        # The contract runs against the versions uv.lock holds, like every
+        # other lane: the lock's own install set (the synced extra, workspace
+        # members left out) constrains the install, so CANOPY adds the
+        # distributions the lock does not hold and moves none it does. A
+        # requirement of the pair that excludes a locked version fails here,
+        # as it fails the project image's constrained install.
+        uv export --frozen --no-hashes --no-emit-workspace --extra dev \
+          > "$RUNNER_TEMP/lock-constraints.txt"
         # CANOPY names a source of its own for PyDMConverter. The override
         # makes the local clone the one source, so the resolver sees a single
         # URL for it and the install reaches no remote.
         pydm="PyDMConverter @ git+file://${PYDM_CLONE}@${PYDM_COMMIT}"
         printf '%s\n' "$pydm" > "$RUNNER_TEMP/canopy-overrides.txt"
-        uv pip install --override "$RUNNER_TEMP/canopy-overrides.txt" \
+        uv pip install -c "$RUNNER_TEMP/lock-constraints.txt" \
+          --override "$RUNNER_TEMP/canopy-overrides.txt" \
           "canopy[mcp,convert] @ git+file://${CANOPY_CLONE}@${CANOPY_COMMIT}" \
           "PyDMConverter @ git+file://${PYDM_CLONE}@${PYDM_COMMIT}"
 

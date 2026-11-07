@@ -76,7 +76,7 @@ def test_virtual_environment_warns_when_absent(monkeypatch) -> None:
     monkeypatch.delattr(sys, "real_prefix", raising=False)
     monkeypatch.setattr(sys, "base_prefix", "/usr")
     monkeypatch.setattr(sys, "prefix", "/usr")
-    monkeypatch.setattr("osprey.health.core.python_environment._in_container", lambda: False)
+    monkeypatch.setattr("osprey.health.core.python_environment.in_container", lambda: False)
     row = _run()["virtual_environment"]
     assert row.status is Status.WARNING
     assert "Not in a virtual environment" in row.message
@@ -94,7 +94,7 @@ def test_system_interpreter_inside_a_container_is_ok(monkeypatch) -> None:
     monkeypatch.delattr(sys, "real_prefix", raising=False)
     monkeypatch.setattr(sys, "base_prefix", "/usr")
     monkeypatch.setattr(sys, "prefix", "/usr")
-    monkeypatch.setattr("osprey.health.core.python_environment._in_container", lambda: True)
+    monkeypatch.setattr("osprey.health.core.python_environment.in_container", lambda: True)
     row = _run()["virtual_environment"]
     assert row.status is Status.OK
     assert "container" in row.message

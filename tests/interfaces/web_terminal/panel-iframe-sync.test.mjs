@@ -97,33 +97,6 @@ describe('the state messages', () => {
   });
 });
 
-describe('the state messages to a pop-out window', () => {
-  test('theme and session reach the window as its iframe twins would, at the hub origin', () => {
-    const postMessage = vi.fn();
-    const win = /** @type {Window} */ (/** @type {unknown} */ ({ postMessage }));
-    sync.sendThemeToWindow(win);
-    sync.sendSessionToWindow(win);
-    expect(postMessage.mock.calls).toEqual([
-      [{ type: 'osprey-theme-change', theme: 'dark' }, window.location.origin],
-      [{ type: 'osprey-session-change', session_id: 'sess-1' }, window.location.origin],
-    ]);
-  });
-
-  test('no session yet means no session message; no window means no send; a throw is swallowed', () => {
-    const postMessage = vi.fn();
-    const win = /** @type {Window} */ (/** @type {unknown} */ ({ postMessage }));
-    mocks.sessionId = null;
-    sync.sendSessionToWindow(win);
-    expect(postMessage).not.toHaveBeenCalled();
-    expect(() => sync.sendThemeToWindow(null)).not.toThrow();
-    postMessage.mockImplementation(() => {
-      throw new Error('SecurityError');
-    });
-    mocks.sessionId = 'sess-1';
-    expect(() => sync.sendSessionToWindow(win)).not.toThrow();
-  });
-});
-
 describe('the artifacts viewer messages', () => {
   test('select names the artifact to show, or null for the empty viewer', () => {
     const { iframe, postMessage } = fakeFrame();
@@ -178,16 +151,8 @@ describe('the agent-activity notice', () => {
     expect(postMessage).toHaveBeenCalledExactlyOnceWith(message, window.location.origin);
   });
 
-  test('its window twin goes to the pop-out at the hub origin only', () => {
-    const postMessage = vi.fn();
-    const win = /** @type {Window} */ (/** @type {unknown} */ ({ postMessage }));
-    sync.sendAgentActivityToWindow(win, activity);
-    expect(postMessage).toHaveBeenCalledExactlyOnceWith(message, window.location.origin);
-  });
-
-  test('no frame, no window, or a throwing window is skipped', () => {
+  test('no frame, or a throwing window, is skipped', () => {
     expect(() => sync.sendAgentActivityToIframe(null, activity)).not.toThrow();
-    expect(() => sync.sendAgentActivityToWindow(null, activity)).not.toThrow();
     const { iframe, postMessage } = fakeFrame();
     postMessage.mockImplementation(() => {
       throw new Error('SecurityError');
@@ -213,18 +178,6 @@ describe('buildEmbedSrc', () => {
     expect(src.pathname).toBe('/u/alice/panel/artifacts/');
     expect(src.searchParams.get('x')).toBe('1');
     expect(src.searchParams.get('embedded')).toBe('true');
-    expect(src.searchParams.get('theme')).toBe('dark');
-    expect(src.searchParams.has('mode')).toBe(false);
-  });
-});
-
-describe('buildPopoutSrc', () => {
-  test('stamps popout and theme — never embedded — and keeps a prefixed path verbatim', () => {
-    const src = new URL(sync.buildPopoutSrc('/u/alice/panel/artifacts/?x=1'));
-    expect(src.pathname).toBe('/u/alice/panel/artifacts/');
-    expect(src.searchParams.get('x')).toBe('1');
-    expect(src.searchParams.get('popout')).toBe('true');
-    expect(src.searchParams.has('embedded')).toBe(false);
     expect(src.searchParams.get('theme')).toBe('dark');
     expect(src.searchParams.has('mode')).toBe(false);
   });

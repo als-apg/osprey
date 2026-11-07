@@ -1,7 +1,7 @@
 """Real-container end-to-end proof of the whole Bluesky *queue* stack.
 
 This is the acceptance instrument for the queue-backed plan stack: a fresh
-``osprey init`` + ``osprey build`` of the shipped ``control-assistant`` preset,
+``osprey init`` + ``osprey build`` of the shipped ``demo`` preset,
 deployed with ``osprey up --dev``, driven through the surface an operator (or
 the agent, or a panel) actually uses -- ``PATCH /draft`` -> ``POST /queue/items``
 -> ``POST /queue/start`` -> ``GET /runs`` -> ``GET /runs/{id}/data`` -- against
@@ -15,7 +15,7 @@ Redis durability, the CurveZMQ control socket, the document plane, and the
 capability record's dependence on the deployed connector are the other half,
 and only a real deploy exercises them.
 
-**The preset is the subject, not a fixture detail.** ``control-assistant``
+**The preset is the subject, not a fixture detail.** ``demo``
 baselines ``control_system.type`` on its live stand-in, so this module
 deliberately does NOT override it (unlike ``tests/e2e/_orm_stack.py``, written
 when ``mock`` was the default): stage 1 asserts the *shipped baseline* is the
@@ -810,7 +810,7 @@ def _init_and_build(repo: Path, edits: dict[str, Any]) -> None:
             "init",
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             *e2e_scenario_pin(),
             *set_pairs(edits),
@@ -1011,7 +1011,7 @@ def test_1_capability_is_executable_on_the_shipped_preset() -> None:
 
     capability = body["capability"]
     assert capability["can_execute"] is True, (
-        "the shipped control-assistant preset must deploy EXECUTABLE (it baselines "
+        "the shipped demo preset must deploy EXECUTABLE (it baselines "
         f"control_system.type on the live stand-in): {capability}"
     )
     assert capability["reason"] == REASON_EXECUTABLE, f"unexpected reason: {capability}"
@@ -1065,7 +1065,7 @@ def test_1_capability_never_leaks_the_control_socket_credential(stack: QueueStac
 def test_2_shipped_preset_arms_the_queue(stack: QueueStack) -> None:
     """The shipped preset comes up ARMED: an add runs by itself, so an unarmed add is refused.
 
-    ``control-assistant`` pins ``bluesky.queue_autostart: true``, and the
+    ``demo`` pins ``bluesky.queue_autostart: true``, and the
     bridge applies it to the manager once the worker environment is open. On
     an armed queue the add is the write that puts a plan on hardware, so it is
     gated exactly like a Start: ``launch_token_invalid`` (403 with a token

@@ -52,7 +52,7 @@ may touch.
        the way ``osprey sim apply`` would, before it seeds the archive and the
        logbook, and only while no set has been chosen. Absent, ``null`` or
        ``[]`` starts in ``nominal`` alone, which is the default: the build
-       derives no start set. The control-assistant preset sets
+       derives no start set. The demo preset sets
        ``[rf-thermal, demo-history]`` (an existing deployment gets
        ``demo-history``'s sessions only from a fresh ``osprey init``); the other
        presets leave it out. A value that is not a list of non-empty
@@ -673,8 +673,8 @@ reported in the log and ``true`` is used.
 Offering the terminal
 ~~~~~~~~~~~~~~~~~~~~~
 
-``web.terminal: false`` removes **Open terminal** from the Agent bar's **⋯**
-menu on every login the render serves, and ``/ws/terminal`` closes with code
+``web.terminal: false`` removes **Open terminal** from the Agent pane's session
+switcher on every login the render serves, and ``/ws/terminal`` closes with code
 ``4403`` before any process starts. The default is ``true``. A value that is
 not a boolean is reported in the log and ``true`` is used; a config file that
 cannot be read closes it. ``osprey build`` refuses a profile that still states

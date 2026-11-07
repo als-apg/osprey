@@ -12,11 +12,6 @@
  * on none of panel-manager's private panel state, so they live cleanly on
  * their own.
  *
- * A panel popped out into its own window (popout.js) is a follower too, with
- * a WindowProxy where an iframe has a contentWindow: the state messages and the
- * agent-activity notice have a window-addressed twin each, and the pop-out URL is built beside the
- * embed URL so the two query contracts cannot drift.
- *
  * The hub-role fan-outs that iterate every panel (theme-manager's own theme
  * broadcast; panel-manager's broadcastMode) stay with their owners — this
  * module is only the single-target sends those fan-outs and their callers
@@ -57,27 +52,6 @@ function postToWindow(win, message, targetOrigin = window.location.origin) {
  */
 function postToIframe(iframe, message, targetOrigin = window.location.origin) {
   postToWindow(iframe?.contentWindow ?? null, message, targetOrigin);
-}
-
-/**
- * Send the hub's current theme to a popped-out window. A pop-out is always a
- * first-party page (an opaque panel has no standalone URL to pop out to), so
- * unlike the frame send this one is addressed to the hub's own origin.
- * @param {Window | null} win
- */
-export function sendThemeToWindow(win) {
-  postToWindow(win, { type: 'osprey-theme-change', theme: getTheme() });
-}
-
-/**
- * Send the hub's active session id to a popped-out window — the window twin
- * of {@link sendSessionToIframe}, with the same no-session guard.
- * @param {Window | null} win
- */
-export function sendSessionToWindow(win) {
-  const sid = getCurrentSessionId();
-  if (!sid) return;
-  postToWindow(win, { type: 'osprey-session-change', session_id: sid });
 }
 
 /**
@@ -218,16 +192,6 @@ function agentActivityMessage(activity) {
  */
 export function sendAgentActivityToIframe(iframe, activity) {
   postToIframe(iframe, agentActivityMessage(activity));
-}
-
-/**
- * Relay an agent-activity notice to a popped-out panel window — the window
- * twin of {@link sendAgentActivityToIframe}.
- * @param {Window | null} win  the panel's pop-out window
- * @param {AgentActivityMessage} activity
- */
-export function sendAgentActivityToWindow(win, activity) {
-  postToWindow(win, agentActivityMessage(activity));
 }
 
 // ---- Navigation Guard ----
@@ -372,36 +336,13 @@ export function isUrlWithinMount(raw, mountUrl) {
  * @returns {string}
  */
 export function buildEmbedSrc(targetUrl) {
-  return stampedUrl(targetUrl, 'embedded');
-}
-
-/**
- * Build the URL a panel pops out to: the same load-time state as
- * {@link buildEmbedSrc} under `popout=true` instead of `embedded=true`. The
- * page keeps its own chrome — there is no tile bar around a window — and the
- * `popout` flag is what makes it report to the hub (frame-params.js). Never
- * a token or a cap: a pop-out is a plain first-party page under the
- * operator's own session.
- * @param {string} targetUrl
- * @returns {string}
- */
-export function buildPopoutSrc(targetUrl) {
-  return stampedUrl(targetUrl, 'popout');
-}
-
-/**
- * @param {string} targetUrl
- * @param {'embedded' | 'popout'} flag
- * @returns {string}
- */
-function stampedUrl(targetUrl, flag) {
   if (!isNavigableUrl(targetUrl)) {
     console.warn('[panels] refused a panel url that is not a root-relative path or an http(s) URL');
     return REFUSED_EMBED_SRC;
   }
   const url = new URL(normaliseNavigationUrl(targetUrl), window.location.origin);
   if (url.protocol !== 'http:' && url.protocol !== 'https:') return REFUSED_EMBED_SRC;
-  url.searchParams.set(flag, 'true');
+  url.searchParams.set('embedded', 'true');
   url.searchParams.set('theme', /** @type {string} */ (getTheme()));
   return url.toString();
 }

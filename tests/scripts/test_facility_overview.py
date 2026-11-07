@@ -1,6 +1,6 @@
 """The facility-overview generator reproduces the committed screens and refuses what it cannot draw.
 
-``scripts/facility_demo/facility_overview.py`` renders the control-assistant
+``scripts/facility_demo/facility_overview.py`` renders the demo
 library's ``facility/overview``, ``br/overview``, the twelve ``sr/sector-NN``
 screens and their vacuum and absorber details from the example facility's
 channel and device records. A re-run must write the committed bytes, ``check`` must say so, and a
@@ -32,15 +32,7 @@ sys.modules[_SPEC.name] = gen
 _SPEC.loader.exec_module(gen)
 
 LIBRARY = (
-    REPO_ROOT
-    / "src"
-    / "osprey"
-    / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
-    / "canopy"
-    / "library"
+    REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "demo" / "data" / "canopy" / "library"
 )
 # The straights whose absorbers carry thermocouples, each with an absorber detail.
 ABSORBER_STRAIGHTS = (2, 4, 5, 6, 7, 8, 9, 10, 11, 12)

@@ -1510,14 +1510,35 @@ describe('renderChatBootFailure', () => {
 });
 
 describe('the Agent bar', () => {
-  test('reads dot, the session switcher, New conversation, bell — no Export, no ⋯', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test('reads the session switcher and New conversation — no dot, bell, Export or ⋯', async () => {
     await mountChat();
     const bar = /** @type {HTMLElement} */ (one('.op-session-bar'));
-    const parts = [...bar.children].map(
-      (el) => el.getAttribute('aria-label') ?? el.textContent ?? ''
+    const controls = [...bar.querySelectorAll('button, [role="button"]')].map((el) =>
+      el.getAttribute('aria-label')
     );
-    expect(parts).toEqual(['', 'Switch session', 'New conversation', 'Desktop notifications']);
-    expect(bar.querySelector('.op-session-more')).toBeNull();
+    expect(controls).toEqual(['Switch session', 'New conversation']);
+    expect(bar.lastElementChild?.classList.contains('agent-bar-new')).toBe(true);
+    expect(bar.querySelector('.osprey-dot, .op-session-more')).toBeNull();
     expect(document.getElementById('agent-conversations-menu')).toBeNull();
+  });
+
+  test("the console's features put Export and Desktop notifications in the pane's ⋯", async () => {
+    vi.stubGlobal(
+      'Notification',
+      class {
+        static permission = 'default';
+      }
+    );
+    await mountChat();
+    const { agentMenuRows } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/agent-menu.js');
+    expect(agentMenuRows().map((row) => row.label)).toEqual([
+      'Export conversation',
+      'Desktop notifications',
+    ]);
   });
 });

@@ -16,7 +16,7 @@ that is not cleanup -- it kills the peer mid-test, which then fails with a
 boot timeout or a dropped connection that reads as environmental rather than
 as a collision. The ``osprey-va-e2e`` prefix is kept so a stray container is
 still recognisable by eye. It's bind-mounted against a *scratch* data root
-rendered from the Control Assistant preset (never the repo's own copy --
+rendered from the Demo preset (never the repo's own copy --
 ``osprey sim apply`` mutates ``active_scenarios`` and this suite adds its own
 synthetic scenarios), so the fixture is free to write into it. What gets
 rendered is the layout ``osprey build`` writes for a project: the simulator
@@ -148,7 +148,7 @@ def _render_view(facility: Path, root: Path, doc: Any = None) -> tuple[Any, Simu
     from osprey.facility.views.simulator import write_simulator_view
 
     if doc is None:
-        doc = build_facility(facility, project_name="control_assistant")
+        doc = build_facility(facility, project_name="demo")
     write_simulator_view(
         root / VIEW_RELPATH.name,
         ViewInputs(

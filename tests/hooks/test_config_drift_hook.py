@@ -1027,14 +1027,14 @@ _HOOK_CONFIG_TEMPLATE = "claude_code/claude/hooks/hook_config.json.j2"
 
 @pytest.fixture(scope="module")
 def built_project(tmp_path_factory):
-    """One control-assistant project with its facility views; each cell edits a copy."""
+    """One demo project with its facility views; each cell edits a copy."""
     from tests.cli.test_killswitch_on_tier import _build
 
     return _build(tmp_path_factory.mktemp("killswitch-built"))
 
 
 def _render(built_project, tmp_path, *, writes: str):
-    """Render a control-assistant project's hook_config and deny at ``writes``.
+    """Render a demo project's hook_config and deny at ``writes``.
 
     The project is a copy of ``built_project``. The servers are a declaring
     facility server, a list-less writes_check one (with and without approval)

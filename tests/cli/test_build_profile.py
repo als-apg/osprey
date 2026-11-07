@@ -6,7 +6,7 @@ exemption that lets the non-builtin ``bluesky`` web_panels id validate
 without a pre-existing ``web.panels.bluesky.url`` when a ``bluesky_web``
 block is present
 (its url is derived post-build by ``_inject_bluesky_web``), and a
-regression guard that the shipped control-assistant preset/profile still
+regression guard that the shipped demo preset/profile still
 validates — the gate task 3.3 (tutorial-config) re-runs after adding the
 bluesky panel to that preset.
 """
@@ -330,15 +330,15 @@ def test_is_known_panel_id_shared_predicate() -> None:
     assert _profile(name="x", web_panels=["grafana"])._is_known_panel_id("grafana")
 
 
-def test_control_assistant_profile_validates() -> None:
-    """The shipped control-assistant preset/profile validates cleanly.
+def test_demo_profile_validates() -> None:
+    """The shipped demo preset/profile validates cleanly.
 
     This is a regression guard task 3.3 (tutorial-config) re-runs after
     adding the bluesky_web block + the bluesky-panel web_panels ids to
     this preset — it must keep validating once that wiring lands.
     """
     presets_dir = bp._presets_dir()
-    raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
+    raw = yaml.safe_load((presets_dir / "demo.yml").read_text(encoding="utf-8"))
     # `app_template:` and `facility:` are preset-side and consumed at the single
     # read point in `_load_preset_raw`; reading the file straight off disk has to
     # pop them too.
@@ -351,10 +351,10 @@ def test_control_assistant_profile_validates() -> None:
 
 # ── Task 3.3: turn-key VA-backed plan stack render ───────────────────────────
 #
-# The control-assistant preset now bakes the bluesky/virtual_accelerator/
+# The demo preset now bakes the bluesky/virtual_accelerator/
 # bluesky_web injector blocks in directly (no --set flags needed),
 # so `osprey build` on the bare preset renders the full plan stack + the
-# BLUESKY panel turn-key. These tests build a control-assistant deployment
+# BLUESKY panel turn-key. These tests build a demo deployment
 # repo in-process (CliRunner, --skip-deps --skip-lifecycle -- Docker-free,
 # mirroring tests/cli/test_va_default_config.py's scaffolded_project fixture and
 # tests/e2e/_orm_stack.py's build_via_cli_runner) and assert on the rendered
@@ -363,9 +363,9 @@ def test_control_assistant_profile_validates() -> None:
 
 @pytest.fixture(scope="module")
 def turnkey_plan_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Build the bare control-assistant preset (no overrides) into a tmp repo.
+    """Build the bare demo preset (no overrides) into a tmp repo.
 
-    The exemplar repo (:func:`build_exemplar_repo`) is control-assistant's
+    The exemplar repo (:func:`build_exemplar_repo`) is demo's
     profile.yml written out verbatim, so materializing it and building it is
     the bare preset with no overrides. Module-scoped: the build is the slow
     part (template render + service template copies) and every test in this
@@ -388,7 +388,7 @@ def turnkey_plan_config(turnkey_plan_project: Path) -> dict:
     return yaml.safe_load((turnkey_plan_project / "config.yml").read_text(encoding="utf-8"))
 
 
-class TestControlAssistantTurnkeyPlanServices:
+class TestDemoTurnkeyPlanServices:
     """The three injected services render inside the deployment's port block.
 
     The preset no longer bakes a number in for any of them: it declares the
@@ -399,43 +399,37 @@ class TestControlAssistantTurnkeyPlanServices:
     there instead of breaking every suite that names a port.
     """
 
-    def test_control_assistant_bluesky_service_rendered(self, turnkey_plan_config: dict) -> None:
+    def test_demo_bluesky_service_rendered(self, turnkey_plan_config: dict) -> None:
         bluesky = turnkey_plan_config["services"]["bluesky"]
         assert bluesky["port"] == default_port("bluesky")
         assert bluesky["tiled_enabled"] is True
         assert bluesky["tiled_port"] == default_port("tiled")
 
-    def test_control_assistant_virtual_accelerator_service_rendered(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_virtual_accelerator_service_rendered(self, turnkey_plan_config: dict) -> None:
         va = turnkey_plan_config["services"]["virtual_accelerator"]
         assert va["port"] == 5064
 
-    def test_control_assistant_bluesky_web_service_rendered(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_bluesky_web_service_rendered(self, turnkey_plan_config: dict) -> None:
         bluesky_web = turnkey_plan_config["services"]["bluesky_web"]
         assert bluesky_web["port"] == default_port("bluesky_web")
 
-    def test_control_assistant_deployed_services_includes_all_three(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_deployed_services_includes_all_three(self, turnkey_plan_config: dict) -> None:
         deployed = turnkey_plan_config["deployed_services"]
         assert "bluesky" in deployed
         assert "virtual_accelerator" in deployed
         assert "bluesky_web" in deployed
 
 
-class TestControlAssistantTurnkeyPlanPanels:
+class TestDemoTurnkeyPlanPanels:
     """The one bluesky-panel web.panels entry is registered with a url."""
 
-    def test_control_assistant_bluesky_panel(self, turnkey_plan_config: dict) -> None:
+    def test_demo_bluesky_panel(self, turnkey_plan_config: dict) -> None:
         panel = turnkey_plan_config["web"]["panels"]["bluesky"]
         assert panel["path"] == "/bluesky/"
         assert panel["url"]
 
 
-class TestControlAssistantTurnkeyPlanControlSystem:
+class TestDemoTurnkeyPlanControlSystem:
     """The preset's config overrides land: simulator baseline + subprocess execution.
 
     The VA soft-IOC ships and is deployed unconditionally as part of the
@@ -447,29 +441,25 @@ class TestControlAssistantTurnkeyPlanControlSystem:
     (covered by tests/cli/test_va_default_config.py).
     """
 
-    def test_control_assistant_control_system_type_is_the_simulator(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_control_system_type_is_the_simulator(self, turnkey_plan_config: dict) -> None:
         assert turnkey_plan_config["control_system"]["type"] == "virtual_accelerator"
 
-    def test_control_assistant_execution_method_is_subprocess(
-        self, turnkey_plan_config: dict
-    ) -> None:
+    def test_demo_execution_method_is_subprocess(self, turnkey_plan_config: dict) -> None:
         """Agent Python runs as a host subprocess — the preset pins nothing, so
         this is the template default the built project inherits."""
         assert turnkey_plan_config["execution"]["execution_method"] == "subprocess"
 
-    def test_control_assistant_bluesky_mcp_server_enabled(self, turnkey_plan_config: dict) -> None:
+    def test_demo_bluesky_mcp_server_enabled(self, turnkey_plan_config: dict) -> None:
         assert turnkey_plan_config["claude_code"]["servers"]["bluesky"]["enabled"] is True
 
 
 @pytest.mark.usefixtures("turnkey_plan_project")
-def test_control_assistant_turnkey_plan_preset_validates() -> None:
+def test_demo_turnkey_plan_preset_validates() -> None:
     """BuildProfile.validate() passes for the preset as shipped (bare, no
     overrides) -- the non-builtin bluesky-panel ids are accepted because
     the preset's own bluesky_web block is present."""
     presets_dir = bp._presets_dir()
-    raw = yaml.safe_load((presets_dir / "control-assistant.yml").read_text(encoding="utf-8"))
+    raw = yaml.safe_load((presets_dir / "demo.yml").read_text(encoding="utf-8"))
     # `app_template:` and `facility:` are preset-side and consumed at the single
     # read point in `_load_preset_raw`; reading the file straight off disk has to
     # pop them too.
@@ -986,7 +976,7 @@ def test_either_claude_code_spelling_alone_is_fine() -> None:
 
 def test_the_shipped_preset_listings_are_not_empty() -> None:
     """Guards the two parametrizations below against running over nothing."""
-    assert {"control-assistant", "hello-world"} <= set(list_presets())
+    assert {"demo", "hello-world"} <= set(list_presets())
     assert {"readonly", "readwrite", "admin"} <= set(list_tiers())
     assert {"logbook", "knowledge"} <= set(list_apps())
 

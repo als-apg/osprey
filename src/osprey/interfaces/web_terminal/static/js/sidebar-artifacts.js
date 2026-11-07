@@ -1,7 +1,7 @@
 // @ts-check
 /* OSPREY Web Terminal — the sidebar's session tree
  *
- * The Agent row wraps the tree: the operator's sessions (session-model.js),
+ * The Sessions row wraps the tree: the operator's sessions (session-model.js),
  * each expanding to its artifacts grouped by day (Activity mode, the default)
  * or by form (Kind mode), then "More sessions", and a notice when the session history is cut short or
  * unreadable.
@@ -21,10 +21,11 @@
  * name switches to it (`switchTo`, reopening the Agent pane first), which
  * unfolds it, and reveals the session's pick: fetched by id, inserted into its
  * group (its run opened), scrolled to and shown, the panels left to the
- * session's own layout (session-layout.js). A click (or double-click) on the
+ * session's own layout (session-layout.js); the clicked row takes the accent
+ * at once, and gives it back when the switch does not happen. A click (or double-click) on the
  * session in use folds or unfolds it. The fold is this tab's own state, reset
  * on every switch. The one exception to "only the session in use":
- * ⌥-click (altKey) on a session or on the Agent row ({@link toggleAllSessions})
+ * ⌥-click (altKey) on a session or on the Sessions row ({@link toggleAllSessions})
  * expands every session, or collapses them all when all are open; a plain
  * session click or a switch afterwards returns to the session in use alone,
  * left open. An artifact click shows it without changing the session,
@@ -36,6 +37,20 @@
  * shown there; otherwise the layout stays as it is and the tree only opens its
  * session, group and run and scrolls to it. app.js runs it once
  * ({@link revealOnLoad}).
+ *
+ * THE SESSION ROWS. Only the active session is bold; the accent bar sits on
+ * it, or on the session being switched to. While the agent works (the chat
+ * bus's `busy`) the active session's bar breathes. A folded session shows its
+ * artifacts in a peek on hover (sidebar-session-peek.js), and a click there
+ * picks the artifact as the tree does. The Sessions row's "+" starts a new
+ * session, as its menu does.
+ *
+ * PINS (sidebar-session-pins.js). The pinned sessions are drawn a second time
+ * in the pinned group's list, a tree of its own (`data-tree-where="pinned"`),
+ * and first in the collapsed sidebar's flyout under the group's name. Both
+ * copies of a session show it active, accented and busy; its artifacts open
+ * under the copy that was clicked only (`openIn`). A row's pin button pins
+ * or unpins it.
  *
  * THE HIGHLIGHT. At most one artifact row is selected (`aria-selected`): the
  * one the Artifacts panel shows, and none while that panel is not on view
@@ -51,14 +66,11 @@
  *   - else, in chat, the agent's focus unless it is a run record;
  *   - else the newest of the session (not a shipped example), then any.
  * A non-automatic agent focus (or any focus on the terminal surface) takes the
- * pick and records last-artifact; an automatic one only records the focus. The
- * pane header's ‹ N of M › pages through the shown artifact's own session.
+ * pick and records last-artifact; an automatic one only records the focus.
  *
- * LIVE UPDATES. An `artifact` frame counts once per run (`exec_id`, else id),
- * only when `operator_visible`, by its listed form; a counted run only takes
- * the new status. `artifact_updated` sets the status and re-places an entry
- * whose owner changed; `artifact_deleted` and a reconnect re-fetch the
- * summary. A frame whose owner is no known row refreshes the model.
+ * LIVE UPDATES. The panel's event stream is followed by
+ * sidebar-artifact-frames.js: new, updated and deleted artifacts, and the
+ * agent's focus.
  *
  * @module sidebar-artifacts
  */
@@ -66,26 +78,26 @@
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { createEventSource } from './api.js';
 import { contributeLocal } from './tile-header-contrib.js';
-import * as iframeSync from './panel-iframe-sync.js';
-import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
-import { isPoppedOut } from './popout.js';
-import { setServiceMenuExtras } from './panel-menu-policy.js';
+import { setServiceMenuExtras, showAgentPane } from './panel-menu-policy.js';
 import { isTerminalPanelOpen, openTerminalPanel } from './dock-workspace.js';
+import { TERMINAL_KEY, isDetached } from './dock-apply.js';
 import * as store from './sidebar-artifact-listing.js';
 import * as rows from './sidebar-artifact-rows.js';
 import { createBoxPager } from './sidebar-artifact-paging.js';
-import { headerItems, menuItems, openArtifact, saveArtifact } from './artifacts-pane-header.js';
+import { createSessionCues } from './sidebar-session-cues.js';
+import { createArtifactFrames } from './sidebar-artifact-frames.js';
+import * as viewer from './sidebar-artifact-viewer.js';
+import { ARTIFACTS_PANEL_ID, panelOnView, showArtifactsPanel } from './sidebar-artifact-viewer.js';
+import { downloadArtifact, headerItems, showArtifactInfo } from './artifacts-pane-header.js';
 import * as model from './session-model.js';
+import * as pins from './sidebar-session-pins.js';
 
 /**
  * @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry
  * @typedef {import('./sidebar-artifact-listing.js').Listing} Listing
  * @typedef {import('./session-model.js').SessionRow} SessionRow
  */
-
-/** The panel id of the artifact gallery. */
-const ARTIFACTS_PANEL_ID = 'artifacts';
 
 /** The panel's event stream. */
 const EVENTS_PATH = `${store.ARTIFACTS_BASE}/api/events`;
@@ -103,6 +115,8 @@ function freshState() {
     activeFolded: false,
     /** Every session expanded by ⌥-click (reset by a plain click or a switch). */
     expandAll: false,
+    /** The copy the session in use opens under. @type {'sessions' | 'pinned'} */
+    openIn: /** @type {'sessions' | 'pinned'} */ ('sessions'),
     /** Open form groups per session. @type {Map<string, Set<string>>} */
     openGroups: new Map(),
     /** Open runs, by run key. @type {Set<string>} */
@@ -132,10 +146,36 @@ let abort = new AbortController();
 let treeAbort = new AbortController();
 /** @type {{stop: () => void} | null} */
 let stream = null;
-let streamOpened = false;
 let lastHeader = '';
 /** Whether the Artifacts panel was on view at the last render. */
 let panelWasOnView = false;
+/** Busy, the accent on a switch, the Agent pane, "+" and the peek (sidebar-session-cues.js). */
+const cues = createSessionCues({
+  render: () => render(),
+  peek: {
+    listing: (treeId) => {
+      if (!served) return null;
+      const listing = data.listingOf(treeId);
+      data.ensureLoaded(listing);
+      return listing;
+    },
+    total: (treeId) => data.totals.counts[treeId]?.total ?? null,
+    shownId: () => (panelWasOnView ? state.shownId : null),
+    onPick: (id) => pickArtifact(id),
+    onMore: (treeId) => void openInAgent(treeId),
+  },
+});
+
+/** The event stream's frames (sidebar-artifact-frames.js). */
+const frames = createArtifactFrames({
+  isServed: () => served,
+  data,
+  state: () => state,
+  inActiveSession: (entry) => inActiveSession(entry),
+  sendChanged: (change, entry) => sendChanged(change, entry),
+  summarize: (all) => summarize(all),
+  render: () => render(),
+});
 
 // ---- Ids ----
 
@@ -170,6 +210,9 @@ function initSessionTree() {
   document.addEventListener('osprey-artifact-opened', onArtifactOpened, { signal });
   // panel-manager.js's DOCK_VIEW_EVENT (not imported: tests mock that module).
   document.addEventListener('osprey-dock-view-changed', onDockView, { signal });
+  cues.watch(signal);
+  signal.addEventListener('abort', pins.onPinsChange(render));
+  pins.initPinnedMenus();
   pager.watch(document.querySelectorAll(TREE_SELECTOR), signal);
   model.subscribe(onModelChange);
   onSurfaceChange(() => render());
@@ -189,7 +232,10 @@ export function initSidebarArtifacts({ served: withArtifacts = true } = {}) {
   if (served || !withArtifacts) return;
   served = true;
   window.addEventListener('message', onMessage, { signal: abort.signal });
-  stream = createEventSource(EVENTS_PATH, { onMessage: onFrame, onOpen: onStreamOpen });
+  stream = createEventSource(EVENTS_PATH, {
+    onMessage: frames.onFrame,
+    onOpen: frames.onStreamOpen,
+  });
   setServiceMenuExtras(ARTIFACTS_PANEL_ID, menuExtras);
   void store.fetchTypeRegistry().then((registry) => {
     if (!served) return;
@@ -197,7 +243,7 @@ export function initSidebarArtifacts({ served: withArtifacts = true } = {}) {
     render();
   });
   void summarize(true);
-  void restoreFocus();
+  void frames.restoreFocus();
   render();
 }
 
@@ -209,12 +255,12 @@ export function teardownSidebarArtifacts() {
   abort = new AbortController();
   stream?.stop();
   stream = null;
-  streamOpened = false;
+  frames.reset();
   data.stop();
   setServiceMenuExtras(ARTIFACTS_PANEL_ID, null);
   state = { ...freshState(), view: state.view };
   lastHeader = '';
-  contributeLocal(ARTIFACTS_PANEL_ID, headerItems(null, null), onHeaderAction);
+  contributeLocal(ARTIFACTS_PANEL_ID, headerItems(null), onHeaderAction);
   render();
 }
 
@@ -227,8 +273,7 @@ export function teardownSidebarArtifacts() {
  */
 async function summarize(all = false) {
   if (!served) return;
-  const ids = model
-    .rows()
+  const ids = [...model.rows(), ...model.pinnedRows()]
     .map((r) => r.transcript_id)
     .filter((id) => typeof id === 'string');
   if ((await data.summarize(/** @type {string[]} */ (ids), all)) && served) render();
@@ -238,18 +283,9 @@ async function summarize(all = false) {
 function onModelChange({ reason }) {
   // The session switched to always opens; the fold was the previous one's.
   if (reason === 'pointer' || reason === 'switched')
-    Object.assign(state, { activeFolded: false, expandAll: false });
+    Object.assign(state, { activeFolded: false, expandAll: false, openIn: 'sessions' });
   if (reason === 'rows') void summarize();
   render();
-}
-
-/**
- * Read the agent's persisted focus once the active session's first page has
- * landed: a reload, a second tab or a reconnect learns it here, as automatic.
- */
-async function restoreFocus() {
-  const id = await store.fetchFocusedId();
-  if (served && id && id !== state.focusId) await onFocus(id, true);
 }
 
 /** @param {string | null} id */
@@ -284,33 +320,6 @@ function activeListing() {
   return row ? data.activeListing(row) : null;
 }
 
-/**
- * The listing the pager walks for an artifact: its own session's, or null for
- * one no session owns (no pager).
- * @param {ArtifactEntry} entry
- * @returns {Listing | null}
- */
-function pagerListing(entry) {
-  if (inActiveSession(entry)) return activeListing();
-  return entry.owner == null ? null : data.listingOf(entry.owner);
-}
-
-/** @param {1 | -1} delta */
-async function step(delta) {
-  const shown = held(state.shownId);
-  const listing = shown ? pagerListing(shown) : null;
-  const target = shown && listing ? await data.stepFrom(listing, shown.id, delta) : null;
-  if (!target || !served) return;
-  model.setPick(target.id);
-  model.recordLastArtifact(target);
-}
-
-/** @param {ArtifactEntry | null} shown */
-function pagerPosition(shown) {
-  const listing = shown ? pagerListing(shown) : null;
-  return shown && listing ? data.position(listing, shown.id) : null;
-}
-
 // ---- Recording ----
 
 /**
@@ -335,106 +344,19 @@ export async function recordArtifactOpened(id) {
   }
 }
 
-// ---- The event stream ----
+// ---- The viewer, the pane header and the tile menu (sidebar-artifact-viewer.js) ----
 
-function onStreamOpen() {
-  if (!served) return;
-  if (streamOpened) {
-    void summarize(true);
-    void restoreFocus();
-  }
-  streamOpened = true;
-}
-
-/**
- * The extra listing a live entry also lands in: the active key's, when the
- * entry is the active session's.
- * @param {ArtifactEntry} entry
- */
-function extraListings(entry) {
-  const active = model.activeRow();
-  return active && inActiveSession(entry) ? [`key:${active.session_key}|`] : [];
-}
-
-/** Whether an entry's owner is a loaded row (no owner: nothing to load). @param {ArtifactEntry} entry */
-const knownOwner = (entry) => entry.owner == null || model.sessionOfArtifact(entry) !== null;
-
-/** @param {any} frame */
-function onFrame(frame) {
-  if (!served || !frame || typeof frame !== 'object' || typeof frame.id !== 'string') return;
-  const entry = /** @type {ArtifactEntry} */ ({ ...frame });
-  delete (/** @type {any} */ (entry).type);
-  if (frame.type === 'artifact') {
-    if (!data.added(entry, extraListings(entry))) return;
-    if (!knownOwner(entry)) model.refresh();
-  } else if (frame.type === 'artifact_updated') {
-    if (data.updated(entry, extraListings(entry)) && !knownOwner(entry)) model.refresh();
-    if (frame.id === state.shownId) sendChanged('updated', entry);
-  } else if (frame.type === 'artifact_deleted') {
-    if (frame.id === state.shownId) sendChanged('deleted');
-    data.deleted(frame.id);
-    if (model.pick() === frame.id) model.setPick(null);
-    if (state.focusId === frame.id) state.focusId = null;
-    void summarize(true);
-  } else {
-    // A focus frame is followed only when its `session` names the active
-    // row's transcript (session-model.js isActiveTranscript).
-    if (frame.type === 'focus' && model.isActiveTranscript(frame.session))
-      void onFocus(frame.id, frame.automatic === true);
-    return;
-  }
-  render();
-}
-
-/**
- * The agent focused an artifact.
- * @param {string} id
- * @param {boolean} automatic
- */
-async function onFocus(id, automatic) {
-  if (!held(id)) {
-    const entry = await store.fetchArtifact(id);
-    if (!served || entry?.id !== id) return;
-    data.hold(entry);
-  }
-  state.focusId = id;
-  if (!automatic || isTerminalSurface()) {
-    model.setPick(id);
-    if (!automatic) model.recordLastArtifact(held(id));
-  }
-  render();
-}
-
-// ---- The viewer, the pane header and the tile menu ----
-
-/** @returns {HTMLIFrameElement | null} */
-function artifactsIframe() {
-  return /** @type {HTMLIFrameElement | null} */ (
-    document.querySelector(`iframe.panel-iframe[data-panel-id="${ARTIFACTS_PANEL_ID}"]`)
-  );
-}
-
-function sendSelect() {
-  const iframe = artifactsIframe();
-  if (iframe) iframeSync.sendArtifactSelectToIframe(iframe, state.shownId);
-}
+const sendSelect = () => viewer.sendSelect(state.shownId);
 
 /**
  * @param {'updated' | 'deleted'} change
  * @param {ArtifactEntry} [artifact]
  */
-function sendChanged(change, artifact) {
-  const iframe = artifactsIframe();
-  if (iframe && state.shownId)
-    iframeSync.sendArtifactChangedToIframe(iframe, state.shownId, change, artifact);
-}
+const sendChanged = (change, artifact) => viewer.sendChanged(state.shownId, change, artifact);
 
 /** @param {MessageEvent} event */
 function onMessage(event) {
-  if (!served || event.origin !== window.location.origin) return;
-  if (event.data?.type !== 'osprey-artifact-ready') return;
-  const iframe = artifactsIframe();
-  if (iframe && event.source === iframe.contentWindow) sendSelect();
+  if (served && viewer.isViewerReady(event)) sendSelect();
 }
 
 /** @param {string} id */
@@ -442,30 +364,15 @@ function onHeaderAction(id) {
   if (!served) return;
   const shown = held(state.shownId);
   if (!shown) return;
-  if (id === 'prev' || id === 'next') void step(id === 'prev' ? -1 : 1);
-  else if (id === 'open') openArtifact(shown);
-  else if (id === 'save') saveArtifact(shown);
+  if (id === 'info') showArtifactInfo(shown);
+  else if (id === 'download') downloadArtifact(shown);
 }
 
-function menuExtras() {
-  const shown = served ? held(state.shownId) : null;
-  if (!shown || !artifactsIframe()) return [];
-  return menuItems(shown, (action) =>
-    iframeSync.sendArtifactActionToIframe(artifactsIframe(), shown.id, action)
-  );
-}
-
-/** Whether the Artifacts panel is on view: docked in a tile, or in its own window. */
-const panelOnView = () => hasDockedTile(ARTIFACTS_PANEL_ID) || isPoppedOut(ARTIFACTS_PANEL_ID);
+const menuExtras = () => viewer.viewerMenuItems(served ? held(state.shownId) : null);
 
 /** The dock changed: redraw the highlight when the panel came on or went off view. */
 function onDockView() {
   if (served && panelOnView() !== panelWasOnView) render();
-}
-
-/** Show the Artifacts panel through the open rule: a docked one is focused in place. */
-function showArtifactsPanel() {
-  if (!hasDockedTile(ARTIFACTS_PANEL_ID)) activateTab(ARTIFACTS_PANEL_ID, { userInitiated: true });
 }
 
 // ---- Drawing ----
@@ -496,27 +403,50 @@ function boxRows(treeId) {
   return rows.kindRows(entries, { ...common, forms, sessionId: treeId, counts, openGroups: open });
 }
 
-/** @returns {Node[]} the whole tree */
-function treeNodes() {
+/**
+ * A session's row, and its box when open, in one copy.
+ * @param {SessionRow} row  @param {'sessions' | 'pinned'} where
+ * @returns {Node[]}
+ */
+function sessionNodes(row, where) {
+  const treeId = treeIdOf(row);
+  const active = activeTreeId();
+  const isActive = treeId === active;
+  const open = served && unfolded(treeId, active, where);
+  const node = rows.sessionRow(/** @type {any} */ (row), {
+    active: isActive,
+    open,
+    accent: treeId === (cues.selecting() ?? active),
+    busy: cues.busy() && isActive,
+    count: data.totals.counts[treeId]?.total ?? 0,
+    summarized: treeId in data.totals.counts,
+    pinned: row.pinned ?? null,
+    where,
+  });
+  node.dataset.sessionId = treeId;
+  return open ? [node, rows.sessionBox(treeId, boxRows(treeId))] : [node];
+}
+
+/**
+ * The whole tree: the session list, the pinned group's list (`pinned`), or
+ * the flyout's, which leads with the pinned sessions under the group's name.
+ * @param {'sessions' | 'pinned' | 'flyout'} where
+ * @returns {Node[]}
+ */
+function treeNodes(where) {
+  const pinned = model.pinnedRows();
+  if (where === 'pinned') return pinned.flatMap((row) => sessionNodes(row, 'pinned'));
   /** @type {Node[]} */
   const nodes = [];
-  const active = activeTreeId();
+  if (where === 'flyout' && pins.pinnedShown()) {
+    nodes.push(rows.labelRow(pins.pinnedName()));
+    for (const row of pinned) nodes.push(...sessionNodes(row, 'pinned'));
+    nodes.push(rows.labelRow('Sessions'));
+  }
   let loadedTotal = 0;
   for (const row of model.rows()) {
-    const treeId = treeIdOf(row);
-    const count = data.totals.counts[treeId]?.total ?? 0;
-    loadedTotal += row.transcript_id ? count : 0;
-    const isActive = treeId === active;
-    const open = served && unfolded(treeId, active);
-    const node = rows.sessionRow(/** @type {any} */ (row), {
-      active: isActive,
-      open,
-      count,
-      summarized: treeId in data.totals.counts,
-    });
-    node.dataset.sessionId = treeId;
-    nodes.push(node);
-    if (open) nodes.push(rows.sessionBox(treeId, boxRows(treeId)));
+    if (row.transcript_id) loadedTotal += data.totals.counts[treeIdOf(row)]?.total ?? 0;
+    nodes.push(...sessionNodes(row, 'sessions'));
   }
   if (model.hasMore())
     nodes.push(rows.moreSessionsRow(Math.max(0, data.totals.ownedTotal - loadedTotal)));
@@ -532,26 +462,26 @@ function render() {
   const changed = (shown?.id ?? null) !== state.shownId;
   state.shownId = shown?.id ?? null;
   panelWasOnView = served && panelOnView();
+  pins.paintPinnedGroup(model.pinnedRows().length);
   for (const tree of document.querySelectorAll(TREE_SELECTOR)) {
-    const el = document.activeElement;
-    const focusedId = el instanceof HTMLElement && tree.contains(el) ? el.dataset.id : null;
+    const restoreFocus = rows.keepFocus(/** @type {HTMLElement} */ (tree));
     const scrolls = [...tree.querySelectorAll('[data-session-box]')].map((box) => [
       /** @type {HTMLElement} */ (box).dataset.sessionBox,
       box.scrollTop,
     ]);
-    tree.replaceChildren(...treeNodes());
+    tree.replaceChildren(...treeNodes(whereOf(/** @type {HTMLElement} */ (tree))));
     for (const [id, top] of scrolls) {
       const box = tree.querySelector(`[data-session-box="${CSS.escape(String(id))}"]`);
       if (box) box.scrollTop = /** @type {number} */ (top);
     }
-    if (focusedId)
-      rows.rowIn(/** @type {HTMLElement} */ (tree), focusedId)?.focus({ preventScroll: true });
+    restoreFocus();
   }
+  cues.refresh();
   if (!served) return;
   pager.fill();
   const current = activeListing();
   if (current) data.ensureLoaded(current);
-  const header = headerItems(shown, pagerPosition(shown));
+  const header = headerItems(shown);
   const key = JSON.stringify(header);
   if (key !== lastHeader) {
     lastHeader = key;
@@ -560,6 +490,12 @@ function render() {
   if (!changed) return;
   sendSelect();
   scrollToShown();
+}
+
+/** @param {HTMLElement} tree @returns {'sessions' | 'pinned' | 'flyout'} which tree it is */
+function whereOf(tree) {
+  if (tree.dataset.treeWhere === 'pinned') return 'pinned';
+  return tree.closest('#sidebar-sessions-flyout') ? 'flyout' : 'sessions';
 }
 
 /** @param {string | null} [id] the row to scroll to, the shown one by default */
@@ -630,45 +566,72 @@ function onClick(event) {
   const disc = target.closest('[data-tree-disc]');
   if (session instanceof HTMLElement) {
     // A double-click's second click is the same gesture: it never undoes the
-    // first (a fold, or the switch it started).
+    // first (a fold, a pin, or the switch it started).
     if (event.detail > 1) return;
-    if (event.altKey) return toggleAllSessions();
     const treeId = session.dataset.sessionId ?? '';
+    if (target.closest('[data-tree-pin]')) {
+      if (!model.pinPending(treeId)) void pins.setSessionPinned(treeId, !session.dataset.pinned);
+      return;
+    }
+    if (event.altKey) return toggleAllSessions();
+    const where = session.dataset.where === 'pinned' ? 'pinned' : 'sessions';
     // The session in use folds or unfolds; another is entered, never browsed.
     // After expand-all, the click first returns to the session in use alone.
+    // With the Agent pane closed, a click on it reopens the pane, not a fold;
+    // with the pane in its own window, it brings that window forward, no more.
+    // A click on its other copy moves its artifacts there, open.
     if (treeId === activeTreeId()) {
-      state.activeFolded = state.expandAll ? false : !state.activeFolded;
-      state.expandAll = false;
+      if (isDetached(TERMINAL_KEY)) return showAgentPane();
+      const reopen = !isTerminalPanelOpen();
+      const moved = openWhere() !== where;
+      state.activeFolded = reopen || moved || state.expandAll ? false : !state.activeFolded;
+      Object.assign(state, { expandAll: false, openIn: where });
+      if (reopen) showAgentPane();
       render();
-    } else void openInAgent(treeId);
+    } else void openInAgent(treeId, where);
     return;
   }
   if (target.closest('[data-tree-more]')) return void model.loadMore();
   const head = target.closest('[data-group-head]');
   if (head instanceof HTMLElement) {
-    const [treeId, form] = splitGroup(head.dataset.groupHead ?? '');
-    flip(openGroupsOf(treeId), form);
+    const [treeId, form] = rows.splitGroup(head.dataset.groupHead ?? '');
+    rows.flip(openGroupsOf(treeId), form);
     return render();
   }
   const row = target.closest('.osprey-list-row[data-id]');
   if (!(row instanceof HTMLElement)) return;
   const run = row.closest('[data-run]') ?? (row.matches('[data-run]') ? row : null);
   if (disc && run instanceof HTMLElement) {
-    flip(state.openRuns, run.dataset.run ?? '');
+    rows.flip(state.openRuns, run.dataset.run ?? '');
     return render();
   }
   pickArtifact(/** @type {string} */ (row.dataset.id));
 }
 
 /**
- * Whether a session row is open: the session in use unless folded, another
- * only under expand-all.
- * @param {string} treeId @param {string | null} active
+ * The copy the session in use opens under: the pinned one only while it is
+ * pinned and its group is open.
+ * @returns {'sessions' | 'pinned'}
  */
-const unfolded = (treeId, active) => (treeId === active ? !state.activeFolded : state.expandAll);
+function openWhere() {
+  const active = activeTreeId();
+  const pinnedHere = pins.pinnedOpen() && model.pinnedRows().some((r) => treeIdOf(r) === active);
+  return state.openIn === 'pinned' && pinnedHere ? 'pinned' : 'sessions';
+}
 
 /**
- * The ⌥-click on a session or on the Agent row (Finder's): expand every
+ * Whether a session row is open: the session in use unless folded, in the
+ * copy it opens under; another only under expand-all, in the session list.
+ * @param {string} treeId @param {string | null} active
+ * @param {'sessions' | 'pinned'} [where]
+ */
+const unfolded = (treeId, active, where = 'sessions') =>
+  treeId === active
+    ? !state.activeFolded && openWhere() === where
+    : state.expandAll && where === 'sessions';
+
+/**
+ * The ⌥-click on a session or on the Sessions row (Finder's): expand every
  * session, artifacts and all, or collapse them all when all are already open.
  * @param {boolean} [force]  expand (true) or collapse (false) instead of toggling
  */
@@ -676,21 +639,8 @@ export function toggleAllSessions(force) {
   const active = activeTreeId();
   state.expandAll = force ?? !model.rows().every((r) => unfolded(treeIdOf(r), active));
   state.activeFolded = !state.expandAll;
+  if (state.expandAll) state.openIn = 'sessions';
   render();
-}
-
-/**
- * @param {string} value  `sid:form`; the session id may itself hold colons
- * @returns {[string, string]}
- */
-function splitGroup(value) {
-  const at = value.lastIndexOf(':');
-  return [value.slice(0, at), value.slice(at + 1)];
-}
-
-/** Toggle a key's membership. @param {Set<string>} set @param {string} key */
-function flip(set, key) {
-  if (!set.delete(key)) set.add(key);
 }
 
 /**
@@ -699,16 +649,20 @@ function flip(set, key) {
  * the Artifacts panel is open (session-layout.js); on the session in use the
  * panel is brought up.
  * @param {string} treeId
+ * @param {'sessions' | 'pinned'} [where]  the copy that was clicked
  */
-export async function openInAgent(treeId) {
-  const row = model.rows().find((r) => treeIdOf(r) === treeId);
+export async function openInAgent(treeId, where = 'sessions') {
+  const row = [...model.rows(), ...model.pinnedRows()].find((r) => treeIdOf(r) === treeId);
   if (!row) return;
   if (!isTerminalPanelOpen()) openTerminalPanel();
   const wasActive = treeId === activeTreeId();
-  const moved = wasActive ? false : await model.switchTo(row, { reason: 'gesture' });
-  if (!wasActive && !moved) return;
+  // The accent moves to the clicked row at once, and back if the switch does
+  // not happen (cancelled at the streaming guard, or refused).
+  const moved =
+    !wasActive && (await cues.select(treeId, () => model.switchTo(row, { reason: 'gesture' })));
+  if (!wasActive && !moved) return render();
   const now = activeTreeId() ?? treeId;
-  Object.assign(state, { activeFolded: false, expandAll: false });
+  Object.assign(state, { activeFolded: false, expandAll: false, openIn: where });
   render();
   await reveal(now, model.pick() ?? row.last_artifact_id ?? null, false, !wasActive);
 }
@@ -751,4 +705,5 @@ export function resetSidebarArtifacts() {
   state = freshState();
   panelWasOnView = false;
   model.resetSessionModel();
+  pins.resetSessionPins();
 }

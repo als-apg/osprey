@@ -519,7 +519,8 @@ class TestDockerfileContent:
         immediately before the deps RUN that installs it."""
         text = (hello_project / "Dockerfile").read_text()
         match = re.search(
-            r"^COPY \.dockerignore osprey-local-requirements\.tx\[t\] /tmp/deps-ctx/$",
+            r"^COPY \.dockerignore osprey-local-requirements\.tx\[t\] "
+            r"osprey-lock-constraints\.tx\[t\] /tmp/deps-ctx/$",
             text,
             flags=re.MULTILINE,
         )
@@ -540,10 +541,11 @@ class TestDockerfileContent:
             "manifest install missing or not &&-chained in the deps RUN"
         )
         assert install in deps
-        assert deps.index(install) > deps.index("WARNING: pin unreleased"), (
+        # Twice: alone on the lock-driven path, after the primer on the other.
+        assert deps.rindex(install) > deps.index("WARNING: pin unreleased"), (
             "manifest install must follow the primer's dev-fallback construct"
         )
-        assert deps.index(install) < deps.index("apt-get purge -y build-essential"), (
+        assert deps.rindex(install) < deps.index("apt-get purge -y build-essential"), (
             "manifest install must precede the toolchain purge"
         )
         assert "rm -rf /tmp/deps-ctx" in deps, "deps RUN must clean up /tmp/deps-ctx"
@@ -1143,7 +1145,7 @@ class TestSetupCapabilityConditional:
     and the admin tier — whose whole purpose is the Config panel — can. These
     render the template against both contexts directly, which is what pins the
     conditional itself; `TestTieredPresetConfigChown` below asks the same
-    question of the real `control-assistant` presets that produce each side.
+    question of the real `demo` presets that produce each side.
     """
 
     #: The one line the conditional renders. Matched exactly rather than by the
@@ -1315,14 +1317,14 @@ class TestSetupCapabilityConditional:
 
 @pytest.fixture(scope="module")
 def tiered_render(tmp_path_factory):
-    """Render the `control-assistant` preset once — the deployment's own project
+    """Render the `demo` preset once — the deployment's own project
     plus one per layer, all from a single `osprey build`.
 
     Module-scoped: the tier question below is asked of five Dockerfiles out of
     the same render, and rendering per test would pay for the same build five
     times over.
     """
-    return _render(tmp_path_factory.mktemp("dockerfile-tiers") / "ca-docker", "control-assistant")
+    return _render(tmp_path_factory.mktemp("dockerfile-tiers") / "ca-docker", "demo")
 
 
 class TestTieredPresetConfigChown:
@@ -1634,7 +1636,7 @@ class TestBrowserLayerAndImageChecks:
         """The real renders: every project image carries the browser, and the
         checks follow the CANOPY tab.
 
-        The control assistant shows the tab on its own project and on its
+        The demo shows the tab on its own project and on its
         tiers; its apps never inherit it, and hello-world never had it.
         Whether a render shows it is read from the config rendered beside its
         Dockerfile.
