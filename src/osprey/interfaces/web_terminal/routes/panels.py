@@ -198,6 +198,15 @@ async def sidecar_server_config(panel_id: str, request: Request):
     return _sidecar_panel_config(request, panel_id)
 
 
+def _require_enabled_sidecar(request: Request, panel_id: str) -> None:
+    """Refuse with 404 unless *panel_id* is a sidecar this terminal starts."""
+    enabled: set[str] = getattr(request.app.state, "enabled_panels", set())
+    if panel_id not in SIDECAR_PANELS or panel_id not in enabled:
+        raise HTTPException(
+            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
+        )
+
+
 @router.post("/api/panels/{panel_id}/start")
 async def start_sidecar_panel(panel_id: str, request: Request):
     """Start a panel sidecar again, one attempt at a time.
@@ -209,14 +218,59 @@ async def start_sidecar_panel(panel_id: str, request: Request):
     """
     from osprey.interfaces.web_terminal.app import request_sidecar_start
 
-    enabled: set[str] = getattr(request.app.state, "enabled_panels", set())
-    if panel_id not in SIDECAR_PANELS or panel_id not in enabled:
-        raise HTTPException(
-            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
-        )
+    _require_enabled_sidecar(request, panel_id)
     status = await request_sidecar_start(request.app, panel_id)
     return JSONResponse(
         _sidecar_panel_config(request, panel_id),
+        status_code=200 if status.state == "running" else 202,
+    )
+
+
+@router.get(f"/api/panels/{JUPYTER_PANEL_ID}/log")
+async def jupyter_server_log(request: Request):
+    """Return the notebook sidecar's last stderr lines, for the tile's "Show server log".
+
+    The tail of the sidecar the terminal holds now (running, or dead after it
+    ran). A start that failed leaves no sidecar behind, so the recorded
+    failure reason stands in for it. The launch token is replaced with
+    ``<token>``: the browser never holds it. Empty when there is nothing yet.
+    """
+    _require_enabled_sidecar(request, JUPYTER_PANEL_ID)
+    state = request.app.state
+    sidecar = getattr(state, "sidecars", {}).get(JUPYTER_PANEL_ID)
+    text: str = getattr(sidecar, "stderr_tail", "") if sidecar is not None else ""
+    token = getattr(sidecar, "token", None) if sidecar is not None else None
+    if token:
+        text = text.replace(token, "<token>")
+    if not text:
+        status = getattr(state, "sidecar_status", {}).get(JUPYTER_PANEL_ID)
+        if status is not None and status.state == "failed":
+            text = status.reason or ""
+    return {"text": text}
+
+
+@router.post(f"/api/panels/{JUPYTER_PANEL_ID}/restart")
+async def restart_jupyter_server(request: Request):
+    """Stop the notebook sidecar and start a fresh one; running kernels stop.
+
+    The tile's "Restart kernel server". The published URL and credential are
+    withdrawn first, so the panel answers unavailable at once; then the
+    operator's start path (:func:`request_sidecar_start`) stops the old
+    sidecar, which reaps its kernels, and launches a new one. A request while
+    a start is in flight joins it. Answers the config body with 202, as the
+    start route does for a start in progress.
+    """
+    from osprey.interfaces.web_terminal.app import request_sidecar_start
+
+    _require_enabled_sidecar(request, JUPYTER_PANEL_ID)
+    state = request.app.state
+    task = getattr(state, "sidecar_start_tasks", {}).get(JUPYTER_PANEL_ID)
+    if task is None or task.done():
+        setattr(state, panel_url_state_attr(JUPYTER_PANEL_ID), None)
+        state.panel_auth_headers.pop(JUPYTER_PANEL_ID, None)
+    status = await request_sidecar_start(request.app, JUPYTER_PANEL_ID)
+    return JSONResponse(
+        _sidecar_panel_config(request, JUPYTER_PANEL_ID),
         status_code=200 if status.state == "running" else 202,
     )
 

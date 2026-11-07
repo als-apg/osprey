@@ -580,3 +580,81 @@ describe('panelFocusAnchor — where a panel sits in the host tab order', () => 
     expect(found?.skip(iframe)).toBe(false);
   });
 });
+
+describe('setPanelBodyState — a centred state over a tile body', () => {
+  /** @param {HTMLElement} host */
+  const paint = (host) => {
+    host.textContent = 'Starting…';
+  };
+  const stateEl = () =>
+    /** @type {HTMLElement | null} */ (document.querySelector('.tile-body-state'));
+
+  test("covers the panel's tile body, hides its frame, and gives it back when cleared", async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tj', ['jupyter']), TERMINAL));
+    const iframe = open(mod, 'jupyter');
+    layOut(api, holder);
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const el = /** @type {HTMLElement} */ (stateEl());
+    expect(el.textContent).toBe('Starting…');
+    expect(el.parentElement?.classList.contains('dock-iframe-overlay')).toBe(true);
+    const { display, left, top, width, height } = el.style;
+    expect({ display, left, top, width, height }).toEqual(over(holder, 'tj'));
+    expect(el.style.pointerEvents).toBe('auto');
+    expect(iframe.style.display).toBe('none');
+
+    mod.setPanelBodyState('jupyter', null);
+
+    expect(stateEl()).toBeNull();
+    expect(drawn(iframe)).toEqual(over(holder, 'tj'));
+  });
+
+  test('shows over a restored tile whose panel has no frame yet', async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tj', ['jupyter']), TERMINAL));
+    layOut(api, holder);
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const { display, left, top, width, height } = /** @type {HTMLElement} */ (stateEl()).style;
+    expect({ display, left, top, width, height }).toEqual(over(holder, 'tj'));
+  });
+
+  test('is hidden while the panel has no tile', async () => {
+    const { mod } = await freshAdapter();
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const el = stateEl();
+    expect(el === null || el.style.display === 'none').toBe(true);
+  });
+
+  test('the drag shield covers it as it covers the frames', async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tj', ['jupyter']), TERMINAL));
+    layOut(api, holder);
+    mod.setPanelBodyState('jupyter', paint);
+
+    mod.setIframePointerShield(true);
+    expect(/** @type {HTMLElement} */ (stateEl()).style.pointerEvents).toBe('none');
+    mod.setIframePointerShield(false);
+    expect(/** @type {HTMLElement} */ (stateEl()).style.pointerEvents).toBe('auto');
+  });
+
+  test('fallback mount: it covers the host while the host shows that panel', async () => {
+    const mod = await import(ADAPTER);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mod.initDockIframeAdapter({ fallbackHost: host });
+    mod.adoptIframe('jupyter', makeIframe(), { title: 'Jupyter' });
+    mod.adoptIframe('okf', makeIframe(), { title: 'OKF' });
+    mod.focusPanel('jupyter');
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const el = /** @type {HTMLElement} */ (stateEl());
+    expect(el.parentElement).toBe(host);
+    expect(el.style.display).toBe('');
+    mod.focusPanel('okf');
+    expect(el.style.display).toBe('none');
+  });
+});

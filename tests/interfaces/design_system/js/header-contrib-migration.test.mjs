@@ -33,6 +33,7 @@ const SOURCES = [
   'src/osprey/interfaces/bluesky_web/panels/bluesky/panel.js',
   'src/osprey/dispatch/dashboard.html',
   'src/osprey/interfaces/web_terminal/static/js/artifacts-pane-header.js',
+  'src/osprey/interfaces/web_terminal/static/js/jupyter-chrome.js',
 ];
 
 /**
