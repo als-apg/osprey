@@ -9,13 +9,13 @@ Usage in tools:
     from osprey.mcp_server.channel_finder_hierarchical.server_context import get_cf_hier_context
 
     context = get_cf_hier_context()
-    options = registry.database.get_options_at_level("system", {})
+    options = context.database.get_options_at_level("system", {})
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from osprey.mcp_server.channel_finder_common import (
     config_path,
@@ -43,23 +43,18 @@ class ChannelFinderHierContext:
     """
 
     def __init__(self) -> None:
-        self._raw_config: dict[str, Any] = {}
         self._database: HierarchicalChannelDatabase | None = None
         self._feedback_store: FeedbackStore | None = None
         self._facility_name: str = "control system"
-        self._initialized = False
 
     def initialize(self) -> None:
         """Load config and initialize the database.
 
-        Called once during create_server(). Subsequent calls are no-ops.
+        Called once, on a fresh instance, by the module's ``initialize_*`` function.
         """
-        if self._initialized:
-            return
+        raw_config = load_cf_config(logger)
 
-        self._raw_config = load_cf_config(logger)
-
-        cf_config = self._raw_config.get("channel_finder", {})
+        cf_config = raw_config.get("channel_finder", {})
         hier_config = cf_config.get("pipelines", {}).get("hierarchical", {})
         db_config = hier_config.get("database", {})
         db_path = db_config.get("path")
@@ -97,11 +92,10 @@ class ChannelFinderHierContext:
                     exc_info=True,
                 )
 
-        identity = facility_identity(config_path().parent, self._raw_config.get("project_name"))
+        identity = facility_identity(config_path().parent, raw_config.get("project_name"))
         if identity is not None:
             self._facility_name = identity["name"]
 
-        self._initialized = True
         logger.info("ChannelFinderHierContext: initialized")
 
     @property
