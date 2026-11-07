@@ -1384,15 +1384,21 @@ def test_removing_a_panel_from_the_rail_leaves_the_other_tiles_alone(tmp_path, c
         assert hub.errors == []
 
 
-#: Contribute the artifacts header with an artifact shown, as the sidebar does
-#: (sidebar-artifacts.js); every action it dispatches is recorded.
+#: Contribute a hub-drawn header that has to fold: a crumb, a pager and two
+#: labelled buttons. Every action it dispatches is recorded.
 _ARTIFACTS_HEADER_JS = """async (title) => {
   const { contributeLocal } = await import('/static/js/tile-header-contrib.js');
-  const { headerItems } = await import('/static/js/artifacts-pane-header.js');
-  const shown = { id: 'x', filename: 'plot.png', title };
   window.__picked = [];
-  contributeLocal('artifacts', headerItems(shown, { index: 3, count: 12, last: false }),
-    (id) => { window.__picked.push(id); });
+  contributeLocal('artifacts', [
+    { kind: 'crumb', id: 'crumb', root: 'Artifacts', leaf: title },
+    { kind: 'button', id: 'prev', icon: 'chevron-left', title: 'Previous artifact', priority: 9 },
+    { kind: 'text', id: 'pager', text: '4 of 12', priority: 9 },
+    { kind: 'button', id: 'next', icon: 'chevron-right', title: 'Next artifact', priority: 9 },
+    { kind: 'sep', id: 'sep' },
+    { kind: 'button', id: 'open', icon: 'maximize', label: 'Open full size',
+      title: 'Open full size', tone: 'accent', priority: 5 },
+    { kind: 'button', id: 'save', icon: 'save', label: 'Save', title: 'Save', priority: 5 },
+  ], (id) => { window.__picked.push(id); });
 }"""
 
 #: The overflow menu's row for each control the artifacts header can fold.
@@ -1409,8 +1415,8 @@ def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_overflow_menu(
 ):
     """In a quarter-width tile the artifacts bar spans its tile and its ⋯ menu stays open.
 
-    The tab release's defect: the artifacts header (its crumb, the pager, Open
-    full size and Save) collapsed the header of a tile holding several panels
+    The tab release's defect: a hub-drawn header (a crumb, a pager, two labelled
+    buttons) collapsed the header of a tile holding several panels
     to nothing and folded every control into ⋯, whose menu then closed itself
     as the clipped region scrolled to the focused button. With one panel per
     tile the bar is the tile's whole header, the folded controls are named in

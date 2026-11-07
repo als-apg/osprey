@@ -2,9 +2,9 @@
 /**
  * OSPREY Artifact Gallery — preview pane shell and delete.
  *
- * Owns `renderPreview` (the pane's description, meta strip and viewport markup)
- * and deleting an artifact. The hub renders this pane's header (title, pager,
- * Open full size, Save) and its actions arrive as messages (viewer.js); the
+ * Owns `renderPreview` (the artifact alone fills the frame) and deleting an
+ * artifact. The hub renders this pane's tile bar (Info, Download; its Info
+ * popover holds the details) and its actions arrive as messages (viewer.js); the
  * action behind Delete is exposed (`deleteArtifact`) for the viewer to run.
  *
  * The viewport inside the pane — which markup an artifact of a given type renders
@@ -20,8 +20,8 @@
  * @module preview
  */
 
+import { renderState } from '/design-system/js/panel-state.js';
 import { removeArtifact, getSelectedArtifact, setSelectedArtifact } from './state.js';
-import { escapeHtml, formatSize, formatFullTime, artifactPath } from './types.js';
 import { artifactViewportHtml, mountArtifactViewport } from './artifact-viewport.js';
 
 /**
@@ -46,6 +46,13 @@ export function createPreviewRenderer(callbacks) {
     if (!getSelectedArtifact()) {
       previewEmpty.classList.remove('hidden');
       previewContent.classList.add('hidden');
+      // The one centred state look (panel-state.js); the list to pick from is
+      // the hub's sidebar.
+      renderState(previewEmpty, {
+        icon: 'file-text',
+        message: 'No artifact selected',
+        detail: 'Pick one in the sidebar.',
+      });
       return;
     }
 
@@ -54,51 +61,12 @@ export function createPreviewRenderer(callbacks) {
 
     const a = getSelectedArtifact();
 
-    // The viewport itself is the shared dispatch (artifact-viewport.js). Only
-    // the chrome around it is this pane's own.
-    const viewportHtml = artifactViewportHtml(a);
-
+    // The viewport itself is the shared dispatch (artifact-viewport.js).
     previewContent.innerHTML = `
-      ${a.description ? `<div class="preview-desc">${escapeHtml(a.description)}</div>` : ''}
-      <div class="preview-meta-strip">
-        <span class="preview-meta-item">
-          <span class="preview-meta-label">Size</span>
-          <span class="preview-meta-value">${formatSize(a.size_bytes)}</span>
-        </span>
-        <span class="preview-meta-item">
-          <span class="preview-meta-label">Created</span>
-          <span class="preview-meta-value">${formatFullTime(a.timestamp)}</span>
-        </span>
-        ${
-          a.tool_source
-            ? `
-        <span class="preview-meta-item">
-          <span class="preview-meta-label">Source</span>
-          <span class="preview-meta-value">${escapeHtml(a.tool_source)}</span>
-        </span>`
-            : ''
-        }
-        <span class="preview-meta-path" id="preview-copy-path" title="Click to copy path">
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
-          <span class="preview-path-text">${escapeHtml(artifactPath(a))}</span>
-        </span>
-      </div>
       <div class="preview-viewport">
-        ${viewportHtml}
+        ${artifactViewportHtml(a)}
       </div>
     `;
-
-    // Copy path to clipboard
-    const copyPathBtn = document.getElementById('preview-copy-path');
-    if (copyPathBtn) {
-      copyPathBtn.addEventListener('click', () => {
-        const path = artifactPath(a);
-        navigator.clipboard.writeText(path).then(() => {
-          copyPathBtn.classList.add('copied');
-          setTimeout(() => copyPathBtn.classList.remove('copied'), 1500);
-        });
-      });
-    }
 
     // Post-mount step for the types whose content is fetched (timeseries,
     // markdown, JSON), scoped to this pane's own content element.

@@ -452,7 +452,7 @@ def select_artifact(page: PanelHost, title: str) -> None:
         }""",
         title,
     )
-    expect(page.locator("#preview-content .preview-meta-strip")).to_be_visible(timeout=TIMEOUT)
+    expect(page.locator("#preview-content .preview-viewport")).to_be_visible(timeout=TIMEOUT)
 
 
 def _request_print(page: PanelHost) -> None:

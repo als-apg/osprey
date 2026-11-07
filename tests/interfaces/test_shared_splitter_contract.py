@@ -62,7 +62,7 @@ SPLITTER_HOSTS = [
     Host(
         label="okf",
         html=f"{_IFACE}/okf_panel/static/index.html",
-        js=f"{_IFACE}/okf_panel/static/js/resize.js",
+        js=f"{_IFACE}/okf_panel/static/js/contents.js",
         orientations=frozenset({"vertical"}),
         styles=(f"{_IFACE}/okf_panel/static/style.css",),
     ),
@@ -157,15 +157,24 @@ def test_every_splitter_is_a_keyboard_reachable_aria_separator(host: Host) -> No
     )
 
 
+#: The two design-system modules a host may drive its splitter through: the
+#: splitter itself, or the panel sidebar, which wraps it (panel-sidebar.js
+#: imports splitter.js and calls initSplitter on the host's behalf).
+_SPLITTER_DRIVERS = (
+    ("/design-system/js/splitter.js", "initSplitter"),
+    ("/design-system/js/panel-sidebar.js", "initPanelSidebar"),
+)
+
+
 @pytest.mark.parametrize("host", SPLITTER_HOSTS, ids=lambda h: h.label)
 def test_splitter_behaviour_comes_from_the_design_system(host: Host) -> None:
     js = (REPO / host.js).read_text(encoding="utf-8")
 
-    assert "/design-system/js/splitter.js" in js, (
+    assert any(module in js and call in js for module, call in _SPLITTER_DRIVERS), (
         f"{host.label}: drag/clamp/persist/keyboard behaviour must come from the shared "
-        "module, not a local reimplementation"
+        "splitter.js (initSplitter) or the panel sidebar built on it "
+        "(panel-sidebar.js, initPanelSidebar), not a local reimplementation"
     )
-    assert "initSplitter" in js, f"{host.label}: must call initSplitter()"
 
 
 @pytest.mark.parametrize("host", SPLITTER_HOSTS, ids=lambda h: h.label)

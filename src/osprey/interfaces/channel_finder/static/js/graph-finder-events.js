@@ -4,10 +4,11 @@
  *
  * Every click, change, keystroke and right-click the finder answers, delegated
  * from the mounted pane (which outlives every re-render inside it, so nothing
- * is re-bound) plus the two document-level keys: `/` to search and Escape to
- * close the inspector. Each handler resolves its target to a verb from
- * graph-finder-verbs.js and runs it against the mount's {@link FinderHost};
- * none of them draws or fetches on its own.
+ * is re-bound), the typing in the panel toolbar's search field, and the two
+ * document-level keys: `/` to search and Escape to close the inspector. Each
+ * handler resolves its target to a verb from graph-finder-verbs.js and runs it
+ * against the mount's {@link FinderHost}; none of them draws or fetches on its
+ * own.
  *
  * Keyboard model: the result table is one Tab stop. Arrows, Home and End walk
  * its rows, Space selects, Enter opens the device, ⌘C/Ctrl+C copies the row's
@@ -22,7 +23,7 @@ import {
   openContextMenuAt,
 } from '/design-system/js/context-menu.js';
 import { nudgeColumn } from '/design-system/js/table-columns.js';
-import { togglePageSelection, toggleSelection } from './graph-finder-state.js';
+import { setQuery, togglePageSelection, toggleSelection } from './graph-finder-state.js';
 import { deviceAddresses } from './graph-finder-render.js';
 import {
   bindingMenu,
@@ -34,9 +35,9 @@ import {
   rowMenu,
 } from './graph-finder-menus.js';
 import {
-  contributeHeader,
   createActions,
   menuContext,
+  publishMenu,
   runAction,
   sortBy,
   toggleFold,
@@ -45,6 +46,9 @@ import {
 /** @typedef {import('./graph-finder-verbs.js').FinderHost} FinderHost */
 /** @typedef {import('./graph-finder-state.js').Facet} Facet */
 /** @typedef {import('/design-system/js/context-menu.js').MenuItem} MenuItem */
+
+/** How long typing settles before the query is sent, in ms. */
+export const SEARCH_DEBOUNCE_MS = 200;
 
 const ROWS = '.result-table tbody tr[data-pv]';
 const DATA_HEADS = '.result-table thead th[data-col]:not([data-pinned])';
@@ -57,8 +61,25 @@ const DATA_HEADS = '.result-table thead th[data-col]:not([data-pinned])';
  * @returns {() => void}
  */
 export function bindFinderEvents(pane, host) {
+  /** @type {number|undefined} */
+  let debounce;
   const controller = new AbortController();
   const { signal } = controller;
+
+  // The search field is the toolbar's, outside the pane (panel-toolbar.js).
+  const input = host.searchInput();
+  input?.addEventListener(
+    'input',
+    () => {
+      const value = input.value;
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(() => {
+        setQuery(host.finder(), value);
+        void host.runSearch();
+      }, SEARCH_DEBOUNCE_MS);
+    },
+    { signal }
+  );
 
   pane.addEventListener('change', (event) => onChange(event, host), { signal });
   pane.addEventListener('click', (event) => onClick(event, host), { signal });
@@ -67,7 +88,10 @@ export function bindFinderEvents(pane, host) {
   pane.addEventListener('focusin', (event) => onFocusIn(event, host), { signal });
   document.addEventListener('keydown', (event) => onDocKeydown(event, host), { signal });
 
-  return () => controller.abort();
+  return () => {
+    window.clearTimeout(debounce);
+    controller.abort();
+  };
 }
 
 /**
@@ -94,7 +118,7 @@ function onChange(event, host) {
     return;
   }
   host.renderTable();
-  contributeHeader(host);
+  publishMenu(host);
 }
 
 /**
@@ -147,15 +171,14 @@ function onClick(event, host) {
 
 /**
  * Every right-click the finder answers. A surface with verbs opens its menu and
- * suppresses the browser's; anywhere else — the search box above all, where the
- * native menu pastes — the browser's own menu shows.
+ * suppresses the browser's; anywhere else the browser's own menu shows.
  * @param {MouseEvent} event
  * @param {FinderHost} host
  * @returns {void}
  */
 function onContextMenu(event, host) {
   const target = event.target;
-  if (!(target instanceof Element) || target.closest('input[type="search"]')) return;
+  if (!(target instanceof Element)) return;
   const menu = menuFor(target, host);
   if (!menu) return;
   event.preventDefault();
@@ -291,8 +314,9 @@ function onFocusIn(event, host) {
 }
 
 /**
- * Document-level keys while the finder is mounted: `/` jumps to the search box
- * and Escape closes the inspector. Neither fires while the operator is typing,
+ * Document-level keys while the finder is mounted: `/` jumps to the toolbar's
+ * search field (opening it where a narrow panel folds it to an icon) and
+ * Escape closes the inspector. Neither fires while the operator is typing,
  * and an Escape the context menu already handled never reaches here.
  * @param {KeyboardEvent} event
  * @param {FinderHost} host
@@ -306,7 +330,14 @@ function onDocKeydown(event, host) {
     (active.matches('input, textarea, select') || active.isContentEditable)
   )
     return;
-  if (event.key === 'Escape' && host.card()) {
+  if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    const input = host.searchInput();
+    if (input && !input.disabled) {
+      event.preventDefault();
+      input.focus();
+      input.select();
+    }
+  } else if (event.key === 'Escape' && host.card()) {
     event.preventDefault();
     host.closeCard();
   }

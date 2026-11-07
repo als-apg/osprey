@@ -17,6 +17,7 @@ import {
   hasFilters,
   headerMenu,
   inspectorMenu,
+  panelMenuEntries,
   rowMenu,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-menus.js';
 import {
@@ -52,7 +53,6 @@ function spies() {
     'autosizeAll',
     'resetColumns',
     'setDensity',
-    'toggleRail',
   ];
   return Object.fromEntries(names.map((n) => [n, vi.fn()]));
 }
@@ -68,8 +68,6 @@ function ctx(over = {}) {
     layout: defaultLayout(COLUMN_SPECS),
     embedded: false,
     openDevice: null,
-    density: 'comfortable',
-    railCollapsed: false,
     actions: spies(),
     ...over,
   });
@@ -294,6 +292,41 @@ describe('the inspector', () => {
     expect(labels(items)).toEqual(['Copy address', 'Send to assistant', 'Add to selection']);
     row(items, 'Add to selection').run?.();
     expect(c.actions.toggleSelected).toHaveBeenCalledWith('A');
+  });
+});
+
+describe("the panel's ⋯ entries", () => {
+  test('are density, the columns and the two clears, with the ids the hub sends back', () => {
+    expect(panelMenuEntries(createFinderState(), 'comfortable').map((e) => e.id)).toEqual([
+      'density-comfortable',
+      'density-compact',
+      'columns',
+      'reset-columns',
+      'clear-filters',
+      'clear-selection',
+    ]);
+  });
+
+  test('density is a pair of checks reflecting the preference', () => {
+    const entries = panelMenuEntries(createFinderState(), 'compact');
+    const checked = Object.fromEntries(entries.map((e) => [e.id, e.checked]));
+    expect(checked['density-compact']).toBe(true);
+    expect(checked['density-comfortable']).toBe(false);
+    // The verbs carry no check at all, so they read as plain actions.
+    expect(checked.columns).toBeUndefined();
+  });
+
+  test('the clears are disabled until there is a filter or a selection to clear', () => {
+    const finder = createFinderState();
+    const disabled = () =>
+      Object.fromEntries(panelMenuEntries(finder, 'comfortable').map((e) => [e.id, e.disabled]));
+    expect(disabled()['clear-filters']).toBe(true);
+    expect(disabled()['clear-selection']).toBe(true);
+
+    toggleFacet(finder, 'section', 'SR01C');
+    toggleSelection(finder, 'SR01C:QF1:SP');
+    expect(disabled()['clear-filters']).toBe(false);
+    expect(disabled()['clear-selection']).toBe(false);
   });
 });
 

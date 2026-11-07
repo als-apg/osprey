@@ -273,84 +273,12 @@ code {
   justify-content: center;
 }
 
-.preview-empty-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--art-space-3);
-  color: var(--text-muted);
-}
-
-.preview-empty-inner svg {
-  width: 64px;
-  height: 64px;
-  opacity: 0.15;
-}
-
-.preview-empty-inner p {
-  font-family: var(--font-mono);
-  font-size: var(--art-text-xs);
-  color: var(--text-muted);
-  letter-spacing: var(--tracking-wide);
-}
-
 .preview-content {
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-}
-
-/* Preview metadata strip */
-.preview-meta-strip {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--art-space-4);
-  padding: var(--art-space-2) var(--art-space-4);
-  background: var(--surface-card);
-  border-bottom: 1px solid var(--surface-hairline);
-  flex-shrink: 0;
-}
-
-.preview-meta-item {
-  display: flex;
-  align-items: center;
-  gap: var(--art-space-1);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: var(--tracking-wide);
-}
-
-.preview-meta-label {
-  color: var(--text-muted);
-  text-transform: uppercase;
-}
-
-.preview-meta-value {
-  color: var(--text-secondary);
-}
-
-.preview-meta-path {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-basis: 100%;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: var(--tracking-wide);
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: color 0.15s;
-}
-.preview-meta-path:hover {
-  color: var(--text-secondary);
-}
-.preview-meta-path.copied .preview-path-text::after {
-  content: ' — Copied!';
-  color: var(--color-success);
-  font-weight: 600;
 }
 
 /* Preview viewport */
@@ -394,16 +322,6 @@ code {
   align-items: center;
   justify-content: center;
   padding: var(--art-space-8);
-}
-
-.preview-desc {
-  padding: 0 var(--art-space-4);
-  padding-top: var(--art-space-2);
-  font-size: var(--art-text-sm);
-  color: var(--text-secondary);
-  background: var(--surface-card);
-  border-bottom: 1px solid var(--surface-hairline);
-  padding-bottom: var(--art-space-2);
 }
 
 /* ================================================================
@@ -1205,6 +1123,31 @@ code {
   inset: 0;
   overflow: auto;
   padding: var(--art-space-4) var(--art-space-6);
+}
+
+/* Find in note (note-tools.js): the search field and its count in one row
+   of a popover, and the marks on the matches (CSS custom highlights). */
+.note-find {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.note-find-count {
+  min-width: 56px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+::highlight(osprey-note-find) {
+  background-color: var(--accent-tint-25);
+}
+
+::highlight(osprey-note-find-current) {
+  background-color: var(--accent-secondary-tint-25);
 }
 
 .osprey-md-rendered {

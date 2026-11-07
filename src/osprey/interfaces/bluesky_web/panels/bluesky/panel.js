@@ -5,11 +5,21 @@
  * One panel, three views: Plans (compose a plan), Queue (what the queue server
  * is holding) and Results (the selected run's record, table and trace). This
  * module owns only what is common to all three — which one is showing, the
- * run the Results view is following, and the tile-bar contribution. Each view is a factory that takes the panel
- * root and its callbacks; nothing here reaches into a view's internals.
+ * run the Results view is following, the toolbar's view switcher and lane
+ * picker, and the panel's ⋯ entries. Each view is a factory that takes the
+ * panel root and its callbacks; nothing here reaches into a view's internals.
  *
- * The panel describes the three views to the web-terminal hub as a `nav`
- * contribution, so the tile gets ONE header: the tile bar.
+ * The panel toolbar (DESIGN.md §12, "Panel chrome standard") is the panel's
+ * one header row: the plan sidebar's toggle
+ * and the Plans | Queue | Results switcher at its start; the lane picker
+ * (with more than one lane), the queue status chip, Start (Queue view only)
+ * and the two halts at its end. The chip and the halts are queue-view.js's.
+ * Anything safety-bearing has to be on screen, so none of it is contributed to
+ * the tile bar, and nothing about the toolbar's
+ * width folds or hides the halts or the lane picker.
+ *
+ * The tile bar gets ONE contribution: a v3 `menu` with the two Clears, which
+ * the hub lists in the tile ⋯ under "This panel".
  *
  * - No `innerHTML`, anywhere. Plan names, parameter values, and refusal
  *   sentences all originate off-panel (an agent's draft, the bridge, another
@@ -23,42 +33,34 @@
  *   `osprey set config.control_system.connector.virtual_accelerator.serving=served`
  *   flip command for a deployment serving the simulator in process).
  *
- * The persistent control strip (queue state badge, "Stop", "Abort") is NEVER
- * contributed: anything safety-bearing has to be on screen wherever the panel
- * runs. It renders in the body on
- * every tab — see index.html.
- *
  * @module panel
  */
 
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
+import { initTooltips } from '/design-system/js/tooltip.js';
 
 import {
   laneIsKnown,
-  laneLabel,
+  laneOptions,
   laneSearch,
   parseLaneRoster,
   resolveLaneFromSearch,
   withLane,
 } from './lane-client.js';
 import { createPlansView } from './plans-view.js';
+import { MENU_ID } from './queue-client.js';
 import { createQueueView } from './queue-view.js';
 import { createResultsView } from './results-view.js';
 import { setChannelCatalog } from './schema-form.js';
 
 /** @typedef {'plans'|'queue'|'results'} ViewId */
-
-/** The contributed nav item's id, and the prefix of every in-body tab id. */
-const VIEW_ITEM_ID = 'view';
-/** The contributed search item's id (the Plans filter). */
-const FILTER_ITEM_ID = 'plan-filter';
+/** @typedef {import('/design-system/js/header-contrib.js').HeaderMenuEntry} HeaderMenuEntry */
 
 /**
- * Appended to the Results nav label while data is arriving for a run the
- * operator is not currently watching. The contract's nav entries carry a label
- * and an active flag and nothing else, so a suffix on the label is the honest
- * way to say "there is something here" — no new item kind, no hub-side state.
+ * Appended to the Results switcher button while data is arriving for a run the
+ * operator is not currently watching. A suffix on the label is the honest way
+ * to say "there is something here" without a second control beside it.
  */
 const ACTIVITY_MARKER = ' •';
 
@@ -102,11 +104,15 @@ function byId(id) {
 
 const root = byId('panel-root');
 
-/** @type {Array<{id: ViewId, label: string, view: HTMLElement}>} */
+// The design system's tooltip layer: the field-help Info icons' `data-tip`,
+// the sidebar toggle slot's reason, and every control's `title`, in one look.
+initTooltips(document.body);
+
+/** @type {Array<{id: ViewId, label: string, tab: HTMLElement, view: HTMLElement}>} */
 const VIEWS = [
-  { id: 'plans', label: 'Plans', view: byId('view-plans') },
-  { id: 'queue', label: 'Queue', view: byId('view-queue') },
-  { id: 'results', label: 'Results', view: byId('view-results') },
+  { id: 'plans', label: 'Plans', tab: byId('view-tab-plans'), view: byId('view-plans') },
+  { id: 'queue', label: 'Queue', tab: byId('view-tab-queue'), view: byId('view-queue') },
+  { id: 'results', label: 'Results', tab: byId('view-tab-results'), view: byId('view-results') },
 ];
 
 /** @type {ViewId} */
@@ -118,6 +124,13 @@ let activeView = 'plans';
 let selectedRunId = null;
 /** Whether the Results view is polling live data right now. */
 let resultsPolling = false;
+/**
+ * The ⋯ entries as the queue view last reported them (`onClearsChange`): what
+ * the tile ⋯ lists, and what `runMenuEntry` accepts.
+ *
+ * @type {HeaderMenuEntry[]}
+ */
+let menuEntries = [];
 
 // ---------------------------------------------------------------------------
 // Views
@@ -146,7 +159,7 @@ const resultsView = createResultsView({
   onPollingChange(polling) {
     if (polling === resultsPolling) return;
     resultsPolling = polling;
-    publishContribution();
+    renderActivityMarker();
   },
   onRemove(runId) {
     // The write is the queue view's (`DELETE /runs/{id}`, banner, history
@@ -157,9 +170,10 @@ const resultsView = createResultsView({
 
 /**
  * The Plans view, once built. The queue view is created first (it owns the
- * strip every tab shares) and reports queue state to Plans through this
- * reference, so the enqueue button's label can say what the click does.
- * Frames arrive after boot; the boot render itself reports nothing.
+ * toolbar's queue controls every view shares) and reports queue state to
+ * Plans through this reference, so the enqueue button's label can say what
+ * the click does. Frames arrive after boot; the boot render itself reports
+ * nothing.
  *
  * @type {import('./plans-view.js').PlansView|null}
  */
@@ -171,12 +185,16 @@ const queueView = createQueueView({
   onSelectRun(runId, activate) {
     selectRun(runId);
     // An operator's click on a run is a request to SEE it; following a finished
-    // run is the panel's own housekeeping and must not move anyone off the tab
+    // run is the panel's own housekeeping and must not move anyone off the view
     // they chose.
     if (activate) setActiveView('results');
   },
   onStatus(status) {
     if (plansViewRef) plansViewRef.setQueueStatus(status);
+  },
+  onClearsChange(entries) {
+    menuEntries = entries;
+    publishContribution();
   },
 });
 
@@ -218,6 +236,11 @@ const plansView = createPlansView({
     selectRun(runId);
     setActiveView('results');
   },
+  // Retry on a connecting or unreachable state: the Plans view re-reads its
+  // own plans and capability; the queue stream is dialled again here.
+  onRetry() {
+    queueView.reconnect();
+  },
 });
 plansViewRef = plansView;
 
@@ -227,7 +250,7 @@ plansViewRef = plansView;
 
 /**
  * Follow `runId` in the Results view and highlight it in the queue/history
- * lists. Selecting does NOT switch tabs on its own — callers decide, because
+ * lists. Selecting does NOT switch views on its own — callers decide, because
  * "the operator asked to see this run" and "the panel picked one for them" are
  * different events.
  *
@@ -245,36 +268,32 @@ function selectRun(runId) {
 // ---------------------------------------------------------------------------
 
 /**
- * Show one view and hide the other two.
+ * Show one view and hide the other two, and press its switcher button.
  *
- * The hub's header action calls it.
- *
- * @param {string} id A view id; anything else is ignored (the hub's action
- *   value is data from another frame, not a promise).
+ * @param {string} id A view id; anything else is ignored.
  */
 function setActiveView(id) {
   if (!VIEWS.some((entry) => entry.id === id)) return;
   activeView = /** @type {ViewId} */ (id);
   for (const entry of VIEWS) {
-    entry.view.hidden = entry.id !== activeView;
+    const active = entry.id === activeView;
+    entry.tab.setAttribute('aria-pressed', active ? 'true' : 'false');
+    entry.view.hidden = !active;
   }
-  // The strip's controls are shown per tab (stripControls): the Queue tab is
-  // the control panel, the others show a dormant queue as a badge alone. The
-  // attribute is for panel.css; the call is what decides which buttons show.
-  root.dataset.view = activeView;
+  // The toolbar's queue controls are shown per view (stripControls): the
+  // Queue view is the control panel, the others show a dormant queue as its
+  // chip alone. The plan sidebar opens on Plans only, and its toggle stays in
+  // its slot, disabled, everywhere else.
   queueView.setView(activeView);
-  publishContribution();
+  plansView.setShown(activeView === 'plans');
+  renderActivityMarker();
 }
 
-// ---------------------------------------------------------------------------
-// Tile-bar contribution
-// ---------------------------------------------------------------------------
-
 /**
- * Whether the Results tab should carry its activity marker: data is arriving
- * for a run the operator is not looking at. Activating the tab, or the poll
- * settling, clears it — both are already inputs to this expression, so there is
- * no marker state to forget to reset.
+ * Whether the Results button should carry its activity marker: data is
+ * arriving for a run the operator is not looking at. Activating the view, or
+ * the poll settling, clears it — both are already inputs to this expression,
+ * so there is no marker state to forget to reset.
  *
  * @returns {boolean}
  */
@@ -282,53 +301,56 @@ function resultsHaveUnwatchedActivity() {
   return resultsPolling && activeView !== 'results';
 }
 
+function renderActivityMarker() {
+  for (const entry of VIEWS) {
+    if (entry.id !== 'results') continue;
+    entry.tab.textContent = resultsHaveUnwatchedActivity()
+      ? `${entry.label}${ACTIVITY_MARKER}`
+      : entry.label;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The panel's ⋯ entries
+// ---------------------------------------------------------------------------
+
 /**
- * (Re)send the WHOLE contribution. The hub renders only what the last one
- * says — a contribution is an idempotent replace, never a diff — so every
- * state change republishes all of it.
+ * (Re)send the WHOLE contribution: one v3 `menu`, the tile ⋯'s "This panel"
+ * section. The hub renders only what the last one says — a contribution is an
+ * idempotent replace, never a diff.
  */
 function publishContribution() {
-  /** @type {import('/design-system/js/header-contrib.js').HeaderItem[]} */
-  const items = [];
-  // ORDER IS THE LAYOUT (see header-contrib.js): the hub right-anchors every
-  // interactive item into one cluster against the close button, so an item's
-  // arrival or departure moves everything contributed BEFORE it and nothing
-  // after it.
-  //
-  // The filter is the conditional item here — it belongs to the Plans view, so
-  // it is contributed only while that view is showing. The view switcher is
-  // the item an operator aims at over and over. So the filter goes FIRST and
-  // the switcher LAST: the switcher stays pinned to the close button and the
-  // filter appears and disappears to its left, in the slack.
-  //
-  // The other order would put the tab strip on the moving side of its own
-  // effect — clicking away from Plans drops the filter, and the strip you just
-  // clicked slides right by the filter's whole width. Do not swap these.
-  if (activeView === 'plans') {
-    items.push({ kind: 'search', id: FILTER_ITEM_ID, placeholder: 'Filter plans…' });
-  }
-  items.push({
-    kind: 'nav',
-    id: VIEW_ITEM_ID,
-    items: VIEWS.map((entry) => ({
-      id: entry.id,
-      label:
-        entry.id === 'results' && resultsHaveUnwatchedActivity()
-          ? `${entry.label}${ACTIVITY_MARKER}`
-          : entry.label,
-      active: entry.id === activeView,
-    })),
-  });
-  contributeHeader(items);
+  contributeHeader([{ kind: 'menu', id: MENU_ID, items: menuEntries }]);
+}
+
+/**
+ * Run one ⋯ entry from the hub's tile ⋯. The two Clears only ARM: the panel
+ * switches to the Queue view, where the confirm
+ * note sits at the top of the card the Clear empties.
+ *
+ * @param {string} entry An entry id; anything the menu did not list is ignored
+ *   (the hub's action value is data from another frame, not a promise).
+ */
+function runMenuEntry(entry) {
+  if (!menuEntries.some((item) => item.id === entry)) return;
+  setActiveView('queue');
+  queueView.armClear(entry);
 }
 
 // ---------------------------------------------------------------------------
 // Wiring
 // ---------------------------------------------------------------------------
 
+byId('view-switch').addEventListener('click', (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+  const button = target.closest('button[data-view]');
+  if (!(button instanceof HTMLElement) || !button.dataset.view) return;
+  setActiveView(button.dataset.view);
+});
+
 onHeaderAction((id, value) => {
-  if (id === VIEW_ITEM_ID && value) setActiveView(value);
-  else if (id === FILTER_ITEM_ID) plansView.setFilter(value ?? '');
+  if (id === MENU_ID && value) runMenuEntry(value);
 });
 
 // ---------------------------------------------------------------------------
@@ -337,9 +359,9 @@ onHeaderAction((id, value) => {
 
 /**
  * The `?run_id=` deep link. Panels inside this bundle no longer need it — a
- * queued run is one tab away — but it is still how an outside link (an agent
+ * queued run is one view away — but it is still how an outside link (an agent
  * message, a bookmark, another interface) names a run, so it is still honored:
- * the run is selected and the Results tab opens on it.
+ * the run is selected and the Results view opens on it.
  *
  * @returns {string|null}
  */
@@ -356,8 +378,8 @@ if (initialRunId) {
   selectRun(initialRunId);
   setActiveView('results');
 } else {
-  // Through setActiveView even for the default, so the strip and the
-  // `data-view` stamp agree with the tab from first paint.
+  // Through setActiveView even for the default, so the switcher, the queue
+  // controls and the sidebar agree with the view from first paint.
   setActiveView('plans');
 }
 
@@ -394,42 +416,39 @@ async function loadChannelCatalog() {
 }
 
 /**
- * Render the lane picker from one roster: a button per lane, labelled by the
- * control target it drives, the current one marked. Clicking another lane
- * NAVIGATES — `laneSearch` rewrites only the `lane` parameter, so the host's
+ * Render the lane picker from one roster: a small select in the toolbar,
+ * left of the queue chip, one option per lane labelled by the control target
+ * it drives, the current one selected. Picking another lane NAVIGATES —
+ * `laneSearch` rewrites only the `lane` parameter, so the host's
  * `?embedded=`/`?mode=`/`?theme=` survive — because a lane is a different
  * machine and this panel binds one lane per document (see lane-client.js).
  *
- * In the persistent status strip, deliberately: which machine this panel is
- * pointed at is safety-bearing context for the queue badge and the two halts
- * beside it, and must be visible from every tab.
+ * In the toolbar, deliberately: which machine this panel is pointed at is
+ * safety-bearing context for the queue chip and the two halts beside it, must
+ * be visible from every view, and never folds.
  *
  * @param {import('./lane-client.js').LaneEntry[]} roster
  */
-function renderLaneStrip(roster) {
-  const strip = byId('lane-strip');
-  strip.textContent = '';
-  for (const entry of roster) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'lane-tab';
-    const current = entry.lane === CURRENT_LANE;
-    button.classList.toggle('active', current);
-    button.setAttribute('aria-pressed', current ? 'true' : 'false');
-    // Text node, never markup: the label originates in deployment config,
-    // which is off-panel input like everything else this bundle renders.
-    button.textContent = laneLabel(entry);
-    button.title = current
-      ? `This panel is on the '${entry.lane}' plan lane.`
-      : `Switch this panel to the '${entry.lane}' plan lane.`;
-    if (!current) {
-      button.addEventListener('click', () => {
-        window.location.search = laneSearch(window.location.search, entry.lane);
-      });
-    }
-    strip.appendChild(button);
-  }
-  strip.hidden = false;
+function renderLanePicker(roster) {
+  const select = /** @type {HTMLSelectElement} */ (byId('lane-select'));
+  // Text nodes, never markup: the labels originate in deployment config,
+  // which is off-panel input like everything else this bundle renders.
+  select.replaceChildren(
+    ...laneOptions(roster, CURRENT_LANE).map((option) => {
+      const node = document.createElement('option');
+      node.value = option.value;
+      node.textContent = option.label;
+      node.selected = option.selected;
+      node.disabled = option.disabled;
+      return node;
+    })
+  );
+  select.title = `This panel is on the '${CURRENT_LANE}' plan lane.`;
+  select.addEventListener('change', () => {
+    if (select.value === CURRENT_LANE) return;
+    window.location.search = laneSearch(window.location.search, select.value);
+  });
+  select.hidden = false;
 }
 
 /**
@@ -460,12 +479,12 @@ async function loadLaneRoster() {
     const banner = byId('lane-banner');
     banner.textContent =
       `This deployment renders no '${CURRENT_LANE}' plan lane — every request from ` +
-      'this panel is being refused. Pick a rendered lane below.';
+      'this panel is being refused. Pick a rendered lane in the toolbar.';
     banner.hidden = false;
   } else if (roster.length < 2) {
     return;
   }
-  renderLaneStrip(roster);
+  renderLanePicker(roster);
 }
 
 void loadLaneRoster();

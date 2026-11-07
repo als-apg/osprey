@@ -1555,6 +1555,7 @@ jobs:
         uv run pytest tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/design_system/test_theme_lab.py \
           tests/interfaces/design_system/test_dispatch_dashboard_unauthorized.py \
+          tests/interfaces/design_system/test_dispatch_dashboard_toolbar.py \
           tests/interfaces/design_system/test_panel_browser.py \
           tests/interfaces/design_system/test_dispatch_run_crosslinks.py \
           tests/interfaces/design_system/test_dispatch_run_thinking_browser.py \

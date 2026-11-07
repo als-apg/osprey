@@ -10,6 +10,9 @@
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
+<!-- The shared chrome vocabulary: the panel toolbar, segmented control, status
+     chip, panel sidebar, centred states, popovers and the tooltip layer. -->
+<link rel="stylesheet" href="/design-system/css/primitives.css">
 <!-- Shared agent-activity flash (.agent-flash), fired by draft-client.js via
      flashElement() when agent draft edits land on the Plans form. -->
 <link rel="stylesheet" href="/design-system/css/highlight.css">
@@ -46,136 +49,145 @@
 </script>
 </head>
 <body>
-<div class="panel" id="panel-root">
+<div class="panel" id="panel-root" data-panel-root>
   <!--
-    The queue control strip. NOT a tab and NEVER contributed to the tile bar:
-    the queue state and the two halts must be live from first paint wherever
-    the panel runs. They must also never be a tab switch away, which is why the
-    ONE set of controls sits outside the three view containers below and
-    stays on screen for all of them.
+    The panel toolbar (DESIGN.md §12): the panel's one header row, and NEVER
+    contributed to the tile bar — the queue state and the two halts must be
+    live from first paint. They must also never be
+    a view switch away, which is why the ONE set of controls sits outside the
+    three view containers below and stays on screen for all of them.
 
-    What the strip SHOWS depends on the tab (stripControls in queue-client.js).
-    On the Queue tab it is the control panel — Start, Stop, Abort, in every
-    state. On Plans and Results a dormant queue is a badge alone, and the two
+    What the end SHOWS depends on the view (stripControls in queue-client.js).
+    On the Queue view it is the control panel — Start, Stop, Abort, in every
+    state. On Plans and Results a dormant queue is its chip alone, and the two
     halts appear the moment anything is moving or the manager cannot be read
     (haltsPinned): visibility follows the same fail-visible rule as the
     buttons' wording, and it is never a gate on the halts themselves. First
     paint counts as "cannot be read", so both halts start VISIBLE — the window
     before the first frame is exactly when a queue may already be executing.
-    Start shows on the Queue tab only: arming a queue is a deliberate act.
+    Start shows on the Queue view only: arming a queue is a deliberate act.
+    The toolbar's width never folds or hides the halts or the lane picker.
   -->
-  <div class="status-strip" id="status-strip">
-    <!-- Plan-lane picker, hidden unless this deployment renders more than one
-         lane (panel.js fills it from GET /lanes). It lives HERE, beside the
-         queue badge and the two halts, because which machine this panel is
-         pointed at is safety-bearing context for all three: it must be
-         visible from every tab. Switching lanes navigates to a fresh document:
-         a lane is a different machine, and one document never shows two (see
-         lane-client.js). -->
-    <span id="lane-strip" class="lane-strip" role="group" aria-label="Bluesky plan lane" hidden></span>
-    <span class="strip-kicker">Queue</span>
-    <span id="queue-state-badge" class="badge warn">connecting&hellip;</span>
-    <!-- One plain sentence per control, in the design system's shared info
-         tip (base.css): a bubble on hover or keyboard focus, no click state.
-         Shown on the Queue tab only, beside the controls it explains. -->
-    <button type="button" id="queue-help-btn" class="osprey-info"
-            aria-label="What these buttons do" hidden>?<span id="queue-help"
-            class="osprey-tip" role="tooltip">
-        <span><b>Start</b> runs the queued plans, and any plan you add later.</span>
-        <span><b>Stop</b> lets the current plan finish, then stops the queue.</span>
-        <span><b>Abort</b> stops the running plan right now.</span>
-        <span><b>Clear</b> removes every waiting plan.</span>
-      </span></button>
-    <span class="status-strip-spacer"></span>
-    <!-- Start arms the queue: it drains what is queued and whatever arrives
-         later. Its `disabled` IS managed (see queueControls) — that is what
-         distinguishes it from the two halts beside it. -->
-    <button type="button" id="start-btn" class="btn" disabled>Start</button>
-    <!-- NEVER add `disabled` here. The halt has no disabled state (see
-         queueControls in queue-client.js), and queue-view.js sets no
-         `disabled` property on this button, so anything set here would
-         survive every render forever. It must also be live from FIRST PAINT:
-         the window before the first frame arrives is exactly when a queue may
-         already be executing. The class is the resting one — stopButtonClass
-         adds `confirm` only for the armed withdrawal, and the view adds
-         `halt-idle` (a quieter look, never a gate) while nothing is moving. -->
-    <button type="button" id="stop-btn" class="btn">Stop</button>
-    <!-- The emergency halt. NEVER add `disabled` here either, and for a
-         stronger version of the same reason: this is the only control that
-         stops a plan already moving hardware, and queue-view.js sets no
-         `disabled` property on it, so an attribute here would be permanent.
-         Live from FIRST PAINT for the same reason. The class is the resting
-         one — abortButtonClass adds `confirm` only on the armed second
-         click (see abortButtonLabel for why this one confirms and the plain
-         stop does not). -->
-    <button type="button" id="abort-btn" class="btn">Abort</button>
-    <span class="strip-divider" aria-hidden="true"></span>
-    <!-- Clear drops every WAITING plan; the running one is Abort's. Its
-         `disabled` IS managed (clearControl) — a usability gate, like Start's,
-         not a halt — and it confirms on a second click. -->
-    <button type="button" id="clear-btn" class="btn btn-quiet" disabled>Clear</button>
+  <div class="osprey-panel-toolbar">
+    <div class="osprey-panel-toolbar__start">
+      <!-- The plan sidebar's toggle (panel-sidebar.js gives it its icon, name
+           and state). Off the Plans view it is disabled in place, so the
+           switcher beside it never shifts, and its tooltip says why. -->
+      <button type="button" id="plan-sidebar-toggle" class="osprey-icon-btn"
+              aria-controls="plan-sidebar"></button>
+      <div id="view-switch" class="osprey-seg" role="group" aria-label="Bluesky views">
+        <button type="button" id="view-tab-plans" data-view="plans"
+                aria-controls="view-plans" aria-pressed="true">Plans</button>
+        <button type="button" id="view-tab-queue" data-view="queue"
+                aria-controls="view-queue" aria-pressed="false">Queue</button>
+        <button type="button" id="view-tab-results" data-view="results"
+                aria-controls="view-results" aria-pressed="false">Results</button>
+      </div>
+    </div>
+    <div class="osprey-panel-toolbar__end">
+      <!-- Plan-lane picker, hidden unless this deployment renders more than one
+           lane (panel.js fills it from GET /lanes). It sits HERE, left of the
+           queue chip and the two halts, because which machine this panel is
+           pointed at is safety-bearing context for all three: it must be
+           visible from every view, and it never folds. Switching lanes
+           navigates to a fresh document: a lane is a different machine, and
+           one document never shows two (see lane-client.js). -->
+      <select id="lane-select" class="lane-select" aria-label="Plan lane" hidden></select>
+      <span class="toolbar-kicker" aria-hidden="true">Queue</span>
+      <!-- The queue status chip (queueChip in queue-client.js). A click opens
+           what it summarises: the state in a sentence, what the panel could
+           not read, and one plain sentence per control. -->
+      <button type="button" id="queue-state-chip" class="osprey-chip osprey-chip--connecting"
+              aria-haspopup="dialog" aria-label="Queue status: connecting…"><span
+              id="queue-state-label" class="osprey-chip-label">connecting&hellip;</span></button>
+      <!-- Start arms the queue: it drains what is queued and whatever arrives
+           later. Its `disabled` IS managed (see queueControls) — that is what
+           distinguishes it from the two halts beside it. The one primary
+           button, on the Queue view only. -->
+      <button type="button" id="start-btn" class="osprey-btn primary" disabled hidden>Start</button>
+      <!-- NEVER add `disabled` here. The halt has no disabled state (see
+           queueControls in queue-client.js), and queue-view.js sets no
+           `disabled` property on this button, so anything set here would
+           survive every render forever. It must also be live from FIRST PAINT:
+           the window before the first frame arrives is exactly when a queue may
+           already be executing. The class is the resting one — stopButtonClass
+           adds `confirm` only for the armed withdrawal, and the view adds
+           `halt-idle` (a quieter look, never a gate) while nothing is moving. -->
+      <button type="button" id="stop-btn" class="osprey-btn">Stop</button>
+      <!-- The emergency halt. NEVER add `disabled` here either, and for a
+           stronger version of the same reason: this is the only control that
+           stops a plan already moving hardware, and queue-view.js sets no
+           `disabled` property on it, so an attribute here would be permanent.
+           Live from FIRST PAINT for the same reason. The class is the resting
+           one — abortButtonClass adds `confirm` only on the armed second
+           click (see abortButtonLabel for why this one confirms and the plain
+           stop does not). -->
+      <button type="button" id="abort-btn" class="osprey-btn">Abort</button>
+    </div>
   </div>
-  <p id="queue-note" class="queue-note" hidden></p>
-  <p id="stop-note" class="queue-note stop-note" hidden></p>
-  <p id="abort-note" class="queue-note stop-note" hidden></p>
-  <p id="clear-note" class="queue-note stop-note" hidden></p>
-  <!-- Outcome of a queue write. Lives beside the strip rather than inside the
-       Queue tab, because the two halts it reports on are reachable from every
-       tab — a refusal sentence the operator cannot see is a refusal that did
-       not happen as far as they know. -->
-  <div id="queue-banner" class="banner" hidden></div>
-  <!-- Raised only when this document's URL names a lane the deployment does
-       not render: the sidecar is 404ing every request, and this is the one
-       place that says why (panel.js loadLaneRoster). Never auto-rerouted to
-       lane 1 — a silent wrong-machine reroute is the failure the lane axis
-       exists to remove. -->
-  <div id="lane-banner" class="banner banner-err" hidden></div>
+  <div class="panel-notes">
+    <!-- The halts' armed notes: what the second click does. -->
+    <p id="stop-note" class="queue-note stop-note" hidden></p>
+    <p id="abort-note" class="queue-note stop-note" hidden></p>
+    <!-- Outcome of a queue write. Lives under the toolbar rather than inside
+         the Queue view, because the two halts it reports on are reachable from
+         every view — a refusal sentence the operator cannot see is a refusal
+         that did not happen as far as they know. -->
+    <div id="queue-banner" class="banner" hidden></div>
+    <!-- Raised only when this document's URL names a lane the deployment does
+         not render: the sidecar is 404ing every request, and this is the one
+         place that says why (panel.js loadLaneRoster). Never auto-rerouted to
+         lane 1 — a silent wrong-machine reroute is the failure the lane axis
+         exists to remove. -->
+    <div id="lane-banner" class="banner banner-err" hidden></div>
+  </div>
 
   <!-- ==== Plans ==== -->
   <!--
-    Two-pane browser. LEFT: a dense file-browser plan selector — names first,
-    trust/validation reduced to a status dot (details in the tooltip and the
-    detail header). RIGHT: the selected plan under a Parameters / Source tab
-    strip; Parameters is a 2-D schema-driven GUI (see schema-form.js) with a
-    live readout, and the footer carries the local Reset and the deterministic,
-    capability-gated Add-to-queue action. Everything dynamic is built via
+    Two panes. LEFT: the panel sidebar — the plan filter at its top (it acts on
+    this list only) and a dense file-browser plan selector, names first,
+    trust/validation reduced to a status dot (details in the row tooltip and
+    the plan's Info popover). RIGHT: the selected plan under a Parameters /
+    Source tab strip; Parameters is a 2-D schema-driven GUI (see
+    schema-form.js) with a live readout, and the footer carries the local
+    Reset icon and the deterministic, capability-gated Add-to-queue action.
+    With no plan to show, each pane says why in one centred state
+    (plan-states.js), never a blank pane. Everything dynamic is built via
     createElement/textContent in the bundle's JS modules — no innerHTML sink
     anywhere in this panel.
   -->
-  <div id="view-plans" class="view view-plans" role="tabpanel" aria-labelledby="view-tab-plans">
-    <div id="root-error" class="banner banner-err" hidden></div>
-
+  <div id="view-plans" class="view view-plans" role="region" aria-label="Plans">
     <div class="browser">
-      <aside id="plan-sidebar" class="sidebar" aria-label="Plan browser">
+      <aside id="plan-sidebar" class="osprey-panel-sidebar plan-sidebar" aria-label="Plan browser"
+             data-open="false">
+        <label class="osprey-search-field plan-filter" data-expanded>
+          <input id="plan-search" type="search" placeholder="Filter plans&hellip;"
+                 autocomplete="off" aria-label="Filter plans by name or description">
+        </label>
         <div id="plan-tree" class="tree" role="tree" aria-label="Registered plans"></div>
-        <p id="plans-empty" class="muted sidebar-note" hidden>No plans available.</p>
-        <p id="plans-filtered-empty" class="muted sidebar-note" hidden>No match.</p>
+        <div id="plan-list-state" class="plan-list-state" hidden></div>
       </aside>
 
-      <!-- Draggable splitter between the plan browser and the detail pane. The
-           `.osprey-splitter` class is the design system's shared grip-pill
-           (base.css); the drag/keyboard behaviour is wired in plans-view.js
-           from /design-system/js/splitter.js. Hidden by the stacked responsive
-           layout below 700px, which has no side-by-side split to resize. -->
+      <!-- The sidebar's resize handle: the design system's shared grip-pill
+           (`.osprey-splitter`, base.css), driven by panel-sidebar.js. It must
+           follow the sidebar directly: it goes with the sidebar when that is
+           closed, and in a narrow tile, where the sidebar is an overlay. -->
       <div id="browser-splitter" class="osprey-splitter" role="separator"
            aria-orientation="vertical" aria-label="Resize plan browser"
            tabindex="0"></div>
 
       <section class="detail" aria-label="Plan detail">
-        <div id="detail-empty" class="detail-empty">
-          <p class="muted">Select a plan to see its parameters.</p>
-        </div>
+        <div id="detail-empty" class="detail-empty"></div>
 
         <div id="detail-body" class="detail-body" hidden>
           <div class="detail-head">
             <div class="detail-id">
               <h2 id="detail-title" class="detail-title"></h2>
-              <span id="detail-status" class="status-line"></span>
+              <!-- The plan's description, provenance and validation stay behind
+                   this icon (info-popover.js), off the page. -->
+              <button type="button" id="detail-info-btn" class="osprey-icon-btn"
+                      aria-label="About this plan" title="About this plan"></button>
             </div>
-            <p id="detail-desc" class="detail-desc"></p>
-            <p id="session-note" class="muted" hidden>
-              Session plans are in-memory; lost on bridge restart.
-            </p>
             <div id="draft-unknown-banner" class="banner banner-warn" hidden></div>
             <div class="draft-status">
               <span id="draft-indicator" class="draft-indicator" hidden>
@@ -229,19 +241,18 @@
                 <span id="unvalidated-note" class="muted" hidden>
                   not validated — cannot queue
                 </span>
-                <!-- What the click does next, in the queue's current state
-                     (enqueuePresentation in queue-client.js): runs now, runs
-                     after the current plan, or waits for a start. Filled by
-                     plans-view.js from the same frames the strip badge reads,
-                     so the two can never disagree. -->
-                <span id="queue-footnote" class="footnote"></span>
               </div>
               <div class="foot-actions">
                 <!-- Reset is purely local (re-renders this form from the plan's
                      schema defaults); Discard, up in the draft row, is the one
                      that touches the shared draft. -->
-                <button type="button" id="reset-btn" class="btn btn-quiet" disabled>Reset form</button>
-                <button type="button" id="queue-add-btn" class="btn" disabled>Add to queue</button>
+                <button type="button" id="reset-btn" class="osprey-icon-btn"
+                        aria-label="Reset form" title="Reset form" disabled></button>
+                <!-- What the click does next, in the queue's current state
+                     (enqueuePresentation in queue-client.js), is this button's
+                     tooltip: runs now, runs after the current plan, or waits for
+                     a start — from the same frames the queue chip reads. -->
+                <button type="button" id="queue-add-btn" class="osprey-btn primary" disabled>Add to queue</button>
               </div>
             </div>
           </div>
@@ -251,11 +262,13 @@
   </div>
 
   <!-- ==== Queue ==== -->
-  <div id="view-queue" class="view view-scroll" role="tabpanel" aria-labelledby="view-tab-queue" hidden>
-    <!-- The controls live in the strip above (the Queue tab is where all of
-         them show); this card is the queue's contents. -->
+  <div id="view-queue" class="view view-scroll" role="region" aria-label="Queue" hidden>
+    <!-- The controls live in the toolbar above (the Queue view is where all of
+         them show); these cards are the queue's contents. A Clear picked from
+         the ⋯ arms its confirm note at the top of the card it empties. -->
     <section class="card" id="queue-card">
       <h2>Queued</h2>
+      <div id="clear-note" class="confirm-note" hidden></div>
 
       <div id="running-card" class="running" hidden>
         <div class="running-head">
@@ -281,22 +294,17 @@
     </section>
 
     <section class="card" id="history-card">
-      <div class="card-head">
-        <h2>History</h2>
-        <span class="card-head-spacer"></span>
-        <!-- Drops every completed run from the manager's history. A usability
-             gate (dead with nothing listed) and a second-click confirm, like
-             the queue's Clear. Run data stays in Tiled. -->
-        <button type="button" id="history-clear-btn" class="btn btn-quiet" disabled>Clear</button>
-      </div>
-      <p id="history-clear-note" class="queue-note stop-note" hidden></p>
+      <h2>History</h2>
+      <!-- Drops every completed run from the manager's history, armed from the
+           ⋯. Run data stays in Tiled. -->
+      <div id="history-clear-note" class="confirm-note" hidden></div>
       <ul id="history-items" class="queue-items"></ul>
       <p id="history-empty" class="queue-empty">Completed runs could not be loaded.</p>
     </section>
   </div>
 
   <!-- ==== Results ==== -->
-  <div id="view-results" class="view view-scroll" role="tabpanel" aria-labelledby="view-tab-results" hidden>
+  <div id="view-results" class="view view-scroll" role="region" aria-label="Results" hidden>
     <section class="card" id="results-card">
       <div class="card-head">
         <h2>Results</h2>

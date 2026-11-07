@@ -1,102 +1,65 @@
 // @ts-check
-/* OSPREY Web Terminal — the artifacts pane header and tile menu (layout F)
+/* OSPREY Web Terminal — the Artifacts tile's bar items and ⋯ rows
  *
- * The artifacts pane's one header row: `Artifacts › <title>`, ‹ › with
- * `N of M` to step through the list the shown artifact is in, then Open full
- * size and Save. The hub draws it (tile-header-contrib.js `contributeLocal`;
- * artifacts-header.css places the items), because the artifacts iframe is a
- * viewer of one artifact and the list it steps through is the sidebar's.
- * With no artifact the header is the crumb's root alone and the two buttons,
- * disabled.
+ * The hub fills the Artifacts tile's bar itself (tile-header-contrib.js
+ * `contributeLocal`), because the artifacts iframe is a viewer of one
+ * artifact and the list it is chosen from is the sidebar's. The bar holds two
+ * panel icons: Info opens the artifact's details (info-popover.js: title,
+ * description, created time, size, and the file path with a Copy button) and
+ * Download saves its file. With no artifact both icons are disabled.
  *
- * Open full size and Save act here, on the hub's side of the proxy, in the
- * click's own task: the hub holds the entry, and the URLs are the gallery's
- * own (artifacts types.js `openUrl`, state.js `fileUrl`) under the proxy's
- * mount, so the viewer has nothing to add. The tile's ⋯ menu gets the
- * artifact verbs the viewer runs (print, logbook, delete). Print opens
- * its window from the viewer's message task, which a popup blocker lets
- * through: the viewer is a first-party frame on the hub's origin with
+ * Info and Download act here, on the hub's side of the proxy, in the click's
+ * own task: the hub holds the entry, and the file URL is the gallery's own
+ * (artifacts state.js `fileUrl`) under the proxy's mount. Only the directory
+ * the store writes to is the gallery's to know: the viewer page carries it
+ * as its `osprey-artifact-dir` meta, read from the same-origin frame when
+ * Info opens.
+ *
+ * The tile's ⋯ "This panel" section gets the artifact verbs the viewer runs
+ * (logbook, print, delete); Delete keeps the viewer's confirm. Print
+ * opens its window from the viewer's message task, which a popup blocker
+ * lets through: the viewer is a first-party frame on the hub's origin with
  * `allow-popups`, and the HTML standard gives a click's activation to the
  * same-origin frames below it (Chromium does; Firefox is not verified).
  *
  * @module artifacts-pane-header
  */
 
-import { getTheme } from '/design-system/js/theme-manager.js';
+import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
+import { openInfoPopover } from '/design-system/js/info-popover.js';
 import { withPrefix } from './api.js';
+import { fmtBytes } from './session-helpers.js';
 import { ARTIFACTS_BASE } from './sidebar-artifact-listing.js';
 import { titleOf } from './sidebar-artifact-rows.js';
 
 /**
- * @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry
+ * An artifact as the bar reads it: the listed fields, plus the description
+ * and size every entry the panel sends carries.
+ * @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry
+ *   & {description?: string, size_bytes?: number}} ArtifactEntry
  * @typedef {'print' | 'logbook' | 'delete'} ArtifactAction
  */
 
-/**
- * Where the shown artifact sits in the list ‹ › steps through.
- * @typedef {object} PagerPosition
- * @property {number} index  its index in the drawn order
- * @property {number} count  how many the list holds on the server
- * @property {boolean} last  no artifact follows it, held or not
- */
+/** The Artifacts tile's bar: the docked tile's, else the fallback bar. */
+const BAR_SELECTOR = '.tile-tab[data-panel-id="iframe:artifacts"], .fallback-tile-bar';
 
 /**
- * The header items, in their order on the bar.
+ * The bar items, in their order on the bar.
  * @param {ArtifactEntry | null} shown
- * @param {PagerPosition | null} position
  * @returns {object[]}
  */
-export function headerItems(shown, position) {
-  const crumb = {
-    kind: 'crumb',
-    id: 'crumb',
-    root: 'Artifacts',
-    leaf: shown ? titleOf(shown) : '',
-  };
-  const actions = [
-    {
-      kind: 'button',
-      id: 'open',
-      icon: 'maximize',
-      label: 'Open full size',
-      title: 'Open full size',
-      tone: 'accent',
-      priority: 5,
-      disabled: !shown,
-    },
-    {
-      kind: 'button',
-      id: 'save',
-      icon: 'save',
-      label: 'Save',
-      title: 'Save',
-      priority: 5,
-      disabled: !shown,
-    },
-  ];
-  if (!shown || !position) return [crumb, ...actions];
-  const { index, count, last } = position;
+export function headerItems(shown) {
+  const info = { kind: 'icon', id: 'info', icon: 'info', title: 'Artifact details' };
+  const download = { kind: 'icon', id: 'download', icon: 'download', title: 'Download' };
+  if (!shown)
+    return [
+      { ...info, disabled: true },
+      { ...download, disabled: true },
+    ];
+  const size = shown.size_bytes;
   return [
-    crumb,
-    {
-      kind: 'button',
-      id: 'prev',
-      icon: 'chevron-left',
-      title: 'Previous artifact',
-      priority: 9,
-      disabled: index <= 0,
-    },
-    { kind: 'text', id: 'pager', text: `${index + 1} of ${count}`, priority: 9 },
-    {
-      kind: 'button',
-      id: 'next',
-      icon: 'chevron-right',
-      title: 'Next artifact',
-      priority: 9,
-      disabled: last,
-    },
-    { kind: 'sep', id: 'sep' },
-    ...actions,
+    info,
+    typeof size === 'number' ? { ...download, title: `Download (${fmtBytes(size)})` } : download,
   ];
 }
 
@@ -112,37 +75,10 @@ export function fileUrl(entry) {
 }
 
 /**
- * The page an artifact opens on in its own tab: the rendered page for
- * markdown and notebooks, the file otherwise. It carries the theme on screen,
- * since the tab has no hub to follow.
- * @param {ArtifactEntry} entry
- * @returns {string}
- */
-export function pageUrl(entry) {
-  const id = encodeURIComponent(entry.id);
-  let url = fileUrl(entry);
-  if (entry.artifact_type === 'markdown') {
-    url = withPrefix(`${ARTIFACTS_BASE}/api/markdown/${id}/rendered`);
-  } else if (entry.artifact_type === 'notebook') {
-    url = withPrefix(`${ARTIFACTS_BASE}/api/notebooks/${id}/rendered`);
-  }
-  const theme = getTheme();
-  return theme ? `${url}?theme=${encodeURIComponent(theme)}` : url;
-}
-
-/**
- * Open full size: the artifact's page in a new tab. Call it from the click.
+ * Download: save the artifact's file under its own name.
  * @param {ArtifactEntry} entry
  */
-export function openArtifact(entry) {
-  window.open(pageUrl(entry), '_blank', 'noopener');
-}
-
-/**
- * Save: download the artifact's file under its own name.
- * @param {ArtifactEntry} entry
- */
-export function saveArtifact(entry) {
+export function downloadArtifact(entry) {
   const link = document.createElement('a');
   link.href = fileUrl(entry);
   link.download = entry.filename ?? '';
@@ -153,16 +89,100 @@ export function saveArtifact(entry) {
 }
 
 /**
- * The artifact verbs of the tile's ⋯ menu, each sending its action for the
- * artifact to the viewer.
+ * The directory the gallery's store writes to, as the viewer page states it;
+ * null while the viewer has not loaded.
+ * @returns {string | null}
+ */
+function artifactDir() {
+  const frame = document.querySelector('iframe.panel-iframe[data-panel-id="artifacts"]');
+  if (!(frame instanceof HTMLIFrameElement)) return null;
+  try {
+    const meta = frame.contentDocument?.querySelector('meta[name="osprey-artifact-dir"]');
+    return meta?.getAttribute('content') || null;
+  } catch {
+    // Not readable (not loaded, or not same-origin): no directory to name.
+    return null;
+  }
+}
+
+/**
+ * The created time as the gallery shows it: on the facility clock, naming
+ * the zone when the viewer's own clock differs.
+ * @param {string | undefined} timestamp
+ * @returns {string}
+ */
+function createdOn(timestamp) {
+  if (!timestamp) return '';
+  return formatFacilityTime(timestamp, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(viewerSharesFacilityClock(timestamp) ? {} : { timeZoneName: 'short' }),
+  });
+}
+
+/**
+ * What the Info popover shows for an artifact. The file row is the store's
+ * path when the directory is known, else the bare file name.
+ * @param {ArtifactEntry} entry
+ * @param {string | null} dir
+ * @returns {import('/design-system/js/info-popover.js').InfoContent}
+ */
+export function infoContent(entry, dir) {
+  /** @type {{label: string, value: string, copy?: boolean}[]} */
+  const rows = [];
+  const created = createdOn(entry.timestamp);
+  if (created) rows.push({ label: 'Created', value: created });
+  if (typeof entry.size_bytes === 'number') {
+    rows.push({ label: 'Size', value: fmtBytes(entry.size_bytes) });
+  }
+  if (entry.filename) {
+    rows.push({
+      label: 'File',
+      value: dir ? `${dir}/${entry.filename}` : entry.filename,
+      copy: true,
+    });
+  }
+  return { title: titleOf(entry), text: entry.description || undefined, rows };
+}
+
+/**
+ * The element the Info popover hangs from: the bar's Info icon, or the bar
+ * itself while a narrow tile has folded the icon into ⋯.
+ * @returns {HTMLElement | null}
+ */
+function infoAnchor() {
+  const bar = document.querySelector(BAR_SELECTOR);
+  if (!(bar instanceof HTMLElement)) return null;
+  const icon = bar.querySelector('[data-contrib-key="icon:info"]');
+  if (icon instanceof HTMLElement && !icon.classList.contains('contrib-hidden')) return icon;
+  return bar;
+}
+
+/**
+ * Info: open the artifact's details under the bar's Info icon, or close them
+ * when they already show there.
+ * @param {ArtifactEntry} entry
+ */
+export function showArtifactInfo(entry) {
+  const anchor = infoAnchor();
+  if (anchor) openInfoPopover(anchor, infoContent(entry, artifactDir()));
+}
+
+/**
+ * The artifact verbs of the tile's ⋯ "This panel" section, each sending its
+ * action for the artifact to the viewer. Delete comes last, set apart, in the
+ * danger colour; the viewer asks before it deletes.
  * @param {ArtifactEntry} shown
  * @param {(action: ArtifactAction) => void} send
- * @returns {{label: string, run: () => void, danger?: boolean}[]}
+ * @returns {{label: string, run: () => void, danger?: boolean, separator?: boolean}[]}
  */
 export function menuItems(shown, send) {
   return [
-    { label: 'Print artifact', run: () => send('print') },
     { label: 'Compose logbook entry', run: () => send('logbook') },
-    { label: 'Delete artifact', danger: true, run: () => send('delete') },
+    { label: 'Print artifact', run: () => send('print') },
+    { label: 'Delete artifact…', danger: true, separator: true, run: () => send('delete') },
   ];
 }
