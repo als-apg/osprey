@@ -30,6 +30,7 @@ from pyaml.common.constants import Action
 import osprey.runtime
 import pyaml_cs_osprey.measure as measure_module
 import pyaml_cs_osprey.run_tool as run_tool_module
+from osprey.facility.kinds import registered
 from osprey.facility.views.facts import measurement_records
 from osprey.mcp_server.python_executor.tools import _pyaml_measure_script as script_module
 from osprey.mcp_server.python_executor.tools._pyaml_measure_result import (
@@ -320,6 +321,16 @@ def limits(monkeypatch: pytest.MonkeyPatch) -> dict[str, float]:
     return steps
 
 
+def _plan(kind: str) -> dict[str, Any]:
+    """The kind's measure plan as the build renders it into the facts: JSON."""
+    plan: dict[str, Any] = json.loads(json.dumps(dict(registered()[kind].measure_plan)))
+    return plan
+
+
+def _matrix(kind: str) -> bool:
+    return registered()[kind].matrix
+
+
 def _execute(
     render: Path,
     execution: Path,
@@ -345,6 +356,7 @@ def _execute(
             settle=0.25,
             n_avg_meas=2,
             sleep_between_meas=0.5,
+            plan=_plan(kind),
         )
     )
     exec(compile(source, "pyaml_measure", "exec"), {"_execution_dir": str(execution)})
@@ -384,7 +396,13 @@ def _round_trip(
     captured = _execute(render, execution, capsys, **request)
     if stdout is not None:
         stdout.append(captured.out)
-    return parse_measure_result(captured.out, request["kind"])
+    kind = request["kind"]
+    return parse_measure_result(
+        captured.out,
+        kind,
+        matrix=_matrix(kind),
+        scalar=registered()[kind].measure_plan.get("scalar"),
+    )
 
 
 pytestmark = pytest.mark.usefixtures("holder", "limits", "runs")
@@ -687,7 +705,9 @@ def test_a_tool_that_raises_prints_a_stopped_line_then_fails(
     assert result["completed"] is False
     assert result["moved"] == [[QUADS[0], 0.0]]
     assert result["missing"] == {QUADS[1]: "the tune readback went away"}
-    assert parse_measure_result(out, "trm")["missing"] == {QUADS[1]: "the tune readback went away"}
+    assert parse_measure_result(out, "trm", matrix=True)["missing"] == {
+        QUADS[1]: "the tune readback went away"
+    }
     assert machine.values[QUADS[0]] == 0.5
 
 
