@@ -1,6 +1,6 @@
 """Shared-splitter contract: one divider implementation, every resizable pane.
 
-The OKF knowledge panel, the artifact gallery's browse view, the PLAN panel,
+The OKF knowledge panel, the PLAN panel,
 ARIEL's rail/list/reader screen, and the
 settings drawer all put a draggable divider between two panes. Hand-copying that implementation per host lets the
 copies drift — a grip pill as a child element in one and a ``::after`` in
@@ -15,13 +15,12 @@ The contract is static and deliberately shallow: each host's markup must carry
 the shared ``.osprey-splitter`` class on a proper ARIA separator, each host's
 script must drive it from the design system's ``splitter.js``, and no host may
 re-declare the shared visual. Behaviour itself is covered once, in
-``tests/interfaces/design_system/splitter.test.mjs``; the surfaces are driven
-live in ``tests/interfaces/design_system/test_splitter_surfaces.py``.
+``tests/interfaces/design_system/splitter.test.mjs``.
 
 Two rules here exist because of specific bugs this suite is meant to prevent:
 
-- **Every** splitter tag is checked, not just the first. The gallery ships two
-  handles (one per orientation), and a first-match-only assertion would leave
+- **Every** splitter tag is checked, not just the first. ARIEL ships two
+  handles, and a first-match-only assertion would leave
   whichever one happened to be second entirely unguarded.
 - ``aria-orientation`` is checked against a per-host expected set rather than
   hardcoded to ``vertical``. ``splitter.js`` sets the attribute at runtime from
@@ -66,14 +65,6 @@ SPLITTER_HOSTS = [
         js=f"{_IFACE}/okf_panel/static/js/resize.js",
         orientations=frozenset({"vertical"}),
         styles=(f"{_IFACE}/okf_panel/static/style.css",),
-    ),
-    Host(
-        label="artifacts",
-        html=f"{_IFACE}/artifacts/static/index.html",
-        js=f"{_IFACE}/artifacts/static/js/browse-layout.js",
-        # Two handles: the side-by-side split and the stacked-mode split.
-        orientations=frozenset({"vertical", "horizontal"}),
-        styles=(f"{_IFACE}/artifacts/static/css/gallery.css",),
     ),
     Host(
         label="bluesky-plans",

@@ -1,175 +1,40 @@
 // @ts-check
 /**
- * OSPREY Artifact Gallery — preview pane shell, delete/fullscreen/focus.
+ * OSPREY Artifact Gallery — preview pane shell and delete.
  *
- * Owns the biggest single view in the gallery: `renderPreview` (the preview
- * pane's header/meta/viewport markup and its button wiring), deleting an
- * artifact, fullscreen enter/exit (+ the "N new" badge while
- * fullscreen), and agent-focus (`setAsFocus`).
+ * Owns `renderPreview` (the pane's description, meta strip and viewport markup)
+ * and deleting an artifact. The hub renders this pane's header (title, pager,
+ * Open full size, Save) and its actions arrive as messages (viewer.js); the
+ * action behind Delete is exposed (`deleteArtifact`) for the viewer to run.
  *
- * What this pane owns is the *chrome*: the header, the action buttons, the
- * meta strip, fullscreen. The viewport inside it — which markup an artifact of
- * a given type renders as, and what has to be mounted into it afterwards —
- * belongs to artifact-viewport.js, the one dispatch for how an artifact
- * renders full-size, and this module calls it: `artifactViewportHtml(a)` for
- * the markup, then `mountArtifactViewport(...)` once it is live. That dispatch
- * in turn owns the calls into preview-content.js's markdown+KaTeX pipeline and
- * JSON viewer.
+ * The viewport inside the pane — which markup an artifact of a given type renders
+ * as, and what has to be mounted into it afterwards — belongs to
+ * artifact-viewport.js, the one dispatch for how an artifact renders full-size,
+ * and this module calls it: `artifactViewportHtml(a)` for the markup, then
+ * `mountArtifactViewport(...)` once it is live. That dispatch in turn owns the
+ * calls into preview-content.js's markdown+KaTeX pipeline and JSON viewer.
  *
- * The header is optional. Embedded in the Web Terminal hub, the gallery is a
- * viewer whose pane header the hub renders (title, pager, Open full size,
- * Save) and whose actions arrive as messages (viewer.js), so gallery.js asks
- * for a pane without one: the description, the meta strip and the viewport
- * render as they do standalone, and nothing of the header (badge, title,
- * fullscreen Back button and "N new" badge, action buttons) is rendered or
- * wired. The action behind the header's delete button is exposed
- * (`deleteArtifact`) so the viewer runs the same code path.
- *
- * `createPreviewRenderer(callbacks, options)` follows render.js's
- * `createSidebarRenderer(callbacks)` precedent: the fullscreen flag and the
- * "new artifacts since fullscreen" counter are real mutable state, so they
- * live in this factory's closure behind explicit accessors, while a handful
- * of effects this module doesn't own (re-rendering the sidebar, updating the
- * header count, and rendering the timeseries chart/table — timeseries.js's
- * job) are supplied as injected callbacks.
- *
- * `injectLogbookButtons()`/`injectPrintButton()` are called directly at the
- * end of a render with a header: logbook.js/print.js are ES modules that
- * import state.js directly — there is no global-object bridge.
+ * Rendering the timeseries chart/table is timeseries.js's job, supplied as an
+ * injected callback.
  *
  * @module preview
  */
 
-import {
-  getArtifacts,
-  removeArtifact,
-  getSelectedArtifact,
-  setSelectedArtifact,
-  getFocusedArtifact,
-  setFocusedArtifact,
-  getCurrentSessionId,
-  getShowAllSessions,
-} from './state.js';
-import {
-  formBadge,
-  formKey,
-  escapeHtml,
-  formatSize,
-  formatFullTime,
-  openUrl,
-  requestColorPass,
-  artifactPath,
-} from './types.js';
+import { removeArtifact, getSelectedArtifact, setSelectedArtifact } from './state.js';
+import { escapeHtml, formatSize, formatFullTime, artifactPath } from './types.js';
 import { artifactViewportHtml, mountArtifactViewport } from './artifact-viewport.js';
-import { injectLogbookButtons } from './logbook.js';
-import { injectPrintButton } from './print.js';
-// Only for the "Open in new tab" link, which carries the theme in force —
-// the standalone page it opens has no hub to follow (see openUrl()).
-import { getTheme } from '/design-system/js/theme-manager.js';
-
-/**
- * Nudge the preview's embedded media to re-measure after a fullscreen
- * layout change: fire a `resize` event at any preview iframe (Plotly-HTML
- * artifacts listen for it) and ask Plotly to re-fit a visible timeseries
- * chart. Both are best-effort and cross-origin/undefined-safe. Shared by
- * `enterFullscreen` and `exitFullscreen`, which each run it on the next
- * animation frame once the fullscreen class toggle has taken effect.
- * @returns {void}
- */
-function resizePreviewMedia() {
-  const previewContent = document.getElementById('preview-content');
-  const iframe = previewContent?.querySelector('iframe');
-  if (iframe?.contentWindow) {
-    try {
-      iframe.contentWindow.dispatchEvent(new Event('resize'));
-    } catch {
-      // Dispatching resize into a cross-origin frame is best-effort.
-    }
-  }
-  const tsChart = previewContent?.querySelector('.ts-viewport-container');
-  if (tsChart && typeof Plotly !== 'undefined') {
-    try {
-      Plotly.Plots.resize(tsChart);
-    } catch {
-      // Plotly resize is best-effort when chart not yet ready.
-    }
-  }
-}
-
-/**
- * The preview header: the type badge and title, the fullscreen Back button
- * and "N new" badge, and the action buttons (logbook.js and print.js add
- * theirs after each render).
- * @param {any} a
- * @returns {string}
- */
-function headerHtml(a) {
-  return `
-      <div class="preview-header">
-        <div class="preview-header-left">
-          <button class="fullscreen-back-btn" id="fullscreen-back" title="Exit fullscreen (Esc)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
-            Back
-          </button>
-          <span class="badge badge-${escapeHtml(formKey(a))}">${formBadge(a)}</span>
-          <span class="preview-header-title">${escapeHtml(a.title)}</span>
-        </div>
-        <div class="preview-header-actions">
-          <span class="fullscreen-new-badge" id="fullscreen-new-badge" data-count="0"></span>
-          <button class="btn-action-icon fullscreen-enter-btn" id="fullscreen-enter" title="Maximize (F)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M16 21h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
-          </button>
-          <a href="${openUrl(a, getTheme())}" data-theme-link target="_blank" class="btn-action-icon" title="Open in new tab">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
-          </a>
-          <button class="btn-action-icon btn-action-danger" id="preview-delete" title="Delete artifact">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/></svg>
-          </button>
-        </div>
-      </div>`;
-}
-
-// ---- Preview Renderer (factory: fullscreen state + effects this module doesn't own) ---- //
 
 /**
  * @typedef {object} PreviewRenderCallbacks
- * @property {() => void} onArtifactDeleted - fired after a successful DELETE (local artifact/selection/focus state is already updated by this module); caller updates the header count and re-renders the sidebar
- * @property {() => void} onFullscreenExit - fired on exiting fullscreen, before the resize/scroll-into-view pass; caller re-renders the sidebar
  * @property {(container: HTMLElement, artifact: any) => void} onTimeseriesNeeded - forwarded to artifact-viewport.js's `mountArtifactViewport`; fired with the mounted `.ts-viewport-container` for a timeseries artifact, which the caller (gallery.js, via timeseries.js's renderTimeseriesView) renders the chart/table into
  */
 
 /**
- * @typedef {object} PreviewRenderOptions
- * @property {boolean} [header] - render the header row (default true). The embedded viewer passes false: the hub renders that pane's header, and its actions arrive as messages.
- */
-
-/**
- * Name the session a focus was set in: the gallery's current key in
- * the session-filtered view, nothing in the all-sessions view or with no
- * session — such a focus reaches no session's prompt.
- *
- * @param {Record<string, any>} body
- * @returns {Record<string, any>}
- */
-function withSetInSession(body) {
-  const key = getCurrentSessionId();
-  if (key && !getShowAllSessions()) return { ...body, session_key: key };
-  return body;
-}
-
-/**
- * Create the gallery's preview renderer: the preview pane (`renderPreview`),
- * deleting, fullscreen enter/exit (+ its "N new" badge), and
- * setting agent focus. Bound to a small set of injected callbacks for the
- * effects owned elsewhere (sidebar re-render, header count, timeseries
- * rendering).
+ * Create the gallery's preview renderer: the preview pane (`renderPreview`) and
+ * deleting. Bound to the injected timeseries rendering, which is owned elsewhere.
  * @param {PreviewRenderCallbacks} callbacks
- * @param {PreviewRenderOptions} [options]
  */
-export function createPreviewRenderer(callbacks, { header = true } = {}) {
-  let isFullscreen = false;
-  let newArtifactsSinceFullscreen = 0;
-
+export function createPreviewRenderer(callbacks) {
   // ---- Preview Pane ----
 
   /** @returns {void} */
@@ -179,16 +44,6 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
     if (!previewEmpty || !previewContent) return;
 
     if (!getSelectedArtifact()) {
-      // Never render the empty placeholder while fullscreen: fullscreen-mode
-      // hides the header, sidebar and splitter (gallery.css), so a cleared
-      // selection — Delete from the fullscreen header, or an agent-side
-      // artifact_deleted SSE — would strand a chrome-less pane with no exit
-      // affordance. exitFullscreen re-enters renderPreview with the flag
-      // already cleared, so this cannot recurse.
-      if (isFullscreen) {
-        exitFullscreen();
-        return;
-      }
       previewEmpty.classList.remove('hidden');
       previewContent.classList.add('hidden');
       return;
@@ -204,7 +59,6 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
     const viewportHtml = artifactViewportHtml(a);
 
     previewContent.innerHTML = `
-      ${header ? headerHtml(a) : ''}
       ${a.description ? `<div class="preview-desc">${escapeHtml(a.description)}</div>` : ''}
       <div class="preview-meta-strip">
         <span class="preview-meta-item">
@@ -234,8 +88,6 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
       </div>
     `;
 
-    if (header) wireHeader(a);
-
     // Copy path to clipboard
     const copyPathBtn = document.getElementById('preview-copy-path');
     if (copyPathBtn) {
@@ -253,57 +105,13 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
     mountArtifactViewport(previewContent, a, {
       onTimeseriesNeeded: callbacks.onTimeseriesNeeded,
     });
-
-    requestColorPass();
-    if (header) {
-      injectLogbookButtons();
-      injectPrintButton();
-    }
   }
 
-  /**
-   * Wire the buttons {@link headerHtml} just rendered for `a`.
-   * @param {any} a
-   * @returns {void}
-   */
-  function wireHeader(a) {
-    /** @type {HTMLElement} */ (document.getElementById('preview-delete')).addEventListener(
-      'click',
-      () => deleteArtifact(a)
-    );
-
-    // Fullscreen buttons
-    const enterBtn = document.getElementById('fullscreen-enter');
-    if (enterBtn) enterBtn.addEventListener('click', () => enterFullscreen());
-
-    const backBtn = document.getElementById('fullscreen-back');
-    if (backBtn) backBtn.addEventListener('click', () => exitFullscreen());
-
-    const newBadge = document.getElementById('fullscreen-new-badge');
-    if (newBadge) {
-      newBadge.addEventListener('click', () => {
-        // Navigate to newest artifact, stay in fullscreen
-        if (getArtifacts().length > 0) {
-          const sorted = [...getArtifacts()].sort((a, b) =>
-            (b.timestamp || '').localeCompare(a.timestamp || '')
-          );
-          setSelectedArtifact(sorted[0]);
-          newArtifactsSinceFullscreen = 0;
-          renderPreview();
-        }
-      });
-    }
-
-    // Update badge if in fullscreen
-    if (isFullscreen) updateNewArtifactBadge();
-  }
-
-  // ---- Delete / Focus actions ----
+  // ---- Delete ----
 
   /**
    * Delete an artifact once the operator confirms: DELETE it, drop it from
-   * the held list, the selection and the agent focus, let the caller
-   * re-render, and re-render this pane. A declined confirm does nothing; a
+   * the held list and the selection, and re-render this pane. A declined confirm does nothing; a
    * failed request leaves every state as it was.
    * @param {any} artifact
    * @returns {Promise<void>}
@@ -316,94 +124,11 @@ export function createPreviewRenderer(callbacks, { header = true } = {}) {
       await resp.json();
       removeArtifact(artifact.id);
       if (getSelectedArtifact()?.id === artifact.id) setSelectedArtifact(null);
-      if (getFocusedArtifact()?.id === artifact.id) setFocusedArtifact(null);
-      callbacks.onArtifactDeleted();
       renderPreview();
     } catch (err) {
       console.error('Delete failed:', err);
     }
   }
 
-  // ---- Fullscreen Mode ----
-
-  /** @param {any} [artifact] */
-  function enterFullscreen(artifact) {
-    if (isFullscreen) return;
-    if (artifact) {
-      setSelectedArtifact(artifact);
-    }
-    if (!getSelectedArtifact()) return;
-
-    isFullscreen = true;
-    newArtifactsSinceFullscreen = 0;
-    document.body.classList.add('fullscreen-mode');
-    document.body.classList.add('fullscreen-entering');
-    setTimeout(() => document.body.classList.remove('fullscreen-entering'), 700);
-
-    updateNewArtifactBadge();
-    renderPreview();
-
-    // Re-fit embedded media once the fullscreen layout has applied.
-    requestAnimationFrame(resizePreviewMedia);
-  }
-
-  /** @returns {void} */
-  function exitFullscreen() {
-    if (!isFullscreen) return;
-    isFullscreen = false;
-    newArtifactsSinceFullscreen = 0;
-    document.body.classList.remove('fullscreen-mode');
-    document.body.classList.remove('fullscreen-entering');
-
-    renderPreview();
-    callbacks.onFullscreenExit();
-
-    // Re-fit embedded media, then scroll the selected item back into view.
-    requestAnimationFrame(() => {
-      resizePreviewMedia();
-      if (getSelectedArtifact()) {
-        const sidebarBody = document.getElementById('sidebar-body');
-        const sel = sidebarBody?.querySelector(`[data-id="${getSelectedArtifact().id}"]`);
-        if (sel) sel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    });
-  }
-
-  /** @returns {void} */
-  function updateNewArtifactBadge() {
-    const badge = document.getElementById('fullscreen-new-badge');
-    if (!badge) return;
-    const count = newArtifactsSinceFullscreen;
-    badge.dataset.count = String(count);
-    badge.textContent = count > 0 ? `${count} new` : '';
-  }
-
-  /** @param {any} artifact */
-  async function setAsFocus(artifact) {
-    try {
-      const resp = await fetch('/api/focus', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(withSetInSession({ artifact_id: artifact.id })),
-      });
-      if (resp.ok) {
-        setFocusedArtifact(artifact);
-      }
-    } catch (err) {
-      console.error('Failed to set focus:', err);
-    }
-  }
-
-  return {
-    renderPreview,
-    deleteArtifact,
-    enterFullscreen,
-    exitFullscreen,
-    setAsFocus,
-    isFullscreen: () => isFullscreen,
-    noteNewArtifactArrival: () => {
-      newArtifactsSinceFullscreen++;
-    },
-    updateNewArtifactBadge,
-  };
+  return { renderPreview, deleteArtifact };
 }

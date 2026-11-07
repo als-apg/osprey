@@ -5,17 +5,11 @@
  * One artifact in, one rendered viewport out. This is the single answer to
  * "how does an artifact of type X render?", and it is deliberately the *only*
  * one: the preview pane (preview.js's `renderPreview`) calls these two
- * functions for every artifact it shows, standalone inside its header/meta/
- * action chrome, and embedded as the hub's single-artifact viewer, where the
- * hub renders the header.
+ * functions for every artifact it shows, as the hub's single-artifact viewer,
+ * where the hub renders the header.
  *
  * The chrome stays with the pane and only this dispatch decides what the
- * viewport holds. A full-size surface once borrowed types.js's
- * `thumbnailHtml()` instead — the *sidebar card* builder, which knows only
- * the `<img>`/`<iframe>` types and drops markdown/JSON/text/PDF/timeseries to
- * a summary dump or a type-icon placeholder. Two dispatch tables cannot stay
- * in parity; there is now one. `thumbnailHtml` is back to meaning only what
- * its name says.
+ * viewport holds.
  *
  * Split in two because the caller needs the halves at different moments:
  * `renderPreview` interpolates the markup into a larger `innerHTML` template
