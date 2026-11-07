@@ -2416,11 +2416,9 @@ describe('bundle wiring', () => {
     expect(manifest.entry).toBe('index.html');
   });
 
-  test('the panel chrome agrees with the manifest', () => {
+  test('the page title agrees with the manifest', () => {
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
     expect(html).toContain('<title>Bluesky</title>');
-    expect(html).toContain('<h1>Bluesky</h1>');
-    expect(html).toContain('OSPREY Bluesky');
   });
 
   test('the queue controls render OUTSIDE the three view containers', () => {
@@ -2458,55 +2456,6 @@ describe('bundle wiring', () => {
     // restore exactly the behaviour this replaces.
     const details = html.slice(html.indexOf('id="table-details"'));
     expect(details.slice(0, details.indexOf('>'))).not.toContain('open');
-  });
-
-  test('the in-body view switcher and filter hide whenever embedded', () => {
-    // Checked as resolved style rather than as matching source text. Embedded,
-    // the hub's tile bar carries the view switcher (SPEC §5.1: one header row
-    // per pane), so the in-body strip would be a second switcher under the
-    // first. Standalone, `contributeHeader` is a no-op and the in-body strip is
-    // the ONLY way to navigate.
-    const style = document.createElement('style');
-    style.textContent = readFileSync(`${BUNDLE}panel.css`, 'utf-8');
-    document.head.appendChild(style);
-    const tabs = document.createElement('nav');
-    tabs.className = 'panel-tabs';
-    const filter = document.createElement('div');
-    filter.className = 'sidebar-head';
-    const strip = document.createElement('div');
-    strip.className = 'status-strip';
-    document.body.append(tabs, filter, strip);
-
-    /** @param {boolean} embedded */
-    function shown(embedded) {
-      document.body.classList.toggle('embedded', embedded);
-      return {
-        tabs: getComputedStyle(tabs).display !== 'none',
-        filter: getComputedStyle(filter).display !== 'none',
-        strip: getComputedStyle(strip).display !== 'none',
-      };
-    }
-
-    try {
-      expect(shown(false)).toEqual({
-        tabs: true,
-        filter: true,
-        strip: true,
-      });
-      // Embedded: the hub draws both in the tile bar, and the safety strip stays
-      // on screen.
-      expect(shown(true)).toEqual({
-        tabs: false,
-        filter: false,
-        strip: true,
-      });
-    } finally {
-      style.remove();
-      tabs.remove();
-      filter.remove();
-      strip.remove();
-      document.body.classList.remove('embedded');
-    }
   });
 
   test('the abort button never ships disabled either', () => {
@@ -3425,18 +3374,15 @@ describe('the merged panel shell', () => {
   /**
    * Mount the shipped markup and pretend to be inside the web terminal.
    *
-   * `embedded` decides whether `contributeHeader` does anything at all — it is
-   * a strict no-op outside a frame — so a test that wants to see the
-   * contribution has to claim both the body class and a distinct parent.
-   *
-   * @param {{embedded?: boolean}} [options]
+   * `contributeHeader` is a strict no-op outside a frame, so a test that wants to
+   * see the contribution has to claim both the body class and a distinct parent.
    */
-  function mount({ embedded = true } = {}) {
+  function mount() {
     const html = readFileSync(`${BUNDLE}index.html`, 'utf-8');
     const body = html.match(/<body>([\s\S]*)<\/body>/);
     if (!body) throw new Error('could not extract <body> from index.html');
     document.body.innerHTML = body[1].replace(/<script[\s\S]*?<\/script>/g, '');
-    if (embedded) document.body.classList.add('embedded');
+    document.body.classList.add('embedded');
     Object.defineProperty(window, 'parent', {
       configurable: true,
       value: {
@@ -3582,29 +3528,14 @@ describe('the merged panel shell', () => {
     mount();
     await import(`${BUNDLE}panel.js`);
     expect(visibleViews()).toEqual(['plans']);
-    expect(byId('view-tab-plans').getAttribute('aria-selected')).toBe('true');
   });
 
-  test('the in-body strip switches views, and the tabs track it', async () => {
-    mount();
-    await import(`${BUNDLE}panel.js`);
-
-    byId('view-tab-queue').click();
-    expect(visibleViews()).toEqual(['queue']);
-    expect(byId('view-tab-queue').getAttribute('aria-selected')).toBe('true');
-    expect(byId('view-tab-plans').getAttribute('aria-selected')).toBe('false');
-
-    byId('view-tab-results').click();
-    expect(visibleViews()).toEqual(['results']);
-  });
-
-  test('the hub nav action drives the same switch as the in-body strip', async () => {
+  test('the hub nav action switches views', async () => {
     mount();
     await import(`${BUNDLE}panel.js`);
 
     sendHeaderAction('view', 'results');
     expect(visibleViews()).toEqual(['results']);
-    expect(byId('view-tab-results').classList.contains('active')).toBe(true);
 
     // An id the panel does not know must be ignored rather than blanking every
     // view — the value comes from another frame, not from this module.
@@ -3615,7 +3546,7 @@ describe('the merged panel shell', () => {
   test('picking a run in the Queue view opens the Results view on it', async () => {
     mount();
     await import(`${BUNDLE}panel.js`);
-    byId('view-tab-queue').click();
+    sendHeaderAction('view', 'queue');
 
     pushQueueFrame({
       type: 'queue',
@@ -3657,7 +3588,7 @@ describe('the merged panel shell', () => {
     expect(nav.items.map((entry) => entry.label)).toEqual(['Plans', 'Queue', 'Results']);
     expect(nav.items.filter((entry) => entry.active).map((entry) => entry.id)).toEqual(['plans']);
 
-    byId('view-tab-queue').click();
+    sendHeaderAction('view', 'queue');
     const after = navContribution();
     expect(after.items.filter((entry) => entry.active).map((entry) => entry.id)).toEqual(['queue']);
   });
@@ -3667,10 +3598,10 @@ describe('the merged panel shell', () => {
     await import(`${BUNDLE}panel.js`);
     expect(lastContribution().some((entry) => entry.kind === 'search')).toBe(true);
 
-    byId('view-tab-queue').click();
+    sendHeaderAction('view', 'queue');
     expect(lastContribution().some((entry) => entry.kind === 'search')).toBe(false);
 
-    byId('view-tab-plans').click();
+    sendHeaderAction('view', 'plans');
     const search = lastContribution().find((entry) => entry.kind === 'search');
     expect(search.id).toBe('plan-filter');
     expect(search.placeholder).toContain('Filter plans');
@@ -3745,7 +3676,7 @@ describe('the merged panel shell', () => {
     mount();
     await import(`${BUNDLE}panel.js`);
 
-    byId('view-tab-queue').click();
+    sendHeaderAction('view', 'queue');
     pushQueueFrame({
       type: 'queue',
       status: summary({ items_in_queue: 1 }),
@@ -3759,11 +3690,11 @@ describe('the merged panel shell', () => {
     expect(resultsNavEntry().label).toBe('Results');
 
     // Walk away while it is still filling in.
-    byId('view-tab-queue').click();
+    sendHeaderAction('view', 'queue');
     expect(resultsNavEntry().label).toBe('Results •');
 
     // Coming back clears it.
-    byId('view-tab-results').click();
+    sendHeaderAction('view', 'results');
     expect(resultsNavEntry().label).toBe('Results');
   });
 
@@ -3812,7 +3743,7 @@ describe('the merged panel shell', () => {
     mount();
     await import(`${BUNDLE}panel.js`);
 
-    byId('view-tab-queue').click();
+    sendHeaderAction('view', 'queue');
     pushQueueFrame({
       type: 'queue',
       status: summary({ manager_state: 'executing_queue', running_item_uid: 'uid-1' }),
@@ -3837,16 +3768,6 @@ describe('the merged panel shell', () => {
     );
   });
 
-  test('standalone, the panel contributes nothing and stays navigable', async () => {
-    // The single most important correctness point of the merge: with no hub
-    // there is no contributed strip, so the in-body one must still work.
-    mount({ embedded: false });
-    await import(`${BUNDLE}panel.js`);
-    expect(contributions).toEqual([]);
-    byId('view-tab-results').click();
-    expect(visibleViews()).toEqual(['results']);
-  });
-
   test('the two halts are live on every view while a plan is moving', async () => {
     mount();
     await import(`${BUNDLE}panel.js`);
@@ -3857,7 +3778,7 @@ describe('the merged panel shell', () => {
       running_item: item({ item_uid: 'uid-r' }),
     });
     for (const view of ['plans', 'queue', 'results']) {
-      byId(`view-tab-${view}`).click();
+      sendHeaderAction('view', view);
       expect(byId('stop-btn').disabled, `stop dead on ${view}`).toBe(false);
       expect(byId('abort-btn').disabled, `abort dead on ${view}`).toBe(false);
       // Not merely enabled — actually on screen, i.e. outside the hidden views.
@@ -3870,7 +3791,7 @@ describe('the merged panel shell', () => {
     mount();
     await import(`${BUNDLE}panel.js`);
     for (const view of ['plans', 'queue', 'results']) {
-      byId(`view-tab-${view}`).click();
+      sendHeaderAction('view', view);
       expect(byId('stop-btn').closest('[hidden]'), `stop hidden on ${view}`).toBeNull();
       expect(byId('abort-btn').closest('[hidden]'), `abort hidden on ${view}`).toBeNull();
     }
@@ -3881,12 +3802,12 @@ describe('the merged panel shell', () => {
     await import(`${BUNDLE}panel.js`);
     pushQueueFrame({ type: 'queue', status: summary(), items: [], running_item: null });
 
-    byId('view-tab-queue').click();
+    sendHeaderAction('view', 'queue');
     for (const id of ['start-btn', 'stop-btn', 'abort-btn']) {
       expect(byId(id).closest('[hidden]'), `${id} hidden on queue`).toBeNull();
     }
     for (const view of ['plans', 'results']) {
-      byId(`view-tab-${view}`).click();
+      sendHeaderAction('view', view);
       for (const id of ['start-btn', 'stop-btn', 'abort-btn']) {
         expect(byId(id).closest('[hidden]'), `${id} shown on ${view}`).not.toBeNull();
       }
@@ -3904,9 +3825,9 @@ describe('the merged panel shell', () => {
       items: [],
       running_item: item({ item_uid: 'uid-r' }),
     });
-    byId('view-tab-plans').click();
+    sendHeaderAction('view', 'plans');
     expect(byId('start-btn').closest('[hidden]')).not.toBeNull();
-    byId('view-tab-queue').click();
+    sendHeaderAction('view', 'queue');
     expect(byId('start-btn').closest('[hidden]')).toBeNull();
   });
 });

@@ -276,7 +276,6 @@ export function createPlansView({
   const planTreeEl = /** @type {HTMLElement} */ (byId('plan-tree'));
   const plansEmptyEl = /** @type {HTMLElement} */ (byId('plans-empty'));
   const plansFilteredEmptyEl = /** @type {HTMLElement} */ (byId('plans-filtered-empty'));
-  const searchEl = /** @type {HTMLInputElement} */ (byId('plan-search'));
   const detailEmptyEl = /** @type {HTMLElement} */ (byId('detail-empty'));
   const detailBodyEl = /** @type {HTMLElement} */ (byId('detail-body'));
   const detailTitleEl = /** @type {HTMLElement} */ (byId('detail-title'));
@@ -361,10 +360,8 @@ export function createPlansView({
   /**
    * Apply a plan filter and re-render the sidebar.
    *
-   * The ONE place the filter is set. Two surfaces drive it — the in-body search
-   * box and, when the panel is embedded, the tile bar's contributed `search`
-   * item — and they must not be able to disagree, so the header path calls this
-   * rather than reimplementing the trim/re-render.
+   * The ONE place the filter is set, driven by the tile bar's contributed
+   * `search` item.
    *
    * @param {string} text
    */
@@ -961,8 +958,6 @@ export function createPlansView({
     if (!name) return;
     void selectPlan(name);
   });
-
-  searchEl.addEventListener('input', () => setFilter(searchEl.value));
 
   tabParamsEl.addEventListener('click', () => setActiveTab('params'));
   tabSourceEl.addEventListener('click', () => setActiveTab('source'));

@@ -8,14 +8,8 @@
  * run the Results view is following, and the tile-bar contribution. Each view is a factory that takes the panel
  * root and its callbacks; nothing here reaches into a view's internals.
  *
- * ONE view switcher on screen at a time:
- *
- * - Embedded, the panel describes the three views to the web-terminal hub as
- *   a `nav` contribution, so the tile gets ONE header (the tile bar) rather
- *   than a bar under a bar; the in-body strip is hidden by CSS whenever the
- *   panel is embedded.
- * - Standalone, `contributeHeader` is a strict no-op, so the panel renders its
- *   own strip in the body; without it the panel would be unnavigable there.
+ * The panel describes the three views to the web-terminal hub as a `nav`
+ * contribution, so the tile gets ONE header: the tile bar.
  *
  * - No `innerHTML`, anywhere. Plan names, parameter values, and refusal
  *   sentences all originate off-panel (an agent's draft, the bridge, another
@@ -31,7 +25,7 @@
  *
  * The persistent control strip (queue state badge, "Stop", "Abort") is NEVER
  * contributed: anything safety-bearing has to be on screen wherever the panel
- * runs, and the tile bar does not exist standalone. It renders in the body on
+ * runs. It renders in the body on
  * every tab — see index.html.
  *
  * @module panel
@@ -107,13 +101,12 @@ function byId(id) {
 }
 
 const root = byId('panel-root');
-const tabStrip = byId('view-tabs');
 
-/** @type {Array<{id: ViewId, label: string, tab: HTMLElement, view: HTMLElement}>} */
+/** @type {Array<{id: ViewId, label: string, view: HTMLElement}>} */
 const VIEWS = [
-  { id: 'plans', label: 'Plans', tab: byId('view-tab-plans'), view: byId('view-plans') },
-  { id: 'queue', label: 'Queue', tab: byId('view-tab-queue'), view: byId('view-queue') },
-  { id: 'results', label: 'Results', tab: byId('view-tab-results'), view: byId('view-results') },
+  { id: 'plans', label: 'Plans', view: byId('view-plans') },
+  { id: 'queue', label: 'Queue', view: byId('view-queue') },
+  { id: 'results', label: 'Results', view: byId('view-results') },
 ];
 
 /** @type {ViewId} */
@@ -254,8 +247,7 @@ function selectRun(runId) {
 /**
  * Show one view and hide the other two.
  *
- * The ONE function behind both tab strips: the in-body buttons call it, and so
- * does the hub's header action, so the two can never drive different code.
+ * The hub's header action calls it.
  *
  * @param {string} id A view id; anything else is ignored (the hub's action
  *   value is data from another frame, not a promise).
@@ -264,10 +256,7 @@ function setActiveView(id) {
   if (!VIEWS.some((entry) => entry.id === id)) return;
   activeView = /** @type {ViewId} */ (id);
   for (const entry of VIEWS) {
-    const active = entry.id === activeView;
-    entry.tab.classList.toggle('active', active);
-    entry.tab.setAttribute('aria-selected', active ? 'true' : 'false');
-    entry.view.hidden = !active;
+    entry.view.hidden = entry.id !== activeView;
   }
   // The strip's controls are shown per tab (stripControls): the Queue tab is
   // the control panel, the others show a dormant queue as a badge alone. The
@@ -337,15 +326,6 @@ function publishContribution() {
 // Wiring
 // ---------------------------------------------------------------------------
 
-tabStrip.addEventListener('click', (event) => {
-  const target = event.target;
-  if (!(target instanceof Element)) return;
-  const button = target.closest('button[data-view]');
-  if (!(button instanceof HTMLElement) || !button.dataset.view) return;
-  setActiveView(button.dataset.view);
-});
-
-// The hub's round-trip drives the SAME functions the in-body controls do.
 onHeaderAction((id, value) => {
   if (id === VIEW_ITEM_ID && value) setActiveView(value);
   else if (id === FILTER_ITEM_ID) plansView.setFilter(value ?? '');
@@ -422,8 +402,7 @@ async function loadChannelCatalog() {
  *
  * In the persistent status strip, deliberately: which machine this panel is
  * pointed at is safety-bearing context for the queue badge and the two halts
- * beside it, must be visible from every tab, and the tile bar does not exist
- * standalone.
+ * beside it, and must be visible from every tab.
  *
  * @param {import('./lane-client.js').LaneEntry[]} roster
  */

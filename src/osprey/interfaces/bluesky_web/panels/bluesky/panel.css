@@ -27,7 +27,7 @@
 
 body {
   margin: 0;
-  padding: 14px;
+  padding: 0;
   font-family: var(--font-display);
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -44,41 +44,12 @@ body {
  * clipped and unreachable. A fixed height keeps the column at the viewport and
  * hands the overflow to `.view-scroll`, where it belongs.
  *
- * The `- 28px` is `body`'s 14px padding, top and bottom. Embedded, that padding
- * is dropped (the host frame supplies its own gutter), so the column is a full
- * viewport — the two rules have to agree, or the panel is either short by the
- * padding or overflowing by it. */
+ * The body has no padding (the host frame supplies its own gutter), so the
+ * column is a full viewport. */
 .panel {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 28px);
-}
-body.embedded { padding: 0; }
-body.embedded .panel { height: 100vh; }
-
-.panel-chrome {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-default);
-}
-body.embedded .panel-chrome { display: none; }
-
-.panel-chrome h1 {
-  margin: 0;
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-semibold);
-  color: var(--text-primary);
-}
-.panel-chrome .panel-kicker {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-muted);
+  height: 100vh;
 }
 
 .muted {
@@ -86,52 +57,10 @@ body.embedded .panel-chrome { display: none; }
   color: var(--text-muted);
 }
 
-/* ---- View switcher (Plans | Queue | Results) ----
- *
- * The panel describes these three to the web-terminal hub as a `nav`
- * contribution, so an embedded panel gets ONE header: the hub's tile bar. This
- * in-body strip exists for standalone serving, where `contributeHeader` is a no-op
- * and it is the only way to navigate. It is therefore hidden whenever the
- * panel is embedded.
- *
- * Deliberately `.panel-tabs`/`.panel-tab`, not the `.tabs`/`.tab` the Plans
- * detail pane already uses for Parameters/Source — those are a different strip
- * with different rules. */
-.panel-tabs {
-  display: flex;
-  gap: 2px;
-  margin-bottom: 10px;
-  border-bottom: 1px solid var(--border-default);
-}
-body.embedded .panel-tabs { display: none; }
-
-.panel-tab {
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-  color: var(--text-muted);
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: 7px 13px;
-  margin-bottom: -1px;
-  cursor: pointer;
-}
-.panel-tab:hover { color: var(--text-primary); }
-.panel-tab.active {
-  color: var(--color-accent-light);
-  border-bottom-color: var(--color-accent-light);
-}
-.panel-tab:focus-visible {
-  outline: none;
-  color: var(--text-primary);
-}
-
 /* ---- Queue control strip ----
  *
- * Queue state plus Start · Stop · Abort, on screen for EVERY view. Nothing here is ever contributed to the tile bar: the tile bar
- * does not exist standalone, and a halt that disappears with the chrome is
- * not a halt. Which buttons SHOW is decided per tab in queue-view.js
+ * Queue state plus Start · Stop · Abort, on screen for EVERY view. Nothing here is ever contributed to the tile bar: a halt that
+ * disappears with the chrome is not a halt. Which buttons SHOW is decided per tab in queue-view.js
  * (stripControls): the Queue tab is the control panel and shows them all; the
  * other tabs show a dormant queue as its badge alone. */
 .status-strip {
@@ -267,15 +196,10 @@ body.embedded .panel-tabs { display: none; }
   text-align: center;
 }
 
-/* `body.embedded` zeroes the body padding so the scrolling views can meet the
-   tile edges — but this strip is a fixed header band, not scrolling content,
-   and it had no inset of its own: standalone, the body padding was quietly
-   providing one. Embedded, that left the badge against the frame's left edge
-   and the emergency halt touching the top-right corner, while the card content
-   below it sat at a comfortable inset — the mismatch that made the strip look
-   misplaced and the halts look oversized. Restoring the inset here (rather
-   than un-zeroing the body) keeps the views themselves edge-to-edge. */
-body.embedded .status-strip {
+/* The body has no padding so the scrolling views can meet the tile edges, but
+   this strip is a fixed header band, not scrolling content, and carries its own
+   inset. */
+.status-strip {
   padding-top: 10px;
   padding-left: 14px;
   padding-right: 14px;
@@ -403,31 +327,6 @@ body.embedded .status-strip {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-xl);
 }
-.sidebar-head {
-  padding: 8px;
-  border-bottom: 1px solid var(--border-default);
-}
-/* The plan filter is contributed to the tile bar as a `search` item while the
-   Plans view is showing, so the in-body one hides when embedded. */
-body.embedded .sidebar-head { display: none; }
-
-.search {
-  width: 100%;
-  box-sizing: border-box;
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  padding: 5px 8px;
-}
-.search:focus-visible {
-  outline: none;
-  border-color: var(--color-accent-light);
-}
-.search::placeholder { color: var(--text-muted); }
-
 .tree {
   flex: 1;
   min-height: 0;

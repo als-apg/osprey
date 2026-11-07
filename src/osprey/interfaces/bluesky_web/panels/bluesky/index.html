@@ -38,8 +38,7 @@
   // Follower role: this panel is never the theme hub (the web terminal is).
   // It applies its own `?theme=` query param when the host appends one,
   // otherwise trusts whatever theme-boot.js already set pre-paint, and
-  // thereafter obeys the hub's broadcasts. applyEmbedded() reads
-  // `?embedded=true` and hides the standalone chrome when framed.
+  // thereafter obeys the hub's broadcasts.
   import { initTheme } from '/design-system/js/theme-manager.js';
   import { applyEmbedded } from '/design-system/js/frame-params.js';
   initTheme({ role: 'follower' });
@@ -48,32 +47,10 @@
 </head>
 <body>
 <div class="panel" id="panel-root">
-  <header class="panel-chrome">
-    <h1>Bluesky</h1>
-    <span class="panel-kicker">OSPREY Bluesky</span>
-  </header>
-
-  <!--
-    In-body view switcher, for standalone serving only. Embedded, the same
-    three views are described to the web terminal's tile bar (panel.js,
-    `contributeHeader`), so this strip is hidden whenever the panel is embedded
-    (see `.panel-tabs` in panel.css). Standalone, `contributeHeader` is a
-    strict no-op and this strip is the only way to navigate.
-  -->
-  <nav class="panel-tabs" id="view-tabs" role="tablist" aria-label="Bluesky views">
-    <button type="button" id="view-tab-plans" class="panel-tab active" role="tab"
-            aria-selected="true" aria-controls="view-plans" data-view="plans">Plans</button>
-    <button type="button" id="view-tab-queue" class="panel-tab" role="tab"
-            aria-selected="false" aria-controls="view-queue" data-view="queue">Queue</button>
-    <button type="button" id="view-tab-results" class="panel-tab" role="tab"
-            aria-selected="false" aria-controls="view-results" data-view="results">Results</button>
-  </nav>
-
   <!--
     The queue control strip. NOT a tab and NEVER contributed to the tile bar:
     the queue state and the two halts must be live from first paint wherever
-    the panel runs, and the tile bar does not exist
-    standalone. They must also never be a tab switch away, which is why the
+    the panel runs. They must also never be a tab switch away, which is why the
     ONE set of controls sits outside the three view containers below and
     stays on screen for all of them.
 
@@ -92,7 +69,7 @@
          lane (panel.js fills it from GET /lanes). It lives HERE, beside the
          queue badge and the two halts, because which machine this panel is
          pointed at is safety-bearing context for all three: it must be
-         visible from every tab, and the tile bar does not exist standalone. Switching lanes navigates to a fresh document:
+         visible from every tab. Switching lanes navigates to a fresh document:
          a lane is a different machine, and one document never shows two (see
          lane-client.js). -->
     <span id="lane-strip" class="lane-strip" role="group" aria-label="Bluesky plan lane" hidden></span>
@@ -170,11 +147,6 @@
 
     <div class="browser">
       <aside id="plan-sidebar" class="sidebar" aria-label="Plan browser">
-        <div class="sidebar-head">
-          <input id="plan-search" class="search" type="search"
-                 placeholder="Filter plans&hellip;" autocomplete="off"
-                 aria-label="Filter plans by name or description">
-        </div>
         <div id="plan-tree" class="tree" role="tree" aria-label="Registered plans"></div>
         <p id="plans-empty" class="muted sidebar-note" hidden>No plans available.</p>
         <p id="plans-filtered-empty" class="muted sidebar-note" hidden>No match.</p>
