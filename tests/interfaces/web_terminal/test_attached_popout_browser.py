@@ -144,7 +144,8 @@ def test_reattach_on_the_window_bar_puts_the_pane_back_and_closes_the_window(hub
     popup = _pop_out(page)
 
     with popup.expect_event("close", timeout=_TIMEOUT_MS):
-        popup.locator(_BAR_REATTACH).click()
+        # The click closes this window, which can fail a click call still waiting on it.
+        popup.locator(_BAR_REATTACH).evaluate("b => setTimeout(() => b.click())")
 
     expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
     expect(page.locator(_STAND_IN)).to_have_count(0)

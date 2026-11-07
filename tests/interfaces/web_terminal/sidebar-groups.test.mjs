@@ -268,6 +268,7 @@ describe('rename', () => {
   });
 
   test('a saved layout holding the old default name reads as Apps, and keeps a chosen name', () => {
+    /** @param {string} label */
     const saved = (label) =>
       JSON.stringify({
         version: 3,
