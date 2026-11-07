@@ -61,6 +61,83 @@ tools returns are in :doc:`/reference/contracts/facility-graph`.
    volume carries it and later starts need nothing.
 
 
+What a Knowledge Graph Is
+=========================
+
+A **knowledge graph** stores facts as links between things. Each fact is one
+statement of subject, predicate and object, and facts that name the same thing
+join up, so a question can follow the links across many of them. Part of the
+graph describes the machine. The rest, the **ontology**, describes the *kinds*
+of thing the machine is made of and how those kinds relate: a horizontal
+corrector is a corrector, and a corrector is a magnet.
+
+.. raw:: html
+   :file: ../../_diagrams/facility-graph-primer.html
+
+A snapshot of the demo machine's graph. Solid arrows link things, dashed arrows
+tie each device to its class, and teal marks the walk in step 4.
+
+The walk is what a channel list cannot do on its own: the question names a
+word, a section and a direction, and no single address spells any of them as
+the operator would. The same shape answers the questions that come up around
+a machine:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 44 56
+
+   * - Question
+     - What the graph follows
+   * - How many magnets does the ring have?
+     - Every class under ``Magnet``, then the devices of those classes.
+   * - What sits in this section, in beam order?
+     - The section and position each device carries.
+   * - Which addresses belong to this device, and which of them write?
+     - The device's bindings, then the signal each one reads or writes.
+   * - If I write this address, what else moves?
+     - Back from the address to every device bound to it. Magnets on a common
+       power supply appear here; the demo machine has no shared addresses.
+
+.. dropdown:: The walk above, as a query
+   :color: secondary
+   :icon: code
+
+   Run against the demo machine, this returns the 12 setpoints in the figure's
+   last step, six horizontal and six vertical. The agent writes queries like
+   this for you.
+
+   .. code-block:: cypher
+
+      MATCH (word:Class) WHERE ANY(l IN word.altLabel WHERE l = "steerer")
+      MATCH (cls:Class)-[:SUBCLASSOF*0..]->(word)
+      MATCH (d:Resource)-[:TYPE]->(cls)
+      WHERE d.sectionCode = "SECT1"
+      MATCH (d)-[:HASBINDING]->(b:ChannelBinding)-[:WRITESSIGNAL]->()
+      RETURN d.deviceId AS device, b.fullPv AS setpoint, d.sPositionM AS s_m
+      ORDER BY s_m, device
+      LIMIT 50
+
+.. dropdown:: If you already work with knowledge graphs
+   :color: secondary
+   :icon: info
+
+   - **RDF in, property graph out.** The corpus is NARAD-convention Turtle,
+     which neosemantics projects into Neo4j; queries are Cypher, not SPARQL.
+   - **Nothing is inferred at load.** A device asserts only its concrete class,
+     and a query walks ``SUBCLASSOF*`` for the rest. The query gate refuses
+     ``n10s`` procedures, so the agent has no reasoner to call.
+   - **Derived, not curated.** Unless a profile names its own corpus, the build
+     writes it from the facility file, so it describes the same machine as the
+     channel finder, and a fix belongs in that file.
+   - **Structure only.** The graph holds no live values and no history. Those
+     stay in the control system and the archiver.
+   - **A wrong name returns zero rows, not an error.** The agent's prompt carries
+     the live schema and the class synonyms for this reason.
+
+   For the wider field, see Hogan et al., `Knowledge Graphs
+   <https://doi.org/10.1145/3447772>`_, *ACM Computing Surveys* 54(4), 2021.
+
+
 Read-Only by Construction
 =========================
 
