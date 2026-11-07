@@ -34,21 +34,36 @@ export function tableRows(html) {
 }
 
 /**
+ * A cell a spreadsheet would read as a formula, made inert: a text cell that
+ * starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading
+ * `'`, which shows it as text. A number keeps its sign, so `-0.05` and
+ * `+1e3` stay numbers.
+ * @param {string} value
+ * @returns {string}
+ */
+export function inertCell(value) {
+  return /^[=+\-@\t\r]/.test(value) && !Number.isFinite(Number(value)) ? `'${value}` : value;
+}
+
+/**
  * @param {string[][]} rows
  * @returns {string} tab-separated text, one line per row
  */
 export function toTsv(rows) {
-  return rows.map((row) => row.join('\t')).join('\n');
+  return rows.map((row) => row.map(inertCell).join('\t')).join('\n');
 }
 
 /**
  * @param {string[][]} rows
  * @returns {string} RFC 4180 CSV: a field with a comma, a quote or a line
- *   break is quoted
+ *   break is quoted, and a formula-like field is made inert first
  */
 export function toCsv(rows) {
   /** @param {string} value */
-  const field = (value) => (/[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
+  const field = (value) => {
+    const cell = inertCell(value);
+    return /[",\r\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
+  };
   return rows.map((row) => row.map(field).join(',')).join('\r\n') + '\r\n';
 }
 

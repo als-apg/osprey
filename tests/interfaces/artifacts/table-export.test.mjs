@@ -15,6 +15,7 @@ import {
   copyTable,
   csvName,
   exportCsv,
+  inertCell,
   tableRows,
   toCsv,
   toTsv,
@@ -93,6 +94,29 @@ describe('writing it out', () => {
         ['line\nbreak', '', 'x'],
       ])
     ).toBe('"a,b","say ""hi""",plain\r\n"line\nbreak",,x\r\n');
+  });
+
+  test('a cell a spreadsheet would run as a formula gets a leading quote', () => {
+    const hostile = [
+      '=HYPERLINK("http://evil.example","x")',
+      "+cmd|' /C calc'!A0",
+      '-2+3',
+      '@SUM(A1:A2)',
+      '\t=1+1',
+      '\r=1+1',
+      '-',
+    ];
+    for (const cell of hostile) expect(inertCell(cell)).toBe(`'${cell}`);
+    expect(toTsv([['=1+1', '@x']])).toBe("'=1+1\t'@x");
+    expect(toCsv([['=1+1', '@SUM(A1,A2)']])).toBe(`'=1+1,"'@SUM(A1,A2)"\r\n`);
+  });
+
+  test('a signed number stays a number', () => {
+    for (const cell of ['-0.05', '+1e3', '-12', '+7', '-1.5E-3', '0', 'plain', '']) {
+      expect(inertCell(cell)).toBe(cell);
+    }
+    expect(toTsv([['-0.05', '+1e3']])).toBe('-0.05\t+1e3');
+    expect(toCsv([['-0.05', '+1e3', '-x']])).toBe("-0.05,+1e3,'-x\r\n");
   });
 
   test("the CSV file is named after the artifact's file", () => {
