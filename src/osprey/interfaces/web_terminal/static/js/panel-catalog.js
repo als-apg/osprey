@@ -123,7 +123,7 @@ export const PANEL_ICONS = Object.freeze({
   ariel: 'book-open',
   okf: 'library',
   'channel-finder': 'radio',
-  bluesky: 'chart-scatter',
+  bluesky: 'bluesky',
   'system-health': 'stethoscope',
 });
 

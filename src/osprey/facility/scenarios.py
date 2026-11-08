@@ -510,10 +510,18 @@ _EVENT_POSITIONS = ("at", "at_offset", "at_time", "at_when")
 
 #: The keys each archiver event shape carries besides its position.
 _EVENT_VALUE_KEYS: dict[str, tuple[str, ...]] = {
+    "burst": ("amplitude", "decay_s"),
+    "loss": ("amount",),
     "ramp": ("to",),
     "spike": ("amplitude", "width"),
     "step": ("to",),
 }
+
+#: The optional slow tail of a ``burst``: both keys or neither.
+_BURST_TAIL = ("tail_share", "tail_decay_s")
+
+#: The keys that hold a duration or a size, read as greater than 0.
+_EVENT_POSITIVE = ("width", "decay_s", "tail_decay_s", "amount")
 
 #: The keys holding a window fraction, read on the closed interval 0 to 1.
 _EVENT_FRACTIONS = ("at", "until")
@@ -529,15 +537,17 @@ _STEP_UNTIL = {"at": "until", "at_offset": "until_offset", "at_when": "until_whe
 def check_scenario_events(document: Mapping[str, Any]) -> list[FacilityBuildError]:
     """Check every event of every scenario's ``archiver`` entries.
 
-    An event has a known shape (``step``, ``ramp``, ``spike``) and that shape's
-    keys, exactly one position key (``at``, ``at_offset``, ``at_time``,
+    An event has a known shape (``step``, ``ramp``, ``spike``, ``burst``,
+    ``loss``) and that shape's keys, exactly one position key (``at``, ``at_offset``, ``at_time``,
     ``at_when``), a number wherever the archive reads one, and a shape other
     than ``step`` only on a ``float`` channel. A ``ramp`` is placed by ``at``
     with ``until`` or by ``at_offset`` with ``until_offset``. A ``step`` may
     end, on a ``float`` channel only, by the key its position pairs with
     (``until``, ``until_offset``, ``until_when``), later than its start; a
     daily ``at_time`` step never ends. ``at`` and
-    ``until`` lie from 0 to 1, a ``width`` is greater than 0, ``at_time`` is
+    ``until`` lie from 0 to 1, a ``width``, ``decay_s``, ``tail_decay_s`` and
+    ``amount`` are greater than 0, a ``burst`` states ``tail_share`` (above 0,
+    below 1) and ``tail_decay_s`` together or neither, ``at_time`` is
     an ``HH:MM[:SS]`` time of day, ``at_when`` is ``{days_ago: <int>, time:
     HH:MM[:SS]}``, and a ``to`` coerces to the channel's value type, options
     and shape. An entry naming no channel is left to the reference check.
@@ -748,6 +758,14 @@ def _event_problem(
                 f"end a step placed by `{position}` with `{_STEP_UNTIL[position]}` only",
             )
         required += ends
+    if shape == "burst":
+        tail = [key for key in _BURST_TAIL if key in event]
+        if len(tail) == 1:
+            return (
+                f"states {quoted_slots(tail)} without the rest of its tail",
+                f"state {quoted_slots(_BURST_TAIL)} together, or neither",
+            )
+        required += tail
     missing = [key for key in required if key not in event]
     if missing:
         return f"lacks {quoted_slots(missing)}", f"give the `{shape}` event {quoted_slots(missing)}"
@@ -763,10 +781,16 @@ def _event_problem(
                 f"has `{key}` {event[key]!r}, outside 0 to 1",
                 f"write `{key}` as a window fraction from 0 to 1",
             )
-    if "width" in numbers and event["width"] <= 0:
+    for key in _EVENT_POSITIVE:
+        if key in numbers and event[key] <= 0:
+            return (
+                f"has `{key}` {event[key]!r}, not greater than 0",
+                f"write `{key}` as a number greater than 0",
+            )
+    if "tail_share" in numbers and not 0.0 < event["tail_share"] < 1.0:
         return (
-            f"has `width` {event['width']!r}, not greater than 0",
-            "write `width` as a number greater than 0",
+            f"has `tail_share` {event['tail_share']!r}, not between 0 and 1",
+            "write `tail_share` as the slow tail's fraction of the amplitude, above 0 and below 1",
         )
     # The logbook reads the same {days_ago, time} grammar; a value it refuses
     # must not be served misplaced here.

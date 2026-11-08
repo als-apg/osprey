@@ -1,11 +1,11 @@
 """Real builds shared across test directories, used by ``tests/conftest.py``.
 
-``built_control_assistant`` is the one real ``osprey build --skip-deps`` of the
-control-assistant preset that the facility and build tests read. It is
+``built_demo`` is the one real ``osprey build --skip-deps`` of the
+demo preset that the facility and build tests read. It is
 session-scoped, and under xdist the workers of one run share it: the first
 worker to ask builds it under the run's base temp directory, holding a lock, and
 every later worker reads that build, so the build runs once per run whichever
-groups its readers sit in. ``built_control_assistant_watchdog_on`` is shared
+groups its readers sit in. ``built_demo_watchdog_on`` is shared
 the same way: a copy of that build with the preset's watchdog turned on in its
 profile and the repo rebuilt in place.
 
@@ -63,7 +63,7 @@ def init_project(parent: Path, preset: str, name: str) -> Path:
 
 
 def init_machineless(parent: Path, name: str) -> Path:
-    """Init a control-assistant repo with no machine in it.
+    """Init a demo repo with no machine in it.
 
     Its facility tree holds the blank knowledge index the facility import seeds
     and nothing else, and its profile states the empty start set, the remedy of
@@ -76,13 +76,13 @@ def init_machineless(parent: Path, name: str) -> Path:
     Returns:
         The repo.
     """
-    repo = init_project(parent, "control-assistant", name)
+    repo = init_project(parent, "demo", name)
     strip_machine(repo)
     return repo
 
 
 def strip_machine(repo: Path) -> None:
-    """Take the machine out of a control-assistant repo.
+    """Take the machine out of a demo repo.
 
     The facility tree is left holding the blank knowledge index the facility
     import seeds, and the profile states the empty start set.
@@ -190,8 +190,8 @@ def _exclusive(lock_path: Path) -> Iterator[None]:
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def build_control_assistant(parent: Path) -> BuiltProject:
-    """Initialise and build the control-assistant preset under ``parent``.
+def build_demo(parent: Path) -> BuiltProject:
+    """Initialise and build the demo preset under ``parent``.
 
     Args:
         parent: The directory the repo is created in.
@@ -201,7 +201,7 @@ def build_control_assistant(parent: Path) -> BuiltProject:
     """
     from osprey.facility import render
 
-    repo = init_project(parent, "control-assistant", "demo")
+    repo = init_project(parent, "demo", "demo")
     built = BuiltProject(repo)
     real = render.render_facility_outputs
 
@@ -336,15 +336,13 @@ def _built_once(
 
 
 @pytest.fixture(scope="session")
-def built_control_assistant(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
-    """The control-assistant preset, initialised and built once per run.
+def built_demo(tmp_path_factory: pytest.TempPathFactory) -> BuiltProject:
+    """The demo preset, initialised and built once per run.
 
     Tests read it and never write to it. Outside xdist the session builds it;
     under xdist the workers share one build in the run's base temp directory.
     """
-    built: BuiltProject = _built_once(
-        tmp_path_factory, "built-ca", SHARED_BUILD_RECORD, build_control_assistant
-    )
+    built: BuiltProject = _built_once(tmp_path_factory, "built-ca", SHARED_BUILD_RECORD, build_demo)
     return built
 
 
@@ -353,13 +351,13 @@ WATCHDOG_OFF = "  guard-circumvention:\n    engine: decision\n    enabled: false
 
 
 def build_watchdog_on(built: Path, parent: Path) -> Path:
-    """Copy the built control-assistant repo, turn its watchdog on, and rebuild it in place.
+    """Copy the built demo repo, turn its watchdog on, and rebuild it in place.
 
     The rebuild runs over the copy's disabled build, as an operator's rebuild
     after the profile edit runs over theirs.
 
     Args:
-        built: The built control-assistant repo, watchdog off.
+        built: The built demo repo, watchdog off.
         parent: The directory the copy is made in.
 
     Returns:
@@ -380,10 +378,10 @@ def build_watchdog_on(built: Path, parent: Path) -> Path:
 
 
 @pytest.fixture(scope="session")
-def built_control_assistant_watchdog_on(
-    tmp_path_factory: pytest.TempPathFactory, built_control_assistant: BuiltProject
+def built_demo_watchdog_on(
+    tmp_path_factory: pytest.TempPathFactory, built_demo: BuiltProject
 ) -> Path:
-    """``built_control_assistant`` with ``guard-circumvention`` enabled, rebuilt once per run.
+    """``built_demo`` with ``guard-circumvention`` enabled, rebuilt once per run.
 
     Tests read it and never write to it; one that writes takes a ``copy_build``.
     """
@@ -391,7 +389,7 @@ def built_control_assistant_watchdog_on(
         tmp_path_factory,
         "built-ca-watchdog-on",
         SHARED_WATCHDOG_BUILD_RECORD,
-        lambda parent: build_watchdog_on(built_control_assistant.repo, parent),
+        lambda parent: build_watchdog_on(built_demo.repo, parent),
     )
     return repo
 

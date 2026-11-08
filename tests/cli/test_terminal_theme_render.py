@@ -31,7 +31,7 @@ def _regen_with_web_theme(tmp_path, theme: str | None):
         manager,
         project_name="theme-test",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     # The preset states a theme of its own, so the absent case has to take it

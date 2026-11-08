@@ -228,7 +228,7 @@ def _do_not_call(rendered: str) -> set[str]:
 
 
 @pytest.mark.parametrize("view", VIEW_FLAGS)
-def test_control_assistant_do_not_call_list_is_the_read_tools(view):
+def test_demo_do_not_call_list_is_the_read_tools(view):
     expected = (
         set(FRAMEWORK_SERVERS["ariel"].permissions_allow) - _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
     )

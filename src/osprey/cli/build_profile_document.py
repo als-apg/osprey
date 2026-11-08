@@ -1141,7 +1141,7 @@ RETIRED_EXAMPLE_ARTIFACT_KEY = "artifact_server.example_artifact"
 def normalize_retired_example_artifact(raw: dict[str, Any], source: str) -> dict[str, Any]:
     """Drop ``artifact_server.example_artifact`` under ``config:``, in place.
 
-    Every repo materialized from the control-assistant preset states it. Each
+    Every repo materialized from the demo preset states it. Each
     spelling (and any mapping that empties) warns once per *source* and is
     dropped.
 
@@ -1197,7 +1197,7 @@ def _drop_config_path(node: dict, prefix: tuple[str, ...], path: tuple[str, ...]
 def normalize_retired_panel(raw: dict[str, Any], source: str) -> dict[str, Any]:
     """Drop the retired LATTICE panel from one profile document, in place.
 
-    Every repo materialized from the control-assistant preset selects it, and a
+    Every repo materialized from the demo preset selects it, and a
     tab that no longer exists has nothing to protect, so each spelling — the
     ``web_panels`` entry, a ``default_panel`` naming it, and its ``config:``
     keys — warns once per *source* and is dropped.

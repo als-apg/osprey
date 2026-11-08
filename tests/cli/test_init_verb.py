@@ -144,7 +144,7 @@ def init_exemplar(runner: CliRunner, target: Path, *extra: str):
     Nothing is set beyond the preset: the deployment's ``project_name`` is
     proposed from the directory and recorded in ``profile.yml``.
     """
-    return run_init(runner, str(target), "--preset", "control-assistant", *extra)
+    return run_init(runner, str(target), "--preset", "demo", *extra)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -474,7 +474,7 @@ def test_init_refuses_a_stated_name_compose_would_rewrite(
 def test_data_key_names_the_repos_own_tree(exemplar_repo: Path) -> None:
     profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
     assert profile["data"] == "data"
-    assert profile["provenance"]["preset"] == "control-assistant"
+    assert profile["provenance"]["preset"] == "demo"
 
 
 # ---------------------------------------------------------------------------
@@ -586,7 +586,7 @@ def test_in_place_into_an_empty_clone(
     subprocess.run(["git", "init", "--quiet", str(target)], check=True, timeout=60)
     monkeypatch.chdir(target)
 
-    result = run_init(runner, "--preset", "control-assistant")
+    result = run_init(runner, "--preset", "demo")
 
     assert result.exit_code == 0, result.output
     assert (target / "profile.yml").is_file()
@@ -601,7 +601,7 @@ def test_in_place_refuses_a_directory_that_is_not_empty(
     (tmp_path / "notes.txt").write_text("mine\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    result = run_init(runner, "--preset", "control-assistant")
+    result = run_init(runner, "--preset", "demo")
 
     assert result.exit_code == 2
     assert "not empty" in result.output
@@ -1071,7 +1071,7 @@ def test_list_presets_needs_no_target(runner: CliRunner) -> None:
     result = run_init(runner, "--list-presets")
 
     assert result.exit_code == 0
-    assert "control-assistant" in result.output
+    assert "demo" in result.output
 
 
 def test_missing_preset_points_at_the_list(runner: CliRunner, tmp_path: Path) -> None:

@@ -27,9 +27,9 @@ the operator's own `profile.yml`:
 | id | path |
 |----|------|
 | `hello-world` | `src/osprey/profiles/presets/hello-world.yml` |
-| `control-assistant` | `src/osprey/profiles/presets/control-assistant.yml` |
+| `demo` | `src/osprey/profiles/presets/demo.yml` |
 
-The bundled shared logins, each composed over `control-assistant` (the host):
+The bundled shared logins, each composed over `demo` (the host):
 
 | id | path |
 |----|------|
@@ -101,11 +101,11 @@ holds this table and the marks to one set of keys.
 | `system.timezone` | `UTC` everywhere | pinned for reproducibility |
 | `approval.enabled` | `true` everywhere | |
 | `approval.default_policy` | `always` everywhere | fail-closed for hook-wired tools not listed |
-| `hooks.debug` | diverges | `false` in `hello-world`, `true` in `control-assistant`. Also a posture-floor key, which is what moved it from a per-template divergence to a parity requirement: every preset must state it either way |
+| `hooks.debug` | diverges | `false` in `hello-world`, `true` in `demo`. Also a posture-floor key, which is what moved it from a per-template divergence to a parity requirement: every preset must state it either way |
 | `artifact_server.host` | `127.0.0.1` everywhere | |
 | `artifact_server.auto_launch` | `true` everywhere | |
 | `execution.execution_method` | `subprocess` everywhere | |
-| `deployed_services` | diverges | `[]` (`hello-world`), `[postgresql, qmd, graphdb]` (`control-assistant`). Presence is universal, the value is capability-scoped. A guard must check presence only |
+| `deployed_services` | diverges | `[]` (`hello-world`), `[postgresql, qmd, graphdb]` (`demo`). Presence is universal, the value is capability-scoped. A guard must check presence only |
 
 Their parent blocks — `approval`, `artifact_server`, `claude_code`,
 `claude_code.servers`, `execution`, `hooks`, `system` —
@@ -123,7 +123,7 @@ agreement among the presets that state the key.
   preset lists only tools its servers gate
   (`tests/profiles/test_approval_tools_parity.py`), and an unlisted tool falls to
   `approval.default_policy`. `entry_create` and `entry_publish` carry no mark:
-  `control-assistant` is the only root preset that states them (the `logbook`
+  `demo` is the only root preset that states them (the `logbook`
   app states them too, and apps are not parity subjects), so the mark would
   compare nothing.
 
@@ -146,29 +146,29 @@ Present only where the deployment has the capability.
 
 | dotted key | present in | rationale |
 |---|---|---|
-| `control_system.*` | `hello-world`, `control-assistant` | every shipped preset reaches a control system; a deployment that disables the `controls` server has no hardware surface and states none |
-| `archiver.*` | `hello-world`, `control-assistant` | rides with `control_system` |
-| `ariel.*` | `control-assistant` | logbook deployments only |
-| `logbook.*` | `control-assistant` | rides with `ariel` |
-| `channel_finder.*` | `control-assistant` | `hello-world` serves no channel finder; control-assistant adds the benchmark corpus and the panel's web server |
-| `facility_knowledge.*` | `control-assistant` | the only preset shipping an OKF corpus |
-| `services.*` | `hello-world`, `control-assistant` | a deployment whose services are all file-backed deploys no standing service |
-| `services.postgresql`, `services.qmd`, `services.graphdb` | `control-assistant` | only ARIEL needs the logbook stores |
-| `cli.*` | `control-assistant` | console theming; `hello-world` omits it |
-| `modules.web_terminals.*`, `deploy.fqdn` | `control-assistant` | the multi-user roster. `hello-world` is a single-terminal starting point |
-| `bluesky.*`, `claude_code.servers.bluesky.enabled` | `control-assistant` | the plan queue |
-| `claude_code.permissions.deny` | `control-assistant` | the floor every tier and app inherits |
-| `web.*` | `control-assistant` | `hello-world` selects no panel and states no web key, so it renders no `web:` block at all |
-| `simulation.default_scenarios` | `control-assistant` | the only preset whose facility tree ships scenarios to start in |
+| `control_system.*` | `hello-world`, `demo` | every shipped preset reaches a control system; a deployment that disables the `controls` server has no hardware surface and states none |
+| `archiver.*` | `hello-world`, `demo` | rides with `control_system` |
+| `ariel.*` | `demo` | logbook deployments only |
+| `logbook.*` | `demo` | rides with `ariel` |
+| `channel_finder.*` | `demo` | `hello-world` serves no channel finder; demo adds the benchmark corpus and the panel's web server |
+| `facility_knowledge.*` | `demo` | the only preset shipping an OKF corpus |
+| `services.*` | `hello-world`, `demo` | a deployment whose services are all file-backed deploys no standing service |
+| `services.postgresql`, `services.qmd`, `services.graphdb` | `demo` | only ARIEL needs the logbook stores |
+| `cli.*` | `demo` | console theming; `hello-world` omits it |
+| `modules.web_terminals.*`, `deploy.fqdn` | `demo` | the multi-user roster. `hello-world` is a single-terminal starting point |
+| `bluesky.*`, `claude_code.servers.bluesky.enabled` | `demo` | the plan queue |
+| `claude_code.permissions.deny` | `demo` | the floor every tier and app inherits |
+| `web.*` | `demo` | `hello-world` selects no panel and states no web key, so it renders no `web:` block at all |
+| `simulation.default_scenarios` | `demo` | the only preset whose facility tree ships scenarios to start in |
 
 ### Deliberately divergent defaults
 
 | dotted key | values | rationale |
 |---|---|---|
-| `control_system.writes` | `allowed` in `control-assistant`; `never` in `hello-world` | control-assistant is the reference facility demonstrating the approval flow; hello-world is a read-only-by-default starting point |
-| `web.theme` | live `light` in `control-assistant`; commented in `hello-world` | the default is `"osprey"` either way (`web_terminal/app.py`), so nothing behavioral is at stake |
-| `channel_finder.benchmark.dataset_path` | `control-assistant` only | see below |
-| `deployment.bind_address` (commented) | `hello-world`, `control-assistant` | absent ⇒ `127.0.0.1`, the safe state |
+| `control_system.writes` | `allowed` in `demo`; `never` in `hello-world` | demo is the reference facility demonstrating the approval flow; hello-world is a read-only-by-default starting point |
+| `web.theme` | live `light` in `demo`; commented in `hello-world` | the default is `"osprey"` either way (`web_terminal/app.py`), so nothing behavioral is at stake |
+| `channel_finder.benchmark.dataset_path` | `demo` only | see below |
+| `deployment.bind_address` (commented) | `hello-world`, `demo` | absent ⇒ `127.0.0.1`, the safe state |
 
 `control_system.writes` is the tier's write ceiling, `allowed` or `never`, and
 is target-blind: which machine a session writes is the session's switch, not
@@ -212,7 +212,7 @@ The preset conversion added twenty of the seventy-five, in three groups:
 
 | group | why nothing ships it |
 |---|---|
-| `control_system.connector.epics.gateways.*` (9) | a facility's Channel Access gateways cannot be guessed, and shipping someone else's would point a control system at a stranger's machine. `control-assistant` documents the whole block commented and the operator authors it at go-live |
+| `control_system.connector.epics.gateways.*` (9) | a facility's Channel Access gateways cannot be guessed, and shipping someone else's would point a control system at a stranger's machine. `demo` documents the whole block commented and the operator authors it at go-live |
 | `archiver.mongodb_archiver.*` (9) | the build's archiver injector derives the connection block from the deployment's own `services.postgresql` / `va_archiver:` declaration. The preset states only `archiver.type: mongodb_archiver` |
 | `control_system.connector.virtual_accelerator.response_delay_ms` (1) | the presets serve the simulator in process at the connector's own delay; a slower machine is authored per deployment |
 
@@ -235,13 +235,13 @@ preset.
 
 ### `channel_finder.benchmark` — resolved
 
-No preset but control-assistant ships a `benchmark:` block, and adding one
-elsewhere would name a phantom path: only the control-assistant bundle ships the query corpus,
+No preset but demo ships a `benchmark:` block, and adding one
+elsewhere would name a phantom path: only the demo bundle ships the query corpus,
 and the build copies the mode's benchmark query file to
 `data/benchmarks/queries.json` (`cli/templates/scaffolding.py`); a bundle that
 ships none has no `queries.json`.
 
-So benchmark **is** deliberately control-assistant-only. The command still works
+So benchmark **is** deliberately demo-only. The command still works
 in a deployment without the corpus via `--queries-path`, which bypasses the config
 read (`cli/channel_finder_cmd.py`). The bare `KeyError` on the config subscript
 was replaced with an error naming both remedies
@@ -259,7 +259,7 @@ omission.
    tool that cannot run.
 3. **`draft_concept` is approval-governed but listed nowhere.** `resolve_servers`
    shows `osprey_facility_knowledge` enabled in `hello-world` and
-   `control-assistant`, and its `draft_concept` tool carries the approval hook.
+   `demo`, and its `draft_concept` tool carries the approval hook.
    It is absent from every `approval.tools` block, so it falls to
    `default_policy: always` — fail-closed and correctly described by the
    shipped comment. No change needed; recorded so it is not mistaken for drift.

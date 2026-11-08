@@ -796,7 +796,7 @@ The file is yours — common edits:
       * - Narrow the ownership change
         - ``chown -R osprey:osprey`` on ``var/`` only, plus the directory
           ``facility_knowledge.bundle_path`` names under ``build/``
-          (``build/data/facility/knowledge`` for the ``control-assistant``
+          (``build/data/facility/knowledge`` for the ``demo``
           preset) when the deployment names one.
           Not the project root — that blanket chown is what hands the render
           away

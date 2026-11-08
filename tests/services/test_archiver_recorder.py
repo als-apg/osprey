@@ -910,7 +910,7 @@ async def test_the_simulator_is_recorded_whatever_machine_the_sessions_start_on(
     """``control_system.type`` names the session baseline, not the store's owner.
 
     A deployment that opens its sessions on its stand-in — the shipped
-    control-assistant shape, with both the simulator and the stand-in built —
+    demo shape, with both the simulator and the stand-in built —
     or on the facility's machine still built the simulator, still seeded its
     past, and still records it: the ``va`` target lands on this deployment's
     own container, and that is the whole gate."""
@@ -1404,7 +1404,7 @@ def test_control_system_type_reads_the_file_each_time(tmp_path: Path) -> None:
     assert read_control_system_type(config_path) == "virtual_accelerator"
 
 
-#: The deployment the shipped control-assistant preset renders, as `_write_config`
+#: The deployment the shipped demo preset renders, as `_write_config`
 #: kwargs: sessions open on the stand-in, and both the simulator and the
 #: stand-in are built — the simulator on the port the ``va`` block is filled from.
 _STANDIN_BASELINE = {
@@ -1421,7 +1421,7 @@ _STANDIN_BASELINE = {
         pytest.param(
             _STANDIN_BASELINE,
             RecordingFacts("live_standin", True),
-            id="the-control-assistant-shape-opens-on-its-stand-in",
+            id="the-demo-shape-opens-on-its-stand-in",
         ),
         pytest.param(
             {"control_system_type": "epics", "live_gateway": ("epics-gateway.example.org", 5064)},

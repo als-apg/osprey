@@ -123,7 +123,7 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
 # serving the genuine render output — so the baseline exercises the real
 # deploy render path, not a hand-built HTML fixture. Two users on distinct
 # tiers (alice->operator, bob->physicist) so both tier sublabels appear, plus
-# the three shared logins the control-assistant preset ships (logbook research,
+# the three shared logins the demo preset ships (logbook research,
 # facility knowledge and channel finder), titled by their login files' ``name:``
 # — so the baseline also covers the labelled users section and the shared tray
 # (accent-edged panel, no badges on shared cards). The tray keeps the label
@@ -335,36 +335,26 @@ TARGETS: list[VisualTarget] = [
         _web_terminal_static_page_server,
         path="/static/session.html",
     ),
-    VisualTarget("artifacts_gallery", _artifacts_server, path="/"),
-    # Both frames wait for the list pane to settle — its body holds rows, the
-    # empty state or the error state, never the loading spinner — so the
-    # baseline captures the one screen (rail | list | reader), not a spinner.
-    VisualTarget(
-        "ariel",
-        _ariel_server,
-        path="/",
-        wait_selector=_ARIEL_SETTLED,
-    ),
-    # Embedded mode drops the panel's own header entirely (the hub tile bar is
-    # the one header, see ``body.embedded .header`` in ariel's layout.css) and
-    # starts with the rail collapsed to its strip.
+    VisualTarget("artifacts_gallery", _artifacts_server, path="/?embedded=true"),
+    # Waits for the list pane to settle — its body holds rows, the empty state
+    # or the error state, never the loading spinner — so the baseline captures
+    # the one screen (rail | list | reader), not a spinner. The rail starts
+    # collapsed to its strip.
     VisualTarget(
         "ariel_embedded",
         _ariel_server,
         path="/?embedded=true",
         wait_selector=_ARIEL_SETTLED,
     ),
-    VisualTarget("channel_finder", _channel_finder_server, path="/"),
-    # D14/D15 regression guard: embedded mode must hide the standalone logo +
-    # theme switcher (component self-hides via body.embedded) while keeping
-    # the pipeline switcher + nav usable — see channel-finder-narrowing.
+    # The pipeline switcher stays usable with the hub's tile bar as the only
+    # header.
     VisualTarget(
         "channel_finder_embedded",
         _channel_finder_server,
         path="/?embedded=true",
     ),
     # The graph paradigm's Explore view: a search-first faceted finder, where the
-    # file-backed pipelines browse a channel tree. Path stays "/" — the router
+    # file-backed pipelines browse a channel tree. No hash — the router
     # (``routeFromHash`` in app.js) already defaults an empty hash to ``explore``,
     # and a literal "/#explore" would push this suite's ``?theme=``
     # query into the fragment, where neither the theme nor the mode hook reads
@@ -375,18 +365,18 @@ TARGETS: list[VisualTarget] = [
     VisualTarget(
         "channel_finder_graph",
         _channel_finder_graph_server,
-        path="/",
+        path="/?embedded=true",
         wait_selector="#graph-finder-table .result-table tbody tr[data-pv]:first-child",
     ),
     VisualTarget(
         "okf_panel",
         _okf_panel_server,
-        path="/",
+        path="/?embedded=true",
         wait_selector="#tree",
     ),
     # Dispatch dashboard has no live dispatcher backend behind it here, so it
     # renders its genuine no-data empty state — a legitimate, stable baseline.
-    VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/"),
+    VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/?embedded=true"),
     # The scan panel: one bundle at /bluesky, with /plan and /results kept as
     # deprecated aliases for one release (see ``_PANEL_MOUNTS`` in
     # ``osprey.interfaces.bluesky_web.app``). The wait_selector is a static
@@ -396,7 +386,7 @@ TARGETS: list[VisualTarget] = [
     VisualTarget(
         "scan_panel_bluesky",
         _bluesky_web_server,
-        path="/bluesky/",
+        path="/bluesky/?embedded=true",
         wait_selector="#plan-tree",
     ),
 ]

@@ -1,6 +1,6 @@
 # Demo Facility — OSPREY deployment repo
 #
-# Made from the bundled `control-assistant` preset, then trimmed by hand: the
+# Made from the bundled `demo` preset, then trimmed by hand: the
 # artifact lists are shorter than the preset's and the roster names two users
 # at two tiers in tiers/, with no shared apps. So this is not that preset's plain
 # materialization, and it carries no `provenance:` block — there is no emission
@@ -183,7 +183,7 @@ config:
   claude_code.servers.health.enabled: true
   system.timezone: America/Los_Angeles
   # Exactly the services this facility runs. Set explicitly because the
-  # packaged control_assistant skeleton also declares `postgresql` — declared
+  # packaged demo skeleton also declares `postgresql` — declared
   # is not deployed, and this list is what `osprey up` reads.
   #
   # Nothing is named here. Four services are appended by the injectors their

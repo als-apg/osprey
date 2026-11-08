@@ -42,7 +42,7 @@ The greyed ``hyde`` branch ships in the image but nothing in OSPREY calls it.
 
 It is entirely self-contained --- its language models are baked into the image,
 so unlike the ``semantic`` search mode it needs no Ollama on the host --- and
-the ``control-assistant`` template deploys it **by
+the ``demo`` template deploys it **by
 default**, together with its two ARIEL consumers (the ``qmd_export``
 enhancement module and the ``hybrid`` search mode). The OKF bundle needs only
 ``facility_knowledge.bundle_path``, which it already has.

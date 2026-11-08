@@ -93,7 +93,7 @@ included.
 Chat bridge
 -----------
 
-Nextcloud Talk, Google Chat and Microsoft Teams ship with Osprey; Slack,
+Nextcloud Talk, Google Chat, Microsoft Teams and Slack ship with Osprey;
 Mattermost or plain email would each be a new bridge. Almost none of a bridge is per-service ---
 deduplication, history, retries, honest give-up and crash recovery live in the
 engine under ``src/osprey/bridges/core/``. What you write is an arrival loop
@@ -104,7 +104,8 @@ answers. A bridge that can list who is in a conversation also implements the
 optional ``osprey.bridges.core.ports.RoomRoster``; the engine then tells the
 agent who is in the room, and the bridge renders the agent's ``<@ID>`` mentions
 in its own chat system's syntax. Copy ``src/osprey/bridges/google_chat/``,
-``src/osprey/bridges/nextcloud_talk/`` or ``src/osprey/bridges/teams/``, and
+``src/osprey/bridges/nextcloud_talk/``, ``src/osprey/bridges/teams/`` or
+``src/osprey/bridges/slack/``, and
 expect to touch the build-profile
 and injector modules in ``src/osprey/cli/`` so a profile can switch the new
 service on. Pinning test: ``tests/bridges/test_ports.py``. Deployers start

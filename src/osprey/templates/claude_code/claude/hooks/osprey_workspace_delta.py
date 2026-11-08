@@ -468,7 +468,7 @@ def _describe_popouts(previous, current):
     out = [key for key in after if key not in before]
     back = [key for key in before if key not in after]
     if out:
-        clauses.append(f"{', '.join(out)} popped out to {_noun(out, 'a window', 'windows')}")
+        clauses.append(f"{', '.join(out)} moved to {_noun(out, 'a window', 'windows')}")
     if back:
         clauses.append(f"{', '.join(back)} back from {_noun(back, 'its window', 'their windows')}")
     return clauses

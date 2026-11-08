@@ -645,6 +645,105 @@ describe("a session's layout is the stored dock, applied live", () => {
     expect(document.documentElement.getAttribute('data-agent')).toBe('closed');
   });
 
+  test('the Agent pane has three states on <html> and in its event: open, detached, closed', async () => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    const seen = /** @type {any[]} */ ([]);
+    const hear = (/** @type {any} */ e) => seen.push(e.detail);
+    document.addEventListener('osprey-agent-pane', hear);
+    expect(document.documentElement.hasAttribute('data-agent')).toBe(false);
+
+    expect(page.holder.detach('terminal', null)).toBe(true);
+    expect(document.documentElement.getAttribute('data-agent')).toBe('detached');
+    expect(page.workspace.isTerminalPanelOpen()).toBe(false);
+
+    expect(page.holder.reattach('terminal')).toBe(true);
+    expect(document.documentElement.hasAttribute('data-agent')).toBe(false);
+
+    page.holder.detach('terminal', null);
+    page.holder.forget('terminal');
+    expect(document.documentElement.getAttribute('data-agent')).toBe('closed');
+    document.removeEventListener('osprey-agent-pane', hear);
+    expect(seen).toEqual([
+      { open: false, detached: true },
+      { open: true, detached: false },
+      { open: false, detached: true },
+      { open: false, detached: false },
+    ]);
+  });
+
+  /** A window whose shell has loaded, the Agent pane moved into it through pane-window. */
+  async function detachAgent(/** @type {Awaited<ReturnType<typeof boot>>} */ page) {
+    const doc = document.implementation.createHTMLDocument('');
+    doc.documentElement.setAttribute('data-osprey-attached-shell', '');
+    const target = new EventTarget();
+    const win = {
+      document: doc,
+      closed: false,
+      focus: vi.fn(),
+      close: vi.fn(() => {
+        win.closed = true;
+      }),
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+    };
+    vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (win));
+    const paneWindow = await import(`${JS}/pane-window.js`);
+    expect(paneWindow.detach('terminal')).toBe(true);
+    await settle();
+    expect(page.holder.isDetached('terminal')).toBe(true);
+    return { win, doc };
+  }
+
+  test.each([
+    ['closeDockPanel', (/** @type {any} */ workspace) => workspace.closeDockPanel('terminal')],
+    ['closeTerminalPanel', (/** @type {any} */ workspace) => workspace.closeTerminalPanel()],
+  ])('%s forgets a detached pane and closes its window', async (_name, close) => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    const { win } = await detachAgent(page);
+
+    expect(close(page.workspace)).toBe(true);
+
+    expect(win.close).toHaveBeenCalledTimes(1);
+    expect(page.holder.isDetached('terminal')).toBe(false);
+    expect(page.holder.holds('terminal')).toBe(false);
+  });
+
+  test('a surfacing of a detached Agent pane goes to its window; it never docks', async () => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    const { win, doc } = await detachAgent(page);
+    expect(doc.querySelector('.attached-window-root > .terminal-panel')).not.toBeNull();
+    const before = page.holder.layout;
+
+    page.workspace.openTerminalPanel();
+
+    expect(win.focus).toHaveBeenCalledTimes(1);
+    expect(page.holder.layout).toBe(before);
+    expect(page.holder.isDetached('terminal')).toBe(true);
+    win.close();
+    page.holder.forget('terminal');
+  });
+
+  test('closing a detached Agent pane closes its window and does not dock it (R4)', async () => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    const { win } = await detachAgent(page);
+
+    expect(page.workspace.closeTerminalPanel()).toBe(true);
+
+    expect(win.closed).toBe(true);
+    expect(page.holder.isDetached('terminal')).toBe(false);
+    expect(page.workspace.isTerminalPanelOpen()).toBe(false);
+    expect(document.documentElement.getAttribute('data-agent')).toBe('closed');
+    // A closed pane reopens from the row, with its live subtree.
+    page.workspace.openTerminalPanel();
+    await settle();
+    expect(page.workspace.isTerminalPanelOpen()).toBe(true);
+    expect(document.querySelector('#dock-root .terminal-panel')).not.toBeNull();
+  });
+
   test('a panel the dock cannot build is dropped; a value of another version changes nothing', async () => {
     const page = await boot('carol');
     const before = page.holder.layout;

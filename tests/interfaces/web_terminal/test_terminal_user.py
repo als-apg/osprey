@@ -109,7 +109,7 @@ class TestMoreMenuIdentity:
             patch("osprey.interfaces.web_terminal.app._load_web_config", return_value=cfg),
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_ui_config",
-                return_value={"app_name": "Control Assistant"},
+                return_value={"app_name": "Demo"},
             ),
             patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "alice"}),
         ):
@@ -117,7 +117,7 @@ class TestMoreMenuIdentity:
                 body = c.get("/").text
 
         sub = _span(body, "more-menu-sub")
-        assert sub is not None and sub[1] == "Control Assistant"
+        assert sub is not None and sub[1] == "Demo"
         assert "header-app-name" not in body
 
 

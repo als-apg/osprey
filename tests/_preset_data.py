@@ -27,7 +27,7 @@ def _scratch_root() -> Path:
     return root
 
 
-def preset_data(bundle: str = "control_assistant"):
+def preset_data(bundle: str = "demo"):
     """The packaged composition the preset named after *bundle* copies.
 
     Args:
@@ -40,14 +40,14 @@ def preset_data(bundle: str = "control_assistant"):
     return _preset_data(TemplateManager(), bundle.replace("_", "-"))
 
 
-def bundle_data_root(bundle: str = "control_assistant") -> Path:
+def bundle_data_root(bundle: str = "demo") -> Path:
     """The composed ``data/`` tree of the preset named after *bundle*.
 
     The tree a profile materialized from that preset holds under ``data/``:
     the app template's ``data/`` plus its facility at ``data/facility/``.
 
     Args:
-        bundle: An app template name (``control_assistant``, ``hello_world``).
+        bundle: An app template name (``demo``, ``hello_world``).
 
     Returns:
         A directory shared by every caller in this process; read it, never
@@ -67,7 +67,7 @@ def _composed(bundle: str) -> Path:
     return destination
 
 
-def copy_bundle_data(destination: Path, bundle: str = "control_assistant") -> Path:
+def copy_bundle_data(destination: Path, bundle: str = "demo") -> Path:
     """Copy the composed ``data/`` tree of *bundle*'s preset to *destination*.
 
     For a test that edits its copy. *destination* may exist already; files in
@@ -80,7 +80,7 @@ def copy_bundle_data(destination: Path, bundle: str = "control_assistant") -> Pa
     return destination
 
 
-def packaged_facility_dir(bundle: str = "control_assistant") -> Path:
+def packaged_facility_dir(bundle: str = "demo") -> Path:
     """The packaged facility tree the preset named after *bundle* lands at ``data/facility/``.
 
     The bundled facility the preset names, or — for a preset naming none — the
@@ -111,7 +111,7 @@ def create_project_as_built(manager, *, facility_views: bool = False, **kwargs) 
             as a build does, so the agent facts name the models the render
             serves.
         **kwargs: Passed to ``manager.create_project``; ``data_bundle`` defaults
-            to ``control_assistant`` and ``data_root`` to that bundle's tree.
+            to ``demo`` and ``data_root`` to that bundle's tree.
 
     Returns:
         The rendered project directory.
@@ -119,7 +119,7 @@ def create_project_as_built(manager, *, facility_views: bool = False, **kwargs) 
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
 
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
     kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)

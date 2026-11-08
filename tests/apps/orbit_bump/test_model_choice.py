@@ -305,9 +305,9 @@ def test_a_facility_with_only_a_transfer_line_offers_no_model(no_ring) -> None:
 
 
 def test_the_example_facility_offers_its_storage_ring_and_no_transfer_line(
-    built_control_assistant,
+    built_demo,
 ) -> None:
-    render = Path(built_control_assistant.build_dir)
+    render = Path(built_demo.build_dir)
     assert ring.offered_models(render) == ["SR"]
 
 

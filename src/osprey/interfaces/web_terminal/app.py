@@ -85,6 +85,7 @@ from osprey.profiles.web_panels import (
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
     PanelRegistry,
+    in_catalog_order,
     panel_id_refusal,
     panel_spec_enabled,
     sidecar_panel_descriptors,
@@ -1027,7 +1028,7 @@ def _load_panel_runtime_config(
     except Exception:
         pass
 
-    visible_panels = [p for p in enabled_panels if p not in hidden_builtins] + [
+    visible_panels = [p for p in in_catalog_order(enabled_panels) if p not in hidden_builtins] + [
         cp["id"] for cp in custom_panels if cp["id"] not in hidden_custom_ids
     ]
     return _PanelRuntimeConfig(
@@ -2341,6 +2342,10 @@ def create_app(
                 "control_target_available": bool(
                     getattr(request.app.state, "control_target_picker_available", True)
                 ),
+                # The documentation root the tile ⋯ Help row opens a panel's
+                # page under (panel-help.js). "" when web.docs_url is blank,
+                # and the template then leaves the attribute out.
+                "docs_url": getattr(request.app.state, "docs_url", "") or "",
                 # The registry's own labels for the built-in panels, stamped so
                 # panel-catalog.js can read them at module load. /api/panels
                 # answers for the ENABLED panels only and resolves after that

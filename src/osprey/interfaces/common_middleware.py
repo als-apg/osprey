@@ -159,7 +159,8 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     ``no-store``: an error or redirect on a vendor path is uncached, so it
     cannot outlive the deploy that produced it. Proxied panel traffic keeps its
     upstream's headers. All other static/API paths are uncached to avoid stale
-    code after updates.
+    code after updates; the design system's modules among them, since a page's
+    own scripts import names from them and a stale copy breaks the page at load.
     """
 
     async def dispatch(self, request: Request, call_next):
@@ -172,7 +173,7 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = _IMMUTABLE
             else:
                 response.headers["Cache-Control"] = _UNCACHED
-        elif path.startswith(("/static/", "/api/")):
+        elif path.startswith(("/static/", "/api/", "/design-system/")):
             response.headers["Cache-Control"] = _UNCACHED
         return response
 

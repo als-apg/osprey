@@ -2107,6 +2107,12 @@ LANES: tuple[Lane, ...] = (
         "fixtures/test_teams_fixture_smoke.py",
         why="loopback services",
     ),
+    _e2e(
+        "slack-bridge-e2e",
+        "test_slack_bridge_e2e.py",
+        "fixtures/test_slack_fixture_smoke.py",
+        why="loopback services",
+    ),
     _e2e("dockerfile-e2e", "test_dockerfile_e2e.py"),
     _e2e("privilege-split-e2e", "test_privilege_split.py", "test_audit_two_container.py"),
     _e2e("execution-environment-parity-e2e", "test_execution_environment_parity.py"),

@@ -4,7 +4,7 @@
 Example: Orbit Bump
 ===================
 
-The orbit bump app is the example app the ``control-assistant`` preset ships.
+The orbit bump app is the example app the ``demo`` preset ships.
 It solves a local closed-orbit bump — move the beam at one or more BPMs by a
 chosen offset and close the bump with the surrounding correctors — on the
 session's control target, shows the plan, and applies it behind an approval.
@@ -122,7 +122,7 @@ and the agent uses the tools as the panel would.
 How it is built
 ===============
 
-The app is a ``control-assistant`` deployment's ``apps/orbit-bump/``: the
+The app is a ``demo`` deployment's ``apps/orbit-bump/``: the
 three parts of :doc:`index`, with the manifest:
 
 .. literalinclude:: ../../../../src/osprey/profiles/presets/apps/orbit-bump/app.yml

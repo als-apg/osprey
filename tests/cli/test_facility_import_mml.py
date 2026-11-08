@@ -1,6 +1,6 @@
 """``osprey facility import mml``: exports written as the mml layer's sources.
 
-Each repo case copies one initialised control-assistant repo, whose
+Each repo case copies one initialised demo repo, whose
 ``data/facility/`` holds the bundled example facility, and imports the synthetic
 fixture tree's export under that tree's mapping. The list verb's half of the
 import's one step is proved in ``tests/facility/test_layer_list.py``.
@@ -34,14 +34,14 @@ TEMPLATE_ROOT = REPO_ROOT / "src" / "osprey" / "templates"
 INDEX = "knowledge/index.md"
 REMEDY = (
     "move corrections into fixes.yaml and remove the record sources, "
-    "or start a new repo: osprey init <name> --preset control-assistant"
+    "or start a new repo: osprey init <name> --preset demo"
 )
 
 
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo, initialised once for this module and never edited."""
-    return init_project(tmp_path_factory.mktemp("ca"), "control-assistant", "demo")
+    """A demo repo, initialised once for this module and never edited."""
+    return init_project(tmp_path_factory.mktemp("ca"), "demo", "demo")
 
 
 @pytest.fixture

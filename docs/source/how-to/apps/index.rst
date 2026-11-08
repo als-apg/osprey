@@ -29,7 +29,7 @@ agent reads back.
    :file: ../../_diagrams/apps.html
 
 ``osprey build`` turns ``app.yml`` into the three parts; ``osprey up`` starts
-them with the rest of the deployment. The ``control-assistant`` preset ships
+them with the rest of the deployment. The ``demo`` preset ships
 one app, :doc:`orbit bump <orbit-bump>`, which this section uses as its
 example; ``osprey app new`` copies a minimal scaffold for your own.
 

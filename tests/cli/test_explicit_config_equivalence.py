@@ -76,7 +76,7 @@ slow'``. On their own::
     uv run --extra dev pytest tests/cli/test_explicit_config_equivalence.py -q
 
 A full run is minutes, not seconds: each cell is a real ``osprey build``, and a
-control-assistant cell derives a large virtual-accelerator channel set. Each cell
+demo cell derives a large virtual-accelerator channel set. Each cell
 is therefore built once per module and shared between the tests that read it.
 Under the repo's ``--dist loadgroup`` scheduler an unmarked file goes to one
 worker whole (``tests/README.md``), so that cache holds in the parallel lane too
@@ -345,7 +345,7 @@ class Broken(NamedTuple):
 class CellRenderer:
     """Builds each cell at most once per module and hands out the result.
 
-    A cell is a real ``osprey init`` + ``osprey build``; a control-assistant cell
+    A cell is a real ``osprey init`` + ``osprey build``; a demo cell
     costs minutes. Several tests read the same cell, so the outcome — rendered, refused
     or broken — is cached under the cell directory.
     """

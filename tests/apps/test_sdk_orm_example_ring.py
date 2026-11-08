@@ -26,9 +26,9 @@ BUDGET_S = 30.0
 
 
 @pytest.fixture(scope="module")
-def example_render(built_control_assistant: Any) -> Path:
+def example_render(built_demo: Any) -> Path:
     """The built demo's render, read and never written."""
-    return Path(built_control_assistant.build_dir)
+    return Path(built_demo.build_dir)
 
 
 @pytest.fixture(scope="module")

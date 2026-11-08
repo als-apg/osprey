@@ -55,10 +55,10 @@ def _boom(_path, _default=None, _config_path=None):
 
 
 #: The bundled presets that ship a control system, and so size channel_read.
-_PRESETS = ["hello-world", "control-assistant"]
+_PRESETS = ["hello-world", "demo"]
 
 #: The preset that ships the EPICS connector block, and so documents PVA routing.
-_EPICS_PRESETS = ["control-assistant"]
+_EPICS_PRESETS = ["demo"]
 
 
 def _source(preset: str) -> str:

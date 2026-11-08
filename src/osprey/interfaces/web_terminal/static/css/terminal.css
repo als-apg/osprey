@@ -19,20 +19,25 @@
   flex-direction: column;
   padding: calc(var(--wt-gutter) + var(--space-1)) var(--space-1) var(--wt-gutter) var(--space-2);
   color: var(--text-secondary);
-  overflow-x: hidden;
+  /* Clip, not hide: the sidebar never scrolls itself (its groups do), and the
+     8 px margin lets the resize handle reach across the gutter to the tiles. */
+  overflow: clip;
+  overflow-clip-margin: 8px;
 }
 
-/* The resize handle (sidebar-resize.js): a 12 px hit area along the sidebar's
-   right edge, outside the flex flow (the sidebar clips overflow, so the zone
-   sits inside the edge). The edge shows a 2 px accent line on hover and a 3 px
-   one while focused or dragged; the zone takes the col-resize cursor, and the
+/* The resize handle (sidebar-resize.js): a 16 px hit area centred on the 8 px
+   gutter between the sidebar and the tiles, so the pointer finds it where the
+   two meet. It reaches past the sidebar's edge through the sidebar's clip
+   margin. The gutter's middle shows a 2 px accent line on hover and a 3 px one
+   while focused or dragged; the zone takes the col-resize cursor, and the
    whole page does for the length of a drag. */
 .sidebar > .sidebar-resize {
   position: absolute;
   top: 0;
-  right: 0;
+  right: -8px;
   bottom: 0;
-  width: 12px;
+  z-index: 1;
+  width: 16px;
   cursor: col-resize;
   touch-action: none;
   outline: none;
@@ -42,7 +47,7 @@
   content: "";
   position: absolute;
   top: 0;
-  right: 0;
+  right: 3px;
   bottom: 0;
   width: 2px;
   background: transparent;
@@ -396,22 +401,24 @@ html[data-sidebar="collapsed"] .sidebar :is(
   pointer-events: none;
 }
 
-.sidebar .panel-rail-button.dragging {
+.sidebar :is(.panel-rail-button, .sidebar-group).dragging {
   opacity: 0.5;
 }
 
-.sidebar .panel-rail-button.drop-before {
+/* A group drag (sidebar-group-drag.js) draws the same line across the
+   group it lands in front of, or under the last group. */
+.sidebar :is(.panel-rail-button, .sidebar-group).drop-before {
   box-shadow: inset 0 2px 0 var(--color-accent);
 }
 
 /* A drop at the foot of a group: the line goes under its last row, or under
    its empty line. */
-.sidebar :is(.panel-rail-button, .sidebar-row, .sidebar-group-empty).drop-after {
+.sidebar :is(.panel-rail-button, .sidebar-row, .sidebar-group-empty, .sidebar-group).drop-after {
   box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 
-/* Popped out (panel-rail.js setEntryPoppedOut): the panel runs in its own
-   window, so the row carries a trailing window glyph and a quieter label. */
+/* Detached (rail-row-state.js setEntryDetached): the pane runs in its own
+   window, so the row carries a trailing reattach icon and a quieter label. */
 .sidebar .panel-rail-button .osprey-nav-trail {
   margin-left: auto;
   display: inline-flex;
@@ -423,7 +430,7 @@ html[data-sidebar="collapsed"] .sidebar :is(
   height: 14px;
 }
 
-.sidebar .panel-rail-button.popped-out .osprey-nav-label {
+.sidebar .panel-rail-button.detached .osprey-nav-label {
   color: var(--text-secondary);
 }
 
@@ -1757,12 +1764,12 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   z-index: var(--z-dropdown);
 }
 
-/* Verb on the left, its rail glyph trailing right — the glyph is the bridge
-   back to the iconography operators already learned. */
+/* Rail glyph leading, then the verb, then an optional hint — the glyph is the
+   bridge back to the iconography operators already learned. The column, hint
+   and heading rules are shared with the default skin in base.css. */
 .rail-context-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   width: 100%;
   padding: var(--space-2) var(--space-3);
@@ -1978,57 +1985,17 @@ html[data-sidebar-resizing] {
   text-overflow: ellipsis;
 }
 
-/* ---- Attached pop-out stand-in ----
-   What a tile shows while its content is in an attached window
-   (attached-popout.js): a centred line and the way back. In the dock overlay
-   it takes the iframe's place, so dock-iframe.js draws it with the iframe's
-   geometry; in the Agent tile it fills the tile body. */
-.attached-standin {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  box-sizing: border-box;
-  padding: var(--space-3);
-  background: var(--surface-card);
-  color: var(--text-secondary);
-  font-size: var(--text-md);
-  text-align: center;
-}
-.dock-iframe-overlay > .attached-standin {
-  position: absolute;
-  pointer-events: auto;
-  border-radius: 0 0 var(--radius-xl) var(--radius-xl);
-}
-.attached-standin-text { margin: 0; }
-
 /* ---- Attached pop-out window ----
-   The window's own bar (attached-window.js): the pane's name and Reattach,
-   in a tile header bar's metrics and type (dockview-overrides.css .tile-tab).
+   The window's bar is the tile's own (dock-tab.js, dockview-overrides.css
+   .tile-tab), minus what the dock gives a tile's bar: its row, and a drag.
    The pane fills the rest of the window edge to edge. */
-.attached-window-bar {
+.attached-window-root > .tile-tab {
   flex: 0 0 var(--wt-pane-head-height);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
   box-sizing: border-box;
   height: var(--wt-pane-head-height);
-  padding: 0 var(--space-2) 0 var(--space-4);
   background: var(--surface-card);
   border-bottom: 1px solid var(--surface-hairline);
-}
-.attached-window-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  color: var(--text-primary);
+  cursor: default;
 }
 /* The Agent pane is the window's interior, as it is the tile's when docked
    (dockview-overrides.css .dock-root .terminal-card): no inset, no second
@@ -2068,109 +2035,6 @@ html[data-sidebar-resizing] {
   border: 1px solid var(--surface-hairline);
   border-radius: var(--radius-xl);
   overflow: hidden;
-}
-
-/* The terminal surface's header row (LED · label · selector · "+ New" · ⋯),
-   with the pane-head metrics. Fallback mode (no dockview) shows it as the
-   card's own header; docked, dock-tab.js adopts it into the tile bar. */
-.terminal-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: var(--wt-pane-head-height);
-  padding: 0 var(--space-2) 0 var(--space-4);
-  background: var(--surface-card);
-  border-bottom: 1px solid var(--surface-hairline);
-  flex-shrink: 0;
-}
-
-/* Inside the tile header bar (dock-tab.js adoption) the header IS the bar:
- * it fills the tab, drops its own card border/background (the strip's
- * chrome shows through), and tightens padding to the bar's height. The
- * un-scoped rules above remain the fallback-mode (no dockview) look. */
-.tile-tab .terminal-header {
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 100%;
-  padding: 0;
-  background: transparent;
-  border-bottom: none;
-}
-
-/* In the bar, the session label is the tile's IDENTITY and renders exactly
- * like every service tile's name (.tile-tab-title in dockview-overrides.css)
- * — the green LED, selector and "+ New" are what keep the terminal
- * recognizable, not a divergent type treatment. The un-scoped .terminal-label
- * above stays the fallback-mode look. */
-.tile-tab .terminal-label {
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  text-transform: none;
-  letter-spacing: normal;
-  color: var(--text-primary);
-}
-
-/* "+ New" joins the bar's 28 px control geometry (its chip fill stays). */
-.tile-tab .new-session-btn {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 9px;
-}
-
-.session-led {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--radius-full);
-  background: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.session-led.active {
-  background: var(--color-success);
-}
-
-/* "SESSION <hex>" — one of the shell's two always-visible orientation marks;
-   the other is which panel is open (.panel-rail-button.active). Both ride the
-   secondary accent, distinct from the primary accent that means "you can act
-   here". --color-accent-secondary-light is the text-safe slot of the pair (the
-   base is decorative-only and is not gated for body text). */
-.terminal-label {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
-  color: var(--color-accent-secondary-light);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-}
-
-/* "+ New" chip — bg-elevated fill, hairline border, matching the frame's chip
-   idiom (not the old bordered mono button). */
-.new-session-btn {
-  font-family: var(--font-display);
-  font-size: var(--text-base);
-  font-weight: var(--weight-regular);
-  color: var(--text-secondary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xs);
-  padding: 3px 9px;
-  cursor: pointer;
-  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease,
-    background var(--duration-fast) ease;
-  margin-left: auto;
-}
-
-.new-session-btn:hover {
-  color: var(--color-accent-light);
-  border-color: var(--border-accent);
-  background: var(--accent-tint-08);
-}
-
-.new-session-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 /* Terminal body surface — the darker bg.terminal, distinct from the panel-bg

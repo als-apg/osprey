@@ -1,4 +1,4 @@
-"""The control-assistant template's storage-ring orbit-feedback screen.
+"""The demo template's storage-ring orbit-feedback screen.
 
 ``data/canopy/library/screens/sr/orbit-feedback.screen.json`` ships with the app
 template and is copied into a deployment's screen library. It shows the stored
@@ -28,17 +28,7 @@ from canopy_mcp.check.semantic import check_semantic
 from canopy_mcp.store import DraftStore
 
 ROOT = Path(__file__).resolve().parents[3]
-LIBRARY = (
-    ROOT
-    / "src"
-    / "osprey"
-    / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
-    / "canopy"
-    / "library"
-)
+LIBRARY = ROOT / "src" / "osprey" / "templates" / "apps" / "demo" / "data" / "canopy" / "library"
 EXAMPLE_CHANNELS = (
     ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "records" / "channels.yaml"
 )

@@ -966,13 +966,19 @@ button.osprey-search {
               box-shadow var(--duration-fast);
 }
 
-.osprey-search-field:hover {
+.osprey-search-field:hover:not(:has(input:disabled)) {
   border-color: var(--border-default);
 }
 
 .osprey-search-field:focus-within {
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px var(--surface-focus);
+}
+
+/* A disabled field keeps its slot (§2.3) and dims like a disabled button. */
+.osprey-search-field:has(input:disabled) {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .osprey-search-field input {

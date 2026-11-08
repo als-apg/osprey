@@ -80,7 +80,7 @@ VA_PORT = 5064
 #: pins the number itself. The preset names none, so the bridge takes this slot.
 BLUESKY_PORT = default_port("bluesky")
 
-#: What the Control Assistant template's VA block proves, and so what the
+#: What the Demo template's VA block proves, and so what the
 #: ``standin`` target must prove too.
 VA_PROBE_CHANNEL = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
 

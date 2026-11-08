@@ -63,7 +63,7 @@ def _pinned_env() -> Iterator[None]:
 def _ask_in(path: Path) -> None:
     """*path* authors ``asked``, the one write line it has.
 
-    The shipped stance (FR4) puts the control-assistant root and the readwrite
+    The shipped stance (FR4) puts the demo root and the readwrite
     tier at ``asked``, so the exemplar already authors the word; this proves it
     rather than writing it.
     """
@@ -196,7 +196,7 @@ def test_tiered_worker_copy_is_the_tier_render_plus_the_map(tiered: Path) -> Non
     assert staged["control_system"]["login_tiers"] == _expected_map()
     assert _without_map(staged) == image
     assert staged["control_system"]["writes"] == "never"
-    # A copy of the root would not pass: the control-assistant root arms writes.
+    # A copy of the root would not pass: the demo root arms writes.
     assert root["control_system"]["writes"] == "asked"
 
 

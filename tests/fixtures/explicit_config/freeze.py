@@ -151,7 +151,7 @@ BASELINE_SOURCE_DIRS: tuple[str, ...] = ("src", "packages/osprey-connectors/src"
 #: The presets whose renders are frozen: every preset ``osprey init`` ships.
 PRESETS: tuple[str, ...] = (
     "hello-world",
-    "control-assistant",
+    "demo",
 )
 
 #: Deployment name used for every cell. A constant, because the repo directory
@@ -199,7 +199,7 @@ DROPPED_IDENTITY_ENV: tuple[str, ...] = ("OSPREY_TERMINAL_USER",)
 #: The identity variable the pinned build account is passed in.
 AUDIT_IDENTITY_ENV = "OSPREY_AUDIT_IDENTITY"
 
-#: The control-assistant preset's ``canopy-payload`` pre_build step, switched
+#: The demo preset's ``canopy-payload`` pre_build step, switched
 #: off for every CLI subprocess. With it on, a host that names no prebuilt CANOPY
 #: payload renders the preset without its CANOPY panel, so the fixtures would
 #: depend on the host. ``tests/conftest.py`` defaults the same switch off, and

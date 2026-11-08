@@ -36,7 +36,7 @@ def _enable_flags(channel_finder_mode: str) -> dict[str, bool]:
     graph`` plus the ``services.graphdb`` declaration is its whole
     configuration. Keeping the flag derived rather than special-casing it out
     holds this set to the registry, and
-    ``tests/templates/test_control_assistant_config.py`` pins both halves —
+    ``tests/templates/test_demo_config.py`` pins both halves —
     the flag is emitted, and no template under ``src/osprey/templates``
     mentions it.
     """

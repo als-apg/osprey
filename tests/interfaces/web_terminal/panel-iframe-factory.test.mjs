@@ -138,7 +138,7 @@ describe('createPanelIframe', () => {
   });
 
   test('frames the tile opaque until the hub answers, then first-party with downloads', async () => {
-    stubCaps(() => ({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }));
+    stubCaps(() => jsonOk({ id: 'tuning', opaque: false, cap_url: null }));
     const { createPanelIframe } = await load();
     createPanelIframe(
       { id: 'tuning', label: 'Tuning' },
@@ -252,7 +252,20 @@ describe('framePanel', () => {
     expect(calls).toEqual([]);
   });
 
-  test('a panel the hub calls first-party (404) keeps the plain URL and is not renewed', async () => {
+  test('a panel the hub calls first-party (opaque: false) keeps the plain URL and is not renewed', async () => {
+    const calls = stubCaps(() => jsonOk({ id: 'results', opaque: false, cap_url: null }));
+    const { framePanel } = await load();
+    const el = attachedFrame();
+    framePanel({ id: 'results' }, 'results', el, '/panel/results/', '/panel/results');
+    await flush();
+    expect(el.dataset.panelFrame).toBe('first-party');
+    expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
+    expect(path(el)).toBe('/panel/results/');
+    await vi.advanceTimersByTimeAsync(48 * HOUR_MS);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a 404 from the cap mint frames the panel opaque at its plain URL, never first-party', async () => {
     const calls = stubCaps(() => ({
       ok: false,
       status: 404,
@@ -263,8 +276,8 @@ describe('framePanel', () => {
     const el = attachedFrame();
     framePanel({ id: 'results' }, 'results', el, '/panel/results/', '/panel/results');
     await flush();
-    expect(el.dataset.panelFrame).toBe('first-party');
-    expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
+    expect(el.dataset.panelFrame).toBe('opaque');
+    expect(el.getAttribute('sandbox')).toBe(OPAQUE);
     expect(path(el)).toBe('/panel/results/');
     await vi.advanceTimersByTimeAsync(48 * HOUR_MS);
     expect(calls).toHaveLength(1);

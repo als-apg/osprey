@@ -172,10 +172,10 @@ def test_set_with_a_list_value_replaces_the_presets_list(runner: CliRunner, tmp_
     assert manifest["artifacts"]["hooks"] == ["memory-guard", "writes-check", "approval"]
 
 
-def test_preset_control_assistant_keeps_its_record_on_clickhouse_for_90_days(
-    built_control_assistant: BuiltProject,
+def test_preset_demo_keeps_its_record_on_clickhouse_for_90_days(
+    built_demo: BuiltProject,
 ) -> None:
-    """control_assistant is the production-shaped reference facility: its agent
+    """demo is the production-shaped reference facility: its agent
     record is kept in a ClickHouse store for 90 days, its admin may read every
     session, and the history page it serves reaches back the same 90 days. The
     record replaces the telemetry store, so neither the store, its gateway nor
@@ -183,7 +183,7 @@ def test_preset_control_assistant_keeps_its_record_on_clickhouse_for_90_days(
     """
     from osprey.deployment.compose_generator import _resolve_history_render_context
 
-    cfg = _config_yaml(built_control_assistant.build_dir)
+    cfg = _config_yaml(built_demo.build_dir)
 
     record = cfg["agent_record"]
     assert record["backend"] == "clickhouse"
@@ -192,9 +192,9 @@ def test_preset_control_assistant_keeps_its_record_on_clickhouse_for_90_days(
 
     assert _resolve_history_render_context(cfg)["max_days"] == 90
     history = yaml.safe_load(
-        (
-            built_control_assistant.build_dir / "services" / "history" / "docker-compose.yml"
-        ).read_text(encoding="utf-8")
+        (built_demo.build_dir / "services" / "history" / "docker-compose.yml").read_text(
+            encoding="utf-8"
+        )
     )
     environments = [
         service.get("environment") or {} for service in (history.get("services") or {}).values()
@@ -218,8 +218,8 @@ def test_preset_hello_world_keeps_its_record_embedded_with_no_containers(
     assert "telemetry" not in cfg.get("claude_code", {})
 
 
-def test_preset_control_assistant_dispatches_on_the_host_network(
-    built_control_assistant: BuiltProject,
+def test_preset_demo_dispatches_on_the_host_network(
+    built_demo: BuiltProject,
 ) -> None:
     """A dispatched job reaches the machine and the plan queue where a terminal does.
 
@@ -229,7 +229,7 @@ def test_preset_control_assistant_dispatches_on_the_host_network(
     and its queue calls would both be refused on connect while the stack
     reported healthy.
     """
-    project_dir = built_control_assistant.build_dir
+    project_dir = built_demo.build_dir
     compose = yaml.safe_load(
         (project_dir / "services" / "dispatch_worker" / "docker-compose.yml").read_text(
             encoding="utf-8"
@@ -271,9 +271,9 @@ def test_unknown_preset_name(runner: CliRunner, tmp_path: Path) -> None:
 
 
 def test_preset_name_normalization(
-    built_control_assistant: BuiltProject, runner: CliRunner, tmp_path: Path
+    built_demo: BuiltProject, runner: CliRunner, tmp_path: Path
 ) -> None:
-    """control-assistant and control_assistant must both resolve to the same preset.
+    """``demo`` and its former spelling ``control_assistant`` resolve to one preset.
 
     The spelling is an ``osprey init`` input only: ``osprey build`` re-reads the
     repo's own source zone and never sees it. So the claim is pinned where the
@@ -291,14 +291,14 @@ def test_preset_name_normalization(
             if path.is_file()
         }
 
-    hyphen, under = source_zone("control-assistant"), source_zone("control_assistant")
+    hyphen, under = source_zone("demo"), source_zone("control_assistant")
     assert sorted(under) == sorted(hyphen)
     differing = [name for name in under if hyphen[name] != under[name]]
     assert differing == [], f"the two spellings materialized different files: {differing}"
     # Same preset → same provider in the rendered config.
     # NB: the rendered keys live under claude_code, NOT top-level
     # (a top-level lookup would make this assertion vacuous).
-    rendered = _config_yaml(built_control_assistant.build_dir)
+    rendered = _config_yaml(built_demo.build_dir)
     assert rendered["claude_code"]["provider"] == "anthropic"
 
 
@@ -450,7 +450,7 @@ def test_init_set_can_state_an_empty_service_list(runner: CliRunner, tmp_path: P
         [
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             "--set",
             "config.deployed_services=[]",
@@ -464,27 +464,27 @@ def test_init_set_can_state_an_empty_service_list(runner: CliRunner, tmp_path: P
 def test_a_set_list_replaces_rather_than_unions_with_the_preset() -> None:
     """`--set config.claude_code.permissions.deny=[…]` IS the deny list.
 
-    control-assistant denies one tool of its own. The edit names that key, so
+    demo denies one tool of its own. The edit names that key, so
     what resolves is exactly what was stated — not the preset's entry with the
     stated one appended, which is what a union would give.
     """
     profile, _dir = resolve_build_profile(
         None,
-        "control-assistant",
+        "demo",
         set_pairs=("config.claude_code.permissions.deny=[Bash(rm)]",),
     )
 
     assert profile.config["claude_code.permissions.deny"] == ["Bash(rm)"]
 
 
-def _profile_extending_control_assistant(directory: Path) -> Path:
-    """A repo profile that extends control-assistant and denies one more tool."""
+def _profile_extending_demo(directory: Path) -> Path:
+    """A repo profile that extends demo and denies one more tool."""
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "data").mkdir(exist_ok=True)
     profile = directory / "profile.yml"
     profile.write_text(
         "name: Narrowed\n"
-        "extends: control-assistant\n"
+        "extends: demo\n"
         "data: data\n"
         "config:\n"
         "  claude_code.permissions.deny: [mcp__osprey_facility_knowledge__draft_concept]\n",
@@ -494,14 +494,14 @@ def _profile_extending_control_assistant(directory: Path) -> Path:
 
 
 def test_a_profile_inherits_the_bases_deny_entries_by_union(tmp_path: Path) -> None:
-    """The inheritance half: a profile that extends control-assistant.
+    """The inheritance half: a profile that extends demo.
 
     Its delta adds one denied tool and inherits the base's, because a layer is
     a difference and string lists union. Pinned beside the edit case below so
     the two rules are read together — this is what an edit at the same key has
     to override.
     """
-    profile, _dir = resolve_build_profile(_profile_extending_control_assistant(tmp_path), None)
+    profile, _dir = resolve_build_profile(_profile_extending_demo(tmp_path), None)
 
     assert profile.config["claude_code.permissions.deny"] == [
         "mcp__osprey_workspace__setup_patch",
@@ -518,7 +518,7 @@ def test_an_edit_applies_after_extends_and_replaces_the_inherited_list(tmp_path:
     just stated in full. Applied to the resolved document, it is the list.
     """
     profile, _dir = resolve_build_profile(
-        _profile_extending_control_assistant(tmp_path),
+        _profile_extending_demo(tmp_path),
         None,
         set_pairs=("config.claude_code.permissions.deny=[Bash(rm)]",),
     )
@@ -604,7 +604,7 @@ def test_every_web_terminal_render_pins_the_mcp_health_address(
     from osprey.health.derive import derive_mcp_servers
 
     repo = tmp_path / "pinned"
-    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    created = runner.invoke(init, [str(repo), "--preset", "demo", "--no-git"])
     assert created.exit_code == 0, created.output
     profile_path = repo / "profile.yml"
     with profile_path.open("a", encoding="utf-8") as handle:
@@ -784,7 +784,7 @@ def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_p
     and every render told this entry gets the whole of it.
     """
     repo = tmp_path / "pathpin"
-    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    created = runner.invoke(init, [str(repo), "--preset", "demo", "--no-git"])
     assert created.exit_code == 0, created.output
     profile = _profile_yaml(repo)
     profile.setdefault("config", {})["web.panels.events.path"] = "/custom-route"
@@ -816,10 +816,10 @@ def test_deploying_profile_may_pin_only_the_events_path(runner: CliRunner, tmp_p
     assert "url" not in readonly_events
 
 
-def test_control_assistant_preset_wires_its_simulation(
-    built_control_assistant: BuiltProject,
+def test_demo_preset_wires_its_simulation(
+    built_demo: BuiltProject,
 ) -> None:
-    """The control-assistant preset wires its simulation from the build alone.
+    """The demo preset wires its simulation from the build alone.
 
     Pins the wiring: no scenario bundle tree ships under ``data/simulation/``,
     and the rendered ``config.yml`` names no model file for any connector or
@@ -830,7 +830,7 @@ def test_control_assistant_preset_wires_its_simulation(
     incident the getting-started tutorial walks through, and ``demo-history``,
     which seeds the sidebar's example sessions).
     """
-    project_dir = built_control_assistant.build_dir
+    project_dir = built_demo.build_dir
     sim_dir = project_dir / "data" / "simulation"
 
     assert not (sim_dir / "scenarios").exists(), "the scenarios ship as facility scenario files"
@@ -983,7 +983,7 @@ class TestDeployServicesKnob:
     _PROFILE = (
         "name: Attachment Test\n"
         "project_name: smoke\n"
-        "extends: control-assistant\n"
+        "extends: demo\n"
         "data: data\n"
         "va_archiver: null\n"
         "provider: anthropic\n"
@@ -1001,7 +1001,7 @@ class TestDeployServicesKnob:
     def _attempt(self, tmp_path: Path, extra: str) -> Result:
         profile = tmp_path / "smoke" / "profile.yml"
         profile.parent.mkdir()
-        _facility_data(profile.parent, "control_assistant")
+        _facility_data(profile.parent, "demo")
         profile.write_text(self._PROFILE + extra)
         # The bundle's source zone, which `osprey init` lays down beside the
         # profile and the deploy binds into every entitled container. A bare
@@ -1279,7 +1279,7 @@ def test_render_exclusion_of_a_panel_switches_its_inherited_block_off(tmp_path: 
 
     root = tmp_path / "prof"
     (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
-    _facility_data(root, "control_assistant")
+    _facility_data(root, "demo")
     (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"
@@ -1335,7 +1335,7 @@ def test_a_dotted_panel_id_is_projected_into_its_own_block(tmp_path: Path) -> No
 
     root = tmp_path / "prof"
     (root / RETIRED_LAYER_DIRNAME).mkdir(parents=True)
-    _facility_data(root, "control_assistant")
+    _facility_data(root, "demo")
     (root / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     (root / "profile.yml").write_text(
         "name: RootProfile\n"

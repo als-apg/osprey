@@ -5,17 +5,11 @@
  * One artifact in, one rendered viewport out. This is the single answer to
  * "how does an artifact of type X render?", and it is deliberately the *only*
  * one: the preview pane (preview.js's `renderPreview`) calls these two
- * functions for every artifact it shows, standalone inside its header/meta/
- * action chrome, and embedded as the hub's single-artifact viewer, where the
- * hub renders the header.
+ * functions for every artifact it shows, as the hub's single-artifact viewer,
+ * where the hub renders the header.
  *
  * The chrome stays with the pane and only this dispatch decides what the
- * viewport holds. A full-size surface once borrowed types.js's
- * `thumbnailHtml()` instead — the *sidebar card* builder, which knows only
- * the `<img>`/`<iframe>` types and drops markdown/JSON/text/PDF/timeseries to
- * a summary dump or a type-icon placeholder. Two dispatch tables cannot stay
- * in parity; there is now one. `thumbnailHtml` is back to meaning only what
- * its name says.
+ * viewport holds.
  *
  * Split in two because the caller needs the halves at different moments:
  * `renderPreview` interpolates the markup into a larger `innerHTML` template
@@ -46,6 +40,12 @@
  * `render` export or a throw logs one `console.warn` and re-fills the viewer's
  * own element through the base dispatch below.
  *
+ * **The content strip.** The base dispatch's post-mount step also draws the
+ * strip of view controls over the types that have one (artifact-strip.js:
+ * a plot's zoom, pan and export, a table's copy and CSV export, a note's
+ * contents, find and copy), in the standalone preview and in the embedded
+ * viewer alike.
+ *
  * @module artifact-viewport
  */
 
@@ -53,6 +53,7 @@ import { getTheme } from '/design-system/js/theme-manager.js';
 import { fileUrl } from './state.js';
 import { escapeHtml, getTypeRegistry, hasTimeseriesData, sandboxAttr, withTheme } from './types.js';
 import { renderMarkdownView, renderJsonView } from './preview-content.js';
+import { mountArtifactStrip } from './artifact-strip.js';
 
 /**
  * The src for an embedded artifact page: the URL stamped with the theme the
@@ -142,7 +143,8 @@ function baseViewportHtml(a) {
 /**
  * Run the post-mount step for the markup {@link artifactViewportHtml} just
  * produced: the three types whose content is fetched asynchronously rather
- * than named by a `src` attribute. A no-op for every other type.
+ * than named by a `src` attribute, and the content strip of the types that
+ * have one. A no-op for every other type.
  *
  * Every lookup is scoped to `container` — never `document` — so two mounted
  * viewports can never land one's renderer in the other's element.
@@ -177,6 +179,7 @@ function mountBaseViewport(container, a, options) {
     if (tsEl && options.onTimeseriesNeeded) options.onTimeseriesNeeded(tsEl, a);
     return;
   }
+  mountArtifactStrip(container, a);
 
   if (a.artifact_type === 'markdown') {
     const mdEl = /** @type {HTMLElement|null} */ (container.querySelector('.md-preview-container'));

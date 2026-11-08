@@ -30,7 +30,7 @@ runs for you.
 **Two opt-in environments** cover the images that need real data:
 
 - `SCREENSHOTOPTS=--stack` — the ARIEL search/browse/create/status views and
-  the control-target popover. Builds the `control-assistant` tutorial project, brings up Postgres
+  the control-target popover. Builds the `demo` tutorial project, brings up Postgres
   (`osprey up -d`), and seeds the logbook with
   `osprey sim apply nominal --yes --now <anchor>`. Needs a container runtime
   and free host ports 26000–26999, 27064 and 27075 (its own port block, so a
@@ -112,7 +112,7 @@ makes it a committed doc image.
 ## Docs videos
 
 Pages can embed videos recorded in the real Web Terminal on the
-`control-assistant` tutorial stack. The landing page plays the demo: three
+`demo` tutorial stack. The landing page plays the demo: three
 requests to the agent (a 3D plot, a correlation plot, a logbook post), cut to a
 50–80 second window. The agent's working time is sped up; a clock burned into every frame
 shows the real elapsed time, and a badge shows the speed-up while it applies.

@@ -7,7 +7,7 @@ Covers:
   - GET /files/{id}/{filename} for HTML artifacts (Plotly injection, offline
     CDN rewriting, missing-file 404s)
   - the _SSEBroadcaster queue bookkeeping
-  - config.yml priming in create_app and run_server's uvicorn handoff
+  - config.yml priming in create_app
 """
 
 import asyncio
@@ -22,7 +22,6 @@ from osprey.interfaces.artifacts.app import (
     _inject_html_snippet,
     _SSEBroadcaster,
     create_app,
-    run_server,
 )
 from osprey.interfaces.opaque_origin import INERT_TYPES, OPAQUE_CSP
 
@@ -690,7 +689,7 @@ def test_sse_broadcaster_queue_bookkeeping():
 
 
 class TestAppLifecycle:
-    """create_app config priming and run_server's uvicorn handoff."""
+    """create_app config priming."""
 
     def test_config_yml_priming_is_best_effort(self, tmp_path, monkeypatch):
         """A config.yml in the workspace root is loaded at app construction
@@ -728,22 +727,6 @@ class TestAppLifecycle:
 
         assert client.post("/api/focus", json={"artifact_id": entry.id}).status_code == 200
         assert (shared / "focus_state.txt").is_file()
-
-    def test_run_server_builds_app_and_hands_it_to_uvicorn(self, tmp_path, monkeypatch):
-        import uvicorn
-
-        calls = {}
-
-        def fake_run(app, **kwargs):
-            calls["app"] = app
-            calls.update(kwargs)
-
-        monkeypatch.setattr(uvicorn, "run", fake_run)
-        run_server(host="127.0.0.1", port=59999, workspace_root=tmp_path)
-
-        assert calls["host"] == "127.0.0.1"
-        assert calls["port"] == 59999
-        assert calls["app"].title == "OSPREY Artifact Gallery"
 
 
 class TestIndexPlotlyVendorMeta:

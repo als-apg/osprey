@@ -276,7 +276,7 @@ class TestBuildPhases:
         class _Profile:
             name = "probe"
             project_name = "probe"
-            data_bundle = "control-assistant"
+            data_bundle = "demo"
             provider = "anthropic"
             requires_osprey_version = None
             dependencies: list[str] = []
@@ -527,13 +527,11 @@ class TestInitPhases:
     def test_init_reports_one_creation_phase(self, runner, recorder, tmp_path):
         target = tmp_path / "probe"
 
-        result = runner.invoke(
-            cli, ["init", str(target), "--preset", "control-assistant", "--no-git"]
-        )
+        result = runner.invoke(cli, ["init", str(target), "--preset", "demo", "--no-git"])
 
         assert result.exit_code == 0, result.output
         assert titles(recorder) == ["→ Creating probe"]
-        assert "  · settings and data from preset control-assistant" in [
+        assert "  · settings and data from preset demo" in [
             line.split(" (")[0] for line in recorder.lines
         ]
         assert closed(recorder)[-1].startswith("✓ Creating probe")
@@ -555,7 +553,7 @@ class TestInitPhases:
 
         result = runner.invoke(
             cli,
-            ["init", str(target), "--preset", "control-assistant", "--no-git", "--up", "-d"],
+            ["init", str(target), "--preset", "demo", "--no-git", "--up", "-d"],
         )
 
         assert result.exit_code == 0, result.output
@@ -571,7 +569,7 @@ class TestInitPhases:
 
         result = runner.invoke(
             cli,
-            ["init", str(target), "--preset", "control-assistant", "--no-git", "--up", "-d"],
+            ["init", str(target), "--preset", "demo", "--no-git", "--up", "-d"],
         )
 
         assert result.exit_code == 0, result.output

@@ -490,7 +490,7 @@ def _preset_answer(preset: str) -> str:
 
 
 @pytest.mark.parametrize("edit", list(SET_EDITS))
-@pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+@pytest.mark.parametrize("preset", ["demo", "hello-world"])
 def test_a_set_edit_on_a_preset_build_overrides_the_preset(preset, edit, tmp_path):
     profile, _ = resolve_build_profile(None, preset, set_pairs=SET_EDITS[edit])
     preset_document = {"control_system.writes": _preset_answer(preset)}

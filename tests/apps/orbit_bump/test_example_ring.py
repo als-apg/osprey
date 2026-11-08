@@ -60,9 +60,9 @@ BUMP_MM = 0.1
 
 
 @pytest.fixture(scope="module")
-def example_render(built_control_assistant: Any) -> Path:
+def example_render(built_demo: Any) -> Path:
     """The built demo's render, read and never written."""
-    return Path(built_control_assistant.build_dir)
+    return Path(built_demo.build_dir)
 
 
 @pytest.fixture(scope="module")
@@ -185,9 +185,9 @@ class _PinnedSdk:
 
 
 @pytest.fixture
-def va_render(built_control_assistant: Any, tmp_path: Path) -> Path:
+def va_render(built_demo: Any, tmp_path: Path) -> Path:
     """A writable copy of the built render."""
-    return copy_build(built_control_assistant.repo, tmp_path) / "build"
+    return copy_build(built_demo.repo, tmp_path) / "build"
 
 
 @pytest.fixture

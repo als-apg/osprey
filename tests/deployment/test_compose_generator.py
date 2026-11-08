@@ -84,7 +84,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
 
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
     kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
@@ -2317,13 +2317,13 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 
     # -- Task 3.2 / CC-2: read-only config + limits mounts under /app/project -
-    # The control-assistant preset's root sets control_system.writes: asked
+    # The demo preset's root sets control_system.writes: asked
     # (this deploy config never overrides it to never), so the real,
     # fully-flattened render must mount both config.yml and channel_limits.json
     # under the same /app/project root the connector resolves project_root
     # against.
     assert config["control_system"]["writes"] == "asked", (
-        "this assertion block assumes the control-assistant preset's "
+        "this assertion block assumes the demo preset's "
         "control_system.writes: asked default -- if that default ever changes, this "
         "test's premise for asserting the channel_limits.json mount changes too"
     )
@@ -2453,7 +2453,7 @@ def test_setup_build_dir_stages_a_config_naming_no_interpreter(
         TemplateManager(),
         project_name="staged-no-interp",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
 
@@ -2504,7 +2504,7 @@ def test_setup_build_dir_stages_the_bytes_pyyaml_writes_for_the_config(
         TemplateManager(),
         project_name="staged-bytes",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     service_dir = project_dir / "services" / "worker"
@@ -2590,7 +2590,7 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
             manager,
             project_name="pep-fallback",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -2634,7 +2634,7 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
             manager,
             project_name="pep-host",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -3253,6 +3253,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "nextcloud_bridge": {"trigger": "t"},
             "gchat_bridge": {"trigger": "t"},
             "teams_bridge": {"trigger": "t"},
+            "slack_bridge": {"trigger": "t"},
         },
         "deployment": {},
         "system": {"timezone": "UTC"},
@@ -3544,6 +3545,12 @@ _PREFIXED_IMAGE_SERVICES = [
         "teams-bridge",
         "OSPREY_TEAMS_BRIDGE_IMAGE",
         "teams-bridge",
+    ),
+    (
+        "slack_bridge/docker-compose.yml.j2",
+        "slack-bridge",
+        "OSPREY_SLACK_BRIDGE_IMAGE",
+        "slack-bridge",
     ),
 ]
 
@@ -5649,6 +5656,173 @@ def test_teams_bridge_image_installs_the_teams_extra_over_the_shared_deps_layer(
 
 
 # ---------------------------------------------------------------------------
+# slack-bridge service template
+#
+# The Slack bridge holds an outbound Socket Mode connection: no published port,
+# no healthcheck, and one named volume that holds its dedup ledger and durable
+# inbox. Like the Nextcloud bridge it ships no extra, so its section carries only
+# the bridge-specific facts; the shared contracts run over ``_CHAT_BRIDGES``.
+# ---------------------------------------------------------------------------
+
+# Credentials and tokens that must render as bare ``${VAR}``: both Slack tokens
+# (a default would authenticate as nobody, or open a socket on another app) and
+# both dispatch tokens. ``DISPATCH_TRIGGER`` is absent because the template
+# renders it as a profile-supplied literal.
+_SLACK_FAIL_CLOSED_VARS = [
+    "SLACK_BOT_TOKEN",
+    "SLACK_APP_TOKEN",
+    "EVENT_DISPATCHER_TOKEN",
+    "DISPATCH_WORKER_TOKEN",
+]
+
+_SLACK_BRIDGE = _ChatBridge(
+    name="slack",
+    module="osprey.bridges.slack",
+    config_class_name="SlackBridgeConfig",
+    profile_class_name="SlackBridgeProfileConfig",
+    fail_closed_vars=tuple(_SLACK_FAIL_CLOSED_VARS),
+)
+
+
+def test_slack_bridge_state_volume_is_named_and_mounted_at_data() -> None:
+    """/data is a NAMED volume — the dedup ledger and the durable inbox live there.
+
+    Slack never redelivers an event the bridge has acked, so losing /data on a
+    restart drops questions or re-answers ones that were mid-run. Named rather
+    than a bind mount so it is namespaced per compose project.
+    """
+    parsed = yaml.safe_load(_render_bridge_template(_SLACK_BRIDGE))
+    service = parsed["services"]["slack-bridge"]
+
+    assert service["volumes"][0] == "slack_bridge_data:/data"
+    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
+        "/slack-bridge",
+        "/slack-bridge",
+    ]
+    assert "slack_bridge_data" in parsed["volumes"]
+    assert not str(service["volumes"][0]).startswith((".", "/", "$"))
+
+
+@pytest.mark.parametrize("var", _SLACK_FAIL_CLOSED_VARS)
+def test_slack_bridge_credentials_render_without_a_default_fallback(var: str) -> None:
+    """Credentials render as bare ``${VAR}`` — never ``${VAR:-something}``.
+
+    Bare, an unset token stays empty and ``require_startup`` aborts at boot
+    naming it; with a fallback the bridge would come up on a placeholder. Both
+    the parsed value and the raw text are checked, since the absence of the
+    fallback is the requirement.
+    """
+    rendered = _render_bridge_template(_SLACK_BRIDGE)
+    environment = yaml.safe_load(rendered)["services"]["slack-bridge"]["environment"]
+
+    assert environment[var] == f"${{{var}}}", environment[var]
+    assert f"${{{var}:" not in rendered
+
+
+def test_slack_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
+    """Optional knobs pass through with an EMPTY ``:-`` default, not a restated value."""
+    environment = _bridge_service(_SLACK_BRIDGE)["environment"]
+    for var in (
+        "POLL_INTERVAL",
+        "DRAIN_INTERVAL",
+        "RETRY_MIN_AGE",
+        "RETRY_GIVE_UP",
+        "RETRY_LIFETIME_CAP",
+        "BRIDGE_TRUST_ENV",
+        "HISTORY_ANSWER_LIMIT",
+        "GITLAB_URL",
+        "GITLAB_PROJECT",
+        "GITLAB_ISSUES_TOKEN",
+        "APP_VERSION_DISPLAY",
+    ):
+        assert environment[var] == f"${{{var}:-}}", (var, environment[var])
+
+
+def test_slack_bridge_state_paths_match_their_code_defaults() -> None:
+    """``DEDUP_PATH``'s compose default equals ``CoreConfig``'s default.
+
+    Its reader is a plain ``e.get(NAME, default)``, so an empty fallback would
+    point the store at the empty path; the template therefore restates the code
+    default, and this test binds the two by reading the default back out of the
+    real config class rather than restating it here.
+    """
+    from osprey.bridges.core import CoreConfig
+    from osprey.bridges.slack.config import SlackBridgeConfig
+
+    code_default = CoreConfig.from_env({}).dedup_path
+    environment = _bridge_service(_SLACK_BRIDGE)["environment"]
+    assert "HISTORY_PATH" not in environment
+
+    match = _COMPOSE_VAR_RE.match(str(environment["DEDUP_PATH"]))
+    assert match is not None and match.group("default") is not None, environment["DEDUP_PATH"]
+    assert match.group("default") == code_default, (
+        f"DEDUP_PATH renders {match.group('default')!r} but the config default is "
+        f"{code_default!r}: the two must move together"
+    )
+
+    assert _resolve_compose_env(environment)["DEDUP_PATH"] == code_default
+    overridden = _resolve_compose_env(environment, host_env={"DEDUP_PATH": "/srv/dedup.json"})
+    assert overridden["DEDUP_PATH"] == "/srv/dedup.json"
+    assert SlackBridgeConfig.from_env(overridden).core.dedup_path == "/srv/dedup.json"
+
+
+def test_slack_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
+    """``depends_on: event-dispatcher`` renders IFF the dispatcher is co-deployed;
+    compose fails hard on a ``depends_on`` naming an undefined service."""
+    with_dispatcher = _bridge_service(_SLACK_BRIDGE, dispatcher_deployed=True)
+    assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
+
+    external = _render_bridge_template(_SLACK_BRIDGE, dispatcher_deployed=False)
+    assert "depends_on:" not in external
+    assert yaml.safe_load(external)["services"]["slack-bridge"].get("depends_on") is None
+
+
+def test_slack_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
+    """With the .env supplying the credentials, the same block yields a valid config.
+
+    Proves the names the template renders are the names the runtime reads, and
+    that the state path stays on the /data volume.
+    """
+    from osprey.bridges.slack.config import SlackBridgeConfig, require_boot
+
+    environment = _bridge_service(_SLACK_BRIDGE)["environment"]
+    resolved = _resolve_compose_env(
+        environment,
+        host_env={
+            "SLACK_BOT_TOKEN": "xoxb-bot",
+            "SLACK_APP_TOKEN": "xapp-app",
+            "EVENT_DISPATCHER_TOKEN": "dispatcher-token",
+            "DISPATCH_WORKER_TOKEN": "worker-token",
+        },
+    )
+    cfg = SlackBridgeConfig.from_env(resolved)
+    cfg.require_startup()
+    require_boot(cfg)
+
+    assert cfg.bot_token == "xoxb-bot"
+    assert cfg.app_token == "xapp-app"
+    assert cfg.core.event_dispatcher_token == "dispatcher-token"
+    assert cfg.core.dispatch_worker_token == "worker-token"
+    assert cfg.core.trigger == "slack-question"
+    assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
+    assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
+    assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
+
+
+def test_slack_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
+    """``osprey build`` copies the packaged bridge service directory into the project."""
+    _write_config(tmp_path, deployed_services=["slack_bridge"])
+
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
+
+    service_dir = tmp_path / "services" / "slack_bridge"
+    assert (service_dir / "docker-compose.yml.j2").is_file()
+    assert (service_dir / "Dockerfile").is_file()
+    assert (service_dir / ".dockerignore").is_file()
+
+
+# ---------------------------------------------------------------------------
 # Contracts every chat bridge's template honours
 # ---------------------------------------------------------------------------
 
@@ -5656,6 +5830,7 @@ _CHAT_BRIDGES = [
     pytest.param(_NEXTCLOUD_BRIDGE, id="nextcloud"),
     pytest.param(_GCHAT_BRIDGE, id="gchat"),
     pytest.param(_TEAMS_BRIDGE, id="teams"),
+    pytest.param(_SLACK_BRIDGE, id="slack"),
 ]
 
 

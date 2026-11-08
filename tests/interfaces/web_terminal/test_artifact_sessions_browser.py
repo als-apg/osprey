@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import time
 import uuid
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -818,7 +819,7 @@ def test_more_sessions_loads_the_page_after_the_first(crowded_hub, page):
 # --- the extension viewer -----------------------------------------------------------
 
 
-def test_beam_profile_renders_through_its_stub_viewer_and_falls_back(hub, page, context):
+def test_beam_profile_renders_through_its_stub_viewer_and_falls_back(hub, page):
     store = _store(hub)
     profile = next(e for e in store.list_entries() if e.kind == BEAM_PROFILE_KIND)
     broken = store.save_file(
@@ -848,11 +849,69 @@ def test_beam_profile_renders_through_its_stub_viewer_and_falls_back(hub, page, 
     expect(frame.locator("#preview-content .preview-viewport")).to_be_visible()
     _wait_for(lambda: any("failed; showing the base view" in w for w in warnings))
 
-    # The standalone gallery renders it through the same viewer.
-    gallery = context.new_page()
-    gallery.goto(hub.artifact_url, wait_until="domcontentloaded")
-    gallery.get_by_text(profile.title).first.click()
-    expect(gallery.locator(f".{BEAM_PROFILE_MARKER_CLASS}")).to_be_visible(timeout=_TIMEOUT_MS)
+
+def test_open_in_new_window_keeps_the_artifact_the_tile_showed(hub, page):
+    """The frame loads again in its window and asks for its selection there: the
+    hub finds the frame wherever it lives and answers, so the window shows the
+    artifact the tile showed, and so does the tile after Reattach."""
+    store = _store(hub)
+    profile = next(e for e in store.list_entries() if e.kind == BEAM_PROFILE_KIND)
+    _boot(page, hub)
+    _open_session(page, _PROFILE.transcript_id)
+    _open_all(page)
+    _row(page, profile.id).click()
+    marker = f".ext-viewer-container .{BEAM_PROFILE_MARKER_CLASS}"
+    expect(page.frame_locator(_ARTIFACTS_FRAME).locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
+
+    with page.expect_popup() as info:
+        page.locator('.tile-tab[data-panel-id="iframe:artifacts"] .tile-tab-window').click()
+    popup = info.value
+    frame = popup.frame_locator(_ARTIFACTS_FRAME)
+    expect(frame.locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(frame.locator("#preview-empty")).to_be_hidden()
+
+    # A pick in the hub's tree reaches the frame in the window.
+    note = store.save_file(
+        b"# window note\n",
+        "window_note.md",
+        "markdown",
+        title="Window note",
+        session_id=_PROFILE.session_key,
+    )
+    _open_all(page)
+    _row(page, note.id).click()
+    expect(frame.locator(marker)).to_have_count(0, timeout=_TIMEOUT_MS)
+    expect(frame.locator("#preview-content .preview-viewport")).to_be_visible()
+
+    popup.locator(".attached-window-root > .tile-tab button.tile-tab-reattach").click()
+    docked = page.frame_locator(_ARTIFACTS_FRAME)
+    expect(docked.locator("#preview-content .preview-viewport")).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(docked.locator("#preview-empty")).to_be_hidden()
+
+
+def test_the_window_shows_the_viewer_even_when_the_type_registry_answers_last(hub, page):
+    """The hub answers the frame's ready with its selection at once, so the window's
+    first render must already know the extension types: held back until after that
+    answer, the type registry still decides the view, not the base JSON fallback."""
+    store = _store(hub)
+    profile = next(e for e in store.list_entries() if e.kind == BEAM_PROFILE_KIND)
+    _boot(page, hub)
+    _open_session(page, _PROFILE.transcript_id)
+    _open_all(page)
+    _row(page, profile.id).click()
+    marker = f".ext-viewer-container .{BEAM_PROFILE_MARKER_CLASS}"
+    expect(page.frame_locator(_ARTIFACTS_FRAME).locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
+
+    def _registry_last(route):
+        response = route.fetch()
+        time.sleep(1.5)
+        route.fulfill(response=response)
+
+    page.context.route("**/api/type-registry", _registry_last)
+    with page.expect_popup() as info:
+        page.locator('.tile-tab[data-panel-id="iframe:artifacts"] .tile-tab-window').click()
+    frame = info.value.frame_locator(_ARTIFACTS_FRAME)
+    expect(frame.locator(marker)).to_be_visible(timeout=_TIMEOUT_MS)
 
 
 # --- the palette and delete ---------------------------------------------------------

@@ -74,7 +74,7 @@ with CANOPY's Python packages and web pages, built from the canopy repository.
       OSPREY_CANOPY_PAYLOAD=/srv/canopy/payload
 
 3. **Add the panel to** ``profile.yml``. A deployment made from the
-   ``control-assistant`` preset already has it, and the web terminal opens on
+   ``demo`` preset already has it, and the web terminal opens on
    it at the example facility's ``facility/overview``: skip this step. For any
    other profile, add ``canopy`` to ``web_panels``, its three skills to
    ``skills``, and the build step that copies the payload into the deployment:

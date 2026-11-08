@@ -10,7 +10,7 @@ the byte identity of the pre-LINE channel-finder index copies.
 
 The copies are read to prove nothing was lost, never to fix the index's shape.
 The parity tests hold the hierarchical and middle-layer views, called as pure
-functions on the shared control-assistant build's facility file, to those
+functions on the shared demo build's facility file, to those
 copies: the same address set plus the declared fingerprint additions each
 view files (the middle-layer view files those a device holds, and leaves
 out those bound only to a place), the
@@ -517,9 +517,9 @@ def test_every_family_aggregate_names_a_tree_query() -> None:
 
 @pytest.mark.slow
 def test_every_family_aggregate_targets_its_whole_family_in_the_build(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    channels = {channel["id"] for channel in built_control_assistant.facility["channels"]}
+    channels = {channel["id"] for channel in built_demo.facility["channels"]}
     for query in pre_line_queries():
         families = FAMILY_AGGREGATES.get(query["user_query"])
         if families is None:
@@ -531,9 +531,9 @@ def test_every_family_aggregate_targets_its_whole_family_in_the_build(
 
 @pytest.mark.slow
 def test_the_family_aggregate_guard_names_a_dropped_family_member(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    channels = {channel["id"] for channel in built_control_assistant.facility["channels"]}
+    channels = {channel["id"] for channel in built_demo.facility["channels"]}
     for query in pre_line_queries():
         families = FAMILY_AGGREGATES.get(query["user_query"])
         if families is None:
@@ -560,27 +560,25 @@ def test_in_context_queries_target_in_context_golden_addresses() -> None:
 
 
 @pytest.fixture(scope="module")
-def hierarchical_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
+def hierarchical_view(built_demo: BuiltProject) -> dict[str, Any]:
     from osprey.facility.views.channel_finder import hierarchical_document
 
-    return hierarchical_document(FacilityRecords(built_control_assistant.facility))
+    return hierarchical_document(FacilityRecords(built_demo.facility))
 
 
 @pytest.fixture(scope="module")
-def middle_layer_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
+def middle_layer_view(built_demo: BuiltProject) -> dict[str, Any]:
     from osprey.facility.views.channel_finder import middle_layer_document
 
-    document, _left_out, _keyed = middle_layer_document(
-        FacilityRecords(built_control_assistant.facility)
-    )
+    document, _left_out, _keyed = middle_layer_document(FacilityRecords(built_demo.facility))
     return document
 
 
 @pytest.fixture(scope="module")
-def in_context_view(built_control_assistant: BuiltProject) -> dict[str, Any]:
+def in_context_view(built_demo: BuiltProject) -> dict[str, Any]:
     from osprey.facility.views.channel_finder import in_context_document
 
-    return in_context_document(FacilityRecords(built_control_assistant.facility))
+    return in_context_document(FacilityRecords(built_demo.facility))
 
 
 def test_the_pre_line_copies_hold_the_fingerprint_addresses() -> None:
@@ -609,12 +607,12 @@ def test_the_pre_line_copy_holds_161_field_sentences() -> None:
 
 @pytest.mark.slow
 def test_every_pre_line_field_sentence_survives_on_its_channels(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     from osprey.facility.validate import vocabulary
 
     roles = {row["name"]: row.get("description") for row in vocabulary()["signal_roles"]}
-    channels = {channel["id"]: channel for channel in built_control_assistant.facility["channels"]}
+    channels = {channel["id"]: channel for channel in built_demo.facility["channels"]}
     lost = [
         (address, sentence)
         for address, pair in golden_leaf_sentences().items()
@@ -627,9 +625,9 @@ def test_every_pre_line_field_sentence_survives_on_its_channels(
 
 @pytest.mark.slow
 def test_every_pre_line_family_description_survives_on_a_group_or_its_devices(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     groups = {group["description"] for group in facility["groups"] if "description" in group}
     devices = facility["devices"]
     for family, description in golden_family_descriptions().items():
@@ -651,14 +649,14 @@ def test_the_hierarchical_view_holds_the_pre_line_addresses(
 
 @pytest.mark.slow
 def test_the_middle_layer_view_holds_the_pre_line_addresses(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
     middle_layer_view: dict[str, Any],
 ) -> None:
     golden = set().union(*middle_layer_cells(pre_line_index("middle_layer")))
     view = set().union(*middle_layer_cells(middle_layer_view))
     held = {
         channel["id"]
-        for channel in built_control_assistant.facility["channels"]
+        for channel in built_demo.facility["channels"]
         if "device" in channel.get("on", {})
     }
     assert view == golden | (addition_addresses() & held)
@@ -683,9 +681,9 @@ def test_the_hierarchical_view_keeps_the_machine_and_family_descriptions(
 
 @pytest.mark.slow
 def test_the_middle_layer_view_keeps_the_machine_and_family_descriptions(
-    built_control_assistant: BuiltProject, middle_layer_view: dict[str, Any]
+    built_demo: BuiltProject, middle_layer_view: dict[str, Any]
 ) -> None:
-    kept = {group["id"] for group in built_control_assistant.facility["groups"]}
+    kept = {group["id"] for group in built_demo.facility["groups"]}
     for machine, description in golden_machine_descriptions().items():
         kept_description = middle_layer_view[machine]["_description"]
         assert keeps_machine_description(machine, description, kept_description), machine
@@ -828,9 +826,9 @@ def _line_families(facility: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
 
 @pytest.mark.slow
 def test_every_pre_line_family_s_device_list_is_derived_from_places(
-    built_control_assistant: BuiltProject, middle_layer_view: dict[str, Any]
+    built_demo: BuiltProject, middle_layer_view: dict[str, Any]
 ) -> None:
-    derived = _derived_device_lists(built_control_assistant.facility)
+    derived = _derived_device_lists(built_demo.facility)
     for system, family, _golden in middle_layer_families(pre_line_index("middle_layer")):
         if (system, f"{system}/{family}") not in derived:
             continue
@@ -852,9 +850,9 @@ def test_the_views_answer_no_fewer_tree_queries_than_the_pre_line_copies(
 
 @pytest.mark.slow
 def test_every_line_device_sits_in_each_family_derived_from_its_records(
-    built_control_assistant: BuiltProject, middle_layer_view: dict[str, Any]
+    built_demo: BuiltProject, middle_layer_view: dict[str, Any]
 ) -> None:
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     families = _line_families(facility)
     line_devices = {
         device["id"]
@@ -877,12 +875,12 @@ SEK_WAVEFORM = "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"
 
 @pytest.mark.slow
 def test_the_in_context_view_rows_the_septum_waveform_once_it_is_tagged(
-    built_control_assistant: BuiltProject, in_context_view: dict[str, Any]
+    built_demo: BuiltProject, in_context_view: dict[str, Any]
 ) -> None:
     from osprey.facility.views.channel_finder import IN_CONTEXT_TAG, in_context_document
 
     assert SEK_WAVEFORM not in {row["address"] for row in in_context_view["channels"]}
-    (sek,) = [c for c in built_control_assistant.facility["channels"] if c["id"] == SEK_WAVEFORM]
+    (sek,) = [c for c in built_demo.facility["channels"] if c["id"] == SEK_WAVEFORM]
     tagged = {"channels": [sek | {"tags": [IN_CONTEXT_TAG]}]}
 
     assert in_context_document(FacilityRecords(tagged))["channels"] == [

@@ -27,7 +27,7 @@ LIBRARY = (
     / "osprey"
     / "templates"
     / "apps"
-    / "control_assistant"
+    / "demo"
     / "data"
     / "canopy"
     / "library"

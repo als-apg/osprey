@@ -161,13 +161,13 @@ relevant service via the OSPREY ``docker-compose`` services tree
 
 ## Scenario tests & the simulation engine
 
-The control_assistant scenario tests (``test_vacuum_burst_scenario.py`` and
+The demo scenario tests (``test_vacuum_burst_scenario.py`` and
 ``test_rf_cavity_correlation_scenario.py``) get
 their archiver ground truth from the **data-driven simulation engine**, not from
 hard-coded connector code. Scenarios are the facility's scenario files under
 ``data/facility/scenarios/<name>.yaml`` — each owns its telemetry overlay and,
 optionally, its logbook narrative (its ``logbook`` block).
-Each test builds a project from the ``control_assistant`` preset and calls
+Each test builds a project from the ``demo`` preset and calls
 ``activate_scenarios(project, "<name>"...)`` to compose and apply one or more
 fault bundles (``vacuum-burst`` / ``rf-thermal``) before running the operator
 prompt. They build at **tier 3** so every simulated channel is discoverable
@@ -332,7 +332,7 @@ The marked set equals the selection of the two model-free CI lanes —
 `e2e-no-model`, and `agent-record-e2e`, which runs the agent record's replay
 (`test_agent_record_e2e.py`) on its own because each of its two cases
 deploys a whole stack and waits out a stopped source (hello-world on the
-embedded record, control-assistant on ClickHouse; one matrix cell, and one
+embedded record, demo on ClickHouse; one matrix cell, and one
 runner, per case). A wiring test in
 `tests/deployment/test_ci_workflow_wiring.py` holds the two sets equal. Adding
 a model-free module therefore means marking it and naming it in one of those
@@ -419,7 +419,7 @@ async def test_my_workflow(e2e_project_factory):
     # Create test project
     project = await e2e_project_factory(
         name="test-my-feature",
-        template="control_assistant",
+        template="demo",
         registry_style="extend"
     )
 

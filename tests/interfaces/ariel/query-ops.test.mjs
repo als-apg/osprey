@@ -10,8 +10,7 @@
  *     date stays in the query;
  *   - completeness: without `final` a trailing token is stripped, not lifted;
  *   - merging is additive and idempotent, taking back a previous contribution
- *     keeps the other values, and an author lifted under Mine switches to All;
- *   - the standalone Enter write (`liftSearch`).
+ *     keeps the other values, and an author lifted under Mine switches to All.
  *
  *   npx vitest run tests/interfaces/ariel/query-ops.test.mjs
  */
@@ -22,7 +21,6 @@ import {
   dateWindow,
   holdsLifted,
   liftOperators,
-  liftSearch,
   liftedPatch,
   removeLifted,
 } from '../../../src/osprey/interfaces/ariel/static/js/query-ops.js';
@@ -205,26 +203,6 @@ describe('Mine switch', () => {
   test('another dimension under Mine keeps the mailbox', () => {
     expect(liftedPatch({ filter: {}, mailbox: 'mine' }, { logbook: ['ops'] })).toEqual({
       filter: { logbook: ['ops'] },
-    });
-  });
-});
-
-describe('liftSearch (standalone Enter)', () => {
-  test('returns the stripped query, merged filter, mailbox and rerank in one patch', () => {
-    const caps = { filter_dimensions: DIMS };
-    const state = { filter: { logbook: ['ops'] }, mailbox: 'mine' };
-    expect(liftSearch('  trip author:bob', state, caps, 'now')).toEqual({
-      query: 'trip',
-      rerank: 'now',
-      filter: { author: ['bob'], logbook: ['ops'] },
-      mailbox: 'all',
-    });
-  });
-
-  test('plain text writes only the query', () => {
-    expect(liftSearch(' beam ', { filter: {} }, null, 'now')).toEqual({
-      query: 'beam',
-      rerank: 'now',
     });
   });
 });

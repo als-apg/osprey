@@ -34,18 +34,18 @@ class TestTemplateManager:
         manager = TemplateManager()
         templates = manager.list_app_templates()
 
-        assert "control_assistant" in templates
+        assert "demo" in templates
         assert len(templates) >= 1
 
-    def test_create_project_control_assistant(self, tmp_path):
-        """Test creating project with control_assistant template."""
+    def test_create_project_demo(self, tmp_path):
+        """Test creating project with demo template."""
         manager = TemplateManager()
 
         project_dir = create_project_as_built(
             manager,
             project_name="test-project",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -78,7 +78,7 @@ class TestTemplateManager:
             manager,
             project_name="test-project",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": mode},
         )
 
@@ -97,7 +97,7 @@ class TestTemplateManager:
             manager,
             project_name="test-project",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -108,7 +108,7 @@ class TestTemplateManager:
                 manager,
                 project_name="test-project",
                 output_dir=tmp_path,
-                data_bundle="control_assistant",
+                data_bundle="demo",
             )
 
     def test_invalid_template_raises_error(self, tmp_path):
@@ -148,10 +148,10 @@ class TestBuildClaudeCodeContextHierarchy:
         db_file = tmp_path / "channels.json"
         db_file.write_text(_json.dumps(db_data))
 
-        # Manifest must declare control_assistant template for the
+        # Manifest must declare demo template for the
         # channel_finder block to activate.
         manifest = tmp_path / ".osprey-manifest.json"
-        manifest.write_text(_json.dumps({"creation": {"template": "control_assistant"}}))
+        manifest.write_text(_json.dumps({"creation": {"template": "demo"}}))
 
         config = {
             "facility_name": "TestFacility",
@@ -246,7 +246,7 @@ class TestBuildClaudeCodeContextHierarchy:
             manager,
             project_name="test-hier-embed",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -326,15 +326,15 @@ class TestBuildClaudeCodeContextPipelineMode:
 class TestTemplateManifest:
     """Test template manifest loading, resolution, and filtering."""
 
-    def test_control_assistant_example_profile_has_expected_artifacts(self):
-        """Control assistant example profile declares all expected artifact categories."""
+    def test_demo_example_profile_has_expected_artifacts(self):
+        """Demo example profile declares all expected artifact categories."""
         import importlib.resources
 
         import yaml
 
         profile_text = (
             importlib.resources.files("osprey.profiles.presets")
-            .joinpath("control-assistant.yml")
+            .joinpath("demo.yml")
             .read_text(encoding="utf-8")
         )
         profile = yaml.safe_load(profile_text)
@@ -356,13 +356,13 @@ class TestTemplateManifest:
         """Preset-profile fallback must surface web_panels in the artifacts dict.
 
         Direct ``TemplateManager.create_project()`` callers rely on this
-        fallback: the bundle name resolves to the ``control-assistant`` preset,
+        fallback: the bundle name resolves to the ``demo`` preset,
         which is where the declaration lives. If web_panels is dropped,
         config.yml renders ``panels: {}`` and the web terminal shows only the
         universal panels — the exact bug reported when ARIEL / channel-finder
         panels went missing.
         """
-        mf = manifest.load_template_manifest("control_assistant")
+        mf = manifest.load_template_manifest("demo")
         assert mf is not None
         artifacts = mf.get("artifacts", {})
         # The preset profile declares these panels; they must round-trip through
@@ -383,7 +383,7 @@ class TestTemplateManifest:
             manager,
             project_name="init-panels-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
         config = _yaml.safe_load((project_dir / "config.yml").read_text())
@@ -416,8 +416,8 @@ class TestTemplateManifest:
         assert ".claude/skills/session-report/SKILL.md" in outputs
         assert ".claude/skills/session-report/reference.md" in outputs
 
-    def test_control_assistant_has_all_hooks(self, tmp_path):
-        """Pin the exact set of hook files the control-assistant preset renders.
+    def test_demo_has_all_hooks(self, tmp_path):
+        """Pin the exact set of hook files the demo preset renders.
 
         An equality check, not a subset one, so dropping a hook from the preset
         and adding an unlisted one both fail here — the rendered set only changes
@@ -433,7 +433,7 @@ class TestTemplateManifest:
             manager,
             project_name="ctrl-hooks-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -582,10 +582,10 @@ class TestBuiltinPanelRegistryDrift:
             manager,
             project_name="okf-panel-e2e",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             # The hooks are the build's own gates, not this test's subject:
             # memory-guard satisfies the write-tool lint, and the three write
-            # gates are what the control-assistant preset's armed writes
+            # gates are what the demo preset's armed writes
             # require of any profile that selects hooks at all.
             artifacts={
                 "hooks": ["memory-guard", "approval", "writes-check", "limits"],
@@ -599,8 +599,8 @@ class TestBuiltinPanelRegistryDrift:
         assert "ariel" not in panels
 
 
-class TestControlAssistantMongoDBArchiver:
-    """Where a control-assistant deployment learns to reach its archive.
+class TestDemoMongoDBArchiver:
+    """Where a demo deployment learns to reach its archive.
 
     The preset selects ``mongodb_archiver`` and deploys the store to back it,
     but it deliberately spells none of the store's coordinates: those are
@@ -615,7 +615,7 @@ class TestControlAssistantMongoDBArchiver:
     def _preset_text() -> str:
         from osprey.cli.build_profile_presets import _presets_dir
 
-        return (_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8")
+        return (_presets_dir() / "demo.yml").read_text(encoding="utf-8")
 
     def test_preset_documents_the_mongodb_option(self):
         """The preset must name mongodb_archiver, and must not send the reader

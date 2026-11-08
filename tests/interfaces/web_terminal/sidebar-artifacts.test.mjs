@@ -43,8 +43,13 @@ const mocks = vi.hoisted(() => ({
   isTerminalPanelOpen: vi.fn(() => true),
   openTerminalPanel: vi.fn(),
   showAgentPane: vi.fn(),
+  isDetached: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
 }));
 
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', () => ({
+  TERMINAL_KEY: 'terminal',
+  isDetached: mocks.isDetached,
+}));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat.js', () => ({
   isStreaming: () => mocks.streaming,
   stopTurn: mocks.stopTurn,
@@ -75,6 +80,13 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-sync
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js', () => ({
   activateTab: mocks.activateTab,
+}));
+// The panel's frame as dock-iframe holds it: the skeleton's.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
+  managedIframe: (/** @type {string} */ id) => {
+    const iframe = document.querySelector(`iframe.panel-iframe[data-panel-id="${id}"]`);
+    return iframe ? { iframe, title: 'Artifacts' } : null;
+  },
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.js', () => ({
   hasDockedTile: mocks.hasDockedTile,
@@ -699,6 +711,26 @@ describe('expansion and clicks', () => {
     expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
   });
 
+  test('with the Agent pane in its window, a click on the current session brings it forward and leaves the fold', async () => {
+    await boot();
+    mocks.showAgentPane.mockClear();
+    const title = () =>
+      /** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title'));
+    // Folded first, the way an operator would have left it.
+    click(title());
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    mocks.isDetached.mockImplementation((/** @type {string} */ id) => id === 'terminal');
+    click(title());
+    await settle();
+    expect(mocks.showAgentPane).toHaveBeenCalledTimes(1);
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    mocks.isDetached.mockReset();
+    mocks.isDetached.mockReturnValue(false);
+  });
+
   test('a session-name click enters a non-current session and reveals its last-open artifact', async () => {
     await boot();
     mocks.isTerminalPanelOpen.mockReturnValue(false);
@@ -864,18 +896,17 @@ describe('the viewer', () => {
     expect(shown()).not.toBe('a2');
   });
 
-  test("the pager steps through the shown artifact's own session", async () => {
+  test('the tile bar offers Info and Download, no subtitle and no pager', async () => {
     await boot();
-    expect(headerNow().items.find((i) => i.id === 'pager') ?? headerNow().items).toBeTruthy();
-    headerNow().dispatch('next');
+    const { items, dispatch } = headerNow();
+    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual(['icon:info', 'icon:download']);
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    dispatch('download');
+    expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
+    dispatch('next');
     await settle();
-    expect(shown()).toBe('a2');
-    headerNow().dispatch('next');
-    await settle();
-    expect(shown()).toBe('run1');
-    headerNow().dispatch('prev');
-    await settle();
-    expect(shown()).toBe('a2');
+    expect(shown()).toBe('a3');
   });
 
   test('an artifact no session owns shows without a pager, and lists nowhere', async () => {
@@ -883,7 +914,7 @@ describe('the viewer', () => {
     frame({ type: 'focus', id: 'u1', automatic: false, session: T1 });
     await settle();
     expect(shown()).toBe('u1');
-    expect(headerNow().items.map((i) => i.id)).toEqual(['crumb', 'open', 'save']);
+    expect(headerNow().items.map((i) => i.id)).toEqual(['info', 'download']);
     expect(requests('/session-list').some((r) => !r.body.session && !r.body.key)).toBe(false);
     expect(tree().querySelector('.osprey-list-row[data-id="u1"]')).toBeNull();
   });
@@ -1377,7 +1408,7 @@ describe('session pins: the pinned group and the pin button', () => {
     expect(pinnedCopy(T3).getAttribute('aria-expanded')).toBe('true');
   });
 
-  test('pinning while the group is hidden shows it again; hiding hides no session', async () => {
+  test('pinning while the group is hidden keeps it hidden; hiding hides no session', async () => {
     pinT2OnHub();
     await boot();
     const pins = await import(`${JS}/sidebar-session-pins.js`);
@@ -1386,8 +1417,11 @@ describe('session pins: the pinned group and the pin button', () => {
     expect(sessionTitles()).toEqual(['Orbit study', 'Tune scan']);
     click(pinButton(sessionRowEl(T1)));
     await settle();
-    expect(group().hidden).toBe(false);
+    expect(group().hidden).toBe(true);
     expect(head().querySelector('.sidebar-pinned-count')?.textContent).toBe('2');
+    pins.setPinnedHidden(false);
+    await settle();
+    expect(group().hidden).toBe(false);
   });
 
   test('the collapsed sidebar flyout lists the pinned sessions first, under the group name', async () => {

@@ -58,11 +58,12 @@ import uuid
 from contextlib import ExitStack, contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, NamedTuple
 from unittest import mock
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Sequence
 
     from playwright.sync_api import Page
 
@@ -580,13 +581,15 @@ class FakeChat:
 
     ``replies`` overrides the reply per exact prompt; ``delay_s`` holds every
     turn open that long before it answers, so a test can see the streaming
-    guard hold. ``turns`` lists what ran.
+    guard hold. ``asks`` makes a turn ask the operator about a tool call first, by
+    exact prompt, and its reply then says the answer. ``turns`` lists what ran.
     """
 
     def __init__(self, project_dir: Path, session_dir: Path) -> None:
         self.project_dir = project_dir
         self.session_dir = session_dir
         self.replies: dict[str, str] = {}
+        self.asks: dict[str, tuple[str, dict[str, Any]]] = {}
         self.delay_s = 0.0
         self.turns: list[ChatTurn] = []
 
@@ -690,6 +693,12 @@ class _FakeChatClient:
         if self._chat.delay_s > 0:
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._interrupted.wait(), self._chat.delay_s)
+        if prompt in self._chat.asks:
+            tool_name, tool_input = self._chat.asks[prompt]
+            answer = await self.options.can_use_tool(
+                tool_name, tool_input, SimpleNamespace(tool_use_id=None)
+            )
+            self._chat.replies[prompt] = f"The operator said {type(answer).__name__}"
         if _is_clear(prompt):
             self._transcript = await asyncio.to_thread(self._chat.clear, self._key, prompt)
         else:
@@ -892,7 +901,10 @@ def _replay_shell_command(transcript_path: Path) -> list[str]:
 
 @contextmanager
 def hermetic_hub(
-    *, seed: Callable[[Path, Path], None] | None = None, e2e: bool = False
+    *,
+    seed: Callable[[Path, Path], None] | None = None,
+    e2e: bool = False,
+    custom_panels: Sequence[dict[str, Any]] = (),
 ) -> Iterator[HermeticHub]:
     """Boot the full hermetic capture stack; yield a :class:`HermeticHub`.
 
@@ -932,7 +944,8 @@ def hermetic_hub(
     no record rows of its own: the record ingests whatever transcripts it
     writes. ``e2e`` adds :func:`seed_e2e`'s sessions, ledger rows, naming
     cutoff and ``beam_profile`` extension type (off for the contact sheet,
-    whose cards must stay byte-stable).
+    whose cards must stay byte-stable). ``custom_panels`` adds config-declared
+    panels beside the artifacts panel, in the form ``_load_panel_config`` returns.
     """
     from osprey.agent_record.backends.embedded import EmbeddedBackend
     from osprey.agent_runner.project_paths import encode_claude_project_path
@@ -1017,7 +1030,10 @@ def hermetic_hub(
                 )
             )
             stack.enter_context(
-                mock.patch(f"{app_mod}._load_panel_config", return_value=({"artifacts"}, [], None))
+                mock.patch(
+                    f"{app_mod}._load_panel_config",
+                    return_value=({"artifacts"}, list(custom_panels), None),
+                )
             )
             stack.enter_context(
                 mock.patch(

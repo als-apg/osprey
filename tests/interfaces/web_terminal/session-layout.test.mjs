@@ -14,6 +14,8 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   /** @type {{ transcript_id: string | null } | null} */
   row: null,
+  firstLoaded: true,
+  noDock: false,
   /** @type {((change: {reason: string}) => void)[]} */
   sessionListeners: [],
   /** @type {(() => void)[]} */
@@ -51,13 +53,16 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/api.js', () => ({
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/session-model.js', () => ({
   activeRow: () => mocks.row,
+  get firstLoaded() {
+    return mocks.firstLoaded;
+  },
   subscribe: (/** @type {any} */ fn) => {
     mocks.sessionListeners.push(fn);
     return () => {};
   },
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
-  getDockApi: () => api(),
+  getDockApi: () => (mocks.noDock ? null : api()),
   currentDock: () => mocks.dock,
   applyDock: mocks.applyDock,
   setLayoutRestoredHook: (/** @type {() => void} */ fn) => {
@@ -122,6 +127,8 @@ beforeEach(async () => {
   vi.useFakeTimers();
   vi.resetModules();
   mocks.row = null;
+  mocks.firstLoaded = true;
+  mocks.noDock = false;
   mocks.sessionListeners = [];
   mocks.dockListeners = [];
   mocks.restoredHook = null;
@@ -367,6 +374,23 @@ describe('a detached pane', () => {
     ).toBeTruthy();
   });
 
+  test('a session switch sends a detached panel to its session’s page, like a docked one', async () => {
+    const { holder, detach } = await detachKnowledge(null);
+    mocks.server[TA] = { ...dockWith('knowledge'), pages: {} };
+    mocks.server[TB] = {
+      ...dockWith('knowledge'),
+      pages: { knowledge: '/panel/knowledge/page/rf' },
+    };
+    await boot(TA);
+    vi.advanceTimersByTime(mod.SETTLE_MS);
+    detach();
+
+    await switchTo(TB);
+
+    expect(holder.isDetached('knowledge')).toBe(true);
+    expect(mocks.restorePanelPage.mock.calls).toEqual([['knowledge', '/panel/knowledge/page/rf']]);
+  });
+
   test('a detach or a reattach saves the layout, debounced, with no dock change', async () => {
     const { holder, detach } = await detachKnowledge(null);
     mocks.server[TA] = { ...dockWith('knowledge'), pages: {} };
@@ -384,5 +408,95 @@ describe('a detached pane', () => {
       },
     ]);
     expect(holder.isDetached('knowledge')).toBe(true);
+  });
+});
+
+describe('settled', () => {
+  /** Whether the promise has resolved, without waiting for it. */
+  async function isSettled() {
+    let done = false;
+    void mod.settled.then(() => {
+      done = true;
+    });
+    await flush();
+    return done;
+  }
+
+  test('resolves at once on a page with no dock', async () => {
+    mocks.noDock = true;
+    mod.initSessionLayout();
+    expect(await isSettled()).toBe(true);
+  });
+
+  test('waits for the first listing, then resolves with no row to follow', async () => {
+    mocks.firstLoaded = false;
+    await boot(null);
+    expect(await isSettled()).toBe(false);
+
+    mocks.firstLoaded = true;
+    await switchTo(null);
+    expect(await isSettled()).toBe(true);
+  });
+
+  test('waits for the first listing even when an arrive finished before it', async () => {
+    mocks.firstLoaded = false;
+    await boot(TA);
+    expect(await isSettled()).toBe(false);
+
+    mocks.firstLoaded = true;
+    await switchTo(TA);
+    expect(await isSettled()).toBe(true);
+  });
+
+  test('an applied layout settles only SETTLE_MS after the apply', async () => {
+    mocks.server[TA] = { ...dockWith('ariel'), pages: {} };
+    await boot(TA);
+    expect(mocks.applyDock).toHaveBeenCalledTimes(1);
+    expect(await isSettled()).toBe(false);
+
+    vi.advanceTimersByTime(mod.SETTLE_MS - 1);
+    expect(await isSettled()).toBe(false);
+
+    vi.advanceTimersByTime(1);
+    expect(await isSettled()).toBe(true);
+  });
+
+  test('nothing stored settles at once', async () => {
+    mocks.server[TA] = null;
+    await boot(TA);
+    expect(mocks.applyDock).not.toHaveBeenCalled();
+    expect(await isSettled()).toBe(true);
+  });
+
+  test('a read that failed settles', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await boot(TA); // the mocked hub has no TA: HTTP 404
+    expect(await isSettled()).toBe(true);
+    warn.mockRestore();
+  });
+
+  test('a switch that cancels a pending arrive hands the wait to its own', async () => {
+    mocks.server[TA] = { ...dockWith('ariel'), pages: {} };
+    mocks.server[TB] = { ...dockWith('okf'), pages: {} };
+    mocks.row = { transcript_id: TA };
+    mod.initSessionLayout();
+    mocks.restoredHook?.();
+    // Before TA's read answered.
+    await switchTo(TB);
+    expect(mocks.applyDock).toHaveBeenCalledTimes(1);
+    expect(mocks.applyDock.mock.calls[0][0].layout.root.keys).toContain('okf');
+    expect(await isSettled()).toBe(false);
+
+    vi.advanceTimersByTime(mod.SETTLE_MS);
+    expect(await isSettled()).toBe(true);
+  });
+
+  test('a switch to no row during an arrive settles', async () => {
+    mocks.server[TA] = { ...dockWith('ariel'), pages: {} };
+    mocks.row = { transcript_id: TA };
+    mod.initSessionLayout();
+    mocks.restoredHook?.();
+    await switchTo(null);
+    expect(await isSettled()).toBe(true);
   });
 });

@@ -124,7 +124,7 @@ it to *set the corrector-trim channel to 0.5 A*:
   Approve it and the backend writes through the connector;
 - at *allowed*, the write runs without a card.
 
-Try the same on a read-only login (``bob`` in the ``control-assistant``
+Try the same on a read-only login (``bob`` in the ``demo``
 preset): the panel shows the readback, and the agent's write tool is denied.
 
 6. Make it yours
@@ -357,7 +357,7 @@ tools also has the instructions. A listed skill without its file, or a skill
 name two apps share, fails the build.
 
 Orbit bump's skill is a good model (``apps/orbit-bump/skills/orbit-bump/
-SKILL.md`` in a ``control-assistant`` deployment): which tool to call for
+SKILL.md`` in a ``demo`` deployment): which tool to call for
 which request, what the arguments mean in the facility's terms, how to read a
 plan and an apply, and what the refusals mean — compute first, show the plan,
 then ask to apply; never apply a plan the operator has not seen. See

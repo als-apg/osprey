@@ -810,10 +810,14 @@ classes:
         description: >-
           `[{channel, events}]`, the history each channel's archive shows. An
           event's `at_offset` is in seconds relative to the moment the scenario
-          is applied (negative is the past); a step or spike may instead state
-          `at_when` `{days_ago, time}`, a logbook entry's own `when`, so the
-          event and the entry narrating it fall at one instant. An anchored
-          spike's `width` is its Gaussian sigma in seconds. An event meant to be
+          is applied (negative is the past); a step, spike, burst or loss may
+          instead state `at_when` `{days_ago, time}`, a logbook entry's own
+          `when`, so the event and the entry narrating it fall at one instant.
+          An anchored spike's `width` is its Gaussian sigma in seconds. A burst
+          jumps by `amplitude` at its instant and decays with `decay_s`, plus an
+          optional slower `tail_decay_s` carrying `tail_share` of it; a loss
+          drops by `amount` at its instant and only the channel's top-off
+          refills it. An event meant to be
           sampled densely sits inside the archive's dense tier, with a `width`
           of at least twice the sampling interval.
       logbook:

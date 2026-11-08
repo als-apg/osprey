@@ -495,7 +495,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # resolve_servers reads it to withhold the tool, and the logbook
         # templates read it to leave the tool and its SQL guidance out.
         "ariel_sql_tool": ariel_sql_tool,
-        # The ARIEL read tools the control-assistant CLAUDE.md tells the main
+        # The ARIEL read tools the demo CLAUDE.md tells the main
         # agent never to call itself, from the static registry entry (never
         # create_server(), which has start-up side effects).
         "ariel_read_tools": _ariel_read_tools(

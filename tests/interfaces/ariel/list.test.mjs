@@ -3,9 +3,8 @@
  * The ARIEL list pane (list.js):
  *   npx vitest run tests/interfaces/ariel/list.test.mjs
  *
- * `initList(root, {capabilities})` builds the pane head (standalone search
- * box, mode chip with its Filters popover, standalone compose button) and
- * follows the store: an empty query browses /api/entries newest first by
+ * `initList(root, {capabilities})` builds the pane head (the mode chip with
+ * its Filters popover; search and compose are the tile bar's) and follows the store: an empty query browses /api/entries newest first by
  * cursor, with day separators and a Load older control; any other query runs
  * the search driver and pages by offset, in ranked order. Both apply the
  * filter; the mailbox scopes both: Mine sends its name as the exact author
@@ -171,11 +170,6 @@ function body() {
   return /** @type {HTMLElement} */ (document.getElementById('ariel-list-body'));
 }
 
-/** @returns {HTMLInputElement} */
-function searchInput() {
-  return /** @type {HTMLInputElement} */ (document.getElementById('ariel-search-input'));
-}
-
 /** @returns {HTMLButtonElement} */
 function chip() {
   return /** @type {HTMLButtonElement} */ (document.getElementById('ariel-mode-chip'));
@@ -187,13 +181,11 @@ function popover() {
 }
 
 /**
- * Type into the search box and press Enter.
+ * Write a query the way a hash navigation does: applied now, and forced.
  * @param {string} value
  */
 function enter(value) {
-  const input = searchInput();
-  input.value = value;
-  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  store.setState({ query: value.trim(), rerank: 'now' }, { force: true });
 }
 
 /** @returns {string[]} The day separators' labels, in order. */
@@ -235,24 +227,14 @@ afterEach(() => {
 });
 
 describe('pane head', () => {
-  test('standalone: search box, mode chip and compose button, inside a pane head', async () => {
+  test('only the mode chip, inside a pane head: search and compose belong to the host', async () => {
     await mount();
     const head = /** @type {HTMLElement} */ (root().querySelector('.osprey-pane-head'));
     expect(head).not.toBeNull();
-    expect(head.querySelector('.osprey-search input')).toBe(searchInput());
     expect(head.contains(chip())).toBe(true);
     expect(chip().textContent, 'chip names the default mode').toContain('Keyword');
-    const compose = /** @type {HTMLElement} */ (document.getElementById('ariel-compose-btn'));
-    expect(head.contains(compose)).toBe(true);
-    expect(compose.getAttribute('aria-label')).toBe('New entry');
-  });
-
-  test('embedded: only the mode chip — the search box and compose belong to the host', async () => {
-    history.replaceState(null, '', '/?embedded=true');
-    await mount();
-    expect(searchInput()).toBeNull();
+    expect(head.querySelector('input')).toBeNull();
     expect(document.getElementById('ariel-compose-btn')).toBeNull();
-    expect(chip()).not.toBeNull();
   });
 
   test('the chip follows the store mode', async () => {
@@ -260,27 +242,13 @@ describe('pane head', () => {
     store.setState({ mode: 'semantic', rerank: 'now' });
     expect(chip().textContent).toContain('Semantic');
   });
-
-  test('the compose button opens an empty compose', async () => {
-    await mount();
-    /** @type {HTMLElement} */ (document.getElementById('ariel-compose-btn')).click();
-    expect(store.getState().compose).toEqual({ draft: null });
-  });
-
-  test('a query written elsewhere shows in the search box', async () => {
-    await mount();
-    store.setState({ query: 'from the hash', rerank: 'now' });
-    expect(searchInput().value).toBe('from the hash');
-  });
 });
 
-describe('search box', () => {
-  test('Enter writes the query with rerank now and runs the search', async () => {
+describe('a written query', () => {
+  test('a query with rerank now runs the search', async () => {
     await mount();
     vi.mocked(api.searchApi.search).mockResolvedValueOnce(searchResponse([entry('HIT-1')]));
-    enter('  quench  ');
-    expect(store.getState().query).toBe('quench');
-    expect(store.getState().rerank).toBe('now');
+    enter('quench');
     await flush();
     expect(api.searchApi.search).toHaveBeenCalledTimes(1);
     expect(vi.mocked(api.searchApi.search).mock.calls[0][0]).toMatchObject({
@@ -290,7 +258,7 @@ describe('search box', () => {
     expect(rowIds()).toEqual(['HIT-1']);
   });
 
-  test('Enter on an unchanged query re-runs it (forced write)', async () => {
+  test('an unchanged query re-runs on a forced write', async () => {
     await mount();
     enter('quench');
     await flush();
@@ -314,27 +282,6 @@ describe('search box', () => {
     expect(rowIds()).toEqual(['A', 'B']);
     expect(separators()).toEqual([]);
     expect(loadMoreButton(), 'has_more false: the end').toBeNull();
-  });
-
-  test('focusSearch focuses the standalone box', async () => {
-    await mount();
-    list.focusSearch();
-    expect(document.activeElement).toBe(searchInput());
-  });
-
-  test('focusSearch is a no-op embedded and while search is blocked', async () => {
-    history.replaceState(null, '', '/?embedded=true');
-    await mount();
-    expect(() => list.focusSearch()).not.toThrow();
-
-    vi.resetModules();
-    history.replaceState(null, '', '/');
-    document.body.innerHTML = '<section id="ariel-list"></section>';
-    await mount({
-      capabilities: { ...CAPABILITIES, status: 'configuration_invalid', config_errors: ['x'] },
-    });
-    list.focusSearch();
-    expect(document.activeElement).not.toBe(searchInput());
   });
 
   test('clearing the query returns the list to newest-first', async () => {
@@ -713,10 +660,7 @@ describe('badge strip', () => {
     await mount({
       firstPage: listPage([{ ...entry('E1'), enhancements: { image_caption: 'stale' } }]),
     });
-    expect(
-      body().querySelector('.ariel-strip-cell-stale'),
-      'standalone default: on'
-    ).not.toBeNull();
+    expect(body().querySelector('.ariel-strip-cell-stale'), 'wide default: on').not.toBeNull();
 
     const prefs = await import('../../../src/osprey/interfaces/ariel/static/js/display-prefs.js');
     prefs.setStripPref(false);

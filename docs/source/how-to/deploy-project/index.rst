@@ -32,7 +32,7 @@ Overview
 ``osprey build`` renders each service's Jinja2 Docker Compose template and
 copies source and configuration into a per-service build directory; ``osprey
 up`` hands the result to Docker or Podman Compose. A deployment created from the
-``control-assistant`` preset deploys a full stack out of the box:
+``demo`` preset deploys a full stack out of the box:
 ``postgresql``, ``event_dispatcher`` and ``dispatch_worker``,
 ``bluesky`` (with its co-deployed Tiled data server), ``virtual_accelerator``,
 ``bluesky_web``, and the multi-user web-terminal stack. Every deployment, the
@@ -45,7 +45,7 @@ Service Configuration
 
 Services are declared under ``services:`` in ``config.yml`` and selected for
 deployment via ``deployed_services:``. A minimal example (one of the services
-the ``control-assistant`` preset ships with):
+the ``demo`` preset ships with):
 
 .. code-block:: yaml
 
@@ -82,7 +82,7 @@ build profiles that ship multiple applications.
 The graph store (``graphdb``)
 -----------------------------
 
-Alongside ``postgresql``, the ``control-assistant`` preset
+Alongside ``postgresql``, the ``demo`` preset
 deploys a ``graphdb`` service: a Neo4j store holding the facility's knowledge
 graph. Its ``services.graphdb`` block names the image, the bolt port the seeder
 and the health checks dial (``port_host``), the HTTP port of the Neo4j Browser an

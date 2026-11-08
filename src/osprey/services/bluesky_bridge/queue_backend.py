@@ -356,7 +356,7 @@ def _resolve_control_system_type() -> str:
     the type and the simulator's ``serving`` leaf decide whether the Bluesky
     stack runs over real Channel Access (the simulator served from its container,
     or live hardware) or browses the simulator in process — see the
-    ``control-assistant`` preset's ``config.control_system.type`` comment.
+    ``demo`` preset's ``config.control_system.type`` comment.
 
     Fail-SAFE default: the factory's own fallback,
     ``resolve_control_system_type(None)``, whenever the config can't be read at

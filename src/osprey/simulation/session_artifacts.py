@@ -59,7 +59,7 @@ __all__ = [
 
 #: Seconds of history shown either side of the turn's archiver events.
 PLOT_MARGIN_S = 600.0
-#: Seconds between two plotted samples: fine enough to resolve a 40 s spike.
+#: Seconds between two plotted samples: fine enough to resolve a burst decaying over seconds.
 PLOT_STEP_S = 2.0
 #: The window a plot shows, ending at its turn, when its channels carry no event.
 PLOT_QUIET_WINDOW_S = 1800.0

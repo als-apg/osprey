@@ -15,6 +15,8 @@
  * @module hyperscript
  */
 
+import { icon } from '/design-system/js/icons.js';
+
 /**
  * Create an element, apply props, append children.
  *
@@ -50,4 +52,21 @@ export function h(tag, props, ...children) {
     node.appendChild(typeof child === 'object' ? child : document.createTextNode(String(child)));
   }
   return node;
+}
+
+/**
+ * A small Info icon whose tooltip is `text` (`data-tip`, the design system's
+ * tooltip layer): how field help reads beside its label instead of as a line
+ * of text on the page. Focusable, so the tip shows on keyboard focus too, and
+ * `text` is its accessible name.
+ *
+ * @param {string} text
+ * @returns {HTMLElement}
+ */
+export function infoTip(text) {
+  return h(
+    'span',
+    { class: 'field-help', tabindex: '0', role: 'img', 'aria-label': text, 'data-tip': text },
+    icon('info', { size: 14 })
+  );
 }

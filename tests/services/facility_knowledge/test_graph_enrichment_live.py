@@ -18,7 +18,7 @@ sit between the two claims and neither is visible from the TTL:
   That is a real migration with a real failure mode, and it is only observable
   against a live n10s.
 
-So this lane seeds the graph view the control-assistant build writes through
+So this lane seeds the graph view the demo build writes through
 the seeder API and asks the
 questions in Cypher.  It is separate from ``tests/integration/test_graphdb_store.py``
 — which pins the corpus's verified node counts — because it owns a different
@@ -201,9 +201,9 @@ def enrichment_store_uri(graphdb_session_store: WatchedStore) -> str:
 
 
 @pytest.fixture(scope="module")
-def demo_ttl(built_control_assistant: BuiltProject) -> str:
-    """The graph view the control-assistant build writes, as the seeder reads it."""
-    view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+def demo_ttl(built_demo: BuiltProject) -> str:
+    """The graph view the demo build writes, as the seeder reads it."""
+    view = built_demo.build_dir / "data" / "graph" / "facility.ttl"
     return view.read_text(encoding="utf-8")
 
 
@@ -244,7 +244,7 @@ def _ttl_census(ttl: str) -> dict[str, int]:
 
     Cheap string counts rather than an rdflib parse, and derived from the corpus
     under test rather than pinned as numbers here: the committed censuses belong
-    to ``tests/templates/test_control_assistant_demo_ttl.py``, and a second copy
+    to ``tests/templates/test_demo_ttl.py``, and a second copy
     of them would go stale on its own schedule.  What this lane needs is only the
     comparison — whether the graph holds *everything* the file declares, which is
     what turns "the descriptions are consistent" into "the corpus is complete".

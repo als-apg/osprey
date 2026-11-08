@@ -747,23 +747,6 @@ describe('the holder state', () => {
     expect(holder.focusedTile).toBe('t2');
   });
 
-  test('pop-outs are named beside the tiles and bump the layout', () => {
-    const holder = createLayoutHolder({ dockPx: DEFAULT_PX });
-    holder.restore(THREE_TILES);
-    holder.ack(1);
-    expect(holder.popouts).toEqual([]);
-    expect(holder.setPoppedOut('beta', true)).toBe(true);
-    expect(holder.setPoppedOut('beta', true)).toBe(false);
-    expect(holder.setPoppedOut('alpha', true)).toBe(true);
-    expect(holder.popouts).toEqual(['alpha', 'beta']);
-    expect(holder.dirty).toBe(true);
-    holder.ack(2);
-    expect(holder.setPoppedOut('beta', false)).toBe(true);
-    expect(holder.popouts).toEqual(['alpha']);
-    expect(holder.dirty).toBe(true);
-    expect(holder.setPoppedOut('beta', false)).toBe(false);
-  });
-
   test('a change marks the holder dirty and ack clears it', () => {
     const holder = createLayoutHolder({ dockPx: DEFAULT_PX });
     expect(holder.dirty).toBe(false);
@@ -853,12 +836,83 @@ describe('detached panes', () => {
     expectSizesClose(holder.layout, THREE_TILES, 0.005);
   });
 
-  test('detach of a key the dock does not hold stores nothing', () => {
-    const holder = detachHolder(THREE_TILES);
-    const before = holder.layout;
-    expect(holder.detach('gamma', null)).toBe(false);
-    expect(holder.detachedKeys()).toEqual([]);
-    expect(holder.layout).toBe(before);
+  describe('a pane with no tile', () => {
+    test('detaches with no way back recorded, and the layout does not move', () => {
+      const holder = detachHolder(THREE_TILES);
+      const before = holder.layout;
+      const changed = vi.fn();
+      holder.onDetachedChange(changed);
+      expect(holder.detach('delta', '/panel/delta/page')).toBe(true);
+      expect(holder.layout).toBe(before);
+      expect(holder.popouts).toEqual(['delta']);
+      expect(holder.detachedEntry('delta')).toMatchObject({
+        record: null,
+        neighbourKey: null,
+        page: '/panel/delta/page',
+      });
+      expect(changed).toHaveBeenCalledTimes(1);
+    });
+
+    test('a second detach of a pane already out changes nothing', () => {
+      const holder = detachHolder(THREE_TILES);
+      holder.detach('delta', '/panel/delta/one');
+      expect(holder.detach('delta', '/panel/delta/two')).toBe(false);
+      expect(holder.detachedEntry('delta')?.page).toBe('/panel/delta/one');
+    });
+
+    test('reattach takes the open rule: one panel per tile', () => {
+      const holder = detachHolder(THREE_TILES);
+      holder.detach('delta', null);
+      expect(holder.reattach('delta')).toBe(true);
+      expect(holder.isDetached('delta')).toBe(false);
+      expect(holder.holds('delta')).toBe(true);
+      expect(crowdedTile(holder.layout)).toBeNull();
+    });
+
+    test('reattach into an empty dock works, service and Agent alike', () => {
+      for (const key of ['delta', 'terminal']) {
+        const holder = detachHolder(null);
+        expect(holder.detach(key, null)).toBe(true);
+        expect(holder.reattach(key)).toBe(true);
+        expect(keysOf(holder.layout)).toEqual([key]);
+      }
+    });
+
+    test('persisted docks it and costs no docked panel', () => {
+      const holder = detachHolder(THREE_TILES);
+      const live = keysOf(holder.layout);
+      holder.detach('delta', null);
+      const stored = holder.persisted();
+      expect(crowdedTile(stored)).toBeNull();
+      expect(keysOf(stored).sort()).toEqual([...live, 'delta'].sort());
+      expect(holder.layout).not.toBe(stored);
+      expect(keysOf(holder.layout)).toEqual(live);
+    });
+
+    test('persisted docks a closed Agent pane at its home side', () => {
+      const holder = detachHolder(THREE_TILES);
+      holder.run((/** @type {any} */ layout) => closeKey(layout, 'terminal'));
+      expect(holder.holds('terminal')).toBe(false);
+      holder.detach('terminal', null);
+      const stored = holder.persisted();
+      expect(keysOf(stored)).toContain('terminal');
+      expect(crowdedTile(stored)).toBeNull();
+    });
+
+    test('a layout that holds it gives it the way back that layout has', () => {
+      const holder = detachHolder(THREE_TILES);
+      holder.detach('delta', null);
+      holder.restore({
+        split: 'row',
+        items: [
+          { tile: 't1', tabs: ['alpha'], showing: 'alpha', size: 0.5 },
+          { tile: 't2', tabs: ['delta'], showing: 'delta', size: 0.5 },
+        ],
+      });
+      expect(holder.holds('delta')).toBe(false);
+      expect(holder.detachedEntry('delta')?.record).not.toBeNull();
+      expect(holder.detachedEntry('delta')?.neighbourKey).toBe('alpha');
+    });
   });
 
   test('the entry is stored before the apply, so the geometry pass already sees it detached', () => {
@@ -1034,12 +1088,27 @@ describe('detached panes', () => {
     expect(isDetached('alpha')).toBe(false);
   });
 
-  test('the page-engine pop-outs stay beside the detached panes until the page engine goes', () => {
+  test('holds says whether the dock has a tile for a key', () => {
     const holder = detachHolder(THREE_TILES);
-    holder.setPoppedOut('gamma', true);
+    expect(holder.holds('beta')).toBe(true);
     holder.detach('beta', null);
-    expect(holder.popouts).toEqual(['beta', 'gamma']);
-    expect(holder.detachedKeys()).toEqual(['beta']);
+    expect(holder.holds('beta')).toBe(false);
+    expect(holder.holds('ghost')).toBe(false);
+  });
+
+  test('a detached pane’s page is kept fresh and each change announced; an unreadable page changes nothing', () => {
+    const holder = detachHolder(THREE_TILES);
+    holder.detach('beta', '/panel/beta/one');
+    const changed = vi.fn();
+    holder.onDetachedChange(changed);
+    holder.setDetachedPage('beta', '/panel/beta/two');
+    expect(holder.detachedEntry('beta')?.page).toBe('/panel/beta/two');
+    expect(changed).toHaveBeenCalledTimes(1);
+    holder.setDetachedPage('beta', '/panel/beta/two');
+    holder.setDetachedPage('beta', null);
+    holder.setDetachedPage('alpha', '/panel/alpha/one');
+    expect(holder.detachedEntry('beta')?.page).toBe('/panel/beta/two');
+    expect(changed).toHaveBeenCalledTimes(1);
   });
 
   describe('restore prunes detached keys', () => {

@@ -22,7 +22,7 @@ that fails, run the way the entrypoint runs it:
 * a hand-written tree of names in two separator conventions, built through
   ``osprey build`` with no physics model -- the names are served verbatim and
   boot with no alarm;
-* the control-assistant demo, whose SR model is a pyAT child -- the
+* the demo, whose SR model is a pyAT child -- the
   write safety, the chromaticity left for the next tick, the model RPC's
   fault writes, and a child that fails to solve;
 * a hand-written view of stub children -- the alarm each kind of output
@@ -1056,8 +1056,8 @@ class TestNamesServedVerbatim:
 
 
 @pytest.fixture(scope="class")
-def demo_files(built_control_assistant: BuiltProject) -> dict[str, bytes]:
-    files: dict[str, bytes] = built_control_assistant.outputs[0].files
+def demo_files(built_demo: BuiltProject) -> dict[str, bytes]:
+    files: dict[str, bytes] = built_demo.outputs[0].files
     return files
 
 

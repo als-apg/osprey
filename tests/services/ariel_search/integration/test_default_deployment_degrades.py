@@ -1,6 +1,6 @@
 """A default deployment with no llama-server and no caption model runs clean.
 
-The ARIEL config is the ``control-assistant`` preset as the build reads it, so
+The ARIEL config is the ``demo`` preset as the build reads it, so
 ``image_caption``, ``image_embedding``, ``hybrid`` and
 ``ariel.attachments.view.enabled`` are on as shipped. It deviates from the
 preset by one named override, ``ariel.ingestion`` (a ``generic_json`` file
@@ -63,7 +63,7 @@ pytestmark = [
     pytest.mark.real_fetch,
 ]
 
-PRESET = "control-assistant"
+PRESET = "demo"
 CAPTION = "image_caption"
 EMBED = "image_embedding"
 PICTURE_MODULES = (CAPTION, EMBED)
@@ -78,7 +78,7 @@ TEXT_MODEL = "nomic-embed-text"
 TEXT_DIMS = 768
 #: An alias the llama-server stub serves that is not the preset's model.
 OTHER_ALIAS = "some-other-embedding-model"
-#: The vocabulary the control-assistant build ships at ``data/facility/ariel/vocabulary.yml``.
+#: The vocabulary the demo build ships at ``data/facility/ariel/vocabulary.yml``.
 VOCABULARY = (
     Path(osprey.__file__).parent
     / "templates"

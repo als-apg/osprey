@@ -31,9 +31,9 @@ def _listed_apps(repo: Path) -> list[str]:
 
 
 def test_an_initialised_deployment_packages_exactly_this_app(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    repo = built_control_assistant.repo
+    repo = built_demo.repo
     assert _listed_apps(repo) == [APP_NAME]
     assert sorted(path.name for path in (repo / "apps").iterdir()) == [APP_NAME]
     assert deployment_packages(repo, [], apps=_listed_apps(repo)) == [
@@ -42,14 +42,14 @@ def test_an_initialised_deployment_packages_exactly_this_app(
 
 
 def test_a_skip_deps_build_records_the_package_for_the_image(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    dockerfile = (built_control_assistant.repo / "build" / "Dockerfile").read_text()
+    dockerfile = (built_demo.repo / "build" / "Dockerfile").read_text()
     assert f"{APP_NAME}==0.1.0" in dockerfile
 
 
 def test_a_forced_init_drops_an_application_the_preset_no_longer_ships(tmp_path: Path) -> None:
-    repo = init_project(tmp_path, "control-assistant", "demo")
+    repo = init_project(tmp_path, "demo", "demo")
     stale = repo / "apps" / OLD_APP
     shutil.copytree(
         APP_TREE,
@@ -69,9 +69,7 @@ def test_a_forced_init_drops_an_application_the_preset_no_longer_ships(tmp_path:
     )
     assert _listed_apps(repo) == [OLD_APP]
 
-    result = CliRunner().invoke(
-        init, [str(repo), "--preset", "control-assistant", "--no-git", "--force"]
-    )
+    result = CliRunner().invoke(init, [str(repo), "--preset", "demo", "--no-git", "--force"])
 
     assert result.exit_code == 0, result.output
     assert not stale.exists()

@@ -97,8 +97,8 @@ def load_template_manifest(
     carry no artifact declaration of their own.
 
     Args:
-        template_name: The app bundle directory ("control_assistant"), or the
-            preset a built project's manifest records ("control-assistant").
+        template_name: The app bundle directory ("demo"), or the
+            preset a built project's manifest records ("demo").
             Both spellings resolve, because the bundled-preset fallback below
             normalizes whichever it is given onto the hyphenated preset file.
             ``None`` when the caller has no name to offer — a project built
@@ -118,7 +118,7 @@ def load_template_manifest(
     # The bundled preset profile is the canonical source of artifact declarations.
     #
     # Resolved through the profile resolver, not read as raw YAML: a preset
-    # that says `extends: control-assistant` declares only its DELTA, so
+    # that says `extends: demo` declares only its DELTA, so
     # reading its file alone answers with a fraction of what it selects —
     # the tier presets would report no skills, or web_panels with no
     # agents. Resolving is also what applies `exclude:`, so a render that

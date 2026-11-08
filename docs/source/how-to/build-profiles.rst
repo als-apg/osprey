@@ -48,7 +48,7 @@ scratch directory and diff it:
 
 .. code-block:: bash
 
-   osprey init /tmp/fresh --preset control-assistant
+   osprey init /tmp/fresh --preset demo
    diff -u /tmp/fresh/profile.yml my-facility/profile.yml
 
 
@@ -59,7 +59,7 @@ One command creates a deployment repository from a preset:
 
 .. code-block:: bash
 
-   osprey init my-facility --preset control-assistant
+   osprey init my-facility --preset demo
 
 That writes the repository and stops. Look at the profile, edit it, then render
 and start it from inside:
@@ -600,7 +600,7 @@ Logins
 Some presets give each operator their own web terminal. Every card on the
 landing page opens a **login**: one file in ``tiers/``, laid over
 ``profile.yml`` and rendered as its own project. For those presets
-(``control-assistant``), ``osprey init`` writes six:
+(``demo``), ``osprey init`` writes six:
 
 .. code-block:: text
 
@@ -1056,7 +1056,7 @@ It never touches the source zone — only ``osprey init --force`` replaces that.
    osprey init --list-presets
 
    # Create the deployment, then render it
-   osprey init my-assistant --preset control-assistant
+   osprey init my-assistant --preset demo
    cd my-assistant
    osprey build
 

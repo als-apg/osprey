@@ -208,7 +208,7 @@ MOVED_APP_LOGINS: dict[str, MovedLogin] = {
 _IDENTITY_KEYS = ("name", "extends", "provenance")
 
 #: The deployment preset whose roster comments a rewritten roster borrows.
-_HOST_PRESET = "control-assistant"
+_HOST_PRESET = "demo"
 
 _MADE_FROM = re.compile(r"^#\s*Made from the bundled `([^`]+)` preset\.", re.MULTILINE)
 
@@ -586,7 +586,7 @@ class WriteStanza(NamedTuple):
 #: the preset's current words loses nothing the operator wrote.
 WRITE_STANZAS: tuple[WriteStanza, ...] = (
     WriteStanza(
-        "control-assistant",
+        "demo",
         "control_system.writes: allowed",
         7,
         "sha256:ac361105ab01d4cd2a662d5f42d71ee2fa27841d59519084cb1313f05c12e940",
@@ -595,7 +595,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "control_system.writes: asked",
     ),
     WriteStanza(
-        "control-assistant",
+        "demo",
         "# Where the simulator runs: `served` is its container over Channel Access; `in_process` is inside this process, with no container.",
         4,
         "sha256:af5020608bfe8231dea1508462dd9880cbb16c3e7cc680e01c565692e127d15a",
@@ -603,7 +603,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     ),
     WriteStanza(
-        "control-assistant",
+        "demo",
         "# Channel the target switch reads to prove the live machine is reachable.",
         3,
         "sha256:ce6a8cf56ab8a75fd66cda2b9d67d9a9e465bae5e3d03f25c8aba1ca6e265e75",
@@ -611,7 +611,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     ),
     WriteStanza(
-        "control-assistant",
+        "demo",
         "# Seconds an ENS lookup, a property read or a property set is given.",
         1,
         "sha256:eacda895bd3b9b217dea11b3de9c5bdaf04bdba82a45e527c43ced885e4329e2",
@@ -619,7 +619,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:c71d12de9f95e34dfe6e9a4e3c62c6b4a26e59b90b1c73eee9373493289b4c6b",
     ),
     WriteStanza(
-        "control-assistant",
+        "demo",
         "# Property the target switch reads to prove this machine is reachable.",
         3,
         "sha256:268822f74f972ad272b373bc687b5419e76c3c45be3fd9d141daa8562253af2f",
@@ -627,7 +627,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     ),
     WriteStanza(
-        "control-assistant",
+        "demo",
         "# control_system.connector.tango.probe_channel: sys/tg_test/1/ampli",
         2,
         "sha256:09c939480a710bcd937052fb6ca9076e2b1f1ba29bbb7f5a92e64cd4fe68ae90",  # osprey:not-a-port — digest digits
@@ -637,7 +637,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
     # The writes-check hook's entry, which named the retired key; a stanza is
     # compared line by line, so a list entry's own comment is one too.
     WriteStanza(
-        "control-assistant",
+        "demo",
         "- limits            # Enforce per-channel min/max limits before writes",
         1,
         "sha256:e80aca8e8c01cb79c19c83637e2958d48b8e86843a5b865a4ea618be86d3806e",
@@ -646,7 +646,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
     ),
     # The stand-in's comment, which named the banner the real machine wears.
     WriteStanza(
-        "control-assistant",
+        "demo",
         "# Delete the line on a laptop: the simulator image is amd64-only, so a",
         3,
         "sha256:7557ddf3c86a9245e4d5b1dc31a72d46a89e8c2fd425b42702f6c42170e11afe",
@@ -656,7 +656,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
     # The display-name example, which named the facility's machine "Real machine".
     # Both deployment presets ship these lines, so one row covers both.
     WriteStanza(
-        "control-assistant",
+        "demo",
         "# control_system.target_display_names.standin: Rehearsal",
         2,
         "sha256:7fbcc759924ac0e790c9b07421fd57505d4df780eca762851a2fafd3d947d2fe",
@@ -666,7 +666,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
     # The approval block's words, which now say the slider decides for the
     # tools the write switch governs.
     WriteStanza(
-        "control-assistant",
+        "demo",
         "approval.enabled: true",
         3,
         "sha256:f559167d66c10f91eb024fd3f8cd27ff24e77ae987ec7e6c96464710acadfdaf",
@@ -674,7 +674,7 @@ WRITE_STANZAS: tuple[WriteStanza, ...] = (
         "sha256:cdcc4f753da2040b7472a81ef99f4c8ce6c0db5f8a99f1d329927456cb2b828c",
     ),
     WriteStanza(
-        "control-assistant",
+        "demo",
         "approval.tools.channel_read: skip",
         3,
         "sha256:fcde28785b5bed12ec45b719243409fcb553a64337e45424854b6380f7bd1c43",
@@ -1521,7 +1521,7 @@ def _leaf_comments(
     leaf — so this is usually one call to
     :func:`~osprey.cli.build_profile_emit._extract_visual`. It recurses anyway
     because a preset may spell a subtree nested (``modules.web_terminals:`` in
-    the control-assistant presets is), and the leaves under such a branch are
+    the demo presets is), and the leaves under such a branch are
     addressed by the same dotted keys the comparison reports as lacking.
 
     A leaf with no comment of its own simply has no entry. The comment above a

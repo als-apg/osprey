@@ -48,7 +48,7 @@ def test_a_build_with_no_route_to_an_index_makes_the_wheel(
     """A full build, the offline proof of the wheel, with no route to an index."""
     for name, value in {**offline_build_env, **NO_ROUTE}.items():
         monkeypatch.setitem(os.environ, name, value)
-    repo = init_project(tmp_path, "control-assistant", "demo")
+    repo = init_project(tmp_path, "demo", "demo")
     _list_only_this_app(repo)
 
     result = CliRunner().invoke(build, ["--repo", str(repo)])

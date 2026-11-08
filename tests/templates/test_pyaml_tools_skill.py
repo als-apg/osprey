@@ -120,7 +120,7 @@ def test_the_prompt_section_follows_the_view_and_the_python_server():
 
 
 def test_the_control_room_preset_installs_the_skill_and_sandboxless_renders_drop_it():
-    base = yaml.safe_load((PRESETS / "control-assistant.yml").read_text(encoding="utf-8"))
+    base = yaml.safe_load((PRESETS / "demo.yml").read_text(encoding="utf-8"))
     assert "pyaml-tools" in base["skills"]
     # An app's lists are its whole selection, so a sandboxless app drops the
     # skill by not listing it.
