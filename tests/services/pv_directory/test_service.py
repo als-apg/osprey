@@ -1,0 +1,717 @@
+"""Tests for the directory service, with fake backends behind the factory's create API.
+
+The service is the only place a backend is built, so every test swaps the four
+create calls for one that records the spec it was handed and returns a fake. The
+control target comes from a stubbed control-context record, or from the
+deployment's baseline when there is none.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import importlib
+import json
+import sys
+from collections.abc import Iterator
+from pathlib import Path
+from types import ModuleType
+from typing import Any
+
+import pytest
+
+contract = pytest.importorskip("osprey_connectors.pv_directory.contract")
+
+import osprey.channel_roster as channel_roster  # noqa: E402
+from osprey.services.pv_directory import _connectors, service  # noqa: E402
+from osprey.services.pv_directory.demo import resolve_replay_file  # noqa: E402
+from osprey_connectors import control_context  # noqa: E402
+from osprey_connectors.factory import ConnectorFactory  # noqa: E402
+
+_NEW_MODULES = (
+    "osprey_connectors.pv_directory",
+    "osprey_connectors.pv_directory.contract",
+    "osprey_connectors.pv_directory.targets",
+)
+
+VA_BUILD = {"type": "virtual_accelerator"}
+LIVE_BUILD = {"type": "epics"}
+FACILITY = {"type": "channelfinder", "settings": {"url": "http://cf.example", "timeout_s": 0.3}}
+
+
+# -- fakes --------------------------------------------------------------------
+
+
+class FakeBackend:
+    """The construction and source every fake shares, as the contract's base has them."""
+
+    label = "All PVs"
+
+    def __init__(self, spec: Any, *, project_dir: Path | None = None, **seams: Any) -> None:
+        self.spec = spec
+        self.project_dir = project_dir
+
+    @property
+    def source(self) -> Any:
+        return contract.Source(
+            target=self.spec.target,
+            service=self.spec.type,
+            label=self.label if self.spec.kind == "pv_directory" else self.spec.type,
+            rehearsal=self.spec.rehearsal,
+        )
+
+    async def probe(self, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        return f"{self.spec.type} answered"
+
+
+def _row(name: str, **fields: Any) -> Any:
+    return contract.DirectoryRow(name=name, **fields)
+
+
+class FakeDirectory(FakeBackend):
+    """A directory over fixed rows; the name filter is a substring, ``ioc`` is exact."""
+
+    rows: list[Any] = []
+    records: dict[str, Any] = {}
+    count_delay = 0.0
+    search_delay = 0.0
+
+    def __init__(self, spec: Any, **kwargs: Any) -> None:
+        super().__init__(spec, **kwargs)
+        self.searches: list[Any] = []
+        self.counts: list[Any] = []
+
+    def _hits(self, query: Any) -> list[Any]:
+        return [
+            row
+            for row in self.rows
+            if query.words in row.name and (not query.ioc or row.ioc in query.ioc)
+        ]
+
+    async def search(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        self.searches.append(query)
+        await asyncio.sleep(self.search_delay)
+        hits = self._hits(query)
+        start = query.page * query.page_size
+        rows = hits[start : start + query.page_size]
+        return contract.DirectoryPage(
+            outcome=contract.Outcome.FOUND if hits else contract.Outcome.NO_MATCH,
+            searched="from the backend",
+            request=f"GET /fake?q={query.words}&size={query.page_size}",
+            source=self.source,
+            total=len(hits),
+            rows=rows,
+            truncated=start + len(rows) < len(hits),
+        )
+
+    async def count(self, query: Any, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        self.counts.append(query)
+        await asyncio.sleep(self.count_delay)
+        return len(self._hits(query))
+
+    async def describe(self, name: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        return self.records.get(name, contract.Outcome.NOT_LISTED)
+
+
+class FakeAlarmState(FakeBackend):
+    async def start(self) -> None:
+        pass
+
+    async def aclose(self) -> None:
+        pass
+
+    async def state_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        return contract.AlarmStateRecord(severity="MAJOR")
+
+    async def config_for(self, pv: str, deadline: float) -> Any:  # noqa: ARG002 - a fake
+        return contract.Unavailable("no message from the feed yet")
+
+
+class FakeLog(FakeBackend):
+    pass
+
+
+_FAKES = {
+    "pv_directory": FakeDirectory,
+    "alarm_state": FakeAlarmState,
+    "alarm_log": FakeLog,
+    "put_log": FakeLog,
+}
+
+
+@pytest.fixture(autouse=True)
+def built(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Every backend the service builds, in order; the create calls return fakes."""
+    made: list[Any] = []
+
+    def create(kind: str):
+        async def create_connector(spec: Any, *, project_dir: Path | None = None, **seams: Any):
+            assert spec.kind == kind
+            backend = _FAKES[kind](spec, project_dir=project_dir, **seams)
+            made.append(backend)
+            return backend
+
+        return create_connector
+
+    for kind in _FAKES:
+        monkeypatch.setattr(ConnectorFactory, f"create_{kind}_connector", create(kind))
+    monkeypatch.setattr(FakeDirectory, "rows", [])
+    monkeypatch.setattr(FakeDirectory, "records", {})
+    monkeypatch.setattr(FakeDirectory, "count_delay", 0.0)
+    monkeypatch.setattr(FakeDirectory, "search_delay", 0.0)
+    return made
+
+
+class _Record:
+    """Where the stubbed control-context record points; ``None`` is no record."""
+
+    def __init__(self) -> None:
+        self.value: Any = None
+
+    def move(self, target: str, generation: int) -> None:
+        self.value = control_context.ControlContext(target=target, generation=generation)
+
+
+@pytest.fixture(autouse=True)
+def record(monkeypatch: pytest.MonkeyPatch) -> _Record:
+    holder = _Record()
+    monkeypatch.setattr(control_context, "read_record", lambda **_: holder.value)
+    return holder
+
+
+@pytest.fixture(autouse=True)
+def cold_roster() -> Iterator[None]:
+    channel_roster._roster_cache.clear()
+    yield
+    channel_roster._roster_cache.clear()
+
+
+def _config(
+    tmp_path: Path,
+    control_system: dict[str, Any],
+    section: dict[str, Any] | None,
+    *curated: str,
+) -> dict[str, Any]:
+    channels = [{"id": address, "role": "none"} for address in curated]
+    (tmp_path / "facility.json").write_text(json.dumps({"channels": channels}), encoding="utf-8")
+    config: dict[str, Any] = {"config_dir": str(tmp_path), "control_system": control_system}
+    if control_system == VA_BUILD:
+        config["services"] = {"virtual_accelerator": {"port": 5064}}
+    if section is not None:
+        config["pv_directory"] = section
+    return config
+
+
+def _service(config: dict[str, Any], tmp_path: Path) -> Any:
+    return service.DirectoryService(config, project_dir=tmp_path)
+
+
+# -- search -------------------------------------------------------------------
+
+
+async def test_search_marks_rows_and_removes_hidden_properties(tmp_path: Path) -> None:
+    FakeDirectory.rows = [
+        _row("SR:BPM1", ioc="ioc-a", host="h1", record_type="ai"),
+        _row("SR:BPM2", ioc="ioc-b", host="h2", record_type="ao"),
+    ]
+    section = {**FACILITY, "display": {"hidden_properties": ["hostName"]}}
+    directory = _service(_config(tmp_path, LIVE_BUILD, section, "SR:BPM1"), tmp_path)
+
+    page = await directory.search(words="SR")
+
+    assert page["outcome"] == "found"
+    assert [(row["name"], row["origin"]) for row in page["rows"]] == [
+        ("SR:BPM1", "curated"),
+        ("SR:BPM2", "directory"),
+    ]
+    assert all(row["host"] is None for row in page["rows"])
+    assert page["rows"][0]["ioc"] == "ioc-a"
+    assert page["total"] == 2
+    assert page["source"] == {
+        "target": "live",
+        "service": "channelfinder",
+        "label": "All PVs",
+        "rehearsal": False,
+    }
+    assert page["searched"] == "name or description matches SR"
+    assert page["request"] == "GET /fake?q=SR&size=50"
+    assert page["partial"] == []
+    assert page["facets"]["origin"] == [
+        {"value": "curated", "count": 1},
+        {"value": "directory", "count": 1},
+    ]
+    assert page["facets"]["ioc"] == [
+        {"value": "ioc-a", "count": 1},
+        {"value": "ioc-b", "count": 1},
+    ]
+    assert page["facets_reason"] is None
+    await directory.aclose()
+
+
+async def test_search_filters_by_origin_over_the_fetched_set(
+    tmp_path: Path, built: list[Any]
+) -> None:
+    FakeDirectory.rows = [_row(f"SR:PV{i}", ioc="ioc-a") for i in range(5)]
+    config = _config(tmp_path, LIVE_BUILD, FACILITY, "SR:PV1", "SR:PV3")
+    directory = _service(config, tmp_path)
+
+    page = await directory.search(words="SR", origin=["curated"], page_size=1)
+
+    assert [row["name"] for row in page["rows"]] == ["SR:PV1"]
+    assert page["total"] == 2
+    assert page["truncated"] is True
+    assert page["searched"] == "name or description matches SR · origin curated"
+    assert page["facets"]["origin"] == [
+        {"value": "directory", "count": 3},
+        {"value": "curated", "count": 2},
+    ]
+    sent = built[0].searches + built[0].counts
+    assert all(query.origin == () for query in sent)
+    await directory.aclose()
+
+
+async def test_partial_on_a_slow_count(tmp_path: Path) -> None:
+    FakeDirectory.rows = [_row("SR:BPM1")]
+    FakeDirectory.count_delay = 5.0
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    page = await asyncio.wait_for(directory.search(words="SR"), 2.0)
+
+    assert page["outcome"] == "found"
+    assert [row["name"] for row in page["rows"]] == ["SR:BPM1"]
+    assert {entry["part"] for entry in page["partial"]} == {"count", "facets"}
+    assert page["facets"] is None
+    assert page["facets_reason"]
+    await directory.aclose()
+
+
+async def test_above_the_filter_cap_facets_say_why(tmp_path: Path, built: list[Any]) -> None:
+    FakeDirectory.rows = [_row(f"SR:PV{i}") for i in range(4)]
+    section = {**FACILITY, "display": {"filter_cap": 3}}
+    directory = _service(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    page = await directory.search(words="SR", page_size=2)
+    filtered = await directory.search(words="SR", origin=["curated"])
+
+    assert page["facets"] is None
+    assert page["facets_reason"] == "too many results to filter (4); narrow the search"
+    assert [row["name"] for row in page["rows"]] == ["SR:PV0", "SR:PV1"]
+    assert all(query.page_size <= 3 for query in built[0].searches)
+    assert filtered["outcome"] == "unavailable"
+    assert filtered["reason"] == "too many results to filter (4); narrow the search"
+    await directory.aclose()
+
+
+async def test_origin_search_without_its_set_has_no_total(tmp_path: Path) -> None:
+    FakeDirectory.rows = [_row(f"SR:PV{i}") for i in range(4)]
+    section = {**FACILITY, "display": {"filter_cap": 3}}
+    directory = _service(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    filtered = await directory.search(words="SR", origin=["curated"])
+
+    assert filtered["outcome"] == "unavailable"
+    assert filtered["total"] is None
+    await directory.aclose()
+
+
+async def test_a_zero_count_drops_the_backend_count_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def search(self: Any, query: Any, deadline: float) -> Any:  # noqa: ARG001 - a fake
+        return contract.DirectoryPage(
+            outcome=contract.Outcome.NO_MATCH,
+            searched="from the backend",
+            request="GET /fake",
+            source=self.source,
+            total=None,
+            rows=[],
+            truncated=False,
+            partial=[{"part": "count", "reason": "the count timed out"}],
+        )
+
+    monkeypatch.setattr(FakeDirectory, "search", search)
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    page = await directory.search(words="nothing")
+
+    assert page["total"] == 0
+    assert page["partial"] == []
+    await directory.aclose()
+
+
+async def test_search_past_its_deadline_leaves_no_task(tmp_path: Path) -> None:
+    FakeDirectory.rows = [_row("SR:BPM1")]
+    FakeDirectory.count_delay = 5.0
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    await asyncio.wait_for(directory.search(words="SR"), 2.0)
+
+    others = {t for t in asyncio.all_tasks() if t is not asyncio.current_task()}
+    assert not [t for t in others if not t.done()]
+    await directory.aclose()
+
+
+async def test_a_count_in_flight_across_a_target_move_is_not_cached(
+    tmp_path: Path, built: list[Any], record: _Record
+) -> None:
+    FakeDirectory.rows = [_row("SR:BPM1")]
+    FakeDirectory.count_delay = 0.2
+    record.move("live", 1)
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    old = asyncio.create_task(directory.count(words="SR"))
+    await asyncio.sleep(0.05)
+    record.move("live", 2)
+    await directory.backend("pv_directory")
+    await old
+
+    FakeDirectory.count_delay = 0.0
+    await directory.count(words="SR")
+
+    assert len(built) == 2
+    assert len(built[1].counts) == 1
+    await directory.aclose()
+
+
+async def test_a_snapshot_built_across_aclose_is_not_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def slow_create(spec: Any, *, project_dir: Path | None = None, **seams: Any) -> Any:
+        await asyncio.sleep(0.2)
+        return FakeAlarmState(spec, project_dir=project_dir, **seams)
+
+    monkeypatch.setattr(ConnectorFactory, "create_alarm_state_connector", slow_create)
+    section = {
+        **FACILITY,
+        "alarm_state": {
+            "type": "phoebus_alarm_server",
+            "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator"},
+        },
+    }
+    directory = _service(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    pending = asyncio.create_task(directory.snapshot())
+    await asyncio.sleep(0.05)
+    await directory.aclose()
+
+    assert await pending is None
+    assert directory._snapshot is None
+
+
+async def test_count_answers_the_whole_directory(tmp_path: Path) -> None:
+    FakeDirectory.rows = [_row("A"), _row("B")]
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY, "A"), tmp_path)
+
+    assert (await directory.count())["total"] == 2
+    assert (await directory.count(origin=["curated"]))["total"] == 1
+    assert (await directory.count(words="nothing"))["outcome"] == "no_match"
+    await directory.aclose()
+
+
+# -- describe -----------------------------------------------------------------
+
+
+async def test_describe_marks_the_record_and_removes_hidden_properties(tmp_path: Path) -> None:
+    FakeDirectory.records = {
+        "SR:BPM1": contract.DirectoryRecord(
+            row=_row("SR:BPM1", status="Inactive", host="h1"),
+            properties={"Engineer": "A. Person", "secret": "x"},
+        )
+    }
+    section = {**FACILITY, "display": {"hidden_properties": ["secret", "hostName"]}}
+    directory = _service(_config(tmp_path, LIVE_BUILD, section, "SR:BPM1"), tmp_path)
+
+    found = await directory.describe("SR:BPM1")
+    missing = await directory.describe("SR:NOPE")
+
+    assert found["outcome"] == "inactive"
+    assert found["origin"] == "curated"
+    assert found["record"]["row"]["origin"] == "curated"
+    assert found["record"]["row"]["host"] is None
+    assert found["record"]["properties"] == {"Engineer": "A. Person"}
+    assert missing["outcome"] == "not_listed"
+    assert missing["origin"] == "directory"
+    assert missing["record"] is None
+    await directory.aclose()
+
+
+# -- targets ------------------------------------------------------------------
+
+
+async def test_backend_per_target(tmp_path: Path, record: _Record) -> None:
+    section = {
+        **FACILITY,
+        "alarm_log": {"type": "phoebus_alarm_logger", "settings": {"url": "http://al"}},
+        "alarm_state": {"replay_file": "demo:example-alarms"},
+    }
+    directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
+
+    backend, source, reason = await directory.backend("pv_directory")
+    assert (backend.spec.type, source.target, reason) == ("simulator_view", "va", None)
+    assert await directory.backend("alarm_log") == (None, None, _connectors.NO_SOURCE_REASON)
+
+    record.move("standin", 1)
+    backend, source, _reason = await directory.backend("alarm_log")
+    assert (backend.spec.type, source.target, source.rehearsal) == (
+        "phoebus_alarm_logger",
+        "standin",
+        True,
+    )
+    assert await directory.backend("put_log") == (None, None, _connectors.NO_SOURCE_REASON)
+    await directory.aclose()
+
+
+async def test_backend_carries_the_build_failure_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, record: _Record
+) -> None:
+    async def broken(*_: Any, **__: Any) -> Any:
+        raise RuntimeError("no route to host")
+
+    monkeypatch.setattr(ConnectorFactory, "create_alarm_log_connector", broken)
+    section = {
+        **FACILITY,
+        "alarm_log": {"type": "phoebus_alarm_logger", "settings": {"url": "http://al"}},
+    }
+    record.move("live", 1)
+    directory = _service(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    assert await directory.backend("alarm_log") == (
+        None,
+        None,
+        "cannot build the alarm_log backend 'phoebus_alarm_logger': no route to host",
+    )
+    await directory.aclose()
+
+
+async def test_va_never_reaches_a_facility_backend(tmp_path: Path, built: list[Any]) -> None:
+    section = {
+        **FACILITY,
+        "alarm_log": {"type": "phoebus_alarm_logger", "settings": {"url": "http://al"}},
+        "put_log": {"type": "caputlog", "settings": {"url": "http://pl"}},
+        "alarm_state": {
+            "type": "phoebus_alarm_server",
+            "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator"},
+            "replay_file": "demo:example-alarms",
+        },
+    }
+    directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
+
+    await directory.search(words="SR")
+    await directory.describe("SR:BPM1")
+    await directory.count()
+    await directory.snapshot()
+    await directory.probes()
+    for kind in _FAKES:
+        await directory.backend(kind)
+
+    assert {(b.spec.kind, b.spec.type) for b in built} == {
+        ("pv_directory", "simulator_view"),
+        ("alarm_state", "alarm_replay"),
+    }
+    assert {b.spec.target for b in built} == {"va"}
+    await directory.aclose()
+
+
+async def test_va_to_live_never_answers_from_the_replay(tmp_path: Path, record: _Record) -> None:
+    section = {**FACILITY, "alarm_state": {"replay_file": "demo:example-alarms"}}
+    directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
+
+    on_va = await directory.snapshot()
+    assert on_va is not None
+    assert on_va.target == "va"
+
+    record.move("live", 1)
+
+    assert await directory.snapshot() is None
+    assert await directory.backend("alarm_state") == (
+        None,
+        None,
+        _connectors.NO_SOURCE_REASON,
+    )
+    await directory.aclose()
+
+
+async def test_demo_replay_is_rewritten_to_the_packaged_file(tmp_path: Path) -> None:
+    section = {"alarm_state": {"replay_file": "demo:example-alarms"}}
+    directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
+
+    backend, _source, _reason = await directory.backend("alarm_state")
+
+    expected = resolve_replay_file("demo:example-alarms", tmp_path)
+    assert backend.spec.settings["replay_file"] == str(expected)
+    assert Path(backend.spec.settings["replay_file"]).is_absolute()
+    await directory.aclose()
+
+
+async def test_snapshot_is_one_per_target_and_generation(tmp_path: Path, record: _Record) -> None:
+    section = {
+        **FACILITY,
+        "alarm_state": {
+            "type": "phoebus_alarm_server",
+            "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator"},
+        },
+    }
+    directory = _service(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    first = await directory.snapshot()
+    assert await directory.snapshot() is first
+    assert (await first.state_for("SR:BPM1", 0.5)).severity == "MAJOR"
+
+    record.move("live", 1)
+    second = await directory.snapshot()
+
+    assert second is not first
+    assert second.target == "live"
+    assert first._task is None  # closed
+    await directory.aclose()
+    assert second._task is None
+
+
+async def test_target_move_clears_the_cache(
+    tmp_path: Path, built: list[Any], record: _Record
+) -> None:
+    FakeDirectory.rows = [_row("SR:BPM1")]
+    record.move("live", 1)
+    directory = _service(_config(tmp_path, LIVE_BUILD, FACILITY), tmp_path)
+
+    await directory.search(words="SR")
+    await directory.search(words="SR", page=1)
+    assert len(built) == 1
+    assert len(built[0].counts) == 1
+
+    record.move("live", 2)
+    await directory.search(words="SR")
+
+    assert len(built) == 2
+    assert len(built[1].counts) == 1
+    await directory.aclose()
+
+
+async def test_no_source_form_at_standin(tmp_path: Path, built: list[Any], record: _Record) -> None:
+    record.move("standin", 1)
+    section = {"alarm_state": {"replay_file": "demo:example-alarms"}}
+    directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
+
+    expected = _connectors.unavailable_payload(_connectors.NO_SOURCE_REASON, target="standin")
+
+    assert await directory.search(words="SR") == expected
+    assert await directory.count() == expected
+    described = await directory.describe("SR:BPM1")
+    assert {key: described[key] for key in expected} == expected
+    assert expected["source"]["rehearsal"] is True
+    assert await directory.snapshot() is None
+    assert built == []
+    await directory.aclose()
+
+
+@pytest.mark.parametrize(
+    ("control_system", "target", "service_type"),
+    [(VA_BUILD, "va", "simulator_view"), (LIVE_BUILD, "live", "channelfinder")],
+)
+async def test_no_record_answers_from_the_baseline(
+    tmp_path: Path,
+    built: list[Any],
+    control_system: dict[str, Any],
+    target: str,
+    service_type: str,
+) -> None:
+    directory = _service(_config(tmp_path, control_system, FACILITY), tmp_path)
+
+    page = await directory.search(words="SR")
+
+    assert page["source"]["target"] == target
+    assert page["source"]["service"] == service_type
+    assert built[0].project_dir == tmp_path
+    await directory.aclose()
+
+
+# -- probes and lifetime ------------------------------------------------------
+
+
+async def test_probes_name_every_configured_service(tmp_path: Path, record: _Record) -> None:
+    section = {
+        **FACILITY,
+        "alarm_log": {"type": "phoebus_alarm_logger", "settings": {"url": "http://al"}},
+    }
+    directory = _service(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    probes = await directory.probes()
+
+    assert set(probes) == {"pv_directory", "alarm_log"}
+    assert probes["pv_directory"]["outcome"] == "found"
+    assert probes["pv_directory"]["evidence"] == "channelfinder answered"
+
+    record.move("va", 1)
+    on_va = await directory.probes()
+    assert on_va["alarm_log"] == _connectors.unavailable_payload(
+        _connectors.NO_SOURCE_REASON, target="va"
+    )
+    await directory.aclose()
+
+
+async def test_aclose_leaves_no_task(tmp_path: Path) -> None:
+    section = {"alarm_state": {"replay_file": "demo:example-alarms"}}
+    directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
+    snapshot = await directory.snapshot()
+    await snapshot.state_for("X", 0.2)
+
+    await directory.aclose()
+    await directory.aclose()
+
+    others = {t for t in asyncio.all_tasks() if t is not asyncio.current_task()}
+    assert not [t for t in others if t.get_name().startswith("alarm-state-")]
+    assert snapshot._task is None
+
+
+# -- the connectors floor -----------------------------------------------------
+
+
+@pytest.fixture
+def floor() -> Iterator[ModuleType]:
+    """The service re-imported over a shim whose PV directory modules are unimportable."""
+    with pytest.MonkeyPatch.context() as patch:
+        for name in _NEW_MODULES:
+            patch.setitem(sys.modules, name, None)
+        importlib.reload(_connectors)
+        yield importlib.reload(service)
+    importlib.reload(_connectors)
+    importlib.reload(service)
+
+
+async def test_modules_blocked_every_read_answers_the_floor(
+    tmp_path: Path, floor: ModuleType
+) -> None:
+    directory = floor.DirectoryService(
+        _config(tmp_path, LIVE_BUILD, FACILITY), project_dir=tmp_path
+    )
+    expected = _connectors.unavailable_payload(_connectors.FLOOR_REASON, target="live")
+
+    assert await directory.search(words="SR") == expected
+    assert await directory.count() == expected
+    described = await directory.describe("SR:BPM1")
+    assert {key: described[key] for key in expected} == expected
+    assert await directory.backend("pv_directory") == (None, None, _connectors.FLOOR_REASON)
+    assert await directory.snapshot() is None
+    assert await directory.probes() == {"pv_directory": expected}
+    await directory.aclose()
+
+
+def test_modules_blocked_the_framework_takes_only_listed_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.connectors import test_public_api
+
+    for name in _NEW_MODULES:
+        monkeypatch.setitem(sys.modules, name, None)
+    test_public_api._framework_imports.cache_clear()
+    try:
+        taken = [
+            (module, name)
+            for where, module, name in test_public_api._framework_imports()
+            if where.startswith("src/osprey/services/pv_directory/service.py")
+        ]
+        test_public_api.test_the_framework_takes_only_listed_names()
+    finally:
+        test_public_api._framework_imports.cache_clear()
+
+    assert taken
+    assert all(not module.startswith("osprey_connectors.pv_directory") for module, _ in taken)
