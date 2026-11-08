@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 07, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 08, 2026"/>
   </head>
   
   
@@ -434,7 +434,7 @@
 <span></span><span class="sd">&quot;&quot;&quot;Pure time-series synthesis primitives for the simulated archive and texture.</span>
 
 <span class="sd">These functions turn a baseline series plus a scenario&#39;s archiver events</span>
-<span class="sd">(step/ramp/spike, positioned by window fraction, wall-clock offset, or daily</span>
+<span class="sd">(step/ramp/spike/burst/loss, positioned by window fraction, wall-clock offset, or daily</span>
 <span class="sd">time-of-day) into a concrete value series, and supply the keyed draws and the</span>
 <span class="sd">band-limited texture the texture engine layers on a served value. They hold no</span>
 <span class="sd">state: the caller supplies the channel values and events and these functions</span>
@@ -442,7 +442,7 @@
 <span class="sd">&quot;&quot;&quot;</span>
 
 <span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span><span class="p">,</span> <span class="n">Sequence</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">time</span> <span class="k">as</span> <span class="n">dtime</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
@@ -455,7 +455,9 @@
 
 <span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
     <span class="s2">&quot;anchored_instant&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;BURST_WINDOW_TAUS&quot;</span><span class="p">,</span>
     <span class="s2">&quot;apply_events&quot;</span><span class="p">,</span>
+    <span class="s2">&quot;loss_refill_bound&quot;</span><span class="p">,</span>
     <span class="s2">&quot;channel_key_bytes&quot;</span><span class="p">,</span>
     <span class="s2">&quot;clamp&quot;</span><span class="p">,</span>
     <span class="s2">&quot;daily_occurrences&quot;</span><span class="p">,</span>
@@ -493,6 +495,15 @@
 <span class="n">_WANDER_OCTAVE_SPAN</span> <span class="o">=</span> <span class="mf">3.5</span>
 <span class="n">_WANDER_DECAY_PER_OCTAVE</span> <span class="o">=</span> <span class="mf">0.5</span>
 <span class="n">_WANDER_JITTER_OCTAVES</span> <span class="o">=</span> <span class="mf">0.15</span>
+
+<span class="c1">#: How many of a ``burst``&#39;s slowest time constants count as inside its window:</span>
+<span class="c1">#: ``exp(-10)`` leaves under 0.005% of the burst outside it.</span>
+<span class="n">BURST_WINDOW_TAUS</span> <span class="o">=</span> <span class="mf">10.0</span>
+<span class="c1">#: Injector shots per second while top-off refills a ``loss``.</span>
+<span class="n">_REFILL_RATE_HZ</span> <span class="o">=</span> <span class="mf">1.0</span>
+<span class="c1">#: Charge one refill shot adds, as a fraction of the top-off ``ceiling``</span>
+<span class="c1">#: (0.75 mA on a 500 mA ring).</span>
+<span class="n">_REFILL_SHOT_FRACTION</span> <span class="o">=</span> <span class="mf">0.0015</span>
 
 
 <div class="viewcode-block" id="channel_key_bytes">
@@ -856,6 +867,82 @@
 
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_burst_profile</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">dt</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A ``burst``&#39;s excursion at ``dt`` seconds after its instant.</span>
+
+<span class="sd">    Zero before the instant, ``amplitude`` at it, then a fast exponential</span>
+<span class="sd">    pump-down with ``decay_s`` plus, when ``tail_share`` and ``tail_decay_s``</span>
+<span class="sd">    are stated, a slower exponential carrying that share of the amplitude::</span>
+
+<span class="sd">        amplitude * ((1 - share) * exp(-dt / decay_s) + share * exp(-dt / tail_decay_s))</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        event: A ``burst`` event.</span>
+<span class="sd">        dt: Seconds since the event instant; negative is before it.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The excursion, same shape as ``dt``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">amplitude</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amplitude&quot;</span><span class="p">])</span>
+    <span class="n">share</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tail_share&quot;</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">))</span>
+    <span class="n">tail</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;tail_decay_s&quot;</span><span class="p">,</span> <span class="n">event</span><span class="p">[</span><span class="s2">&quot;decay_s&quot;</span><span class="p">]))</span>
+    <span class="n">after</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+    <span class="n">shape</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">-</span> <span class="n">share</span><span class="p">)</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">after</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;decay_s&quot;</span><span class="p">]))</span> <span class="o">+</span> <span class="n">share</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="o">-</span><span class="n">after</span> <span class="o">/</span> <span class="n">tail</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">dt</span> <span class="o">&gt;=</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">amplitude</span> <span class="o">*</span> <span class="n">shape</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_loss_deficit</span><span class="p">(</span>
+    <span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span>
+    <span class="n">at</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
+    <span class="n">x</span><span class="p">:</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">,</span>
+    <span class="n">topoff</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;How far a ``loss`` holds a channel below its level at each instant of ``x``.</span>
+
+<span class="sd">    The channel drops by ``amount`` in one step at ``at`` and nothing brings it</span>
+<span class="sd">    back but top-off: from the first top-off refill instant after ``at`` (an</span>
+<span class="sd">    epoch-aligned multiple of the seed&#39;s ``period_s``) the injector adds one shot</span>
+<span class="sd">    of ``_REFILL_SHOT_FRACTION * ceiling`` every ``1 / _REFILL_RATE_HZ`` seconds</span>
+<span class="sd">    until the amount is replaced. A channel without a ``topoff`` seed never</span>
+<span class="sd">    recovers.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        event: A ``loss`` event.</span>
+<span class="sd">        at: Its instant, in epoch seconds.</span>
+<span class="sd">        x: Epoch seconds, ascending.</span>
+<span class="sd">        topoff: The channel&#39;s ``topoff`` seed record, or None.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The deficit, ``amount`` right after ``at`` and 0 before it and once</span>
+<span class="sd">        refilled.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">amount</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amount&quot;</span><span class="p">])</span>
+    <span class="n">deficit</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span><span class="p">,</span> <span class="n">amount</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">topoff</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">deficit</span>
+    <span class="n">period</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">])</span>
+    <span class="n">shot</span> <span class="o">=</span> <span class="n">_REFILL_SHOT_FRACTION</span> <span class="o">*</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;ceiling&quot;</span><span class="p">]))</span>
+    <span class="n">refill</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">floor</span><span class="p">(</span><span class="n">at</span> <span class="o">/</span> <span class="n">period</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">period</span>
+    <span class="n">shots</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">refill</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">floor</span><span class="p">((</span><span class="n">x</span> <span class="o">-</span> <span class="n">refill</span><span class="p">)</span> <span class="o">*</span> <span class="n">_REFILL_RATE_HZ</span><span class="p">)</span> <span class="o">+</span> <span class="mf">1.0</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">deficit</span> <span class="o">-</span> <span class="n">shot</span> <span class="o">*</span> <span class="n">shots</span><span class="p">,</span> <span class="mf">0.0</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="loss_refill_bound">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.loss_refill_bound">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">loss_refill_bound</span><span class="p">(</span><span class="n">event</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">topoff</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Seconds after its instant by which a ``loss`` is surely refilled; None if never.</span>
+
+<span class="sd">    One top-off period to the first refill, wherever in the period the loss</span>
+<span class="sd">    falls, plus the shots the amount takes.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">topoff</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="n">shot</span> <span class="o">=</span> <span class="n">_REFILL_SHOT_FRACTION</span> <span class="o">*</span> <span class="nb">abs</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;ceiling&quot;</span><span class="p">]))</span>
+    <span class="n">shots</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amount&quot;</span><span class="p">])</span> <span class="o">/</span> <span class="n">shot</span><span class="p">)</span> <span class="k">if</span> <span class="n">shot</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mf">0.0</span>
+    <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">topoff</span><span class="p">[</span><span class="s2">&quot;period_s&quot;</span><span class="p">])</span> <span class="o">+</span> <span class="nb">float</span><span class="p">(</span><span class="n">shots</span><span class="p">)</span> <span class="o">/</span> <span class="n">_REFILL_RATE_HZ</span></div>
+
+
+
 <div class="viewcode-block" id="apply_events">
 <a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.series.apply_events">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">apply_events</span><span class="p">(</span>
@@ -865,11 +952,15 @@
     <span class="n">t_abs</span><span class="p">:</span> <span class="s2">&quot;np.ndarray | None&quot;</span><span class="p">,</span>
     <span class="n">anchor</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
     <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">topoff</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;np.ndarray&quot;</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply step/ramp/spike events in order (window-fraction or wall-clock).</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).</span>
 
 <span class="sd">    A step with an end (see :func:`step_end`) holds ``to`` over ``[start, end)``</span>
 <span class="sd">    and leaves later samples on the baseline; without one it holds to the end.</span>
+<span class="sd">    A ``burst`` (:func:`_burst_profile`) and a ``loss`` (:func:`_loss_deficit`)</span>
+<span class="sd">    start at their instant and never move a sample before it; ``topoff`` is the</span>
+<span class="sd">    channel&#39;s ``topoff`` seed record, which alone refills a loss.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">events</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">series</span>
@@ -898,6 +989,10 @@
                 <span class="n">mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">x</span> <span class="o">&gt;=</span> <span class="n">at</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">x</span> <span class="o">&lt;=</span> <span class="n">until</span><span class="p">)</span>
                 <span class="n">series</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="p">(</span><span class="n">to</span> <span class="o">-</span> <span class="n">start</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="n">mask</span><span class="p">]</span> <span class="o">-</span> <span class="n">at</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">until</span> <span class="o">-</span> <span class="n">at</span><span class="p">)</span>
                 <span class="n">series</span><span class="p">[</span><span class="n">x</span> <span class="o">&gt;</span> <span class="n">until</span><span class="p">]</span> <span class="o">=</span> <span class="n">to</span>
+            <span class="k">elif</span> <span class="n">shape</span> <span class="o">==</span> <span class="s2">&quot;burst&quot;</span><span class="p">:</span>
+                <span class="n">series</span> <span class="o">=</span> <span class="n">series</span> <span class="o">+</span> <span class="n">_burst_profile</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">x</span> <span class="o">-</span> <span class="n">at</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">shape</span> <span class="o">==</span> <span class="s2">&quot;loss&quot;</span><span class="p">:</span>
+                <span class="n">series</span> <span class="o">=</span> <span class="n">series</span> <span class="o">-</span> <span class="n">_loss_deficit</span><span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">at</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">topoff</span><span class="p">)</span>
             <span class="k">else</span><span class="p">:</span>  <span class="c1"># spike (gaussian bump; width as window fraction, or seconds when anchored)</span>
                 <span class="n">amplitude</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;amplitude&quot;</span><span class="p">])</span>
                 <span class="n">width</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">event</span><span class="p">[</span><span class="s2">&quot;width&quot;</span><span class="p">])</span>

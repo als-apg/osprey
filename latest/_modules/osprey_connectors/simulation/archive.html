@@ -63,7 +63,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Nov 07, 2026"/>
+    <meta name="docbuild:last-update" content="Nov 08, 2026"/>
   </head>
   
   
@@ -773,6 +773,8 @@
 <span class="sd">            ``close``.</span>
 <span class="sd">        pulses: Each pulsed waveform channel&#39;s ``pulse`` seed, by address: the</span>
 <span class="sd">            ``driver`` and ``enable`` channels its trace is computed from.</span>
+<span class="sd">        topoffs: Each channel&#39;s ``topoff`` seed record, by address, for the</span>
+<span class="sd">            channels whose ``loss`` events top-off refills.</span>
 
 <span class="sd">    Raises:</span>
 <span class="sd">        ValueError: A ``pulse`` seed names a driver or enable that is not a</span>
@@ -792,8 +794,10 @@
         <span class="n">tz</span><span class="p">:</span> <span class="n">ZoneInfo</span> <span class="o">|</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">state</span><span class="p">:</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
         <span class="n">pulses</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+        <span class="n">topoffs</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_channels</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">channels</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_topoffs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">topoffs</span> <span class="ow">or</span> <span class="p">{})</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_pulses</span> <span class="o">=</span> <span class="p">{</span>
             <span class="n">address</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;driver&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">seed</span><span class="p">[</span><span class="s2">&quot;driver&quot;</span><span class="p">]),</span> <span class="s2">&quot;enable&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">seed</span><span class="p">[</span><span class="s2">&quot;enable&quot;</span><span class="p">])}</span>
             <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="n">seed</span> <span class="ow">in</span> <span class="p">(</span><span class="n">pulses</span> <span class="ow">or</span> <span class="p">{})</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
@@ -811,6 +815,13 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">state</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_anchor_s</span> <span class="o">=</span> <span class="n">anchor_s</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">_tz</span> <span class="o">=</span> <span class="n">tz</span></div>
+
+
+<div class="viewcode-block" id="ArchiveComposite.topoff_record">
+<a class="viewcode-back" href="../../../reference/connectors-api/simulation.html#osprey_connectors.simulation.archive.ArchiveComposite.topoff_record">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">topoff_record</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;The ``topoff`` seed record that refills ``address``&#39;s ``loss`` events, or None.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_topoffs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="ArchiveComposite.close">
@@ -1000,7 +1011,9 @@
         <span class="n">count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">times</span><span class="p">)</span>
         <span class="n">start</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_held</span><span class="p">[</span><span class="n">address</span><span class="p">]),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
         <span class="n">events</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_events</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="p">[])</span>
-        <span class="k">return</span> <span class="n">apply_events</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">events</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">times</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_anchor_s</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tz</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">apply_events</span><span class="p">(</span>
+            <span class="n">start</span><span class="p">,</span> <span class="n">events</span><span class="p">,</span> <span class="n">count</span><span class="p">,</span> <span class="n">times</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_anchor_s</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tz</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_topoffs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="p">)</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">_stepped</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
@@ -1140,6 +1153,12 @@
             <span class="n">tz</span><span class="o">=</span><span class="n">get_facility_timezone</span><span class="p">(),</span>
             <span class="n">state</span><span class="o">=</span><span class="n">state</span><span class="p">,</span>
             <span class="n">pulses</span><span class="o">=</span><span class="n">pulses</span><span class="p">,</span>
+            <span class="n">topoffs</span><span class="o">=</span><span class="p">{</span>
+                <span class="n">address</span><span class="p">:</span> <span class="n">record</span>
+                <span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">events</span>
+                <span class="k">if</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">records</span>
+                <span class="ow">and</span> <span class="p">(</span><span class="n">record</span> <span class="o">:=</span> <span class="n">topoff</span><span class="o">.</span><span class="n">topoff_record</span><span class="p">(</span><span class="n">view</span><span class="o">.</span><span class="n">seed</span><span class="p">(</span><span class="n">address</span><span class="p">)))</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="p">},</span>
         <span class="p">)</span>
     <span class="k">except</span> <span class="ne">BaseException</span><span class="p">:</span>
         <span class="n">state</span><span class="o">.</span><span class="n">cleanup</span><span class="p">()</span>
