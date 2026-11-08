@@ -45,8 +45,9 @@
  * HEADINGS. Each group's heading (`.osprey-section-label`) holds its name
  * (`span.sidebar-group-name`, also the group's accessible name). A
  * right-click anywhere across the heading's full width, or Shift+F10 / the
- * menu key on its focused name, opens the group's menu: Rename, New group
- * below, Move up, Move down, and Delete group for a group the operator added.
+ * menu key on its focused name, opens the group's menu: Rename…, New group
+ * below, Move up, Move down, Collapse (or Expand) group, and Delete group —
+ * greyed, with its reason, for a built-in group.
  * A heading is also a drag handle: dragged, it moves its whole group
  * (sidebar-group-drag.js); Move up and Move down are the keyboard's route.
  * The menu is the hub's shared context menu (panel-context-menu.js). Rename
@@ -54,10 +55,13 @@
  * keeps the new name; Escape keeps the old one, and so does an empty name.
  */
 
-import { isContextMenuKey } from '/design-system/js/context-menu.js';
+import { declinesToBrowser, isContextMenuKey } from '/design-system/js/context-menu.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { TERMINAL_RAIL_ID } from './panel-catalog.js';
 import { openContextMenu } from './panel-context-menu.js';
+// A cycle (sidebar-fold.js → panel-rail.js → this module), safe because
+// neither side reads the other's bindings before a call.
+import { isGroupFolded, setGroupFolded } from './sidebar-fold.js';
 
 /** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
 
@@ -500,6 +504,15 @@ const NAME_CLASS = 'sidebar-group-name';
 /** The class of the field that renames a group in place. */
 const RENAME_CLASS = 'sidebar-group-rename';
 
+/**
+ * Whether a name is being renamed anywhere in the sidebar (a group, the
+ * Pinned group, a session): while one is, the sidebar's menus stay shut.
+ * @returns {boolean}
+ */
+export function isSidebarRenaming() {
+  return Boolean(document.querySelector(`#sidebar .${RENAME_CLASS}, #sidebar .osprey-tree-rename`));
+}
+
 /** Headings already wired, so a repaint never adds a second listener.
  *  @type {WeakSet<Element>} */
 const wiredHeadings = new WeakSet();
@@ -552,14 +565,15 @@ export function paintGroupHeading(groupEl, group, nameId) {
  * The group menu's listeners on a heading: a right-click anywhere on it, and
  * Shift+F10 or the menu key while focus is in it (macOS fires no
  * `contextmenu` for those keys, so they are handled here). A rename field
- * keeps the browser's own menu, and so does the sidebar collapsed to icons,
- * where a heading is a hairline.
+ * keeps the browser's own menu, and so do a Shift+right-click and the sidebar
+ * collapsed to icons, where a heading is a hairline.
  * @param {HTMLElement} heading
  */
 function wireHeading(heading) {
   /** @param {Event} event @returns {{railEl: HTMLElement, id: string} | null} */
   const targetOf = (event) => {
     if (event.target instanceof Element && event.target.closest(`.${RENAME_CLASS}`)) return null;
+    if (isSidebarRenaming()) return null;
     if (document.documentElement.getAttribute('data-sidebar') === 'collapsed') return null;
     const groupEl = heading.closest('.sidebar-group[data-group]');
     const railEl = groupEl?.parentElement;
@@ -567,6 +581,7 @@ function wireHeading(heading) {
     return railEl && id ? { railEl, id } : null;
   };
   heading.addEventListener('contextmenu', (event) => {
+    if (declinesToBrowser(event)) return;
     const at = targetOf(event);
     if (at && openGroupMenu(at.railEl, at.id, event.clientX, event.clientY, heading)) {
       event.preventDefault();
@@ -607,9 +622,10 @@ function focusGroupName(railEl, groupId) {
 }
 
 /**
- * Open a group's menu at a viewport position: Rename, New group below, Move
- * up, Move down, and Delete group for a group the operator added. The
- * headless group has no menu, and Move up stops below it.
+ * Open a group's menu at a viewport position: Rename…, New group below, Move
+ * up, Move down, Collapse (or Expand) group, then Delete group — greyed with
+ * its reason for a built-in group. The headless group has no menu, and Move up
+ * stops below it.
  * @param {HTMLElement} railEl - the rail the group's element is in
  * @param {string} id
  * @param {number} x
@@ -621,10 +637,12 @@ export function openGroupMenu(railEl, id, x, y, anchorEl) {
   const { groups } = loadGroups();
   const at = groups.findIndex((group) => group.id === id);
   if (at < 0 || isHeadlessGroup(id)) return false;
+  const builtin = isBuiltinGroup(id);
+  const folded = isGroupFolded(id);
 
   /** @type {MenuItem[]} */
   const items = [
-    { label: 'Rename', run: () => startGroupRename(railEl, id) },
+    { label: 'Rename…', run: () => startGroupRename(railEl, id) },
     {
       label: 'New group below',
       run: () => startGroupRename(railEl, addGroup(NEW_GROUP_LABEL, id)),
@@ -645,20 +663,21 @@ export function openGroupMenu(railEl, id, x, y, anchorEl) {
         focusGroupName(railEl, id);
       },
     },
+    folded
+      ? { label: 'Expand group', run: () => setGroupFolded(id, false) }
+      : { label: 'Collapse group', run: () => setGroupFolded(id, true) },
+    { divider: true },
+    {
+      label: 'Delete group',
+      danger: true,
+      disabled: builtin,
+      tip: builtin ? 'Built-in groups cannot be deleted' : undefined,
+      run: () => {
+        removeGroup(id);
+        focusGroupName(railEl, FALLBACK_GROUP);
+      },
+    },
   ];
-  if (!isBuiltinGroup(id)) {
-    items.push(
-      { divider: true },
-      {
-        label: 'Delete group',
-        danger: true,
-        run: () => {
-          removeGroup(id);
-          focusGroupName(railEl, FALLBACK_GROUP);
-        },
-      }
-    );
-  }
   openContextMenu({ x, y, anchorEl, ariaLabel: `${groups[at].label} group`, items });
   return true;
 }

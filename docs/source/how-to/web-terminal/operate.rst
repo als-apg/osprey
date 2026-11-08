@@ -95,8 +95,9 @@ and **×**.
 
 **⋯**, or a right-click on the header, opens the tile's menu. **This panel**
 lists the panel's own actions and any icons a narrow tile has no room for.
-**Tile** lists the tile's actions, among them **Reload** and, when the panel
-has a documentation page, **Help**.
+**Tile** lists the tile's actions, among them **Open panel** (▸ **Right**,
+**Down**, **Replace here**), **Reload** and, when the panel has a
+documentation page, **Help**. Shift+right-click shows the browser's own menu.
 
 A panel you open — from its sidebar row, from a link, from the **+** menu,
 or one the agent opens for you — takes the service tile you used last and
@@ -576,10 +577,10 @@ opens on its proposed code. **More sessions** loads older ones.
 - While the agent is answering in chat, a switch from any of these asks
   first: **Cancel**, or **Stop & switch**.
 
-Right-click a session to pin it, rename it, export its transcript or group
-its artifacts by day or by kind, or delete a past session with its artifacts;
-a run to open its result, approval preview or code. Runs and artifacts also
-have **Delete…**.
+Right-click a session to pin, rename, export or copy its ID, or delete a
+past session with its artifacts; a run to open its result, approval preview
+or code; **Sessions** to start a session or **Group by** **Kind** or
+**Activity**. Runs and artifacts also have **Delete…**.
 
 Pinned sessions (the pin button on a row) also show in the **Pinned** group
 above **Sessions**; right-click its heading to rename or hide it. **Show pinned
@@ -603,25 +604,25 @@ You can rename the groups, add your own groups, and move rows between them.
 To change a group, right-click its heading (or focus its name and press
 Shift+F10). The menu has these items:
 
-- **Rename**. Type the new name and press Enter. Press Escape to keep the old
+- **Rename…**. Type the new name and press Enter. Press Escape to keep the old
   name. A name can have up to 40 characters. An empty name keeps the old one.
 - **New group below**. This adds an empty group below this group and opens
   its name for editing.
 - **Move up** and **Move down**. These move the group in the sidebar.
-- **Delete group**. This item shows only for a group that you added. The
-  rows of the group go back to **Apps**. You cannot delete **Apps** or
-  **System**, but you can rename them.
+- **Collapse group** or **Expand group**.
+- **Delete group**. The rows of the group go back to **Apps**. It is
+  disabled for **Apps** and **System**, but you can rename them.
 
 Double-click a group's name to fold it down to its heading, and double-click
 again to unfold it. **Sessions**, the first group, has no
-heading, so it has no menu and always stays first. To make it taller, drag the
+heading and always stays first. To make it taller, drag the
 faint line below it; double-click the line to go back to automatic height.
 
 To move a row to a different group, do one of these:
 
-- Right-click the row and pick **Move to** and the name of the group. Pick
-  **Move to new group…** to put the row in a new group below its current
-  group. Then type the name of the new group.
+- Right-click the row and pick **Move to** ▸ and the name of the group, or
+  **New group…** to put the row in a new group below its current group.
+  Then type the name of the new group.
 - Drag the row into the other group. Release it where it must go.
 
 You can move each row except **Sessions**. A group without rows shows "No
@@ -685,7 +686,8 @@ window.
 The More menu
 ~~~~~~~~~~~~~
 
-**☰ More** shows your user name and role at the top. It holds the theme
+**☰ More**, or a right-click on the sidebar footer, shows your user name and
+role at the top. It holds the theme
 (see :doc:`theming`), **Settings** and the tour.
 
 .. _web-terminal-sign-out:

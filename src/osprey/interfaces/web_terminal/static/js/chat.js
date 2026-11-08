@@ -42,6 +42,8 @@ import { isTerminalSurface, showTerminalSurface } from './agent-surface.js';
 import { emitChat, setChatNoticeSink } from './chat-events.js';
 import { createTurnFollower } from './chat-follow.js';
 import { initChatFeatures } from './chat-features.js';
+import { exportConversation } from './chat-export.js';
+import { installChatMenus } from './chat-menus.js';
 import { handoffRefusal, HANDOFF_FALLBACK, transportNotice } from './chat-notices.js';
 import { createFollowUpQueue } from './chat-queue.js';
 import {
@@ -792,6 +794,15 @@ export function initChat(containerId = 'operator-container') {
     renderer,
     getKey: () => boundKey,
     onBeforeSend: (transform) => void sendTransforms.push(transform),
+  });
+  // Message and log context menus: Copy, Quote in prompt; Scroll to latest,
+  // Export conversation, New session.
+  installChatMenus({
+    messages,
+    textarea,
+    scrollToBottom,
+    onNewSession: startConversation,
+    onExport: exportConversation,
   });
   // After the features, so the queued message sits nearest the box, below the task bar.
   inputArea.before(queue.root);

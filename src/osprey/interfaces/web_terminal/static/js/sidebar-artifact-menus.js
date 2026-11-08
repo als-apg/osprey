@@ -5,15 +5,21 @@
  * tree, one item list per row kind, opened through the hub's shared context
  * menu (panel-context-menu.js):
  *
- *   Agent row   New session · Expand all / Collapse all · Show pinned sessions
- *   Session     Pin / Unpin · Group by Kind / Activity · Rename… · Use automatic
- *               name (only on a hand-named session) · Export transcript · Copy ID ·
+ *   Agent row   New session · Group by ▸ Kind / Activity · Show pinned sessions ·
+ *               Collapse all / Expand all
+ *   Session     Open (Focus on the active one) · Pin / Unpin · Rename… · Use
+ *               automatic name (only on a hand-named session) · Export transcript ·
+ *               Copy ID · Delete… (disabled on the active one)
+ *   Group head  Collapse / Expand · Collapse others
+ *   Run         Open result · Open approval preview · Open code · Copy run ID ·
  *               Delete…
- *   Group head  Expand / Collapse
- *   Run         Open result · Open approval preview · Open code · Delete…
- *   Artifact    Open · Delete… · Copy ID
+ *   Artifact    Open · Copy ID · Download · Delete…
  *
  * The pinned group's heading has its own menu (sidebar-session-pins.js).
+ *
+ * Every menu is built synchronously from what the tree already holds
+ * (heldEntry), so it opens offline; a run's part row resolves through its run
+ * head's `run_parts`. A row with neither is left to the browser's menu.
  *
  * Where a verb is a gesture the tree already answers (open a session, browse
  * it, open a group or a run, show an artifact) the item clicks that row, so a
@@ -30,8 +36,14 @@
 const sessionModel = () => import('./session-model.js');
 
 import { withPrefix } from './api.js';
+import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import { openContextMenu } from './panel-context-menu.js';
-import { ARTIFACTS_BASE, fetchArtifact, readTreeView } from './sidebar-artifact-listing.js';
+import {
+  ARTIFACTS_BASE,
+  fetchArtifact,
+  heldEntry,
+  readTreeView,
+} from './sidebar-artifact-listing.js';
 import { showConfirm } from './posture-confirm.js';
 import { setSessionPinned, showPinnedItem } from './sidebar-session-pins.js';
 
@@ -44,6 +56,7 @@ const SESSION_SELECTOR = '.osprey-tree-session[data-session-id]';
 const GROUP_SELECTOR = '[data-group-head]';
 const RUN_SELECTOR = '.osprey-list-row.osprey-tree-run[data-id]';
 const ARTIFACT_SELECTOR = '.osprey-list-row[data-id]';
+const RUN_HEAD_CLASS = 'osprey-tree-run';
 /** Top-level rows Expand/Collapse all acts on: the sessions of the session
  * list (not their pinned copies). Only a row with a disclosure folds (the
  * session in use); another session opens only by switching to it. */
@@ -90,21 +103,28 @@ async function setAllSessions(open) {
 }
 
 /**
- * The Agent row's menu: a new session, one Expand all / Collapse all row
- * worded for what it will do (Collapse all when every session is open), and
- * Show pinned sessions.
+ * The Agent row's menu: a new session, Group by ▸ Kind / Activity, Show
+ * pinned sessions, and one Collapse all / Expand all row worded for what it
+ * will do (Collapse all when every session is open).
  * @returns {MenuItem[]}
  */
 export function buildAgentRowMenuItems() {
-  const open = allOpen();
+  const view = readTreeView();
   return [
     { label: 'New session', run: () => void sessionModel().then((m) => m.switchTo({ new: true })) },
     { divider: true },
-    open
+    {
+      label: 'Group by',
+      submenu: [
+        { label: 'Kind', checked: view === 'kind', run: () => void applyView('kind') },
+        { label: 'Activity', checked: view === 'activity', run: () => void applyView('activity') },
+      ],
+    },
+    showPinnedItem(),
+    { divider: true },
+    allOpen()
       ? { label: 'Collapse all', run: () => void setAllSessions(false) }
       : { label: 'Expand all', run: () => void setAllSessions(true) },
-    { divider: true },
-    showPinnedItem(),
   ];
 }
 
@@ -217,7 +237,16 @@ function copyText(text) {
 }
 
 /**
- * A session row's menu.
+ * Bring the Agent pane forward (panel-menu-policy, imported lazily: it
+ * imports this module).
+ */
+async function focusAgent() {
+  (await import('./panel-menu-policy.js')).focusAgentPane();
+}
+
+/**
+ * A session row's menu. Open is the row's click (the controller switches the
+ * Agent to it); on the session the Agent is on it is Focus.
  * @param {HTMLElement} row
  * @returns {MenuItem[]}
  */
@@ -226,26 +255,21 @@ export function sessionMenuItems(row) {
   // A synthesized row (`key:<K>`) has no transcript yet: nothing to name,
   // export or copy.
   const tid = treeId && !treeId.startsWith('key:') ? treeId : null;
-  // Only a past session: the one the Agent is on draws `.active`.
+  // The session the Agent is on draws `.active`.
   const active = row.classList.contains('active');
-  const view = readTreeView();
   const pinned = Boolean(row.dataset.pinned);
   return [
+    active
+      ? { label: 'Focus', run: () => void focusAgent() }
+      : { label: 'Open', run: () => row.click() },
     ...(tid
       ? [
           {
             label: pinned ? 'Unpin' : 'Pin',
             run: () => void setSessionPinned(tid, !pinned),
           },
-          { divider: true },
         ]
       : []),
-    { label: 'Group by Kind', checked: view === 'kind', run: () => void applyView('kind') },
-    {
-      label: 'Group by Activity',
-      checked: view === 'activity',
-      run: () => void applyView('activity'),
-    },
     { divider: true },
     { label: 'Rename…', disabled: !tid, run: () => tid && startRename(row, tid) },
     // Only a hand-set name has an automatic one to go back to.
@@ -277,9 +301,50 @@ async function applyView(view) {
 
 // ---- Group head ----
 
-/** @param {HTMLElement} head @returns {MenuItem[]} */
+/** @param {HTMLElement} head  @returns {string} the session part of `${treeId}:${form}` */
+const groupSession = (head) => {
+  const key = head.dataset.groupHead ?? '';
+  return key.slice(0, key.lastIndexOf(':'));
+};
+
+/**
+ * The other open group heads of a head's session.
+ * @param {HTMLElement} head
+ * @returns {string[]} their `data-group-head` keys
+ */
+function otherOpenGroups(head) {
+  const session = groupSession(head);
+  const scope = head.closest(TREE_SELECTOR) ?? document;
+  return [...scope.querySelectorAll(GROUP_SELECTOR)]
+    .filter(
+      (h) => h instanceof HTMLElement && h !== head && isOpen(h) && groupSession(h) === session
+    )
+    .map((h) => /** @type {HTMLElement} */ (h).dataset.groupHead ?? '');
+}
+
+/**
+ * A group head's menu: Collapse / Expand, and Collapse others (each other
+ * open group of the same session, by its own click; every click redraws the
+ * tree, so each head is looked up afresh).
+ * @param {HTMLElement} head
+ * @returns {MenuItem[]}
+ */
 export function groupMenuItems(head) {
-  return [{ label: isOpen(head) ? 'Collapse' : 'Expand', run: () => head.click() }];
+  const others = otherOpenGroups(head);
+  const tree = head.closest(TREE_SELECTOR);
+  return [
+    { label: isOpen(head) ? 'Collapse' : 'Expand', run: () => head.click() },
+    {
+      label: 'Collapse others',
+      disabled: others.length === 0,
+      run: () => {
+        for (const key of others) {
+          const h = rowBy(tree, GROUP_SELECTOR, 'groupHead', key);
+          if (h && isOpen(h)) h.click();
+        }
+      },
+    },
+  ];
 }
 
 // ---- Artifact and run ----
@@ -318,6 +383,17 @@ export function confirmDelete(entry, isRun) {
 }
 
 /**
+ * Download an artifact's file. A run's part is held as {id, title} only, so
+ * the filename is read here, at the pick, never while the menu is built.
+ * @param {ArtifactEntry} entry
+ */
+async function download(entry) {
+  const full = entry.filename ? entry : await fetchArtifact(entry.id);
+  if (!full?.filename) return;
+  (await import('./artifacts-pane-header.js')).downloadArtifact(full);
+}
+
+/**
  * The menu of an artifact row (a run's part included).
  * @param {HTMLElement} row  @param {ArtifactEntry} entry
  * @returns {MenuItem[]}
@@ -325,9 +401,10 @@ export function confirmDelete(entry, isRun) {
 export function artifactMenuItems(row, entry) {
   return [
     { label: 'Open', run: () => row.click() },
-    { label: 'Delete…', danger: true, run: () => confirmDelete(entry, false) },
-    { divider: true },
     { label: 'Copy ID', run: () => copyText(entry.id) },
+    { label: 'Download', run: () => void download(entry) },
+    { divider: true },
+    { label: 'Delete…', danger: true, run: () => confirmDelete(entry, false) },
   ];
 }
 
@@ -367,6 +444,7 @@ export function runMenuItems(head, entry) {
     opener('Open result', result),
     opener('Open approval preview', preview),
     opener('Open code', code),
+    { label: 'Copy run ID', run: () => copyText(entry.exec_id || entry.id) },
     { divider: true },
     { label: 'Delete…', danger: true, run: () => confirmDelete(entry, true) },
   ];
@@ -375,12 +453,31 @@ export function runMenuItems(head, entry) {
 // ---- Opening ----
 
 /**
- * The menu a tree row offers, or null when it offers none ("more").
- * Artifact and run rows read their entry first (run parts).
- * @param {Element} target
- * @returns {Promise<{row: HTMLElement, label: string, items: MenuItem[]} | null>}
+ * A run part row's entry, from its run head's `run_parts`: part rows are the
+ * head's following siblings, not its children.
+ * @param {HTMLElement} row
+ * @returns {ArtifactEntry | null}
  */
-export async function menuFor(target) {
+function partEntry(row) {
+  const id = row.dataset.id ?? '';
+  for (let el = row.previousElementSibling; el; el = el.previousElementSibling) {
+    if (!(el instanceof HTMLElement) || !el.classList.contains(RUN_HEAD_CLASS)) continue;
+    const head = heldEntry(el.dataset.id);
+    const part = /** @type {TreeEntry | null} */ (head)?.run_parts?.find((p) => p.id === id);
+    return part
+      ? /** @type {ArtifactEntry} */ ({ id: part.id, title: part.title ?? part.id })
+      : null;
+  }
+  return null;
+}
+
+/**
+ * The menu a tree row offers, or null when it offers none (the browser's).
+ * Built synchronously from what the tree holds: nothing is fetched.
+ * @param {Element} target
+ * @returns {{row: HTMLElement, label: string, items: MenuItem[]} | null}
+ */
+export function menuFor(target) {
   const head = target.closest(GROUP_SELECTOR);
   if (head instanceof HTMLElement) {
     return { row: head, label: 'Group actions', items: groupMenuItems(head) };
@@ -391,9 +488,10 @@ export async function menuFor(target) {
   }
   const row = target.closest(ARTIFACT_SELECTOR);
   if (!(row instanceof HTMLElement)) return null;
-  const entry = await fetchArtifact(row.dataset.id ?? '');
+  const isRun = row.matches(RUN_SELECTOR);
+  const entry = heldEntry(row.dataset.id) ?? (isRun ? null : partEntry(row));
   if (!entry) return null;
-  if (row.matches(RUN_SELECTOR)) {
+  if (isRun) {
     return { row, label: 'Run actions', items: runMenuItems(row, entry) };
   }
   return { row, label: 'Artifact actions', items: artifactMenuItems(row, entry) };
@@ -402,10 +500,10 @@ export async function menuFor(target) {
 /**
  * Open a tree row's menu at a viewport position.
  * @param {Element} target  @param {number} x  @param {number} y
- * @returns {Promise<boolean>} whether a menu opened
+ * @returns {boolean} whether a menu opened
  */
-export async function openTreeMenu(target, x, y) {
-  const menu = await menuFor(target);
+export function openTreeMenu(target, x, y) {
+  const menu = menuFor(target);
   if (!menu) return false;
   openContextMenu({ x, y, anchorEl: menu.row, ariaLabel: menu.label, items: menu.items });
   return true;
@@ -420,10 +518,9 @@ function inTree(t) {
 
 /** @param {MouseEvent} e */
 function onContextMenu(e) {
+  if (declinesToBrowser(e)) return;
   const el = inTree(e.target);
-  if (!el) return;
-  e.preventDefault();
-  void openTreeMenu(el, e.clientX, e.clientY);
+  if (el && openTreeMenu(el, e.clientX, e.clientY)) e.preventDefault();
 }
 
 /** The menu key and Shift+F10 open the focused row's menu at its centre. @param {KeyboardEvent} e */
@@ -431,9 +528,8 @@ function onKeyDown(e) {
   if (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey)) return;
   const el = inTree(e.target);
   if (!el) return;
-  e.preventDefault();
   const rect = el.getBoundingClientRect();
-  void openTreeMenu(el, rect.left + rect.width / 2, rect.top + rect.height / 2);
+  if (openTreeMenu(el, rect.left + rect.width / 2, rect.top + rect.height / 2)) e.preventDefault();
 }
 
 /** @type {AbortController | null} */

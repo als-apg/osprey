@@ -121,19 +121,37 @@ function holdScroll(rail, scrollTop) {
 }
 
 /**
- * Fold or unfold a group and remember it.
- * @param {HTMLElement} rail
- * @param {string} id
+ * The rail {@link initSidebarFold} wired.
+ * @type {HTMLElement | null}
  */
-function toggle(rail, id) {
-  if (isHeadlessGroup(id)) return;
-  if (folded.has(id)) folded.delete(id);
-  else folded.add(id);
+let wiredRail = null;
+
+/**
+ * Fold (true) or unfold (false) group `id` and remember it, as a double-click
+ * on its heading does. The headless group never folds; a state already held,
+ * or a call before {@link initSidebarFold}, is a no-op.
+ * @param {string} id
+ * @param {boolean} fold
+ * @returns {void}
+ */
+export function setGroupFolded(id, fold) {
+  const rail = wiredRail;
+  if (!rail || isHeadlessGroup(id) || folded.has(id) === fold) return;
+  if (fold) folded.add(id);
+  else folded.delete(id);
   writeFolded(folded);
   const held = rail.scrollTop;
   paint(rail);
   holdScroll(rail, held);
   document.dispatchEvent(new CustomEvent(FOLD_EVENT));
+}
+
+/**
+ * Fold or unfold a group and remember it.
+ * @param {string} id
+ */
+function toggle(id) {
+  setGroupFolded(id, !folded.has(id));
 }
 
 /**
@@ -143,6 +161,7 @@ function toggle(rail, id) {
  */
 export function initSidebarFold(rail) {
   if (!rail) return;
+  wiredRail = rail;
   folded = readFolded();
   paint(rail);
   document.addEventListener(SIDEBAR_RENDERED_EVENT, () => paint(rail));
@@ -172,7 +191,7 @@ export function initSidebarFold(rail) {
     const id = groupIdOf(event);
     if (id === null) return;
     event.preventDefault();
-    toggle(rail, id);
+    toggle(id);
   });
   rail.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -181,6 +200,6 @@ export function initSidebarFold(rail) {
     const id = groupIdOf(event);
     if (id === null) return;
     event.preventDefault();
-    toggle(rail, id);
+    toggle(id);
   });
 }

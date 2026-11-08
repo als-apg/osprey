@@ -69,6 +69,7 @@ function fakeApi() {
   return {
     onDidLayoutChange: disposable,
     onDidActivePanelChange: disposable,
+    onDidMaximizedGroupChange: disposable,
     getPanel: () => null,
     panels: [],
     groups: [],
@@ -722,5 +723,136 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
       ).toBe('popped_out');
       expect(holder.layout).toBe(before);
     });
+  });
+});
+
+describe('openPanelAtTile — the tile bar’s Open panel ▸ placements', () => {
+  /**
+   * The classic dock, focused (and so last used) on s1: s1 shows a, s2 shows
+   * c, the terminal is t1. b is a rail member with no tile; z is off the rail.
+   */
+  function seedClassic() {
+    return seed(
+      row(
+        tile('s1', ['a'], 'a', 0.3),
+        tile('s2', ['c'], 'c', 0.3),
+        tile('t1', ['terminal'], 'terminal', 0.4)
+      ),
+      's1'
+    );
+  }
+
+  /** Each tile's showing panel, in tree order. @param {any} layout */
+  function order(layout) {
+    return tiles(layout).map((t) => t.showing);
+  }
+
+  test('Right splits the given tile and lands the panel to its right, beside it', () => {
+    const holder = seedClassic();
+    expect(placement.openPanelAtTile('b', 's2', 'right')).toBeNull();
+    expect(order(holder.layout)).toEqual(['a', 'c', 'b', 'terminal']);
+    // s1, the tile used last, is untouched.
+    expect(tileWith(holder.layout, 'a').tile).toBe('s1');
+    expect(tileWith(holder.layout, 'c').tile).toBe('s2');
+  });
+
+  test('Down splits the given tile and lands the panel below it', () => {
+    const holder = seedClassic();
+    expect(placement.openPanelAtTile('b', 's2', 'down')).toBeNull();
+    const column = tiles(holder.layout);
+    expect(order(holder.layout)).toEqual(['a', 'c', 'b', 'terminal']);
+    // c and b now share a column split (the split under s2's old slot).
+    /** @type {(node: any, key: string) => any} */
+    const findParent = (node, key) => {
+      if ('tabs' in node) return null;
+      if (node.items.some((/** @type {any} */ i) => 'tabs' in i && i.tabs.includes(key)))
+        return node;
+      for (const i of node.items) {
+        /** @type {any} */
+        const p = findParent(i, key);
+        if (p) return p;
+      }
+      return null;
+    };
+    const parent = findParent(holder.layout, 'b');
+    expect(parent.split).toBe('column');
+    expect(parent.items.map((/** @type {any} */ i) => i.showing)).toEqual(['c', 'b']);
+    expect(column).toHaveLength(4);
+  });
+
+  test('Replace here replaces the right-clicked tile, not the tile used last', () => {
+    const holder = seedClassic();
+    expect(holder.focusedTile).toBe('s1');
+    expect(placement.openPanelAtTile('b', 's2', 'replace')).toBeNull();
+    expect(panelsByTile(holder.layout)).toEqual([['a'], ['b'], ['terminal']]);
+    expect(tileWith(holder.layout, 'b').tile).toBe('s2');
+    expect(holder.focusedTile).toBe('s2');
+  });
+
+  test('Replace here is refused on the Agent tile and changes nothing', () => {
+    const holder = seedClassic();
+    const before = holder.layout;
+    expect(placement.openPanelAtTile('b', 't1', 'replace')).toBe(
+      placement.TERMINAL_NOT_AGENT_MOVABLE
+    );
+    expect(holder.layout).toBe(before);
+    expect(deps.activate).not.toHaveBeenCalled();
+    expect(deps.reveal).not.toHaveBeenCalled();
+  });
+
+  test('an unknown tile is refused and changes nothing (no fall-back to the last-used tile)', () => {
+    const holder = seedClassic();
+    const before = holder.layout;
+    expect(placement.openPanelAtTile('b', 'nope', 'right')).toBe(placement.UNKNOWN_TILE);
+    expect(placement.openPanelAtTile('b', 'nope', 'replace')).toBe(placement.UNKNOWN_TILE);
+    expect(holder.layout).toBe(before);
+    expect(deps.activate).not.toHaveBeenCalled();
+  });
+
+  test('an unknown placement is refused', () => {
+    const holder = seedClassic();
+    const before = holder.layout;
+    expect(placement.openPanelAtTile('b', 's2', /** @type {any} */ ('left'))).toBe(
+      placement.INVALID_TARGET
+    );
+    expect(holder.layout).toBe(before);
+  });
+
+  test('the Agent and a popped-out panel are never placed', () => {
+    const holder = seedClassic();
+    const before = holder.layout;
+    expect(placement.openPanelAtTile('terminal', 's2', 'right')).toBe(
+      placement.TERMINAL_NOT_AGENT_MOVABLE
+    );
+    popped.add('b');
+    expect(placement.openPanelAtTile('b', 's2', 'replace')).toBe(placement.POPPED_OUT);
+    expect(holder.layout).toBe(before);
+  });
+
+  test('every placement ends in the same reveal tail: a member is activated as a person’s open', () => {
+    seedClassic();
+    placement.openPanelAtTile('b', 's2', 'right');
+    expect(deps.activate).toHaveBeenLastCalledWith('b', { userInitiated: true });
+    deps.activate.mockClear();
+    placement.openPanelAtTile('c', 's1', 'replace');
+    // c already held a tile: nothing placed, still focused through the tail.
+    expect(deps.activate).toHaveBeenLastCalledWith('c', { userInitiated: true });
+  });
+
+  test('an off-rail panel is revealed through the visibility POST path, tab title from label()', () => {
+    const holder = seedClassic();
+    placement.openPanelAtTile('z', 's2', 'replace');
+    expect(deps.reveal).toHaveBeenCalledExactlyOnceWith('z');
+    expect(deps.activate).not.toHaveBeenCalled();
+    expect(tileWith(holder.layout, 'z').tile).toBe('s2');
+    deps.reveal.mockClear();
+    placement.openPanelAtTile('y', 's1', 'down');
+    expect(deps.reveal).toHaveBeenCalledExactlyOnceWith('y');
+  });
+
+  test('dockedTileOf names the tile showing a panel, null for one in no tile', () => {
+    seedClassic();
+    expect(placement.dockedTileOf('c')).toBe('s2');
+    expect(placement.dockedTileOf('b')).toBeNull();
   });
 });

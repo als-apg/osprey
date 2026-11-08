@@ -7,6 +7,7 @@
 import { test, expect, describe } from 'vitest';
 
 import {
+  AGENT_HEADING,
   composeTileMenu,
   THIS_PANEL_HEADING,
   TILE_HEADING,
@@ -18,14 +19,14 @@ const noop = () => {};
 const shape = (rows) =>
   rows.map((r) => (r.divider ? '—' : r.heading !== undefined ? `#${r.heading}` : r.label));
 
+// The service tile bar's Tile section, as the policy hands it over: the
+// destructive row already last behind its divider.
 const TILE = [
-  { label: 'Open in a new tile', run: noop },
-  { divider: true },
   { label: 'Open in new window', run: noop },
   { label: 'Reload', run: noop },
+  { label: 'Help', run: noop },
   { divider: true },
-  { label: 'Remove from rail', danger: true, run: noop },
-  { label: 'Reset layout', run: noop },
+  { label: 'Close tile', glyph: '×', danger: true, run: noop },
 ];
 
 describe('composeTileMenu', () => {
@@ -42,16 +43,27 @@ describe('composeTileMenu', () => {
       'Compact rows',
       'Export CSV',
       `#${TILE_HEADING}`,
-      'Open in a new tile',
-      '—',
       'Open in new window',
       'Reload',
+      'Help',
       '—',
-      'Remove from rail',
-      'Reset layout',
+      'Close tile',
     ]);
     // Rows pass through untouched: checked, run and the rest survive.
     expect(rows[1]).toMatchObject({ label: 'Compact rows', checked: true, run: noop });
+  });
+
+  test('a named heading captions the content section: the Agent pane reads "Agent"', () => {
+    const rows = composeTileMenu({
+      thisPanel: [{ label: 'Export conversation', run: noop }],
+      tile: TILE,
+      heading: AGENT_HEADING,
+    });
+    expect(AGENT_HEADING).toBe('Agent');
+    expect(shape(rows).slice(0, 3)).toEqual(['#Agent', 'Export conversation', `#${TILE_HEADING}`]);
+    expect(shape(composeTileMenu({ thisPanel: [], tile: TILE, heading: AGENT_HEADING }))).toEqual(
+      shape(TILE)
+    );
   });
 
   test('with nothing for the panel: the tile rows alone, no heading at all', () => {
@@ -133,6 +145,19 @@ describe('composeTileMenu', () => {
       `#${TILE_HEADING}`,
       'Reload',
     ]);
+  });
+
+  test('a destructive Tile row goes last, behind a divider, whatever order it came in', () => {
+    const rows = composeTileMenu({
+      thisPanel: [],
+      tile: [
+        { label: 'Close tile', glyph: '×', danger: true, run: noop },
+        { label: 'Open in new window', run: noop },
+        { label: 'Reload', run: noop },
+        { label: 'Pin to rail', run: noop },
+      ],
+    });
+    expect(shape(rows)).toEqual(['Open in new window', 'Reload', 'Pin to rail', '—', 'Close tile']);
   });
 
   test('a "This panel" section that tidies away to nothing counts as empty', () => {

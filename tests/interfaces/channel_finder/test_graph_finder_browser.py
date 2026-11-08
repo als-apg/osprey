@@ -219,3 +219,34 @@ def test_a_device_opens_under_the_results_and_escape_closes_it(
     page.keyboard.press("Escape")
     card.wait_for(state="detached")
     assert page.locator("#graph-finder-table tbody tr.open").count() == 0
+
+
+def test_the_menu_key_on_the_focused_results_background_opens_the_results_menu(
+    engine_browser: Browser, finder_url: str
+):
+    """A click on the finder's empty background makes the results the keyboard's
+    surface; Shift+F10 there opens the Results menu, focus on its first row, and
+    Escape hands focus back."""
+    page = _open(engine_browser, finder_url)
+    # A click whose target is the background itself (its own box, not a row).
+    page.eval_on_selector(
+        ".finder-main", "el => el.dispatchEvent(new MouseEvent('click', { bubbles: true }))"
+    )
+    page.wait_for_function(
+        "() => document.activeElement?.matches('.finder-results') ?? false", timeout=5_000
+    )
+
+    page.keyboard.press("Shift+F10")
+    menu = page.locator(".osprey-context-menu")
+    menu.wait_for()
+    assert menu.count() == 1
+    assert menu.get_attribute("aria-label") == "Results"
+    labels = [t.strip() for t in menu.locator(".osprey-context-label").all_inner_texts()]
+    assert labels == ["Clear all filters", "Clear selection", "Choose columns…"], labels
+    assert page.evaluate(
+        "() => document.activeElement?.classList.contains('osprey-context-item') ?? false"
+    )
+
+    page.keyboard.press("Escape")
+    menu.wait_for(state="detached")
+    assert page.evaluate("() => document.activeElement?.matches('.finder-results') ?? false")

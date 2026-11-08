@@ -907,4 +907,61 @@ export function getDockApi() {
   return dockApi;
 }
 
+// ---- Maximize / Restore -----------------------------------------------------
+//
+// A maximized tile is VIEW state, not layout: dockview's own group maximize
+// squeezes every other group to nothing and leaves the grid's tree alone. It
+// never reaches the holder (fromSerialized reads `grid.root` only, and
+// dockview's toJSON lays the grid out un-maximized while it serializes, so a
+// read-back takes the tiles' own sizes) and so never reaches the store. Any
+// whole-layout apply (fromJSON) ends it without dockview announcing the end,
+// so the state is always read live from dockview, never cached here. The
+// iframe overlay (dock-iframe.js) follows onDidMaximizedGroupChange.
+
+/**
+ * Maximize the tile showing `key` (a service key or the terminal's): it fills
+ * the dock, every other tile is hidden until {@link restoreTile}. False when
+ * no tile shows that panel.
+ * @param {string} key
+ * @returns {boolean}
+ */
+export function maximizeTile(key) {
+  const panel = dockApi?.getPanel(panelIdOf(key));
+  if (!panel?.group) return false;
+  // A panel in its tile but not the one it shows is not what the tile shows.
+  if (panel.group.activePanel !== panel) return false;
+  dockApi.maximizeGroup(panel);
+  return true;
+}
+
+/** End a maximize, giving every tile its rectangle back. No-op when none is. */
+export function restoreTile() {
+  if (dockApi?.hasMaximizedGroup()) dockApi.exitMaximizedGroup();
+}
+
+/**
+ * The key of the panel the maximized tile shows, or null when no tile is
+ * maximized. Read live from dockview: a layout applied whole ends a maximize
+ * silently.
+ * @returns {string|null}
+ */
+export function maximizedTileKey() {
+  if (!dockApi?.hasMaximizedGroup()) return null;
+  const group = dockApi.groups.find((/** @type {any} */ g) => g.api.isMaximized());
+  return keyOfPanelId(group?.activePanel?.id);
+}
+
+/**
+ * Call `fn` whenever a tile is maximized or restored by {@link maximizeTile}
+ * / {@link restoreTile} (or dockview itself). A whole-layout apply ends a
+ * maximize WITHOUT this firing; read {@link maximizedTileKey} when it matters.
+ * @param {() => void} fn
+ * @returns {() => void} unsubscribe
+ */
+export function onMaximizeChange(fn) {
+  if (!dockApi) return () => {};
+  const sub = dockApi.onDidMaximizedGroupChange(() => fn());
+  return () => sub.dispose();
+}
+
 export { getLayoutHolder };

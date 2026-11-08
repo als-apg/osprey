@@ -40,6 +40,7 @@
 import { installFocusTrap, removeFocusTrap } from '/design-system/js/focus-trap.js';
 import { isMacPlatform, paletteChord } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { hintFor } from './key-bindings.js';
 import { KIND_REAL, KIND_REHEARSAL, KIND_SIMULATOR, KIND_WORDS } from './control-target-facts.js';
 import { capabilitySentence, chipRow, starterPrompts } from './first-contact.js';
 import { createSpotlight } from './tour-spotlight.js';
@@ -76,13 +77,6 @@ function panelLabel(panelId, fallback) {
   const label = panelRow(panelId)?.querySelector('.osprey-nav-label')?.textContent?.trim();
   return label || fallback;
 }
-
-/**
- * The chord that hides and shows the sidebar labels, as this viewer's
- * platform spells it (collapsible.js binds Cmd+\ on macOS, Ctrl+\ elsewhere).
- * @returns {string}
- */
-const sidebarChord = () => (isMacPlatform() ? '⌘\\' : 'Ctrl+\\');
 
 /* ---- Storage ---- */
 
@@ -255,7 +249,7 @@ const STEPS = [
       'The top of the sidebar holds the agent and its sessions; ',
       strong('Apps'),
       ' holds the other panels. Hide the labels with this button or ',
-      strong(sidebarChord()),
+      strong(hintFor('sidebar-toggle')),
       ' to give the work more room.',
     ],
   },

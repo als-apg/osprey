@@ -5,7 +5,7 @@
  * @module dock-fallback-bar
  */
 
-import { buildTileMenuButton } from './dock-tab.js';
+import { buildTileMenuButton, wireTileContextMenu } from './dock-tab.js';
 import { registerContribHost, unregisterContribHost } from './tile-header-contrib.js';
 
 /**
@@ -16,8 +16,9 @@ import { registerContribHost, unregisterContribHost } from './tile-header-contri
  * one panel at a time (#right-panel's `data-active-panel`), so it carries one
  * bar: the active panel's name, its contribution region (its panel icons),
  * registered with tile-header-contrib.js exactly as a docked TileTab
- * registers its own, and the tile ⋯. No Open in new window or ×: there is no
- * tile to close or move out. The bar follows the active panel and hides only
+ * registers its own, and the tile ⋯, which a right-click or the menu key on
+ * the bar opens too. No Open in new window or ×: there is no tile to close or
+ * move out, and the menu, asked for in `'fallback'` mode, offers no dock verb. The bar follows the active panel and hides only
  * when none is active.
  *
  * The Agent card needs nothing here: without a dock it is never adopted, so
@@ -46,7 +47,9 @@ export function initFallbackTileBar(host) {
   title.className = 'tile-tab-title';
   const actions = document.createElement('div');
   actions.className = 'tile-tab-actions';
-  actions.appendChild(buildTileMenuButton(() => host.dataset.activePanel || null, bar));
+  const activeId = () => host.dataset.activePanel || null;
+  actions.appendChild(buildTileMenuButton(activeId, bar, 'fallback'));
+  wireTileContextMenu(bar, activeId, 'fallback');
   bar.append(title, actions);
   host.insertBefore(bar, content);
 

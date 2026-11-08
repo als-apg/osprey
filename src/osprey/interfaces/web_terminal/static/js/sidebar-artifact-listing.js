@@ -360,6 +360,20 @@ export function scopeOf(treeId, form = '') {
 
 /** @typedef {{total: number, by_form: Record<string, number>}} FormCounts */
 
+/** The entries held by the page's tree data (the last one made): what a tree
+ * row's menu reads, synchronously, without a network round trip.
+ * @type {Map<string, ArtifactEntry> | null} */
+let treeHeld = null;
+
+/**
+ * An entry the session tree already holds, or null.
+ * @param {string | null | undefined} id
+ * @returns {ArtifactEntry | null}
+ */
+export function heldEntry(id) {
+  return id ? (treeHeld?.get(id) ?? null) : null;
+}
+
 /**
  * The session tree's data: one listing per session (`${treeId}|`) and per
  * open group (`${treeId}|${form}`), every entry seen by id, the summary
@@ -373,6 +387,7 @@ export function createTreeData({ onChange }) {
   let listings = new Map();
   /** @type {Map<string, ArtifactEntry>} */
   const held = new Map();
+  treeHeld = held;
   /** @type {Set<string>} */
   const counted = new Set();
   /** @type {Set<string>} */
