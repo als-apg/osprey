@@ -243,6 +243,10 @@ agent leaves them unset, and a value it sends is replaced.
 backend becomes the manifest's ``errors.unreachable`` sentence, a refusal the
 ``errors.refused`` one, each with the detail appended.
 
+``audit_surface()`` is the word the app's audit records file under: its name,
+the one its tool server's records already carry. A backend that writes its own
+records uses it, so they read under the same word.
+
 The panel
 =========
 

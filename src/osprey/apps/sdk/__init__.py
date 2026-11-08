@@ -14,7 +14,12 @@ the run :func:`lock`; :func:`refusal_phrase` words a refusal.
 """
 
 from osprey import port_layout
-from osprey.apps.sdk._approval import ApprovalRefused, BoundState, check_approved_call
+from osprey.apps.sdk._approval import (
+    ApprovalRefused,
+    BoundState,
+    audit_surface,
+    check_approved_call,
+)
 from osprey.apps.sdk._bridges import bridges_for_target
 from osprey.apps.sdk._facts import facility_file, read_facts, tool_keys
 from osprey.apps.sdk._limits import WriteVerdictView, prewrite_verdict
@@ -76,6 +81,7 @@ __all__ = [
     "WriteVerdictView",
     "agent_panel_headers",
     "armed_contract",
+    "audit_surface",
     "bind_owner",
     "bridges_for_target",
     "check_approved_call",
