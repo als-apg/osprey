@@ -17,7 +17,6 @@ const m = vi.hoisted(() => ({
   activateTab: vi.fn(),
   hasDockedTile: vi.fn(() => false),
   isDetached: vi.fn(() => false),
-  menuItems: vi.fn((_shown, run) => [{ label: 'Download', run: () => run('download') }]),
   /** The panel's frame as dock-iframe holds it, in whichever document it is. */
   frame: /** @type {HTMLIFrameElement | null} */ (null),
 }));
@@ -39,9 +38,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', (
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
   managedIframe: (/** @type {string} */ id) =>
     id === 'artifacts' && m.frame ? { iframe: m.frame, title: 'Artifacts' } : null,
-}));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/artifacts-pane-header.js', () => ({
-  menuItems: m.menuItems,
 }));
 
 const viewer = await import(`${JS}/sidebar-artifact-viewer.js`);
@@ -83,12 +79,23 @@ test('select and changed reach the iframe; a change with nothing shown does not'
   expect(m.sendArtifactChangedToIframe).toHaveBeenCalledOnce();
 });
 
-test("the tile menu's rows send their action for the shown artifact", () => {
+test("the tile menu's rows are the shown artifact's, the viewer's verbs sent to the frame", () => {
   const iframe = addIframe();
   expect(viewer.viewerMenuItems(null)).toEqual([]);
-  const [row] = viewer.viewerMenuItems(/** @type {any} */ ({ id: 'a1' }));
-  row.run?.();
-  expect(m.sendArtifactActionToIframe).toHaveBeenCalledWith(iframe, 'a1', 'download');
+  const rows = viewer.viewerMenuItems(/** @type {any} */ ({ id: 'a1' }));
+  // The tile menu draws its own divider before the danger row.
+  expect(rows.map((/** @type {any} */ row) => row.label)).toEqual([
+    'Compose logbook entry',
+    'Print…',
+    'Copy ID',
+    'Delete…',
+  ]);
+  rows[0].run?.();
+  rows[1].run?.();
+  expect(m.sendArtifactActionToIframe.mock.calls).toEqual([
+    [iframe, 'a1', 'logbook'],
+    [iframe, 'a1', 'print'],
+  ]);
 });
 
 test('ready is the iframe itself saying so, from this origin', () => {

@@ -7,7 +7,7 @@
  * entries, the background menu (Scroll to latest, Export conversation, New
  * session), every case that leaves the browser its own menu (links, buttons,
  * form controls, code blocks, tool rows and cards, a selection in the message,
- * the composer), the keyboard route on a focused entry, focus on click, and
+ * the composer), the run menu on a script run's row, the keyboard route on a focused entry, focus on click, and
  * uninstall.
  *
  * context-menu.js and place-menu.js are the real modules. Module state is
@@ -40,6 +40,7 @@ second line</div></div>
         <div class="op-entry-body osprey-md-rendered"><p>First <a href="#x">link</a> para</p>
           <pre><code>x = 1</code></pre></div>
         <div class="op-row op-tool"><button class="op-row-head">tool</button><span class="tool-text">Read</span></div>
+        <div class="op-row op-tool" data-tool="execute" data-call-id="toolu_7"><button class="op-row-head">Ran Python block</button><div class="op-row-body"><pre class="run-pre">print(1)</pre></div></div>
         <section class="op-card op-question"><span class="card-text">Pick one</span></section>
         <div class="op-entry-body osprey-md-rendered"><p>Second para</p></div>
         <button class="op-reply-copy">Copy</button>
@@ -180,6 +181,36 @@ describe('message menu', () => {
       (r.textContent ?? '').includes('Quote in prompt')
     );
     expect(row?.getAttribute('aria-disabled')).toBe('true');
+  });
+});
+
+describe('run menu', () => {
+  test('a script run’s row opens the run’s rows, named by its call id', () => {
+    const e = rightClick(el('[data-call-id] .op-row-head'));
+    expect(e.defaultPrevented).toBe(true);
+    expect(openMenu()?.getAttribute('aria-label')).toBe('Run actions');
+    expect(rowLabels()).toEqual([
+      'Open result',
+      'Open approval preview',
+      'Open code',
+      'Copy run ID',
+      'Delete…',
+    ]);
+  });
+
+  test('Copy run ID copies the call id', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    rightClick(el('[data-call-id] .op-row-head'));
+    clickRow('Copy run ID');
+    expect(writeText).toHaveBeenCalledWith('toolu_7');
+    vi.unstubAllGlobals();
+  });
+
+  test('its opened body’s code keeps the browser’s menu', () => {
+    const e = rightClick(el('.run-pre'));
+    expect(e.defaultPrevented).toBe(false);
+    expect(openMenu()).toBeNull();
   });
 });
 

@@ -11,9 +11,8 @@
  *               automatic name (only on a hand-named session) · Export transcript ·
  *               Copy ID · Delete… (disabled on the active one)
  *   Group head  Collapse / Expand · Collapse others
- *   Run         Open result · Open approval preview · Open code · Copy run ID ·
- *               Delete…
- *   Artifact    Open · Copy ID · Download · Delete…
+ *   Run         artifact-verbs.js's run rows
+ *   Artifact    artifact-verbs.js's artifact rows, Open being the row's click
  *
  * The pinned group's heading has its own menu (sidebar-session-pins.js).
  *
@@ -22,7 +21,7 @@
  * head's `run_parts`. A row with neither is left to the browser's menu.
  *
  * Where a verb is a gesture the tree already answers (open a session, browse
- * it, open a group or a run, show an artifact) the item clicks that row, so a
+ * it, open a group, show an artifact) the item clicks that row, so a
  * menu pick runs the controller's own closure (sidebar-artifacts.js) and is
  * indistinguishable downstream from the click. The Agent row is a rail entry:
  * panel-menu-policy asks {@link buildAgentRowMenuItems} for its rows.
@@ -38,12 +37,8 @@ const sessionModel = () => import('./session-model.js');
 import { withPrefix } from './api.js';
 import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import { openContextMenu } from './panel-context-menu.js';
-import {
-  ARTIFACTS_BASE,
-  fetchArtifact,
-  heldEntry,
-  readTreeView,
-} from './sidebar-artifact-listing.js';
+import { heldEntry, readTreeView } from './sidebar-artifact-listing.js';
+import { artifactMenuItems, copyText, runMenuItems } from './artifact-verbs.js';
 import { showConfirm } from './posture-confirm.js';
 import { setSessionPinned, showPinnedItem } from './sidebar-session-pins.js';
 
@@ -74,12 +69,6 @@ function rowBy(scope, selector, key, value) {
     if (row instanceof HTMLElement && row.dataset[key] === value) return row;
   }
   return null;
-}
-
-/** Click a row's disclosure (or the row itself when it has none). @param {HTMLElement} row */
-function clickDisc(row) {
-  const disc = row.querySelector('[data-tree-disc]');
-  (disc instanceof HTMLElement ? disc : row).click();
 }
 
 /** @param {HTMLElement} row */
@@ -231,11 +220,6 @@ export function confirmDeleteSession(row, transcriptId) {
   });
 }
 
-/** @param {string} text */
-function copyText(text) {
-  void navigator.clipboard?.writeText(text).catch(() => {});
-}
-
 /**
  * Bring the Agent pane forward (panel-menu-policy, imported lazily: it
  * imports this module).
@@ -348,107 +332,7 @@ export function groupMenuItems(head) {
 }
 
 // ---- Artifact and run ----
-
-/** @param {string} id */
-const artifactUrl = (id) => withPrefix(`${ARTIFACTS_BASE}/api/artifacts/${encodeURIComponent(id)}`);
-
-/**
- * Ask first, then delete. Deleting a run's head deletes the run and its
- * parts (the server's delete_with_group), and the question says so.
- * @param {TreeEntry} entry  @param {boolean} isRun
- */
-export function confirmDelete(entry, isRun) {
-  const name = entry.title || entry.id;
-  const parts = (entry.run_parts ?? []).filter((p) => p.id !== entry.id).length;
-  const body = isRun
-    ? [['This deletes the run ', { em: name }, ` and its parts (${parts}).`]]
-    : [['This deletes ', { em: name }, '.']];
-  showConfirm({
-    title: isRun ? 'Delete run?' : 'Delete artifact?',
-    body,
-    live: null,
-    confirmLabel: 'Delete',
-    focus: 'cancel',
-    onConfirm: async (ui) => {
-      try {
-        const res = await fetch(artifactUrl(entry.id), { method: 'DELETE' });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        ui.done();
-      } catch (err) {
-        ui.error.textContent = `Delete failed: ${err instanceof Error ? err.message : err}`;
-        ui.error.hidden = false;
-      }
-    },
-  });
-}
-
-/**
- * Download an artifact's file. A run's part is held as {id, title} only, so
- * the filename is read here, at the pick, never while the menu is built.
- * @param {ArtifactEntry} entry
- */
-async function download(entry) {
-  const full = entry.filename ? entry : await fetchArtifact(entry.id);
-  if (!full?.filename) return;
-  (await import('./artifacts-pane-header.js')).downloadArtifact(full);
-}
-
-/**
- * The menu of an artifact row (a run's part included).
- * @param {HTMLElement} row  @param {ArtifactEntry} entry
- * @returns {MenuItem[]}
- */
-export function artifactMenuItems(row, entry) {
-  return [
-    { label: 'Open', run: () => row.click() },
-    { label: 'Copy ID', run: () => copyText(entry.id) },
-    { label: 'Download', run: () => void download(entry) },
-    { divider: true },
-    { label: 'Delete…', danger: true, run: () => confirmDelete(entry, false) },
-  ];
-}
-
-/**
- * Show one part of a run: open the run so its parts are drawn, then click the
- * part's row (the controller's own pick).
- * @param {HTMLElement} head  @param {string} partId
- */
-function openPart(head, partId) {
-  const runKey = head.dataset.run ?? '';
-  const tree = head.closest(TREE_SELECTOR);
-  if (!isOpen(head)) clickDisc(head);
-  const current = rowBy(tree, RUN_SELECTOR, 'run', runKey) ?? head;
-  const box = current.parentElement ?? tree;
-  rowBy(box, ARTIFACT_SELECTOR, 'id', partId)?.click();
-}
-
-/**
- * A run head's menu. A part the run does not have is offered disabled.
- * @param {HTMLElement} head  @param {TreeEntry} entry
- * @returns {MenuItem[]}
- */
-export function runMenuItems(head, entry) {
-  const parts = (entry.run_parts ?? []).filter((p) => p.id !== entry.id);
-  /** @param {string} role */
-  const part = (role) => parts.find((p) => p.role === role) ?? null;
-  const result = part('result') ?? part('output');
-  const preview = part('preview');
-  const code = part('code');
-  /** @param {string} label  @param {{id: string} | null} p @returns {MenuItem} */
-  const opener = (label, p) => ({
-    label,
-    disabled: !p,
-    run: () => p && openPart(head, p.id),
-  });
-  return [
-    opener('Open result', result),
-    opener('Open approval preview', preview),
-    opener('Open code', code),
-    { label: 'Copy run ID', run: () => copyText(entry.exec_id || entry.id) },
-    { divider: true },
-    { label: 'Delete…', danger: true, run: () => confirmDelete(entry, true) },
-  ];
-}
+// The rows are artifact-verbs.js's, the one producer every place shares.
 
 // ---- Opening ----
 
@@ -492,9 +376,11 @@ export function menuFor(target) {
   const entry = heldEntry(row.dataset.id) ?? (isRun ? null : partEntry(row));
   if (!entry) return null;
   if (isRun) {
-    return { row, label: 'Run actions', items: runMenuItems(row, entry) };
+    const execId = entry.exec_id || entry.id;
+    return { row, label: 'Run actions', items: runMenuItems(execId, entry) };
   }
-  return { row, label: 'Artifact actions', items: artifactMenuItems(row, entry) };
+  const open = () => row.click();
+  return { row, label: 'Artifact actions', items: artifactMenuItems(entry, { open }) };
 }
 
 /**

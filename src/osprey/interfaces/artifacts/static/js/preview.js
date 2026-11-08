@@ -1,11 +1,11 @@
 // @ts-check
 /**
- * OSPREY Artifact Gallery — preview pane shell and delete.
+ * OSPREY Artifact Gallery — preview pane shell.
  *
- * Owns `renderPreview` (the artifact alone fills the frame) and deleting an
- * artifact. The hub renders this pane's tile bar (Info, Download; its Info
- * popover holds the details) and its actions arrive as messages (viewer.js); the
- * action behind Delete is exposed (`deleteArtifact`) for the viewer to run.
+ * Owns `renderPreview` (the artifact alone fills the frame). The hub renders
+ * this pane's tile bar (Info, Download; its Info popover holds the details) and
+ * its actions arrive as messages (viewer.js); Delete is the hub's
+ * (artifact-verbs.js), and the store's delete frame empties this pane.
  *
  * The viewport inside the pane — which markup an artifact of a given type renders
  * as, and what has to be mounted into it afterwards — belongs to
@@ -21,7 +21,7 @@
  */
 
 import { renderState } from '/design-system/js/panel-state.js';
-import { removeArtifact, getSelectedArtifact, setSelectedArtifact } from './state.js';
+import { getSelectedArtifact } from './state.js';
 import { artifactViewportHtml, mountArtifactViewport } from './artifact-viewport.js';
 
 /**
@@ -30,8 +30,8 @@ import { artifactViewportHtml, mountArtifactViewport } from './artifact-viewport
  */
 
 /**
- * Create the gallery's preview renderer: the preview pane (`renderPreview`) and
- * deleting. Bound to the injected timeseries rendering, which is owned elsewhere.
+ * Create the gallery's preview renderer: the preview pane (`renderPreview`).
+ * Bound to the injected timeseries rendering, which is owned elsewhere.
  * @param {PreviewRenderCallbacks} callbacks
  */
 export function createPreviewRenderer(callbacks) {
@@ -77,26 +77,5 @@ export function createPreviewRenderer(callbacks) {
 
   // ---- Delete ----
 
-  /**
-   * Delete an artifact once the operator confirms: DELETE it, drop it from
-   * the held list and the selection, and re-render this pane. A declined confirm does nothing; a
-   * failed request leaves every state as it was.
-   * @param {any} artifact
-   * @returns {Promise<void>}
-   */
-  async function deleteArtifact(artifact) {
-    if (!confirm(`Delete "${artifact.title}"? This cannot be undone.`)) return;
-    try {
-      const resp = await fetch(`/api/artifacts/${artifact.id}`, { method: 'DELETE' });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      await resp.json();
-      removeArtifact(artifact.id);
-      if (getSelectedArtifact()?.id === artifact.id) setSelectedArtifact(null);
-      renderPreview();
-    } catch (err) {
-      console.error('Delete failed:', err);
-    }
-  }
-
-  return { renderPreview, deleteArtifact };
+  return { renderPreview };
 }

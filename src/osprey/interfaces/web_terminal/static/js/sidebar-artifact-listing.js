@@ -375,6 +375,59 @@ export function heldEntry(id) {
 }
 
 /**
+ * A run as its head lists it: the head entry and its parts.
+ * @typedef {ArtifactEntry & {
+ *   run_part?: string | null,
+ *   run_parts?: {id: string, role: string, title?: string}[],
+ * }} RunEntry
+ */
+
+/**
+ * The run `execId` names among `entries`: its listed head (the entry carrying
+ * `run_parts`), else one read from the members held, the result record as head
+ * (an output's `run_part` is null: it is listed as an output).
+ * @param {Iterable<ArtifactEntry>} entries  @param {string} execId
+ * @returns {RunEntry | null}
+ */
+export function runOf(entries, execId) {
+  if (!execId) return null;
+  const members = /** @type {RunEntry[]} */ ([...entries].filter((e) => e.exec_id === execId));
+  const listed = members.find((e) => Array.isArray(e.run_parts));
+  if (listed) return listed;
+  const head = members.find((e) => e.run_part === 'result') ?? members[0];
+  if (!head) return null;
+  const run_parts = members
+    .filter((e) => e !== head)
+    .map((e) => ({ id: e.id, role: e.run_part || 'output', title: e.title }));
+  return { ...head, run_parts };
+}
+
+/**
+ * A run the session tree already holds, by `exec_id`, or null.
+ * @param {string | null | undefined} execId
+ * @returns {RunEntry | null}
+ */
+export function heldRun(execId) {
+  return execId && treeHeld ? runOf(treeHeld.values(), execId) : null;
+}
+
+/**
+ * A run the tree does not hold, read from the store by `exec_id`; null when
+ * the store has none or cannot be read.
+ * @param {string} execId
+ * @returns {Promise<RunEntry | null>}
+ */
+export async function fetchRun(execId) {
+  try {
+    const q = `exec_id=${encodeURIComponent(execId)}&limit=50`;
+    const body = await requestJSON(`${ARTIFACTS_BASE}/api/artifacts?${q}`);
+    return runOf(body?.artifacts ?? [], execId);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The session tree's data: one listing per session (`${treeId}|`) and per
  * open group (`${treeId}|${form}`), every entry seen by id, the summary
  * counts, and the run keys already counted. Live frames count once per run

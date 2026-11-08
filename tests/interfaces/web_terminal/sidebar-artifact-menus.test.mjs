@@ -27,12 +27,18 @@ const listing = vi.hoisted(() => ({
     vi.fn(async () => null)
   ),
   heldEntry: /** @type {import('vitest').Mock<(id: string) => any>} */ (vi.fn(() => null)),
+  heldRun: vi.fn(() => null),
+  fetchRun: vi.fn(async () => null),
   readTreeView: vi.fn(() => 'kind'),
 }));
 const policy = vi.hoisted(() => ({ focusAgentPane: vi.fn() }));
 const paneHeader = vi.hoisted(() => ({ downloadArtifact: vi.fn() }));
 const confirm = vi.hoisted(() => ({ showConfirm: vi.fn() }));
-const controller = vi.hoisted(() => ({ setTreeView: vi.fn(), openInAgent: vi.fn(async () => {}) }));
+const controller = vi.hoisted(() => ({
+  setTreeView: vi.fn(),
+  openInAgent: vi.fn(async () => {}),
+  showArtifact: vi.fn(),
+}));
 const sidebar = vi.hoisted(() => ({ toggleEverySession: vi.fn() }));
 
 vi.mock(
@@ -504,19 +510,17 @@ describe('a run head', () => {
     vi.unstubAllGlobals();
   });
 
-  test('Open code clicks the run’s code part', async () => {
-    const picked = vi.fn();
-    $('[data-id="code1"]').addEventListener('click', picked);
+  test('Open code shows the run’s code part as the tree’s pick does', async () => {
     await rightClick($('[data-run]'));
     menuRow('Open code').click();
-    expect(picked).toHaveBeenCalled();
+    await vi.waitFor(() => expect(controller.showArtifact).toHaveBeenCalledWith('code1'));
   });
 
   test('Delete… asks first and says the run and its parts go', async () => {
     await rightClick($('[data-run]'));
     menuRow('Delete…').click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
     expect(globalThis.fetch).not.toHaveBeenCalled();
-    expect(confirm.showConfirm).toHaveBeenCalledTimes(1);
     const spec = confirm.showConfirm.mock.calls[0][0];
     expect(spec.title).toBe('Delete run?');
     expect(JSON.stringify(spec.body)).toContain('and its parts (2)');

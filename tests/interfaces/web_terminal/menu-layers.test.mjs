@@ -83,6 +83,8 @@ const listing = vi.hoisted(() => ({
   ARTIFACTS_BASE: '/panel/artifacts',
   fetchArtifact: vi.fn(async () => null),
   heldEntry: vi.fn(() => null),
+  heldRun: vi.fn(() => null),
+  fetchRun: vi.fn(async () => null),
   readTreeView: vi.fn(() => 'kind'),
 }));
 const confirm = vi.hoisted(() => ({ showConfirm: vi.fn() }));
@@ -177,6 +179,7 @@ const pins = await import(`${JS}/sidebar-session-pins.js`);
 const sidebarGroups = await import(`${JS}/sidebar-groups.js`);
 const sidebarFold = await import(`${JS}/sidebar-fold.js`);
 const treeMenus = await import(`${JS}/sidebar-artifact-menus.js`);
+const verbs = await import(`${JS}/artifact-verbs.js`);
 const dockMenus = await import(`${JS}/dock-menus.js`);
 const { installChatMenus } = await import(`${JS}/chat-menus.js`);
 const { installTerminalMenu } = await import(`${JS}/terminal-menu.js`);
@@ -459,7 +462,7 @@ function pinnedHead() {
   return head;
 }
 
-/** The chat's two places and the terminal body's, captured from registerPlace. */
+/** The chat's three places and the terminal body's, captured from registerPlace. */
 function contentPlaces() {
   captured.places.length = 0;
   const messages = document.createElement('div');
@@ -467,7 +470,11 @@ function contentPlaces() {
   const entry = document.createElement('div');
   entry.className = 'chat-entry operator';
   entry.textContent = 'hello';
-  messages.append(entry);
+  const runRow = document.createElement('div');
+  runRow.className = 'op-row op-tool';
+  runRow.dataset.tool = 'execute';
+  runRow.dataset.callId = 'toolu_7';
+  messages.append(entry, runRow);
   const textarea = document.createElement('textarea');
   document.body.append(messages, textarea);
   installChatMenus({
@@ -491,10 +498,11 @@ function contentPlaces() {
     onRestart: () => {},
     onSwitchToChat: () => {},
   });
-  const [entryPlace, logPlace, termPlace] = captured.places;
+  const [entryPlace, runPlace, logPlace, termPlace] = captured.places;
   const ev = (/** @type {Element} */ target) => ({ target, clientX: 0, clientY: 0 });
   return {
     message: entryPlace.build(entry, ev(entry)),
+    run: runPlace.build(runRow, ev(runRow)),
     background: logPlace.build(messages, ev(messages)),
     terminal: termPlace.build(container, ev(container)),
   };
@@ -571,11 +579,15 @@ function everyPlace() {
     layer: 'sidebar',
     items: treeMenus.sessionMenuItems(t.active),
   });
-  out.push({ name: 'run row', layer: 'sidebar', items: treeMenus.runMenuItems(t.run, RUN) });
+  out.push({
+    name: 'run row',
+    layer: 'sidebar',
+    items: verbs.runMenuItems(RUN.exec_id || RUN.id, RUN),
+  });
   out.push({
     name: 'artifact row',
     layer: 'sidebar',
-    items: treeMenus.artifactMenuItems(t.artifact, PLOT),
+    items: verbs.artifactMenuItems(PLOT, { open: () => t.artifact.click() }),
   });
   out.push({ name: 'tree group', layer: 'sidebar', items: treeMenus.groupMenuItems(t.group) });
   out.push({ name: 'pinned heading', layer: 'sidebar', items: pins.headMenuItems(pinnedHead()) });
@@ -663,6 +675,7 @@ function everyPlace() {
   // ---- Content places ----
   const content = contentPlaces();
   out.push({ name: 'chat message', layer: 'content', items: content.message });
+  out.push({ name: 'chat run row', layer: 'content', items: content.run });
   out.push({ name: 'chat background', layer: 'content', items: content.background });
   out.push({ name: 'terminal body', layer: 'content', items: content.terminal });
   return out;
@@ -906,21 +919,21 @@ describe('every GP7 verb is reachable at its place and calls its previous handle
     expect(click).toHaveBeenCalledOnce();
   });
 
-  test('run and artifact rows: Open, Copy ID, Delete… keep their handlers', () => {
+  test('run and artifact rows: Open, Copy ID, Delete… keep their handlers', async () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     const t = sessionTree();
     const click = vi.fn();
     t.artifact.addEventListener('click', click);
-    const art = treeMenus.artifactMenuItems(t.artifact, PLOT);
+    const art = verbs.artifactMenuItems(PLOT, { open: () => t.artifact.click() });
     row(art, 'Open').run?.();
     expect(click).toHaveBeenCalledOnce();
     row(art, 'Copy ID').run?.();
     expect(writeText).toHaveBeenCalledWith('a1');
     row(art, 'Delete…').run?.();
     expect(confirm.showConfirm).toHaveBeenCalledTimes(1);
-    row(treeMenus.runMenuItems(t.run, RUN), 'Delete…').run?.();
-    expect(confirm.showConfirm).toHaveBeenCalledTimes(2);
+    row(verbs.runMenuItems(RUN.exec_id || RUN.id, RUN), 'Delete…').run?.();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(2));
   });
 
   test('group heading: Rename (now Rename…), New group below, Move up / down, Collapse, Delete group', () => {

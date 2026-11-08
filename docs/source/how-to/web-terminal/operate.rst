@@ -578,8 +578,8 @@ opens on its proposed code. **More sessions** loads older ones.
   first: **Cancel**, or **Stop & switch**.
 
 Right-click a session to pin, rename, export or copy its ID, or delete a
-past session with its artifacts; a run to open its result, approval preview
-or code; **Sessions** to start a session or **Group by** **Kind** or
+past session with its artifacts; a run, here or its row in chat, to open its
+result, approval preview or code; **Sessions** to start a session or **Group by** **Kind** or
 **Activity**. Runs and artifacts also have **Delete…**.
 
 Pinned sessions (the pin button on a row) also show in the **Pinned** group

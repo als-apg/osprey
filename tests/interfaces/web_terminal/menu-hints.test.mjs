@@ -75,6 +75,8 @@ const listing = vi.hoisted(() => ({
   ARTIFACTS_BASE: '/panel/artifacts',
   fetchArtifact: vi.fn(async () => null),
   heldEntry: vi.fn(() => null),
+  heldRun: vi.fn(() => null),
+  fetchRun: vi.fn(async () => null),
   readTreeView: vi.fn(() => 'kind'),
 }));
 const confirm = vi.hoisted(() => ({ showConfirm: vi.fn() }));
@@ -168,6 +170,7 @@ const sidebar = await import(`${JS}/sidebar.js`);
 const pins = await import(`${JS}/sidebar-session-pins.js`);
 const sidebarGroups = await import(`${JS}/sidebar-groups.js`);
 const treeMenus = await import(`${JS}/sidebar-artifact-menus.js`);
+const verbs = await import(`${JS}/artifact-verbs.js`);
 const dockMenus = await import(`${JS}/dock-menus.js`);
 const { installChatMenus } = await import(`${JS}/chat-menus.js`);
 const { installTerminalMenu } = await import(`${JS}/terminal-menu.js`);
@@ -314,7 +317,7 @@ function pinnedHead() {
   return head;
 }
 
-/** The chat's two places and the terminal body's, captured from registerPlace. */
+/** The chat's three places and the terminal body's, captured from registerPlace. */
 function contentPlaces() {
   captured.places.length = 0;
   const messages = document.createElement('div');
@@ -322,7 +325,11 @@ function contentPlaces() {
   const entry = document.createElement('div');
   entry.className = 'chat-entry operator';
   entry.textContent = 'hello';
-  messages.append(entry);
+  const runRow = document.createElement('div');
+  runRow.className = 'op-row op-tool';
+  runRow.dataset.tool = 'execute';
+  runRow.dataset.callId = 'toolu_7';
+  messages.append(entry, runRow);
   const textarea = document.createElement('textarea');
   document.body.append(messages, textarea);
   installChatMenus({
@@ -346,10 +353,11 @@ function contentPlaces() {
     onRestart: () => {},
     onSwitchToChat: () => {},
   });
-  const [entryPlace, logPlace, termPlace] = captured.places;
+  const [entryPlace, runPlace, logPlace, termPlace] = captured.places;
   const ev = (/** @type {Element} */ target) => ({ target, clientX: 0, clientY: 0 });
   return {
     message: entryPlace.build(entry, ev(entry)),
+    run: runPlace.build(runRow, ev(runRow)),
     background: logPlace.build(messages, ev(messages)),
     terminal: termPlace.build(container, ev(container)),
   };
@@ -411,10 +419,10 @@ function everyPlace() {
     name: 'session row (active)',
     items: treeMenus.sessionMenuItems(t.active),
   });
-  out.push({ name: 'run row', items: treeMenus.runMenuItems(t.run, RUN) });
+  out.push({ name: 'run row', items: verbs.runMenuItems(RUN.exec_id || RUN.id, RUN) });
   out.push({
     name: 'artifact row',
-    items: treeMenus.artifactMenuItems(t.artifact, PLOT),
+    items: verbs.artifactMenuItems(PLOT, { open: () => t.artifact.click() }),
   });
   out.push({ name: 'tree group', items: treeMenus.groupMenuItems(t.group) });
   out.push({ name: 'pinned heading', items: pins.headMenuItems(pinnedHead()) });
@@ -487,6 +495,7 @@ function everyPlace() {
   // ---- Content places ----
   const content = contentPlaces();
   out.push({ name: 'chat message', items: content.message });
+  out.push({ name: 'chat run row', items: content.run });
   out.push({ name: 'chat background', items: content.background });
   out.push({ name: 'terminal body', items: content.terminal });
   return out;

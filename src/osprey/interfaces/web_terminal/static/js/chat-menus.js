@@ -1,16 +1,19 @@
 // @ts-check
 /* OSPREY Web Terminal — Context menus of the chat log
  *
- * Two places, registered with the shell's place dispatcher (place-menu.js):
+ * Three places, registered with the shell's place dispatcher (place-menu.js):
  *
  *   a message  — a user or assistant entry: Copy (its rendered text) and
  *                Quote in prompt (a Markdown quote at the composer's caret).
+ *   a run      — the row of a script run (an `execute` call): the run's rows
+ *                from artifact-verbs.js, the ones its sidebar row offers.
  *   the log    — the space between messages: Scroll to latest, Export
  *                conversation, New session.
  *
- * Both leave the browser its own menu where the browser's is the useful one:
- * inside a link, a button, a form control, a code block or a tool row/card, and
- * whenever a non-collapsed selection lies in the place — that is a request to
+ * Each leaves the browser its own menu where the browser's is the useful one:
+ * inside a link, a button, a form control, a code block or a tool row/card (a
+ * run row only inside its opened body's code and cards), and whenever a
+ * non-collapsed selection lies in the place — that is a request to
  * copy or look up the selected text. The composer is a text field, which the
  * dispatcher already leaves to the browser.
  *
@@ -21,11 +24,19 @@
  */
 
 import { registerPlace } from './place-menu.js';
+import { heldRun } from './sidebar-artifact-listing.js';
+import { runMenuItems } from './artifact-verbs.js';
 
 /** @typedef {import('/design-system/js/context-menu.js').MenuItem} MenuItem */
 
 /** The entries that carry a message menu. */
 const ENTRY = '.op-entry.operator, .op-entry.assistant';
+
+/** The row of a script run, named by its call's id. */
+const RUN_ROW = '.op-tool[data-tool="execute"][data-call-id]';
+
+/** Targets inside a run row where the browser keeps its own menu. */
+const RUN_DECLINE = 'a, input, select, textarea, pre, code, .op-card';
 
 /** Targets inside which the browser keeps its own menu. */
 const DECLINE =
@@ -175,6 +186,17 @@ export function installChatMenus({ messages, textarea, scrollToBottom, onNewSess
     },
   });
 
+  const unregisterRun = registerPlace({
+    match: (el) => el.matches(RUN_ROW) && messages.contains(el),
+    ariaLabel: 'Run actions',
+    build: (el, event) => {
+      const control = targetElement(event)?.closest(RUN_DECLINE);
+      if ((control && el.contains(control)) || holdsSelection(el)) return [];
+      const execId = /** @type {HTMLElement} */ (el).dataset.callId ?? '';
+      return runMenuItems(execId, heldRun(execId));
+    },
+  });
+
   const unregisterLog = registerPlace({
     match: (el) => el === messages,
     ariaLabel: 'Conversation',
@@ -211,6 +233,7 @@ export function installChatMenus({ messages, textarea, scrollToBottom, onNewSess
 
   return () => {
     unregisterEntry();
+    unregisterRun();
     unregisterLog();
     messages.removeEventListener('click', onClick);
   };

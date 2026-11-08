@@ -15,7 +15,7 @@ import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
 import { isDetached } from './dock-apply.js';
 import { managedIframe } from './dock-iframe.js';
-import { menuItems } from './artifacts-pane-header.js';
+import { artifactMenuItems } from './artifact-verbs.js';
 
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
 
@@ -64,14 +64,16 @@ export function isViewerReady(event) {
 }
 
 /**
- * The tile menu's rows for the shown artifact; none without one or a viewer.
+ * The tile menu's "This panel" rows for the shown artifact (artifact-verbs.js,
+ * the viewer's verbs sent to the frame); none without one or a viewer. The
+ * tile menu draws its own divider before Delete….
  * @param {ArtifactEntry | null} shown
  */
 export function viewerMenuItems(shown) {
   if (!shown || !artifactsIframe()) return [];
-  return menuItems(shown, (action) =>
-    iframeSync.sendArtifactActionToIframe(artifactsIframe(), shown.id, action)
-  );
+  const viewer = (/** @type {'print' | 'logbook'} */ verb) =>
+    iframeSync.sendArtifactActionToIframe(artifactsIframe(), shown.id, verb);
+  return artifactMenuItems(shown, { viewer }).filter((item) => !item.divider);
 }
 
 /** Whether the Artifacts panel is on view: docked in a tile, or in its own window. */
