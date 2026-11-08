@@ -86,6 +86,8 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   isTerminalPanelOpen,
   resetDockLayout,
   agentPaneContent: () => null,
+  // panel-menu-policy.js reads it when a tile menu opens; no tile is maximized here.
+  maximizedTileKey: () => null,
   // Pulled in by dock-iframe.js on the transitive import chain; a mock must
   // supply them or they resolve to undefined.
   // Captured, so a test can replay "a layout was applied" the way
@@ -3469,6 +3471,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(menuHeadings()).toEqual(['Agent', 'Tile']);
     expect(menuLabels()).toEqual([
       'Switch to chat',
+      'Maximize',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',
@@ -3513,6 +3516,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(menuLabels()).toEqual([
       'Switch to terminal',
       'Export conversation',
+      'Maximize',
       'Open in new window',
       'Reveal in sidebar',
       'Close Agent pane',
