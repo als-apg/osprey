@@ -20,7 +20,8 @@ How open models are routed
 --------------------------
 
 Open models are most often served behind an **OpenAI-compatible** API — that is
-how CBORG, Ollama, and vLLM all expose them — so OSPREY reaches them through the
+how `CBORG <https://cborg.lbl.gov/>`__, `Ollama <https://ollama.com/>`__, and
+`vLLM <https://vllm.ai/>`__ all expose them — so OSPREY reaches them through the
 local ``Anthropic ↔ OpenAI`` translation proxy it starts for any OpenAI-protocol
 provider. How that translation works, and the routing every provider follows
 (:ref:`diagram <provider-routing-diagram>`), are in :doc:`configure-providers`.
