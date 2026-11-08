@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Write the docs page's per-tier test list from the tests' ``agentic`` markers.
 
-The list is generated, never hand-written: it is the board's run set, read from live
-collection the way a cell reads it (``check_e2e_coverage.run_args`` and the
-``OSPREY_E2E_LANES`` manifest), with the same title, ask and pass condition the
-dashboard shows. ``--check`` exits 1 when the checked-in fragment differs.
+The list is generated, never hand-written, from the ``@pytest.mark.agentic(...)``
+decorators in the source of the board's in-scope files (every ``tests/e2e/`` file the
+matrix config does not exclude), with the same title, ask and pass condition the
+dashboard shows. Reading source rather than collecting keeps the check a few hundred
+milliseconds, so it runs in every test run; a slow test confirms the source reading
+agrees with live collection. ``--check`` exits 1 when the checked-in fragment differs.
 
     scripts/benchmark/tier_list.py            # rewrite the fragment
     scripts/benchmark/tier_list.py --check    # fail if it is stale
@@ -13,6 +15,7 @@ dashboard shows. ``--check`` exits 1 when the checked-in fragment differs.
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib.util
 import json
 import os
@@ -37,8 +40,34 @@ def _run_args() -> list[str]:
     return module.run_args(excluded)
 
 
+def _agentic_marker(decorator: ast.expr) -> dict | None:
+    """The keyword arguments of an ``@pytest.mark.agentic(...)`` decorator, or None."""
+    if not isinstance(decorator, ast.Call):
+        return None
+    name = decorator.func
+    if not (isinstance(name, ast.Attribute) and name.attr == "agentic"):
+        return None
+    return {kw.arg: ast.literal_eval(kw.value) for kw in decorator.keywords if kw.arg}
+
+
+def source_tests(root: Path = REPO) -> list[dict]:
+    """Every agentic marker in the board's in-scope files, read from their source."""
+    excluded = {e["path"] for e in json.loads(CONFIG.read_text())["excluded_files"]}
+    tests = []
+    for path in sorted((root / "tests" / "e2e").rglob("test_*.py")):
+        if str(path.relative_to(root)) in excluded:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                for decorator in node.decorator_list:
+                    marker = _agentic_marker(decorator)
+                    if marker is not None:
+                        tests.append(marker)
+    return tests
+
+
 def board_tests() -> list[dict]:
-    """Every test a board cell runs, with its marker's tier and text."""
+    """Every test a board cell runs, with its marker's tier and text, from live collection."""
     with tempfile.TemporaryDirectory() as tmp:
         manifest = Path(tmp) / "lanes.json"
         proc = subprocess.run(
@@ -85,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="exit 1 if the fragment is stale")
     args = ap.parse_args(argv)
-    text = render(board_tests())
+    text = render(source_tests())
     if args.check:
         if FRAGMENT.read_text(encoding="utf-8") != text:
             print(

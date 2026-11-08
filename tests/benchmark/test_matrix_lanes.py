@@ -603,17 +603,28 @@ class TestCellPreflight:
         assert runner.index("cell_preflight.py") < runner.index("per-cell ARIEL database")
 
 
-@pytest.mark.slow
 def test_the_docs_tier_list_matches_the_tests_markers():
     """The docs page's per-tier list is generated from the agentic markers; a marker
-    edited without regenerating it fails here."""
-    proc = subprocess.run(
-        [sys.executable, str(_BENCH / "tier_list.py"), "--check"],
-        capture_output=True,
-        text=True,
-        timeout=300,
+    edited without regenerating it fails here, in every run (it reads source, no
+    collection)."""
+    tier_list = _load("tier_list")
+    fragment = tier_list.FRAGMENT.read_text(encoding="utf-8")
+    assert fragment == tier_list.render(tier_list.source_tests()), (
+        "the docs tier list is stale: run scripts/benchmark/tier_list.py"
     )
-    assert proc.returncode == 0, proc.stderr + proc.stdout
+
+
+@pytest.mark.slow
+def test_the_source_reading_agrees_with_live_collection():
+    """Reading the markers from source must find what collecting the board's run set
+    finds, so a marker spelled in a way source reading misses cannot drop out."""
+    tier_list = _load("tier_list")
+
+    def key(test):
+        return (test["tier"], test["title"], test["asks"], test["passes_if"])
+
+    collected = sorted({key(t) for t in tier_list.board_tests()})
+    assert sorted(key(t) for t in tier_list.source_tests()) == collected
 
 
 def test_the_tier_list_renders_one_collapsed_section_per_tier():
