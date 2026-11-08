@@ -35,7 +35,12 @@ from osprey.apps.sdk._model import (
 )
 from osprey.apps.sdk._serve import serve_tools
 from osprey.apps.sdk._target import owner_target
-from osprey.apps.sdk._wrappers import agent_panel_headers, caller_kind, queue_is_active
+from osprey.apps.sdk._wrappers import (
+    agent_panel_headers,
+    caller_kind,
+    launch_token_env,
+    queue_is_active,
+)
 from osprey.audit.call import current_tool_use_id
 from osprey.audit.dedup import record_and_mark
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
@@ -98,6 +103,7 @@ __all__ = [
     "facility_file",
     "guarded_run_dir",
     "input_digest",
+    "launch_token_env",
     "load_by_path",
     "lock",
     "make_error",
