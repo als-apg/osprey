@@ -1,0 +1,102 @@
+services:
+  knob-example:
+    path: ./services/knob-example
+    app: knob-example
+    command:
+    - python
+    - -m
+    - knob_example.server
+    port: 10900
+    url: http://127.0.0.1:10900
+    health: /health
+    env: []
+    state: var/knob-example
+    drives_target: true
+    control_identity: false
+    audit_identity: knob-example
+    config_file: ./services/knob-example/app-config.yml
+    launch_token_env: KNOB_EXAMPLE_LAUNCH_TOKEN
+    roster_grant:
+      panel_id: knob-example
+      single_user_alias: true
+deployed_services:
+- knob-example
+compose:
+  knob-example:
+    image: ${OSPREY_WORKER_IMAGE:-my-facility:local}
+    container_name: my-facility-knob-example
+    command:
+    - python
+    - -m
+    - knob_example.server
+    security_opt:
+    - no-new-privileges:true
+    restart: unless-stopped
+    stop_grace_period: 15s
+    environment:
+      OSPREY_APP_NAME: knob-example
+      OSPREY_APP_CONFIG: /osprey/app/config.yml
+      OSPREY_APP_PORT: '10900'
+      OSPREY_APP_BIND: 0.0.0.0
+      OSPREY_APP_STATE_DIRS: /app/my-facility/var/knob-example
+      OSPREY_AUDIT_IDENTITY: knob-example
+      OSPREY_SPOOL_DIR: /app/my-facility/var/spool/knob-example
+      KNOB_EXAMPLE_LAUNCH_TOKEN: ${KNOB_EXAMPLE_LAUNCH_TOKEN}
+      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: '1'
+      OSPREY_TERMINAL_SECRET_ALICE: ${OSPREY_TERMINAL_SECRET_ALICE:-}
+      OSPREY_TERMINAL_SECRET_BOB: ${OSPREY_TERMINAL_SECRET_BOB:-}
+      OSPREY_TERMINAL_SECRET_CAROL: ${OSPREY_TERMINAL_SECRET_CAROL:-}
+      OSPREY_TERMINAL_ROSTER_OWNERS: ALICE=alice,BOB=bob,CAROL=carol
+      CONFIG_FILE: /app/my-facility/build/config.yml
+      OSPREY_CONFIG: /app/my-facility/build/config.yml
+      OSPREY_GUARDED_RUN_DIR: /app/my-facility/var/guarded_run
+      OSPREY_CONTROL_CONTEXT_TREE: /osprey/control_tree
+      EPICS_CA_NAME_SERVERS: virtual-accelerator:5064
+      EPICS_CA_AUTO_ADDR_LIST: 'NO'
+      TZ: UTC
+    ports:
+    - 127.0.0.1:10900:10900
+    volumes:
+    - ./build/services/knob-example/app-config.yml:/osprey/app/config.yml:ro
+    - ./var/state/knob-example/knob-example:/app/my-facility/var/knob-example
+    - ./var/spool/knob-example:/app/my-facility/var/spool/knob-example
+    - ./build/services/knob-example/config.yml:/app/my-facility/build/config.yml:ro
+    - ./var/guarded_run:/app/my-facility/var/guarded_run
+    - ./var/agent_data/control_target:/osprey/control_tree:ro
+    networks:
+    - osprey-network
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10900/health').status==200
+        else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+app-config.yml: {}
+roster_grant:
+  service: knob-example
+  single_user_alias: true
+reach_contract:
+  service: knob-example
+  consumers:
+  - name: The knob-example panel
+    switch_key: web.panels.knob-example
+    refuse: true
+  credentials:
+  - KNOB_EXAMPLE_LAUNCH_TOKEN
+  no_client_reach: false
+  derived_by: osprey.apps.projection.project_login
+application_token_renders:
+  KNOB_EXAMPLE_LAUNCH_TOKEN:
+  - admin
+  - readwrite
+web_terminal_env:
+  web-alice:
+  - KNOB_EXAMPLE_LAUNCH_TOKEN=${KNOB_EXAMPLE_LAUNCH_TOKEN:-}
+  web-bob: []
+  web-carol:
+  - KNOB_EXAMPLE_LAUNCH_TOKEN=${KNOB_EXAMPLE_LAUNCH_TOKEN:-}
+  web-logbook: []
+  web-knowledge: []
+  web-channel-finder: []
