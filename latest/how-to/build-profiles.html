@@ -448,7 +448,10 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="control-systems/machine-repository.html">Serve the Virtual Accelerator from a Machine Repository</a></li>
+</ul>
+</details></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/code-review.html">Review the Agent’s Code</a></li>
@@ -672,7 +675,9 @@ simply means the profile contributes nothing of that kind.</p>
 <section id="the-facility-tree">
 <h3>The facility tree<a class="headerlink" href="#the-facility-tree" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">data/facility/</span></code> holds every source of the facility file: the authored files
-and the <code class="docutils literal notranslate"><span class="pre">imported/&lt;layer&gt;/</span></code> directories the importers write.
+and the <code class="docutils literal notranslate"><span class="pre">imported/&lt;layer&gt;/</span></code> directories the importers write. With
+<code class="docutils literal notranslate"><span class="pre">machine:</span></code>, the machine facts come from a
+<a class="reference internal" href="control-systems/machine-repository.html"><span class="doc">machine repository</span></a> instead.
 <a class="reference internal" href="describe-your-facility.html"><span class="doc">Describe your facility</span></a> walks the tree file by file.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> reads the tree and writes the facility file and its views into
 the render, never back into <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>:</p>
@@ -942,7 +947,8 @@ the repository, as must every file the profile <code class="docutils literal not
 and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuse a profile that reads anything outside the
 repository, before anything is installed, naming the path. The resolved tree is
 folded into the profile hash, so editing it reports the built project as out of
-date.</p>
+date. <code class="docutils literal notranslate"><span class="pre">machine:</span></code>, the facility directory of a mounted machine repository,
+resolves and is folded the same way.</p>
 </section>
 <section id="taking-ownership-of-a-framework-artifact">
 <span id="profile-claim"></span><h2>Taking ownership of a framework artifact<a class="headerlink" href="#taking-ownership-of-a-framework-artifact" title="Link to this heading">#</a></h2>
@@ -1128,7 +1134,7 @@ chiefly <code class="docutils literal notranslate"><span class="pre">control_sys
 privileges the profile deliberately withholds. The build lays it over the
 profile: lists are added by name, <code class="docutils literal notranslate"><span class="pre">config:</span></code> keys win. A tier never subtracts
 and never carries a deployment fact, so it has no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>, <code class="docutils literal notranslate"><span class="pre">exclude:</span></code>,
-<code class="docutils literal notranslate"><span class="pre">data:</span></code> or <code class="docutils literal notranslate"><span class="pre">services:</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">data:</span></code>, <code class="docutils literal notranslate"><span class="pre">machine:</span></code> or <code class="docutils literal notranslate"><span class="pre">services:</span></code>.</p>
 <p>An app is a whole agent definition — its own skills, rules, brief and tool
 servers — composed over the deployment’s services, data and provider. Every app
 render is read-only on the machine.</p>

@@ -448,7 +448,10 @@
 <li class="toctree-l1 has-children"><a class="reference internal" href="control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors.html">Use Connectors</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/use-connectors-standalone.html">Use the Connectors Without the Framework</a></li>
-<li class="toctree-l2"><a class="reference internal" href="control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="control-systems/machine-repository.html">Serve the Virtual Accelerator from a Machine Repository</a></li>
+</ul>
+</details></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/phoebus-bridge.html">Connect the Agent to Phoebus Displays</a></li>
 <li class="toctree-l2"><a class="reference internal" href="control-systems/code-review.html">Review the Agent’s Code</a></li>
@@ -546,7 +549,9 @@
 <code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> combines them into one facility file,
 <code class="docutils literal notranslate"><span class="pre">build/facility.json</span></code>, and writes every file a service reads from it: the
 channel finder’s index, the limits database, the simulator’s channel list, the
-knowledge graph. Nothing else in the deployment lists a channel.</p>
+knowledge graph. Nothing else in the deployment lists a channel. The machine
+facts can instead live in a
+<a class="reference internal" href="control-systems/machine-repository.html"><span class="doc">machine repository</span></a>.</p>
 <p>This page walks the tree a fresh <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--preset</span> <span class="pre">demo</span></code>
 writes, file by file, then the three ways records get into it: by hand, from
 an importer, and through a fix. What the build writes from the result is in
@@ -1062,7 +1067,9 @@ that run these measurements are in <a class="reference internal" href="measure-w
 <h2>Scenarios<a class="headerlink" href="#scenarios" title="Link to this heading">#</a></h2>
 <p>Each file under <code class="docutils literal notranslate"><span class="pre">scenarios/</span></code> is one way the simulated machine departs from
 its baseline: value overrides, model and channel faults, its own motion
-(drivers, couplings, noise), archive history and logbook entries.
+(drivers, couplings, noise), archive history and logbook entries. The
+simulator activates the scenarios marked <code class="docutils literal notranslate"><span class="pre">start:</span> <span class="pre">true</span></code> when it first comes
+up; with such marks the profile states no <code class="docutils literal notranslate"><span class="pre">simulation.default_scenarios</span></code>.
 Writing and applying them is in <a class="reference internal" href="run-scenarios.html"><span class="doc">Run and write scenarios</span></a>.</p>
 </section>
 <section id="knowledge">
