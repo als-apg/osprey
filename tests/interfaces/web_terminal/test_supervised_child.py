@@ -533,6 +533,7 @@ class TestStop:
         time.sleep(0.3)
         assert child.starts == 1
 
+    @pytest.mark.wallclock
     def test_stop_during_a_backoff_cancels_the_respawn(self, harness: Harness) -> None:
         child = harness.supervise("exit", 1, backoff_s=(1.0,))
         child.start()
