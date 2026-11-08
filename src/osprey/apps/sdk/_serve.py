@@ -128,7 +128,9 @@ def create_server() -> FastMCP:
     return server
 
 
-def serve_tools(register: Callable[[FastMCP], None]) -> None:
+def serve_tools(
+    register: Callable[[FastMCP], None], *, on_shutdown: Callable[[], None] | None = None
+) -> None:
     """Build the application's tool server, check it against the rendered config and serve it.
 
     Stable: part of the application SDK's public surface. The server runs as
@@ -141,6 +143,9 @@ def serve_tools(register: Callable[[FastMCP], None]) -> None:
         register: Registers the application's tools on the server the SDK
             built for it, named for the application; called once the project
             ``.env`` and the config are loaded, so tool code may read config.
+        on_shutdown: Called once when the server has stopped, whether serving
+            returned or raised, so the application can release what it holds
+            (a held session, say).
 
     Raises:
         AppManifestError: ``OSPREY_APP_NAME`` is unset, or the server registers
@@ -154,3 +159,5 @@ def serve_tools(register: Callable[[FastMCP], None]) -> None:
         run_mcp_server(__name__)
     finally:
         _PENDING.clear()
+        if on_shutdown is not None:
+            on_shutdown()
