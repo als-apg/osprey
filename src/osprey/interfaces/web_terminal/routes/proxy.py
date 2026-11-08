@@ -103,7 +103,7 @@ from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.services.auth_sidecar.identity_headers import same_domain, same_value
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
-from osprey.utils.owner_header import OWNER_HEADER, SESSION_HEADER, owner_from_header
+from osprey.utils.owner_header import CALLER_HEADER, OWNER_HEADER, SESSION_HEADER, owner_from_header
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_text
@@ -574,6 +574,7 @@ _STRIPPED_REQUEST_HEADERS = frozenset(
         "authorization",
         "x-osprey-terminal-secret",
         OWNER_HEADER.lower(),
+        CALLER_HEADER.lower(),
         LAUNCH_TOKEN_HEADER.lower(),
     }
 )
@@ -1016,6 +1017,34 @@ def _owner_header(scope: Request | WebSocket, panel_id: str, backend_url: str) -
         return {}
     owner = owner_from_header(acting_identity())
     return {OWNER_HEADER: owner} if owner else {}
+
+
+def _caller_header(scope: Request | WebSocket, panel_id: str, path: str) -> dict[str, str]:
+    """Who is calling, as this hop admitted it: ``agent`` or ``panel``.
+
+    ``agent`` when the terminal's gate admitted the request on the panel token
+    (:data:`~osprey.interfaces.common_middleware.PANEL_ADMISSION_STATE_KEY`) —
+    the credential the agent holds, which reaches a panel only at the routes the
+    panel registry opens to it (an application's ``agent_routes``, a sidecar's
+    agent hop, :func:`_is_admitted_agent_hop`). ``panel`` for everything else: a
+    browser session, the operator secret, and every websocket, which the gate
+    never admits on the panel token.
+
+    Like :func:`_owner_header`, half of a boundary whose other half is the strip
+    in :data:`_STRIPPED_REQUEST_HEADERS`: the request leaves this hop carrying
+    the kind this process vouches for, whatever it arrived with. Not gated by
+    :func:`_backend_earns_credentials`: the kind is no secret and every backend
+    is told it.
+
+    Args:
+        scope: The request or websocket being proxied.
+        panel_id: The panel id from the proxied URL.
+        path: The decoded path below the panel id, without a leading slash.
+    """
+    del panel_id, path  # the admission mark is only ever set on a panel-tier route
+    state = scope.scope.get("state") or {}
+    admitted_on_panel_token = state.get(PANEL_ADMISSION_STATE_KEY) is True
+    return {CALLER_HEADER: "agent" if admitted_on_panel_token else "panel"}
 
 
 async def _request_no_redirect(
@@ -2327,6 +2356,7 @@ async def _forward_to_panel(
     # work by the driver's own chip. Minted in this same run, after the strip,
     # so an inbound claim can neither survive nor sit beside the minted value.
     fwd_headers.update(_owner_header(request, panel_id, backend_url))
+    fwd_headers.update(_caller_header(request, panel_id, path))
 
     outer_panel_prefix = panel_prefix
 
@@ -2673,10 +2703,12 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
         await websocket.close(code=4500, reason="WebSocket proxy unavailable")
         return
 
-    # No browser header is forwarded; this is the whole outbound header set,
-    # and it is empty unless the backend earns the secret or a credential.
+    # No browser header is forwarded; this is the whole outbound header set:
+    # the secret or a credential when the backend earns one, and the caller kind.
     upstream_headers = _terminal_secret_header(websocket, panel_id, backend_url)
     upstream_headers.update(_panel_auth_header(websocket, panel_id, backend_url))
+    carries_credential = bool(upstream_headers)
+    upstream_headers.update(_caller_header(websocket, panel_id, path))
 
     # The browser's ``Sec-WebSocket-Protocol`` offer, as the ASGI server parsed it.
     offered = list(websocket.scope.get("subprotocols") or [])
@@ -2686,10 +2718,10 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     # each target — the ws↔ws analogue of the httpx redirect leak the HTTP path
     # guards against. When the secret is being carried, refuse to follow any
     # redirect so it cannot ride one off the loopback host the gate vouched for.
-    connect_type = _RedirectRefusingConnect if upstream_headers else websockets.connect
+    connect_type = _RedirectRefusingConnect if carries_credential else websockets.connect
     connector = connect_type(
         target,
-        additional_headers=upstream_headers or None,
+        additional_headers=upstream_headers,
         subprotocols=offered or None,
         open_timeout=UPSTREAM_OPEN_TIMEOUT,
         max_size=PANEL_WS_MAX_SIZE,
