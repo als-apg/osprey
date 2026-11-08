@@ -640,3 +640,15 @@ def test_the_tier_list_renders_one_collapsed_section_per_tier():
     assert "Read \\*this\\*" in text and "x \\| y" in text
     shown = text.split("\n\n", 1)[1]  # past the generator's comment
     assert ".py" not in shown
+
+
+def test_a_cell_runs_single_worker_and_provisions_in_its_own_block():
+    """A cell's port block holds one pytest worker; the logbook provisioning project
+    builds in the same block, never on the default one a host's deployment holds."""
+    runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
+    pytest_call = runner[runner.index('"$PY" -m pytest tests/e2e/') :].split("--junitxml", 1)[0]
+    assert " -n " not in pytest_call and "--numprocesses" not in pytest_call
+    provisioning = runner[runner.index('init "$PROV_DIR/prov"') :].split("then", 1)[0]
+    assert '--set "port_base=${OSPREY_E2E_PORT_BASE:-25000}"' in provisioning
+    gate = _load("check_e2e_coverage")
+    assert "-n" not in gate.run_args({})

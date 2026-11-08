@@ -336,12 +336,22 @@ def e2e_port_base() -> int:
     save. Two workers whose projects share a block therefore race for one
     gallery port: whichever binds first owns it, and a test on the other
     worker then reaches a gallery holding a different stack's bearer token
-    and is answered 401 (#823). One block per worker ends the sharing, and
-    ``OSPREY_E2E_PORT_BASE`` moves the whole run to another block, which is how
-    concurrent benchmark cells keep theirs apart.
+    and is answered 401 (#823). One block per worker ends the sharing.
+
+    ``OSPREY_E2E_PORT_BASE`` names one block for a whole single-worker run: a
+    benchmark cell's, beside other cells' blocks. A worker past the first would
+    take the next cell's block, so that combination is refused.
     """
-    base = int(os.environ.get(PORT_BASE_ENV) or E2E_PORT_BASE)
-    return base + BLOCK_SIZE * ci_diagnostics.worker_index()
+    named = os.environ.get(PORT_BASE_ENV)
+    if named:
+        if ci_diagnostics.worker_index():
+            raise RuntimeError(
+                f"{PORT_BASE_ENV}={named} names one block for a single-worker run; "
+                "under pytest-xdist each worker past the first would take another "
+                "cell's block"
+            )
+        return int(named)
+    return E2E_PORT_BASE + BLOCK_SIZE * ci_diagnostics.worker_index()
 
 
 def init_project(
