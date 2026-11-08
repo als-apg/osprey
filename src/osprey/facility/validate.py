@@ -342,9 +342,18 @@ def vocabulary() -> dict[str, Any]:
     return data
 
 
-def signal_roles() -> frozenset[str]:
-    """The signal roles of the vocabulary."""
-    return frozenset(role["name"] for role in vocabulary()["signal_roles"])
+def signal_roles(signals: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
+    """The vocabulary's signal roles joined with the facility-added ones.
+
+    Args:
+        signals: ``signals.yaml``'s records (the facility document's ``signals``).
+
+    Returns:
+        Every signal role a channel may carry.
+    """
+    names = {str(role["name"]) for role in vocabulary()["signal_roles"]}
+    names.update(str(row["name"]) for row in signals if isinstance(row.get("name"), str))
+    return frozenset(names)
 
 
 def known_classes(classes: Iterable[Mapping[str, Any]] = ()) -> frozenset[str]:
@@ -510,7 +519,12 @@ def _schema_error(
     )
 
 
-_TOP_SLOT_FILES = {"limits": "limits.yaml", "classes": "classes.yaml", "identity": "identity.yaml"}
+_TOP_SLOT_FILES = {
+    "limits": "limits.yaml",
+    "classes": "classes.yaml",
+    "signals": "signals.yaml",
+    "identity": "identity.yaml",
+}
 
 
 def _path_files(document: Mapping[str, Any], sources: Sources, loc: tuple[Any, ...]) -> list[str]:
@@ -765,7 +779,7 @@ class _References:
                 )
 
     def _channels(self) -> Iterator[FacilityBuildError]:
-        roles = signal_roles()
+        roles = signal_roles(self.sources.signals)
         for address, channel in sorted(self.index.channels.items()):
             on = channel.get("on")
             if isinstance(on, dict):
@@ -798,9 +812,9 @@ class _References:
                     "class-unknown",
                     address,
                     stating_files(channel, "signal"),
-                    "use a vocabulary signal role or remove `signal`",
+                    "use a vocabulary signal role, add it to signals.yaml or remove `signal`",
                     record_kind="channel",
-                    detail=f"signal {signal} is not a vocabulary signal role",
+                    detail=f"signal {signal} is in neither the vocabulary nor signals.yaml",
                 )
 
     def _seed_inputs(

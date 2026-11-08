@@ -600,8 +600,9 @@ class TestClasses:
         files = _with_channels({"id": "T", "signal": "hcm_current_sp"})
         error = _one(tmp_path / "bad", files, "references")
         assert error.format_message() == (
-            "facility: class-unknown: channel T — signal hcm_current_sp is not a vocabulary "
-            "signal role; fix: use a vocabulary signal role or remove `signal`"
+            "facility: class-unknown: channel T — signal hcm_current_sp is in neither the "
+            "vocabulary nor signals.yaml; fix: use a vocabulary signal role, add it to "
+            "signals.yaml or remove `signal`"
         )
 
 

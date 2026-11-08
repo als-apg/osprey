@@ -37,6 +37,7 @@ FACILITY_SLOTS = [
     "schema",
     "identity",
     "classes",
+    "signals",
     "places",
     "devices",
     "channels",

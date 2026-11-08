@@ -127,6 +127,12 @@ classes:
         inlined_as_list: true
         list_elements_ordered: true
         description: The facility-added device classes, carried verbatim.
+      signals:
+        range: FacilitySignal
+        multivalued: true
+        inlined_as_list: true
+        list_elements_ordered: true
+        description: The facility-added signal roles, carried verbatim.
       places:
         range: Place
         multivalued: true
@@ -180,6 +186,17 @@ classes:
       parent:
         required: true
         description: A vocabulary class or an earlier facility-added class.
+      aliases:
+        multivalued: true
+        list_elements_ordered: true
+      description:
+
+  FacilitySignal:
+    description: A signal role a facility adds beside the vocabulary's.
+    attributes:
+      name:
+        identifier: true
+        required: true
       aliases:
         multivalued: true
         list_elements_ordered: true
