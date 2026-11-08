@@ -19,20 +19,25 @@
   flex-direction: column;
   padding: calc(var(--wt-gutter) + var(--space-1)) var(--space-1) var(--wt-gutter) var(--space-2);
   color: var(--text-secondary);
-  overflow-x: hidden;
+  /* Clip, not hide: the sidebar never scrolls itself (its groups do), and the
+     8 px margin lets the resize handle reach across the gutter to the tiles. */
+  overflow: clip;
+  overflow-clip-margin: 8px;
 }
 
-/* The resize handle (sidebar-resize.js): a 12 px hit area along the sidebar's
-   right edge, outside the flex flow (the sidebar clips overflow, so the zone
-   sits inside the edge). The edge shows a 2 px accent line on hover and a 3 px
-   one while focused or dragged; the zone takes the col-resize cursor, and the
+/* The resize handle (sidebar-resize.js): a 16 px hit area centred on the 8 px
+   gutter between the sidebar and the tiles, so the pointer finds it where the
+   two meet. It reaches past the sidebar's edge through the sidebar's clip
+   margin. The gutter's middle shows a 2 px accent line on hover and a 3 px one
+   while focused or dragged; the zone takes the col-resize cursor, and the
    whole page does for the length of a drag. */
 .sidebar > .sidebar-resize {
   position: absolute;
   top: 0;
-  right: 0;
+  right: -8px;
   bottom: 0;
-  width: 12px;
+  z-index: 1;
+  width: 16px;
   cursor: col-resize;
   touch-action: none;
   outline: none;
@@ -42,7 +47,7 @@
   content: "";
   position: absolute;
   top: 0;
-  right: 0;
+  right: 3px;
   bottom: 0;
   width: 2px;
   background: transparent;

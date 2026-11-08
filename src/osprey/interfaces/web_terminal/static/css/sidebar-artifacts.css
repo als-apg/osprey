@@ -85,6 +85,12 @@
   box-shadow: none;
 }
 
+/* A closed session's hollow dot draws nothing here (no outline above), so it
+   takes no room either: the title starts beside the disclosure slot. */
+.osprey-tree-session .osprey-dot.hollow {
+  display: none;
+}
+
 .osprey-tree-title {
   flex: 1;
   min-width: 0;

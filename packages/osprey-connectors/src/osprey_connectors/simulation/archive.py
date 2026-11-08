@@ -314,6 +314,8 @@ class ArchiveComposite:
             ``close``.
         pulses: Each pulsed waveform channel's ``pulse`` seed, by address: the
             ``driver`` and ``enable`` channels its trace is computed from.
+        topoffs: Each channel's ``topoff`` seed record, by address, for the
+            channels whose ``loss`` events top-off refills.
 
     Raises:
         ValueError: A ``pulse`` seed names a driver or enable that is not a
@@ -331,8 +333,10 @@ class ArchiveComposite:
         tz: ZoneInfo | None,
         state: tempfile.TemporaryDirectory[str] | None = None,
         pulses: Mapping[str, Mapping[str, str]] | None = None,
+        topoffs: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> None:
         self._channels = dict(channels)
+        self._topoffs = dict(topoffs or {})
         self._pulses = {
             address: {"driver": str(seed["driver"]), "enable": str(seed["enable"])}
             for address, seed in (pulses or {}).items()
@@ -350,6 +354,10 @@ class ArchiveComposite:
         self._state = state
         self._anchor_s = anchor_s
         self._tz = tz
+
+    def topoff_record(self, address: str) -> Mapping[str, Any] | None:
+        """The ``topoff`` seed record that refills ``address``'s ``loss`` events, or None."""
+        return self._topoffs.get(address)
 
     def close(self) -> None:
         """Remove the state directory, when the composite holds one; a second call does nothing."""
@@ -523,7 +531,9 @@ class ArchiveComposite:
         count = len(times)
         start = np.full(count, float(self._held[address]), dtype=np.float64)
         events = self._events.get(address, [])
-        return apply_events(start, events, count, times, self._anchor_s, self._tz)
+        return apply_events(
+            start, events, count, times, self._anchor_s, self._tz, self._topoffs.get(address)
+        )
 
     def _stepped(
         self,
@@ -657,6 +667,12 @@ def build(
             tz=get_facility_timezone(),
             state=state,
             pulses=pulses,
+            topoffs={
+                address: record
+                for address in events
+                if address in records
+                and (record := topoff.topoff_record(view.seed(address))) is not None
+            },
         )
     except BaseException:
         state.cleanup()

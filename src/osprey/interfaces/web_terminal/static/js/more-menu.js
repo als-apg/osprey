@@ -47,6 +47,7 @@ import {
 import { icon } from '/design-system/js/icons.js';
 import { fetchJSON } from './api.js';
 import { openActivityLog } from './activity-log-link.js';
+import { setTabToggle, tabToggleOn } from './sidebar-tab-key.js';
 import { startTour } from './tour.js';
 
 const MENU_ID = 'more-menu';
@@ -55,7 +56,7 @@ const SHORTCUTS_ID = 'shortcuts-popover';
 const ABOUT_ID = 'about-popover';
 
 /** The rows a click acts on. */
-const ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"]';
+const ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]';
 
 /**
  * Mark the radios of one group: `aria-checked` true on the one whose
@@ -79,6 +80,9 @@ function checkRadios(menu, key, value) {
 function syncMenu(menu) {
   checkRadios(menu, 'appearance', modePreference());
   checkRadios(menu, 'themeFamily', getFamily());
+  menu
+    .querySelector('[data-more="tab-toggle"]')
+    ?.setAttribute('aria-checked', String(tabToggleOn()));
 }
 
 /**
@@ -216,6 +220,9 @@ export function initMoreMenu({ getSessionId }) {
     } else if (more === 'activity') {
       close();
       openActivityLog(getSessionId);
+    } else if (more === 'tab-toggle') {
+      setTabToggle(!tabToggleOn());
+      syncMenu(menu);
     }
   });
 

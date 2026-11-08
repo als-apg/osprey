@@ -320,9 +320,11 @@ function planOp(frame, layout, isHealthy) {
       }
       if (tileOf(layout, member)) return { run: (l) => focusKey(l, member) };
       if (!isHealthy(member)) return { refusal: PANEL_UNHEALTHY };
-      const place = args.place ?? 'split';
-      if (place !== 'split' && place !== 'replace') return { refusal: INVALID_TARGET };
-      if (args.edge !== undefined && (place !== 'split' || !OPEN_EDGES.has(args.edge))) {
+      const place = args.place;
+      if (place !== undefined && place !== 'split' && place !== 'replace') {
+        return { refusal: INVALID_TARGET };
+      }
+      if (args.edge !== undefined && (place === 'replace' || !OPEN_EDGES.has(args.edge))) {
         return { refusal: INVALID_TARGET };
       }
       if (args.tile !== undefined) {
@@ -334,7 +336,8 @@ function planOp(frame, layout, isHealthy) {
         }
       }
       /** @type {import('./dock-open.js').OpenPlacement} */
-      const placement = { place };
+      const placement = {};
+      if (place !== undefined) placement.place = place;
       if (args.tile !== undefined) placement.tile = args.tile;
       if (args.edge !== undefined) placement.edge = args.edge;
       return { run: (l, ctx) => openPlaced(l, member, placement, ctx) };

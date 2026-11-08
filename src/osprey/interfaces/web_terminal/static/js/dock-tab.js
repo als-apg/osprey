@@ -447,12 +447,14 @@ const WINDOW_BUTTON_LABEL = 'Open in new window';
  * A tile's Open in new window button: moves the tile's content into a window of its own
  * (pane-window.js). It runs the pop-out inside the click, the gesture the
  * browser needs to open a window at all. Content that cannot go (a panel not
- * loaded yet, an opaque-origin panel) gets the button disabled, with the
- * reason as its title. The gate cannot be read when the tile is built: the
- * panel's iframe and its frame kind arrive later, and a button disabled then
- * would never receive the click that re-reads it. So the button starts
- * enabled and reads the gate when the pointer or focus arrives and again at
- * click time.
+ * loaded yet, an opaque-origin panel) gets the button marked inert
+ * (`aria-disabled`), with the reason as its title. The gate changes while the
+ * tile stands: the panel's iframe and its frame kind arrive after the bar is
+ * built. So the button reads the gate when the pointer or focus arrives and
+ * again at click time, and is never `disabled`: a disabled icon button takes
+ * no pointer events (primitives.css), so it would never hear the hover or the
+ * click that finds the panel loaded, and would stay inert until the bar is
+ * rebuilt.
  * @param {string} panelId  service panel id (the placeholder id minus its
  *   prefix), or TERMINAL_RAIL_ID
  * @returns {HTMLButtonElement}
@@ -464,18 +466,19 @@ function buildWindowButton(panelId) {
   btn.appendChild(icon('popout'));
   btn.setAttribute('aria-label', WINDOW_BUTTON_LABEL);
   btn.title = WINDOW_BUTTON_LABEL;
+  /** @returns {boolean} true when the pane can leave now */
   const paint = () => {
     const blocker = detachBlocker(panelId);
-    btn.disabled = blocker !== null;
+    btn.setAttribute('aria-disabled', String(blocker !== null));
     btn.title = blocker ?? WINDOW_BUTTON_LABEL;
+    return blocker === null;
   };
   btn.addEventListener('pointerenter', paint);
   btn.addEventListener('focus', paint);
   btn.addEventListener('click', (e) => {
     if (e.defaultPrevented) return;
     e.preventDefault();
-    paint();
-    if (!btn.disabled) detach(panelId);
+    if (paint()) detach(panelId);
   });
   return btn;
 }
