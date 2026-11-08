@@ -308,7 +308,9 @@ tool server's ``writes:``, so every call is judged as a write, in this order:
       longer match what it holds.
    ``bind.input_digests``
       A digest over named call arguments, so the arguments the agent sends
-      after approval must be the ones that were approved.
+      after approval must be the ones that were approved. An app recomputes
+      a digest only through the SDK's ``canonical_json`` and
+      ``input_digest``, the recipe the check itself uses.
    ``require``
       The ``approved_*`` fields a call must carry (``all_of``, or exactly one
       of each ``one_of`` group). A ``one_of`` group holds readback
