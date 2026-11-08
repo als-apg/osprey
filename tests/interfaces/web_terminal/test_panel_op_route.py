@@ -153,12 +153,97 @@ async def test_open_relays_a_frame_to_the_current_client_and_returns_the_new_rev
     assert result.status_code == 200
     assert result.json()["rev"] == 4
     assert resp.status_code == 200
+    # The dock answered with LATTICE in ARIEL's tile: a default open (a split)
+    # that fell back to replacing, which the answer says.
     assert resp.json() == {
         "status": "ok",
         "layout": normalize_layout(AFTER),
         "popouts": [],
         "rev": 4,
+        "placed": "replaced",
+        "replaced": "ariel",
+        "note": "no room for a new tile: lattice replaced ariel, which stays on the rail",
     }
+
+
+#: LATTICE opened in a tile of its own below ARIEL's: the default open.
+SPLIT_BELOW = {
+    "split": "row",
+    "items": [
+        {
+            "split": "column",
+            "size": 0.6,
+            "items": [
+                {"tile": "t1", "tabs": ["ariel"], "showing": "ariel", "size": 0.5},
+                {"tile": "t3", "tabs": ["lattice"], "showing": "lattice", "size": 0.5},
+            ],
+        },
+        {"tile": "t2", "tabs": ["terminal"], "showing": "terminal", "size": 0.4},
+    ],
+}
+
+
+async def test_an_open_that_made_a_new_tile_says_so():
+    app = _app()
+    resp, frame, _ = await _write(
+        app, "/api/panel-op/open", {"member": "lattice"}, _layout_answer(SPLIT_BELOW)
+    )
+    assert frame["args"] == {"member": "lattice"}  # the dock's default: a split
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["placed"] == "new_tile"
+    assert "replaced" not in body and "note" not in body
+
+
+async def test_an_explicit_replace_is_relayed_and_reported_without_a_note():
+    app = _app()
+    resp, frame, _ = await _write(
+        app, "/api/panel-op/open", {"member": "lattice", "place": "replace"}, _layout_answer()
+    )
+    assert frame["args"] == {"member": "lattice", "place": "replace"}
+    body = resp.json()
+    assert (body["placed"], body["replaced"]) == ("replaced", "ariel")
+    assert "note" not in body
+
+
+async def test_an_open_of_a_panel_on_screen_reports_focused():
+    app = _app()
+    resp, _, _ = await _write(
+        app, "/api/panel-op/open", {"member": "ariel"}, _layout_answer(LAYOUT)
+    )
+    assert resp.json()["placed"] == "focused"
+
+
+async def test_a_split_target_tile_and_edge_are_relayed():
+    app = _app()
+    body = {"member": "lattice", "place": "split", "tile": "t2", "edge": "left"}
+    resp, frame, _ = await _write(app, "/api/panel-op/open", body, _layout_answer(SPLIT_BELOW))
+    assert resp.status_code == 200
+    assert frame["args"] == {"member": "lattice", "place": "split", "tile": "t2", "edge": "left"}
+
+
+@pytest.mark.parametrize(
+    ("extra", "reason"),
+    [
+        ({"place": "replace", "edge": "left"}, "invalid_target"),
+        ({"place": "replace", "tile": "t2"}, "terminal_not_agent_movable"),
+        ({"tile": "t9"}, "unknown_tile"),
+    ],
+)
+async def test_bad_open_placements_are_refused_by_name_and_relay_nothing(extra, reason):
+    app = _app()
+    resp, frame, _ = await _write(app, "/api/panel-op/open", {"member": "lattice", **extra})
+    assert resp.status_code == 422
+    assert resp.json()["reason"] == reason
+    assert frame is None
+
+
+@pytest.mark.parametrize("extra", [{"place": "beside"}, {"edge": "middle"}])
+async def test_an_open_placement_outside_the_vocabulary_is_a_bad_request(extra):
+    app = _app()
+    resp, frame, _ = await _write(app, "/api/panel-op/open", {"member": "lattice", **extra})
+    assert resp.status_code == 422
+    assert frame is None
 
 
 async def test_the_result_is_recorded_as_the_clients_current_report():
