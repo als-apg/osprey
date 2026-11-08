@@ -122,7 +122,9 @@ dependencies = [
     # while it is carrying the operator secret. An install resolving an older
     # websockets would still import, still connect, and silently follow that
     # redirect off loopback — so the floor is declared here rather than inherited.
-    "websockets>=14",
+    # The Slack bridge raises it to 15 for the explicit `proxy=` parameter and
+    # env-proxy semantics.
+    "websockets>=15",
     # OIDC client + JOSE (token verification) for the multi-user web-terminal
     # auth sidecar. Declared explicitly rather than relied on as fastmcp's
     # transitive dependency — the sidecar imports it directly.

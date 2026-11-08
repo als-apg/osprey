@@ -558,6 +558,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/slack_bridge",
+            template_path="slack_bridge",
+            output_path="services/slack_bridge",
+            description="Slack bridge compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/ariel_sync",
             template_path="ariel_sync",
             output_path="services/ariel_sync",
