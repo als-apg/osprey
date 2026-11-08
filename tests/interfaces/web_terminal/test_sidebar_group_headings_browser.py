@@ -22,6 +22,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.interfaces._browser import wait_for_hub_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -160,6 +161,9 @@ def test_a_stored_layout_that_renamed_or_lowered_workspace_still_leads_headless(
         "placement": {},
     }
     with _page(chromium_browser, tmp_path, stored=stored) as page:
+        # The rail is rendered from the stored groups during the panel
+        # manager's start-up; the tools heading alone can show before it ends.
+        wait_for_hub_ready(page)
         groups = page.eval_on_selector_all(
             "#panel-rail > .sidebar-group[data-group]", "els => els.map(e => e.dataset.group)"
         )
