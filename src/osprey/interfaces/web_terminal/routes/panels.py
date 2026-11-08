@@ -59,6 +59,7 @@ from osprey.profiles.web_panels import (
     BUILTIN_PANELS,
     JUPYTER_PANEL_ID,
     SIDECAR_PANELS,
+    in_catalog_order,
     panel_id_refusal,
 )
 from osprey.registry.web import panel_url_state_attr
@@ -447,7 +448,7 @@ async def get_panels(request: Request):
     whose backend is a loopback literal served at its root (see
     :func:`_loopback_backend_ports`). Nothing else about a backend is exposed.
     """
-    enabled = list(getattr(request.app.state, "enabled_panels", set()))
+    enabled = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
     custom = [{**cp, "url": _browser_panel_url(cp)} for cp in custom_raw]
     default = getattr(request.app.state, "default_panel", None)
@@ -700,7 +701,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     stored_visible = getattr(request.app.state, "visible_panels", None)
     if stored_visible is None:
-        visible_panels = list(getattr(request.app.state, "enabled_panels", set()))
+        visible_panels = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     else:
         visible_panels = list(stored_visible)
     if body.panel not in visible_panels:
@@ -815,7 +816,7 @@ async def set_rail_order(body: RailOrderRequest, request: Request):
     # Membership, resolved the same way ``get_panels`` resolves ``visible``.
     stored_visible = getattr(request.app.state, "visible_panels", None)
     if stored_visible is None:
-        visible_panels = sorted(getattr(request.app.state, "enabled_panels", set()))
+        visible_panels = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     else:
         visible_panels = list(stored_visible)
     if body.panel not in visible_panels:
