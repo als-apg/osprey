@@ -1569,7 +1569,7 @@ class Model(ConfiguredBaseModel):
 
     name: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Identity', 'Model', 'Scenario']} })
     engine: str = Field(default=..., json_schema_extra = { "linkml_meta": {'domain_of': ['Model', 'Wiring']} })
-    deck: Optional[str] = Field(default=None, description="""Relative to data/facility/.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
+    deck: Optional[str] = Field(default=None, description="""Relative to the facility tree.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
     settings: Optional[Any] = Field(default=None, description="""`{<engine>: {...}}`, the one key equal to `engine`.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
     wiring: Optional[list[Wiring]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Model'], 'list_elements_ordered': True} })
     measurement: Optional[Measurement] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Model']} })
@@ -1738,6 +1738,7 @@ class Scenario(ConfiguredBaseModel):
     drivers: Optional[Any] = Field(default=None, description="""`{<driver>: {kind, amplitude, period_s}}`, slow signals shared by the channels `couple` names, so those channels move together.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     couple: Optional[Any] = Field(default=None, description="""`{<address>: [{driver, gain, gain_wander?}]}`: the channel adds `gain` times each named driver to its value; `gain_wander` `{amplitude, period_s}` lets that gain wax and wane.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     noise: Optional[Any] = Field(default=None, description="""`{<address>: {absolute: <sigma>} | {relative: <fraction>}}`, the channel's noise while the scenario is active, in place of its seed's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Seed', 'Scenario']} })
+    start: Optional[bool] = Field(default=None, description="""True puts the scenario in the deployment's start set, the scenarios the simulator activates when it first comes up; absent means false.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
     still: Optional[Any] = Field(default=None, description="""`all`, or a list of addresses and selections: while the scenario is active, those readings serve without drift, couplings or noise. A selection is `{model|place, group, signal, role, plane}` and names a model or a place; its `role` is the wiring record's role (`setpoint|readback|monitor|output`), not the channel's.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Scenario']} })
 
 

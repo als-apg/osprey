@@ -127,6 +127,7 @@ _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
         "environment",  # interpreter + packages: the built Python env
         "dependencies",
         "lifecycle",  # pre/post-build steps
+        "machine",  # a mounted machine repository: the repo's own layout, never a preset's
     }
 )
 

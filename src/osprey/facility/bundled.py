@@ -113,14 +113,17 @@ class Classification:
 
 def _proves_nothing(relative: Path) -> bool:
     from osprey.facility.layers.mml.mapping import MAPPING_FILE
+    from osprey.facility.roots import is_vcs_metadata
 
-    if relative.as_posix() == MAPPING_FILE:
+    if is_vcs_metadata(relative) or relative.as_posix() == MAPPING_FILE:
         return True
     return relative.parts[0] == "knowledge" and relative.name == "index.md"
 
 
 def classify(facility_dir: Path, template_root: Path) -> Classification:
     """Sort every file under ``facility_dir`` by where it came from.
+
+    Version-control metadata (``.git`` at any depth) is no file of the tree.
 
     Args:
         facility_dir: The ``data/facility`` directory; a missing one is empty.

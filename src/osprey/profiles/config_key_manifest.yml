@@ -1068,8 +1068,10 @@ keys:
       demo-history]), the one preset whose facility tree ships scenarios.
       Read at deploy time by
       `simulation.apply.activate_default_scenarios`, only while the deployment
-      has no scenario state. Never derived: the build derives no start set from
-      the facility file, and a stated name is an override checked against it.
+      has no scenario state. Derived from the facility file: the sorted names
+      of the scenarios marked `start: true`. A stated value next to a mark is
+      refused (a dotted null cancels a preset's); with no mark, a stated name
+      is an override checked against the file.
       Listed in `osprey.facility.settings`.
     default: []
 

@@ -53,6 +53,8 @@ KINDS: tuple[str, ...] = (
     "model-conflict",
     "view-unsupported",
     "profile-invalid",
+    "machine-missing",
+    "machine-restated",
 )
 
 #: Every warning kind, each ``<thing>-<problem>``.

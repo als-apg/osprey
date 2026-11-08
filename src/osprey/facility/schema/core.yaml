@@ -562,7 +562,7 @@ classes:
       engine:
         required: true
       deck:
-        description: Relative to data/facility/.
+        description: Relative to the facility tree.
       settings:
         range: Any
         description: "`{<engine>: {...}}`, the one key equal to `engine`."
@@ -847,6 +847,11 @@ classes:
         description: >-
           `{<address>: {absolute: <sigma>} | {relative: <fraction>}}`, the
           channel's noise while the scenario is active, in place of its seed's.
+      start:
+        range: boolean
+        description: >-
+          True puts the scenario in the deployment's start set, the scenarios
+          the simulator activates when it first comes up; absent means false.
       still:
         range: Any
         description: >-

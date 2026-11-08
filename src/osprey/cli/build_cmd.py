@@ -112,6 +112,7 @@ from .templates.manager import TemplateManager
 if TYPE_CHECKING:
     from osprey.facility.build import FacilityDocument
     from osprey.facility.render import WrittenViews
+    from osprey.facility.roots import FacilityRoots
 
     from .build_profile_model import BuildProfile
     from .profile_root import ProfileKind
@@ -1405,6 +1406,15 @@ class _SharedRenderInputs(NamedTuple):
     facility_sha256: str
     """The sha256 of the ``data/facility/`` tree :attr:`facility` was built from."""
 
+    facility_roots: FacilityRoots | None = None
+    """Where the build read machine facts and the deployment's own content.
+
+    Resolved once from the profile (``BuildProfile.resolved_facility_roots``)
+    before any render, so every render reads the same two roots. ``None``
+    means the single tree ``<data>/facility`` playing both roles, as for every
+    deployment without ``machine:``.
+    """
+
     profile_overlays: tuple[Path, ...] = ()
     """Profile layers merged over EVERY profile this build resolves.
 
@@ -1969,6 +1979,38 @@ def _facility_display_name(facility: Mapping[str, Any], project_name: str) -> st
     return identity_record(facility["identity"], project_name)["name"]
 
 
+def _content_dir(roots: FacilityRoots) -> Path | None:
+    """The ``content_dir`` the facility pipeline takes for ``roots``.
+
+    ``None`` for a single tree, which the pipeline reads as "same as the
+    machine root", so a deployment without ``machine:`` calls every stage
+    exactly as before.
+    """
+    return roots.content if roots.mounted else None
+
+
+def _stated_machine_route(profile_path: Path) -> str | None:
+    """The ``machine:`` the profile file states, as a remedy names it (``<machine>/``).
+
+    Read straight from the profile file, because the mirror guard that names
+    it runs before the profile is resolved. ``machine:`` is root-only, so the
+    file itself is the one place it can be stated. ``None`` when the file is
+    unreadable or states none, so the remedy falls back to ``data/facility/``.
+    """
+    import yaml
+
+    from osprey_connectors import yaml_loader
+
+    try:
+        document = yaml_loader.safe_load(profile_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    machine = document.get("machine") if isinstance(document, dict) else None
+    if not isinstance(machine, str) or not machine.strip():
+        return None
+    return f"{machine.strip().rstrip('/')}/"
+
+
 def _render_project(
     shared: _SharedRenderInputs,
     resolved: Any,
@@ -2156,6 +2198,11 @@ def _render_project(
     # every profile file, so nothing falls back to a packaged bundle here.
     data_root = build_profile.resolved_data_root(repo_root)
     assert data_root is not None  # `data:` required; narrows for type-checkers
+    # The facility roots the build resolved once. A render outside a build
+    # (no roots handed over) reads the single tree, as before `machine:`.
+    from osprey.facility.roots import FacilityRoots
+
+    facility_roots = shared.facility_roots or FacilityRoots.single(data_root / "facility")
 
     # Every edit of the render's config.yml — the template's own ownership
     # registration, the overrides, the projections, the service injectors, the
@@ -2181,6 +2228,7 @@ def _render_project(
             force=True,
             artifacts=effective_artifacts,
             data_root=data_root,
+            facility_roots=facility_roots,
         )
         progress("  ✓ Base template rendered")
         copy_enabled_watchdogs(build_profile.watchdogs, repo_root, render_dir)
@@ -2236,12 +2284,13 @@ def _render_project(
         # simulator's probe, so it reads the filled value.
         facility_fill = fill_facility_settings(
             FacilityRecords(shared.facility),
-            data_root / "facility",
+            facility_roots.machine,
             repo_root,
             _rendered_config(render_dir),
             build_profile.config,
             build_profile.va_archiver,
             reported=shared.views_omitted_reported,
+            content_dir=_content_dir(facility_roots),
         )
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
@@ -2478,10 +2527,11 @@ def _render_project(
             render_dir,
             shared.facility,
             rendered,
-            data_root / "facility",
+            facility_roots.machine,
             omitted_reported=shared.views_omitted_reported,
             built_databases=shared.views_built_databases,
             views_written=shared.views_written,
+            content_dir=_content_dir(facility_roots),
         )
         progress("  ✓ Wrote the facility file and its views")
 
@@ -2837,7 +2887,31 @@ def _render_projects(
     return rendered
 
 
-def _stage_source_zone(repo_root: Path, image_root: Path, *, build_inputs: Sequence[Path]) -> None:
+def _mount_top(repo_root: Path, machine: PurePosixPath) -> PurePosixPath | None:
+    """The mount top of a machine root: its nearest ancestor holding a ``.git`` entry.
+
+    Searched from the machine root itself upward, and strictly below the
+    repository root, which holds the deployment's own ``.git`` and so is never
+    a mount top. ``None`` for an unversioned machine directory.
+
+    :param repo_root: The deployment repository root.
+    :param machine: The machine root, relative to ``repo_root``.
+    """
+    for candidate in (machine, *machine.parents):
+        if candidate == PurePosixPath("."):
+            return None
+        if (repo_root / candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _stage_source_zone(
+    repo_root: Path,
+    image_root: Path,
+    *,
+    build_inputs: Sequence[Path],
+    machine: Path | None = None,
+) -> None:
     """Copy the repo's SOURCE zone into the container repo being assembled.
 
     A container image carries a deployment repo, so it carries the repo's
@@ -2891,13 +2965,29 @@ def _stage_source_zone(repo_root: Path, image_root: Path, *, build_inputs: Seque
     ``build/.claude/``. None of the four is a fold input, so the copy is still a
     superset of what the fingerprint folds.
 
+    Version-control metadata never enters the image: git's own directory at the
+    root, and a ``.git`` file or directory at any depth below it
+    (:func:`~osprey.facility.roots.is_vcs_metadata`), such as a submodule's.
+
+    A mounted machine root (``machine``) may live inside a mounted repository
+    of its own, a submodule or a nested clone carrying its own profile,
+    ``build/``, ``var/`` and ``.claude/``. Its **mount top** (:func:`_mount_top`)
+    is the nearest ancestor of the machine root, strictly below the repo root,
+    that holds a ``.git`` entry. Below the mount top only the path down to the
+    machine root is copied, so none of the mount's own files reach the image.
+    An unversioned machine directory has no mount top and drops nothing extra.
+
     :param repo_root: The deployment repo whose source zone this is.
     :param image_root: The container repo root being assembled.
     :param build_inputs: Repo-relative paths the build reads (the fold's inputs
         and the repo marker); the repo's ``.dockerignore`` may not exclude them.
+    :param machine: The mounted machine root relative to ``repo_root``
+        (:func:`_image_machine_input`), or ``None`` when the profile mounts none.
     :raises BuildProfileError: When a ``.dockerignore`` pattern excludes a build
         input.
     """
+
+    from osprey.facility.roots import is_vcs_metadata
 
     from .profile_conventions import REPO_CLAUDE_CODE_ENTRIES, REPO_DOCKERIGNORE_FILENAME
 
@@ -2936,12 +3026,28 @@ def _stage_source_zone(repo_root: Path, image_root: Path, *, build_inputs: Seque
             return False
         return True
 
+    machine_path = PurePosixPath(machine.as_posix()) if machine is not None else None
+    mount_top = _mount_top(repo_root, machine_path) if machine_path is not None else None
+
+    def _off_mount_path(prefix: PurePosixPath, name: str) -> bool:
+        # Between the mount top and the machine root, only the next step down.
+        if mount_top is None or machine_path is None:
+            return False
+        if prefix != mount_top and mount_top not in prefix.parents:
+            return False
+        if prefix not in machine_path.parents:
+            return False
+        return name != machine_path.parts[len(prefix.parts)]
+
     def _ignore(directory: str, names: list[str]) -> set[str]:
-        prefix = Path(directory).relative_to(repo_root).as_posix()
+        relative = PurePosixPath(Path(directory).relative_to(repo_root).as_posix())
+        prefix = relative.as_posix()
         return {
             name
             for name in names
             if name.startswith(".env")
+            or is_vcs_metadata(PurePosixPath(name))
+            or _off_mount_path(relative, name)
             or _skipped(f"{prefix}/{name}", is_dir=(Path(directory) / name).is_dir())
         }
 
@@ -3277,6 +3383,28 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
     return [path.resolve().relative_to(root) for path in paths]
 
 
+def _image_machine_input(repo_root: Path) -> Path | None:
+    """The repo-relative mounted machine root of the repo's own profile, or ``None``.
+
+    The ``machine`` entry of
+    :func:`~osprey.cli.build_profile_merge.profile_inputs`, resolved the way
+    :func:`_image_build_inputs` resolves every input, so it names the same path
+    staging copies.
+    """
+    from .build_profile_document import _read_profile_document
+    from .build_profile_merge import MACHINE_INPUT_LABEL, profile_inputs, resolve_profile_document
+
+    profile_path = repo_root / PROFILE_FILENAME
+    document = resolve_profile_document(
+        _read_profile_document(profile_path), profile_path, warn=False
+    )
+    root = repo_root.resolve()
+    for entry in profile_inputs(document):
+        if entry.label == MACHINE_INPUT_LABEL:
+            return entry.path.resolve().relative_to(root)
+    return None
+
+
 def _render_container_project(
     shared: _SharedRenderInputs,
     resolved: Any,
@@ -3285,6 +3413,7 @@ def _render_container_project(
     profile_path: Path,
     project_name: str,
     build_inputs: Sequence[Path],
+    machine: Path | None = None,
     deployment: bool = True,
 ) -> Path:
     """Render the copy of a project that a container image is built from.
@@ -3329,6 +3458,8 @@ def _render_container_project(
 
     :param build_inputs: The repo-relative paths the repo's ``.dockerignore``
         may not exclude (:func:`_image_build_inputs`).
+    :param machine: The repo-relative mounted machine root, or ``None``
+        (:func:`_image_machine_input`).
     :param deployment: Whether this is the deployment's own image rather than a
         render's — see :func:`_render_project`'s parameter of the same name.
     :returns: The container repo root, ready to be a build context.
@@ -3354,7 +3485,7 @@ def _render_container_project(
     )
     rendered.rename(image_root / BUILD_DIR_NAME)
     scratch.rmdir()
-    _stage_source_zone(shared.repo_root, image_root, build_inputs=build_inputs)
+    _stage_source_zone(shared.repo_root, image_root, build_inputs=build_inputs, machine=machine)
     _strip_secrets(image_root)
     # Written, then applied to the tree, and only then is the manifest stamped:
     # the fingerprint has to be taken over the tree the image will actually
@@ -3406,6 +3537,7 @@ def _render_container_projects(
     :returns: The image context roots, in build order.
     """
     build_inputs = _image_build_inputs(shared.repo_root)
+    machine = _image_machine_input(shared.repo_root)
     contexts = [
         _render_container_project(
             shared,
@@ -3414,6 +3546,7 @@ def _render_container_projects(
             profile_path=profile_path,
             project_name=project_name,
             build_inputs=build_inputs,
+            machine=machine,
             deployment=True,
         )
     ]
@@ -3429,6 +3562,7 @@ def _render_container_projects(
                 profile_path=layer,
                 project_name=project,
                 build_inputs=build_inputs,
+                machine=machine,
                 deployment=False,
             )
         )
@@ -3547,6 +3681,7 @@ def _build_repo(
         PROJECT_MIRROR_DIR,
         facility_mirror_violation,
         handwritten_limits_violation,
+        machine_restated_violation,
     )
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
@@ -3576,7 +3711,10 @@ def _build_repo(
         # A mirror file at a path the facility build writes is its own one-line
         # stop, raised ahead of profile validation, which gathers every other
         # profile error and leaves this one out.
-        mirror_stop = facility_mirror_violation(repo_root / PROJECT_MIRROR_DIR)
+        mirror_stop = facility_mirror_violation(
+            repo_root / PROJECT_MIRROR_DIR,
+            authoring_route=_stated_machine_route(profile_path),
+        )
         if mirror_stop is not None:
             raise mirror_stop
 
@@ -3783,14 +3921,32 @@ def _build_repo(
 
         data_root = build_profile.resolved_data_root(repo_root)
         assert data_root is not None  # `data:` required; narrows for type-checkers
+        # Where machine facts and the deployment's own content are read,
+        # resolved once for the whole build. A named machine root that is
+        # missing (an uninitialised submodule) or overlaps `data:` stops here.
+        facility_roots = build_profile.resolved_facility_roots(repo_root)
+        assert facility_roots is not None  # `data:` resolved above
         # A limits file the profile ships itself is a stop: the build writes
-        # that file from the facility's limits.yaml.
-        limits_stop = handwritten_limits_violation(data_root, repo_root)
+        # that file from the facility's limits.yaml. The guard checks the
+        # deployment's files; a mounted machine only changes where the remedy
+        # says the limits go.
+        limits_stop = handwritten_limits_violation(
+            data_root,
+            repo_root,
+            machine_root=facility_roots.machine if facility_roots.mounted else None,
+        )
         if limits_stop is not None:
             raise limits_stop
-        facility_dir = data_root / "facility"
-        facility_sha256 = facility_digest(facility_dir)
-        facility, facility_warnings = build_facility_with_warnings(facility_dir, project_name=name)
+        # A deployment file that restates a mounted machine's facts is a stop
+        # at the same point, before anything is installed.
+        restated_stop = machine_restated_violation(facility_roots)
+        if restated_stop is not None:
+            raise restated_stop
+        content_dir = _content_dir(facility_roots)
+        facility_sha256 = facility_digest(facility_roots.machine, content_dir=content_dir)
+        facility, facility_warnings = build_facility_with_warnings(
+            facility_roots.machine, project_name=name, content_dir=content_dir
+        )
         logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
         _warn_facility_build(facility_warnings)
 
@@ -3835,6 +3991,7 @@ def _build_repo(
             views_written={},
             facility=facility,
             facility_sha256=facility_sha256,
+            facility_roots=facility_roots,
             profile_overlays=profile_overlays,
         )
 
