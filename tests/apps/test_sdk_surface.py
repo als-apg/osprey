@@ -57,6 +57,7 @@ SDK_NAMES = {
     "prewrite_verdict",
     "WriteVerdictView",
     "bridges_for_target",
+    "audit_surface",
 }
 
 

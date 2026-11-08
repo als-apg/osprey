@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -26,7 +25,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
 
 from osprey.apps.errors import AppManifestError
-from osprey.apps.sdk._approval import APP_NAME_ENV_VAR, ApprovalRefused
+from osprey.apps.sdk._approval import ApprovalRefused, audit_surface
 from osprey.mcp_server.errors import make_error
 
 if TYPE_CHECKING:
@@ -36,20 +35,6 @@ if TYPE_CHECKING:
 REFUSED = "refused"
 #: The application error word for a backend the tool could not reach.
 UNREACHABLE = "unreachable"
-
-
-def _app_name() -> str:
-    """The application ``OSPREY_APP_NAME`` names; a server without one refuses to start."""
-    app = (os.environ.get(APP_NAME_ENV_VAR) or "").strip()
-    if not app:
-        raise AppManifestError(
-            "",
-            APP_NAME_ENV_VAR,
-            "unnamed_app",
-            f"the tool server is started without {APP_NAME_ENV_VAR}, so no application "
-            "declares its tools; serve it as the application's projected MCP server",
-        )
-    return app
 
 
 def _declared(config: Mapping[str, Any], app: str) -> set[str]:
@@ -134,7 +119,7 @@ def create_server() -> FastMCP:
     from osprey_connectors.workspace import load_osprey_config
 
     register = _PENDING.pop()
-    app = _app_name()
+    app = audit_surface()
     startup.prime_config_builder()
     server = startup.application_server(app)
     register(server)
