@@ -199,7 +199,7 @@ describe('tile-tab renderer', () => {
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('the Agent tile has ⋯ and its close only: Open in new window is a ⋯ row', async () => {
+  test('the Agent tile has the same ⋯, Open in new window and close as a service tile', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const tab = createTileTab('terminal');
@@ -208,9 +208,28 @@ describe('tile-tab renderer', () => {
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
       'Panel menu',
+      'Open in new window',
       'Close Agent pane',
     ]);
-    expect(actions.querySelector('.tile-tab-window')).toBeNull();
+    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-window'));
+    expect(popout.className).toBe('tile-tab-window osprey-icon-btn');
+    expect(popout.querySelector('svg.osprey-ic')).not.toBeNull();
+  });
+
+  test('the Agent tile’s Open in new window moves the Agent pane, inside the click', async () => {
+    const { createTileTab, setTerminalHeaderSource } = await import(MOD);
+    setTerminalHeaderSource(detachedTerminalHeader());
+    const api = fakeApi();
+    const tab = createTileTab('terminal');
+    tab.init({ title: 'Agent', params: {}, api });
+
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-window')).dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+
+    expect(detachBlocker).toHaveBeenCalledWith('terminal');
+    expect(detach).toHaveBeenCalledExactlyOnceWith('terminal');
+    expect(api.close).not.toHaveBeenCalled();
   });
 
   test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
@@ -359,7 +378,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: session switcher, +, then ⋯ and close', async () => {
+    test('the chat adopts the console bar: session switcher, +, then ⋯, Open in new window and close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -381,6 +400,7 @@ describe('tile-tab renderer', () => {
         'Switch session',
         'New conversation',
         'Panel menu',
+        'Open in new window',
         'Close Agent pane',
       ]);
     });
