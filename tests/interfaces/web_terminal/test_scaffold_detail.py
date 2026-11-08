@@ -54,6 +54,7 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.interfaces._browser import wait_for_hub_ready
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -486,6 +487,7 @@ def test_mcp_json_renders_through_split_mcp_renderer(tmp_path, monkeypatch, chro
     with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
         page = chromium_browser.new_page(viewport=VIEWPORT)
         _goto(page, base_url)
+        wait_for_hub_ready(page)
 
         _open_settings_drawer(page)
         page.click(CONFIG_TAB_SELECTOR)
