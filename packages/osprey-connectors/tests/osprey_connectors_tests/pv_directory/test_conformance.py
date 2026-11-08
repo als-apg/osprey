@@ -361,6 +361,7 @@ CASES = (
 HTTP_CASES = tuple(case for case in CASES if case.http)
 DIRECTORY_CASES = tuple(case for case in CASES if case.kind == "pv_directory")
 HISTORY_CASES = tuple(case for case in CASES if case.kind in ("alarm_log", "put_log"))
+ALARM_STATE_CASES = tuple(case for case in CASES if case.kind == "alarm_state")
 EVERY_MODE = [
     pytest.param(case, mode, id=f"{case.id}-{mode}") for case in CASES for mode in case.modes
 ]
@@ -438,19 +439,6 @@ async def _build(
     return Built(backend, spec, transport, consumer)
 
 
-async def _until(predicate: Callable[[], bool], timeout: float = 5.0) -> None:
-    async def poll() -> None:
-        while not predicate():
-            await asyncio.sleep(0)
-
-    await asyncio.wait_for(poll(), timeout)
-
-
-async def _settle(turns: int = 200) -> None:
-    for _ in range(turns):
-        await asyncio.sleep(0)
-
-
 async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> list[tuple[str, Any]]:
     """Every method of the case's kind, once each, with ordinary arguments."""
     pv = case.pv
@@ -475,7 +463,6 @@ async def _exercise(backend: Any, case: Case, deadline: float = DEADLINE) -> lis
         return [*answers, ("probe", await backend.probe(deadline))]
     await backend.start()
     await backend.start()
-    await _settle()
     try:
         return [
             ("state_for", await backend.state_for(pv, deadline)),
@@ -621,6 +608,20 @@ async def test_a_spent_deadline_answers_without_raising(case, tmp_path, monkeypa
         assert all(page.outcome is Outcome.UNAVAILABLE for page in _pages(answers))
 
 
+@pytest.mark.parametrize("case", ALARM_STATE_CASES, ids=_ids(ALARM_STATE_CASES))
+async def test_a_read_before_catch_up_waits_and_answers_a_record(case, tmp_path, monkeypatch):
+    built = await _build(case, case.modes[0], tmp_path, monkeypatch)
+    starting = asyncio.create_task(built.backend.start())
+    await asyncio.sleep(0)
+    try:
+        state = await built.backend.state_for(case.pv, DEADLINE)
+    finally:
+        await starting
+        await built.backend.aclose()
+
+    assert isinstance(state, AlarmStateRecord), state
+
+
 # --- every request is a read or a search ------------------------------------------
 
 
@@ -685,7 +686,6 @@ async def test_the_kafka_feed_reads_through_a_consumer_and_never_produces(monkey
 
     await backend.start()
     try:
-        await _until(lambda: backend._caught_up)
         state = await backend.state_for(PV, DEADLINE)
     finally:
         await backend.aclose()
