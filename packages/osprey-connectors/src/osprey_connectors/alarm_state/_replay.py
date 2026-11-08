@@ -48,7 +48,8 @@ class ReplayAlarmState(AlarmState):
     ``settings.replay_file`` is an absolute path or one relative to ``project_dir``.
     A ``demo:<name>`` still here was not resolved: only the framework can do that.
     A failed load answers ``Unavailable`` with its reason, so no record exists for
-    ``stale`` to mark; the stopped marker is the one way a record reads stale.
+    ``stale`` to mark; the stopped marker is the one way a record reads stale. A
+    read during the load waits for it up to its deadline.
     """
 
     def __init__(self, spec: BackendSpec, *, project_dir: Path | None = None, **seams: Any) -> None:
@@ -77,21 +78,15 @@ class ReplayAlarmState(AlarmState):
         self._stopped = False
         self._failed = None
 
-    async def state_for(
-        self,
-        pv: str,
-        deadline: float,  # noqa: ARG002 - answered from memory
-    ) -> AlarmStateRecord | Unavailable | None:
+    async def state_for(self, pv: str, deadline: float) -> AlarmStateRecord | Unavailable | None:
+        await self._loading(deadline)
         snapshot = self._answering()
         if isinstance(snapshot, Unavailable):
             return snapshot
         return state_record(snapshot, pv, stale=self._stopped)
 
-    async def config_for(
-        self,
-        pv: str,
-        deadline: float,  # noqa: ARG002 - answered from memory
-    ) -> AlarmConfigRecord | Unavailable:
+    async def config_for(self, pv: str, deadline: float) -> AlarmConfigRecord | Unavailable:
+        await self._loading(deadline)
         snapshot = self._answering()
         return snapshot if isinstance(snapshot, Unavailable) else config_record(snapshot, pv)
 
@@ -101,6 +96,14 @@ class ReplayAlarmState(AlarmState):
             return snapshot
         evidence = f"read {snapshot.messages} messages from the replay file"
         return f"{evidence}; the feed stopped" if self._stopped else evidence
+
+    async def _loading(self, deadline: float) -> None:
+        """Wait up to *deadline* seconds for a load that has begun and not ended."""
+        task = self._task
+        if task is None or task.done() or deadline <= 0:
+            return
+        # wait, not wait_for: a deadline that runs out leaves the load running.
+        await asyncio.wait({task}, timeout=deadline)
 
     def _answering(self) -> FeedSnapshot | Unavailable:
         snapshot = self._loaded()

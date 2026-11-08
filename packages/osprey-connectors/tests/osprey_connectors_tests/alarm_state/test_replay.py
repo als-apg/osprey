@@ -154,27 +154,61 @@ async def test_reads_answer_the_folded_record():
     assert (await backend.config_for("DEMO:NOT:IN:THE:TREE", 1.0)).in_tree == "no"
 
 
-async def test_a_read_before_start_is_still_loading():
+def _elapsed(since: float) -> float:
+    return asyncio.get_running_loop().time() - since
+
+
+async def test_a_read_before_start_is_still_loading_at_once():
     backend = _backend()
+    began = asyncio.get_running_loop().time()
 
-    assert await backend.state_for(PV, 1.0) == LOADING
-    assert await backend.config_for(PV, 1.0) == LOADING
-    assert await backend.probe(1.0) == LOADING
+    assert await backend.state_for(PV, 5.0) == LOADING
+    assert await backend.config_for(PV, 5.0) == LOADING
+    assert await backend.probe(5.0) == LOADING
+    assert _elapsed(began) < 1.0
 
 
-async def test_a_read_during_the_load_is_still_loading(held_load):
+async def test_a_read_whose_deadline_runs_out_during_the_load_is_still_loading(held_load):
     entered, release = held_load
     backend = _backend()
     starting = asyncio.create_task(backend.start())
     try:
         await asyncio.to_thread(entered.wait, 5.0)
+        before = asyncio.all_tasks()
 
-        assert await backend.state_for(PV, 1.0) == LOADING
-        assert await backend.config_for(PV, 1.0) == LOADING
+        began = asyncio.get_running_loop().time()
+        assert await backend.state_for(PV, 0.05) == LOADING
+        assert await backend.config_for(PV, 0.05) == LOADING
+        assert _elapsed(began) >= 0.09
+        assert asyncio.all_tasks() - before == set()
     finally:
         release.set()
     await starting
     assert (await backend.state_for(PV, 1.0)).severity == "MAJOR"
+
+
+async def test_a_read_during_the_load_waits_and_answers_once_the_load_lands(held_load):
+    entered, release = held_load
+    backend = _backend()
+    starting = asyncio.create_task(backend.start())
+    await asyncio.to_thread(entered.wait, 5.0)
+
+    async def release_after_the_read_began():
+        await asyncio.sleep(0.05)
+        assert backend._snapshot is None
+        release.set()
+
+    releasing = asyncio.create_task(release_after_the_read_began())
+    try:
+        state = await backend.state_for(PV, 5.0)
+    finally:
+        release.set()
+        await releasing
+        await starting
+
+    assert isinstance(state, AlarmStateRecord)
+    assert state.severity == "MAJOR"
+    await backend.aclose()
 
 
 async def test_a_cancelled_start_leaves_the_load_running(held_load):
