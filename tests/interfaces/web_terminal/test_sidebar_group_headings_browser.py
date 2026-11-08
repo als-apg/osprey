@@ -98,7 +98,14 @@ def test_right_click_anywhere_across_the_heading_opens_the_group_menu(tmp_path, 
         expect(menu).to_be_visible()
         expect(menu).to_have_attribute("aria-label", "Apps group")
         expect(menu.locator('[role="menuitem"]')).to_have_text(
-            ["Rename", "New group below", "Move up", "Move down"]
+            [
+                "Rename…",
+                "New group below",
+                "Move up",
+                "Move down",
+                "Collapse group",
+                "Delete group",
+            ]
         )
 
 
@@ -167,3 +174,44 @@ def test_a_stored_layout_that_renamed_or_lowered_workspace_still_leads_headless(
         expect(page.locator(f"{_SESSIONS} > .sidebar-group-head")).to_be_hidden()
         expect(page.locator(f"{_SESSIONS} #sidebar-agent-row")).to_be_attached()
         expect(page.locator(f"{_TOOLS_HEAD} .sidebar-group-name")).to_have_text("Instruments")
+
+
+_GROUPS = "#panel-rail > .sidebar-group[data-group]"
+_GROUP_ORDER_JS = "els => els.map(e => e.dataset.group)"
+
+
+def test_dragging_a_heading_moves_its_whole_group_and_survives_reload(tmp_path, chromium_browser):
+    """A real mouse drag of the System heading onto the top of Apps moves the
+    whole System group, rows and all, above Apps, and a reload draws that order
+    again; Sessions stays first throughout."""
+    system = '#panel-rail > [data-group="system"]'
+    with _page(chromium_browser, tmp_path) as page:
+        assert page.eval_on_selector_all(_GROUPS, _GROUP_ORDER_JS) == [
+            "workspace",
+            "tools",
+            "system",
+        ]
+        system_rows = page.locator(f"{system} [data-panel-id]")
+        rows_before = system_rows.count()
+
+        page.locator(f"{system} > .sidebar-group-head").drag_to(
+            page.locator(_TOOLS_HEAD), target_position={"x": 20, "y": 2}
+        )
+
+        expect(page.locator(_GROUPS).nth(1)).to_have_attribute("data-group", "system")
+        assert page.eval_on_selector_all(_GROUPS, _GROUP_ORDER_JS) == [
+            "workspace",
+            "system",
+            "tools",
+        ]
+        assert system_rows.count() == rows_before
+        expect(page.locator("#panel-rail .drop-before, #panel-rail .drop-after")).to_have_count(0)
+        expect(page.locator("#panel-rail > .sidebar-group.dragging")).to_have_count(0)
+
+        page.reload(wait_until="domcontentloaded")
+        expect(page.locator(_TOOLS_HEAD)).to_be_visible(timeout=10_000)
+        assert page.eval_on_selector_all(_GROUPS, _GROUP_ORDER_JS) == [
+            "workspace",
+            "system",
+            "tools",
+        ]

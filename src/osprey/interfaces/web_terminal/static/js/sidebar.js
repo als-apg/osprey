@@ -39,6 +39,9 @@
  *
  *   - GROUPS. A double-click folds a group to its heading (sidebar-fold.js);
  *     a divider below the Sessions group sets its height (sidebar-divider.js).
+ *   - HEADER MENU. A right-click on the header (the brand link keeps the
+ *     browser's), or Shift+F10 / the menu key in it: Collapse sidebar, New
+ *     group…, then Reset layout; collapsed, Expand sidebar only.
  *
  * Changing the width closes every sidebar popover and the tooltip, since each
  * is placed against a sidebar edge that is about to move.
@@ -49,11 +52,21 @@ import { initCollapsible } from '/design-system/js/collapsible.js';
 import { closeAllPopovers, togglePopover } from '/design-system/js/popover.js';
 import { hideTooltip } from '/design-system/js/tooltip.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
+import { declinesToBrowser, isContextMenuKey } from '/design-system/js/context-menu.js';
+import { hintFor, keyFor } from './key-bindings.js';
+import { openContextMenu } from './panel-context-menu.js';
+import {
+  NEW_GROUP_LABEL,
+  addGroup,
+  isSidebarRenaming,
+  startGroupRename,
+} from './sidebar-groups.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
 import { DETACHED_DETAIL, SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
 import { TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { initSidebarResize } from './sidebar-resize.js';
+import { initSidebarTabKey } from './sidebar-tab-key.js';
 import { initSidebarFold } from './sidebar-fold.js';
 import { initSidebarDivider } from './sidebar-divider.js';
 import { allSessionsClick } from './sidebar-artifact-rows.js';
@@ -118,6 +131,91 @@ export function paintChords(root = document) {
 /** @returns {boolean} whether the sidebar shows icons only */
 function isCollapsed() {
   return document.documentElement.getAttribute('data-sidebar') === 'collapsed';
+}
+
+/**
+ * The labels toggle's collapsible handle, set by {@link initSidebar}.
+ * @type {ReturnType<typeof initCollapsible> | null}
+ */
+let collapsible = null;
+
+/**
+ * Whether the sidebar shows icons only.
+ * @returns {boolean}
+ */
+export function isSidebarCollapsed() {
+  return isCollapsed();
+}
+
+/**
+ * Collapse the sidebar to icons (true) or show its labels (false), exactly as
+ * the labels toggle does: stored, and announced only on a change. No-op
+ * before {@link initSidebar}.
+ * @param {boolean} collapsed
+ * @returns {void}
+ */
+export function setSidebarCollapsed(collapsed) {
+  collapsible?.set(collapsed ? 'collapsed' : 'expanded');
+}
+
+// ---- Header menu ----
+
+/** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
+
+/**
+ * The sidebar header's menu items: Collapse sidebar, New group… and, behind a
+ * divider, Reset layout (dock-workspace.js's, loaded when chosen); while the
+ * sidebar is collapsed, Expand sidebar only.
+ * @returns {MenuItem[]}
+ */
+export function headerMenuItems() {
+  const hint = hintFor('sidebar-toggle');
+  if (isCollapsed()) {
+    return [{ label: 'Expand sidebar', hint, run: () => setSidebarCollapsed(false) }];
+  }
+  return [
+    { label: 'Collapse sidebar', hint, run: () => setSidebarCollapsed(true) },
+    {
+      label: 'New group…',
+      run: () => {
+        const rail = document.getElementById('panel-rail');
+        const id = addGroup(NEW_GROUP_LABEL);
+        if (rail) startGroupRename(rail, id);
+      },
+    },
+    { divider: true },
+    {
+      label: 'Reset layout',
+      danger: true,
+      run: () => {
+        import('./dock-workspace.js').then((dock) => dock.resetDockLayout());
+      },
+    },
+  ];
+}
+
+/**
+ * Wire the header's menu: a right-click anywhere on it but a link, and
+ * Shift+F10 / the menu key while focus is in it.
+ * @param {HTMLElement} head - `.sidebar-head`
+ */
+function initHeaderMenu(head) {
+  /** @param {Event} event @param {number} x @param {number} y */
+  const open = (event, x, y) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('a[href]') || isSidebarRenaming()) return;
+    event.preventDefault();
+    openContextMenu({ x, y, anchorEl: head, ariaLabel: 'Sidebar', items: headerMenuItems() });
+  };
+  head.addEventListener('contextmenu', (event) => {
+    if (!declinesToBrowser(event)) open(event, event.clientX, event.clientY);
+  });
+  head.addEventListener('keydown', (event) => {
+    if (!isContextMenuKey(event)) return;
+    const el = event.target instanceof Element ? event.target : head;
+    const rect = el.getBoundingClientRect();
+    open(event, rect.left + 8, rect.bottom);
+  });
 }
 
 // ---- Open lists ----
@@ -395,16 +493,20 @@ export function initSidebar() {
 
   hydrateIcons(document);
   paintChords(document);
-  const collapsible = initCollapsible({
+  collapsible = initCollapsible({
     storageKey: SIDEBAR_STORAGE_KEY,
     toggle: document.getElementById('sidebar-toggle'),
+    shortcut: keyFor('sidebar-toggle'),
   });
   initSidebarResize({ handle: document.getElementById('sidebar-resize'), collapsible });
+  initSidebarTabKey(collapsible.toggle);
   initDisclosures(sidebar);
   initAgentRow();
   initFades(sidebar);
   initSidebarFold(document.getElementById('panel-rail'));
   initSidebarDivider(document.getElementById('panel-rail'));
+  const head = /** @type {HTMLElement | null} */ (sidebar.querySelector('.sidebar-head'));
+  if (head) initHeaderMenu(head);
   document.addEventListener('keydown', onTreeKeydown);
 
   document.addEventListener('osprey-collapsible-change', (event) => {

@@ -12,6 +12,9 @@ States which code this deployment runs, read from the running interpreter:
   reader of that pin). ``ok`` at the pin, ``warning`` at any other commit or
   install without a recorded commit, ``skip`` when CANOPY is not installed in
   this interpreter (it may be installed in the image that serves the panel).
+  A wheel install records no commit, so for it the row falls back to the
+  version's ``+g<hex>`` label and is ``ok`` when that names the pin. This is
+  the health row only; the contract judgement never reads the label.
 """
 
 from __future__ import annotations
@@ -55,7 +58,7 @@ def versions(
         from osprey.profiles.sidecar_panels import CANOPY_PANEL_ID
 
         if config_declares_panel(cfg, CANOPY_PANEL_ID):
-            rows.append(_canopy_row(_canopy_judgement()))
+            rows.append(_canopy_row(_canopy_judgement(), _canopy_version()))
         return rows
 
     return _run
@@ -71,6 +74,15 @@ def _canopy_judgement() -> Judgement:
     from osprey.integrations.canopy.proven import judge
 
     return judge()
+
+
+def _canopy_version() -> str | None:
+    import importlib.metadata
+
+    try:
+        return importlib.metadata.version("canopy")
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
 
 def _osprey_row(running: str) -> CheckResult:
@@ -90,8 +102,13 @@ def _osprey_row(running: str) -> CheckResult:
     )
 
 
-def _canopy_row(judgement: Judgement) -> CheckResult:
-    from osprey.integrations.canopy.proven import NOT_INSTALLED
+def _canopy_row(judgement: Judgement, version: str | None = None) -> CheckResult:
+    from osprey.integrations.canopy.proven import (
+        NO_RECORD,
+        NOT_INSTALLED,
+        version_commit,
+        version_names_pin,
+    )
 
     reading = next(r for r in judgement.readings if r.distribution == "canopy")
     pin = reading.proven[:_SHOWN_HEX]
@@ -103,6 +120,18 @@ def _canopy_row(judgement: Judgement) -> CheckResult:
             "CANOPY at the proven commit",
             value=f"{pin} = pin",
         )
+    if (
+        reading.held.reason == NO_RECORD
+        and version
+        and version_names_pin(reading.distribution, version)
+    ):
+        return CheckResult(
+            "versions.canopy",
+            CATEGORY,
+            Status.OK,
+            f"CANOPY {version} at the proven commit, by its version label",
+            value=f"{pin} = pin",
+        )
     if reading.held.reason == NOT_INSTALLED:
         return CheckResult(
             "versions.canopy",
@@ -111,10 +140,15 @@ def _canopy_row(judgement: Judgement) -> CheckResult:
             "CANOPY is not installed in this interpreter",
             value="not installed here",
         )
+    held = reading.held.shown()
+    if reading.held.reason == NO_RECORD and version:
+        labelled = version_commit(version)
+        if labelled:
+            held = labelled[:_SHOWN_HEX]
     return CheckResult(
         "versions.canopy",
         CATEGORY,
         Status.WARNING,
         f"CANOPY is not at the commit this osprey is proven against ({reading.proven})",
-        value=f"{reading.held.shown()} ≠ pin {pin}",
+        value=f"{held} ≠ pin {pin}",
     )

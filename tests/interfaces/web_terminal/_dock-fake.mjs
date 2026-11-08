@@ -76,6 +76,8 @@ export function makeDockApi(px = DEFAULT_PX) {
       return { dispose() {} };
     }),
     onDidAddGroup: vi.fn(() => ({ dispose() {} })),
+    // dock-iframe.js re-syncs the overlay geometry on a maximize or restore.
+    onDidMaximizedGroupChange: vi.fn(() => ({ dispose() {} })),
     onWillDragPanel: vi.fn(() => ({ dispose() {} })),
     onWillDragGroup: vi.fn(() => ({ dispose() {} })),
     // rail-drag.js wires these two; HTML5 rail drags are not under test here.

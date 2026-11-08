@@ -92,6 +92,11 @@ const T2_HEADER = { clientX: 750, clientY: 15 };
 const T2_BOTTOM_EDGE = { clientX: 750, clientY: 500 };
 
 const sizeProps = /** @type {const} */ (['offsetWidth', 'offsetHeight']);
+// happy-dom's own getters, put back after each test: the worker can share
+// HTMLElement.prototype with the test files that run after this one.
+const nativeSize = sizeProps.map((prop) =>
+  Object.getOwnPropertyDescriptor(HTMLElement.prototype, prop)
+);
 
 /** @type {Array<() => void>} */
 const teardowns = [];
@@ -109,7 +114,11 @@ beforeEach(() => {
 afterEach(() => {
   clearDockDrag();
   for (const teardown of teardowns.splice(0)) teardown();
-  for (const prop of sizeProps) delete (/** @type {any} */ (HTMLElement.prototype)[prop]);
+  sizeProps.forEach((prop, i) => {
+    const native = nativeSize[i];
+    if (native) Object.defineProperty(HTMLElement.prototype, prop, native);
+    else delete (/** @type {any} */ (HTMLElement.prototype)[prop]);
+  });
   vi.unstubAllGlobals();
   setDragShield(null);
   document.body.replaceChildren();

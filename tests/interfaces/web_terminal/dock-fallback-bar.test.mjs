@@ -176,6 +176,18 @@ describe('hub with no dockview', () => {
     const [id, opts] = /** @type {any[]} */ (handler.mock.calls[0]);
     expect(id).toBe('tuning');
     expect(opts.anchorEl).toBe(bar());
+    // No dock here: the policy is told so, and offers no dock verb.
+    expect(opts.mode).toBe('fallback');
+
+    // A right-click on the bar asks for the same menu.
+    const press = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    /** @type {HTMLElement} */ (bar().querySelector('.tile-tab-title')).dispatchEvent(press);
+    expect(handler).toHaveBeenCalledTimes(2);
+    const [id2, opts2] = /** @type {any[]} */ (handler.mock.calls[1]);
+    expect(id2).toBe('tuning');
+    expect(opts2.mode).toBe('fallback');
+    expect(opts2.anchorEl).toBe(bar());
+    expect(press.defaultPrevented).toBe(true);
     setTileContextMenuHandler(null);
   });
 

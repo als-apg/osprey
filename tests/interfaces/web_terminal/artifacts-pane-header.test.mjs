@@ -170,20 +170,3 @@ describe('Info', () => {
     expect(popover().textContent).toContain('/srv/osprey/artifacts/p&q.html');
   });
 });
-
-describe('the ⋯ "This panel" rows', () => {
-  test('logbook, print, then Delete alone in the danger colour', () => {
-    const send = vi.fn();
-    const rows = header.menuItems(plot, send);
-    expect(rows.map((row) => row.label)).toEqual([
-      'Compose logbook entry',
-      'Print artifact',
-      'Delete artifact…',
-    ]);
-    expect(rows.map((row) => Boolean(row.danger))).toEqual([false, false, true]);
-    expect(rows[2].separator).toBe(true);
-    expect(rows.some((row) => /copy link/i.test(row.label ?? ''))).toBe(false);
-    for (const row of rows) row.run?.();
-    expect(send.mock.calls.map((call) => call[0])).toEqual(['logbook', 'print', 'delete']);
-  });
-});

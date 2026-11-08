@@ -127,8 +127,8 @@ def test_the_plot_is_the_gallery_plot_form_without_plotly_inlined(payloads) -> N
 
     assert plot.artifact_type == "plot_html"
     assert plot.mime_type == "text/html"
-    assert plot.filename == "stored_current_and_sector_7_pressure.html"
-    assert plot.title == "Stored current and sector 7 pressure"
+    assert plot.filename == "stored_beam_current_and_sector_7_pressure.html"
+    assert plot.title == "Stored beam current and Sector 7 pressure"
     assert plot.tool_source == "create_interactive_plot"
     assert plot.kind == ""
     html = plot.content.decode("utf-8")
@@ -173,6 +173,59 @@ def test_the_plot_shows_the_current_drop_and_the_pressure_spike_at_1432_yesterda
     # Both recover by the end of the window.
     assert current[-1] - current[at] > 15
     assert pressure[-1] < 1e-8
+
+
+def _loss_traces(payloads) -> tuple[list[float], list[float], list[float], int]:
+    """The plot's time axis, current, pressure, and the index of the event instant."""
+    traces = {
+        trace["name"]: trace
+        for trace in _figure_traces(
+            payloads[("sector-7-beam-loss", "loss-plot")].content.decode("utf-8")
+        )
+    }
+    seconds = _axis_seconds(traces[DCCT]["x"])
+    return seconds, traces[DCCT]["y"], traces[SR07]["y"], seconds.index(_event_instant())
+
+
+def test_nothing_moves_before_the_burst(payloads) -> None:
+    """The effect never precedes its cause: no early rise, no early dip."""
+    seconds, current, pressure, at = _loss_traces(payloads)
+    assert max(pressure[:at]) < 2 * min(pressure[:at])
+    assert min(current[:at]) > 498.0
+
+
+def test_the_pressure_jumps_within_a_sample_and_pumps_down_slowly(payloads) -> None:
+    """Asymmetric: the rise is one sample, the fall to a tenth of the peak takes many."""
+    seconds, _current, pressure, at = _loss_traces(payloads)
+    base = sorted(pressure[:at])[at // 2]
+    excess = [value - base for value in pressure]
+    peak = excess[at]
+    rise_s = seconds[at] - seconds[at - 1]
+    fall = next(i for i in range(at, len(excess)) if excess[i] < 0.1 * peak)
+    fall_s = seconds[fall] - seconds[at]
+    assert excess[at - 1] < 0.01 * peak
+    assert rise_s <= PLOT_STEP_S
+    assert fall_s >= 5 * rise_s
+    # The slow tail: still well above the base a minute on, near it after three.
+    after = {round(t - seconds[at]): excess[i] for i, t in enumerate(seconds)}
+    assert after[60] > base
+    assert after[180] < 0.5 * base
+
+
+def test_the_current_does_not_recover_until_top_off_refills_it(payloads) -> None:
+    """One step down at the burst, flat until the next top-off cycle, then a shot-limited climb."""
+    seconds, current, _pressure, at = _loss_traces(payloads)
+    period = 31.0  # the DCCT's top-off period in seeds.yaml
+    refill = (seconds[at] // period + 1) * period
+    before = min(current[:at])
+    assert before - current[at] > 15.0
+    held = [current[i] for i, t in enumerate(seconds) if seconds[at] <= t < refill]
+    assert held and max(held) < before - 15.0, "no recovery before top-off injects"
+    # Top-off adds one 0.75 mA shot a second: no sample-to-sample jump back.
+    climbs = [current[i + 1] - current[i] for i in range(at, len(current) - 1)]
+    assert max(climbs) < 2.5
+    recovered = next(i for i in range(at, len(current)) if current[i] > before - 1.0)
+    assert seconds[recovered] - refill >= 20.0
 
 
 def test_the_plot_shows_the_window_its_archiver_read_stated(payloads) -> None:

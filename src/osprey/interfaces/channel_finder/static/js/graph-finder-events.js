@@ -15,9 +15,17 @@
  * address, and Shift+F10 or the menu key opens the focused surface's menu
  * (macOS fires no `contextmenu` for those keys). A focused column header sorts
  * on Enter/Space and moves on Alt+←/→.
+ *
+ * Right-click: a surface with verbs opens its menu; the results area's empty
+ * background opens Clear all filters · Clear selection · Choose columns….
+ * Shift+right-click, text fields, links, form controls, selected text and the
+ * inspector's body keep the browser's own menu. A background click focuses
+ * the results container, so the menu key and Shift+F10 reach the background
+ * menu too.
  */
 
 import {
+  declinesToBrowser,
   isContextMenuKey,
   openContextMenu,
   openContextMenuAt,
@@ -27,6 +35,7 @@ import { setQuery, togglePageSelection, toggleSelection } from './graph-finder-s
 import { deviceAddresses } from './graph-finder-render.js';
 import {
   bindingMenu,
+  hasFilters,
   chipMenu,
   facetHeadMenu,
   facetValueMenu,
@@ -39,6 +48,7 @@ import {
   menuContext,
   publishMenu,
   runAction,
+  runPanelMenu,
   sortBy,
   toggleFold,
 } from './graph-finder-verbs.js';
@@ -52,6 +62,26 @@ export const SEARCH_DEBOUNCE_MS = 200;
 
 const ROWS = '.result-table tbody tr[data-pv]';
 const DATA_HEADS = '.result-table thead th[data-col]:not([data-pinned])';
+
+/** The results container: focusable, so the keyboard reaches the background menu. */
+const RESULTS = '.finder-results';
+
+/**
+ * The finder's empty background: the layout containers themselves, never
+ * anything drawn inside them. A target must BE one of these, so text, rows,
+ * chips and controls inside the results area never count as background.
+ */
+const BACKGROUND = [
+  '.graph-explorer',
+  '.graph-explorer-body',
+  '.finder-layout',
+  '.finder-main',
+  RESULTS,
+  '.active-filters',
+  '#graph-finder-caution',
+  '.finder-table',
+  '.result-wrap',
+].join(', ');
 
 /**
  * Wire every listener the finder needs. Returns the teardown, which also
@@ -166,7 +196,17 @@ function onClick(event, host) {
 
   // A click anywhere else on a row makes it the keyboard's row.
   const row = target.closest(ROWS);
-  if (row instanceof HTMLElement && !target.closest('input, button, a')) row.focus();
+  if (row instanceof HTMLElement && !target.closest('input, button, a')) return row.focus();
+
+  // A click on the background makes the results container the keyboard's
+  // surface, so the menu key and Shift+F10 open the background menu.
+  if (isBackground(target)) {
+    const box = host.pane()?.querySelector(RESULTS);
+    if (box instanceof HTMLElement) {
+      box.setAttribute('tabindex', '-1');
+      box.focus({ preventScroll: true });
+    }
+  }
 }
 
 /**
@@ -179,6 +219,7 @@ function onClick(event, host) {
 function onContextMenu(event, host) {
   const target = event.target;
   if (!(target instanceof Element)) return;
+  if (declinesToBrowser(event)) return;
   const menu = menuFor(target, host);
   if (!menu) return;
   event.preventDefault();
@@ -237,7 +278,45 @@ export function menuFor(target, host) {
   const chip = target.closest('button.active-filter[data-chip]');
   if (chip)
     return { ariaLabel: 'Filter', items: chipMenu(ctx, chip.getAttribute('data-chip') || '') };
+  if (isBackground(target) && !hasTextSelection())
+    return { ariaLabel: 'Results', items: backgroundMenu(host) };
   return null;
+}
+
+/**
+ * Whether a target is the finder's empty background (see {@link BACKGROUND}).
+ * @param {Element} target
+ * @returns {boolean}
+ */
+function isBackground(target) {
+  return target.matches(BACKGROUND);
+}
+
+/** @returns {boolean} whether the document holds a text selection */
+function hasTextSelection() {
+  return String(window.getSelection?.() ?? '') !== '';
+}
+
+/**
+ * The background menu: the two bulk clears and the column checklist, with
+ * the same verbs and enablement as the panel's ⋯ entries. Nothing here is
+ * destructive enough for danger styling.
+ * @param {FinderHost} host
+ * @returns {MenuItem[]}
+ */
+function backgroundMenu(host) {
+  const finder = host.finder();
+  const act = createActions(host);
+  const hasHeader = Boolean(host.pane()?.querySelector('.result-table thead tr'));
+  return [
+    { label: 'Clear all filters', disabled: !hasFilters(finder), run: () => act.clearFilters() },
+    {
+      label: 'Clear selection',
+      disabled: finder.selected.size === 0,
+      run: () => act.clearSelection(),
+    },
+    { label: 'Choose columns…', disabled: !hasHeader, run: () => runPanelMenu(host, 'columns') },
+  ];
 }
 
 /**

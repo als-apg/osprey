@@ -40,6 +40,7 @@ from tests.interfaces.web_terminal.test_panels_browser import (
     _palette_row,
     _search_menu_panel_backend,
     _service_tab,
+    _split_beside_a_service_tile,
 )
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
@@ -120,7 +121,7 @@ def _send(box, prompt: str) -> None:
 
 
 def _detach_agent(page: Page) -> Page:
-    """The Agent tile's Open in new window is a row of its ⋯."""
+    """Through the Open in new window row of the Agent tile's ⋯."""
     page.locator(f"{_AGENT_TILE} .tile-tab-more").click()
     with page.expect_popup() as info:
         page.locator(_MENU).get_by_role("menuitem", name="Open in new window").click()
@@ -208,6 +209,65 @@ def test_the_agent_pane_leaves_the_dock_chats_from_the_window_and_reattaches(hub
     expect(page.locator("#operator-container")).to_contain_text(
         "Done: Check the beam from the window"
     )
+
+
+def test_the_agent_tiles_own_button_pops_it_out_and_reattach_brings_it_back(hub, page):
+    """The Agent tile carries the same Open in new window button as a service tile;
+    the chat moves to the window on the hub's connections, and back."""
+    turns: list[str] = []
+
+    def _count_turns(request) -> None:
+        if request.method == "POST" and "/api/chat?stream=true" in request.url:
+            turns.append(request.frame.page.url)
+
+    page.on("request", _count_turns)
+    _boot(page, hub)
+    button = page.locator(f"{_AGENT_TILE} .tile-tab-actions .tile-tab-window")
+    expect(button).to_have_attribute("aria-label", "Open in new window")
+    labels = page.locator(f"{_AGENT_TILE} .tile-tab-actions > button").evaluate_all(
+        "els => els.map(e => e.getAttribute('aria-label'))"
+    )
+    assert labels == ["Panel menu", "Open in new window", "Close Agent pane"], labels
+    with page.expect_popup() as info:
+        button.click()
+    popup = info.value
+    popup_requests: list[str] = []
+    popup.on("request", lambda request: popup_requests.append(request.url))
+    expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(page.locator(_AGENT_TILE)).to_have_count(0)
+    expect(page.locator("html")).to_have_attribute("data-agent", "detached")
+    # In its window the bar has Reattach in that slot, not the button.
+    expect(popup.locator(_BAR_REATTACH)).to_be_visible()
+    expect(popup.locator(f"{_BAR} .tile-tab-window")).to_have_count(0)
+
+    _send(popup.locator(_COMPOSER), "Status from the popped-out pane")
+    expect(popup.locator("#operator-container")).to_contain_text(
+        "Done: Status from the popped-out pane", timeout=_TIMEOUT_MS
+    )
+
+    with popup.expect_event("close", timeout=_TIMEOUT_MS):
+        # The click closes this window, which can fail a click call still waiting on it.
+        popup.locator(_BAR_REATTACH).evaluate("b => setTimeout(() => b.click())")
+
+    expect(page.locator(_COMPOSER)).to_have_count(1, timeout=_TIMEOUT_MS)
+    expect(page.locator(_COMPOSER)).to_be_visible()
+    expect(page.locator(".op-session-bar")).to_have_count(1)
+    expect(page.locator(f"{_AGENT_TILE} .tile-tab-window")).to_have_count(1)
+    expect(page.locator("#operator-container")).to_contain_text(
+        "Done: Status from the popped-out pane"
+    )
+    _send(page.locator(_COMPOSER), "Back in the dock")
+    expect(page.locator("#operator-container")).to_contain_text(
+        "Done: Back in the dock", timeout=_TIMEOUT_MS
+    )
+    # One chat client throughout: each message was one turn, sent by the hub,
+    # and the window opened no chat request of its own.
+    assert len(turns) == 2, turns
+    assert not [url for url in popup_requests if "/api/chat" in url], popup_requests
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(page.locator(_AGENT_TILE)).to_have_count(1)
+    expect(page.locator(f"{_AGENT_TILE} .tile-tab-window")).to_have_count(1)
 
 
 def test_closing_the_agent_window_closes_the_pane_and_its_row_reopens_it(hub, page):
@@ -345,8 +405,7 @@ def test_ariel_keeps_its_entry_and_after_its_window_closes_only_its_row_opens_it
             re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS
         )
         # Artifacts keeps a tile of its own, so the empty-slot landing has no say below.
-        page.locator(row).click(button="right")
-        page.get_by_role("menuitem", name="Open in a new tile").click()
+        _split_beside_a_service_tile(page, "ariel")
         expect(page.locator(tile)).to_have_count(1, timeout=_TIMEOUT_MS)
         expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1)
         expect(page.locator(frame)).to_be_visible(timeout=_TIMEOUT_MS)
@@ -637,12 +696,11 @@ def test_the_window_bars_menu_opens_there_and_closes_on_a_click_into_the_panel(
         menu = popup.locator(_MENU)
         popup.locator(f"{_BAR} .tile-tab-more").click()
         expect(menu).to_be_visible()
-        # The panel's two contributed rows, then Reattach and Reload: nothing
-        # that acts on the dock.
+        # The panel's two contributed rows, then Reattach, Reload and Close
+        # window: nothing that acts on the dock, and no rail membership row for
+        # a panel already on the rail.
         labels = menu.locator(".rail-context-label").all_inner_texts()
-        assert labels == ["All sessions", "Refresh", "Reattach", "Reload", "Remove from rail"], (
-            labels
-        )
+        assert labels == ["All sessions", "Refresh", "Reattach", "Reload", "Close window"], labels
         expect(page.locator(_MENU)).to_have_count(0)
 
         frame = popup.locator('iframe.panel-iframe[data-panel-id="search-demo"]').bounding_box()
@@ -823,8 +881,7 @@ def _boot_ariel_beside_artifacts(page: Page, base_url: str) -> None:
     expect(page.locator(_ARIEL_ROW)).not_to_have_class(
         re.compile(r"\bdisabled\b"), timeout=_TIMEOUT_MS
     )
-    page.locator(_ARIEL_ROW).click(button="right")
-    page.get_by_role("menuitem", name="Open in a new tile").click()
+    _split_beside_a_service_tile(page, "ariel")
     expect(page.locator(_ARIEL_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
     expect(page.locator(_ARIEL_FRAME)).to_be_visible(timeout=_TIMEOUT_MS)
 
@@ -1025,7 +1082,7 @@ def test_a_first_click_on_a_never_loaded_panel_opens_the_window_and_the_frame_fo
     tmp_path, chromium_browser
 ):
     with _a_never_loaded_panel(tmp_path, chromium_browser) as (page, popup, cap, row):
-        cap.fulfill(status=404)
+        cap.fulfill(status=200, json={"id": "never-loaded", "opaque": False, "cap_url": None})
 
         frame = 'iframe.panel-iframe[data-panel-id="never-loaded"]'
         expect(popup.locator(frame)).to_be_visible(timeout=_TIMEOUT_MS)
@@ -1057,9 +1114,11 @@ def test_a_first_click_on_a_panel_that_resolves_opaque_closes_the_window_cleanly
         assert _tiles(page) == before
 
 
-def test_remove_from_rail_in_the_windows_menu_closes_the_window_and_the_row_goes(
+def test_close_window_in_the_windows_menu_closes_the_window_and_the_row_stays(
     tmp_path, chromium_browser
 ):
+    """Close window closes the pane's window; the panel keeps its sidebar row and
+    no tile comes back, over a reload too."""
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
     with _palette_live_server(workspace) as (base_url, _app):
@@ -1069,19 +1128,24 @@ def test_remove_from_rail_in_the_windows_menu_closes_the_window_and_the_row_goes
         popup = _detach_ariel(page)
 
         popup.locator(f"{_BAR} .tile-tab-title").click(button="right")
+        expect(popup.locator(_MENU).get_by_role("menuitem", name="Remove from rail")).to_have_count(
+            0
+        )
         with popup.expect_event("close", timeout=_TIMEOUT_MS):
             # The click closes this window, which can fail a click call still waiting on it.
-            popup.locator(_MENU).get_by_role("menuitem", name="Remove from rail").evaluate(
+            popup.locator(_MENU).get_by_role("menuitem", name="Close window").evaluate(
                 "b => setTimeout(() => b.click())"
             )
 
-        expect(page.locator(_ARIEL_ROW)).to_have_count(0, timeout=_TIMEOUT_MS)
+        expect(page.locator(_ARIEL_ROW)).to_have_count(1, timeout=_TIMEOUT_MS)
+        expect(page.locator(_ARIEL_ROW)).not_to_have_class(re.compile(r"\bdetached\b"))
         expect(page.locator(_ARIEL_TILE)).to_have_count(0)
         # The window is gone from the pane's account too: a reload keeps it closed.
         page.reload(wait_until="domcontentloaded")
         expect(page.locator(_ARTIFACTS_TILE)).to_have_count(1, timeout=_TIMEOUT_MS)
         page.wait_for_timeout(1000)
         expect(page.locator(_ARIEL_TILE)).to_have_count(0)
+        expect(page.locator(_ARIEL_ROW)).to_have_count(1)
         ctx.close()
 
 

@@ -20,7 +20,18 @@
  * to a new dock position therefore only moves the (empty) placeholder; dockview
  * reloads nothing, and the overlay iframe simply re-follows the new rectangle.
  * Scope: iframe panels only; geometry synced on layout/resize events only;
- * floating groups and maximize are out of scope for the overlay bound.
+ * floating groups are out of scope for the overlay bound.
+ *
+ * MAXIMIZE: dockview's group maximize (dock-workspace.js maximizeTile /
+ * restoreTile) squeezes every other group to size 0 and announces itself only
+ * through onDidMaximizedGroupChange, which re-syncs geometry like a settle
+ * event. While a group is maximized, the frame, notice and body state of every
+ * panel outside it are display:none — a zero-size group is not hidden, and
+ * nothing may show through the maximized tile — and the maximized panel's
+ * frame takes its group's content rectangle, which is the whole dock body.
+ * Restore re-syncs the same way, so every frame returns to its tile. A
+ * whole-layout apply ends a maximize silently; the maximized group is
+ * therefore read live from dockview on every sync, never remembered here.
  *
  * The adapter never touches dockview's panels itself: a placeholder enters or
  * leaves the dock as one operation on the layout holder (dock-apply.js), by
@@ -147,7 +158,12 @@ function ensureDock() {
   if (api && !dockWired) {
     ensureOverlay();
     if (overlayEl) {
-      disposers.push(api.onDidLayoutChange(syncGeometry), api.onDidActivePanelChange(syncGeometry));
+      disposers.push(
+        api.onDidLayoutChange(syncGeometry),
+        api.onDidActivePanelChange(syncGeometry),
+        // A maximize is no layout change: it resizes groups without one.
+        api.onDidMaximizedGroupChange(syncGeometry)
+      );
       // The drop bridge raises the drag shield over the overlay iframes for
       // every dock drag (a tile's bar, a sidebar row).
       setDragShield(setIframePointerShield);
@@ -437,6 +453,13 @@ function applyGeometry() {
   if (!api || !overlayEl) return;
   const base = overlayEl.getBoundingClientRect();
   const docked = dockedServiceKeys();
+  // While a tile is maximized dockview squeezes every other group to nothing
+  // (size 0, not display:none), so a frame placed on such a group could still
+  // paint at its edge: only the maximized group's frame shows. Read live —
+  // a whole-layout apply ends a maximize without announcing it.
+  const maximized = api.hasMaximizedGroup?.()
+    ? (api.groups.find((/** @type {any} */ g) => g.api.isMaximized()) ?? null)
+    : null;
   /** @param {HTMLElement} el @param {DOMRect} r @param {DOMRect} origin */
   const place = (el, r, origin) => {
     el.style.left = Math.round(r.left - origin.left) + 'px';
@@ -456,7 +479,7 @@ function applyGeometry() {
     const panel = entry.visible ? api.getPanel(entry.placeholderId) : null;
     const group = panel?.group;
     const content = group?.element?.querySelector('.dv-content-container');
-    if (!panel || !content || group.activePanel !== panel) {
+    if (!panel || !content || group.activePanel !== panel || (maximized && group !== maximized)) {
       shown.style.display = 'none';
       if (entry.noticeEl) entry.noticeEl.style.display = 'none';
       continue;
@@ -484,7 +507,7 @@ function applyGeometry() {
     const panel = !entry || entry.visible ? api.getPanel(placeholderIdFor(panelId)) : null;
     const group = panel?.group;
     const content = group?.element?.querySelector('.dv-content-container');
-    if (!panel || !content || group.activePanel !== panel) {
+    if (!panel || !content || group.activePanel !== panel || (maximized && group !== maximized)) {
       el.style.display = 'none';
       continue;
     }
