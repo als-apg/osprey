@@ -38,6 +38,7 @@ if TYPE_CHECKING:
         GraphIndex,
         GraphIndexAbsence,
     )
+    from osprey.services.pv_directory.resolve import ResolvedSection
 
 logger = logging.getLogger(__name__)
 
@@ -289,10 +290,41 @@ _PIPELINE_REGISTRY_INITIALIZERS: tuple[tuple[str, Callable[[], _PipelineRegistry
 )
 
 
-def _create_lifespan(project_cwd: str | None = None):
+def _resolve_pv_directory(config: Mapping[str, Any]) -> ResolvedSection | None:
+    """The checked ``pv_directory`` section, or ``None`` when it is absent or malformed.
+
+    No ``project_dir``: a project-relative ``replay_file`` that is not on disk is
+    not malformed config. The replay backend answers it unavailable with its
+    reason, and the directory keeps serving.
+
+    A malformed section is logged and served as no section: the panel then serves
+    exactly what it serves without one.
+    """
+    from osprey.services.pv_directory.resolve import SectionError, resolve_section
+
+    try:
+        resolved = resolve_section(config)
+    except SectionError as exc:
+        logger.warning(
+            "The pv_directory section is malformed (%s); the All PVs scope is not served", exc
+        )
+        return None
+    if resolved is not None:
+        for warning in resolved.warnings:
+            logger.warning("%s", warning)
+    return resolved
+
+
+def _create_lifespan(
+    config: dict[str, Any],
+    pv_directory: ResolvedSection | None,
+    project_cwd: str | None = None,
+):
     """Create a lifespan context manager that initializes the pipeline registry.
 
     Args:
+        config: The config ``create_app`` loaded.
+        pv_directory: The checked ``pv_directory`` section, ``None`` when unconfigured.
         project_cwd: Project directory path for agent session use.
     """
 
@@ -302,9 +334,8 @@ def _create_lifespan(project_cwd: str | None = None):
 
         from osprey.services.channel_finder.utils.detection import detect_pipeline_config
         from osprey_connectors.config import default_config_path
-        from osprey_connectors.workspace import load_osprey_config, resolve_config_path
+        from osprey_connectors.workspace import resolve_config_path
 
-        config = load_osprey_config()
         cf_config = config.get("channel_finder", {})
 
         # One resolver for the active paradigm, shared with the rest of the
@@ -471,6 +502,19 @@ def _create_lifespan(project_cwd: str | None = None):
             app.state.pipeline_type = pipeline_type
 
         app.state.http_client = httpx.AsyncClient(timeout=30.0)
+
+        # The PV directory, only when its section is configured: the service
+        # follows the session's control target and builds its backends on
+        # first use, so starting it dials nothing.
+        if pv_directory is not None:
+            from osprey.services.pv_directory.service import DirectoryService
+
+            app.state.config = config
+            app.state.pv_directory = pv_directory
+            app.state.directory_service = DirectoryService(
+                config, project_dir=resolve_config_path().parent
+            )
+
         logger.info(
             "Channel Finder started (pipeline=%s, cwd=%s)",
             pipeline_type,
@@ -489,6 +533,9 @@ def _create_lifespan(project_cwd: str | None = None):
         if close_index is not None:
             close_index()
         await app.state.http_client.aclose()
+        directory_service = getattr(app.state, "directory_service", None)
+        if directory_service is not None:
+            await directory_service.aclose()
 
     return lifespan
 
@@ -508,12 +555,16 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
         feedback_api,
         pending_review_api,
     )
+    from osprey_connectors.workspace import load_osprey_config
+
+    config = load_osprey_config()
+    pv_directory = _resolve_pv_directory(config)
 
     app = FastAPI(
         title="OSPREY Channel Finder",
         description="Web interface for exploring and managing control system channels",
         version="1.0.0",
-        lifespan=_create_lifespan(project_cwd),
+        lifespan=_create_lifespan(config, pv_directory, project_cwd),
     )
 
     @app.get("/health")
@@ -537,6 +588,12 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
 
     # Pending review API
     app.include_router(pending_review_api.router, prefix="/api")
+
+    # PV directory API, only when the section is configured
+    if pv_directory is not None:
+        from osprey.interfaces.channel_finder import directory_api
+
+        app.include_router(directory_api.router, prefix="/api/directory")
 
     configure_interface_app(app, static_dir=STATIC_DIR)
 
