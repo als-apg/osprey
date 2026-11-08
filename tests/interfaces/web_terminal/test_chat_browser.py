@@ -63,7 +63,7 @@ import pytest
 import requests
 
 from osprey.interfaces._serving import run_app_server
-from tests.interfaces._browser import wait_for_dock_settled
+from tests.interfaces._browser import wait_for_dock_settled, wait_for_hub_ready
 from tests.interfaces.web_terminal._chat_server import (
     OBSERVED_PROMPTS,
     PLANS,
@@ -1071,6 +1071,9 @@ def test_panel_citation_opens_the_knowledge_tile_on_the_concept(tmp_path, chromi
             ("result",),
         ]
         page = _open_chat_page(chromium_browser, base_url)
+        # The okf tile is registered from /api/panels during the panel
+        # manager's start-up: act on the citation only after its ready mark.
+        wait_for_hub_ready(page)
         _send(page, "where is the bpm documented")
 
         citation = page.locator(f"{_OP} .op-entry.assistant .osprey-md-rendered a")
