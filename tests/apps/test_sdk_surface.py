@@ -63,6 +63,7 @@ SDK_NAMES = {
     "CALLER_HEADER",
     "caller_from_header",
     "caller_kind",
+    "launch_token_env",
 }
 
 

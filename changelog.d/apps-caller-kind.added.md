@@ -1,1 +1,1 @@
-The terminal proxy stamps `X-Osprey-Caller` (`agent` or `panel`) on every request it forwards to a panel, dropping any inbound value; an application backend reads it with `osprey.apps.sdk.caller_kind`.
+The terminal proxy stamps `X-Osprey-Caller` (`agent` or `panel`) on every request it forwards to a panel, dropping any inbound value; an application backend reads it with `osprey.apps.sdk.caller_kind(headers)`, which trusts it only beside the application's valid launch token, and names that token's variable with `osprey.apps.sdk.launch_token_env()`.
