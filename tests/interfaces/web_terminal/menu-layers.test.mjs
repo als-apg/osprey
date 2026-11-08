@@ -50,7 +50,7 @@ const dock = vi.hoisted(() => ({
   closeDockPanel: vi.fn(() => true),
   maximizeTile: vi.fn(() => true),
   restoreTile: vi.fn(),
-  maximizedTileKey: vi.fn(() => null),
+  maximizedTileKey: vi.fn(() => /** @type {string | null} */ (null)),
   onMaximizeChange: vi.fn(() => () => {}),
 }));
 const paneWindow = vi.hoisted(() => ({
@@ -533,7 +533,9 @@ function everyPlace() {
     items: policy.buildServiceMenuItems('broken'),
   });
   sidebarGroups.addGroup('Custom');
-  const custom = sidebarGroups.loadGroups().groups.find((g) => g.label === 'Custom');
+  const custom = sidebarGroups
+    .loadGroups()
+    .groups.find((/** @type {any} */ g) => g.label === 'Custom');
   out.push({
     name: 'group heading (built-in)',
     layer: 'sidebar',
@@ -899,7 +901,7 @@ describe('every GP7 verb is reachable at its place and calls its previous handle
     t.group.addEventListener('click', click);
     const toggle = treeMenus
       .groupMenuItems(t.group)
-      .find((i) => i.label === 'Collapse' || i.label === 'Expand');
+      .find((/** @type {any} */ i) => i.label === 'Collapse' || i.label === 'Expand');
     toggle?.run?.();
     expect(click).toHaveBeenCalledOnce();
   });
@@ -924,9 +926,9 @@ describe('every GP7 verb is reachable at its place and calls its previous handle
   test('group heading: Rename (now Rename…), New group below, Move up / down, Collapse, Delete group', () => {
     sidebarGroups.addGroup('Custom');
     const id = /** @type {any} */ (
-      sidebarGroups.loadGroups().groups.find((g) => g.label === 'Custom')
+      sidebarGroups.loadGroups().groups.find((/** @type {any} */ g) => g.label === 'Custom')
     ).id;
-    const ids = () => sidebarGroups.loadGroups().groups.map((g) => g.id);
+    const ids = () => sidebarGroups.loadGroups().groups.map((/** @type {any} */ g) => g.id);
     // Rename… swaps the name for a field, as Rename did.
     const groupEl = document.createElement('div');
     groupEl.className = 'sidebar-group';
@@ -967,7 +969,7 @@ describe('every GP7 verb is reachable at its place and calls its previous handle
     pins.paintPinnedGroup(1);
     const first = pins
       .headMenuItems(head)
-      .find((i) => i.label === 'Collapse' || i.label === 'Expand');
+      .find((/** @type {any} */ i) => i.label === 'Collapse' || i.label === 'Expand');
     const flipped = first?.label === 'Collapse' ? 'Expand' : 'Collapse';
     first?.run?.();
     expect(rows(pins.headMenuItems(head))).toContain(flipped);

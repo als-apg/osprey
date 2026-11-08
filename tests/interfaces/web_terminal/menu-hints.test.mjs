@@ -42,7 +42,7 @@ const dock = vi.hoisted(() => ({
   closeDockPanel: vi.fn(() => true),
   maximizeTile: vi.fn(() => true),
   restoreTile: vi.fn(),
-  maximizedTileKey: vi.fn(() => null),
+  maximizedTileKey: vi.fn(() => /** @type {string | null} */ (null)),
   onMaximizeChange: vi.fn(() => () => {}),
 }));
 const paneWindow = vi.hoisted(() => ({
@@ -380,7 +380,9 @@ function everyPlace() {
     items: policy.buildServiceMenuItems('broken'),
   });
   sidebarGroups.addGroup('Custom');
-  const custom = sidebarGroups.loadGroups().groups.find((g) => g.label === 'Custom');
+  const custom = sidebarGroups
+    .loadGroups()
+    .groups.find((/** @type {any} */ g) => g.label === 'Custom');
   out.push({
     name: 'group heading (built-in)',
     items: groupHeadingItems('tools'),

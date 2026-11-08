@@ -866,10 +866,11 @@ describe('browser passthrough', () => {
 
   /**
    * Dispatch a right-click `contextmenu` on `target` and return the event.
-   * @param {EventTarget} target
+   * @param {EventTarget | null} target
    * @param {MouseEventInit} [init]
    */
   function rightClick(target, init = {}) {
+    if (!target) throw new Error('rightClick: no target element');
     const e = new MouseEvent('contextmenu', {
       bubbles: true,
       cancelable: true,
