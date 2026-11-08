@@ -222,7 +222,9 @@ The tool server
 ``corrector_trim/tools.py`` runs beside the agent as an MCP server. ``register``
 adds one function per tool; the function's docstring is the tool description
 the agent reads, so write it for the agent: what the tool does, what each
-argument means, what it answers.
+argument means, what it answers. ``serve_tools(register)`` serves them; an
+app that holds something for the server's lifetime (a session, say) passes
+``on_shutdown=``, which runs once when the server stops, returned or raised.
 
 A tool does not import the backend. It calls the backend's routes through the
 terminal (``_panel_call``), at ``/panel/<app>/<route>``, with the headers
