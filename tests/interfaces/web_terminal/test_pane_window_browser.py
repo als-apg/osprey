@@ -1084,7 +1084,7 @@ def test_a_first_click_on_a_never_loaded_panel_opens_the_window_and_the_frame_fo
     tmp_path, chromium_browser
 ):
     with _a_never_loaded_panel(tmp_path, chromium_browser) as (page, popup, cap, row):
-        cap.fulfill(status=404)
+        cap.fulfill(status=200, json={"id": "never-loaded", "opaque": False, "cap_url": None})
 
         frame = 'iframe.panel-iframe[data-panel-id="never-loaded"]'
         expect(popup.locator(frame)).to_be_visible(timeout=_TIMEOUT_MS)
