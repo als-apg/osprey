@@ -126,6 +126,11 @@ and the board scores its first attempt:
      - Not built yet: facility-scale tasks, such as searching a whole logbook.
      -
 
+.. include:: agentic-tests.rst.inc
+
+The full interactive dashboard, with each model's result per test, is linked at the end
+of the snapshot below.
+
 .. code-block:: bash
 
    # see the resolved plan without running anything

@@ -601,3 +601,31 @@ class TestCellPreflight:
     def test_a_cell_runs_it_before_anything_else(self):
         runner = (_BENCH / "run_e2e_for_model.sh").read_text(encoding="utf-8")
         assert runner.index("cell_preflight.py") < runner.index("per-cell ARIEL database")
+
+
+@pytest.mark.slow
+def test_the_docs_tier_list_matches_the_tests_markers():
+    """The docs page's per-tier list is generated from the agentic markers; a marker
+    edited without regenerating it fails here."""
+    proc = subprocess.run(
+        [sys.executable, str(_BENCH / "tier_list.py"), "--check"],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+
+
+def test_the_tier_list_renders_one_collapsed_section_per_tier():
+    tier_list = _load("tier_list")
+    tests = [
+        {"tier": 2, "title": "Hard", "asks": "Why?", "passes_if": "says why"},
+        {"tier": 1, "title": "B task", "asks": "Read *this*", "passes_if": "the value"},
+        {"tier": 1, "title": "A task", "asks": "x | y", "passes_if": "z"},
+    ]
+    text = tier_list.render(tests)
+    assert ".. dropdown:: Tier 1 · 2 tests" in text and ".. dropdown:: Tier 2 · 1 tests" in text
+    assert text.index("**A task**") < text.index("**B task**") < text.index("**Hard**")
+    assert "Read \\*this\\*" in text and "x \\| y" in text
+    shown = text.split("\n\n", 1)[1]  # past the generator's comment
+    assert ".py" not in shown
