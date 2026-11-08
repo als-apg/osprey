@@ -83,11 +83,12 @@ button.osprey-search {
   pointer-events: none;
 }
 
-/* Text button: 28 px, display font. `.primary` fills with the accent. Put
+/* Text button: --control-h (28 px), display font. `.primary` fills with the
+   accent; the other variants are in "Panel components" below. Put
    the text in `.osprey-btn-label` so a narrow container can hide it and keep
    the icon. */
 .osprey-btn {
-  height: 28px;
+  height: var(--control-h);
   padding: 0 var(--space-3);
   flex: none;
   display: inline-flex;
@@ -895,7 +896,7 @@ button.osprey-search {
    outline, so the high-contrast themes see it too. Not `.osprey-mini-seg`,
    which groups 20 px icon minis. */
 .osprey-seg {
-  height: 28px;
+  height: var(--control-h);
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -906,7 +907,7 @@ button.osprey-search {
 }
 
 .osprey-seg > button {
-  height: 24px;
+  height: calc(var(--control-h) - 4px);
   margin: 0;
   padding: 0 var(--space-3);
   display: inline-flex;
@@ -951,7 +952,7 @@ button.osprey-search {
    the icon, or Tab), a typed value or `[data-expanded]` opens it again. */
 .osprey-search-field {
   width: 220px;
-  height: 28px;
+  height: var(--control-h);
   flex: none;
   display: flex;
   align-items: center;
@@ -1344,6 +1345,1132 @@ button.osprey-chip:focus-visible {
   }
 
   .osprey-chip--connecting::before {
+    animation: none;
+  }
+}
+
+/* ---- Panel components (2026-11) ----
+   The controls and layouts a panel's content draws the same way (DESIGN.md
+   §13): the button variants, field rows, the form switch, the segmented
+   control's sizes, the run-state chips, the disclosure, the card's parts,
+   the status strip, the banner, master-detail, the step list, the edge tab,
+   the machine map and device rows. They grow the osprey- family above and
+   never restate a control it already has. Their behaviour is in
+   js/components/segmented.js, js/components/disclosure.js and
+   js/components/osprey-machine-map.js. This section keeps its own `[hidden]`
+   list and reduced-motion block at its end. */
+
+/* Button variants. `.ghost` has no border (Select all, prev / next, close),
+   `.danger` is the error outline (Stop, Abort), `.sm` the dense size and
+   `.block` the full width. An icon-only button is `.osprey-icon-btn`. */
+.osprey-btn.ghost {
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+.osprey-btn.ghost:hover {
+  border-color: transparent;
+  color: var(--text-primary);
+}
+
+.osprey-btn.danger {
+  border-color: color-mix(in srgb, var(--color-error) 40%, transparent);
+  color: var(--color-error);
+}
+
+.osprey-btn.danger:hover {
+  border-color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+}
+
+.osprey-btn.sm {
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+}
+
+.osprey-btn.block {
+  width: 100%;
+  justify-content: center;
+}
+
+/* Field rows: `.osprey-form-grid` lays `.osprey-field`s out in `--cols`
+   columns; `.wide` spans a field across. A field is a label line
+   (`.osprey-field-label`: name, unit, required mark) over its control. */
+.osprey-form-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.osprey-field {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.osprey-field.wide {
+  grid-column: 1 / -1;
+}
+
+.osprey-field-label {
+  min-height: 16px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.osprey-field-name {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.osprey-field-unit {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.osprey-field-required {
+  color: var(--color-error);
+}
+
+/* The input and the select of a field. `.is-pending` marks an edit that is
+   not applied yet; `.sm` is the dense size. */
+.osprey-field-input {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h);
+  margin: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-well);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+.osprey-field-input:hover {
+  border-color: var(--border-default);
+}
+
+.osprey-field-input:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--surface-focus);
+}
+
+.osprey-field-input:disabled {
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.osprey-field-input::placeholder {
+  color: var(--text-muted);
+}
+
+select.osprey-field-input {
+  padding-right: 24px;
+  appearance: none;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 13px) 50%, calc(100% - 9px) 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+
+.osprey-field-input.is-pending {
+  border-color: var(--color-warning);
+}
+
+.osprey-field-input.sm {
+  height: var(--control-h-sm);
+  font-size: var(--text-sm);
+}
+
+/* A name and a narrow input on one line. */
+.osprey-field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.osprey-field-inline .osprey-field-name {
+  color: var(--text-secondary);
+}
+
+.osprey-field-inline .osprey-field-input {
+  width: 72px;
+}
+
+/* Form switch: the `.osprey-switch` track after a real checkbox, in a
+   `<label class="osprey-switch-label">`. The checkbox keeps the keyboard and
+   form semantics; its `:checked` moves the knob as `aria-checked` does on a
+   [role=switch] item. */
+.osprey-switch-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.osprey-switch-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+
+.osprey-switch-input + .osprey-switch {
+  margin-left: 0;
+}
+
+.osprey-switch-input:checked + .osprey-switch {
+  background: var(--color-success);
+}
+
+.osprey-switch-input:checked + .osprey-switch::after {
+  transform: translateX(12px);
+}
+
+.osprey-switch-input:focus-visible + .osprey-switch {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.osprey-switch-input:disabled + .osprey-switch {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Segmented control sizes: `.block` fills its row, `.sm` is the dense size,
+   and `.osprey-seg-count` adds a mono count to a button ("68/72"). A button
+   with `aria-disabled="true"` looks like a disabled one but keeps its
+   tooltip. */
+.osprey-seg.block {
+  display: flex;
+  width: 100%;
+}
+
+.osprey-seg.block > button {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: center;
+}
+
+.osprey-seg.sm {
+  height: var(--control-h-sm);
+}
+
+.osprey-seg.sm > button {
+  height: calc(var(--control-h-sm) - 4px);
+  padding: 0 var(--space-2);
+  font-size: var(--text-base);
+}
+
+.osprey-seg > button[aria-disabled="true"] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.osprey-seg-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.osprey-seg > button[aria-pressed="true"] .osprey-seg-count {
+  color: inherit;
+}
+
+/* Run-state chips: the states of a step, a job or a result, beside the
+   connection states above. `--done` (success), `--running` (accent, the dot
+   pulses), `--pending` (warning), `--stale` (warning, hollow dot: a result
+   that no longer matches its inputs), `--failed` (error), `--skipped`
+   (dimmed). `--plain` drops the dot. Set `title` to the state: a chip in a
+   narrow step row shows only its dot. */
+.osprey-chip--done {
+  color: var(--color-success);
+}
+
+.osprey-chip--running {
+  color: var(--color-accent);
+}
+
+.osprey-chip--pending,
+.osprey-chip--stale {
+  color: var(--color-warning);
+}
+
+.osprey-chip--failed {
+  color: var(--color-error);
+}
+
+.osprey-chip--skipped {
+  color: var(--text-muted);
+}
+
+.osprey-chip--running::before {
+  animation: osprey-chip-pulse calc(var(--duration-slow) * 4) ease-in-out infinite;
+}
+
+.osprey-chip--stale::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+
+.osprey-chip--plain::before {
+  display: none;
+}
+
+/* Disclosure: a button that opens a region elsewhere
+   (`aria-expanded`, `aria-controls`); `.icon` is the square, chevron-only
+   form. A native `<details class="osprey-folder">` draws the same chevron
+   with no script. `.osprey-chev` (`.left`) is the bare chevron. */
+.osprey-disclosure {
+  height: var(--control-h-sm);
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  font-size: var(--text-md);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.osprey-disclosure:hover,
+.osprey-disclosure[aria-expanded="true"] {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.osprey-disclosure:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.osprey-disclosure.icon {
+  width: var(--control-h-sm);
+  padding: 0;
+  justify-content: center;
+}
+
+.osprey-disclosure::before,
+.osprey-chev::before,
+.osprey-folder > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateX(-1px) rotate(-45deg);
+  transition: transform var(--duration-fast) var(--wt-ease-out);
+}
+
+.osprey-disclosure[aria-expanded="true"]::before,
+.osprey-folder[open] > summary::before {
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.osprey-chev {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.osprey-chev.left::before {
+  transform: translateX(1px) rotate(135deg);
+}
+
+.osprey-folder > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border-radius: var(--radius-md);
+  list-style: none;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.osprey-folder > summary::-webkit-details-marker {
+  display: none;
+}
+
+.osprey-folder > summary:hover {
+  color: var(--text-primary);
+}
+
+/* The secondary text at the end of a section label or a folder summary. */
+.osprey-aside {
+  margin-left: auto;
+  font-weight: var(--weight-regular);
+  color: var(--text-muted);
+}
+
+/* Card parts: `.osprey-card` above holds a head, a padded body and a foot.
+   A head holds a title, a sub line and, after an `.osprey-aside` or at its
+   end, its controls. */
+.osprey-card-head {
+  min-height: 40px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--surface-hairline);
+}
+
+.osprey-card-title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.osprey-card-sub {
+  font-size: var(--text-md);
+  color: var(--text-muted);
+}
+
+.osprey-card-body {
+  min-height: 0;
+  padding: var(--space-3);
+}
+
+.osprey-card-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px var(--space-3);
+  border-top: 1px solid var(--surface-hairline);
+}
+
+/* Kicker: the mono uppercase caption of a fact or a detail section. */
+.osprey-kicker {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Status strip: a band of `.osprey-fact`s, each a kicker and a value.
+   `.accent` accents the value; `.opt` hides on a narrow window. An
+   `.osprey-dot` in a value is a live-status dot. */
+.osprey-status-strip {
+  min-height: 36px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 3px var(--space-1) 3px 0;
+  overflow: hidden;
+  background: var(--surface-card);
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+}
+
+.osprey-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  padding: 0 14px;
+  border-right: 1px solid var(--surface-hairline);
+  line-height: var(--control-h);
+  white-space: nowrap;
+}
+
+.osprey-fact-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+}
+
+.osprey-fact.accent .osprey-fact-value {
+  color: var(--color-accent);
+}
+
+@media (max-width: 1280px) {
+  .osprey-fact {
+    padding: 0 10px;
+  }
+
+  .osprey-fact.opt {
+    display: none;
+  }
+}
+
+/* Banner: one line of notice across a region, coloured by `--info`, `--ok`,
+   `--warn` or `--err`, with the text in `.osprey-banner-text` and an
+   optional dismiss `.osprey-icon-btn` at its end. */
+.osprey-banner {
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--space-1) 6px var(--space-1) var(--space-3);
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.osprey-banner--info {
+  color: var(--color-accent);
+}
+
+.osprey-banner--ok {
+  color: var(--color-success);
+}
+
+.osprey-banner--warn {
+  color: var(--color-warning);
+}
+
+.osprey-banner--err {
+  color: var(--color-error);
+}
+
+.osprey-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-secondary);
+}
+
+.osprey-banner-text b {
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+/* Master-detail: the panel sidebar of §12.2 (with a head and a foot) beside
+   an `.osprey-detail` pane, split by the shared splitter. The head holds
+   the sidebar's filter controls, the foot its selection actions and an
+   `.osprey-count`. */
+.osprey-panel-sidebar-head,
+.osprey-panel-sidebar-foot {
+  position: sticky;
+  z-index: var(--z-sticky);
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--bg-panel);
+}
+
+.osprey-panel-sidebar-head {
+  top: 0;
+  flex-direction: column;
+  border-bottom: 1px solid var(--surface-hairline);
+}
+
+.osprey-panel-sidebar-foot {
+  bottom: 0;
+  margin-top: auto;
+  align-items: center;
+  border-top: 1px solid var(--surface-hairline);
+}
+
+.osprey-panel-sidebar-foot > .osprey-count {
+  margin-left: auto;
+}
+
+.osprey-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.osprey-detail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--surface-hairline);
+}
+
+.osprey-detail-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+
+.osprey-detail-desc {
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+}
+
+.osprey-detail-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-1) var(--space-4) var(--space-4);
+}
+
+.osprey-detail-section {
+  padding-top: 14px;
+}
+
+.osprey-detail-section > .osprey-kicker {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.osprey-detail-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 10px var(--space-4);
+  border-top: 1px solid var(--surface-hairline);
+}
+
+/* The count of unapplied edits in a foot, before its buttons. */
+.osprey-pending-line {
+  min-width: 0;
+  margin-right: auto;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--color-warning);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Step list: aligned action rows, each index · include switch · name and
+   meta · chip · action · disclosure, over its options. `.is-off` greys a
+   step left out of the run; `.is-open` is set by the disclosure.
+   `.no-switch` is the list with no include switch (a pipeline). */
+.osprey-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 6px var(--space-2);
+}
+
+.osprey-step {
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+}
+
+.osprey-step:hover {
+  background: var(--surface-hover);
+}
+
+.osprey-step.is-open {
+  background: var(--surface-card);
+  border-color: var(--surface-hairline);
+}
+
+.osprey-step-row {
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 18px 28px minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 6px 0 var(--space-1);
+}
+
+.osprey-step-list.no-switch .osprey-step-row {
+  grid-template-columns: 18px minmax(0, 1fr) auto auto auto;
+}
+
+.osprey-step-index {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: right;
+}
+
+.osprey-step-name {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.osprey-step-title,
+.osprey-step-meta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.osprey-step-title {
+  font-size: var(--text-lg);
+  color: var(--text-primary);
+}
+
+.osprey-step-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.osprey-step.is-off .osprey-step-title {
+  color: var(--text-muted);
+}
+
+.osprey-step-options {
+  padding: var(--space-1) var(--space-3) var(--space-3) 58px;
+}
+
+.osprey-step-list.no-switch .osprey-step-options {
+  padding-left: 30px;
+}
+
+@media (max-width: 1280px) {
+  .osprey-step-index {
+    display: none;
+  }
+
+  .osprey-step-row {
+    grid-template-columns: 28px minmax(0, 1fr) auto auto auto;
+    padding-left: 6px;
+  }
+
+  .osprey-step-list.no-switch .osprey-step-row {
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+  }
+
+  .osprey-step-options,
+  .osprey-step-list.no-switch .osprey-step-options {
+    padding-left: var(--space-3);
+  }
+
+  /* The chip folds to its dot; the state stays in its title. */
+  .osprey-step-row .osprey-chip {
+    width: 22px;
+    padding: 0;
+    justify-content: center;
+    font-size: 0; /* hygiene-allow-scale: hides the label text, not a type step */
+  }
+}
+
+/* Edge tab: the collapsed handle at a pane's edge that opens an
+   <osprey-drawer> through its `[data-drawer]` trigger. The label runs
+   vertically; `.osprey-edge-dot` flags pending work. The host keeps
+   `aria-expanded` in step from the drawer's open and close events. */
+.osprey-edge-tab {
+  flex: 0 0 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 0 6px;
+  padding: 10px 0;
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-xl);
+  background: var(--bg-panel);
+  font: inherit;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--duration-fast), color var(--duration-fast);
+}
+
+.osprey-edge-tab:hover,
+.osprey-edge-tab[aria-expanded="true"] {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.osprey-edge-tab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.osprey-edge-label {
+  writing-mode: vertical-rl;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.osprey-edge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-warning);
+}
+
+/* Machine map: <osprey-machine-map> renders `.osprey-map-wrap >
+   svg.osprey-map`, an optional `.osprey-map-key` and `.osprey-map-rows`.
+   A device dot and a region cell carry `data-state="in|out"` and
+   `data-pending`; the region in focus carries `.is-focus`.
+   `--osprey-map-row-label-width` widens the rows' label column. */
+osprey-machine-map {
+  display: block;
+}
+
+.osprey-map-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 2px 0 6px;
+}
+
+.osprey-map {
+  width: 100%;
+  max-width: 300px;
+  height: auto;
+  display: block;
+}
+
+.osprey-map-path {
+  fill: none;
+  stroke: var(--border-default);
+  stroke-width: 1.5;
+}
+
+.osprey-map-arc {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 22;
+  cursor: pointer;
+}
+
+.osprey-map-arc:hover {
+  stroke: var(--surface-hover);
+}
+
+.osprey-map-arc.is-focus {
+  stroke: var(--surface-selected);
+}
+
+.osprey-map-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  fill: var(--text-muted);
+  text-anchor: middle;
+  dominant-baseline: middle;
+}
+
+.osprey-map-label.is-focus {
+  font-weight: var(--weight-medium);
+  fill: var(--color-accent);
+}
+
+.osprey-map-tick {
+  stroke: var(--border-default);
+  stroke-width: 1;
+}
+
+.osprey-map-dev {
+  stroke-width: 1.5;
+  cursor: pointer;
+}
+
+.osprey-map-dev[data-state="in"] {
+  fill: var(--color-accent);
+  stroke: var(--color-accent);
+}
+
+.osprey-map-dev[data-state="out"] {
+  fill: var(--bg-panel);
+  stroke: var(--text-muted);
+}
+
+.osprey-map-dev[data-pending="true"] {
+  stroke: var(--color-warning);
+  stroke-width: 2;
+}
+
+.osprey-map-dev:hover {
+  stroke: var(--text-primary);
+}
+
+.osprey-map-marker {
+  fill: var(--color-accent-secondary);
+}
+
+.osprey-map-marker-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.08em;
+  fill: var(--color-accent-secondary-light);
+}
+
+.osprey-map-center-value {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-medium);
+  fill: var(--text-primary);
+  text-anchor: middle;
+}
+
+.osprey-map-center-caption {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  fill: var(--text-muted);
+  text-anchor: middle;
+}
+
+.osprey-map-key {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+  padding-bottom: 6px;
+  font-size: var(--text-base);
+  color: var(--text-muted);
+}
+
+.osprey-map-key > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.osprey-map-swatch {
+  width: 9px;
+  height: 9px;
+  display: inline-block;
+  border: 1.5px solid var(--text-muted);
+  border-radius: var(--radius-full);
+}
+
+.osprey-map-swatch[data-state="in"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.osprey-map-swatch[data-state="pending"] {
+  border-color: var(--color-warning);
+}
+
+.osprey-map-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: var(--space-1);
+}
+
+.osprey-map-row {
+  min-height: 26px;
+  display: grid;
+  grid-template-columns: var(--osprey-map-row-label-width, 44px) minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.osprey-map-row:hover {
+  background: var(--surface-hover);
+}
+
+.osprey-map-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.osprey-map-row.is-focus {
+  background: var(--surface-selected);
+  border-color: var(--border-accent);
+}
+
+.osprey-map-row-label {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.osprey-map-row.is-focus .osprey-map-row-label {
+  font-weight: var(--weight-medium);
+  color: var(--color-accent);
+}
+
+.osprey-map-cells,
+.osprey-map-plane {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+}
+
+.osprey-map-cells.planes {
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px 0;
+}
+
+.osprey-map-cell {
+  width: 14px;
+  height: 10px;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-xs);
+  background: var(--color-accent);
+}
+
+.osprey-map-cells.planes .osprey-map-cell {
+  height: 6px;
+}
+
+.osprey-map-cell[data-state="out"] {
+  border-color: var(--text-muted);
+  background: transparent;
+}
+
+.osprey-map-cell[data-pending="true"] {
+  border-color: var(--color-warning);
+  box-shadow: 0 0 0 1px var(--color-warning);
+}
+
+.osprey-map-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  text-align: right;
+}
+
+/* Device rows: one row per device (use switch · name · numeric columns ·
+   inline fields · state chip) on a table that sets its columns through
+   `--osprey-dev-cols`. `.head` is the caption row; `.is-out` strikes the
+   name and `.is-pending` tints an unapplied row. */
+.osprey-dev-table {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--surface-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+}
+
+.osprey-dev-row {
+  min-height: 40px;
+  display: grid;
+  grid-template-columns: var(--osprey-dev-cols, 34px minmax(96px, 1fr) 64px 82px);
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  border-top: 1px solid var(--surface-hairline);
+}
+
+.osprey-dev-row:first-child {
+  border-top: 0;
+}
+
+.osprey-dev-row.head {
+  min-height: 30px;
+  background: var(--surface-hover);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.osprey-dev-name,
+.osprey-dev-pos {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+}
+
+.osprey-dev-name {
+  color: var(--text-primary);
+}
+
+.osprey-dev-pos {
+  color: var(--text-secondary);
+}
+
+.osprey-dev-row.is-out .osprey-dev-name {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.osprey-dev-row.is-pending {
+  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
+}
+
+.osprey-dev-row .osprey-field-input {
+  height: var(--control-h-sm);
+  font-size: var(--text-sm);
+}
+
+/* `hidden` wins over the display each panel component sets. */
+.osprey-form-grid[hidden],
+.osprey-field[hidden],
+.osprey-field-label[hidden],
+.osprey-field-inline[hidden],
+.osprey-switch-label[hidden],
+.osprey-disclosure[hidden],
+.osprey-chev[hidden],
+.osprey-card-head[hidden],
+.osprey-card-foot[hidden],
+.osprey-status-strip[hidden],
+.osprey-fact[hidden],
+.osprey-banner[hidden],
+.osprey-panel-sidebar-head[hidden],
+.osprey-panel-sidebar-foot[hidden],
+.osprey-detail[hidden],
+.osprey-detail-head[hidden],
+.osprey-detail-foot[hidden],
+.osprey-step-list[hidden],
+.osprey-step-row[hidden],
+.osprey-step-name[hidden],
+.osprey-step-options[hidden],
+.osprey-edge-tab[hidden],
+osprey-machine-map[hidden],
+.osprey-map-key[hidden],
+.osprey-map-rows[hidden],
+.osprey-map-row[hidden],
+.osprey-dev-table[hidden],
+.osprey-dev-row[hidden] {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .osprey-field-input,
+  .osprey-disclosure,
+  .osprey-disclosure::before,
+  .osprey-chev::before,
+  .osprey-folder > summary::before,
+  .osprey-edge-tab {
+    transition: none;
+  }
+
+  .osprey-chip--running::before {
     animation: none;
   }
 }
