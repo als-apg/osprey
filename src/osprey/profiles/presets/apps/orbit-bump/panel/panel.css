@@ -2,6 +2,8 @@
 
 .ob {
   position: relative;
+  box-sizing: border-box;
+  min-height: 100vh;
   padding: var(--space-2, 8px) var(--space-3, 12px) var(--space-3, 12px);
   font-family: var(--font-mono);
   font-size: var(--text-md);
@@ -164,4 +166,265 @@
 
 .ob-modal[hidden] {
   display: none;
+}
+
+/* The strip: numbers in mono, presentation colours from the svg attributes. */
+
+.ob-strip {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-1, 4px);
+  user-select: none;
+}
+
+.ob-strip text {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  fill: var(--text-muted);
+}
+
+.ob-strip .ob-target text {
+  fill: var(--color-warning);
+  font-weight: var(--weight-bold);
+}
+
+.ob-strip .ob-target path {
+  stroke: var(--bg-panel);
+}
+
+.ob-strip .ob-golden {
+  opacity: 0.8;
+}
+
+.ob-strip .ob-grid {
+  stroke: var(--surface-hairline);
+}
+
+.ob-strip .ob-cor.hollow {
+  fill: none;
+  stroke-dasharray: 2 1;
+}
+
+.ob-strip .ob-bpm.hollow {
+  stroke-width: 1.2;
+}
+
+/* Bump table, corrector rule, actions. */
+
+.ob-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--space-3, 12px);
+  align-items: start;
+  margin-top: 6px;
+}
+
+@media (max-width: 760px) {
+  .ob-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ob-box {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2, 8px) 10px;
+}
+
+.ob-box h3 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2, 8px);
+  margin: 0 0 6px;
+  color: var(--text-secondary);
+  font: var(--weight-semibold) var(--text-base) var(--font-display);
+}
+
+.ob-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 4px);
+  font-weight: var(--weight-regular);
+}
+
+.ob select {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  padding: 2px 5px;
+}
+
+.ob-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-md);
+}
+
+.ob-table th,
+.ob-table td {
+  padding: 3px 5px;
+  text-align: right;
+  border-bottom: 1px solid var(--surface-hairline);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ob-table th {
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.ob-table th:first-child,
+.ob-table td:first-child,
+.ob-table th:not([data-head]):nth-child(2),
+.ob-table th:not([data-head]):nth-child(6),
+.ob-table th:not([data-head]):nth-child(8),
+.ob-table [data-cell='channel'],
+.ob-table [data-cell='verdict'],
+.ob-table [data-cell='outcome'] {
+  text-align: left;
+}
+
+.ob-table [data-cell='verdict'],
+.ob-table [data-cell='outcome'] {
+  font-family: var(--font-display);
+}
+
+.ob-table td.ob-meta {
+  margin: 0;
+  text-align: left;
+  white-space: normal;
+}
+
+.ob-table [data-cell='predicted'],
+.ob-table [data-cell='delta'] {
+  color: var(--art-violet-light);
+}
+
+.ob-table input[type='number'] {
+  width: 66px;
+  padding: 2px 5px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  font: var(--text-md) var(--font-mono);
+  text-align: right;
+}
+
+.ob-table .ob-link {
+  color: var(--text-muted);
+}
+
+.ob-table .ob-link:hover {
+  color: var(--color-error);
+}
+
+.ob-empty,
+.ob-meta {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+}
+
+.ob-empty {
+  color: var(--text-muted);
+}
+
+.ob-refused {
+  color: var(--color-error);
+}
+
+p.ob-refused {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+}
+
+.ob-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  grid-column: 1 / -1;
+  font-family: var(--font-display);
+}
+
+.ob-actions .ob-meta {
+  margin: 0 0 0 auto;
+}
+
+.ob-btn {
+  padding: 5px 12px;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font: var(--weight-medium) var(--text-md) var(--font-display);
+  cursor: pointer;
+}
+
+.ob-btn:hover:not(:disabled) {
+  border-color: var(--text-muted);
+}
+
+.ob-btn.primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-accent);
+}
+
+.ob-btn.apply {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
+.ob-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ob-body > [data-field='card'] {
+  margin-top: 10px;
+}
+
+.ob-body > [data-field='card'] h3 {
+  justify-content: flex-start;
+  gap: var(--space-1, 4px);
+}
+
+/* The confirm card over the panel. */
+
+.ob-modal > .ob-box {
+  width: 440px;
+  max-width: 92%;
+  padding: 14px var(--space-4, 16px);
+  background: var(--bg-elevated);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-dialog);
+  font-family: var(--font-display);
+}
+
+.ob-modal > .ob-box h3 {
+  color: var(--color-warning);
+  font-size: var(--text-lg);
+}
+
+.ob-modal .ob-table {
+  margin: 6px 0;
+  font-family: var(--font-mono);
+}
+
+.ob-modal .ob-actions {
+  justify-content: flex-end;
+  margin-top: 10px;
 }

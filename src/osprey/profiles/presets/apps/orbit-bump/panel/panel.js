@@ -1072,13 +1072,13 @@ function controls(root) {
 
   const actions = htmlNode('div', { class: 'ob-actions', 'data-field': 'actions' });
   actions.append(
-    htmlNode('button', { type: 'button', class: 'ob-btn', 'data-field': 'clear' }, 'Clear'),
-    htmlNode('button', { type: 'button', class: 'ob-btn', 'data-field': 'compute' }, 'Compute'),
     htmlNode(
       'button',
-      { type: 'button', class: 'ob-btn primary', 'data-field': 'apply' },
-      'Apply…'
+      { type: 'button', class: 'ob-btn primary', 'data-field': 'compute' },
+      'Compute'
     ),
+    htmlNode('button', { type: 'button', class: 'ob-btn apply', 'data-field': 'apply' }, 'Apply…'),
+    htmlNode('button', { type: 'button', class: 'ob-btn', 'data-field': 'clear' }, 'Clear'),
     htmlNode('span', { class: 'ob-meta', 'data-field': 'apply-note' })
   );
 
@@ -1800,7 +1800,7 @@ export function openConfirm(root) {
   const box = htmlNode('div', { class: 'ob-box', role: 'dialog', 'aria-label': 'confirm apply' });
   const ok = htmlNode(
     'button',
-    { type: 'button', class: 'ob-btn primary', 'data-field': 'confirm-apply' },
+    { type: 'button', class: 'ob-btn apply', 'data-field': 'confirm-apply' },
     `Apply ${plan.correctors.length} setpoint${plan.correctors.length === 1 ? '' : 's'}`
   );
   const cancel = htmlNode(
