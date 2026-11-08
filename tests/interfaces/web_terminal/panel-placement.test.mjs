@@ -321,7 +321,9 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
 
     test('a named tile is the target: an edge of the Agent pane tile splits beside it', () => {
       const holder = seedClassic();
-      placement.runPanelOp(frame('open', { member: 'b', tile: 't1', edge: 'left' }));
+      placement.runPanelOp(
+        frame('open', { member: 'b', place: 'split', tile: 't1', edge: 'left' })
+      );
       expect(panelsByTile(holder.layout)).toEqual([['a'], ['c'], ['b'], ['terminal']]);
     });
 
@@ -346,6 +348,33 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
           tile('t1', ['terminal'], 'terminal', 0.4)
         )
       );
+    });
+
+    test('a default open replaces when a split would leave a tile under the readable floor', () => {
+      // s1 is 300 x 400: split along its longer side, each half would be 200 px tall.
+      dockApply.initLayoutHolder({ dockPx: { width: 1000, height: 400 } });
+      const holder = seedClassic();
+      expect(dockOpen.READABLE_TILE_PX).toBe(300);
+      const out = placement.runPanelOp(frame('open', { member: 'b' }));
+      expect(out.refusal).toBeUndefined();
+      expect(panelsByTile(holder.layout)).toEqual([['b'], ['c'], ['terminal']]);
+      expect(tileWith(holder.layout, 'b').tile).toBe('s1');
+    });
+
+    test('an explicit split still splits below the readable floor, down to the dock minimum', () => {
+      dockApply.initLayoutHolder({ dockPx: { width: 1000, height: 400 } });
+      const holder = seedClassic();
+      const out = placement.runPanelOp(frame('open', { member: 'b', place: 'split' }));
+      expect(out.refusal).toBeUndefined();
+      expect(panelsByTile(holder.layout)).toEqual([['a'], ['b'], ['c'], ['terminal']]);
+      expect(holder.layout.items[0]).toMatchObject({ split: 'column' });
+    });
+
+    test('a default open with an edge keeps the floor on that edge axis', () => {
+      // s1 is 300 wide: halves of 150 px across its width are under the floor.
+      const holder = seedClassic();
+      placement.runPanelOp(frame('open', { member: 'b', edge: 'right' }));
+      expect(panelsByTile(holder.layout)).toEqual([['b'], ['c'], ['terminal']]);
     });
 
     test('with no room for a new tile, a split replaces the target panel instead', () => {
