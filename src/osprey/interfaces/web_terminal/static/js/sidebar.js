@@ -54,6 +54,7 @@ import { onChat } from './chat-events.js';
 import { DETACHED_DETAIL, SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
 import { TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { initSidebarResize } from './sidebar-resize.js';
+import { initSidebarTabKey } from './sidebar-tab-key.js';
 import { initSidebarFold } from './sidebar-fold.js';
 import { initSidebarDivider } from './sidebar-divider.js';
 import { allSessionsClick } from './sidebar-artifact-rows.js';
@@ -400,6 +401,7 @@ export function initSidebar() {
     toggle: document.getElementById('sidebar-toggle'),
   });
   initSidebarResize({ handle: document.getElementById('sidebar-resize'), collapsible });
+  initSidebarTabKey(collapsible.toggle);
   initDisclosures(sidebar);
   initAgentRow();
   initFades(sidebar);

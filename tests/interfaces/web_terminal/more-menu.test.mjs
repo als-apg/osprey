@@ -109,6 +109,9 @@ const FIXTURE = `
       <div data-theme-families></div>
     </div>
     <div class="osprey-popover-sep" role="separator"></div>
+    <button class="osprey-popover-item" type="button" role="menuitemcheckbox" aria-checked="true"
+            data-more="tab-toggle">Tab shows or hides the sidebar</button>
+    <div class="osprey-popover-sep" role="separator"></div>
     <button class="osprey-popover-item" id="more-settings" type="button" role="menuitem"
             data-drawer-trigger="settings-drawer">
       <svg class="osprey-ic" data-icon="sliders" aria-hidden="true"></svg>Settings
@@ -365,6 +368,19 @@ describe('rows with their own owners', () => {
     expect(mocks.openActivityLog).toHaveBeenCalledWith(getSessionId);
     expect(menu().hidden).toBe(true);
     expect(document.activeElement).toBe(button());
+  });
+
+  test('Tab shows or hides the sidebar: a checkbox that turns the Tab key off and on', () => {
+    boot();
+    openMenu();
+    const rowEl = row('[data-more="tab-toggle"]');
+    expect(rowEl.getAttribute('aria-checked')).toBe('true');
+    rowEl.click();
+    expect(rowEl.getAttribute('aria-checked')).toBe('false');
+    expect(localStorage.getItem('osprey-sidebar-tab-toggle')).toBe('off');
+    expect(menu().hidden).toBe(false);
+    rowEl.click();
+    expect(rowEl.getAttribute('aria-checked')).toBe('true');
   });
 
   test('Keyboard shortcuts opens beside the menu, which stays open', () => {

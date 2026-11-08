@@ -645,6 +645,12 @@ or press the same keys.
    to the sidebar. In the terminal, Ctrl+\\ sends SIGQUIT to the running
    program. To hide or show the labels in this state, click the toggle.
 
+You can also press Tab, also after a click inside a panel. Tab does not hide
+or show the labels when the cursor is in a text field, in the message box, in
+the terminal, or in an open menu or dialog. In those places, Tab does its
+usual work. Shift+Tab moves the focus back, as usual. To turn the Tab key off,
+open **More** and clear **Tab shows or hides the sidebar**.
+
 .. _web-terminal-pop-out:
 
 Open a pane in a new window
