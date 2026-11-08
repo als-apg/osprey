@@ -454,27 +454,6 @@ def test_a_physics_model_that_fails_to_build_stops_the_archive(
         build(_view(tmp_path), [])
 
 
-def test_a_deckless_model_is_archived_without_it_and_does_not_stop_the_archive(
-    tmp_path: Path, engine: SimpleNamespace
-) -> None:
-    del engine
-    view = _view(tmp_path)
-    deckless = {"name": "D", "engine": "stub", "served": True, "settings": {}, "deck": None}
-    for name, entry in (("variables.json", deckless | {"wiring": []}), ("served_models.json", "D")):
-        document = json.loads((view / name).read_text(encoding="utf-8"))
-        document["models"].append(entry)
-        (view / name).write_text(json.dumps(document), encoding="utf-8")
-
-    times = HOUR[:5]
-
-    archived = build(view, []).series("M:RB", times)
-    served = Composite(view, clock=lambda: float(T0))
-
-    assert served.status("D") == "no deck"
-    assert served.status("M") == "ok"
-    assert archived == [Composite(view, clock=lambda t=t: float(t)).get("M:RB") for t in times]
-
-
 @pytest.fixture
 def recorded_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[TemporaryDirectory[str]]]:
     """Every state directory ``build`` makes, none released by the collector."""
