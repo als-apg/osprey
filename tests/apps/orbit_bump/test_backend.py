@@ -889,13 +889,21 @@ def test_compute_on_a_non_default_model_solves_on_that_models_orm(client, app, s
 
 
 @pytest.mark.usefixtures("machine")
-def test_compute_refused_by_the_posture_is_403_with_the_phrase(client, app, sdk, verdicts) -> None:
+def test_compute_plans_under_a_refusing_posture_and_apply_stays_refused(
+    client, app, sdk, machine, verdicts
+) -> None:
     _built(app, sdk, "RING")
-    verdicts.reason = "writes are off for this session"
+    verdicts.reason = REASONS[0]
     answer = client.post(COMPUTE_ROUTE, json=_ask())
-    assert answer.status_code == 403
-    assert "writes are off" in answer.json()["detail"]
-    assert app.state.plans.current(OWNER) is None
+    assert answer.status_code == 201, answer.text
+    plan = answer.json()
+    assert plan["status"] == READY
+    assert all(row["verdict"]["allowed"] for row in plan["correctors"])
+    machine.writes.clear()
+    refused = _apply(client, plan)
+    assert refused.status_code == 403
+    assert refused.json()["detail"] == refusal_phrase(REASONS[0])
+    assert machine.writes == [] and _status(app, plan) == READY
 
 
 @pytest.mark.parametrize("value", [None, float("nan"), "garbage"])

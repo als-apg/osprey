@@ -82,10 +82,10 @@ confirmed or approved plan.
 model; nothing is measured. A new ORM discards the plans on that model not yet
 applied (``ready`` and ``not_applicable``); compute again.
 
-With writes off for the session's machine the panel turns read-only and names
-the reason (*Writes are off*): compute, discard and recompute are refused as
-well as apply, because a plan is a step towards a write. On a login that does
-not arm the app the panel shows state and the approval only.
+With writes off for the session's machine the panel names the reason
+(*Writes are off*) and refuses apply; compute, discard and recompute still
+work, so a bump can be planned and inspected. On a login that does not arm
+the app the panel shows state and the approval only.
 
 From the agent
 ==============
@@ -231,10 +231,9 @@ Nothing is written when an apply is refused.
   tolerance its setpoint declares. Compute again and approve the new plan.
   Rows marked ``no tolerance: not staleness-checked`` are not checked. Orbit
   motion since compute is not staleness.
-- **Writes off.** With writes off for the session's machine, compute is
-  refused as well as apply: the panel turns read-only and names the reason,
-  and ``plan_bump`` and ``apply_bump`` are refused. See
-  :ref:`how-to-apps-writes`.
+- **Writes off.** With writes off for the session's machine, apply and
+  ``apply_bump`` are refused and the panel names the reason; compute and
+  ``plan_bump`` still plan. See :ref:`how-to-apps-writes`.
 - **Unarmed login.** Reads state and approvals only; compute, discard and
   recompute are refused.
 - **Owner, target or model differ** from the plan's: refused. Compute on the

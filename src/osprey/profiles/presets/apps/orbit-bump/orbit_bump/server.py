@@ -823,11 +823,9 @@ def create_app(
 
     @app.post(COMPUTE_ROUTE, status_code=201)
     async def compute(body: ComputeRequest, request: Request) -> dict[str, Any]:
+        # Compute writes nothing, so it plans under any posture; apply is the gated step.
         owner = owner_of(request)
         target = target_of(owner)
-        stance = posture(target, owner)
-        if not stance["allowed"]:
-            raise HTTPException(403, stance["phrase"] or stance["reason"] or "writes are refused")
         models = offered()
         if body.model not in models:
             raise HTTPException(
