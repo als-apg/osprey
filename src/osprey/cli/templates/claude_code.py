@@ -341,6 +341,33 @@ def _graphdb_configured(config: dict) -> bool:
         return False
 
 
+def _pv_directory_context(config: Mapping[str, Any]) -> dict[str, bool]:
+    """The five ``pv_directory`` context keys, from :mod:`~osprey.services.pv_directory.resolve`.
+
+    A malformed section is warned about and read as absent, as
+    :func:`_graphdb_configured` reads a malformed graph store: the build's
+    validator refuses it, and a render does not abort over it.
+
+    Args:
+        config: Parsed ``config.yml`` mapping.
+
+    Returns:
+        Every predicate key, all false with no section or a malformed one.
+    """
+    from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
+
+    try:
+        resolved = resolve_section(config)
+    except SectionError as exc:
+        logger.warning(
+            "pv_directory is malformed (%s) — rendering as if no PV directory were "
+            "configured. Fix the key named above in config.yml and re-render.",
+            exc,
+        )
+        resolved = None
+    return predicates(resolved)
+
+
 def panel_declared_context(declares_panel: Callable[[str], bool]) -> dict[str, bool]:
     """The ctx keys the panel-derived MCP servers are conditioned on.
 
@@ -450,6 +477,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # left out of the render entirely rather than shipped as a tool that
         # can only fail.
         "graphdb_configured": _graphdb_configured(config),
+        # The pv_directory server's gate and its optional tools' gates, the five
+        # predicates resolve.py computes for every layer (merged before
+        # resolve_servers runs, as the two above are).
+        **_pv_directory_context(config),
         # Gate for the `event_dispatcher` MCP server, read the same way
         # `graphdb_configured` is (a plain truthiness test, merged before
         # resolve_servers runs). The predicate is deliberately the one that
