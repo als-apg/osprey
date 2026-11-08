@@ -389,7 +389,7 @@ button {
 .rail-context-submenu {
   flex-shrink: 0;
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
 }
 
