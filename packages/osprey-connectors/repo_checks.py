@@ -57,6 +57,12 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.pv_directory.contract.PutLog": (
         "an out-of-tree put-log backend subclasses it"
     ),
+    "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
+        "the framework's archive rewrite reads the burst window"
+    ),
+    "osprey_connectors.simulation.series.loss_refill_bound": (
+        "the framework's archive rewrite reads the loss refill bound"
+    ),
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
 }
