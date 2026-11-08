@@ -20,6 +20,12 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.6] - 2026-11-08
+
+### Added
+
+- Archiver scenarios have two new event shapes. A `burst` jumps by `amplitude` at its instant and decays exponentially over `decay_s`, optionally with a slower tail (`tail_share` of the amplitude decaying over `tail_decay_s`), as a vacuum gauge does after a gas burst. A `loss` drops a channel by `amount` in one step, and only the channel's top-off seed refills it: one shot a second from the first top-off refill after the loss. Neither moves a sample before its instant.
+
 ## [2026.11.5] - 2026-11-06
 
 ### Added
