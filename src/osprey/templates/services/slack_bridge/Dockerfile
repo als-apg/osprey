@@ -1,0 +1,229 @@
+# Image for the Slack bridge service (osprey.bridges.slack): a Socket Mode
+# client that receives Slack events over an outbound WebSocket and drives the
+# dispatch pipeline. No server, no Node — a plain `python -m` entrypoint.
+#
+# osprey install strategy (two cache-friendly layers):
+#   * deps layer  — primes the pinned framework release (+ its dependencies)
+#     from PyPI in one RUN. The bridge needs nothing beyond the framework's core
+#     deps (httpx, websockets and the stdlib), plus any local dependency delta
+#     staged as osprey-local-requirements.txt on dev builds. Its build cache is
+#     shared across projects and only rebuilds when the staged manifest changes.
+#   * wheel layer — when `osprey up --dev` stages a locally-built wheel
+#     into the build context, this later layer overlays it (so unreleased code
+#     is included). With no wheel staged it is a no-op.
+#   * source builds — `osprey up --dev` also stages osprey-lock-constraints.txt,
+#     the checkout's uv.lock exported as constraints. With it present the deps
+#     layer primes no release, and every install layer holds each third-party
+#     package to the version the lock holds (see the deps layer).
+# This image is built locally by `osprey up`; override with
+# OSPREY_SLACK_BRIDGE_IMAGE to use a prebuilt/published image.
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Optional site CA, for building (and running) behind a TLS-intercepting proxy
+# that re-signs traffic with a site CA — the same layer, in the same place, as
+# the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
+# context; the compose build stages the operator's `images.site_ca` there and
+# passes the name, because a COPY cannot reach outside the context. The
+# `.osprey-layer-anchor` sibling keeps the glob COPY matching when nothing is
+# staged, and with the ARG unset the RUN is a no-op. This layer sits BEFORE the
+# apt install below deliberately: that fetch verifies TLS against the system
+# store this extends.
+#
+# The ENVs point each tool family at the merged Debian bundle the install lands
+# in — pip trusts only its bundled certifi without PIP_CERT, and SSL_CERT_FILE
+# / REQUESTS_CA_BUNDLE cover Python's ssl module and requests. They are set
+# unconditionally and always name the merged bundle: with no CA staged they
+# restate each tool's own default, whereas a variable naming a path that may
+# not exist crashes an httpx client at construction. No NODE_EXTRA_CA_CERTS —
+# this image has no Node.
+ARG OSPREY_SITE_CA=""
+COPY .osprey-layer-anchor *.cr[t] *.pe[m] /tmp/ca-ctx/
+RUN if [ -n "$OSPREY_SITE_CA" ]; then \
+        cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
+        && update-ca-certificates; \
+    fi \
+ && rm -rf /tmp/ca-ctx
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+# Debian apt mirrors over HTTPS (plain-HTTP bulk fetches are throttled or
+# broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
+# bounded apt retries with backoff so a transient network blip mid-build does
+# not fail the whole image. Pipelining is disabled alongside those retries
+# because retries alone were seen not to cover every blip: a CI build lost one
+# 4.6 kB .deb to a peer connection reset while 70 other packages fetched fine
+# from the same host, with Acquire::Retries already in effect. Apt's default of
+# up to 10 requests per connection is the part of that failure we can act on —
+# one request per connection is marginally slower and strictly easier to
+# recover. Set for both schemes deliberately: these mirrors are rewritten to
+# HTTPS just above, and apt keeps no https entry in its config tree unless one
+# is written, so relying on a fallback from the http key is how this would
+# quietly become a no-op.
+#
+# The base image's docker-clean hook deletes every downloaded .deb after each
+# install, which keeps a plain layer small but would empty the apt cache mount
+# the installing RUNs below share across builds, so it is removed here. Every
+# RUN that installs packages mounts /var/cache/apt and /var/lib/apt/lists as
+# caches, so neither the archives nor the lists land in a layer.
+RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+    -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
+ && printf 'Acquire::Retries "5";\nAcquire::http::Pipeline-Depth "0";\nAcquire::https::Pipeline-Depth "0";\n' > /etc/apt/apt.conf.d/80-osprey-retries \
+ && rm -f /etc/apt/apt.conf.d/docker-clean
+
+# ── deps layer ───────────────────────────────────────────────────────────────
+# Prime the image with the pinned framework release and its dependencies. A C
+# toolchain is needed at install time to compile any native deps; it is purged
+# in this same RUN so it does not bloat the final image. Under `--dev` an
+# unreleased pin may not exist on PyPI: OSPREY_DEV=1 relaxes the failure to an
+# unpinned prime (the wheel layer below then overlays the real code); without it
+# a pin miss stays fatal. Any local dependency delta staged as
+# osprey-local-requirements.txt (dev builds only) is installed after the primer,
+# while the toolchain is still available; the `.osprey-layer-anchor` COPY
+# sibling keeps the glob matching when no manifest is staged, so this cache only
+# busts when the manifest content changes.
+#
+# Everything from FROM through this layer is the same, instruction for
+# instruction, in every Python service recipe, and `.osprey-layer-anchor` is the
+# same bytes in every context. That is what lets BuildKit run the framework
+# install once and share the layer across every service image a deploy builds;
+# whatever one image needs beyond it goes in a layer below this one.
+#
+# pip and apt fetch through BuildKit cache mounts, so a deps layer that does
+# rebuild (a new pin, a changed manifest) downloads only what changed, and
+# images building side by side draw on one cache. The apt mounts are locked:
+# apt keeps its own lock files in both directories, so two builds cannot use
+# them at once, and podman's builder accepts no private sharing mode. The lock
+# lasts the whole RUN, so two different deps layers building together take
+# turns; the service recipes share one deps layer, which builds only once.
+#
+# The installs here run under uv rather than pip: uv resolves without pip's
+# one-candidate-at-a-time metadata crawl and downloads in parallel, which on a
+# slow index is most of this layer's time. It is installed with pip from the
+# same index (so a site mirror still applies), handed pip's settings (the
+# constraint file for runtime and build dependencies, the site indexes with
+# pip's consider-every-index strategy, bytecode compilation), and uninstalled
+# before the RUN ends, so no image ships it. Later layers install with pip.
+ARG OSPREY_VERSION=""
+ARG OSPREY_DEV=""
+# OSPREY_PIP_PRE=1 says the pin is a pre-release. osprey-connectors releases
+# on its own tags, the framework declares only a floor on it, and an installer
+# prefers a stable release for a requirement that names no pre-release (that
+# floor), so the deps layer then resolves as a whole with --prerelease=allow,
+# which lets it take the newest connectors pre-release.
+ARG OSPREY_PIP_PRE=""
+# The three pip ARGs are the rest of the site build settings the compose build
+# hands this image (the same producer that passes OSPREY_SITE_CA above).
+# Declaring them is what makes them arrive: Docker drops a --build-arg no
+# recipe declares, with a warning nobody reads, so an internal mirror
+# configured once in `config.yml` would reach the project image and quietly
+# leave this one resolving from PyPI. PIP_INDEX_URL and PIP_EXTRA_INDEX_URL are
+# pip's own environment names, so the declaration alone delivers them and an
+# unset one arrives empty, which pip drops before it parses its configuration.
+# PIP_NO_PROXY is not a pip name — it is the proxy bypass list, mapped onto
+# NO_PROXY/no_proxy in the deps RUN below, and only when it is set: exporting
+# it empty would undo the bridge on the line above it.
+ARG PIP_NO_PROXY=""
+ARG PIP_INDEX_URL=""
+ARG PIP_EXTRA_INDEX_URL=""
+# A build from an osprey source checkout (`osprey up --dev`) also stages
+# osprey-lock-constraints.txt, the checkout's uv.lock exported as constraints,
+# and the file's presence (not OSPREY_DEV) puts this layer on the lock-driven
+# install: nothing is primed from a released framework, the staged wheels' own
+# dependency list is installed with every third-party package held to the
+# version the lock holds, and the file is kept at
+# /opt/osprey/lock-constraints.txt so that every later install layer is held to
+# it as well. The lock's lines are appended to the setuptools constraint file
+# below rather than replacing it, so they reach uv's build environments too,
+# and a lock that pins setuptools>=84 fails this layer loudly instead of
+# quietly dropping the fix that constraint is for. With no file staged (a
+# release build) the layer is exactly what it was. The `.osprey-layer-anchor`
+# sibling keeps the glob COPY matching either way, and the file is the same
+# bytes in every context, so the layer stays shared.
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] osprey-lock-constraints.tx[t] /tmp/deps-ctx/
+# setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
+# fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
+# where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
+# pip's isolated build environments. Drop once a fixed release is out.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
+    [ -n "$OSPREY_VERSION" ] || { echo "ERROR: OSPREY_VERSION build-arg is required" >&2; exit 1; } \
+    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_BUILD_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
+              UV_SYSTEM_PYTHON=1 UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 \
+              UV_INDEX_STRATEGY=unsafe-best-match \
+    && { [ -z "$PIP_INDEX_URL" ] || export UV_DEFAULT_INDEX="$PIP_INDEX_URL"; } \
+    && { [ -z "$PIP_EXTRA_INDEX_URL" ] || export UV_INDEX="$PIP_EXTRA_INDEX_URL"; } \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && pip install "uv==0.12.21" \
+    && if [ -f /tmp/deps-ctx/osprey-lock-constraints.txt ]; then \
+           echo "Source build: installing the staged wheels' dependencies at the checkout's uv.lock versions" \
+           && mkdir -p /opt/osprey \
+           && cp /tmp/deps-ctx/osprey-lock-constraints.txt /opt/osprey/lock-constraints.txt \
+           && cat /opt/osprey/lock-constraints.txt >> /tmp/deps-ctx/pip-constraints.txt \
+           && uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+       else \
+           { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION" \
+             || if [ "$OSPREY_DEV" = "1" ]; then \
+                    echo "WARNING: pin unreleased, priming with latest" \
+                    && uv pip install "osprey-framework" ; \
+                else \
+                    exit 1 ; \
+                fi ; } \
+           && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
+                  uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+              fi ; \
+       fi \
+    && pip uninstall -y uv \
+    && apt-get purge -y build-essential python3-dev \
+    && apt-get autoremove -y \
+    && rm -rf /tmp/deps-ctx
+
+# ── wheel layer ──────────────────────────────────────────────────────────────
+# Overlay a locally-built wheel when `osprey up --dev` stages one into the build
+# context. `.osprey-layer-anchor` is a guaranteed sibling of the COPY, so the
+# glob always matches at least one file; `*.wh[l]` optionally pulls in the
+# wheel. The wheel is installed plain (no extra — the deps layer already primed
+# every extra), then force-reinstalled --no-deps to guarantee its own modules
+# win, and `pip check` guards against residual mismatches. No wheel staged →
+# no-op, image already complete after the deps layer.
+#
+# The overlay then asserts that the `pyaml` import package has exactly one
+# owning distribution (osprey.deployment.pyaml_owner): every pyAML distribution
+# writes the same `pyaml/` files, and neither the resolver nor `pip check` sees
+# two of them installed together. The manifest above is staged only beside these
+# wheels, so every build that installed it runs the assertion.
+#
+# On the lock-driven path (see the deps layer) the first install runs under
+# /opt/osprey/lock-constraints.txt, so anything the wheels add beyond what the
+# earlier layers installed is held to the checkout's uv.lock as well; the
+# staged wheels satisfy one another, so nothing resolves an osprey
+# distribution from the index.
+COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
+        echo "Overlaying locally-built osprey wheel (dev build)" \
+        && lock= && { [ ! -f /opt/osprey/lock-constraints.txt ] || lock="-c /opt/osprey/lock-constraints.txt" ; } \
+        && pip install $lock /tmp/ctx/*.whl \
+        && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
+        && python -m osprey.deployment.pyaml_owner \
+        && pip check ; \
+    fi \
+    && rm -rf /tmp/ctx
+
+# Project metadata, kept as the final metadata-only layer so the shared deps
+# cache chain above stays identical across projects (a per-project value here
+# never invalidates the framework install below it).
+ARG OSPREY_PROJECT_NAME=""
+LABEL com.osprey.project=$OSPREY_PROJECT_NAME
