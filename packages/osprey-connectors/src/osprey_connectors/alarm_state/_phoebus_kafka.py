@@ -57,7 +57,9 @@ class PhoebusAlarmState(AlarmState):
     surface (``start``, ``stop``, ``assignment``, ``end_offsets``,
     ``seek_to_beginning``, ``position``, ``getmany``), already subscribed to the
     topic. A topic re-read after a lost consumer folds into a new snapshot, so the
-    old one keeps answering until the new one has caught up.
+    old one keeps answering until the new one has caught up. A read of a started
+    feed waits up to its deadline for the load to catch up or to find the broker
+    unreachable.
     """
 
     def __init__(
@@ -74,6 +76,8 @@ class PhoebusAlarmState(AlarmState):
         self._snapshot = FeedSnapshot()
         self._caught_up = False
         self._unreachable: str | None = None
+        #: Set once a read has its answer: caught up, or the broker found unreachable.
+        self._settled = asyncio.Event()
         self._last_contact = 0.0
         self._cannot_start: Unavailable | None = None
 
@@ -89,22 +93,17 @@ class PhoebusAlarmState(AlarmState):
         self._snapshot = FeedSnapshot()
         self._caught_up = False
         self._unreachable = None
+        self._settled.clear()
 
-    async def state_for(
-        self,
-        pv: str,
-        deadline: float,  # noqa: ARG002 - answered from memory
-    ) -> AlarmStateRecord | Unavailable | None:
+    async def state_for(self, pv: str, deadline: float) -> AlarmStateRecord | Unavailable | None:
+        await self._settling(deadline)
         unanswered = self._unanswered()
         if unanswered is not None:
             return unanswered
         return state_record(self._snapshot, pv, stale=self._stale())
 
-    async def config_for(
-        self,
-        pv: str,
-        deadline: float,  # noqa: ARG002 - answered from memory
-    ) -> AlarmConfigRecord | Unavailable:
+    async def config_for(self, pv: str, deadline: float) -> AlarmConfigRecord | Unavailable:
+        await self._settling(deadline)
         unanswered = self._unanswered()
         return unanswered if unanswered is not None else config_record(self._snapshot, pv)
 
@@ -114,6 +113,14 @@ class PhoebusAlarmState(AlarmState):
             return before_catch_up
         age = _now() - self._last_contact
         return f"read {self._snapshot.messages} messages; last contact {age:.0f} s ago"
+
+    async def _settling(self, deadline: float) -> None:
+        """Wait up to *deadline* seconds for a started feed to catch up or be found unreachable."""
+        if self._task is None or self._settled.is_set() or deadline <= 0:
+            return
+        with suppress(TimeoutError):
+            async with asyncio.timeout(deadline):
+                await self._settled.wait()
 
     def _unanswered(self) -> Unavailable | None:
         before_catch_up = self._before_catch_up()
@@ -153,6 +160,7 @@ class PhoebusAlarmState(AlarmState):
                 reason = str(exc) or type(exc).__name__
                 logger.warning("alarm feed lost: %s", reason)
                 self._unreachable = f"alarm broker cannot be reached: {reason}"
+                self._settled.set()
             await asyncio.sleep(_RETRY_S)
 
     async def _follow(self) -> None:
@@ -180,6 +188,7 @@ class PhoebusAlarmState(AlarmState):
                         self._snapshot = fresh
                         self._caught_up = True
                         self._unreachable = None
+                        self._settled.set()
                         self._last_contact = last_check = _now()
                     elif _now() - last_check >= _LOAD_DEADLINE_S:
                         raise ConnectionError(f"no message in {_LOAD_DEADLINE_S:g} s of loading")

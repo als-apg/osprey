@@ -122,8 +122,12 @@ async def _until(predicate, timeout: float = 5.0) -> None:
     await asyncio.wait_for(poll(), timeout)
 
 
-async def _answer(backend: PhoebusAlarmState, pv: str = PV):
-    return await backend.state_for(pv, deadline=1.0)
+async def _answer(backend: PhoebusAlarmState, pv: str = PV, deadline: float = 1.0):
+    return await backend.state_for(pv, deadline=deadline)
+
+
+def _elapsed(since: float) -> float:
+    return asyncio.get_running_loop().time() - since
 
 
 async def _caught_up(backend: PhoebusAlarmState) -> None:
@@ -150,11 +154,13 @@ async def test_reads_answer_from_the_fold_after_catch_up():
     await backend.aclose()
 
 
-async def test_a_read_before_start_is_still_loading():
+async def test_a_read_before_start_is_still_loading_at_once():
     backend = _backend(FakeConsumer([Record(STATE_KEY, _major())]))
-    assert await _answer(backend) == LOADING
-    assert await backend.config_for(PV, deadline=1.0) == LOADING
-    assert await backend.probe(deadline=1.0) == LOADING
+    began = asyncio.get_running_loop().time()
+    assert await _answer(backend, deadline=5.0) == LOADING
+    assert await backend.config_for(PV, deadline=5.0) == LOADING
+    assert await backend.probe(deadline=5.0) == LOADING
+    assert _elapsed(began) < 1.0
 
 
 async def test_a_read_before_catch_up_is_loading_never_clear_or_out_of_the_tree():
@@ -164,8 +170,8 @@ async def test_a_read_before_catch_up_is_loading_never_clear_or_out_of_the_tree(
     await backend.start()
     await _until(lambda: consumer.polls > 3)
 
-    assert await _answer(backend) == LOADING
-    assert await backend.config_for("OTHER:PV", deadline=1.0) == LOADING
+    assert await _answer(backend, deadline=0.0) == LOADING
+    assert await backend.config_for("OTHER:PV", deadline=0.0) == LOADING
 
     consumer.deliver.set()
     await _caught_up(backend)
@@ -182,12 +188,65 @@ async def test_a_partly_read_topic_is_still_loading():
     polls = consumer.polls
     await _until(lambda: consumer.polls > polls + 3)
 
-    assert await _answer(backend) == LOADING
+    assert await _answer(backend, deadline=0.0) == LOADING
 
     consumer.batch_size = None
     consumer.deliver.set()
     await _caught_up(backend)
     assert (await _answer(backend)).severity == "MAJOR"
+    await backend.aclose()
+
+
+async def test_a_read_before_catch_up_waits_and_answers_once_the_feed_catches_up():
+    consumer = FakeConsumer([Record(STATE_KEY, _major())])
+    consumer.deliver.clear()
+    backend = _backend(consumer)
+    await backend.start()
+    await _until(lambda: consumer.polls > 3)
+
+    async def release_after_the_read_began():
+        await asyncio.sleep(0.05)
+        assert not backend._caught_up
+        consumer.deliver.set()
+
+    releasing = asyncio.create_task(release_after_the_read_began())
+    state = await _answer(backend, deadline=5.0)
+    await releasing
+
+    assert isinstance(state, AlarmStateRecord)
+    assert state.severity == "MAJOR"
+    await backend.aclose()
+
+
+async def test_a_read_whose_deadline_runs_out_first_answers_loading_and_leaves_no_task():
+    consumer = FakeConsumer([Record(STATE_KEY, _major())])
+    consumer.deliver.clear()
+    backend = _backend(consumer)
+    await backend.start()
+    await _until(lambda: consumer.polls > 3)
+    before = asyncio.all_tasks()
+
+    began = asyncio.get_running_loop().time()
+    assert await _answer(backend, deadline=0.05) == LOADING
+    assert await backend.config_for(PV, deadline=0.05) == LOADING
+    assert _elapsed(began) >= 0.09
+
+    assert asyncio.all_tasks() - before == set()
+    await backend.aclose()
+
+
+async def test_an_unreachable_broker_answers_at_once_without_spending_the_deadline():
+    backend = _backend(FakeConsumer(start_error=ConnectionError("broker down")))
+    await backend.start()
+
+    began = asyncio.get_running_loop().time()
+    state = await _answer(backend, deadline=5.0)
+    config = await backend.config_for(PV, deadline=5.0)
+
+    assert _elapsed(began) < 1.0
+    for answer in (state, config):
+        assert isinstance(answer, Unavailable)
+        assert "cannot be reached" in answer.reason
     await backend.aclose()
 
 
@@ -234,7 +293,7 @@ async def test_a_broker_lost_while_loading_stops_answering_loading(clock):
     backend = _backend(consumer)
     await backend.start()
     await _until(lambda: consumer.polls > 3)
-    assert await _answer(backend) == LOADING
+    assert await _answer(backend, deadline=0.0) == LOADING
 
     clock.now += _phoebus_kafka._LOAD_DEADLINE_S
     await _until(lambda: backend._unreachable is not None)
@@ -259,7 +318,7 @@ async def test_a_message_while_loading_restarts_the_load_deadline(clock):
     clock.now += most_of_it
     polls = consumer.polls
     await _until(lambda: consumer.polls > polls + 3)
-    assert await _answer(backend) == LOADING
+    assert await _answer(backend, deadline=0.0) == LOADING
 
     clock.now += most_of_it
     await _until(lambda: backend._unreachable is not None)
