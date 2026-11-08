@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import html
-import json
 import logging
 import math
 import os
@@ -57,6 +56,7 @@ from osprey.apps.sdk import (
     OWNER_STATE_KEY,
     ModelMembers,
     bind_owner,
+    canonical_json,
     configure_app,
     owner_from_header,
     owner_target,
@@ -186,10 +186,7 @@ def _call_bound(section: Mapping[str, Any], target: str) -> float:
 def setpoint_digest(correctors: Iterable[Mapping[str, Any]]) -> str:
     """The sha256 of the canonical JSON ``[[setpoint_addr, new], ...]``, in plan order."""
     pairs = [[row["setpoint_addr"], row["new"]] for row in correctors]
-    text = json.dumps(
-        pairs, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
-    )
-    return hashlib.sha256(text.encode("ascii")).hexdigest()
+    return hashlib.sha256(canonical_json(pairs).encode("ascii")).hexdigest()
 
 
 def _width(line: str) -> int:

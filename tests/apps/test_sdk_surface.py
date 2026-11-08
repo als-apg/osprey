@@ -58,6 +58,8 @@ SDK_NAMES = {
     "WriteVerdictView",
     "bridges_for_target",
     "audit_surface",
+    "canonical_json",
+    "input_digest",
 }
 
 

@@ -18,7 +18,9 @@ from osprey.apps.sdk._approval import (
     ApprovalRefused,
     BoundState,
     audit_surface,
+    canonical_json,
     check_approved_call,
+    input_digest,
 )
 from osprey.apps.sdk._bridges import bridges_for_target
 from osprey.apps.sdk._facts import facility_file, read_facts, tool_keys
@@ -84,6 +86,7 @@ __all__ = [
     "audit_surface",
     "bind_owner",
     "bridges_for_target",
+    "canonical_json",
     "check_approved_call",
     "closed_orbit_models",
     "command_write",
@@ -91,6 +94,7 @@ __all__ = [
     "current_tool_use_id",
     "facility_file",
     "guarded_run_dir",
+    "input_digest",
     "load_by_path",
     "lock",
     "make_error",
