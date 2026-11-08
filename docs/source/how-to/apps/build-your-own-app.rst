@@ -212,7 +212,9 @@ channel, ``read_multiple_channels``. The facility description — which elements
 exist, their channels, a model's BPMs and correctors — comes from the SDK
 (``facility_file``, ``read_facts``, ``model_members``,
 ``model_response_matrix``), so the app carries no facility knowledge of its
-own and moves to another facility with the deployment.
+own and moves to another facility with the deployment. The Bluesky bridges the
+deployment runs for a target come from ``bridges_for_target(target)``: lane
+name to bridge URL, empty when none.
 
 The tool server
 ===============
