@@ -87,6 +87,13 @@ signal, not the bare "it runs" list.
 Benchmark it yourself
 ---------------------
 
+.. note::
+
+   This benchmark is at its very beginning, not an exhaustive test of OSPREY with open
+   or frontier models. It will grow: more Tier 2 tasks, and facilities beyond the
+   storage ring, such as a free-electron laser or other scientific instruments.
+   Contributions are very welcome; see :doc:`/contributing/index`.
+
 The numbers are reproducible. OSPREY ships the benchmark toolchain under
 ``scripts/benchmark/`` (see its `README
 <https://github.com/als-apg/osprey/blob/main/scripts/benchmark/README.md>`_): it runs the agentic tests of
