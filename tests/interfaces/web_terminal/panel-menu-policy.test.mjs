@@ -889,16 +889,19 @@ describe('revealInSidebar', () => {
   };
   /** @type {any} */
   let scroll;
+  // happy-dom's own scrollIntoView, put back after each test: the worker can
+  // share Element.prototype with the test files that run after this one.
+  const nativeScroll = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollIntoView');
 
   beforeEach(() => {
     reveal.collapsed = false;
     scroll = vi.fn();
-    // jsdom has no scrollIntoView.
     /** @type {any} */ (Element.prototype).scrollIntoView = scroll;
   });
   afterEach(() => {
     reveal.collapsed = false;
-    delete (/** @type {any} */ (Element.prototype).scrollIntoView);
+    if (nativeScroll) Object.defineProperty(Element.prototype, 'scrollIntoView', nativeScroll);
+    else delete (/** @type {any} */ (Element.prototype).scrollIntoView);
   });
 
   test('a collapsed sidebar and a folded group: expands both, then scrolls to and flashes the row', () => {
