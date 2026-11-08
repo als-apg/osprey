@@ -568,17 +568,17 @@ def test_concurrent_cells_build_in_port_blocks_of_their_own(tmp_path, monkeypatc
     and is refused (HTTP 401)."""
     cfg = _cfg()
     results = tmp_path / "results"
-    running: dict[str, str] = {}
+    running: dict[str, str] = {}  # summary file -> block, one per cell
     seen: list[set[str]] = []
     lock = threading.Lock()
 
     def fake_run_cell(cell, results_dir, log_path, extra_env):  # noqa: ARG001 - run_cell's signature
         with lock:
-            running[cell.model] = extra_env["OSPREY_E2E_PORT_BASE"]
+            running[cell.summary_json] = extra_env["OSPREY_E2E_PORT_BASE"]
         time.sleep(0.2)
         with lock:
             seen.append(set(running.values()))
-            running.pop(cell.model)
+            running.pop(cell.summary_json)
         (results_dir / cell.summary_json).write_text("{}")
         return 0
 
