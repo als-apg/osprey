@@ -20,6 +20,14 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.7] - 2026-11-08
+
+### Fixed
+
+- The archive seed no longer fails a simulator view that has a model with no
+  deck. `osprey_connectors.simulation.status.is_error()` is the one rule for
+  which model statuses are errors: `ok` and `no deck` are not.
+
 ## [2026.11.6] - 2026-11-08
 
 ### Added
