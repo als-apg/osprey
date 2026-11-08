@@ -680,9 +680,9 @@ artifact with a form, so the artifact tools above list, read and delete them
 <li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> – List the panels available in the Web Terminal (built-in and
 custom), the dock’s layout (every tile with the panel it shows, the
 terminal included) and its <code class="docutils literal notranslate"><span class="pre">rev</span></code>.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> – Put a panel on screen: it replaces the panel in the
-service tile used last (which keeps its rail entry), or is focused where it
-already is.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">open_panel</span></code> – Put a panel on screen: in a new tile split off the service
+tile used last, or, with <code class="docutils literal notranslate"><span class="pre">place=&quot;replace&quot;</span></code>, in that tile (the replaced panel
+keeps its rail entry); focused where it already is.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">open_panel_set</span></code> – Open several panels in one call, side by side in tiles
 of their own.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">arrange_workspace</span></code> – Lay out the service tiles from a configured preset or

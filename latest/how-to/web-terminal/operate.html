@@ -625,8 +625,9 @@ panel’s name, up to three of the panel’s icons, <strong>⋯</strong>, <stron
 and <strong>×</strong>.</p>
 <p><strong>⋯</strong>, or a right-click on the header, opens the tile’s menu. <strong>This panel</strong>
 lists the panel’s own actions and any icons a narrow tile has no room for.
-<strong>Tile</strong> lists the tile’s actions, among them <strong>Reload</strong> and, when the panel
-has a documentation page, <strong>Help</strong>.</p>
+<strong>Tile</strong> lists the tile’s actions, among them <strong>Open panel</strong> (▸ <strong>Right</strong>,
+<strong>Down</strong>, <strong>Replace here</strong>), <strong>Reload</strong> and, when the panel has a
+documentation page, <strong>Help</strong>. Shift+right-click shows the browser’s own menu.</p>
 <p>A panel you open — from its sidebar row, from a link, from the <strong>+</strong> menu,
 or one the agent opens for you — takes the service tile you used last and
 replaces the panel it showed. Nothing resizes,
@@ -1077,10 +1078,10 @@ with state, age and message count, and <strong>+ New session</strong>.</p></li>
 <li><p>While the agent is answering in chat, a switch from any of these asks
 first: <strong>Cancel</strong>, or <strong>Stop &amp; switch</strong>.</p></li>
 </ul>
-<p>Right-click a session to pin it, rename it, export its transcript or group
-its artifacts by day or by kind, or delete a past session with its artifacts;
-a run to open its result, approval preview or code. Runs and artifacts also
-have <strong>Delete…</strong>.</p>
+<p>Right-click a session to pin, rename, export or copy its ID, or delete a
+past session with its artifacts; a run, here or its row in chat, to open its
+result, approval preview or code; <strong>Sessions</strong> to start a session or <strong>Group by</strong> <strong>Kind</strong> or
+<strong>Activity</strong>. Runs and artifacts also have <strong>Delete…</strong>.</p>
 <p>Pinned sessions (the pin button on a row) also show in the <strong>Pinned</strong> group
 above <strong>Sessions</strong>; right-click its heading to rename or hide it. <strong>Show pinned
 sessions</strong>, on the <strong>Sessions</strong> menu or on empty sidebar space, brings it back.</p>
@@ -1098,24 +1099,24 @@ open it from the palette.</p>
 <p>To change a group, right-click its heading (or focus its name and press
 Shift+F10). The menu has these items:</p>
 <ul class="simple">
-<li><p><strong>Rename</strong>. Type the new name and press Enter. Press Escape to keep the old
+<li><p><strong>Rename…</strong>. Type the new name and press Enter. Press Escape to keep the old
 name. A name can have up to 40 characters. An empty name keeps the old one.</p></li>
 <li><p><strong>New group below</strong>. This adds an empty group below this group and opens
 its name for editing.</p></li>
 <li><p><strong>Move up</strong> and <strong>Move down</strong>. These move the group in the sidebar.</p></li>
-<li><p><strong>Delete group</strong>. This item shows only for a group that you added. The
-rows of the group go back to <strong>Apps</strong>. You cannot delete <strong>Apps</strong> or
-<strong>System</strong>, but you can rename them.</p></li>
+<li><p><strong>Collapse group</strong> or <strong>Expand group</strong>.</p></li>
+<li><p><strong>Delete group</strong>. The rows of the group go back to <strong>Apps</strong>. It is
+disabled for <strong>Apps</strong> and <strong>System</strong>, but you can rename them.</p></li>
 </ul>
 <p>Double-click a group’s name to fold it down to its heading, and double-click
 again to unfold it. <strong>Sessions</strong>, the first group, has no
-heading, so it has no menu and always stays first. To make it taller, drag the
+heading and always stays first. To make it taller, drag the
 faint line below it; double-click the line to go back to automatic height.</p>
 <p>To move a row to a different group, do one of these:</p>
 <ul class="simple">
-<li><p>Right-click the row and pick <strong>Move to</strong> and the name of the group. Pick
-<strong>Move to new group…</strong> to put the row in a new group below its current
-group. Then type the name of the new group.</p></li>
+<li><p>Right-click the row and pick <strong>Move to</strong> ▸ and the name of the group, or
+<strong>New group…</strong> to put the row in a new group below its current group.
+Then type the name of the new group.</p></li>
 <li><p>Drag the row into the other group. Release it where it must go.</p></li>
 </ul>
 <p>You can move each row except <strong>Sessions</strong>. A group without rows shows “No
@@ -1136,6 +1137,11 @@ or press the same keys.</p>
 to the sidebar. In the terminal, Ctrl+\ sends SIGQUIT to the running
 program. To hide or show the labels in this state, click the toggle.</p>
 </div>
+<p>You can also press Tab, also after a click inside a panel. Tab does not hide
+or show the labels when the cursor is in a text field, in the message box, in
+the terminal, or in an open menu or dialog. In those places, Tab does its
+usual work. Shift+Tab moves the focus back, as usual. To turn the Tab key off,
+open <strong>More</strong> and clear <strong>Tab shows or hides the sidebar</strong>.</p>
 </section>
 <section id="open-a-pane-in-a-new-window">
 <span id="web-terminal-pop-out"></span><h3>Open a pane in a new window<a class="headerlink" href="#open-a-pane-in-a-new-window" title="Link to this heading">#</a></h3>
@@ -1164,7 +1170,8 @@ in a new window. Its <strong>Open in new window</strong> button and row are disa
 </section>
 <section id="the-more-menu">
 <h3>The More menu<a class="headerlink" href="#the-more-menu" title="Link to this heading">#</a></h3>
-<p><strong>☰ More</strong> shows your user name and role at the top. It holds the theme
+<p><strong>☰ More</strong>, or a right-click on the sidebar footer, shows your user name and
+role at the top. It holds the theme
 (see <a class="reference internal" href="theming.html"><span class="doc">Theming</span></a>), <strong>Settings</strong> and the tour.</p>
 </section>
 <section id="sign-out">
