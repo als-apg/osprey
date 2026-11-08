@@ -386,10 +386,19 @@ describe('the compute and apply card', () => {
 
   // -- plan card ------------------------------------------------------------
 
-  it('lists channel, now, new, delta and the declared limit per row', () => {
+  it('lists now, delta, new and the declared limit per row in the Correctors box', () => {
     const { fetcher } = backend({});
     mount(fetcher, state({ plan: plan() }));
-    expect(cell(root, 'H1', 'channel')).toBe('H1:SP');
+    expect(field(root, 'card').closest('.osprey-card')?.textContent).toContain('Correctors');
+    expect([...planRow(root, 'H1').children].map((td) => td.getAttribute('data-cell'))).toEqual([
+      'corrector',
+      'now',
+      'delta',
+      'new',
+      'verdict',
+      'note',
+      'outcome',
+    ]);
     expect(cell(root, 'H1', 'now')).toBe('+1.000');
     expect(cell(root, 'H1', 'new')).toBe('+1.500');
     expect(cell(root, 'H1', 'delta')).toBe('+0.500');
@@ -507,6 +516,29 @@ describe('the compute and apply card', () => {
     expect(field(root, 'card').textContent).toContain('the rows do not fit 20 display lines');
   });
 
+  it('names the setpoint count on Apply and the plan at the end of the actions row', () => {
+    const { fetcher } = backend({});
+    mount(fetcher, state({ plan: plan() }));
+    expect(button(root, 'apply').textContent).toBe('Apply 2 setpoints…');
+    expect(field(root, 'plan-status').textContent).toBe('plan #p1 · 1 target, 2 correctors');
+  });
+
+  it('keeps Compute enabled with writes off and gates only Apply', () => {
+    const { fetcher } = backend({});
+    mount(
+      fetcher,
+      state({
+        plan: plan(),
+        posture: { allowed: false, reason: 'off', phrase: 'Writes are off' },
+      })
+    );
+    setSelection(root, { targets: { B2: 0.5 } });
+    expect(button(root, 'compute').hidden).toBe(false);
+    expect(button(root, 'compute').disabled).toBe(false);
+    expect(button(root, 'apply').disabled).toBe(true);
+    expect(field(root, 'apply-note').textContent).toBe('Writes are off');
+  });
+
   it('shows the posture phrase on a disabled Apply', () => {
     const { fetcher } = backend({});
     mount(
@@ -535,7 +567,7 @@ describe('the compute and apply card', () => {
     button(root, 'apply').click();
     const confirm = field(root, 'confirm');
     expect(confirm.hidden).toBe(false);
-    expect(confirm.textContent).toContain('H1:SP');
+    expect(confirm.querySelector('[data-cell="channel"]')?.textContent).toBe('H1:SP');
     expect(confirm.textContent).toContain('H2:SP');
     expect(confirm.textContent).toContain('+1.500');
     expect(confirm.textContent).toContain('−2.250');
@@ -555,7 +587,9 @@ describe('the compute and apply card', () => {
     mount(fetcher, state({ plan: plan() }));
     openConfirm(root);
     button(root, 'confirm-apply').click();
-    await vi.waitFor(() => expect(field(root, 'card').textContent).toContain('partially_applied'));
+    await vi.waitFor(() =>
+      expect(field(root, 'plan-status').textContent).toBe('partially_applied')
+    );
     expect(calls.find((call) => call.url === 'api/apply')?.body).toEqual({
       plan_id: 'p1',
       setpoint_digest: 'abc123',

@@ -142,6 +142,10 @@
   fill: none;
 }
 
+.ob-strip .ob-delta {
+  fill-opacity: 0.9;
+}
+
 .ob-strip .ob-s,
 .ob-strip .ob-label,
 .ob-strip .ob-zoom-select {
@@ -205,16 +209,17 @@
 }
 
 .ob-actions .ob-meta {
-  margin: 0 0 0 auto;
+  margin: 0;
 }
 
-.ob-body > [data-field='card'] {
-  margin-top: 10px;
+.ob-actions .ob-status {
+  margin-left: auto;
 }
 
-.ob-body > [data-field='card'] > h3 {
-  justify-content: flex-start;
-  gap: var(--space-1, 4px);
+/* Apply writes to the machine: the warning outline, as in the mockup. */
+.osprey-btn.ob-apply {
+  color: var(--color-warning);
+  border-color: var(--color-warning);
 }
 
 /* The bump and plan tables. */
@@ -243,9 +248,9 @@
 
 .ob-table th:first-child,
 .ob-table td:first-child,
-.ob-table th:not([data-head]):nth-child(2),
-.ob-table th:not([data-head]):nth-child(6),
-.ob-table th:not([data-head]):nth-child(8),
+.ob-table [data-head='channel'],
+.ob-table [data-head='verdict'],
+.ob-table [data-head='outcome'],
 .ob-table [data-cell='channel'],
 .ob-table [data-cell='verdict'],
 .ob-table [data-cell='outcome'] {
@@ -255,6 +260,7 @@
 .ob-table [data-cell='verdict'],
 .ob-table [data-cell='outcome'] {
   font-family: var(--font-display);
+  white-space: normal;
 }
 
 .ob-table td.ob-meta {

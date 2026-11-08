@@ -263,6 +263,33 @@ describe('the orbit-bump strip', () => {
     expect(tick(root, 'H2').classList.contains('on')).toBe(false);
   });
 
+  it("draws each plan corrector's step as a bar on the corrector row, signed", () => {
+    /** @type {Plan} */
+    const plan = {
+      id: 'p2',
+      model: 'RING',
+      plane: 'x',
+      status: 'ready',
+      targets: { B2: 0.5 },
+      correctors: [
+        { element: 'H1', delta: 1 },
+        { element: 'H2', delta: -0.5 },
+      ],
+    };
+    showState(root, state({ plan }));
+    const bar = (/** @type {string} */ element) => {
+      const found = svg(root).querySelector(`.ob-delta[data-element="${element}"]`);
+      if (!found) throw new Error(`no bar for ${element}`);
+      return found;
+    };
+    const row = Number(tick(root, 'H1').getAttribute('y'));
+    const up = bar('H1');
+    const down = bar('H2');
+    expect(Number(up.getAttribute('y')) + Number(up.getAttribute('height'))).toBeCloseTo(row);
+    expect(Number(down.getAttribute('y'))).toBeCloseTo(row);
+    expect(Number(down.getAttribute('height'))).toBeCloseTo(Number(up.getAttribute('height')) / 2);
+  });
+
   it('draws no predicted orbit without a plan', () => {
     showState(root, state());
     expect(svg(root).querySelector('.ob-predicted')).toBeNull();

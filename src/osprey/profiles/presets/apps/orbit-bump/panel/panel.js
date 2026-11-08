@@ -336,15 +336,17 @@ function renderHeader(root, panel) {
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 // Strip geometry in SVG user units, after the mockup's draw(): a plot band over
-// a corrector row, a left margin for the vertical labels.
+// a corrector row, a left margin for the vertical labels. A plan's Δ bars stand
+// on the corrector row, up for a positive step and down for a negative one.
 const STRIP_W = 1000;
-const STRIP_H = 250;
+const STRIP_H = 222;
 const STRIP_LEFT = 34;
 const STRIP_RIGHT = 12;
 const STRIP_TOP = 10;
-const COR_Y = 196;
+const PLOT_BOTTOM = 150;
+const DELTA_H = 20;
+const COR_Y = PLOT_BOTTOM + DELTA_H + 4;
 const COR_H = 8;
-const PLOT_BOTTOM = COR_Y - 24;
 const STRIP_MID = (STRIP_TOP + PLOT_BOTTOM) / 2;
 const HEADROOM = 1.15;
 const S_TICKS = 4;
@@ -717,8 +719,14 @@ function renderStrip(root, panel) {
   const position = state?.orbit?.position ?? {};
   const golden = state?.orbit?.golden ?? {};
   const plan = state?.plan;
-  const predicted =
-    plan && plan.model === model.name && plan.plane === plane ? (plan.predicted ?? null) : null;
+  const planHere = plan && plan.model === model.name && plan.plane === plane ? plan : null;
+  const predicted = planHere?.predicted ?? null;
+  /** @type {Map<string, number>} */
+  const steps = new Map();
+  for (const row of planHere?.correctors ?? []) {
+    if (row.delta != null && Number.isFinite(row.delta)) steps.set(row.element, row.delta);
+  }
+  const largestStep = Math.max(0, ...[...steps.values()].map(Math.abs));
 
   const rows = bpms.map((member) => {
     const gold = member.golden_addr ? golden[member.golden_addr] : null;
@@ -942,6 +950,22 @@ function renderStrip(root, panel) {
         blocked ? `${member.element}: the ORM could not solve it` : member.element
       )
     );
+    const step = steps.get(member.element);
+    if (step && largestStep > 0) {
+      const height = (Math.abs(step) * DELTA_H) / largestStep;
+      plot.append(
+        svgNode('rect', {
+          class: 'ob-delta',
+          'data-element': member.element,
+          x: px(member.s_m) - width / 2,
+          y: step > 0 ? COR_Y - height : COR_Y,
+          width,
+          height,
+          fill: 'var(--art-violet-light)',
+          style: 'pointer-events:none',
+        })
+      );
+    }
   }
   // Zoomed in, every BPM and corrector in view is named: BPMs between the plot
   // and the corrector row, correctors under their ticks.
@@ -962,7 +986,7 @@ function renderStrip(root, panel) {
     for (const row of rows) {
       if (onView(row.member.s_m)) plot.append(label(row.member, COR_Y - 8));
     }
-    for (const member of visibleCorrectors) plot.append(label(member, COR_Y + COR_H + 12));
+    for (const member of visibleCorrectors) plot.append(label(member, COR_Y + DELTA_H + 10));
   }
   nodes.push(plot);
 
@@ -1077,7 +1101,9 @@ function controls(root) {
   corsHead.append(htmlNode('span', {}, 'Correctors'), rule);
   const unsolved = htmlNode('p', { class: 'ob-meta', 'data-field': 'unsolved' });
   unsolved.hidden = true;
-  cors.append(corsHead, unsolved);
+  const plan = htmlNode('div', { 'data-field': 'card' });
+  plan.hidden = true;
+  cors.append(corsHead, unsolved, plan);
 
   const actions = htmlNode('div', { class: 'ob-actions', 'data-field': 'actions' });
   actions.append(
@@ -1086,9 +1112,14 @@ function controls(root) {
       { type: 'button', class: 'osprey-btn primary', 'data-field': 'compute' },
       'Compute'
     ),
-    htmlNode('button', { type: 'button', class: 'osprey-btn', 'data-field': 'apply' }, 'Apply…'),
+    htmlNode(
+      'button',
+      { type: 'button', class: 'osprey-btn ob-apply', 'data-field': 'apply' },
+      'Apply…'
+    ),
     htmlNode('button', { type: 'button', class: 'osprey-btn', 'data-field': 'clear' }, 'Clear'),
-    htmlNode('span', { class: 'ob-meta', 'data-field': 'apply-note' })
+    htmlNode('span', { class: 'ob-meta', 'data-field': 'apply-note' }),
+    htmlNode('span', { class: 'ob-meta ob-status', 'data-field': 'plan-status' })
   );
 
   box.append(bump, cors, actions);
@@ -1585,48 +1616,63 @@ function closureText(plan, unit) {
 }
 
 /**
- * The plan's corrector rows as a table; with outcomes for the card, without for
- * the confirm card.
+ * The plan's corrector rows as a table. In the Correctors box: now, Δ and new
+ * as in the mockup, with outcomes; on the confirm card: the channel each row
+ * writes, without outcomes.
  * @param {Plan} plan
- * @param {boolean} withOutcome
+ * @param {boolean} inBox
  * @returns {HTMLElement}
  */
-function rowsTable(plan, withOutcome) {
+function rowsTable(plan, inBox) {
   const table = htmlNode('table', { class: 'ob-table' });
   const unit = plan.correctors.find((row) => row.unit)?.unit ?? '';
-  const heads = [
-    'corrector',
-    'channel',
-    unit ? `now ${unit}` : 'now',
-    unit ? `new ${unit}` : 'new',
-    'Δ',
-    'verdict',
-    '',
+  const withUnit = (/** @type {string} */ name) => (unit ? `${name} ${unit}` : name);
+  /** @type {[string, string, (row: PlanCorrector) => HTMLElement][]} */
+  const columns = [
+    ['corrector', 'corrector', (row) => htmlNode('td', { 'data-cell': 'corrector' }, row.element)],
+    [
+      'channel',
+      'channel',
+      (row) => htmlNode('td', { 'data-cell': 'channel' }, row.setpoint_addr ?? ''),
+    ],
+    ['now', withUnit('now'), (row) => htmlNode('td', { 'data-cell': 'now' }, cellNumber(row.now))],
+    [
+      'delta',
+      withUnit('Δ'),
+      (row) => htmlNode('td', { 'data-cell': 'delta' }, cellNumber(row.delta)),
+    ],
+    ['new', withUnit('new'), (row) => htmlNode('td', { 'data-cell': 'new' }, cellNumber(row.new))],
+    [
+      'verdict',
+      'verdict',
+      (row) => {
+        const verdict = verdictLabel(row);
+        const node = htmlNode('td', { 'data-cell': 'verdict' }, verdict.text);
+        if (verdict.refused) node.classList.add('ob-refused');
+        return node;
+      },
+    ],
+    ['note', '', (row) => htmlNode('td', { 'data-cell': 'note', class: 'ob-meta' }, rowNote(row))],
+    [
+      'outcome',
+      'outcome',
+      (row) =>
+        htmlNode(
+          'td',
+          { 'data-cell': 'outcome' },
+          row.outcome ? row.outcome.replace('_', ' ') : ''
+        ),
+    ],
   ];
-  if (withOutcome) heads.push('outcome');
+  const shown = columns.filter(([name]) => (inBox ? name !== 'channel' : name !== 'outcome'));
   const headRow = htmlNode('tr');
-  for (const text of heads) headRow.append(htmlNode('th', {}, text));
+  for (const [name, text] of shown) headRow.append(htmlNode('th', { 'data-head': name }, text));
   const head = htmlNode('thead');
   head.append(headRow);
   const body = htmlNode('tbody');
   for (const row of plan.correctors) {
     const tr = htmlNode('tr', { 'data-element': row.element });
-    const verdict = verdictLabel(row);
-    const verdictCell = htmlNode('td', { 'data-cell': 'verdict' }, verdict.text);
-    if (verdict.refused) verdictCell.classList.add('ob-refused');
-    tr.append(
-      htmlNode('td', { 'data-cell': 'corrector' }, row.element),
-      htmlNode('td', { 'data-cell': 'channel' }, row.setpoint_addr ?? ''),
-      htmlNode('td', { 'data-cell': 'now' }, cellNumber(row.now)),
-      htmlNode('td', { 'data-cell': 'new' }, cellNumber(row.new)),
-      htmlNode('td', { 'data-cell': 'delta' }, cellNumber(row.delta)),
-      verdictCell,
-      htmlNode('td', { 'data-cell': 'note', class: 'ob-meta' }, rowNote(row))
-    );
-    if (withOutcome) {
-      const outcome = row.outcome ? row.outcome.replace('_', ' ') : '';
-      tr.append(htmlNode('td', { 'data-cell': 'outcome' }, outcome));
-    }
+    tr.append(...shown.map(([, , make]) => make(row)));
     body.append(tr);
   }
   table.append(head, body);
@@ -1634,28 +1680,37 @@ function rowsTable(plan, withOutcome) {
 }
 
 /**
- * The plan card inside the body field, made on first use after the controls.
+ * The plan inside the Correctors box, made with the controls.
  * @param {Element} root
  * @returns {HTMLElement}
  */
 function card(root) {
-  const body = field(root, 'body');
-  const found = body.querySelector('[data-field="card"]');
-  if (found instanceof HTMLElement) return found;
-  const node = htmlNode('div', { class: 'osprey-card ob-box', 'data-field': 'card' });
-  node.hidden = true;
-  body.append(node);
-  return node;
+  controls(root);
+  return field(root, 'card');
 }
 
 /**
- * The plan status line: the phase while applying, the status otherwise.
+ * The plan status at the end of the actions row: what a ready plan holds, the
+ * phase while applying, the status otherwise.
  * @param {Plan} plan
  * @returns {string}
  */
 function statusText(plan) {
+  if (plan.status === 'ready') {
+    const targets = Object.keys(plan.targets ?? {}).length;
+    const correctors = plan.correctors.length;
+    return `plan #${plan.id} · ${targets} target${targets === 1 ? '' : 's'}, ${correctors} corrector${correctors === 1 ? '' : 's'}`;
+  }
   if (plan.status === 'applying' && plan.phase) return `applying · ${plan.phase}`;
   return plan.status;
+}
+
+/**
+ * @param {number} count
+ * @returns {string}
+ */
+function setpoints(count) {
+  return `${count} setpoint${count === 1 ? '' : 's'}`;
 }
 
 /**
@@ -1679,6 +1734,7 @@ function renderCard(root, panel) {
 
   const applyButton = /** @type {HTMLButtonElement} */ (field(root, 'apply'));
   applyButton.hidden = panel.readOnly || !plan;
+  applyButton.textContent = plan ? `Apply ${setpoints(plan.correctors.length)}…` : 'Apply…';
   applyButton.disabled = !plan || plan.status !== 'ready' || !allowed || panel.applying;
   const note = field(root, 'apply-note');
   note.textContent =
@@ -1686,6 +1742,10 @@ function renderCard(root, panel) {
   note.hidden = note.textContent === '';
   if (note.textContent) applyButton.title = note.textContent;
   else applyButton.removeAttribute('title');
+
+  const status = field(root, 'plan-status');
+  status.textContent = plan ? statusText(plan) : '';
+  status.hidden = !plan;
 
   const node = card(root);
   if (!plan) {
@@ -1695,12 +1755,7 @@ function renderCard(root, panel) {
   }
   node.hidden = false;
   const unit = bpmUnit(panel);
-  const headLine = htmlNode('h3', { class: 'osprey-section-label' });
-  headLine.append(
-    htmlNode('span', {}, `Plan ${plan.id} · `),
-    htmlNode('span', { 'data-field': 'plan-status' }, statusText(plan))
-  );
-  const children = [headLine];
+  const children = [];
   if (plan.status === 'not_applicable' && plan.reason) {
     children.push(htmlNode('p', { class: 'ob-refused', 'data-field': 'plan-reason' }, plan.reason));
   }
@@ -1814,8 +1869,8 @@ export function openConfirm(root) {
   });
   const ok = htmlNode(
     'button',
-    { type: 'button', class: 'osprey-btn primary', 'data-field': 'confirm-apply' },
-    `Apply ${plan.correctors.length} setpoint${plan.correctors.length === 1 ? '' : 's'}`
+    { type: 'button', class: 'osprey-btn ob-apply', 'data-field': 'confirm-apply' },
+    `Apply ${setpoints(plan.correctors.length)}`
   );
   const cancel = htmlNode(
     'button',
