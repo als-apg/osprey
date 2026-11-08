@@ -40,6 +40,7 @@ from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 from osprey.services.watchdog.config import watchdog_errors
 from osprey_connectors.connection import ENV_NAME_RE
 from osprey_connectors.errors import BuildProfileError
+from osprey_connectors.logger import get_logger
 
 from .build_profile_archiver import (
     VAArchiverConfig,
@@ -130,6 +131,12 @@ spells it is refused by :func:`provider_catalog_key_errors`."""
 
 _MISSING = object()
 """Sentinel for "this profile says nothing about that key"."""
+
+_LOGGER = get_logger("build")
+
+_WARNED_PV_DIRECTORY: set[str] = set()
+"""The ``pv_directory`` warnings already printed: a build validates its profile
+once per render pass, and one fact about the build is one line."""
 
 _HOST_NETWORK_MODE = "host"
 """The member of ``VALID_NETWORK_MODES`` whose services share the host's own
@@ -1526,6 +1533,41 @@ class BuildProfile:
         )
         return errors
 
+    def _pv_directory_errors(self) -> list[str]:
+        """The ``pv_directory`` section's refusal, read from this profile's overlay.
+
+        The overlay is not a rendered config: the section is rebuilt from the
+        dotted or nested ``config:`` keys, and the simulator port is filled from
+        the ``virtual_accelerator:`` block, where ``has_simulator`` reads it.
+        What a valid section cannot serve is printed once per process.
+        """
+        from osprey.services.pv_directory.resolve import SectionError, resolve_section
+
+        config = _expand_dotted(self.config)
+        if config.get("pv_directory") is None:
+            return []
+        if self.virtual_accelerator is not None:
+            services = config.get("services")
+            services = services if isinstance(services, dict) else {}
+            simulator = services.get("virtual_accelerator")
+            simulator = simulator if isinstance(simulator, dict) else {}
+            config["services"] = {
+                **services,
+                "virtual_accelerator": {**simulator, "port": self.virtual_accelerator.port},
+            }
+        try:
+            resolved = resolve_section(config)
+        except SectionError as exc:
+            return [str(exc)]
+        if resolved is not None:
+            from . import output
+
+            for warning in resolved.warnings:
+                if warning not in _WARNED_PV_DIRECTORY:
+                    _WARNED_PV_DIRECTORY.add(warning)
+                    output.warn_fact(_LOGGER, warning)
+        return []
+
     def _artifact_server_errors(self, profile_dir: Path) -> list[str]:
         """The ``artifact_server`` block's errors: unknown keys, then extension types.
 
@@ -2111,6 +2153,8 @@ class BuildProfile:
         errors.extend(agent_record_errors(self.agent_record, self.config))
 
         errors.extend(self._watchdog_errors(profile_dir))
+
+        errors.extend(self._pv_directory_errors())
 
         # The honesty rule's build-time site: a simulated machine may not be
         # paired with an archiver that invents its history. Checked against the
