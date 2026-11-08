@@ -1,0 +1,141 @@
+control_system.writes: asked
+web.panels:
+  knob-example:
+    label: Knob
+    url: http://127.0.0.1:10900
+    path: /
+    health_endpoint: /health
+    app: knob-example
+    agent_routes:
+    - method: GET
+      path: /api/state
+    - method: POST
+      path: /api/write
+    launch_token_env: KNOB_EXAMPLE_LAUNCH_TOKEN
+    enabled: true
+claude_code.servers:
+  knob-example:
+    command: '{current_python_env}'
+    args:
+    - -m
+    - knob_example.tools
+    env:
+      OSPREY_APP_NAME: knob-example
+      OSPREY_CONFIG: '{project_root}/build/config.yml'
+      CONFIG_FILE: '{project_root}/build/config.yml'
+    permissions:
+      allow:
+      - read_corrector
+    writes:
+    - set_corrector
+    app: knob-example
+apps:
+  knob-example:
+    approval:
+      set_corrector:
+        prompt: Set {{ state.channel }} to {{ input.value }}, now {{ state.readback }}.
+        panel_id: knob-example
+        state_path: /api/state
+        display_lines_key: null
+        bind:
+          state_fields:
+          - field: approved_readback
+            key: readback
+          input_digests: []
+        require:
+          all_of:
+          - approved_target
+          - approved_readback
+          one_of: []
+        errors:
+          unreachable: The knob panel's backend is not answering; check its container with osprey health.
+          refused: The value was not written. Read the channel again and ask for a new approval.
+    tools:
+      read:
+      - read_corrector
+      errors:
+        unreachable: The knob panel's backend is not answering; check its container with osprey health.
+        refused: The value was not written. Read the channel again and ask for a new approval.
+dispatch.denied_app_tools:
+- mcp__knob-example__set_corrector
+settings.json:
+  hooks:
+    PreToolUse:
+    - matcher: mcp__knob-example__set_corrector
+      hooks:
+      - run: .claude/hooks/osprey_writes_check.py
+        timeout: 5
+      - run: .claude/hooks/osprey_approval.py --budget 30
+        timeout: 30
+    PostToolUse:
+    - matcher: mcp__knob-example__.*
+      hooks:
+      - run: .claude/hooks/osprey_error_guidance.py
+        timeout: 5
+    - matcher: mcp__knob-example__set_corrector
+      hooks:
+      - run: .claude/hooks/osprey_approval.py
+        timeout: 5
+    PostToolUseFailure:
+    - matcher: mcp__knob-example__set_corrector
+      hooks:
+      - run: .claude/hooks/osprey_approval.py
+        timeout: 5
+  permissions:
+    allow:
+    - mcp__knob-example__read_corrector
+hook_config.json:
+  server_prefixes:
+  - mcp__knob-example__
+  approval_prefixes:
+  - mcp__knob-example__
+  write_tools:
+  - mcp__knob-example__set_corrector
+  facility_write_tools:
+  - mcp__knob-example__set_corrector
+  governed_tools:
+  - mcp__knob-example__set_corrector
+  app_approvals:
+    mcp__knob-example__set_corrector:
+      app: knob-example
+      bind:
+        input_digests: []
+        state_fields:
+        - field: approved_readback
+          key: readback
+      display_lines_key: null
+      errors:
+        refused: The value was not written. Read the channel again and ask for a new approval.
+        unreachable: The knob panel's backend is not answering; check its container with osprey health.
+      panel_id: knob-example
+      prompt: Set {{ state.channel }} to {{ input.value }}, now {{ state.readback }}.
+      require:
+        all_of:
+        - approved_target
+        - approved_readback
+        one_of: []
+      state_path: /api/state
+  app_error_types:
+    knob-example.refused:
+      class: Safety
+      text: The value was not written. Read the channel again and ask for a new approval.
+    knob-example.unreachable:
+      class: Connection
+      text: The knob panel's backend is not answering; check its container with osprey health.
+  plan_mode_denied_tools:
+  - mcp__knob-example__set_corrector
+panel_token_routes:
+- - GET
+  - /panel/knob-example/api/state
+- - POST
+  - /panel/knob-example/api/write
+reach:
+  consumers:
+  - name: The knob-example panel
+    'on': true
+    resolves: true
+    dial:
+    - 127.0.0.1
+    - 10900
+  credentials_held:
+  - KNOB_EXAMPLE_LAUNCH_TOKEN
