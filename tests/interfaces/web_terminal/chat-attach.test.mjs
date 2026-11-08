@@ -133,6 +133,8 @@ async function mount({ key: initialKey = KEY } = {}) {
     onBeforeSend: (transform) => {
       transforms.push(transform);
     },
+    scrollToBottom: () => {},
+    onNewSession: () => {},
   });
 
   const log = { submits: 0 };
