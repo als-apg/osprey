@@ -28,6 +28,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from osprey_connectors.simulation.status import STATUS_NO_DECK, is_error
+
 __all__ = [
     "MODEL_FAILED",
     "MODEL_NO_DECK",
@@ -38,21 +40,6 @@ __all__ = [
     "read_in_child",
     "target_model_statuses",
 ]
-
-#: The status the composite gives a model that names no deck and wires no
-#: channel. Spelled here rather than imported: the framework runs against
-#: every connectors release down to its floor, and one older than the text
-#: never sends it, so a match is never missed, only never made.
-STATUS_NO_DECK = "no deck"
-
-try:
-    from osprey_connectors.simulation.status import is_error
-except ImportError:  # a connectors release older than the predicate
-
-    def is_error(status: str) -> bool:
-        """Whether a model's status text is an error: any text but ``ok`` and ``no deck``."""
-        return status not in ("ok", STATUS_NO_DECK)
-
 
 #: The states :func:`model_state` sorts a status text into.
 MODEL_OK = "ok"

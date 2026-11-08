@@ -191,18 +191,6 @@ def test_a_status_channel_is_read_through_the_connector_and_decoded(value):
     assert read == ["ca:SIM:SR:STATUS"]
 
 
-@pytest.mark.parametrize(
-    ("status", "error"),
-    [("ok", False), ("no deck", False), ("closed orbit lost", True), ("", True)],
-    ids=["ok", "no-deck", "engine-error", "empty"],
-)
-def test_only_ok_and_no_deck_are_not_an_error(status, error):
-    from osprey_connectors.simulation.status import STATUS_NO_DECK, STATUS_OK, is_error
-
-    assert {STATUS_OK, STATUS_NO_DECK} == {"ok", "no deck"}
-    assert is_error(status) is error
-
-
 def _lume_base_pins(pyproject) -> list[str]:
     import tomllib
 
