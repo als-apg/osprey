@@ -8,8 +8,8 @@
  * result. Every tile holds ONE panel (dock-policy.js): the sidebar is the tab
  * system, and an open switches a tile rather than stacking into it.
  *
- * THE OPEN RULE. A panel that is opened — by a sidebar row click, by the
- * agent, by a link, by the "+" menu, by a pop-out window coming back — TAKES
+ * THE OPEN RULE. A panel that is opened — by a sidebar row click, by a link,
+ * by the "+" menu, by a pop-out window coming back — TAKES
  * the service tile the operator used last, REPLACING the panel that tile
  * showed ({@link openPanel}): nothing resizes, and the replaced panel keeps its
  * sidebar row, one click away. A panel already in the dock is focused where
@@ -18,6 +18,9 @@
  * left edge when the agent pane is closed too ({@link firstTile}) — the agent
  * pane is always its own tile and never the target.
  *
+ *   - the AGENT's open splits the service tile used last into a new tile by
+ *     default, or replaces a tile's panel or splits a named tile on a named
+ *     side when it says so ({@link openPlaced});
  *   - OPEN AT (a drop on a tile edge or a dock edge, the row's "Open in a new
  *     tile") splits where the gesture said, and moves a panel that already
  *     holds a tile ({@link openAt}) — the one way to make a new tile on purpose;
@@ -79,6 +82,7 @@ import { ONE_PANEL_PER_TILE, crowdedTile } from './dock-policy.js';
 /** Refusals (named, and they change nothing). */
 export const TERMINAL_IN_LAYOUT = 'terminal_in_layout';
 export const PANEL_UNHEALTHY = 'panel_unhealthy';
+export const NO_ROOM = 'no_room';
 
 /**
  * Where a panel is placed relative to a tile, or to the dock when no tile is
@@ -204,6 +208,75 @@ export function openPanel(layout, key, ctx) {
     tile.tile === target.tile ? { ...tile, tabs: [key], showing: key } : tile
   );
   return { layout: next, changed: true, focus: target.tile };
+}
+
+/**
+ * Where an agent's open puts a panel that is not docked yet.
+ * @typedef {object} OpenPlacement
+ * @property {'split' | 'replace'} place  a new tile split off the target (the
+ *   default), or the target's panel replaced
+ * @property {string} [tile]  the target tile; absent, the service tile the
+ *   operator used last ({@link serviceTileTarget})
+ * @property {Side} [edge]  the side of the target a split puts the panel on;
+ *   absent, the target's longer side (right when it is wider than tall, else
+ *   bottom)
+ */
+
+/**
+ * The agent's open: a panel already docked stays where it is (the caller
+ * focuses it); otherwise it SPLITS the target tile into a new tile of its own
+ * by default, so the panel the operator had there stays on screen, or
+ * REPLACES the target's panel when the placement says so. With no target the
+ * panel opens as the first service tile beside the agent pane. A split the
+ * dock has no room for (each half would fall under the engine's minimum)
+ * replaces the panel of the target instead, or of the service tile used last
+ * when the target is the agent pane's tile; with no service tile either, it is
+ * refused `no_room`. A person's opens keep the open rule ({@link openPanel}).
+ * @param {Layout|null} layout
+ * @param {string} key
+ * @param {OpenPlacement} placement
+ * @param {OpContext} ctx
+ * @returns {OpResult & {refusal?: string, notice?: string}}
+ */
+export function openPlaced(layout, key, placement, ctx) {
+  if (tileOf(layout, key)) return unchanged(layout);
+  const target =
+    placement.tile === undefined
+      ? serviceTileTarget(layout, ctx)
+      : findTile(layout, placement.tile);
+  if (!target || layout === null) return firstTile(layout, key, ctx.dock);
+  const replaceIn = (/** @type {Tile} */ tile) => ({
+    layout: mapTiles(layout, (t) =>
+      t.tile === tile.tile ? { ...t, tabs: [key], showing: key } : t
+    ),
+    changed: true,
+    focus: tile.tile,
+  });
+  if (placement.place === 'replace') return replaceIn(target);
+  const edge = placement.edge ?? longerSide(layout, target.tile, ctx.dock);
+  const out = planDrop(layout, { new: key }, { tile: target.tile, edge }, ctx.dock);
+  const landed = out.changed ? tileOf(out.layout, key) : null;
+  if (landed && out.layout !== null)
+    return { layout: out.layout, changed: true, focus: landed.tile };
+  const fallback = target.showing !== TERMINAL_KEY ? target : serviceTileTarget(layout, ctx);
+  if (!fallback) {
+    return { ...unchanged(layout), refusal: NO_ROOM, notice: 'no room for a new tile' };
+  }
+  return replaceIn(fallback);
+}
+
+/**
+ * The side a default split of tile `id` puts the new tile on: right of a tile
+ * wider than tall, below one taller than wide.
+ * @param {Layout} layout
+ * @param {string} id
+ * @param {DockPx} dock
+ * @returns {Side}
+ */
+function longerSide(layout, id, dock) {
+  const { width, height } = dock.px;
+  const rect = geometry(layout, { x: 0, y: 0, width, height }, dock.minPx).tiles[id];
+  return rect && rect.width >= rect.height ? 'right' : 'bottom';
 }
 
 /**

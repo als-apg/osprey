@@ -294,10 +294,75 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
     });
   });
 
-  describe('open: the service tile used last, replacing the panel it showed', () => {
-    test('open replaces the panel of the focused service tile; nothing else moves', () => {
+  describe('open: a new tile by default, or the target replaced when asked', () => {
+    test('a default open splits the focused service tile; its panel stays on screen', () => {
       const holder = seedClassic();
       const out = placement.runPanelOp(frame('open', { member: 'b' }));
+      expect(out.refusal).toBeUndefined();
+      // s1 (300 x 600) is taller than wide: b goes below a, in a new tile.
+      expect(panelsByTile(holder.layout)).toEqual([['a'], ['b'], ['c'], ['terminal']]);
+      const s1 = tileWith(holder.layout, 'a');
+      expect(s1.tile).toBe('s1');
+      const home = tileWith(holder.layout, 'b');
+      expect(['s1', 's2', 't1']).not.toContain(home.tile);
+      expect(holder.layout.items[0]).toMatchObject({ split: 'column' });
+      expect(out.result.focus).toBe(home.tile);
+    });
+
+    test('an explicit edge is honoured: right splits the tile across its width', () => {
+      const holder = seedClassic();
+      placement.runPanelOp(frame('open', { member: 'b', place: 'split', edge: 'right' }));
+      expect(panelsByTile(holder.layout)).toEqual([['a'], ['b'], ['c'], ['terminal']]);
+      // Across the width: a and b share s1's 30% of the row, side by side.
+      expect(holder.layout.split).toBe('row');
+      expect(tileWith(holder.layout, 'a').size).toBeCloseTo(0.15);
+      expect(tileWith(holder.layout, 'b').size).toBeCloseTo(0.15);
+    });
+
+    test('a named tile is the target: an edge of the Agent pane tile splits beside it', () => {
+      const holder = seedClassic();
+      placement.runPanelOp(frame('open', { member: 'b', tile: 't1', edge: 'left' }));
+      expect(panelsByTile(holder.layout)).toEqual([['a'], ['c'], ['b'], ['terminal']]);
+    });
+
+    test('replacing the Agent pane tile is refused', () => {
+      const holder = seedClassic();
+      const before = holder.layout;
+      const out = placement.runPanelOp(
+        frame('open', { member: 'b', place: 'replace', tile: 't1' })
+      );
+      expect(out.refusal).toBe('terminal_not_agent_movable');
+      expect(holder.layout).toBe(before);
+    });
+
+    test('an unknown target tile is refused', () => {
+      const holder = seedClassic();
+      const out = placement.runPanelOp(frame('open', { member: 'b', tile: 'nope' }));
+      expect(out.refusal).toBe('unknown_tile');
+      expect(holder.layout).toEqual(
+        row(
+          tile('s1', ['a'], 'a', 0.3),
+          tile('s2', ['c'], 'c', 0.3),
+          tile('t1', ['terminal'], 'terminal', 0.4)
+        )
+      );
+    });
+
+    test('with no room for a new tile, a split replaces the target panel instead', () => {
+      dockApply.initLayoutHolder({ dockPx: { width: 80, height: 60 } });
+      const holder = seed(
+        row(tile('s1', ['a'], 'a', 0.5), tile('t1', ['terminal'], 'terminal', 0.5)),
+        's1'
+      );
+      const out = placement.runPanelOp(frame('open', { member: 'b' }));
+      expect(out.refusal).toBeUndefined();
+      expect(panelsByTile(holder.layout)).toEqual([['b'], ['terminal']]);
+      expect(tileWith(holder.layout, 'b').tile).toBe('s1');
+    });
+
+    test('place replace replaces the panel of the focused service tile; nothing else moves', () => {
+      const holder = seedClassic();
+      const out = placement.runPanelOp(frame('open', { member: 'b', place: 'replace' }));
       expect(out.refusal).toBeUndefined();
       // b took s1 in a's place, at s1's size; a left the dock.
       expect(holder.layout).toEqual(
@@ -313,11 +378,11 @@ describe('runPanelOp — the agent op runner, on the real holder', () => {
       expect(deps.dropMember).not.toHaveBeenCalled();
     });
 
-    test('with the agent pane focused, the service tile the operator used before it is replaced', () => {
+    test('with the agent pane focused, place replace takes the service tile used before it', () => {
       const holder = seedClassic();
       holder.show('s2', 'c');
       holder.show('t1', 'terminal'); // the operator typed in the agent pane since
-      const out = placement.runPanelOp(frame('open', { member: 'b' }));
+      const out = placement.runPanelOp(frame('open', { member: 'b', place: 'replace' }));
       expect(out.refusal).toBeUndefined();
       expect(panelsByTile(holder.layout)).toEqual([['a'], ['b'], ['terminal']]);
       expect(tileWith(holder.layout, 'b').tile).toBe('s2');

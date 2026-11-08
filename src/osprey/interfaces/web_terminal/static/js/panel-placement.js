@@ -39,8 +39,8 @@ import { getLayoutHolder, isDetached, TERMINAL_KEY } from './dock-apply.js';
 import {
   arrange,
   focusKey,
-  openPanel,
   openPanelSet,
+  openPlaced,
   PANEL_UNHEALTHY,
   TERMINAL_IN_LAYOUT,
 } from './dock-open.js';
@@ -158,6 +158,10 @@ export const POPPED_OUT = 'popped_out';
 export const UNKNOWN_KEY = 'unknown_key';
 export const UNKNOWN_TILE = 'unknown_tile';
 export const INVALID_SOURCE = 'invalid_source';
+export const INVALID_TARGET = 'invalid_target';
+
+/** The sides an agent's open may split a tile on. */
+const OPEN_EDGES = new Set(['left', 'right', 'top', 'bottom']);
 export const INVALID_LAYOUT = 'invalid_layout';
 export const UNKNOWN_OP = 'unknown_op';
 export const NO_DOCK_CLIENT = 'no_dock_client';
@@ -257,7 +261,24 @@ function planOp(frame, layout, isHealthy) {
       }
       if (tileOf(layout, member)) return { run: (l) => focusKey(l, member) };
       if (!isHealthy(member)) return { refusal: PANEL_UNHEALTHY };
-      return { run: (l, ctx) => openPanel(l, member, ctx) };
+      const place = args.place ?? 'split';
+      if (place !== 'split' && place !== 'replace') return { refusal: INVALID_TARGET };
+      if (args.edge !== undefined && (place !== 'split' || !OPEN_EDGES.has(args.edge))) {
+        return { refusal: INVALID_TARGET };
+      }
+      if (args.tile !== undefined) {
+        if (typeof args.tile !== 'string' || findTile(layout, args.tile) === null) {
+          return { refusal: UNKNOWN_TILE };
+        }
+        if (place === 'replace' && holdsTerminal(layout, args.tile)) {
+          return { refusal: TERMINAL_NOT_AGENT_MOVABLE };
+        }
+      }
+      /** @type {import('./dock-open.js').OpenPlacement} */
+      const placement = { place };
+      if (args.tile !== undefined) placement.tile = args.tile;
+      if (args.edge !== undefined) placement.edge = args.edge;
+      return { run: (l, ctx) => openPlaced(l, member, placement, ctx) };
     }
     case 'open_set':
     case 'open_arrangement': {
