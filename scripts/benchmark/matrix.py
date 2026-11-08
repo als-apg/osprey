@@ -35,6 +35,7 @@ import argparse
 import json
 import math
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -241,6 +242,12 @@ def expand_grid(
 # ---------------------------------------------------------------------------
 # Per-cell environment (the old ``case`` logic, now data-driven)
 # ---------------------------------------------------------------------------
+
+
+#: First port block of a cell's projects; slot ``n`` takes ``CELL_PORT_BASE + 1000 * n``.
+#: Seven slots stay below the 32768 the kernel hands out ephemeral ports from.
+CELL_PORT_BASE = 25000
+MAX_PARALLEL = 7
 
 
 def cell_is_done(summary: Path) -> bool:
@@ -450,8 +457,23 @@ def drive(
     rcs: dict[str, int] = {}
     lock = threading.Lock()
 
+    # Each running cell builds its projects in a port block of its own: cells are
+    # separate pytest runs, and two on one block share an artifact gallery, so one
+    # cell's tool calls reach the other's gallery and are refused (HTTP 401).
+    if parallel > MAX_PARALLEL:
+        raise SystemExit(f"--parallel {parallel}: at most {MAX_PARALLEL} cells have a port block")
+    free_blocks: queue.SimpleQueue[int] = queue.SimpleQueue()
+    for slot in range(max(1, parallel)):
+        free_blocks.put(CELL_PORT_BASE + 1000 * slot)
+
     def _work(cell: Cell) -> None:
-        rc = run_cell(cell, results_dir, log_path, extra_env)
+        block = free_blocks.get()
+        try:
+            rc = run_cell(
+                cell, results_dir, log_path, {**extra_env, "OSPREY_E2E_PORT_BASE": str(block)}
+            )
+        finally:
+            free_blocks.put(block)
         with lock:
             rcs[f"{cell.safe}__seed{cell.seed}"] = rc
 

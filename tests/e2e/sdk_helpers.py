@@ -322,6 +322,11 @@ def _assert_render_names_ariel_db(render: Path) -> None:
 #: kernel hands out from 32768.
 E2E_PORT_BASE = 25000
 
+#: Names the block for a whole run, in place of the worker's. The benchmark matrix
+#: sets it per cell: its cells are separate pytest runs, each worker 0, so without it
+#: concurrent cells share one block and one artifact gallery.
+PORT_BASE_ENV = "OSPREY_E2E_PORT_BASE"
+
 
 def e2e_port_base() -> int:
     """The ``deployment.port_base`` for a project built by this xdist worker.
@@ -331,9 +336,12 @@ def e2e_port_base() -> int:
     save. Two workers whose projects share a block therefore race for one
     gallery port: whichever binds first owns it, and a test on the other
     worker then reaches a gallery holding a different stack's bearer token
-    and is answered 401 (#823). One block per worker ends the sharing.
+    and is answered 401 (#823). One block per worker ends the sharing, and
+    ``OSPREY_E2E_PORT_BASE`` moves the whole run to another block, which is how
+    concurrent benchmark cells keep theirs apart.
     """
-    return E2E_PORT_BASE + BLOCK_SIZE * ci_diagnostics.worker_index()
+    base = int(os.environ.get(PORT_BASE_ENV) or E2E_PORT_BASE)
+    return base + BLOCK_SIZE * ci_diagnostics.worker_index()
 
 
 def init_project(

@@ -986,3 +986,15 @@ def test_the_arming_helpers_spell_no_retired_posture_key():
     retired = "writes" + "_enabled"
     for module in (sdk_helpers, _queue_drive):
         assert retired not in inspect.getsource(module), module.__name__
+
+
+def test_a_run_named_port_base_moves_every_workers_block(monkeypatch):
+    """A benchmark cell names its block; xdist workers still take the next ones."""
+    monkeypatch.setenv("OSPREY_E2E_PORT_BASE", "26000")
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
+    assert sdk_helpers.e2e_port_base() == 26000
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw1")
+    assert sdk_helpers.e2e_port_base() == 27000
+    monkeypatch.delenv("OSPREY_E2E_PORT_BASE")
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
+    assert sdk_helpers.e2e_port_base() == sdk_helpers.E2E_PORT_BASE

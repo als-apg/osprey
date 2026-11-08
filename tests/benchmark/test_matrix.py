@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -558,3 +560,36 @@ def test_the_matrix_is_not_complete_while_a_cell_was_refused(tmp_path, monkeypat
     assert rc == 1
     assert "MATRIX_EXIT_0" not in log
     assert "MATRIX_EXIT_1" in log and "1 of 1 cell(s) did not run (claude-sonnet-4-6 seed1)" in log
+
+
+def test_concurrent_cells_build_in_port_blocks_of_their_own(tmp_path, monkeypatch):
+    """Cells are separate pytest runs, each pytest-xdist worker 0. On one block they
+    share an artifact gallery, and one cell's focus call reaches the other's gallery
+    and is refused (HTTP 401)."""
+    cfg = _cfg()
+    results = tmp_path / "results"
+    running: dict[str, str] = {}
+    seen: list[set[str]] = []
+    lock = threading.Lock()
+
+    def fake_run_cell(cell, results_dir, log_path, extra_env):  # noqa: ARG001 - run_cell's signature
+        with lock:
+            running[cell.model] = extra_env["OSPREY_E2E_PORT_BASE"]
+        time.sleep(0.2)
+        with lock:
+            seen.append(set(running.values()))
+            running.pop(cell.model)
+        (results_dir / cell.summary_json).write_text("{}")
+        return 0
+
+    monkeypatch.setattr(matrix, "run_cell", fake_run_cell)
+    matrix.drive(cfg, results_dir=results, parallel=2, only=None, providers={"cborg"}, extra_env={})
+    assert any(len(blocks) == 2 for blocks in seen), "both cells ran at once on distinct blocks"
+    assert all(int(b) in (25000, 26000) for blocks in seen for b in blocks)
+
+
+def test_more_parallel_cells_than_port_blocks_is_refused(tmp_path):
+    with pytest.raises(SystemExit, match="port block"):
+        matrix.drive(
+            _cfg(), results_dir=tmp_path, parallel=8, only=None, providers=None, extra_env={}
+        )
