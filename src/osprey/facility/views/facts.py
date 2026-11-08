@@ -210,7 +210,8 @@ def _vocabulary(records: FacilityRecords) -> dict[str, Any]:
     """The roles and signals the channels use, counted."""
     from osprey.facility.validate import vocabulary
 
-    described = {str(row["name"]): row.get("description") for row in vocabulary()["signal_roles"]}
+    rows = [*vocabulary()["signal_roles"], *(records.document.get("signals") or [])]
+    described = {str(row["name"]): row.get("description") for row in rows}
     roles: dict[str, int] = defaultdict(int)
     signals: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     paired = unsigned = 0

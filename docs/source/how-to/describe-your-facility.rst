@@ -28,6 +28,7 @@ The tree
        channels.yaml           the control-system channels
        groups.yaml             named sets of devices
      classes.yaml              device classes the facility adds
+     signals.yaml              signal roles the facility adds
      models.yaml               the simulation models and their wiring
      decks/                    the decks those models name
      limits.yaml               the write limits
@@ -190,6 +191,15 @@ child of an existing class:
    - class: Undulator
      parent: Magnet
      aliases: [insertion device, ID]
+
+``signals.yaml`` adds signal roles the same way; a role the vocabulary already
+has is refused:
+
+.. code-block:: yaml
+
+   - name: taper_setpoint
+     aliases: [gap taper]
+     description: Commanded gap difference between an undulator's two ends.
 
 Layers
 ======

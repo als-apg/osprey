@@ -150,7 +150,7 @@ class CombineResult:
 
     Attributes:
         document: The combined records in facility-file shape: ``identity``
-            (when a source states one), ``classes``, ``places``, ``devices``,
+            (when a source states one), ``classes``, ``signals``, ``places``, ``devices``,
             ``channels``, ``groups``, ``models`` (each with its ``wiring``),
             ``limits`` (when a source states one) and ``scenarios``. Complete
             only when ``errors`` is empty.
@@ -733,6 +733,9 @@ class _Combiner:
             document["identity"] = copy.deepcopy(self.sources.identity)
         document["classes"] = sorted(
             copy.deepcopy(self.sources.classes), key=lambda row: str(row.get("class"))
+        )
+        document["signals"] = sorted(
+            copy.deepcopy(self.sources.signals), key=lambda row: str(row.get("name"))
         )
         for kind in ("place", "device", "channel", "group"):
             document[_PLURAL[kind]] = [rec for (k, _), rec in emitted.items() if k == kind]
