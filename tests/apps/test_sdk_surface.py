@@ -56,6 +56,7 @@ SDK_NAMES = {
     "ResponseMatrix",
     "prewrite_verdict",
     "WriteVerdictView",
+    "bridges_for_target",
 }
 
 
