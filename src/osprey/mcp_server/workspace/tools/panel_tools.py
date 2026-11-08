@@ -549,9 +549,11 @@ async def open_panel(
     the operator still wants from the panel on screen.  Replace only when that
     panel is clearly done with, or the user asks for it in its place.  The Agent
     pane's tile may be split beside, never replaced; with no service tile the
-    panel opens beside the Agent pane.  When the dock has no room for a new
-    tile, a split replaces the target's panel instead and the result says so
-    (``placed: "replaced"`` with a ``note``).  A panel not on the rail is added
+    panel opens beside the Agent pane.  With no ``place``, an open splits only
+    when both tiles keep about 300 px along the split; an explicit
+    ``place="split"`` goes down to the dock's minimum.  When there is no room
+    for the new tile, the open replaces the target's panel instead and the
+    result says so (``placed: "replaced"`` with a ``note``).  A panel not on the rail is added
     to it once it is on screen.
 
     A panel whose backend is unhealthy does not open, and a panel living in its
@@ -581,8 +583,8 @@ async def open_panel(
             ``/panel/<that panel>/`` for any panel, or its sidecar's own address
             raises an ``agent_hop_panel_url`` error and opens nothing. Open such
             a panel without a url and change its screen with its tool.
-        place: ``"split"`` for a new tile (what an omitted place does),
-            ``"replace"`` to take the target tile's place.
+        place: ``"split"`` for a new tile, ``"replace"`` to take the target
+            tile's place; omitted, a split that keeps both tiles readable.
         tile: The target tile id; omitted, the service tile used last.
         edge: With ``place="split"``: the side of the target the new tile
             goes on; omitted, the target's longer side.

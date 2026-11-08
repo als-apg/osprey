@@ -100,6 +100,12 @@ export const TERMINAL_SHARE = 0.4;
 
 const SIDES = new Set(['left', 'right', 'top', 'bottom']);
 
+/** The narrowest a tile may become along the split axis when the agent's open
+ *  splits by default (no `place` given): a split that would leave either half
+ *  under this replaces the target's panel instead. An explicit split goes down
+ *  to the dock's own minimum. */
+export const READABLE_TILE_PX = 300;
+
 /**
  * @param {Layout|null} layout
  * @returns {OpResult}
@@ -213,8 +219,9 @@ export function openPanel(layout, key, ctx) {
 /**
  * Where an agent's open puts a panel that is not docked yet.
  * @typedef {object} OpenPlacement
- * @property {'split' | 'replace'} place  a new tile split off the target (the
- *   default), or the target's panel replaced
+ * @property {'split' | 'replace'} [place]  a new tile split off the target, or
+ *   the target's panel replaced; absent, a split that keeps both halves at
+ *   least {@link READABLE_TILE_PX} along the split axis, else a replace
  * @property {string} [tile]  the target tile; absent, the service tile the
  *   operator used last ({@link serviceTileTarget})
  * @property {Side} [edge]  the side of the target a split puts the panel on;
@@ -228,8 +235,9 @@ export function openPanel(layout, key, ctx) {
  * by default, so the panel the operator had there stays on screen, or
  * REPLACES the target's panel when the placement says so. With no target the
  * panel opens as the first service tile beside the agent pane. A split the
- * dock has no room for (each half would fall under the engine's minimum)
- * replaces the panel of the target instead, or of the service tile used last
+ * dock has no room for (each half would fall under the engine's minimum, or,
+ * with no `place` given, under {@link READABLE_TILE_PX}) replaces the panel of
+ * the target instead, or of the service tile used last
  * when the target is the agent pane's tile; with no service tile either, it is
  * refused `no_room`. A person's opens keep the open rule ({@link openPanel}).
  * @param {Layout|null} layout
@@ -254,7 +262,12 @@ export function openPlaced(layout, key, placement, ctx) {
   });
   if (placement.place === 'replace') return replaceIn(target);
   const edge = placement.edge ?? longerSide(layout, target.tile, ctx.dock);
-  const out = planDrop(layout, { new: key }, { tile: target.tile, edge }, ctx.dock);
+  const readable =
+    placement.place === 'split' ||
+    halfSpan(layout, target.tile, edge, ctx.dock) >= READABLE_TILE_PX;
+  const out = readable
+    ? planDrop(layout, { new: key }, { tile: target.tile, edge }, ctx.dock)
+    : unchanged(layout);
   const landed = out.changed ? tileOf(out.layout, key) : null;
   if (landed && out.layout !== null)
     return { layout: out.layout, changed: true, focus: landed.tile };
@@ -274,9 +287,34 @@ export function openPlaced(layout, key, placement, ctx) {
  * @returns {Side}
  */
 function longerSide(layout, id, dock) {
-  const { width, height } = dock.px;
-  const rect = geometry(layout, { x: 0, y: 0, width, height }, dock.minPx).tiles[id];
+  const rect = tileRect(layout, id, dock);
   return rect && rect.width >= rect.height ? 'right' : 'bottom';
+}
+
+/**
+ * Half of tile `id`'s span along the axis a split on `edge` divides: what each
+ * of the two tiles would get.
+ * @param {Layout} layout
+ * @param {string} id
+ * @param {Side} edge
+ * @param {DockPx} dock
+ * @returns {number}
+ */
+function halfSpan(layout, id, edge, dock) {
+  const rect = tileRect(layout, id, dock);
+  if (!rect) return 0;
+  return (edge === 'left' || edge === 'right' ? rect.width : rect.height) / 2;
+}
+
+/**
+ * Tile `id`'s rectangle in the dock, in px; undefined for a tile not in it.
+ * @param {Layout} layout
+ * @param {string} id
+ * @param {DockPx} dock
+ */
+function tileRect(layout, id, dock) {
+  const { width, height } = dock.px;
+  return geometry(layout, { x: 0, y: 0, width, height }, dock.minPx).tiles[id];
 }
 
 /**
