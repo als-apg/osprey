@@ -327,7 +327,7 @@ Serving your facility's own model
 
 To version the model with the other machine facts apart from any one
 deployment, keep them in a :doc:`machine repository <machine-repository>`;
-``data/facility/`` below is then its machine root.
+``data/facility/`` in this section is then its machine root.
 
 .. toctree::
    :hidden:
