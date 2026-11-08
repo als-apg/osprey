@@ -1,7 +1,8 @@
 """Tests for the alarm snapshot task: one backend's lifetime, its answers passed on.
 
-The snapshot starts the backend on first read, waits for its catch-up up to the
-caller's deadline and hands the backend's answer back unchanged, ``stale`` included.
+The snapshot starts the backend on first read, reads it once with what is left of
+the caller's deadline and hands the backend's answer back unchanged, ``stale``
+included. The backend does the waiting for catch-up.
 """
 
 from __future__ import annotations
@@ -38,11 +39,15 @@ def _replay_backend(path: Path):
 
 
 class _StillLoading:
-    """A backend whose feed never catches up: ``start`` waits until it is closed."""
+    """A backend whose feed never catches up: ``start`` waits until it is closed.
+
+    Like every backend it honours its deadline: a read waits it out, then answers loading.
+    """
 
     def __init__(self) -> None:
         self.started = 0
         self.closed = 0
+        self.deadlines: list[float] = []
         self._release = asyncio.Event()
 
     async def start(self) -> None:
@@ -54,14 +59,19 @@ class _StillLoading:
         self._release.set()
 
     async def state_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
-        return LOADING
+        return await self._read(deadline, LOADING)
 
     async def config_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
-        return LOADING
+        return await self._read(deadline, LOADING)
+
+    async def _read(self, deadline: float, answer):
+        self.deadlines.append(deadline)
+        await asyncio.sleep(max(deadline, 0.0))
+        return answer
 
 
 class _Answering(_StillLoading):
-    """A backend that has caught up and answers *answer* to every read."""
+    """A backend that has its answer and gives *answer* to every read at once."""
 
     def __init__(self, answer) -> None:
         super().__init__()
@@ -71,9 +81,11 @@ class _Answering(_StillLoading):
         self.started += 1
 
     async def state_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
+        self.deadlines.append(deadline)
         return self._answer
 
     async def config_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
+        self.deadlines.append(deadline)
         return self._answer
 
 
@@ -130,6 +142,19 @@ async def test_a_feed_still_loading_at_the_deadline_answers_loading():
         assert backend.started == 1
     finally:
         await snapshot.aclose()
+
+
+async def test_a_snapshot_read_reads_the_backend_once_with_the_deadline_left():
+    backend = _Answering(LOADING)
+    snapshot = AlarmSnapshot(backend, "live")
+    try:
+        assert await snapshot.state_for(PV, 0.2) == LOADING
+        assert await snapshot.config_for(PV, 0.2) == LOADING
+    finally:
+        await snapshot.aclose()
+
+    assert len(backend.deadlines) == 2
+    assert all(0.0 < deadline <= 0.2 for deadline in backend.deadlines)
 
 
 @pytest.mark.parametrize(

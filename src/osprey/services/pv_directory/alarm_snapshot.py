@@ -4,10 +4,11 @@
 who builds the backend, and who replaces the snapshot when the target moves, is the
 directory service. The snapshot owns only the task lifetime. The first read inside
 a running loop starts the backend's ``start()``; :meth:`AlarmSnapshot.aclose` cancels
-it and closes the backend. A read waits for the feed to catch up, up to the caller's
-deadline, and then answers exactly as the backend does: a feed still loading, a
-missing client or an unreachable broker stays the backend's ``Unavailable``, never a
-clear state, and ``stale`` is the backend's flag, passed on unchanged.
+it and closes the backend. A read waits for the start up to the caller's deadline,
+then reads the backend once with what is left of it; the backend does the waiting
+for catch-up. The answer is exactly the backend's: a feed still loading, a missing
+client or an unreachable broker stays its ``Unavailable``, never a clear state, and
+``stale`` is the backend's flag, passed on unchanged.
 """
 
 from __future__ import annotations
@@ -20,11 +21,6 @@ from typing import Any, Protocol, TypeVar
 __all__ = ["AlarmSnapshot"]
 
 logger = logging.getLogger(__name__)
-
-#: The backend's answer before catch-up (Contracts, "Before catch-up").
-_FEED_LOADING = "alarm feed still loading"
-#: How often a read asks a feed that has started but not caught up again.
-_CATCH_UP_POLL_S = 0.05
 
 _T = TypeVar("_T")
 
@@ -55,11 +51,11 @@ class AlarmSnapshot:
         self._task: asyncio.Task[None] | None = None
 
     async def state_for(self, pv: str, deadline: float) -> Any:
-        """The backend's alarm state of *pv*, once caught up or when *deadline* seconds ran out."""
+        """The backend's alarm state of *pv*, read once within *deadline* seconds."""
         return await self._read(self.backend.state_for, pv, deadline)
 
     async def config_for(self, pv: str, deadline: float) -> Any:
-        """The backend's live alarm configuration of *pv*, under the same wait as :meth:`state_for`."""
+        """The backend's live alarm configuration of *pv*, read as :meth:`state_for` reads."""
         return await self._read(self.backend.config_for, pv, deadline)
 
     async def aclose(self) -> None:
@@ -80,12 +76,7 @@ class AlarmSnapshot:
         if not task.done():
             # wait, not wait_for: a deadline that runs out leaves the start running.
             await asyncio.wait({task}, timeout=max(until - loop.time(), 0.0))
-        while True:
-            remaining = max(until - loop.time(), 0.0)
-            answer = await read(pv, remaining)
-            if getattr(answer, "reason", None) != _FEED_LOADING or remaining <= 0.0:
-                return answer
-            await asyncio.sleep(min(_CATCH_UP_POLL_S, remaining))
+        return await read(pv, max(until - loop.time(), 0.0))
 
     def _started(self) -> asyncio.Task[None]:
         if self._task is None:
