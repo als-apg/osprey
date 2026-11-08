@@ -602,10 +602,10 @@ def test_agent_open_follows_rule_7_and_posts_nothing_back(tmp_path, chromium_bro
         rects_before = sorted((g["x"], g["y"], g["w"], g["h"]) for g in _dock_groups(page))
         posts = _track_panel_posts(page)
 
-        # Act — the agent's open_panel, as the MCP tool issues it.
+        # Act — the agent's open_panel asked to replace (its default is a new tile).
         r = requests.post(
             f"{base_url}/api/panel-op/open",
-            json={"request_id": "agent-open-scope", "member": "scope"},
+            json={"request_id": "agent-open-scope", "member": "scope", "place": "replace"},
             timeout=10,
         )
         assert r.status_code == 200, r.text

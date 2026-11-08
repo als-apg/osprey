@@ -82,6 +82,7 @@ from osprey.profiles.web_panels import (
     BUILTIN_PANELS,
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
+    in_catalog_order,
     panel_id_refusal,
     panel_spec_enabled,
     sidecar_panel_descriptors,
@@ -907,7 +908,7 @@ def _load_panel_runtime_config(
     except Exception:
         pass
 
-    visible_panels = [p for p in enabled_panels if p not in hidden_builtins] + [
+    visible_panels = [p for p in in_catalog_order(enabled_panels) if p not in hidden_builtins] + [
         cp["id"] for cp in custom_panels if cp["id"] not in hidden_custom_ids
     ]
     return _PanelRuntimeConfig(

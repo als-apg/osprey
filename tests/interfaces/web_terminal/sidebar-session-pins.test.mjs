@@ -6,8 +6,9 @@
  * Pins the group's place (first in the rail, hidden with nothing pinned), its
  * heading (click, Enter and Space fold it; right-click and Shift+F10 open
  * Expand/Collapse · Rename · Hide pinned sessions), the inline rename, the
- * view state in per-user browser storage, the first-pin and pin-while-hidden
- * rules, and Show pinned sessions on a right-click of empty sidebar space.
+ * view state in per-user browser storage, the first-pin rule, a hidden group
+ * staying hidden through later pins and reloads, and Show pinned sessions on a
+ * right-click of empty sidebar space.
  */
 
 import { test, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -165,22 +166,66 @@ test('the view state is read back from per-user storage', async () => {
   expect(head().getAttribute('aria-expanded')).toBe('true');
 });
 
-test('the first pin folds the group; a pin while hidden shows it; the model sets the pin', async () => {
+test('the first pin folds the group and shows it; the model sets the pin', async () => {
   pins.paintPinnedGroup(0);
   localStorage.clear();
   pins.setPinnedFolded(false);
   await pins.setSessionPinned('t1', true);
   expect(model.setPinned).toHaveBeenCalledWith('t1', true);
   expect(stored()).toMatchObject({ folded: true, hidden: false });
-
   pins.paintPinnedGroup(1);
+  expect(group().hidden).toBe(false);
+
+  await pins.setSessionPinned('t1', false);
+  expect(model.setPinned).toHaveBeenLastCalledWith('t1', false);
+});
+
+test('a pin while hidden keeps the group hidden, and keeps its fold', async () => {
+  pins.paintPinnedGroup(1);
+  pins.onPinsChange(() => pins.paintPinnedGroup(1));
   pins.setPinnedFolded(false);
+  rightClick(head());
+  menuRow('Hide pinned sessions').click();
+  expect(group().hidden).toBe(true);
+  await pins.setSessionPinned('t2', true);
+  pins.paintPinnedGroup(2);
+  expect(group().hidden).toBe(true);
+  expect(stored()).toMatchObject({ hidden: true, folded: false });
+});
+
+test('a group hidden with nothing pinned stays hidden on the next pin', async () => {
+  pins.paintPinnedGroup(1);
+  pins.setPinnedHidden(true);
+  pins.paintPinnedGroup(0);
+  await pins.setSessionPinned('t3', true);
+  pins.paintPinnedGroup(1);
+  expect(group().hidden).toBe(true);
+  expect(stored()).toMatchObject({ hidden: true });
+});
+
+test('the hidden group stays hidden across a reload, through further pins', async () => {
+  pins.paintPinnedGroup(1);
+  pins.setPinnedHidden(true);
+  pins.resetSessionPins();
+  pins.paintPinnedGroup(1);
+  expect(group().hidden).toBe(true);
+  await pins.setSessionPinned('t2', true);
+  pins.paintPinnedGroup(2);
+  expect(group().hidden).toBe(true);
+});
+
+test('Show pinned sessions brings the hidden group back with every pin', async () => {
+  pins.paintPinnedGroup(1);
   pins.setPinnedHidden(true);
   await pins.setSessionPinned('t2', true);
-  expect(stored()).toMatchObject({ folded: false, hidden: false });
-
-  await pins.setSessionPinned('t2', false);
-  expect(model.setPinned).toHaveBeenLastCalledWith('t2', false);
+  pins.paintPinnedGroup(2);
+  pins.onPinsChange(() => pins.paintPinnedGroup(2));
+  rightClick(/** @type {Element} */ (document.getElementById('panel-rail')));
+  expect(menuRow('Show pinned sessions').getAttribute('aria-checked')).toBe('false');
+  menuRow('Show pinned sessions').click();
+  expect(group().hidden).toBe(false);
+  expect(group().querySelector('.sidebar-pinned-count')?.textContent).toBe('2');
+  expect(stored()).toMatchObject({ hidden: false });
 });
 
 test('a right-click on empty sidebar space offers Show pinned sessions; rows keep theirs', () => {

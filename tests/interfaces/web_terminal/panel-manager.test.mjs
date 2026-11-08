@@ -1539,13 +1539,14 @@ async function bootWorkspace({
 const posts = (/** @type {{url: string, opts: any}[]} */ calls) =>
   calls.filter((c) => c.opts?.method === 'POST').map((c) => c.url);
 
-describe("agent open (panel_op op:'open') — replace the panel of the service tile used last, or focus", () => {
+describe("agent open (panel_op op:'open') — a new tile by default, replace on request, or focus", () => {
   // An agent changes the dock only through a panel_op frame addressed to this
   // dock client (panel-placement.js, ONE MUTATION CHANNEL); the retired
-  // `panel_focus source:'agent'` switch no longer places anything. An open is
-  // OSPREY's open rule (dock-open.js): a tile holds one panel, so the opened
-  // panel takes the service tile used last and REPLACES the panel it showed,
-  // which keeps its rail row and its cached iframe, one click away.
+  // `panel_focus source:'agent'` switch no longer places anything. A tile holds
+  // one panel: by default the agent's open splits the service tile used last
+  // into a new tile, so the operator's panel stays on screen
+  // (dock-open.js's openPlaced); `place: 'replace'` takes that tile instead,
+  // and the replaced panel keeps its rail row and its cached iframe.
   afterEach(() => {
     document.documentElement.removeAttribute('data-agent-surface');
   });
@@ -1556,13 +1557,28 @@ describe("agent open (panel_op op:'open') — replace the panel of the service t
   const frame = (id) => document.querySelector(`iframe.panel-iframe[data-panel-id="${id}"]`);
   const activeStamp = () => document.getElementById('panel-manager')?.dataset.activePanel ?? null;
 
-  test('an undocked rail member REPLACES the panel of the service tile used last', async () => {
+  test('by default an undocked rail member opens in a new tile; the operator panel stays on screen', async () => {
+    const { holder, op, calls } = await bootWorkspace();
+    const okfTile = tileHolding(holder, 'okf').tile;
+
+    op('open', { member: 'ariel' });
+
+    expect(tileTabs(holder).flat().sort()).toEqual(['ariel', 'okf', 'terminal']);
+    expect(tileHolding(holder, 'okf').tile).toBe(okfTile);
+    expect(tileHolding(holder, 'ariel').tile).not.toBe(okfTile);
+    expect(frame('okf')?.style.display).not.toBe('none');
+    expect(frame('ariel')?.style.display).not.toBe('none');
+    expect(activeStamp()).toBe('ariel');
+    await settled(() => expect(posts(calls)).toEqual(['/api/panel-op-result']));
+  });
+
+  test("place 'replace': an undocked rail member REPLACES the panel of the service tile used last", async () => {
     const { api, holder, op, calls } = await bootWorkspace();
     const okfTile = tileHolding(holder, 'okf').tile;
     const sizes = holder.layout.items.map((/** @type {any} */ item) => item.size);
     const okfFrame = /** @type {HTMLIFrameElement} */ (frame('okf'));
 
-    op('open', { member: 'ariel' });
+    op('open', { member: 'ariel', place: 'replace' });
 
     // ariel took the operator's tile, at its size: no tile was added.
     expect(tileTabs(holder)).toEqual([['ariel'], ['terminal']]);
@@ -1607,10 +1623,10 @@ describe("agent open (panel_op op:'open') — replace the panel of the service t
 
     op('open', { member: 'ariel' });
 
-    // Rail membership is the server's: the op runner never edits the rail —
-    // neither for the opened panel nor for the one it replaced.
+    // Rail membership is the server's: the op runner never edits the rail
+    // for the opened panel (okf keeps its tile and its entry).
     expect(tileHolding(holder, 'ariel')).not.toBeNull();
-    expect(tileHolding(holder, 'okf')).toBeNull();
+    expect(tileHolding(holder, 'okf')).not.toBeNull();
     expect(entry('okf')).not.toBeNull();
     expect(entry('ariel')).toBeNull();
 
@@ -3936,9 +3952,10 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
         const m = url.match(/\/api\/panels\/([^/]+)\/cap$/);
         if (m) {
           capCalls.push(url);
-          if (!cap)
-            return { ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) };
-          return cap(decodeURIComponent(m[1]));
+          const id = decodeURIComponent(m[1]);
+          // The hub's answer for a first-party panel when the test names none.
+          if (!cap) return jsonOk({ id, opaque: false, cap_url: null });
+          return cap(id);
         }
         if (url.endsWith('/api/artifact-server')) {
           return jsonOk({ url: `${prefix}/panel/artifacts`, available: true });
@@ -4052,7 +4069,7 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     expect(new URL(el.src).pathname).toBe(capUrl);
   });
 
-  test("a config-defined custom panel (the hub mints no cap: 404) keeps today's attributes", async () => {
+  test("a config-defined custom panel (the hub answers opaque: false) keeps today's attributes", async () => {
     await bootOne({
       custom: [
         {
@@ -4077,6 +4094,7 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
       'a 500',
       () => ({ ok: false, status: 500, statusText: 'Server Error', json: async () => ({}) }),
     ],
+    ['a 404', () => ({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) })],
     [
       'a 401',
       () => ({ ok: false, status: 401, statusText: 'Unauthorized', json: async () => ({}) }),

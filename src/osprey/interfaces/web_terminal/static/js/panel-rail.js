@@ -99,7 +99,8 @@
  * to put it directly above the row it was dropped on (`onReorder`); dropped
  * into another group, it moves to that group first (sidebar-groups.js
  * moveToGroup) and then takes the same position there. The Agent row never
- * moves.
+ * moves. A group's heading drags the whole group among the others
+ * (sidebar-group-drag.js, wired with the rail).
  *
  * State classes on a row: `.active` (surfaced panel), `.disabled` (backend
  * never answered), `.unreachable` (backend stopped answering), `.failed` (a
@@ -123,6 +124,7 @@ import {
   onGroupsChange,
   paintGroupHeading,
 } from './sidebar-groups.js';
+import { wireGroupDrag } from './sidebar-group-drag.js';
 
 // ---- Types ----
 
@@ -699,6 +701,7 @@ const wiredRails = new WeakSet();
 function wireRail(railEl) {
   if (wiredRails.has(railEl)) return;
   wiredRails.add(railEl);
+  wireGroupDrag(railEl);
   const stop = onGroupsChange(() => {
     if (!railEl.isConnected) {
       stop();

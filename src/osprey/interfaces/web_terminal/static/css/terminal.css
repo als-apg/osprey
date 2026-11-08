@@ -396,17 +396,19 @@ html[data-sidebar="collapsed"] .sidebar :is(
   pointer-events: none;
 }
 
-.sidebar .panel-rail-button.dragging {
+.sidebar :is(.panel-rail-button, .sidebar-group).dragging {
   opacity: 0.5;
 }
 
-.sidebar .panel-rail-button.drop-before {
+/* A group drag (sidebar-group-drag.js) draws the same line across the
+   group it lands in front of, or under the last group. */
+.sidebar :is(.panel-rail-button, .sidebar-group).drop-before {
   box-shadow: inset 0 2px 0 var(--color-accent);
 }
 
 /* A drop at the foot of a group: the line goes under its last row, or under
    its empty line. */
-.sidebar :is(.panel-rail-button, .sidebar-row, .sidebar-group-empty).drop-after {
+.sidebar :is(.panel-rail-button, .sidebar-row, .sidebar-group-empty, .sidebar-group).drop-after {
   box-shadow: inset 0 -2px 0 var(--color-accent);
 }
 

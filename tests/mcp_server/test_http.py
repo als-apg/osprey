@@ -382,6 +382,18 @@ def test_panel_op_success_returns_layout_and_rev():
     assert out == {"ok": True, "status": 200, "layout": layout, "popouts": [], "rev": 9}
 
 
+def test_panel_op_passes_an_opens_placement_report_through():
+    layout = {"tile": "t0", "tabs": ["terminal"], "showing": "terminal", "size": 1}
+    report = {"placed": "replaced", "replaced": "okf", "note": "no room for a new tile"}
+    _, fake = _capture_op(200, {"status": "ok", "layout": layout, "rev": 9, **report})
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", side_effect=fake),
+    ):
+        out = http.panel_op("open", {"member": "ariel"})
+    assert out == {"ok": True, "status": 200, "layout": layout, "popouts": [], "rev": 9, **report}
+
+
 def test_panel_op_relays_a_named_refusal():
     refused = {"status": "refused", "reason": "stale_base", "detail": "read again", "rev": 5}
     _, fake = _capture_op(409, refused)

@@ -35,6 +35,7 @@ const { detach, detachBlocker } = vi.hoisted(() => ({
 
 /** What the gate says about an opaque-origin panel. */
 const OPAQUE = 'This panel runs at an opaque origin and cannot open in a new window.';
+const NOT_LOADED = 'This panel has not loaded yet.';
 
 // The window itself is pane-window's contract; the bar only has to ask it the
 // right things at the right times.
@@ -182,6 +183,7 @@ describe('tile-tab renderer', () => {
     expect(popout.title).toBe('Open in new window');
     expect(popout.getAttribute('aria-label')).toBe('Open in new window');
     expect(popout.disabled).toBe(false);
+    expect(popout.getAttribute('aria-disabled')).toBeNull();
     expect(popout.querySelector('svg.osprey-ic')).not.toBeNull();
   });
 
@@ -199,7 +201,7 @@ describe('tile-tab renderer', () => {
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('the Agent tile has ⋯ and its close only: Open in new window is a ⋯ row', async () => {
+  test('the Agent tile has the same ⋯, Open in new window and close as a service tile', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const tab = createTileTab('terminal');
@@ -208,26 +210,67 @@ describe('tile-tab renderer', () => {
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
     expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
       'Panel menu',
+      'Open in new window',
       'Close Agent pane',
     ]);
-    expect(actions.querySelector('.tile-tab-window')).toBeNull();
+    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-window'));
+    expect(popout.className).toBe('tile-tab-window osprey-icon-btn');
+    expect(popout.querySelector('svg.osprey-ic')).not.toBeNull();
   });
 
-  test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
+  test('the Agent tile’s Open in new window moves the Agent pane, inside the click', async () => {
+    const { createTileTab, setTerminalHeaderSource } = await import(MOD);
+    setTerminalHeaderSource(detachedTerminalHeader());
+    const api = fakeApi();
+    const tab = createTileTab('terminal');
+    tab.init({ title: 'Agent', params: {}, api });
+
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-window')).dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+
+    expect(detachBlocker).toHaveBeenCalledWith('terminal');
+    expect(detach).toHaveBeenCalledExactlyOnceWith('terminal');
+    expect(api.close).not.toHaveBeenCalled();
+  });
+
+  test('a panel that cannot pop out is marked inert, with the reason, once the pointer reads the gate', async () => {
     detachBlocker.mockReturnValue(OPAQUE);
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
     const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
 
-    // Built enabled: the URL and frame kind are not known yet, and a button
-    // disabled now would never get the pointer event that re-reads the gate.
-    expect(popout.disabled).toBe(false);
+    // Built live: the URL and frame kind are not known yet.
+    expect(popout.getAttribute('aria-disabled')).toBeNull();
     popout.dispatchEvent(new Event('pointerenter'));
-    expect(popout.disabled).toBe(true);
+    expect(popout.getAttribute('aria-disabled')).toBe('true');
     expect(popout.title).toBe(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     expect(detach).not.toHaveBeenCalled();
+  });
+
+  test('a hover before the panel loaded never kills the button: once it has loaded, the click moves it', async () => {
+    // A disabled .osprey-icon-btn takes no pointer events (primitives.css), so
+    // a button disabled by an early hover never heard the hover or click that
+    // finds the panel loaded: inert until the bar was rebuilt.
+    detachBlocker.mockReturnValue(NOT_LOADED);
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:jupyter');
+    tab.init({ title: 'Jupyter', params: {}, api: fakeApi() });
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
+
+    popout.dispatchEvent(new Event('pointerenter'));
+    expect(popout.getAttribute('aria-disabled')).toBe('true');
+    expect(popout.title).toBe(NOT_LOADED);
+    expect(popout.disabled).toBe(false);
+
+    detachBlocker.mockReturnValue(null);
+    popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(detach).toHaveBeenCalledExactlyOnceWith('jupyter');
+    expect(popout.getAttribute('aria-disabled')).toBe('false');
+    expect(popout.title).toBe('Open in new window');
   });
 
   test('the gate is read again at click time: a frame that resolved opaque after the bar was built', async () => {
@@ -235,13 +278,14 @@ describe('tile-tab renderer', () => {
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
     const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
-    expect(popout.disabled).toBe(false);
+    expect(popout.getAttribute('aria-disabled')).toBeNull();
 
     detachBlocker.mockReturnValue(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
     expect(detach).not.toHaveBeenCalled();
-    expect(popout.disabled).toBe(true);
+    expect(popout.getAttribute('aria-disabled')).toBe('true');
+    expect(popout.disabled).toBe(false);
     expect(popout.title).toBe(OPAQUE);
   });
 
@@ -359,7 +403,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: session switcher, +, then ⋯ and close', async () => {
+    test('the chat adopts the console bar: session switcher, +, then ⋯, Open in new window and close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -381,6 +425,7 @@ describe('tile-tab renderer', () => {
         'Switch session',
         'New conversation',
         'Panel menu',
+        'Open in new window',
         'Close Agent pane',
       ]);
     });

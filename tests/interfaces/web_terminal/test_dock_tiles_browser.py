@@ -1218,12 +1218,13 @@ def test_an_open_replaces_the_panel_in_the_service_tile_used_last(tmp_path, chro
         assert after["shape"] == S("row[column[d,b],c,terminal]")
         assert _tile_of(after, d) == "t1", after["held"]
 
-        # The agent's open lands by the same rule as the row click.
+        # The agent's open asked to replace lands by the same rule as the row
+        # click (its default is a new tile).
         start = _restore(page, MATRIX_START)
         _focus_tile(page, c)
         r = requests.post(
             f"{hub.base_url}/api/panel-op/open",
-            json={"request_id": "tiles-open-1", "member": d},
+            json={"request_id": "tiles-open-1", "member": d, "place": "replace"},
             timeout=10,
         )
         assert r.status_code == 200, r.text

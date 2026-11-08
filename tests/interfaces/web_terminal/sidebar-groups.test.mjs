@@ -33,6 +33,7 @@ import {
   loadGroups,
   moveToGroup,
   onGroupsChange,
+  placeGroup,
   removeGroup,
   renameGroup,
   reorderGroup,
@@ -403,6 +404,40 @@ describe('add, delete and reorder', () => {
     expect(groupIds()).toEqual(['workspace', id, 'tools', 'system']);
     expect(reorderGroup('nope', 'up')).toBe(false);
   });
+
+  test('a group is placed directly before another, or last for null', () => {
+    const id = addGroup('Beamline');
+    expect(placeGroup(id, 'tools')).toBe(true);
+    expect(groupIds()).toEqual(['workspace', id, 'tools', 'system']);
+    expect(placeGroup('tools', null)).toBe(true);
+    expect(groupIds()).toEqual(['workspace', id, 'system', 'tools']);
+    expect(stored().groups.map((/** @type {{id: string}} */ g) => g.id)).toEqual(groupIds());
+  });
+
+  test('placing a group where it already is, or before itself, changes nothing', () => {
+    const seen = vi.fn();
+    const stop = onGroupsChange(seen);
+    expect(placeGroup('tools', 'system')).toBe(false);
+    expect(placeGroup('system', null)).toBe(false);
+    expect(placeGroup('tools', 'tools')).toBe(false);
+    expect(placeGroup('nope', null)).toBe(false);
+    stop();
+    expect(seen).not.toHaveBeenCalled();
+    expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
+  });
+
+  test('the headless group is never placed, and nothing is placed above it', () => {
+    expect(placeGroup('workspace', null)).toBe(false);
+    expect(placeGroup('system', 'workspace')).toBe(false);
+    expect(groupIds()).toEqual(['workspace', 'tools', 'system']);
+  });
+
+  test('a placement keeps every panel in its group', () => {
+    moveToGroup('ariel', 'system');
+    placeGroup('system', 'tools');
+    expect(groupOf('ariel')).toBe('system');
+    expect(groupOf('lattice')).toBe('tools');
+  });
 });
 
 describe('moving a panel', () => {
@@ -693,6 +728,18 @@ describe('group headings', () => {
     expect(renameField(rail, 'workspace')).toBeNull();
     // The Agent row still leads it.
     expect(groupEl(rail, 'workspace').querySelector('[data-panel-id="terminal"]')).not.toBeNull();
+  });
+
+  test('every heading but the headless one is a drag handle, except while renaming', () => {
+    const rail = mountRail();
+    expect(headingOf(rail, 'workspace').getAttribute('draggable')).toBe('false');
+    expect(headingOf(rail, 'tools').getAttribute('draggable')).toBe('true');
+    expect(headingOf(rail, 'system').getAttribute('draggable')).toBe('true');
+
+    expect(startGroupRename(rail, 'tools')).toBe(true);
+    expect(headingOf(rail, 'tools').getAttribute('draggable')).toBe('false');
+    press(/** @type {HTMLInputElement} */ (renameField(rail, 'tools')), 'Escape');
+    expect(headingOf(rail, 'tools').getAttribute('draggable')).toBe('true');
   });
 
   test('a renamed group shows its new name at once', () => {

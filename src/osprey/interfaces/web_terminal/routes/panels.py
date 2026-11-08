@@ -59,6 +59,7 @@ from osprey.profiles.web_panels import (
     BUILTIN_PANELS,
     JUPYTER_PANEL_ID,
     SIDECAR_PANELS,
+    in_catalog_order,
     panel_id_refusal,
 )
 from osprey.registry.web import panel_url_state_attr
@@ -447,7 +448,7 @@ async def get_panels(request: Request):
     whose backend is a loopback literal served at its root (see
     :func:`_loopback_backend_ports`). Nothing else about a backend is exposed.
     """
-    enabled = list(getattr(request.app.state, "enabled_panels", set()))
+    enabled = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
     custom = [{**cp, "url": _browser_panel_url(cp)} for cp in custom_raw]
     default = getattr(request.app.state, "default_panel", None)
@@ -700,7 +701,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     stored_visible = getattr(request.app.state, "visible_panels", None)
     if stored_visible is None:
-        visible_panels = list(getattr(request.app.state, "enabled_panels", set()))
+        visible_panels = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     else:
         visible_panels = list(stored_visible)
     if body.panel not in visible_panels:
@@ -815,7 +816,7 @@ async def set_rail_order(body: RailOrderRequest, request: Request):
     # Membership, resolved the same way ``get_panels`` resolves ``visible``.
     stored_visible = getattr(request.app.state, "visible_panels", None)
     if stored_visible is None:
-        visible_panels = sorted(getattr(request.app.state, "enabled_panels", set()))
+        visible_panels = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     else:
         visible_panels = list(stored_visible)
     if body.panel not in visible_panels:
@@ -1416,14 +1417,21 @@ async def mint_panel_cap(panel_id: str, request: Request):
     bound to the login that asked for it and is never shared between browsers
     (so it is never part of ``GET /api/panels`` or a broadcast frame).
 
+    The hub asks for every panel it has no catalog entry for, config-defined
+    ones included, so "this panel is first-party" is an answer, not an error.
+
     Returns:
-        ``{"id": <id>, "cap_url": "<prefix>/panel-static|panel/<id>/~c/<cap>/"}``,
-        or ``404`` for a panel that is not opaque or a caller naming no login.
+        ``{"id": <id>, "opaque": true, "cap_url": "<prefix>/panel-static|panel/<id>/~c/<cap>/"}``
+        for an opaque panel, ``{"id": <id>, "opaque": false, "cap_url": null}``
+        for a first-party one, or ``404`` for an unknown panel or an opaque one
+        asked for by a caller naming no login (the hub frames it opaque, uncapped).
     """
+    if panel_cap.is_first_party_panel(request, panel_id):
+        return {"id": panel_id, "opaque": False, "cap_url": None}
     url = panel_cap.cap_url(request, panel_id)
     if url is None:
         raise HTTPException(status_code=404, detail=f"No capability path for panel {panel_id!r}")
-    return {"id": panel_id, "cap_url": url}
+    return {"id": panel_id, "opaque": True, "cap_url": url}
 
 
 def _resolve_bundle_file(request: Request, panel_id: str, path: str) -> Path | None:
