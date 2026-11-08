@@ -174,7 +174,9 @@ class Panel(_Strict):
 class StateField(_Strict):
     """Copy the fetched state's ``key`` into the stamp field ``field``.
 
-    A ``key`` absent from the state leaves the field unbound.
+    A dotted ``key`` (``step.digest``) is a path through nested mappings of the
+    state. A ``key`` the state does not hold, or a path that crosses a value
+    that is not a mapping, leaves the field unbound.
     """
 
     field: NonEmpty
