@@ -17,7 +17,7 @@
  *
  * Usage:
  *
- *     import '/design-system/js/components/osprey-machine-map.js';
+ *     // after a side-effect import of this module (/design-system/js/components/osprey-machine-map.js)
  *     const map = document.querySelector('osprey-machine-map');
  *     map.model = {
  *       label: 'BPMs',                // aria-label of the map
