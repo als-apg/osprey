@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -23,9 +23,9 @@ resolution-markers = [
 [options]
 
 [options.exclude-newer-package]
-accelerator-middle-layer-apg = "2026-10-11T00:00:00Z"
-lume-pva-apg = "2026-09-30T00:00:00Z"
 lume-pyat = "2026-09-18T00:00:00Z"
+lume-pva-apg = "2026-09-30T00:00:00Z"
+accelerator-middle-layer-apg = "2026-10-11T00:00:00Z"
 
 [manifest]
 members = [
@@ -5719,7 +5719,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.1" },
     { name = "watchdog", specifier = ">=6.0.0" },
     { name = "websocket-client", specifier = ">=1.7.0" },
-    { name = "websockets", specifier = ">=14" },
+    { name = "websockets", specifier = ">=15" },
 ]
 provides-extras = ["all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "optimizer", "screen-capture-linux", "teams", "virtual-accelerator"]
 

@@ -81,6 +81,13 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-sync
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js', () => ({
   activateTab: mocks.activateTab,
 }));
+// The panel's frame as dock-iframe holds it: the skeleton's.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
+  managedIframe: (/** @type {string} */ id) => {
+    const iframe = document.querySelector(`iframe.panel-iframe[data-panel-id="${id}"]`);
+    return iframe ? { iframe, title: 'Artifacts' } : null;
+  },
+}));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.js', () => ({
   hasDockedTile: mocks.hasDockedTile,
 }));

@@ -48,6 +48,7 @@ from osprey.cli.build_injectors import (
     _copy_service_templates,
     _inject_gchat_bridge,
     _inject_nextcloud_bridge,
+    _inject_slack_bridge,
     _inject_teams_bridge,
 )
 from osprey.cli.build_profile_schema import (
@@ -55,6 +56,7 @@ from osprey.cli.build_profile_schema import (
     VALID_NETWORK_MODES,
     GChatBridgeProfileConfig,
     NextcloudBridgeProfileConfig,
+    SlackBridgeProfileConfig,
     TeamsBridgeProfileConfig,
 )
 from osprey.deployment.compose_generator import prepare_compose_files
@@ -348,7 +350,7 @@ def test_the_pair_address_contract_is_what_the_bridge_templates_render() -> None
     from osprey.cli.build_cmd import _DISPATCH_PAIR_ADDRESS_VARS
     from osprey.cli.build_profile_presets import bundled_services_dir
 
-    for bridge in ("gchat_bridge", "nextcloud_bridge", "teams_bridge"):
+    for bridge in ("gchat_bridge", "nextcloud_bridge", "teams_bridge", "slack_bridge"):
         template = (bundled_services_dir() / bridge / "docker-compose.yml.j2").read_text(
             encoding="utf-8"
         )
@@ -356,7 +358,9 @@ def test_the_pair_address_contract_is_what_the_bridge_templates_render() -> None
             assert f"{variable}:" in template, f"{bridge} no longer renders {variable}"
 
 
-@pytest.mark.parametrize("bridge", ["gchat_bridge", "nextcloud_bridge", "teams_bridge"])
+@pytest.mark.parametrize(
+    "bridge", ["gchat_bridge", "nextcloud_bridge", "teams_bridge", "slack_bridge"]
+)
 def test_host_dispatch_pair_with_a_bridge_resident_chat_bridge_fails(
     bridge: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -380,7 +384,9 @@ def test_host_dispatch_pair_with_a_bridge_resident_chat_bridge_fails(
     assert "WORKER_URL -> http://dispatch-worker-1:9190" in message
 
 
-@pytest.mark.parametrize("bridge", ["gchat_bridge", "nextcloud_bridge", "teams_bridge"])
+@pytest.mark.parametrize(
+    "bridge", ["gchat_bridge", "nextcloud_bridge", "teams_bridge", "slack_bridge"]
+)
 def test_host_mode_chat_bridge_against_a_network_joined_pair_fails(
     bridge: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -457,6 +463,7 @@ _BRIDGE_INJECTORS = {
         NextcloudBridgeProfileConfig(), project
     ),
     "teams_bridge": lambda project: _inject_teams_bridge(TeamsBridgeProfileConfig(), project),
+    "slack_bridge": lambda project: _inject_slack_bridge(SlackBridgeProfileConfig(), project),
 }
 
 
