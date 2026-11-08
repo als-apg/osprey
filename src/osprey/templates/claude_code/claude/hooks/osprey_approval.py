@@ -3857,10 +3857,25 @@ def _approved_field(item) -> str:
     return field
 
 
+def _state_value(state, key: str):
+    """The value the ``state_fields`` *key* names in *state*, ``None`` when it names none.
+
+    A dotted key (``step.digest``) is a path through nested mappings; a path
+    that crosses a value that is not a mapping names nothing.
+    """
+    value = state
+    for part in key.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
 def _app_binding(entry, tool_input, state, target) -> dict:
     """The approved fields of this call: the target, then every bound entry.
 
-    A ``state_fields`` entry whose key is absent from the state is not bound;
+    A ``state_fields`` entry whose key (a dotted path, :func:`_state_value`)
+    names nothing in the state is not bound;
     ``require`` decides whether the call may still be asked. Every input digest
     is required: one over a key the input lacks refuses before the prompt, with
     the sentence the application SDK refuses the same call with.
@@ -3878,7 +3893,7 @@ def _app_binding(entry, tool_input, state, target) -> dict:
         key = item.get("key")
         if not isinstance(key, str):
             raise _AppRefused("refused", f"{field} names no state key")
-        value = state.get(key)
+        value = _state_value(state, key)
         if value is None:
             continue
         if not isinstance(value, (str, int, float, bool)):

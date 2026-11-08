@@ -307,7 +307,9 @@ tool server's ``writes:``, so every call is judged as a write, in this order:
       Values of the state copied into the call as ``approved_*`` fields: the
       readback the person saw, the plan id, a digest of the setpoints. The
       tool sends these to the backend, and the backend refuses when they no
-      longer match what it holds.
+      longer match what it holds. A key may be a dotted path into nested
+      state (``step.digest``); one that names nothing leaves its field
+      unbound.
    ``bind.input_digests``
       A digest over named call arguments, so the arguments the agent sends
       after approval must be the ones that were approved. An app recomputes
