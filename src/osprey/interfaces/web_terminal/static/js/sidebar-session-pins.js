@@ -24,8 +24,9 @@
  *
  * VIEW STATE. Hidden, folded and the name are this browser's, per user, under
  * `scopedStorageKey('osprey-sidebar-pinned')`. The first pin shows the group
- * folded; a pin made while the group is hidden shows it again; unpinning the
- * last session takes the group away and keeps its name.
+ * folded; once hidden, the group stays hidden through later pins until Show
+ * pinned sessions brings it back; unpinning the last session takes the group
+ * away and keeps its name.
  *
  * @module sidebar-session-pins
  */
@@ -131,8 +132,8 @@ export function setPinnedFolded(folded) {
 }
 
 /**
- * Pin or unpin a session: the group shows (folded on the first pin), then the
- * model sets the pin. session-model.js is imported lazily: the menus import
+ * Pin or unpin a session: the first pin folds the group, which then shows
+ * unless the operator hid it, then the model sets the pin. session-model.js is imported lazily: the menus import
  * this module, and a static edge to the model would close a cycle through the
  * chat (sidebar-artifact-menus.js says why).
  * @param {string} transcriptId
@@ -140,8 +141,7 @@ export function setPinnedFolded(folded) {
  * @returns {Promise<boolean>} whether the hub took it
  */
 export async function setSessionPinned(transcriptId, pinned) {
-  if (pinned && (count === 0 || view.hidden))
-    update({ hidden: false, folded: count === 0 ? true : view.folded });
+  if (pinned && count === 0) update({ folded: true });
   const model = await import('./session-model.js');
   return model.setPinned(transcriptId, pinned);
 }

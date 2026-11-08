@@ -1401,7 +1401,7 @@ describe('session pins: the pinned group and the pin button', () => {
     expect(pinnedCopy(T3).getAttribute('aria-expanded')).toBe('true');
   });
 
-  test('pinning while the group is hidden shows it again; hiding hides no session', async () => {
+  test('pinning while the group is hidden keeps it hidden; hiding hides no session', async () => {
     pinT2OnHub();
     await boot();
     const pins = await import(`${JS}/sidebar-session-pins.js`);
@@ -1410,8 +1410,11 @@ describe('session pins: the pinned group and the pin button', () => {
     expect(sessionTitles()).toEqual(['Orbit study', 'Tune scan']);
     click(pinButton(sessionRowEl(T1)));
     await settle();
-    expect(group().hidden).toBe(false);
+    expect(group().hidden).toBe(true);
     expect(head().querySelector('.sidebar-pinned-count')?.textContent).toBe('2');
+    pins.setPinnedHidden(false);
+    await settle();
+    expect(group().hidden).toBe(false);
   });
 
   test('the collapsed sidebar flyout lists the pinned sessions first, under the group name', async () => {
