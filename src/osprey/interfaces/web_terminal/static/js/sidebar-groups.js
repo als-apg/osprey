@@ -47,6 +47,8 @@
  * right-click anywhere across the heading's full width, or Shift+F10 / the
  * menu key on its focused name, opens the group's menu: Rename, New group
  * below, Move up, Move down, and Delete group for a group the operator added.
+ * A heading is also a drag handle: dragged, it moves its whole group
+ * (sidebar-group-drag.js); Move up and Move down are the keyboard's route.
  * The menu is the hub's shared context menu (panel-context-menu.js). Rename
  * swaps the name for a text field in place: Enter, or leaving the field,
  * keeps the new name; Escape keeps the old one, and so does an empty name.
@@ -456,6 +458,29 @@ export function reorderGroup(id, dir) {
 }
 
 /**
+ * Move a group so it comes directly before `beforeId`, or last when
+ * `beforeId` is null or names no group: where a dragged heading is dropped
+ * (sidebar-group-drag.js). The headless group never moves, and no group
+ * moves above it.
+ * @param {string} id
+ * @param {string | null} beforeId
+ * @returns {boolean} whether the order changed
+ */
+export function placeGroup(id, beforeId) {
+  if (isHeadlessGroup(id) || id === beforeId) return false;
+  const model = loadGroups();
+  const at = model.groups.findIndex((group) => group.id === id);
+  if (at < 0) return false;
+  const [moved] = model.groups.splice(at, 1);
+  const to = beforeId === null ? -1 : model.groups.findIndex((group) => group.id === beforeId);
+  if (to === 0) return false;
+  model.groups.splice(to < 0 ? model.groups.length : to, 0, moved);
+  if (model.groups.findIndex((group) => group.id === id) === at) return false;
+  commit(model);
+  return true;
+}
+
+/**
  * Call `callback` with the new model after every change.
  * @param {(model: GroupsModel) => void} callback
  * @returns {() => void} stops the calls
@@ -512,6 +537,10 @@ export function paintGroupHeading(groupEl, group, nameId) {
   groupEl.setAttribute('aria-labelledby', name.id);
   // A hidden name still names the group for assistive technology.
   heading.hidden = isHeadlessGroup(group.id);
+  // A heading drags its whole group (sidebar-group-drag.js); the headless
+  // group never moves. An open rename field keeps its own text selection.
+  const draggable = !heading.hidden && !heading.querySelector(`.${RENAME_CLASS}`);
+  heading.setAttribute('draggable', String(draggable));
   if (!wiredHeadings.has(heading)) {
     wiredHeadings.add(heading);
     wireHeading(heading);
@@ -665,6 +694,9 @@ export function startGroupRename(railEl, groupId) {
   field.setAttribute('aria-label', 'Group name');
   name.hidden = true;
   name.after(field);
+  // Inside a draggable heading, pressing in the field would drag the group.
+  const heading = name.closest('.sidebar-group-head');
+  heading?.setAttribute('draggable', 'false');
   field.focus();
   field.select();
 
@@ -677,6 +709,7 @@ export function startGroupRename(railEl, groupId) {
     const value = field.value;
     field.remove();
     name.hidden = false;
+    heading?.setAttribute('draggable', 'true');
     if (keep) renameGroup(groupId, value);
     if (refocus) focusGroupName(railEl, groupId);
   };
