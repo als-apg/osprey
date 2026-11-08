@@ -8,7 +8,7 @@
  * pressed button and a disabled one (`disabled` or `aria-disabled="true"`)
  * report nothing.
  *
- *     import { wireSegmented } from '/design-system/js/components/segmented.js';
+ *     // wireSegmented, imported from this module (/design-system/js/components/segmented.js)
  *     const dispose = wireSegmented(document.getElementById('mode'), (value) => setMode(value));
  *
  * @module components/segmented

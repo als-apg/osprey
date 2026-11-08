@@ -8,7 +8,7 @@
  * `disclosure:toggle` event with `{ open }` on the button. A button with no
  * `aria-controls` only flips `aria-expanded`.
  *
- *     import { wireDisclosures } from '/design-system/js/components/disclosure.js';
+ *     // wireDisclosures, imported from this module (/design-system/js/components/disclosure.js)
  *     const dispose = wireDisclosures(document.getElementById('step-list'));
  *
  * One delegated listener per root, so rows rendered later are covered too.
