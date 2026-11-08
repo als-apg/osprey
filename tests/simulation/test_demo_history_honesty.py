@@ -50,7 +50,7 @@ SR07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 ANCHOR = datetime(2026, 11, 5, 12, 0, 0, tzinfo=UTC)
 NAMES = ["rf-thermal", "demo-history"]
 PLOT_KEY = ("sector-7-beam-loss", "loss-plot")
-# The magnitude of each demo-history spike, as the scenario states it.
+# The magnitude of each demo-history event (the loss's amount, the burst's amplitude).
 AMPLITUDE = {DCCT: 18.0, SR07: 1.5e-07}
 # The loss plot's own margin either side of the burst (``PLOT_MARGIN_S``).
 NEAR_S = 600.0
@@ -128,7 +128,9 @@ def _seeded(
     tz = get_facility_timezone()
     with build(SimulatorView.of_project(project), NAMES, anchor_s=persisted.timestamp()) as archive:
         spans = {
-            pv: event_window(script, ANCHOR.timestamp(), HORIZON_START, tz=tz)
+            pv: event_window(
+                script, ANCHOR.timestamp(), HORIZON_START, tz=tz, topoff=archive.topoff_record(pv)
+            )
             for pv, script in events.items()
             if pv in set(archive.addresses)
         }
@@ -181,14 +183,15 @@ def test_the_archived_values_are_the_plotted_values(project: Path, config: dict,
 
     for pv in (DCCT, SR07):
         low, high = spans[pv]
-        assert low < event < high, pv
+        # A burst or a loss starts at its instant, so the window opens there.
+        assert low <= event < high, pv
         inside = [i for i, t in enumerate(seconds) if low <= t <= high]
         assert sorted(seeded[pv]) == inside, pv
         # Inside the rewritten window the archive holds exactly what the plot draws.
         assert [float(seeded[pv][i]) for i in inside] == [plot[pv]["y"][i] for i in inside], pv
         # Outside it the archive keeps its base. The plot draws the composite there,
-        # which still carries the spike's tail beyond the rewrite's 4-sigma window;
-        # the two may differ by that tail and no more -- a thousandth of the spike.
+        # which still carries the burst's tail beyond the rewrite's window; the two
+        # may differ by that tail and no more -- a thousandth of the event.
         outside = [i for i in range(len(seconds)) if i not in seeded[pv]]
         assert outside, "the plot's margin reaches past the rewritten window"
         tail = 1e-3 * AMPLITUDE[pv]
