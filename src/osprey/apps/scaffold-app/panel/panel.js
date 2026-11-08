@@ -49,7 +49,9 @@ export function showState(root, state) {
   }
   field(root, 'channel').textContent = state.channel ?? '';
   field(root, 'readback').textContent = state.readback == null ? '' : String(state.readback);
-  field(root, 'target').textContent = state.target ?? '';
+  const target = field(root, 'target');
+  target.textContent = state.target ?? '';
+  target.hidden = !state.target;
   field(root, 'error').hidden = true;
 }
 

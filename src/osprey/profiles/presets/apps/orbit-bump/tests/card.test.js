@@ -333,6 +333,28 @@ describe('the compute and apply card', () => {
     expect(button(root, 'apply').hidden).toBe(true);
   });
 
+  it("shows a JSON refusal's detail, not the raw body, in the read-only notice", async () => {
+    const { fetcher } = backend({
+      compute: () => json({ detail: 'Writes are off; turn it on from the chip.' }, 403),
+    });
+    mount(fetcher, state({ plan: plan() }));
+    setSelection(root, { targets: { B2: 0.5 } });
+    await compute(root);
+    expect(field(root, 'notice').textContent).toBe(
+      'read-only: Writes are off; turn it on from the chip.'
+    );
+  });
+
+  it("shows a JSON 409's detail from apply", async () => {
+    const { fetcher } = backend({
+      apply: () => json({ detail: 'plan p1 is not the current plan' }, 409),
+    });
+    mount(fetcher, state({ plan: plan() }));
+    openConfirm(root);
+    await applyPlan(root);
+    expect(field(root, 'error').textContent).toBe('plan p1 is not the current plan');
+  });
+
   it('shows a 409 from Compute verbatim', async () => {
     const { fetcher } = backend({
       compute: () => text('the ORM of RING is building; Compute when it is ready', 409),

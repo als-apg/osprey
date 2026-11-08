@@ -280,6 +280,13 @@ function ormText(model) {
   return `${parts.filter(Boolean).join(' · ')} · `;
 }
 
+/** The ORM chip's tone per ORM status; an idle ORM keeps the plain chip. */
+const ORM_TONES = /** @type {Record<string, string>} */ ({
+  building: 'osprey-chip--connecting',
+  ready: 'osprey-chip--ok',
+  failed: 'osprey-chip--err',
+});
+
 /**
  * @param {Element} root
  * @param {Panel} panel
@@ -289,7 +296,8 @@ function renderHeader(root, panel) {
   const { selection } = panel;
 
   for (const button of field(root, 'plane').querySelectorAll('[data-plane]')) {
-    button.classList.toggle('on', button.getAttribute('data-plane') === selection.plane);
+    const on = button.getAttribute('data-plane') === selection.plane;
+    button.setAttribute('aria-pressed', String(on));
   }
 
   const select = /** @type {HTMLSelectElement} */ (field(root, 'model'));
@@ -312,9 +320,10 @@ function renderHeader(root, panel) {
   const chip = field(root, 'orm');
   const model = selectedModel(panel);
   chip.hidden = !model;
-  chip.classList.remove('idle', 'building', 'ready', 'failed');
+  for (const tone of Object.values(ORM_TONES)) chip.classList.remove(tone);
   if (model) {
-    chip.classList.add(model.orm.status);
+    const tone = ORM_TONES[model.orm.status];
+    if (tone) chip.classList.add(tone);
     field(root, 'orm-text').textContent = ormText(model);
   }
 
@@ -554,7 +563,7 @@ function rangeChip(root) {
   const found = root.querySelector('[data-field="range-chip"]');
   if (found instanceof HTMLElement) return found;
   const chip = document.createElement('span');
-  chip.className = 'ob-chip';
+  chip.className = 'osprey-chip';
   chip.setAttribute('data-field', 'range-chip');
   const text = document.createElement('span');
   text.setAttribute('data-field', 'range');
@@ -1032,8 +1041,8 @@ function controls(root) {
 
   const box = htmlNode('div', { class: 'ob-cols', 'data-field': 'controls' });
 
-  const bump = htmlNode('div', { class: 'ob-box' });
-  const bumpHead = htmlNode('h3');
+  const bump = htmlNode('div', { class: 'osprey-card ob-box' });
+  const bumpHead = htmlNode('h3', { class: 'osprey-section-label' });
   const title = htmlNode('span', {}, 'Bump · ');
   title.append(htmlNode('span', { 'data-field': 'bump-count' }, '0'), ' BPM');
   const add = htmlNode('label', { class: 'ob-add' }, 'add: click a BPM, or ');
@@ -1056,13 +1065,13 @@ function controls(root) {
   table.append(head, htmlNode('tbody'));
   const empty = htmlNode(
     'p',
-    { class: 'ob-empty', 'data-field': 'bump-empty' },
+    { class: 'osprey-list-empty', 'data-field': 'bump-empty' },
     'No BPM in the bump yet — click one on the strip.'
   );
   bump.append(bumpHead, table, empty);
 
-  const cors = htmlNode('div', { class: 'ob-box' });
-  const corsHead = htmlNode('h3');
+  const cors = htmlNode('div', { class: 'osprey-card ob-box' });
+  const corsHead = htmlNode('h3', { class: 'osprey-section-label' });
   const rule = htmlNode('select', { 'data-field': 'rule', 'aria-label': 'corrector rule' });
   for (const [value, text] of RULES) rule.append(htmlNode('option', { value }, text));
   corsHead.append(htmlNode('span', {}, 'Correctors'), rule);
@@ -1074,11 +1083,11 @@ function controls(root) {
   actions.append(
     htmlNode(
       'button',
-      { type: 'button', class: 'ob-btn primary', 'data-field': 'compute' },
+      { type: 'button', class: 'osprey-btn primary', 'data-field': 'compute' },
       'Compute'
     ),
-    htmlNode('button', { type: 'button', class: 'ob-btn apply', 'data-field': 'apply' }, 'Apply…'),
-    htmlNode('button', { type: 'button', class: 'ob-btn', 'data-field': 'clear' }, 'Clear'),
+    htmlNode('button', { type: 'button', class: 'osprey-btn', 'data-field': 'apply' }, 'Apply…'),
+    htmlNode('button', { type: 'button', class: 'osprey-btn', 'data-field': 'clear' }, 'Clear'),
     htmlNode('span', { class: 'ob-meta', 'data-field': 'apply-note' })
   );
 
@@ -1292,10 +1301,7 @@ async function discardThenClear(root, changes, fetcher) {
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: '{}',
       });
-      if (!response.ok) {
-        const text = (await response.text()).trim();
-        throw new Error(text || `the backend answered ${response.status}`);
-      }
+      if (!response.ok) throw new Error(await refusalText(response));
     } catch (error) {
       showError(root, error instanceof Error ? error.message : String(error));
       render(root);
@@ -1463,10 +1469,7 @@ export async function recompute(root, fetcher = fetch) {
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ model }),
     });
-    if (!response.ok) {
-      const text = (await response.text()).trim();
-      throw new Error(text || `the backend answered ${response.status}`);
-    }
+    if (!response.ok) throw new Error(await refusalText(response));
   } catch (error) {
     showError(root, error instanceof Error ? error.message : String(error));
   }
@@ -1639,7 +1642,7 @@ function card(root) {
   const body = field(root, 'body');
   const found = body.querySelector('[data-field="card"]');
   if (found instanceof HTMLElement) return found;
-  const node = htmlNode('div', { class: 'ob-box', 'data-field': 'card' });
+  const node = htmlNode('div', { class: 'osprey-card ob-box', 'data-field': 'card' });
   node.hidden = true;
   body.append(node);
   return node;
@@ -1692,7 +1695,7 @@ function renderCard(root, panel) {
   }
   node.hidden = false;
   const unit = bpmUnit(panel);
-  const headLine = htmlNode('h3');
+  const headLine = htmlNode('h3', { class: 'osprey-section-label' });
   headLine.append(
     htmlNode('span', {}, `Plan ${plan.id} · `),
     htmlNode('span', { 'data-field': 'plan-status' }, statusText(plan))
@@ -1726,12 +1729,19 @@ function closeConfirm(root) {
 }
 
 /**
- * The backend's refusal text, or the status when the body is empty.
+ * The backend's refusal text: the `detail` of a JSON body, else the body
+ * itself, else the status when the body is empty.
  * @param {Response} response
  * @returns {Promise<string>}
  */
-async function refusalText(response) {
+export async function refusalText(response) {
   const text = (await response.text()).trim();
+  try {
+    const detail = JSON.parse(text)?.detail;
+    if (typeof detail === 'string' && detail.trim()) return detail.trim();
+  } catch {
+    // not JSON: the text is the refusal
+  }
   return text || `the backend answered ${response.status}`;
 }
 
@@ -1797,15 +1807,19 @@ export function openConfirm(root) {
   if (!plan || plan.status !== 'ready' || panel.readOnly || panel.applying) return;
   if (!(panel.state?.posture?.allowed ?? false)) return;
   const confirm = field(root, 'confirm');
-  const box = htmlNode('div', { class: 'ob-box', role: 'dialog', 'aria-label': 'confirm apply' });
+  const box = htmlNode('div', {
+    class: 'osprey-card ob-box',
+    role: 'dialog',
+    'aria-label': 'confirm apply',
+  });
   const ok = htmlNode(
     'button',
-    { type: 'button', class: 'ob-btn apply', 'data-field': 'confirm-apply' },
+    { type: 'button', class: 'osprey-btn primary', 'data-field': 'confirm-apply' },
     `Apply ${plan.correctors.length} setpoint${plan.correctors.length === 1 ? '' : 's'}`
   );
   const cancel = htmlNode(
     'button',
-    { type: 'button', class: 'ob-btn', 'data-field': 'confirm-cancel' },
+    { type: 'button', class: 'osprey-btn', 'data-field': 'confirm-cancel' },
     'Cancel'
   );
   ok.addEventListener('click', () => void applyPlan(root));
@@ -1813,7 +1827,11 @@ export function openConfirm(root) {
   const buttons = htmlNode('div', { class: 'ob-actions' });
   buttons.append(cancel, ok);
   box.append(
-    htmlNode('h3', {}, `Apply plan ${plan.id} to ${plan.model} · ${plan.plane}`),
+    htmlNode(
+      'h3',
+      { class: 'osprey-section-label' },
+      `Apply plan ${plan.id} to ${plan.model} · ${plan.plane}`
+    ),
     rowsTable(plan, false),
     htmlNode('p', { class: 'ob-meta' }, closureText(plan, bpmUnit(panel))),
     buttons

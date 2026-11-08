@@ -245,9 +245,11 @@ The panel
 =========
 
 ``panel/index.html`` is a plain page. It loads the terminal's
-``/design-system/`` tokens and base styles first, so it follows the theme, and
-then its own ``static/panel.css``. ``panel/panel.js`` fetches ``api/state``
-every two seconds and writes the fields into the page. Addresses are relative
+``/design-system/`` ``tokens.css``, ``base.css`` and ``primitives.css`` first,
+so it follows the theme, and then its own ``static/panel.css``. Buttons,
+toggles, chips and cards use the ``osprey-*`` classes from ``primitives.css``;
+``panel.css`` holds only what is the app's own. ``panel/panel.js`` fetches
+``api/state`` every two seconds and writes the fields into the page. Addresses are relative
 (``api/state``, not ``/api/state``) because the page is served under the
 terminal's ``/panel/<id>/`` prefix.
 

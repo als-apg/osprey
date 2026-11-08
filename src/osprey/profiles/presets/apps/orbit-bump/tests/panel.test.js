@@ -13,7 +13,7 @@ import {
 const MARKUP = `
   <span data-field="plane"><button data-plane="x"></button><button data-plane="y"></button></span>
   <select data-field="model" hidden></select>
-  <span data-field="orm"><i></i><span data-field="orm-text"></span><button data-field="recompute"></button></span>
+  <span data-field="orm"><span data-field="orm-text"></span><button data-field="recompute"></button></span>
   <span data-field="no-model" hidden>no closed-orbit model</span>
   <p data-field="posture" hidden></p>
   <p data-field="notice" hidden></p>
@@ -119,9 +119,8 @@ describe('the orbit-bump panel', () => {
     const { selection } = panelOf(root);
     expect(selection.plane).toBe('x');
     expect(selection.rule).toBe('auto');
-    expect(field(root, 'plane').querySelector('[data-plane="x"]')?.classList.contains('on')).toBe(
-      true
-    );
+    const pressed = field(root, 'plane').querySelector('[data-plane="x"]');
+    expect(pressed?.getAttribute('aria-pressed')).toBe('true');
   });
 
   describe('header', () => {
@@ -155,12 +154,12 @@ describe('the orbit-bump panel', () => {
       expect(field(root, 'orm-text').textContent).toContain('SR');
       expect(field(root, 'orm-text').textContent).toContain('ready');
       expect(field(root, 'orm-text').textContent).toContain('2 min ago');
-      expect(field(root, 'orm').classList.contains('ready')).toBe(true);
+      expect(field(root, 'orm').classList.contains('osprey-chip--ok')).toBe(true);
     });
 
     it('shows a failed ORM build with its reason', () => {
       showState(root, state({ models: [model('SR', 'failed')] }));
-      expect(field(root, 'orm').classList.contains('failed')).toBe(true);
+      expect(field(root, 'orm').classList.contains('osprey-chip--err')).toBe(true);
       expect(field(root, 'orm-text').textContent).toContain('deck refused');
     });
 

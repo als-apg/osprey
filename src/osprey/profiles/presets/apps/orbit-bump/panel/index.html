@@ -6,18 +6,19 @@
 <script src="/design-system/js/theme-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
+<link rel="stylesheet" href="/design-system/css/primitives.css">
 <link rel="stylesheet" href="static/panel.css">
 <title>Orbit bump</title>
 </head>
 <body>
 <main id="orbit-bump" class="ob">
   <div class="ob-bar">
-    <span class="ob-seg" data-field="plane">
-      <button type="button" data-plane="x">Horizontal</button>
-      <button type="button" data-plane="y">Vertical</button>
+    <span class="osprey-seg" data-field="plane">
+      <button type="button" data-plane="x" aria-pressed="true">Horizontal</button>
+      <button type="button" data-plane="y" aria-pressed="false">Vertical</button>
     </span>
     <select class="ob-model" data-field="model" aria-label="model" hidden></select>
-    <span class="ob-chip" data-field="orm"><i></i><span data-field="orm-text"></span><button type="button" class="ob-link" data-field="recompute">recompute</button></span>
+    <span class="osprey-chip" data-field="orm"><span data-field="orm-text"></span><button type="button" class="ob-link" data-field="recompute">recompute</button></span>
     <span class="ob-none" data-field="no-model" hidden>no closed-orbit model</span>
     <span class="ob-spacer"></span>
     <span class="ob-legend">
