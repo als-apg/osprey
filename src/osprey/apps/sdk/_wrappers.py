@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from collections.abc import Mapping
+from typing import Any, Literal
+
+from osprey.utils.owner_header import CALLER_HEADER, caller_from_header
 
 
 def agent_panel_headers() -> dict[str, str]:
@@ -25,6 +28,31 @@ def agent_panel_headers() -> dict[str, str]:
     if session:
         headers[SESSION_HEADER] = session
     return headers
+
+
+def caller_kind(headers: Mapping[str, str]) -> Literal["agent", "panel"]:
+    """Who the terminal proxy says is calling: ``agent`` or ``panel``.
+
+    *headers* is the request's header mapping; the name is matched
+    case-insensitively. The proxy strips any inbound ``X-Osprey-Caller`` and
+    stamps its own on every request it forwards, so a backend behind it always
+    receives one.
+
+    Raises:
+        ValueError: The header is absent or names neither kind, so the request
+            did not come through the proxy.
+
+    Stable: part of the application SDK's public surface.
+    """
+    wanted = CALLER_HEADER.lower()
+    value = next((v for k, v in headers.items() if k.lower() == wanted), None)
+    kind = caller_from_header(value)
+    if kind is None:
+        raise ValueError(
+            f"{CALLER_HEADER} is absent or names neither 'agent' nor 'panel': "
+            "the request did not come through the terminal proxy"
+        )
+    return kind
 
 
 def queue_is_active(status: dict[str, Any]) -> bool:

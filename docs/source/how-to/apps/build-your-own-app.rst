@@ -201,6 +201,14 @@ verdict (tier, switch, session), applies the limits and records the write —
 your code does none of that. A refusal arrives as ``ChannelWriteBlockedError``
 and the backend passes its sentence on.
 
+A route that needs to know who is calling asks the terminal, never the
+request: the terminal drops any ``X-Osprey-Caller`` header a request arrives
+with and sets its own, ``agent`` or ``panel``. ``caller_kind(request.headers)``
+reads it, and only beside the launch token the terminal adds
+(``launch_token: true``, on a login that arms the app; ``launch_token_env()``
+names its variable). A request without that token raises ``ValueError``: a
+caller header the terminal did not set is never trusted.
+
 The scaffold adds one check of its own, and it is the pattern for every
 write you add: the write request carries the readback the operator saw on the
 card (``readback``), and the backend re-reads the channel and refuses when the
@@ -389,6 +397,8 @@ read through a tool; everything the operator can press, the agent can do
 through a tool or an argument. The panel and the tool server are two front
 ends to one backend, so parity needs no second implementation: each panel
 element maps to a backend route, and each route the panel uses has a tool.
+A route can still tell the two apart: an agent's tool call arrives as
+``agent`` and a panel call as ``panel`` (`The backend`_).
 
 .. raw:: html
    :file: ../../_diagrams/app-parity.html

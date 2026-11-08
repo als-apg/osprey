@@ -60,6 +60,9 @@ SDK_NAMES = {
     "audit_surface",
     "canonical_json",
     "input_digest",
+    "CALLER_HEADER",
+    "caller_from_header",
+    "caller_kind",
 }
 
 
