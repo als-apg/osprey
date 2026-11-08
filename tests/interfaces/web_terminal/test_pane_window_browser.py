@@ -120,7 +120,7 @@ def _send(box, prompt: str) -> None:
 
 
 def _detach_agent(page: Page) -> Page:
-    """The Agent tile's Open in new window is a row of its ⋯."""
+    """Through the Open in new window row of the Agent tile's ⋯."""
     page.locator(f"{_AGENT_TILE} .tile-tab-more").click()
     with page.expect_popup() as info:
         page.locator(_MENU).get_by_role("menuitem", name="Open in new window").click()
@@ -208,6 +208,65 @@ def test_the_agent_pane_leaves_the_dock_chats_from_the_window_and_reattaches(hub
     expect(page.locator("#operator-container")).to_contain_text(
         "Done: Check the beam from the window"
     )
+
+
+def test_the_agent_tiles_own_button_pops_it_out_and_reattach_brings_it_back(hub, page):
+    """The Agent tile carries the same Open in new window button as a service tile;
+    the chat moves to the window on the hub's connections, and back."""
+    turns: list[str] = []
+
+    def _count_turns(request) -> None:
+        if request.method == "POST" and "/api/chat?stream=true" in request.url:
+            turns.append(request.frame.page.url)
+
+    page.on("request", _count_turns)
+    _boot(page, hub)
+    button = page.locator(f"{_AGENT_TILE} .tile-tab-actions .tile-tab-window")
+    expect(button).to_have_attribute("aria-label", "Open in new window")
+    labels = page.locator(f"{_AGENT_TILE} .tile-tab-actions > button").evaluate_all(
+        "els => els.map(e => e.getAttribute('aria-label'))"
+    )
+    assert labels == ["Panel menu", "Open in new window", "Close Agent pane"], labels
+    with page.expect_popup() as info:
+        button.click()
+    popup = info.value
+    popup_requests: list[str] = []
+    popup.on("request", lambda request: popup_requests.append(request.url))
+    expect(popup.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(page.locator(_AGENT_TILE)).to_have_count(0)
+    expect(page.locator("html")).to_have_attribute("data-agent", "detached")
+    # In its window the bar has Reattach in that slot, not the button.
+    expect(popup.locator(_BAR_REATTACH)).to_be_visible()
+    expect(popup.locator(f"{_BAR} .tile-tab-window")).to_have_count(0)
+
+    _send(popup.locator(_COMPOSER), "Status from the popped-out pane")
+    expect(popup.locator("#operator-container")).to_contain_text(
+        "Done: Status from the popped-out pane", timeout=_TIMEOUT_MS
+    )
+
+    with popup.expect_event("close", timeout=_TIMEOUT_MS):
+        # The click closes this window, which can fail a click call still waiting on it.
+        popup.locator(_BAR_REATTACH).evaluate("b => setTimeout(() => b.click())")
+
+    expect(page.locator(_COMPOSER)).to_have_count(1, timeout=_TIMEOUT_MS)
+    expect(page.locator(_COMPOSER)).to_be_visible()
+    expect(page.locator(".op-session-bar")).to_have_count(1)
+    expect(page.locator(f"{_AGENT_TILE} .tile-tab-window")).to_have_count(1)
+    expect(page.locator("#operator-container")).to_contain_text(
+        "Done: Status from the popped-out pane"
+    )
+    _send(page.locator(_COMPOSER), "Back in the dock")
+    expect(page.locator("#operator-container")).to_contain_text(
+        "Done: Back in the dock", timeout=_TIMEOUT_MS
+    )
+    # One chat client throughout: each message was one turn, sent by the hub,
+    # and the window opened no chat request of its own.
+    assert len(turns) == 2, turns
+    assert not [url for url in popup_requests if "/api/chat" in url], popup_requests
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator(_COMPOSER)).to_be_visible(timeout=_TIMEOUT_MS)
+    expect(page.locator(_AGENT_TILE)).to_have_count(1)
+    expect(page.locator(f"{_AGENT_TILE} .tile-tab-window")).to_have_count(1)
 
 
 def test_closing_the_agent_window_closes_the_pane_and_its_row_reopens_it(hub, page):
