@@ -14,6 +14,9 @@ import {
   initPanelManager,
   navigateAndActivatePanel,
   getPanelStandaloneUrl,
+  activateTab,
+  isPanelHealthy,
+  labelOf,
 } from './panel-manager.js';
 import { wireAgentLinks } from './agent-links.js';
 import { wireArtifactLinks } from './artifact-links.js';
@@ -31,11 +34,14 @@ import { startNewSession } from './sessions.js';
 import { attachSessionSwitcher } from './session-switcher.js';
 import { initCommandPalette } from './palette-boot.js';
 import { initMoreMenu } from './more-menu.js';
+import { installPlaceMenus } from './place-menu.js';
+import { initPaneWindow } from './pane-window.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
 import { initChat, enterFromTerminal, renderChatBootFailure } from './chat.js';
-import { initDockWorkspace } from './dock-workspace.js';
+import { initDockWorkspace, resetDockLayout } from './dock-workspace.js';
+import { installDockMenus } from './dock-menus.js';
 import { initSessionLayout } from './session-layout.js';
 import { openDirectVisit, takeDirectVisit } from './direct-visit.js';
 import { panelFocusAnchor } from './dock-iframe.js';
@@ -147,6 +153,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     initMoreMenu({ getSessionId: getCurrentSessionId });
   } catch (err) {
     console.error('Failed to init the More menu:', err);
+  }
+  // The shell's places (chat, terminal, ...), here and in every pop-out
+  // window, which pane-window wires as it dresses one.
+  try {
+    installPlaceMenus(document);
+    initPaneWindow({ installPlaceMenus });
+  } catch (err) {
+    console.error('Failed to init the place menus:', err);
+  }
+  // The empty dock slot's menu. After the panel manager and the dock: it reads
+  // the rail and the layout holder. panel-manager's verbs are injected, since
+  // panel-menu-policy (imported by panel-manager) reads dock-menus.
+  try {
+    installDockMenus({
+      activate: (id) => activateTab(id, { userInitiated: true }),
+      isHealthy: isPanelHealthy,
+      labelOf,
+      reset: resetDockLayout,
+    });
+  } catch (err) {
+    console.error('Failed to init the dock menus:', err);
   }
   initNewSessionButton();
   initSignOut();

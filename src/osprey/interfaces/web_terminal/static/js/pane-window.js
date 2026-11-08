@@ -81,6 +81,8 @@ const BLOCKED_MESSAGE = 'Pop-ups are blocked for this site.';
  * @property {() => HTMLElement | null} agentPaneContent - the Agent's subtree once adopted
  * @property {() => void} fitAgent - refit the Agent's terminal to its box
  * @property {<T>(fn: () => T) => T} withEchoSuppressed - run without reporting a focus
+ * @property {(doc: Document) => void} installPlaceMenus - wire a window's document for
+ *   the shell's place menus (place-menu.js), idempotent per document
  */
 
 /**
@@ -297,6 +299,8 @@ function detachAgent(hadTile) {
       beforeMove: () => leaveDock(TERMINAL_RAIL_ID, null, hadTile),
       onDress: (mount) => {
         mount.setAttribute(DETACHED_ATTRIBUTE, 'true');
+        // Again after a reload: a fresh document; once per document otherwise.
+        deps.installPlaceMenus?.(mount.ownerDocument);
         bar.dress(mount);
         fit();
         if (!told) notify(TERMINAL_RAIL_ID, true);
@@ -364,6 +368,8 @@ function detachService(id, hadTile) {
       beforeDress: loadPage,
       onDress: (mount) => {
         mount.setAttribute(DETACHED_ATTRIBUTE, 'true');
+        // Again after a reload: a fresh document; once per document otherwise.
+        deps.installPlaceMenus?.(mount.ownerDocument);
         bar.dress(mount);
         if (!told) {
           iframe.addEventListener('load', onFrameLoad);

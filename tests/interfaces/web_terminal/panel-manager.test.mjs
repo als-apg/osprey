@@ -1321,11 +1321,31 @@ const menuHeadings = () =>
 const MENU_POLICY_PATH =
   '../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js';
 
+const PLACEMENT_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.js';
+
+/**
+ * Dock a panel as a NEW tile beside the active one — the verb a docked rail
+ * entry's "Open in a new tile" runs. A rail entry whose tile is closed offers
+ * Open (the open rule) instead, so a test that needs a second tile calls the
+ * verb itself, from the same module instance the booted manager uses.
+ * @param {string} id
+ */
+async function openBeside(id) {
+  (await import(PLACEMENT_PATH)).openPanelBeside(id);
+}
+
+/**
+ * Open the "Move to ▸" submenu of the menu that is open.
+ */
+function openMoveTo() {
+  /** @type {HTMLElement} */ (menuRow('Move to')).click();
+}
+
 const CHAT_EXPORT_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/chat-export.js';
 
 /**
- * Open the Agent tile header's menu, where the pane verbs (Restart terminal,
- * Reset layout, Close Agent pane) live — the sidebar's Agent row heads the
+ * Open the Agent tile header's menu, where the pane verbs (Switch to terminal /
+ * chat, Reveal in sidebar, Close Agent pane, Restart terminal) live — the sidebar's Agent row heads the
  * session tree and offers the tree's verbs instead.
  * @returns {Promise<boolean>} true when a menu was opened
  */
@@ -1471,6 +1491,9 @@ async function bootWorkspace({
   const { emit } = stubEventSource();
 
   const api = makeDockApi();
+  // The iframe overlay also follows a maximize (dock-iframe.js); the shared
+  // fake has no maximize, so it never fires here.
+  /** @type {any} */ (api).onDidMaximizedGroupChange ??= () => ({ dispose() {} });
   dockState.api = api;
 
   const mod = await freshImport();
@@ -1600,8 +1623,7 @@ describe("agent open (panel_op op:'open') — a new tile by default, replace on 
 
   test('a panel already docked is only focused — nothing moves, nothing is replaced', async () => {
     const { holder, op, calls } = await bootWorkspace();
-    rightClick(/** @type {Element} */ (entry('ariel')));
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    await openBeside('ariel');
     expect(activeStamp()).toBe('ariel');
     const before = holder.layout;
     const okfTile = tileHolding(holder, 'okf').tile;
@@ -1802,8 +1824,7 @@ describe('a rail click — the open rule: replace the panel of the service tile 
 
   test('a click on a docked member only focuses its tile: nothing moves, nothing is replaced', async () => {
     const { api, holder } = await bootWorkspace();
-    rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    await openBeside('ariel');
     expect(activeStamp()).toBe('ariel');
     const before = holder.layout;
 
@@ -1868,8 +1889,7 @@ describe('a whole-layout apply (a reset) keeps the panel the operator was on', (
 
   test('the panel on view comes back alone beside the agent pane; the others keep their rows', async () => {
     const { api, holder } = await bootWorkspace();
-    rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    await openBeside('ariel');
     expect(dockedTiles(api).sort()).toEqual(['ariel', 'okf']);
     expect(activeStamp()).toBe('ariel');
 
@@ -1972,8 +1992,7 @@ describe('the rail accent is derived from the dock layout on screen', () => {
 
   test('an agent close of the accented tile hands the accent to the tile left on screen', async () => {
     const { api, op } = await bootWorkspace({ panels: ['okf', 'ariel'] });
-    rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    await openBeside('ariel');
     expect(accented()).toEqual(['ariel']);
 
     op('close', { key: 'ariel' });
@@ -2180,8 +2199,7 @@ describe("panel_op op:'open_arrangement' — the declarative whole-workspace reb
       const down = new Set();
       const { api, op } = await bootWorkspace({ panels: ['okf', 'system-health'], down });
       await vi.advanceTimersByTimeAsync(1000); // onto the 10 s maintenance cadence
-      rightClick(/** @type {Element} */ (entry('system-health')));
-      /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+      await openBeside('system-health');
       /** @type {HTMLElement} */ (entry('okf')).click(); // the operator looks back
       expect(dockedTiles(api).sort()).toEqual(['okf', 'system-health']);
       expect(activeStamp()).toBe('okf');
@@ -2266,8 +2284,7 @@ describe('tile notice — a docked panel that stops answering says so over its o
     });
     const booted = await bootWorkspace({ panels: ['okf', 'system-health'], down });
     await vi.advanceTimersByTimeAsync(1000); // onto the 10 s maintenance cadence
-    rightClick(/** @type {Element} */ (entry('system-health')));
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    await openBeside('system-health');
     /** @type {HTMLElement} */ (entry('okf')).click(); // the operator looks back
     expect(dockedTiles(booted.api).sort()).toEqual(['okf', 'system-health']);
     return booted;
@@ -3049,22 +3066,72 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     document.documentElement.removeAttribute('data-agent-surface');
   });
 
-  test('a healthy service entry opens the full verb list and suppresses the native menu', async () => {
+  test('a healthy entry whose tile is closed opens its verbs and suppresses the native menu', async () => {
     await bootWorkspace();
 
     const ev = rightClick(entry('ariel'));
 
     expect(ev.defaultPrevented).toBe(true);
+    expect(menuLabels()).toEqual(['Open', 'Open in new window', 'Move to', 'Remove from rail']);
+    expect(contextMenu()?.getAttribute('aria-label')).toBe('Logbook actions');
+  });
+
+  test('a docked entry: Focus tile · Open in a new tile · Open in new window', async () => {
+    await bootWorkspace();
+
+    rightClick(entry('okf'));
+
     expect(menuLabels()).toEqual([
-      'Focus Logbook',
+      'Focus tile',
       'Open in a new tile',
       'Open in new window',
-      'Move to Sessions',
-      'Move to System',
-      'Move to new group…',
+      'Move to',
       'Remove from rail',
     ]);
-    expect(contextMenu()?.getAttribute('aria-label')).toBe('Logbook actions');
+  });
+
+  test('Move to ▸ is a submenu of the other groups, then New group…', async () => {
+    await bootWorkspace();
+    rightClick(entry('ariel'));
+
+    expect(menuLabels()).not.toContain('Sessions');
+    openMoveTo();
+
+    expect(menuRow('Move to')?.getAttribute('aria-expanded')).toBe('true');
+    expect(menuLabels().slice(-3)).toEqual(['Sessions', 'System', 'New group…']);
+  });
+
+  test('Open on a closed entry is the open rule: it shows the panel in the tile used last', async () => {
+    const { api } = await bootWorkspace();
+
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open')).click();
+
+    expect(dockedTiles(api)).toEqual(['ariel']);
+    expect(activeStamp()).toBe('ariel');
+  });
+
+  test('a panel’s own rows lead its rail entry under "This panel", even with no tile', async () => {
+    await bootWorkspace();
+    const policy = await import(MENU_POLICY_PATH);
+    const restart = vi.fn();
+    policy.setServiceMenuExtras('ariel', () => [
+      { label: 'Restart server', danger: true, run: restart },
+    ]);
+
+    rightClick(entry('ariel'));
+
+    expect(menuHeadings()).toEqual(['This panel']);
+    expect(menuLabels()).toEqual([
+      'Restart server',
+      'Open',
+      'Open in new window',
+      'Move to',
+      'Remove from rail',
+    ]);
+    /** @type {HTMLElement} */ (menuRow('Restart server')).click();
+    expect(restart).toHaveBeenCalledOnce();
+    policy.setServiceMenuExtras('ariel', null);
   });
 
   test('the entry is the menu’s anchor, so a panel scrolling its own content leaves it open', async () => {
@@ -3083,8 +3150,13 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(contextMenu()).toBeNull();
   });
 
-  test('"Open in a new tile" docks a NEW tile beside the active one', async () => {
+  test('"Open in a new tile" on a docked entry moves it into a NEW tile beside the active one', async () => {
     const { api } = await bootWorkspace();
+    // ariel replaces okf in the one service tile, then okf is focused beside it.
+    rightClick(entry('ariel'));
+    /** @type {HTMLElement} */ (menuRow('Open')).click();
+    await openBeside('okf');
+    expect(activeStamp()).toBe('okf');
     const okfGroup = api.getPanel('iframe:okf').group;
 
     rightClick(entry('ariel'));
@@ -3099,8 +3171,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
   /** Dock ariel beside okf, then move it into a window from its row menu. */
   async function detachAriel() {
     const booted = await bootWorkspace();
-    rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    await openBeside('ariel');
     expect(dockedTiles(booted.api).sort()).toEqual(['ariel', 'okf']);
     booted.calls.length = 0; // the new-tile reveal above reports its own focus
     const popup = shellPopup();
@@ -3316,7 +3387,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(activeStamp()).toBe('okf');
 
     rightClick(entry('okf'));
-    /** @type {HTMLElement} */ (menuRow('Focus Knowledge')).click();
+    /** @type {HTMLElement} */ (menuRow('Focus tile')).click();
 
     expect(dockedTiles(api)).toContain('okf');
     expect(activeStamp()).toBe('okf');
@@ -3327,14 +3398,32 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(dockedTiles(api)).not.toContain('okf');
   });
 
-  test('Focus surfaces a member that holds no tile', async () => {
+  test('Focus tile brings a docked tile forward without moving it', async () => {
     const { api } = await bootWorkspace();
+    await openBeside('ariel');
+    /** @type {HTMLElement} */ (entry('okf')).click(); // okf's tile is focused again
+    expect(activeStamp()).toBe('okf');
 
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Focus Logbook')).click();
+    /** @type {HTMLElement} */ (menuRow('Focus tile')).click();
 
     expect(dockedTiles(api)).toContain('ariel');
     expect(activeStamp()).toBe('ariel');
+  });
+
+  test('a Shift+right-click on an entry is the browser’s: no menu, nothing cancelled', async () => {
+    await bootWorkspace();
+    const ev = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      shiftKey: true,
+      button: 2,
+      clientX: 40,
+      clientY: 60,
+    });
+    entry('okf').dispatchEvent(ev);
+    expect(contextMenu()).toBeNull();
+    expect(ev.defaultPrevented).toBe(false);
   });
 
   test('a disabled entry gets no menu, and the browser keeps its own', async () => {
@@ -3372,16 +3461,18 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     const ev = rightClick(entry('terminal'));
 
     expect(ev.defaultPrevented).toBe(true);
-    expect(menuLabels()).toEqual(['New session', 'Expand all', 'Show pinned sessions']);
+    expect(menuLabels()).toEqual(['New session', 'Group by', 'Show pinned sessions', 'Expand all']);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('Sessions actions');
 
     // The pane verbs live on the Agent tile header.
     expect(await agentTileMenu()).toBe(true);
+    expect(menuHeadings()).toEqual(['Agent', 'Tile']);
     expect(menuLabels()).toEqual([
+      'Switch to chat',
       'Open in new window',
-      'Restart terminal',
-      'Reset layout',
+      'Reveal in sidebar',
       'Close Agent pane',
+      'Restart terminal',
     ]);
     expect(contextMenu()?.getAttribute('aria-label')).toBe('Agent actions');
 
@@ -3395,20 +3486,19 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     );
   });
 
-  test('the Agent tile’s other verbs reach the dock', async () => {
+  test('the Agent tile’s other verbs reach the dock; the layout is not the bar’s', async () => {
     await bootWorkspace({ surface: 'terminal' });
 
     await agentTileMenu();
     /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
 
-    // Reset puts the default arrangement back.
     await agentTileMenu();
-    /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
-    expect(resetDockLayout).toHaveBeenCalledTimes(1);
+    expect(menuLabels()).not.toContain('Reset layout');
+    expect(resetDockLayout).not.toHaveBeenCalled();
   });
 
-  test('in chat the Agent tile menu offers Export under This panel, then Open in new window and the layout rows', async () => {
+  test('in chat the Agent tile menu offers Switch to terminal and Export under Agent, then the Tile rows', async () => {
     await bootWorkspace();
     // The chat console registers its Export row at start (initChatFeatures →
     // initChatExport → agent-menu.js); this boot has no console, so arm it
@@ -3419,20 +3509,25 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     // The tile hosts the operator console there, so the PTY verb would
     // act on a surface the operator cannot see and is withheld.
     expect(await agentTileMenu()).toBe(true);
-    expect(menuHeadings()).toEqual(['This panel', 'Tile']);
+    expect(menuHeadings()).toEqual(['Agent', 'Tile']);
     expect(menuLabels()).toEqual([
+      'Switch to terminal',
       'Export conversation',
       'Open in new window',
-      'Reset layout',
+      'Reveal in sidebar',
       'Close Agent pane',
     ]);
-    // Export is a This-panel row, ahead of the Tile heading.
+    // Switch and Export are Agent rows, ahead of the Tile heading.
     const order = [...document.querySelectorAll('.rail-context-heading, .rail-context-label')].map(
       (el) => el.textContent
     );
-    expect(order.slice(0, 3)).toEqual(['This panel', 'Export conversation', 'Tile']);
-    /** @type {HTMLElement} */ (menuRow('Reset layout')).click();
-    expect(resetDockLayout).toHaveBeenCalledTimes(1);
+    expect(order.slice(0, 4)).toEqual([
+      'Agent',
+      'Switch to terminal',
+      'Export conversation',
+      'Tile',
+    ]);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await agentTileMenu();
     /** @type {HTMLElement} */ (menuRow('Close Agent pane')).click();
     expect(closeTerminalPanel).toHaveBeenCalled();
@@ -3719,7 +3814,8 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
   test('"Move to Sessions" moves the row there, in this browser only', async () => {
     const { calls } = await bootWorkspace();
     rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Move to Sessions')).click();
+    openMoveTo();
+    /** @type {HTMLElement} */ (menuRow('Sessions')).click();
 
     expect(sidebarGroup('workspace').contains(entry('ariel'))).toBe(true);
     const stored = JSON.parse(localStorage.getItem('osprey-sidebar-groups') ?? '{}');
@@ -3729,14 +3825,16 @@ describe('Move to — the row menu moves a row between the sidebar groups', () =
 
     // The moved row offers the way back.
     rightClick(entry('ariel'));
-    expect(menuLabels()).toContain('Move to Apps');
-    expect(menuLabels()).not.toContain('Move to Sessions');
+    openMoveTo();
+    expect(menuLabels()).toContain('Apps');
+    expect(menuLabels()).not.toContain('Sessions');
   });
 
   test('"Move to new group…" makes a group below the row’s own and opens its name', async () => {
     await bootWorkspace();
     rightClick(entry('okf'));
-    /** @type {HTMLElement} */ (menuRow('Move to new group…')).click();
+    openMoveTo();
+    /** @type {HTMLElement} */ (menuRow('New group…')).click();
 
     const groups = [...document.querySelectorAll('#panel-rail > .sidebar-group')];
     const ids = groups.map((g) => g.getAttribute('data-group'));
@@ -3907,12 +4005,16 @@ describe('sidecar start failure and retry', () => {
     expect(jupyter.title).toBe('JUPYTER failed to start: exited with status 1');
   });
 
-  test('the context menu and drag refuse a failed entry', async () => {
-    const { jupyter } = await bootSidecar({ config: failed(FAILED) });
+  test('a failed entry’s menu is Retry start · Remove from rail; drag is refused', async () => {
+    const server = { config: failed(FAILED), start: STARTING };
+    const { jupyter, starts } = await bootSidecar(server);
     await settled(() => expect(jupyter.classList.contains('failed')).toBe(true));
 
-    expect(rightClick(jupyter).defaultPrevented).toBe(false);
-    expect(document.querySelector('.rail-context-item')).toBeNull();
+    expect(rightClick(jupyter).defaultPrevented).toBe(true);
+    expect(menuLabels()).toEqual(['Retry start', 'Remove from rail']);
+    /** @type {HTMLElement} */ (menuRow('Retry start')).click();
+    await settled(() => expect(starts()).toHaveLength(1));
+    expect(starts()[0].opts).toMatchObject({ method: 'POST' });
 
     const drag = new Event('dragstart', { bubbles: true, cancelable: true });
     jupyter.dispatchEvent(drag);
@@ -4417,10 +4519,6 @@ describe('relayTranscriptMove — a /clear on the shown key reaches every panel 
     '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js';
   const SHOWN = '11111111-1111-4111-8111-111111111111';
   const OTHER = '22222222-2222-4222-8222-222222222222';
-  const entry = (/** @type {string} */ id) =>
-    /** @type {HTMLElement} */ (
-      document.querySelector(`.panel-rail-button[data-panel-id="${id}"]`)
-    );
 
   /** Every panel iframe in the page, each with its postMessage spied. */
   function spyFrames() {
@@ -4441,8 +4539,7 @@ describe('relayTranscriptMove — a /clear on the shown key reaches every panel 
     const booted = await bootWorkspace();
     const pointer = await import(SESSION_POINTER_PATH);
     pointer.setPointer(SHOWN);
-    rightClick(entry('ariel'));
-    /** @type {HTMLElement} */ (menuRow('Open in a new tile')).click();
+    await openBeside('ariel');
     const terminal = await import(TERMINAL_PATH);
     const listener = vi.fn();
     terminal.onSessionChange(listener);

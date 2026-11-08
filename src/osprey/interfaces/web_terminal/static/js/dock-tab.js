@@ -42,9 +42,10 @@
  * tab drag — is `{tile}` (dock-drop maps it); a sidebar row is `{new}` or
  * `{tab}` (rail-drag.js).
  *
- * Both bar kinds are also a right-click surface: a right-click on the bar opens
- * the same menu as its ⋯ button (panel-context-menu.js), routed through the
- * setTileContextMenuHandler registration seam below.
+ * Both bar kinds are also a right-click surface: a right-click on the bar, or
+ * the menu key / Shift+F10 inside it, opens the same menu as its ⋯ button
+ * (panel-context-menu.js), routed through the setTileContextMenuHandler
+ * registration seam below.
  */
 
 import { TERMINAL_RAIL_ID, titleCase } from './panel-catalog.js';
@@ -61,7 +62,11 @@ import { closeDockPanel } from './dock-workspace.js';
 import { closeTerminalTile } from './panel-menu-policy.js';
 import { detach, detachBlocker } from './pane-window.js';
 import { isTerminalSurface, onSurfaceChange } from './agent-surface.js';
-import { closeContextMenu } from '/design-system/js/context-menu.js';
+import {
+  closeContextMenu,
+  declinesToBrowser,
+  isContextMenuKey,
+} from '/design-system/js/context-menu.js';
 import { icon } from '/design-system/js/icons.js';
 import { closeAllPopovers } from '/design-system/js/popover.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
@@ -225,9 +230,21 @@ let tileContextMenuHandler = null;
  */
 
 /**
- * On a tile in the dock, or in the pane's own window.
- * @typedef {'tile' | 'detached'} TileMode
+ * On a tile in the dock, in the pane's own window, or on the no-dockview
+ * fallback bar (dock-fallback-bar.js), which has no dock to act on.
+ * @typedef {'tile' | 'detached' | 'fallback'} TileMode
  */
+
+/**
+ * The bar's mode at the moment of the gesture: the fixed one a bar was built
+ * with, else read from the panel (the Agent bar travels between dock and window).
+ * @param {string} id
+ * @param {TileMode} [fixed]
+ * @returns {TileMode}
+ */
+function modeOf(id, fixed) {
+  return fixed ?? (isDetached(id) ? 'detached' : 'tile');
+}
 
 /**
  * Registers the tile-header context-menu handler. Called once by
@@ -239,18 +256,24 @@ export function setTileContextMenuHandler(fn) {
 }
 
 /**
- * Route right-clicks on a header bar to the registered handler.
+ * Route right-clicks, and the menu key / Shift+F10 pressed inside a header
+ * bar, to the registered handler. The keyboard route opens under the bar's
+ * left edge (where openContextMenuAt places a keyboard menu); it is a second
+ * listener, not a synthetic `contextmenu`, so one keypress opens one menu.
  *
  * Declining is doing NOTHING — no menu and no preventDefault — so the browser
- * shows its own menu instead. That happens on interactive header children
- * (right-clicking inside a contributed search input must still offer
- * copy/paste) and whenever the handler itself declines because it has no
- * rows to offer for that surface.
+ * shows its own menu instead. That happens when the request belongs to the
+ * browser (declinesToBrowser: Shift+right-click, a text field), on a
+ * right-click on interactive header children (right-clicking a contributed
+ * control must still offer its native menu), and whenever the handler itself
+ * declines because it has no rows to offer for that surface.
  * @param {HTMLElement} el  the header surface, and the menu's anchor
  * @param {() => string | null} idOf  the panel id the menu's verbs act on
+ * @param {TileMode} [mode]  a fixed mode (the fallback bar's); else read per gesture
  */
-function wireTileContextMenu(el, idOf) {
+export function wireTileContextMenu(el, idOf, mode) {
   el.addEventListener('contextmenu', (e) => {
+    if (declinesToBrowser(e)) return;
     if (e.target instanceof Element && e.target.closest(INTERACTIVE)) return;
     const id = idOf();
     if (id === null) return;
@@ -258,8 +281,23 @@ function wireTileContextMenu(el, idOf) {
       x: e.clientX,
       y: e.clientY,
       anchorEl: el,
-      mode: isDetached(id) ? 'detached' : 'tile',
+      mode: modeOf(id, mode),
     });
+    if (opened) e.preventDefault();
+  });
+  el.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented || !isContextMenuKey(e) || declinesToBrowser(e)) return;
+    const id = idOf();
+    if (id === null) return;
+    const rect = el.getBoundingClientRect();
+    const opened = tileContextMenuHandler?.(id, {
+      x: rect.left + 8,
+      y: rect.bottom,
+      anchorEl: el,
+      mode: modeOf(id, mode),
+    });
+    // Where the native menu is this keydown's default (Windows), preventing it
+    // keeps a second menu from stacking on ours.
     if (opened) e.preventDefault();
   });
 }
@@ -267,12 +305,14 @@ function wireTileContextMenu(el, idOf) {
 /**
  * The bar's ⋯: the tile's one menu button. A click asks the registered handler
  * for the same menu a right-click on the bar opens, hung under the button.
- * Shared with the fallback bar (dock-fallback-bar.js).
+ * Shared with the fallback bar (dock-fallback-bar.js), which passes its fixed
+ * `'fallback'` mode.
  * @param {() => string | null} idOf  the panel id the menu's verbs act on
  * @param {HTMLElement} anchorEl  the header surface, for the menu's scroll scoping
+ * @param {TileMode} [mode]  a fixed mode; else read from the panel per press
  * @returns {HTMLButtonElement}
  */
-export function buildTileMenuButton(idOf, anchorEl) {
+export function buildTileMenuButton(idOf, anchorEl, mode) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'tile-tab-more osprey-icon-btn';
@@ -292,7 +332,7 @@ export function buildTileMenuButton(idOf, anchorEl) {
       y: r.bottom,
       anchorEl,
       triggerEl: btn,
-      mode: isDetached(id) ? 'detached' : 'tile',
+      mode: modeOf(id, mode),
     });
   });
   return btn;

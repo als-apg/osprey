@@ -605,6 +605,98 @@ describe('tile header context menu', () => {
     expect(ev.defaultPrevented).toBe(false);
   });
 
+  test('Shift+right-click is the browser’s: no handler call, nothing prevented', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    const ev = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+      shiftKey: true,
+    });
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title')).dispatchEvent(ev);
+    expect(handler).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  /** @param {string} key @param {boolean} [shiftKey] */
+  const keyPress = (key, shiftKey = false) =>
+    new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true });
+
+  test('the menu key and Shift+F10 open the same menu from the keyboard, under the bar', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+    tab.element.getBoundingClientRect = () => new DOMRect(100, 0, 300, 32);
+    const more = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-more'));
+
+    for (const ev of [keyPress('ContextMenu'), keyPress('F10', true)]) {
+      more.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(true);
+    }
+    expect(handler).toHaveBeenCalledTimes(2);
+    for (const [id, opts] of /** @type {any[][]} */ (handler.mock.calls)) {
+      expect(id).toBe('ariel');
+      expect(opts).toEqual({ x: 108, y: 32, anchorEl: tab.element, mode: 'tile' });
+    }
+
+    // Plain F10, or any other key, is not a menu request.
+    const plain = keyPress('F10');
+    more.dispatchEvent(plain);
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(plain.defaultPrevented).toBe(false);
+  });
+
+  test('a declined keyboard request keeps the default; a text field keeps its own menu', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => false);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    const declined = keyPress('ContextMenu');
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-more')).dispatchEvent(
+      declined
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(declined.defaultPrevented).toBe(false);
+
+    const input = document.createElement('input');
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-contrib')).appendChild(input);
+    const inField = keyPress('F10', true);
+    input.dispatchEvent(inField);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(inField.defaultPrevented).toBe(false);
+  });
+
+  test('⋯ and right-click ask for the same menu: same id, same mode, same anchor', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title')).dispatchEvent(
+      rightClick()
+    );
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-more')).click();
+    expect(handler).toHaveBeenCalledTimes(2);
+    const [[byClick, clickOpts], [byMore, moreOpts]] = /** @type {any[][]} */ (handler.mock.calls);
+    expect(byMore).toBe(byClick);
+    expect(moreOpts.mode).toBe(clickOpts.mode);
+    expect(moreOpts.anchorEl).toBe(clickOpts.anchorEl);
+  });
+
   test('interactive bar children are excluded — their native menu survives', async () => {
     const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
     const handler = vi.fn(() => true);

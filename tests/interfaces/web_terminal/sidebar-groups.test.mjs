@@ -44,6 +44,10 @@ import {
   createRail,
   entryIds,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/panel-rail.js';
+import {
+  initSidebarFold,
+  isGroupFolded,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/sidebar-fold.js';
 
 const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
 
@@ -750,7 +754,7 @@ describe('group headings', () => {
 });
 
 describe('the group menu', () => {
-  test('a right-click on the heading opens a body-level menu: a built-in group has no Delete', () => {
+  test('a right-click on the heading opens a body-level menu: a built-in group greys Delete', () => {
     const rail = mountRail();
     const event = rightClick(rail, 'system');
 
@@ -759,13 +763,29 @@ describe('the group menu', () => {
     expect(opened.parentElement).toBe(document.body);
     expect(opened.getAttribute('role')).toBe('menu');
     expect(opened.getAttribute('aria-label')).toBe('System group');
-    expect(menuRows()).toEqual(['Rename', 'New group below', 'Move up', 'Move down (disabled)']);
+    expect(menuRows()).toEqual([
+      'Rename…',
+      'New group below',
+      'Move up',
+      'Move down (disabled)',
+      'Collapse group',
+      'Delete group (disabled)',
+    ]);
+    expect(menuRow('Delete group').title).toBe('Built-in groups cannot be deleted');
+    expect(menu()?.querySelector('[role="separator"], .rail-context-divider')).not.toBeNull();
   });
 
   test('the group below Sessions cannot move up past it', () => {
     const rail = mountRail();
     rightClick(rail, 'tools');
-    expect(menuRows()).toEqual(['Rename', 'New group below', 'Move up (disabled)', 'Move down']);
+    expect(menuRows()).toEqual([
+      'Rename…',
+      'New group below',
+      'Move up (disabled)',
+      'Move down',
+      'Collapse group',
+      'Delete group (disabled)',
+    ]);
   });
 
   test('the whole heading answers, not only its name: a right-click on the name opens it too', () => {
@@ -779,10 +799,11 @@ describe('the group menu', () => {
     const id = addGroup('Beamline');
     rightClick(rail, id);
     expect(menuRows()).toEqual([
-      'Rename',
+      'Rename…',
       'New group below',
       'Move up',
       'Move down (disabled)',
+      'Collapse group',
       'Delete group (danger)',
     ]);
   });
@@ -806,7 +827,8 @@ describe('the group menu', () => {
       name.dispatchEvent(event);
       expect(event.defaultPrevented).toBe(true);
       expect(menu()?.getAttribute('aria-label')).toBe('Apps group');
-      expect(menuRows()).toEqual(['Rename', 'New group below', 'Move up (disabled)', 'Move down']);
+      expect(menuRows()[0]).toBe('Rename…');
+      expect(menuRows()).toHaveLength(6);
     });
   }
 
@@ -821,6 +843,44 @@ describe('the group menu', () => {
     document.documentElement.setAttribute('data-sidebar', 'collapsed');
     expect(rightClick(rail, 'tools').defaultPrevented).toBe(false);
     expect(menu()).toBeNull();
+  });
+
+  test('a Shift+right-click keeps the browser menu', () => {
+    const rail = mountRail();
+    // Clear of the menu-key window an earlier test's key press opened.
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000);
+    const event = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      shiftKey: true,
+      button: 2,
+    });
+    headingOf(rail, 'tools').dispatchEvent(event);
+    now.mockRestore();
+    expect(event.defaultPrevented).toBe(false);
+    expect(menu()).toBeNull();
+  });
+
+  test('a rename open elsewhere in the sidebar keeps every heading menu shut', () => {
+    const rail = mountRail();
+    const id = addGroup('Beamline');
+    startGroupRename(rail, id);
+    expect(rightClick(rail, 'tools').defaultPrevented).toBe(false);
+    expect(menu()).toBeNull();
+    press(/** @type {HTMLInputElement} */ (renameField(rail, id)), 'Escape');
+  });
+
+  test('Collapse group folds the group, and the menu then offers Expand group', () => {
+    const rail = mountRail();
+    initSidebarFold(rail);
+    rightClick(rail, 'tools');
+    menuRow('Collapse group').click();
+    expect(isGroupFolded('tools')).toBe(true);
+
+    rightClick(rail, 'tools');
+    expect(menuRows()).toContain('Expand group');
+    menuRow('Expand group').click();
+    expect(isGroupFolded('tools')).toBe(false);
   });
 
   test('Move down moves the group, closes the menu and keeps focus on its name', () => {
@@ -869,7 +929,7 @@ describe('rename in place', () => {
   test('Rename swaps the name for a field holding it, focused', () => {
     const rail = mountRail();
     rightClick(rail, 'tools');
-    menuRow('Rename').click();
+    menuRow('Rename…').click();
 
     const field = renameField(rail, 'tools');
     const name = qs(groupEl(rail, 'tools'), '.sidebar-group-name');

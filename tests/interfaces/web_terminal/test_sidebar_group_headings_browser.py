@@ -98,7 +98,14 @@ def test_right_click_anywhere_across_the_heading_opens_the_group_menu(tmp_path, 
         expect(menu).to_be_visible()
         expect(menu).to_have_attribute("aria-label", "Apps group")
         expect(menu.locator('[role="menuitem"]')).to_have_text(
-            ["Rename", "New group below", "Move up", "Move down"]
+            [
+                "Rename…",
+                "New group below",
+                "Move up",
+                "Move down",
+                "Collapse group",
+                "Delete group",
+            ]
         )
 
 

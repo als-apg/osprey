@@ -50,6 +50,7 @@ from osprey.interfaces._serving import run_app_server
 from tests.interfaces._browser import rail_entry
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import unserved_url
+from tests.interfaces.web_terminal.test_panels_browser import _open_second_tile
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -343,19 +344,14 @@ def _active_panel_id(page: Page) -> str | None:
 
 
 def _open_beside(page: Page, panel_id: str) -> None:
-    """Open ``panel_id`` as a NEW tile beside the active one from its menu.
+    """Open ``panel_id`` as a NEW tile beside a docked one.
 
     A plain rail click replaces the panel of the last service tile (rule 7),
-    so every test here that needs side-by-side tiles grows the layout
-    through the entry's right-click menu: "Open in a new tile" is the human
-    open-beside verb (panel-context-menu.js).
+    so every test here that needs side-by-side tiles grows the layout the way
+    a person splits: "Open in a new tile" on the entry of a panel already in a
+    tile, else a docked service tile's ⋯ → Open panel ▸ Right.
     """
-    entry = page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')
-    entry.click(button="right")
-    menu = page.locator(".rail-context-menu")
-    expect(menu).to_have_count(1, timeout=5_000)
-    menu.locator(".rail-context-item", has_text="Open in a new tile").click()
-    expect(_service_tab(page, _LABELS[panel_id])).to_have_count(1, timeout=5_000)
+    _open_second_tile(page, "", panel_id, _LABELS[panel_id])
 
 
 def _close_tile(page: Page, panel_id: str) -> None:

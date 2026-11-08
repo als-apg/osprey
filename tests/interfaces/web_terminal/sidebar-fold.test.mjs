@@ -57,6 +57,7 @@ async function boot() {
   vi.resetModules();
   const fold = await import(`${JS}/sidebar-fold.js`);
   fold.initSidebarFold(rail());
+  return fold;
 }
 
 beforeEach(() => {
@@ -203,5 +204,62 @@ describe('folding a group', () => {
     });
     dbl(name('tools'));
     expect(group('tools').hasAttribute('data-folded')).toBe(true);
+  });
+});
+
+describe('setGroupFolded', () => {
+  test('folds and unfolds by id, persists, and fires the fold event', async () => {
+    const fold = await boot();
+    const seen = vi.fn();
+    document.addEventListener('osprey-sidebar-fold-change', seen);
+    fold.setGroupFolded('tools', true);
+    expect(group('tools').hasAttribute('data-folded')).toBe(true);
+    expect(name('tools').getAttribute('aria-expanded')).toBe('false');
+    expect(fold.isGroupFolded('tools')).toBe(true);
+    expect(stored(FOLDED)).toEqual(['tools']);
+    expect(seen).toHaveBeenCalledTimes(1);
+    fold.setGroupFolded('tools', false);
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+    expect(fold.isGroupFolded('tools')).toBe(false);
+    expect(stored(FOLDED)).toEqual([]);
+    expect(seen).toHaveBeenCalledTimes(2);
+    document.removeEventListener('osprey-sidebar-fold-change', seen);
+  });
+
+  test('a state already held is a no-op: no write, no event', async () => {
+    const fold = await boot();
+    const seen = vi.fn();
+    document.addEventListener('osprey-sidebar-fold-change', seen);
+    fold.setGroupFolded('tools', false);
+    expect(localStorage.getItem(FOLDED)).toBeNull();
+    fold.setGroupFolded('tools', true);
+    fold.setGroupFolded('tools', true);
+    expect(stored(FOLDED)).toEqual(['tools']);
+    expect(seen).toHaveBeenCalledTimes(1);
+    document.removeEventListener('osprey-sidebar-fold-change', seen);
+  });
+
+  test('the headless group never folds', async () => {
+    const fold = await boot();
+    fold.setGroupFolded('workspace', true);
+    expect(group('workspace').hasAttribute('data-folded')).toBe(false);
+    expect(localStorage.getItem(FOLDED)).toBeNull();
+  });
+
+  test("a double-click after the seam toggles from the seam's state", async () => {
+    const fold = await boot();
+    fold.setGroupFolded('tools', true);
+    dbl(name('tools'));
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+    expect(stored(FOLDED)).toEqual([]);
+  });
+
+  test('is a no-op before initSidebarFold wires a rail', async () => {
+    document.body.innerHTML = HTML;
+    vi.resetModules();
+    const fold = await import(`${JS}/sidebar-fold.js`);
+    expect(() => fold.setGroupFolded('tools', true)).not.toThrow();
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+    expect(localStorage.getItem(FOLDED)).toBeNull();
   });
 });

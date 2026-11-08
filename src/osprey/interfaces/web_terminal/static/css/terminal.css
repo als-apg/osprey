@@ -1759,12 +1759,12 @@ html[data-sidebar="collapsed"] .sidebar-target :is(
   z-index: var(--z-dropdown);
 }
 
-/* Verb on the left, its rail glyph trailing right — the glyph is the bridge
-   back to the iconography operators already learned. */
+/* Rail glyph leading, then the verb, then an optional hint — the glyph is the
+   bridge back to the iconography operators already learned. The column, hint
+   and heading rules are shared with the default skin in base.css. */
 .rail-context-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   width: 100%;
   padding: var(--space-2) var(--space-3);
