@@ -1649,6 +1649,59 @@ def test_a_file_under_a_tests_directory_without_test_modules_widens() -> None:
     assert selected("quick", "tests/fixtures/config.yml")["pytest"].state == check.WHOLE
 
 
+_CONNECTORS_TESTS = "packages/osprey-connectors/tests/osprey_connectors_tests"
+_TEST_ONLY = [
+    "tests/cli/__init__.py",
+    "tests/cli/test_main.py",
+    "tests/empty/__init__.py",
+    f"{_CONNECTORS_TESTS}/__init__.py",
+    f"{_CONNECTORS_TESTS}/test_session_hold.py",
+    f"{_CONNECTORS_TESTS}/ipc/__init__.py",
+    f"{_CONNECTORS_TESTS}/ipc/test_pool_soft_ioc.py",
+]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        (
+            f"{_CONNECTORS_TESTS}/test_session_hold.py",
+            (f"{_CONNECTORS_TESTS}/test_session_hold.py",),
+        ),
+        (f"{_CONNECTORS_TESTS}/ipc/__init__.py", (f"{_CONNECTORS_TESTS}/ipc",)),
+        ("tests/cli/__init__.py", ("tests/cli",)),
+        ("tests/empty/__init__.py", None),
+        ("tests/__init__.py", None),
+        ("tests/cli/conftest.py", None),
+        ("packages/osprey-connectors/tests/conftest.py", None),
+        (f"{_CONNECTORS_TESTS}/_soft_ioc.py", None),
+        ("packages/osprey-connectors/src/osprey_connectors/epics.py", None),
+        ("pyproject.toml", None),
+    ],
+    ids=[
+        "packages-test-file",
+        "packages-test-package-init",
+        "tests-package-init",
+        "init-without-test-modules-widens",
+        "top-level-init-widens",
+        "conftest-widens",
+        "packages-conftest-widens",
+        "packages-test-helper-widens",
+        "packages-source-widens",
+        "pyproject-widens",
+    ],
+)
+def test_a_test_only_path_selects_only_its_tests(
+    path: str, expected: tuple[str, ...] | None
+) -> None:
+    want = (
+        check.Selection(check.WHOLE, cause=path)
+        if expected is None
+        else check.Selection(check.PATHS, expected)
+    )
+    assert fw._select_pytest([path], _TEST_ONLY) == want
+
+
 def test_a_new_check_naming_a_script_makes_it_shaping(monkeypatch: pytest.MonkeyPatch) -> None:
     extra = check.Check("plots", "invariant", check.BOTH, ("python3", "scripts/scenario_plots.py"))
     checks = (*check.CHECKS, extra)

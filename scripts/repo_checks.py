@@ -681,6 +681,14 @@ def _is_pytest_file(name: str) -> bool:
     return (name.startswith("test_") and name.endswith(".py")) or name.endswith("_test.py")
 
 
+def _in_test_tree(path: str) -> bool:
+    """Whether *path* lies under ``tests/`` or a package's ``packages/<name>/tests/``."""
+    parts = PurePosixPath(path).parts
+    return parts[0] == "tests" or (
+        len(parts) > 3 and parts[0] == "packages" and parts[2] == "tests"
+    )
+
+
 def _holds_test_module(directory: str, files: Sequence[str]) -> bool:
     """Whether *directory* holds a test file the sweep would collect."""
     prefix = directory + "/"
@@ -739,8 +747,14 @@ def _select_pytest(
         if _hosted_outside_sweep(path):
             continue
         if suffix == ".py":
-            if path.startswith("tests/") and _is_pytest_file(name):
+            if _in_test_tree(path) and _is_pytest_file(name):
                 chosen.append(path)
+                continue
+            if _in_test_tree(path) and name == "__init__.py":
+                directory = PurePosixPath(path).parent.as_posix()
+                if directory == "tests" or not _holds_test_module(directory, files):
+                    return Selection(WHOLE, cause=path)
+                chosen.append(directory)
                 continue
             if path in shaping:
                 chosen.append("tests/scripts")
