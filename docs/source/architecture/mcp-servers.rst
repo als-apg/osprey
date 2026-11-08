@@ -49,7 +49,7 @@ safety-limits enforcement on all write operations.
 
 An application's write tools take the same path: they enter the gate as their server's
 ``writes:`` list, the switch's position decides each call, and no per-tool approval policy exists
-for them. See :doc:`applications`.
+for them. See :doc:`/how-to/apps/index`.
 
 
 Channel Finding

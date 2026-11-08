@@ -1,0 +1,17 @@
+.scaffold {
+  padding: 1.5rem;
+}
+
+.scaffold-channel,
+.scaffold-target {
+  color: var(--text-secondary);
+}
+
+.scaffold-readback {
+  font-size: 2.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.scaffold-error {
+  color: var(--color-error);
+}

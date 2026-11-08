@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import NoReturn
 
 import click
-from ruamel.yaml import YAMLError
+from ruamel.yaml import YAML, YAMLError
 
 from osprey.apps.boundary import check_package
 from osprey.apps.errors import AppManifestError, Violation
@@ -40,10 +40,9 @@ from .output import fail, report
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 _OSPREY_DIR = Path(__file__).resolve().parents[1]
-#: The shipped example ``osprey app new`` copies.
-EXAMPLE_APP_DIR = _OSPREY_DIR / "profiles" / "presets" / APPS_DIRNAME / "knob-example"
-#: Every app-scoped identifier of the example is its name in one of these two forms.
-_EXAMPLE_NAMES = ("knob-example", "knob_example")
+#: The scaffold ``osprey app new`` copies; every app-scoped identifier in it is the
+#: ``name`` of its ``app.yml``, in that form or with underscores for dashes.
+EXAMPLE_APP_DIR = _OSPREY_DIR / "apps" / "scaffold-app"
 #: The anchored ``.gitignore`` entry for the files a build fetches into a panel.
 _VENDOR_IGNORE = f"/{APPS_DIRNAME}/*/panel/vendor/"
 #: The pinned toolchain's manifest, lockfile and configs, copied beside its ``node_modules``.
@@ -71,9 +70,9 @@ def app() -> None:
 @repo_option
 @click.option("--force", is_flag=True, help="Replace whatever exists at apps/NAME/.")
 def new(name: str, repo: Path | None, force: bool) -> None:
-    """Copy the shipped example application into apps/NAME/ and list it.
+    """Copy the shipped scaffold application into apps/NAME/ and list it.
 
-    Every app-scoped name of the example is rewritten to NAME (its Python package to
+    Every app-scoped name of the scaffold is rewritten to NAME (its Python package to
     NAME with underscores); no port is pinned. The profile's apps: block gains
     NAME: {}, and .gitignore the entry that keeps fetched panel files out of git. A name
     whose package would be a Python keyword or shadow a standard-library or OSPREY module
@@ -105,12 +104,22 @@ def new(name: str, repo: Path | None, force: bool) -> None:
     shutil.copytree(
         EXAMPLE_APP_DIR, target, ignore=shutil.ignore_patterns("__pycache__", "*.py[co]")
     )
-    _rename(target, dict(zip(_EXAMPLE_NAMES, (name, package), strict=True)))
+    template = _template_name(EXAMPLE_APP_DIR)
+    _rename(target, {template: name, template.replace("-", "_"): package})
 
     if name not in listed:
         write_back_cli_overrides(profile_path, (f"apps.{name}={{}}",))
     _ignore_vendor_files(root / ".gitignore")
-    report(f"✓ {APPS_DIRNAME}/{name}/ written and listed; run `osprey app check`.")
+    report(
+        f"✓ {APPS_DIRNAME}/{name}/ written from the {template} scaffold and listed; "
+        "run `osprey app check`."
+    )
+
+
+def _template_name(template_dir: Path) -> str:
+    """The ``name`` the scaffold's own ``app.yml`` declares."""
+    manifest = YAML(typ="safe").load((template_dir / "app.yml").read_text(encoding="utf-8"))
+    return str(manifest["name"])
 
 
 def _listed_apps(profile_path: Path) -> Mapping[str, object]:

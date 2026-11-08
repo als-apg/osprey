@@ -287,7 +287,7 @@ def test_a_tool_module_in_a_taken_package_is_refused(module: str) -> None:
 
 
 def test_a_tool_module_in_a_package_of_its_own_passes() -> None:
-    validate([_manifest(tools__module="knob_example.tools")], logins={}, reserved=EMPTY)
+    validate([_manifest(tools__module="orbit_bump.tools")], logins={}, reserved=EMPTY)
 
 
 @pytest.mark.parametrize("name", [*bluesky_tool_names.QUEUE_CONTROL_TOOLS, "queue_anything"])

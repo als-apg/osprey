@@ -4,7 +4,7 @@
     "canopy_version": "0.0.2.dev291+g166989aad"
   },
   "files": {
-    "digest": "sha256:71772d9286a9a1e0b6abd52135833491ca5ebf23d3fe5a1291c4a9ed92ce8d7f",
+    "digest": "sha256:535983e052d3dc7bfe85e4550d9dfc2cfc23c5cc21a5fae6fd39400cb7c4e7e6",
     "list": [
       {
         "path": "screens/br/overview.screen.json",
@@ -52,7 +52,7 @@
       },
       {
         "path": "screens/facility/overview.screen.json",
-        "sha256": "919df65a157c00f000098d2c89be1d236a8642efd8f45347ba6a9fa1b1eff7a1"
+        "sha256": "ea46a4938eafe487464cc2b54b6906d8d91c338148e51869e27ad177eaf4c3ee"
       },
       {
         "path": "screens/gtl/GTL.screen.json",
@@ -148,55 +148,55 @@
       },
       {
         "path": "screens/sr/orbit-feedback.screen.json",
-        "sha256": "249741187c757f5566516c03aedc6286e5faca871ae54785c5ce50b05ff5c3f8"
+        "sha256": "847ddd92431bb9368e9de7fc7d4f0a5780116837d7581e9f0486b34ef8080b00"
       },
       {
         "path": "screens/sr/sector-01.screen.json",
-        "sha256": "5738fe815a49143af610dcedf182fc1ded8e719f1d7e657120f425b87d0ac27b"
+        "sha256": "5e57a208b37be2f9f2721e3ad953d78a9a702f12e3874f9cd415a6107712087d"
       },
       {
         "path": "screens/sr/sector-02.screen.json",
-        "sha256": "564b077a9b3891248b76f1644f65dc66fa842be23508f01ff717fcb990533b7c"
+        "sha256": "a7e947f557a2375cb86cd5b0fd1397119d90ed237ab11d041cb92222f3f1f659"
       },
       {
         "path": "screens/sr/sector-03.screen.json",
-        "sha256": "6a7634794502b7d1bbdd904f11cdfa4b7e34e968276676aface85859f35831c7"
+        "sha256": "3453fe3f4220326063ff3a6bbca6a3e0906bf1b87059dde6ac9a629df4278f0a"
       },
       {
         "path": "screens/sr/sector-04.screen.json",
-        "sha256": "1ad2a964c60a4cf9c48a14b2e76327d4feffab0bbe6384e0bf8d9950c4e8a6e6"
+        "sha256": "d1eef8ad0c5ed2b5c551c8575407d4f36edb6a408644c636da099449f2abdb91"
       },
       {
         "path": "screens/sr/sector-05.screen.json",
-        "sha256": "d183bb8cd888ab2097441cc4efd18bc90b6e4025f92ac331a3331053ac47e53b"
+        "sha256": "e375b9d8ac8c59444783e59e6d8b8197b853ab0b4529281d7c84220af3a43c5c"
       },
       {
         "path": "screens/sr/sector-06.screen.json",
-        "sha256": "64c2770f80b3ff3f630c8f6c2268d17530ad19e6f06b59aaed30ab047d20511a"
+        "sha256": "22dcbe353f40393ab2fb2594fdd0730292e6b2352593948a7ec25ee6d888ee5b"
       },
       {
         "path": "screens/sr/sector-07.screen.json",
-        "sha256": "aaa0b9b0f7608c1cc6dcd4405dde7e3c80cbad47faf2b9af10e33e28945ee89a"
+        "sha256": "208fa67fd324755f58f9175e1094eb715f4d2fee88108ea83628ea36180779f2"
       },
       {
         "path": "screens/sr/sector-08.screen.json",
-        "sha256": "d16fc9e78c9bc5b12c0ea3280edcde2175df11fbe50740c75f6c9205df13dc85"
+        "sha256": "536f451290b49563e10228051b8b7c9ef77831e46eff66138441e83b50b96006"
       },
       {
         "path": "screens/sr/sector-09.screen.json",
-        "sha256": "293bcc1f5b947f2c761ffe6efe0fd9f0af7982900fe3f8ab7428a89c36a2c77b"
+        "sha256": "8f61c7521689d50efdaa357a9eb5a6ad90eeee64179b74f2f67ba85ef4120d5e"
       },
       {
         "path": "screens/sr/sector-10.screen.json",
-        "sha256": "335afd3fa775cc8ba98e35a7e7abcf5dc5d1b15bb537911936b95e14f2d9624e"
+        "sha256": "cdd19f7cec3467e77ed52cb9ef9b19926a6e0550cf74f214d97905b12dd173f5"
       },
       {
         "path": "screens/sr/sector-11.screen.json",
-        "sha256": "a190fba2a406ce14fc99dc8d7b2d48dbd0aa263c6d8f1e487474dbcbb0506ebc"
+        "sha256": "7a11809f099a8121725e7fb72f9e746acb617a30d20d18fcb4d6c89a640853fd"
       },
       {
         "path": "screens/sr/sector-12.screen.json",
-        "sha256": "3a8a338e8a860ee8aa0fd0a3d7ee57d808adbdec6934892ccb15beb2da7130b4"
+        "sha256": "78a2d49972bd9483d85155e9912fbe88f5c438f0d7176d8145acf3a58075d6d1"
       }
     ]
   },
@@ -362,7 +362,7 @@
       "path": "screens/facility/overview.screen.json",
       "screen": "facility/overview",
       "role": "manifest",
-      "sha256": "919df65a157c00f000098d2c89be1d236a8642efd8f45347ba6a9fa1b1eff7a1",
+      "sha256": "ea46a4938eafe487464cc2b54b6906d8d91c338148e51869e27ad177eaf4c3ee",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -554,7 +554,7 @@
       "path": "screens/sr/orbit-feedback.screen.json",
       "screen": "sr/orbit-feedback",
       "role": "manifest",
-      "sha256": "249741187c757f5566516c03aedc6286e5faca871ae54785c5ce50b05ff5c3f8",
+      "sha256": "847ddd92431bb9368e9de7fc7d4f0a5780116837d7581e9f0486b34ef8080b00",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -562,7 +562,7 @@
       "path": "screens/sr/sector-01.screen.json",
       "screen": "sr/sector-01",
       "role": "manifest",
-      "sha256": "5738fe815a49143af610dcedf182fc1ded8e719f1d7e657120f425b87d0ac27b",
+      "sha256": "5e57a208b37be2f9f2721e3ad953d78a9a702f12e3874f9cd415a6107712087d",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -570,7 +570,7 @@
       "path": "screens/sr/sector-02.screen.json",
       "screen": "sr/sector-02",
       "role": "manifest",
-      "sha256": "564b077a9b3891248b76f1644f65dc66fa842be23508f01ff717fcb990533b7c",
+      "sha256": "a7e947f557a2375cb86cd5b0fd1397119d90ed237ab11d041cb92222f3f1f659",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -578,7 +578,7 @@
       "path": "screens/sr/sector-03.screen.json",
       "screen": "sr/sector-03",
       "role": "manifest",
-      "sha256": "6a7634794502b7d1bbdd904f11cdfa4b7e34e968276676aface85859f35831c7",
+      "sha256": "3453fe3f4220326063ff3a6bbca6a3e0906bf1b87059dde6ac9a629df4278f0a",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -586,7 +586,7 @@
       "path": "screens/sr/sector-04.screen.json",
       "screen": "sr/sector-04",
       "role": "manifest",
-      "sha256": "1ad2a964c60a4cf9c48a14b2e76327d4feffab0bbe6384e0bf8d9950c4e8a6e6",
+      "sha256": "d1eef8ad0c5ed2b5c551c8575407d4f36edb6a408644c636da099449f2abdb91",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -594,7 +594,7 @@
       "path": "screens/sr/sector-05.screen.json",
       "screen": "sr/sector-05",
       "role": "manifest",
-      "sha256": "d183bb8cd888ab2097441cc4efd18bc90b6e4025f92ac331a3331053ac47e53b",
+      "sha256": "e375b9d8ac8c59444783e59e6d8b8197b853ab0b4529281d7c84220af3a43c5c",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -602,7 +602,7 @@
       "path": "screens/sr/sector-06.screen.json",
       "screen": "sr/sector-06",
       "role": "manifest",
-      "sha256": "64c2770f80b3ff3f630c8f6c2268d17530ad19e6f06b59aaed30ab047d20511a",
+      "sha256": "22dcbe353f40393ab2fb2594fdd0730292e6b2352593948a7ec25ee6d888ee5b",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -610,7 +610,7 @@
       "path": "screens/sr/sector-07.screen.json",
       "screen": "sr/sector-07",
       "role": "manifest",
-      "sha256": "aaa0b9b0f7608c1cc6dcd4405dde7e3c80cbad47faf2b9af10e33e28945ee89a",
+      "sha256": "208fa67fd324755f58f9175e1094eb715f4d2fee88108ea83628ea36180779f2",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -618,7 +618,7 @@
       "path": "screens/sr/sector-08.screen.json",
       "screen": "sr/sector-08",
       "role": "manifest",
-      "sha256": "d16fc9e78c9bc5b12c0ea3280edcde2175df11fbe50740c75f6c9205df13dc85",
+      "sha256": "536f451290b49563e10228051b8b7c9ef77831e46eff66138441e83b50b96006",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -626,7 +626,7 @@
       "path": "screens/sr/sector-09.screen.json",
       "screen": "sr/sector-09",
       "role": "manifest",
-      "sha256": "293bcc1f5b947f2c761ffe6efe0fd9f0af7982900fe3f8ab7428a89c36a2c77b",
+      "sha256": "8f61c7521689d50efdaa357a9eb5a6ad90eeee64179b74f2f67ba85ef4120d5e",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -634,7 +634,7 @@
       "path": "screens/sr/sector-10.screen.json",
       "screen": "sr/sector-10",
       "role": "manifest",
-      "sha256": "335afd3fa775cc8ba98e35a7e7abcf5dc5d1b15bb537911936b95e14f2d9624e",
+      "sha256": "cdd19f7cec3467e77ed52cb9ef9b19926a6e0550cf74f214d97905b12dd173f5",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -642,7 +642,7 @@
       "path": "screens/sr/sector-11.screen.json",
       "screen": "sr/sector-11",
       "role": "manifest",
-      "sha256": "a190fba2a406ce14fc99dc8d7b2d48dbd0aa263c6d8f1e487474dbcbb0506ebc",
+      "sha256": "7a11809f099a8121725e7fb72f9e746acb617a30d20d18fcb4d6c89a640853fd",
       "declaredMacros": [],
       "referencedMacros": []
     },
@@ -650,7 +650,7 @@
       "path": "screens/sr/sector-12.screen.json",
       "screen": "sr/sector-12",
       "role": "manifest",
-      "sha256": "3a8a338e8a860ee8aa0fd0a3d7ee57d808adbdec6934892ccb15beb2da7130b4",
+      "sha256": "78a2d49972bd9483d85155e9912fbe88f5c438f0d7176d8145acf3a58075d6d1",
       "declaredMacros": [],
       "referencedMacros": []
     }

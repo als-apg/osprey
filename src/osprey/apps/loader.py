@@ -22,7 +22,7 @@ from osprey.apps.rules import (
     refuse_shadowed_packages,
     validate,
 )
-from osprey.utils.workspace import PROFILE_FILENAME
+from osprey.utils.workspace import APPS_DIRNAME, PROFILE_FILENAME
 
 if TYPE_CHECKING:
     from osprey.cli.build_profile_model import BuildProfile
@@ -156,6 +156,7 @@ def check_deployment(root: Path) -> DeploymentApps:
     _refuse_projected_keys(manifests, profiles)
     if manifests:
         _refuse_unbuildable_services(root, manifests, host)
+        _refuse_missing_skills(root, manifests)
     dependencies = list(host.dependencies or [])
     check_pins(deployment_packages(root, dependencies, apps=host.apps), framework_pins())
     refuse_shadowed_packages(
@@ -319,5 +320,35 @@ def _refuse_unbuildable_services(
                     "does not exist",
                 )
             )
+    if found:
+        raise AppManifestError.from_violations(found)
+
+
+def _refuse_missing_skills(root: Path, manifests: tuple[AppManifest, ...]) -> None:
+    """Refuse a listed skill with no ``SKILL.md``, or a name two applications both list."""
+    found: list[Violation] = []
+    owners: dict[str, str] = {}
+    for manifest in manifests:
+        for skill in manifest.skills:
+            relative = f"{APPS_DIRNAME}/{manifest.name}/skills/{skill}/SKILL.md"
+            if not (root / relative).is_file():
+                found.append(
+                    Violation(
+                        manifest.name,
+                        f"skills.{skill}",
+                        "skill_missing",
+                        f"{relative} does not exist",
+                    )
+                )
+            if skill in owners:
+                found.append(
+                    Violation(
+                        manifest.name,
+                        f"skills.{skill}",
+                        "skill_collision",
+                        f"{owners[skill]} already carries a skill named {skill!r}",
+                    )
+                )
+            owners.setdefault(skill, manifest.name)
     if found:
         raise AppManifestError.from_violations(found)

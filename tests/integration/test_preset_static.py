@@ -373,7 +373,7 @@ def test_every_listed_application_ships_beside_the_preset() -> None:
     """A preset's ``apps:`` block names only applications the package carries."""
     apps_dir = PRESETS_DIR / "apps"
     listed = {name for preset in _all_presets() for name in preset_apps(preset)}
-    assert listed == {"knob-example"}
+    assert listed == {"orbit-bump"}
     assert {path.name for path in apps_dir.iterdir()} == listed
     for name in listed:
         assert (apps_dir / name / "app.yml").is_file()
@@ -385,4 +385,4 @@ def test_no_login_spells_the_arming_of_an_application(layer: str) -> None:
     """A login arms an application by its tier; its file spells no arming and no policy."""
     document = _load_preset_raw(layer)[0]
     assert not (document.get("apps") or {})
-    assert not [key for key, _ in _flatten(document) if "mcp__knob-example__" in key]
+    assert not [key for key, _ in _flatten(document) if "mcp__orbit-bump__" in key]

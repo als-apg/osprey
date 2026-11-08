@@ -25,7 +25,7 @@ own connections, not through the connector --- see :ref:`A Phoebus drive
 <architecture-safety-chain-phoebus-drive>`.
 
 A deployment that runs an application has one more, whose writes meet the same chain and
-connector --- see :doc:`applications`.
+connector --- see :doc:`/how-to/apps/index`.
 
 A write also carries a name --- whose write it is. A machine's write switch is one login's,
 so the name decides whose tier and whose switch a write is judged against. :ref:`Whose write is it <architecture-safety-chain-owner>`, at the foot of
@@ -74,7 +74,7 @@ drive meet the first and the last:
 switch position, then the approval record, whose approver is ``human``, ``dispatch_policy`` or
 ``write_switch``. The switch's position decides whether a person is asked; the application's
 declaration only describes and binds the call, and no per-tool approval policy exists for it. An
-application arms on a login whose tier is ``asked`` or ``allowed``. See :doc:`applications`.
+application arms on a login whose tier is ``asked`` or ``allowed``. See :doc:`/how-to/apps/index`.
 
 Which machine the deployment points at, and the login's switch position for it, come
 from the records the deployment keeps --- one per login --- read fresh on every call, so a

@@ -1,4 +1,4 @@
-"""``osprey app new``: the shipped example, copied under a new name, listed and buildable."""
+"""``osprey app new``: the shipped scaffold, copied under a new name, listed and buildable."""
 
 from __future__ import annotations
 
@@ -15,7 +15,11 @@ from click.testing import CliRunner, Result
 from osprey.cli.app_cmd import EXAMPLE_APP_DIR, app
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
-EXAMPLE = "knob-example"
+#: The scaffold ``app new`` copies, by the name its own ``app.yml`` declares.
+TEMPLATE: str = yaml.safe_load((EXAMPLE_APP_DIR / "app.yml").read_text(encoding="utf-8"))["name"]
+TEMPLATE_PACKAGE = TEMPLATE.replace("-", "_")
+#: The application the lifecycle repo's profile already lists.
+LISTED = "orbit-bump"
 VENDOR_IGNORE = "/apps/*/panel/vendor/"
 
 
@@ -48,25 +52,28 @@ def no_js(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
 
 
-def test_the_copy_is_the_example_under_the_new_name(
+def test_the_copy_is_the_scaffold_under_the_new_name(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
     result = _new(runner, lifecycle_repo, "demo-x")
 
     assert result.exit_code == 0, result.output
     copy = _tree(lifecycle_repo / "apps" / "demo-x")
-    example = _tree(EXAMPLE_APP_DIR)
+    template = _tree(EXAMPLE_APP_DIR)
+    dashed, package = TEMPLATE.encode(), TEMPLATE_PACKAGE.encode()
     renamed = {
-        path.replace("knob_example", "demo_x"): text.replace(b"knob-example", b"demo-x").replace(
-            b"knob_example", b"demo_x"
-        )
-        for path, text in example.items()
+        path.replace(TEMPLATE, "demo-x").replace(TEMPLATE_PACKAGE, "demo_x"): text.replace(
+            dashed, b"demo-x"
+        ).replace(package, b"demo_x")
+        for path, text in template.items()
         if "__pycache__" not in path and not path.endswith((".pyc", ".pyo"))
     }
     assert copy == renamed
     assert "demo_x/__init__.py" in copy
     for path, text in copy.items():
-        assert b"knob-example" not in text and b"knob_example" not in text, path
+        assert dashed not in text and package not in text, path
+        assert TEMPLATE not in path and TEMPLATE_PACKAGE not in path, path
+    assert TEMPLATE in result.output
 
 
 def test_the_copy_pins_no_port_and_states_no_write_policy(
@@ -83,15 +90,15 @@ def test_the_copy_pins_no_port_and_states_no_write_policy(
     assert "writes_enabled" not in text and "arm_writes" not in text
 
 
-def test_byte_code_of_the_example_is_never_copied(
+def test_byte_code_of_the_scaffold_is_never_copied(
     runner: CliRunner, lifecycle_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    source = tmp_path / "example"
+    source = tmp_path / "scaffold"
     shutil.copytree(EXAMPLE_APP_DIR, source)
-    cache = source / "knob_example" / "__pycache__"
+    cache = source / TEMPLATE_PACKAGE / "__pycache__"
     cache.mkdir(exist_ok=True)
-    (cache / "tools.cpython-313.pyc").write_bytes(b"knob_example")
-    (source / "knob_example" / "stray.pyo").write_bytes(b"knob_example")
+    (cache / "tools.cpython-313.pyc").write_bytes(TEMPLATE_PACKAGE.encode())
+    (source / TEMPLATE_PACKAGE / "stray.pyo").write_bytes(TEMPLATE_PACKAGE.encode())
     monkeypatch.setattr("osprey.cli.app_cmd.EXAMPLE_APP_DIR", source)
 
     assert _new(runner, lifecycle_repo, "demo-x").exit_code == 0
@@ -100,11 +107,12 @@ def test_byte_code_of_the_example_is_never_copied(
     assert not [path for path in copied if "__pycache__" in path or path.endswith((".pyc", ".pyo"))]
 
 
-def test_the_new_application_is_listed_beside_the_example(
+def test_the_new_application_is_listed_beside_the_listed_one(
     runner: CliRunner, lifecycle_repo: Path
 ) -> None:
     before = (lifecycle_repo / "profile.yml").read_text(encoding="utf-8")
-    assert EXAMPLE in _listed(lifecycle_repo)
+    assert LISTED in _listed(lifecycle_repo)
+    assert TEMPLATE not in _listed(lifecycle_repo)
 
     result = _new(runner, lifecycle_repo, "demo-x")
 
@@ -117,6 +125,21 @@ def test_the_new_application_is_listed_beside_the_example(
 
 def _listed_from(text: str) -> dict[str, Any]:
     return yaml.safe_load(text).get("apps") or {}
+
+
+def test_the_scaffold_name_itself_is_a_valid_new_application(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    result = _new(runner, lifecycle_repo, TEMPLATE)
+
+    assert result.exit_code == 0, result.output
+    assert _tree(lifecycle_repo / "apps" / TEMPLATE) == {
+        path: text
+        for path, text in _tree(EXAMPLE_APP_DIR).items()
+        if "__pycache__" not in path and not path.endswith((".pyc", ".pyo"))
+    }
+    assert _listed(lifecycle_repo)[TEMPLATE] == {}
+    assert VENDOR_IGNORE in (lifecycle_repo / ".gitignore").read_text(encoding="utf-8").splitlines()
 
 
 def test_an_existing_directory_is_refused_without_force(
@@ -195,7 +218,7 @@ def test_a_name_that_is_no_application_name_is_refused(
     assert result.exit_code == 2
     assert "NAME" in result.output
     assert sorted(path.name for path in (lifecycle_repo / "apps").iterdir()) == before
-    assert list(_listed(lifecycle_repo)) == [EXAMPLE]
+    assert list(_listed(lifecycle_repo)) == [LISTED]
 
 
 @pytest.mark.parametrize("name", ["class", "osprey", "osprey-connectors", "json"])
@@ -207,7 +230,7 @@ def test_a_name_whose_package_would_not_be_its_own_is_refused(
     assert result.exit_code == 2
     assert "Python package" in result.output
     assert not (lifecycle_repo / "apps" / name).exists()
-    assert list(_listed(lifecycle_repo)) == [EXAMPLE]
+    assert list(_listed(lifecycle_repo)) == [LISTED]
 
 
 @pytest.mark.parametrize(
@@ -293,7 +316,7 @@ def test_the_copy_passes_app_check_and_builds(runner: CliRunner, lifecycle_repo:
 @pytest.mark.skipif(
     os.environ.get("OSPREY_JS_CHECK") != "1", reason="fetches a JS toolchain: OSPREY_JS_CHECK=1"
 )
-def test_the_pinned_toolchain_passes_the_shipped_example_and_its_copy(
+def test_the_pinned_toolchain_passes_the_listed_app_and_the_scaffold_copy(
     runner: CliRunner, lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))

@@ -47,7 +47,7 @@ _ROSTER_TIERS = {"alice": "asked", "bob": "never", "carol": "allowed"}
 _BLUESKY = Path("services/bluesky/config.yml")
 _WORKER = Path("services/dispatch_worker/config.yml")
 #: The example application's container: it holds the map because it drives the target.
-_APP = Path("services/knob-example/config.yml")
+_APP = Path("services/orbit-bump/config.yml")
 
 
 @contextmanager

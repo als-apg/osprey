@@ -102,6 +102,9 @@ READONLY_WARMUPS_TEST_FILE = "tests/runtime/test_raw_put_block_readonly_warmups.
 #: The bundled applications, each with its own panel and Vitest tests.
 PRESET_APPS_ROOT = "src/osprey/profiles/presets/apps/"
 
+#: The template `osprey app new` copies, with its own panel and Vitest tests.
+SCAFFOLD_APP_ROOT = "src/osprey/apps/scaffold-app/"
+
 #: The scope of ``tsc``: the include globs of ``tsconfig.json`` and their inputs.
 TSC_SCOPE = (
     "src/osprey/interfaces/vendor-globals.d.ts",
@@ -110,6 +113,9 @@ TSC_SCOPE = (
     f"{PRESET_APPS_ROOT}*/panel/**/*.js",
     f"{PRESET_APPS_ROOT}*/tests/**/*.js",
     f"{PRESET_APPS_ROOT}*/tests/**/*.mjs",
+    f"{SCAFFOLD_APP_ROOT}panel/**/*.js",
+    f"{SCAFFOLD_APP_ROOT}tests/**/*.js",
+    f"{SCAFFOLD_APP_ROOT}tests/**/*.mjs",
     "tests/**/*.js",
     "tests/**/*.mjs",
     "tsconfig.json",
@@ -912,7 +918,9 @@ def _select_vitest(
     for path in paths:
         name = path.rsplit("/", 1)[-1]
         if path.endswith(guard.TEST_SUFFIXES):
-            if path.startswith(("tests/", guard.INTERFACES_ROOT, PRESET_APPS_ROOT)):
+            if path.startswith(
+                ("tests/", guard.INTERFACES_ROOT, PRESET_APPS_ROOT, SCAFFOLD_APP_ROOT)
+            ):
                 chosen.append(path)
         elif guard.modules([path]):
             interface = guard.interface_of(path)
@@ -1887,7 +1895,8 @@ CHECKS: tuple[Check, ...] = (
         scope=(
             "src/osprey/apps/js_check/**",
             "src/osprey/cli/app_cmd.py",
-            "src/osprey/profiles/presets/apps/knob-example/**",
+            f"{PRESET_APPS_ROOT}orbit-bump/**",
+            f"{SCAFFOLD_APP_ROOT}**",
             "tests/cli/test_app_cmd.py",
             "tests/cli/test_app_new.py",
             "tests/apps/fixtures/js_check_app/**",

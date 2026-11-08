@@ -22,6 +22,7 @@ api:
   - llama-cpp
   - ollama
   - openai
+  - openrouter
   - stanford
 approval:
   default_policy: always
@@ -278,6 +279,10 @@ web:
   control_target_picker: false
   default_panel: okf
   panels:
+    canopy:
+      enabled: false
+      home_screen: facility/overview
+      vole_bytes_max: 268435456
     channel-finder:
       enabled: true
     okf:

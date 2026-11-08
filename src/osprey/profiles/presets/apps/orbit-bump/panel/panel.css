@@ -1,0 +1,167 @@
+/* The orbit-bump panel, inside a hub tile. Colours and sizes are OSPREY tokens. */
+
+.ob {
+  position: relative;
+  padding: var(--space-2, 8px) var(--space-3, 12px) var(--space-3, 12px);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  color: var(--text-primary);
+  background: var(--bg-panel);
+}
+
+.ob-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+  font-family: var(--font-display);
+}
+
+.ob-spacer {
+  flex: 1;
+}
+
+.ob-seg {
+  display: inline-flex;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ob-seg button {
+  padding: 3px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-base);
+  cursor: pointer;
+}
+
+.ob-seg button.on {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.ob-model {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  padding: 2px 5px;
+}
+
+.ob-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.ob-chip i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-success);
+}
+
+.ob-chip.building i {
+  background: var(--color-warning);
+}
+
+.ob-chip.idle i {
+  background: var(--text-muted);
+}
+
+.ob-chip.failed i {
+  background: var(--color-error);
+}
+
+.ob-chip.failed {
+  color: var(--color-error);
+}
+
+.ob-link {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.ob-none,
+.ob-posture,
+.ob-notice {
+  color: var(--text-secondary);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+}
+
+.ob-posture,
+.ob-notice,
+.ob-error {
+  margin: var(--space-1, 4px) 0 0;
+}
+
+.ob-notice {
+  color: var(--color-warning);
+}
+
+.ob-error {
+  color: var(--color-error);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+}
+
+.ob-legend {
+  display: flex;
+  gap: var(--space-3, 12px);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.ob-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.ob-key-orbit {
+  background: var(--color-accent);
+}
+
+.ob-key-golden {
+  background: var(--color-accent-secondary);
+}
+
+.ob-key-target {
+  background: var(--color-warning);
+}
+
+.ob-key-predicted {
+  background: var(--art-violet-light);
+}
+
+.ob-modal {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+}
+
+.ob-modal[hidden] {
+  display: none;
+}

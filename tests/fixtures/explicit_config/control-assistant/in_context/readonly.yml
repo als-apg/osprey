@@ -22,6 +22,7 @@ api:
   - llama-cpp
   - ollama
   - openai
+  - openrouter
   - stanford
 approval:
   default_policy: always
@@ -36,37 +37,38 @@ approval:
     remove_panel_from_rail: always
     setup_patch: always
 apps:
-  knob-example:
+  orbit-bump:
     approval:
-      set_corrector:
+      apply_bump:
         bind:
           input_digests: []
           state_fields:
-          - field: approved_readback
-            key: readback
-        display_lines_key: null
+          - field: approved_plan_id
+            key: plan_id
+          - field: approved_setpoints
+            key: setpoint_digest
+        display_lines_key: display_lines
         errors:
-          refused: The value was not written. Read the channel again and ask for a
-            new approval.
-          unreachable: The knob panel's backend is not answering; check its container
-            with osprey health.
-        panel_id: knob-example
-        prompt: Set {{ state.channel }} to {{ input.value }}, now {{ state.readback
-          }}.
+          refused: The bump was not applied. Compute it again and ask for a new approval.
+          unreachable: The orbit bump panel's backend is not answering; check its
+            container with osprey health.
+        panel_id: orbit-bump
+        prompt: Apply bump plan {{ state.plan_id }} (the call names plan {{ input.plan_id
+          }}).
         require:
           all_of:
           - approved_target
-          - approved_readback
+          - approved_plan_id
+          - approved_setpoints
           one_of: []
-        state_path: /api/state
+        state_path: /api/approval
     tools:
       errors:
-        refused: The value was not written. Read the channel again and ask for a new
-          approval.
-        unreachable: The knob panel's backend is not answering; check its container
+        refused: The bump was not applied. Compute it again and ask for a new approval.
+        unreachable: The orbit bump panel's backend is not answering; check its container
           with osprey health.
       read:
-      - read_corrector
+      - plan_bump
 archiver:
   auto_bin_points: 10000
   mongodb_archiver:
@@ -166,21 +168,21 @@ claude_code:
       enabled: true
     health:
       enabled: true
-    knob-example:
-      app: knob-example
+    orbit-bump:
+      app: orbit-bump
       args:
       - -m
-      - knob_example.tools
+      - orbit_bump.tools
       command: '{current_python_env}'
       env:
         CONFIG_FILE: '{project_root}/build/config.yml'
-        OSPREY_APP_NAME: knob-example
+        OSPREY_APP_NAME: orbit-bump
         OSPREY_CONFIG: '{project_root}/build/config.yml'
       permissions:
         allow:
-        - read_corrector
+        - plan_bump
       writes:
-      - set_corrector
+      - apply_bump
 cli:
   theme: default
 container_runtime: docker
@@ -225,7 +227,8 @@ deploy:
 deployed_services: []
 dispatch:
   denied_app_tools:
-  - mcp__knob-example__set_corrector
+  - mcp__orbit-bump__plan_bump
+  - mcp__orbit-bump__apply_bump
 execution:
   execution_method: subprocess
 facility_knowledge:
@@ -326,27 +329,33 @@ web:
     max_channels: 50000
   config_panel:
     enabled: false
+  default_panel: canopy
   panels:
     ariel:
       enabled: true
+    canopy:
+      enabled: true
+      home_screen: facility/overview
+      vole_bytes_max: 268435456
     channel-finder:
       enabled: true
     jupyter:
       enabled: true
-    knob-example:
+    okf:
+      enabled: true
+    orbit-bump:
       agent_routes:
       - method: GET
         path: /api/state
-      app: knob-example
+      - method: GET
+        path: /api/approval
+      app: orbit-bump
       enabled: true
       health_endpoint: /health
-      label: Knob
+      label: Orbit bump
       path: /
+      read_timeout_s: 90
       url: http://127.0.0.1:10900
-    lattice:
-      enabled: true
-    okf:
-      enabled: true
     system-health:
       enabled: true
   scaffold_gallery:

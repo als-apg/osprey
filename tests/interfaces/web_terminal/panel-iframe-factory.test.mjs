@@ -187,6 +187,39 @@ describe('createPanelIframe', () => {
   });
 });
 
+describe('panelUiUrl joins the base and the UI path on one slash', () => {
+  const QUERIES_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/panel-queries.js';
+
+  test.each([
+    ['/panel/x', '/', '/panel/x/'],
+    ['/panel/x/', '/ui', '/panel/x/ui'],
+    ['/panel/x', undefined, '/panel/x'],
+    ['/panel/x', '/ui/', '/panel/x/ui/'],
+  ])('(%s, %s) -> %s', async (url, uiPath, expected) => {
+    const { panelUiUrl } = await import(QUERIES_PATH);
+    expect(panelUiUrl(url, uiPath)).toBe(expected);
+  });
+
+  test('a panel whose UI path is "/" is framed as a directory', async () => {
+    stubCaps(() => ({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }));
+    const { createPanelIframe } = await load();
+    const state = { url: '/panel/orbit-bump', pendingUrl: null, iframe: null };
+    createPanelIframe(
+      { id: 'orbit-bump', label: 'Orbit Bump', path: '/' },
+      'orbit-bump',
+      state,
+      document.createElement('div')
+    );
+    await flush();
+    const iframe = /** @type {HTMLIFrameElement} */ (/** @type {unknown} */ (state.iframe));
+    expect(path(iframe)).toBe('/panel/orbit-bump/');
+    // A relative asset resolves inside the mount, not one segment above it.
+    expect(new URL('static/panel.js', iframe.src).pathname).toBe(
+      '/panel/orbit-bump/static/panel.js'
+    );
+  });
+});
+
 describe('capExpiryMs reads the expiry the hub minted into the cap', () => {
   test('the first token segment is epoch seconds in hex', async () => {
     const { capExpiryMs } = await load();

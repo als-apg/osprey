@@ -295,6 +295,8 @@ class AppManifest(_Strict):
     tools: Tools | None = None
     audit_identity: NonEmpty
     vendor: list[VendorEntry] = Field(default_factory=list)
+    #: The agent skills the application carries, each ``skills/<name>/SKILL.md`` in its directory.
+    skills: list[Slug] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod

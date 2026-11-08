@@ -199,6 +199,13 @@ DROPPED_IDENTITY_ENV: tuple[str, ...] = ("OSPREY_TERMINAL_USER",)
 #: The identity variable the pinned build account is passed in.
 AUDIT_IDENTITY_ENV = "OSPREY_AUDIT_IDENTITY"
 
+#: The control-assistant preset's ``canopy-payload`` pre_build step, switched
+#: off for every CLI subprocess. With it on, a host that names no prebuilt CANOPY
+#: payload renders the preset without its CANOPY panel, so the fixtures would
+#: depend on the host. ``tests/conftest.py`` defaults the same switch off, and
+#: this module's own builds share this environment with the equivalence test.
+CANOPY_PAYLOAD_CHECK_ENV = "OSPREY_CANOPY_PAYLOAD_CHECK"
+
 #: The ``control_system`` key the shared containers' staged copies carry.
 LOGIN_TIERS_KEY = "login_tiers"
 
@@ -406,7 +413,9 @@ def _cli_env(source_dirs: list[Path]) -> dict[str, str]:
     Every ``*_API_KEY`` is dropped so which provider credentials happen to be
     exported cannot reach a fixture, the build account is pinned to
     :data:`FROZEN_BUILD_ACCOUNT` so the staged login map does not name the
-    host's login, and *source_dirs* is prepended to
+    host's login, the CANOPY payload step is skipped
+    (:data:`CANOPY_PAYLOAD_CHECK_ENV`) so the panel does not depend on a
+    payload the host may or may not have, and *source_dirs* is prepended to
     ``PYTHONPATH`` so a pristine source tree shadows the editable install — the
     ``.pth`` file an editable install drops appends its directory when
     ``site-packages`` is processed, which is after ``PYTHONPATH``.
@@ -423,6 +432,7 @@ def _cli_env(source_dirs: list[Path]) -> dict[str, str]:
         if not key.endswith("_API_KEY") and key not in DROPPED_IDENTITY_ENV
     }
     env[AUDIT_IDENTITY_ENV] = FROZEN_BUILD_ACCOUNT
+    env[CANOPY_PAYLOAD_CHECK_ENV] = "0"
     entries = [str(path) for path in source_dirs]
     if entries:
         existing = env.get("PYTHONPATH")

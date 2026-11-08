@@ -206,7 +206,9 @@ def test_orbit_plots_cover_every_bpm_in_micrometres(doc: dict, channels: dict) -
         assert len(expected) == 72
         assert props["curves"][0]["y_channels"] == expected
         assert props["mode"] == "line"
-        assert props["scale"] == 1e6
+        # The positions read in mm; the plot shows µm.
+        assert {channels[n]["unit"] for n in expected} == {"mm"}
+        assert props["scale"] == 1e3
         assert props["yAxes"][0]["label"] == "µm"
     for family in ("HCM", "VCM"):
         props = by_curve[family]

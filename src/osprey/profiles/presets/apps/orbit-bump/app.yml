@@ -1,0 +1,42 @@
+# A local closed-orbit bump: a panel and two tools sharing one backend; the write is the plan's apply.
+name: orbit-bump
+summary: Solves a local orbit bump over a ring's BPMs and correctors and applies it on approval.
+containers:
+  orbit-bump:
+    runtime: osprey
+    command: [python, -m, orbit_bump.server]
+    health: /health
+    drives_target: true
+    control_identity: true
+    state: var/orbit-bump
+panel:
+  label: Orbit bump
+  container: orbit-bump
+  launch_token: true
+  # An apply writes every corrector, waits for the readbacks to settle and re-reads the orbit.
+  read_timeout_s: 90
+  agent_routes:
+    - [GET, /api/state]
+    - [GET, /api/approval]
+    - [POST, /api/compute]
+    - [POST, /api/apply]
+  roster_grant: {single_user_alias: true}
+tools:
+  module: orbit_bump.tools
+  deny_in_jobs: true
+  read: [plan_bump]
+  approval:
+    - tool: apply_bump
+      prompt: Apply bump plan {{ state.plan_id }} (the call names plan {{ input.plan_id }}).
+      state_path: /api/approval
+      display_lines_key: display_lines
+      bind:
+        state_fields:
+          - {field: approved_plan_id, key: plan_id}
+          - {field: approved_setpoints, key: setpoint_digest}
+      require:
+        all_of: [approved_target, approved_plan_id, approved_setpoints]
+  errors:
+    unreachable: The orbit bump panel's backend is not answering; check its container with osprey health.
+    refused: The bump was not applied. Compute it again and ask for a new approval.
+skills: [orbit-bump]

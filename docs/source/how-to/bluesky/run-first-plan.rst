@@ -106,7 +106,9 @@ its own view too: a trace per corrector while the sweep runs, then the fitted
 response matrix and per-device scores. ``orbit_bump_sweep`` draws the bump
 itself — the orbit shift across the BPMs at each step of the profile,
 displaced where you asked for it and back on the reference where the bump
-closes — with the residual against its tolerance band under it.
+closes — with the residual against its tolerance band under it. The sweep
+measures; to set one bump and leave it, use the :doc:`orbit bump app
+</how-to/apps/orbit-bump>`.
 
 A short note above the plots says where the data came from and whether it is
 still arriving — *live data · still filling in* while the plan runs. A run you

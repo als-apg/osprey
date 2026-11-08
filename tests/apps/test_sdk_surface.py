@@ -48,6 +48,14 @@ SDK_NAMES = {
     "POSTURE_SOURCE_APP",
     "startup_timer",
     "tool_keys",
+    "closed_orbit_models",
+    "model_members",
+    "model_response_matrix",
+    "Member",
+    "ModelMembers",
+    "ResponseMatrix",
+    "prewrite_verdict",
+    "WriteVerdictView",
 }
 
 

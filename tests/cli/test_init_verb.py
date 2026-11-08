@@ -341,7 +341,7 @@ def test_the_listed_application_is_copied_as_packaged(exemplar_repo: Path) -> No
         for path in (exemplar_repo / APPS_DIRNAME).rglob("*")
         if path.is_file()
     }
-    assert f"{APPS_DIRNAME}/knob-example/app.yml" in expected
+    assert f"{APPS_DIRNAME}/orbit-bump/app.yml" in expected
     assert emitted == expected
 
 
@@ -417,8 +417,8 @@ def test_render_catalog_stores_only_each_renders_source(exemplar_repo: Path) -> 
         "readonly",
         "readwrite",
     ]
-    assert (exemplar_repo / APPS_DIRNAME / "knob-example" / "app.yml").is_file()
-    assert (exemplar_repo / APPS_DIRNAME / "knob-example" / APP_PROVENANCE_FILENAME).is_file()
+    assert (exemplar_repo / APPS_DIRNAME / "orbit-bump" / "app.yml").is_file()
+    assert (exemplar_repo / APPS_DIRNAME / "orbit-bump" / APP_PROVENANCE_FILENAME).is_file()
     tiers = {web_terminals["default_tier"], *(user["tier"] for user in web_terminals["users"])}
     for tier in tiers:
         assert (exemplar_repo / TIERS_DIRNAME / f"{tier}.yml").is_file(), tier

@@ -464,7 +464,7 @@ class TestControlAssistantRenderedAdmin:
         tiers = sorted(p.stem for p in (rendered_preset_repo / TIERS_DIRNAME).glob("*.yml"))
         assert tiers == ["admin", "channel-finder", "knowledge", "logbook", "readonly", "readwrite"]
         applications = (rendered_preset_repo / APPS_DIRNAME).iterdir()
-        assert [path.name for path in applications] == ["knob-example"]
+        assert [path.name for path in applications] == ["orbit-bump"]
 
     def test_admin_render_leaves_setup_patch_out_of_the_deny_list(
         self, rendered_admin_settings: dict

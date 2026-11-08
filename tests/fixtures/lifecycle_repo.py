@@ -1371,10 +1371,10 @@ services:
     template: osprey.archive
 
 # ── Applications ─────────────────────────────────────────────────────────────
-# Each entry runs the application in apps/<name>/. Knob is the bundled example:
-# one panel, one read tool, one write tool. Delete the entry to turn it off.
+# Each entry runs the application in apps/<name>/. Orbit bump is the bundled
+# showcase: strip, model bump, approval-gated apply. Delete it to turn it off.
 apps:
-  knob-example: {}
+  orbit-bump: {}
 
 # ── Build checks ─────────────────────────────────────────────────────────────
 # `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,
@@ -3170,10 +3170,10 @@ def seeded_facility_rule(profile_text: str) -> str:
 
 #: The live ``apps:`` block the exemplar's profile carries for the preset's application.
 LISTED_APPLICATIONS = """# ── Applications ─────────────────────────────────────────────────────────────
-# Each entry runs the application in apps/<name>/. Knob is the bundled example:
-# one panel, one read tool, one write tool. Delete the entry to turn it off.
+# Each entry runs the application in apps/<name>/. Orbit bump is the bundled
+# showcase: strip, model bump, approval-gated apply. Delete it to turn it off.
 apps:
-  knob-example: {}
+  orbit-bump: {}
 
 """
 
@@ -3186,11 +3186,11 @@ UNLISTED_APPLICATIONS = """
 # and its writes follow each login's control_system.writes tier.
 #
 # apps:
-#   knob-example:
+#   orbit-bump:
 #     config:                    # free-form; handed to the application as a file
 #       step: 0.5
 #     services:
-#       knob-example:            # a container key from its app.yml
+#       orbit-bump:              # a container key from its app.yml
 #         network: host          # bridge | host
 #         env: [HTTP_PROXY]      # host variables passed through
 #
@@ -3241,17 +3241,15 @@ def packaged_application_files() -> dict[str, str]:
     from osprey.cli.build_profile_merge import compute_preset_hash
     from osprey.profiles import presets
 
-    app_dir = Path(presets.__file__).parent / "apps" / "knob-example"
+    app_dir = Path(presets.__file__).parent / "apps" / "orbit-bump"
     files = {
-        f"apps/knob-example/{path.relative_to(app_dir).as_posix()}": path.read_text(
-            encoding="utf-8"
-        )
+        f"apps/orbit-bump/{path.relative_to(app_dir).as_posix()}": path.read_text(encoding="utf-8")
         for path in sorted(app_dir.rglob("*"))
         if path.is_file()
         and "__pycache__" not in path.parts
         and path.suffix not in {".pyc", ".pyo"}
     }
-    files[f"apps/knob-example/{APP_PROVENANCE_FILENAME}"] = app_provenance_text(
+    files[f"apps/orbit-bump/{APP_PROVENANCE_FILENAME}"] = app_provenance_text(
         app_dir, "control-assistant", compute_preset_hash("control-assistant")
     )
     return files

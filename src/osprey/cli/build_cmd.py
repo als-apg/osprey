@@ -68,7 +68,7 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
-from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
+from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -120,6 +120,7 @@ from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
     from osprey.apps.manifest import AppManifest
+    from osprey.apps.rules import LoginSelection
     from osprey.facility.build import FacilityDocument
     from osprey.facility.render import WrittenViews
 
@@ -2002,6 +2003,36 @@ def _facility_display_name(facility: Mapping[str, Any], project_name: str) -> st
     return identity_record(facility["identity"], project_name)["name"]
 
 
+def _copy_app_skills(
+    repo_root: Path,
+    render_dir: Path,
+    manifests: Sequence[AppManifest],
+    selection: LoginSelection,
+) -> list[str]:
+    """Copy the skills of the applications this render shows into its ``.claude/skills/``.
+
+    Only the skills a manifest declares are copied; any other directory under an
+    application's ``skills/`` stays behind. Runs after the profile's own artifacts,
+    so a name already taken there is refused rather than either copy silently winning.
+
+    Returns:
+        The skill names copied.
+    """
+    from osprey.apps.projection import login_skills
+
+    copied: list[str] = []
+    for app, skill in login_skills(manifests, selection):
+        destination = render_dir / ".claude" / "skills" / skill
+        if destination.exists():
+            raise BuildProfileError(
+                f"Application {app!r} carries a skill named {skill!r}, and this render "
+                f"already has one by that name; rename the application's skill."
+            )
+        shutil.copytree(repo_root / APPS_DIRNAME / app / "skills" / skill, destination)
+        copied.append(skill)
+    return copied
+
+
 def _render_project(
     shared: _SharedRenderInputs,
     resolved: Any,
@@ -2512,6 +2543,17 @@ def _render_project(
             reg_count = _register_convention_artifacts(render_dir, applied)
             if reg_count:
                 progress("  ✓ Registered %d profile artifact(s) in config.yml", reg_count)
+
+        if shared.applications.manifests:
+            login = ROOT_LOGIN if profile_path.parent == repo_root else profile_path.stem
+            copied = _copy_app_skills(
+                repo_root,
+                render_dir,
+                shared.applications.manifests,
+                shared.applications.logins[login],
+            )
+            if copied:
+                progress("  ✓ Applied %d application skill(s): %s", len(copied), ", ".join(copied))
 
         # The limits database is the limits view, written below with the other
         # facility outputs; the render names it before anything reads the config.

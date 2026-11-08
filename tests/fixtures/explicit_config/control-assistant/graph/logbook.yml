@@ -22,6 +22,7 @@ api:
   - llama-cpp
   - ollama
   - openai
+  - openrouter
   - stanford
 approval:
   default_policy: always
@@ -283,6 +284,10 @@ web:
   panels:
     ariel:
       enabled: true
+    canopy:
+      enabled: false
+      home_screen: facility/overview
+      vole_bytes_max: 268435456
   scaffold_gallery:
     write_enabled: false
   theme: light

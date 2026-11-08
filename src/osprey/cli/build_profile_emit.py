@@ -614,11 +614,11 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # and its writes follow each login's control_system.writes tier.
 #
 # apps:
-#   knob-example:
+#   orbit-bump:
 #     config:                    # free-form; handed to the application as a file
 #       step: 0.5
 #     services:
-#       knob-example:            # a container key from its app.yml
+#       orbit-bump:              # a container key from its app.yml
 #         network: host          # bridge | host
 #         env: [HTTP_PROXY]      # host variables passed through
 #

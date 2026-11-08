@@ -1200,10 +1200,10 @@ services:
     template: osprey.archive
 
 # ── Applications ─────────────────────────────────────────────────────────────
-# Each entry runs the application in apps/<name>/. Knob is the bundled example:
-# one panel, one read tool, one write tool. Delete the entry to turn it off.
+# Each entry runs the application in apps/<name>/. Orbit bump is the bundled
+# showcase: strip, model bump, approval-gated apply. Delete it to turn it off.
 apps:
-  knob-example: {}
+  orbit-bump: {}
 
 # ── Build checks ─────────────────────────────────────────────────────────────
 # `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,

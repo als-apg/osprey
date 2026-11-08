@@ -42,7 +42,7 @@ names another one explicitly.
    osprey channel-finder     # Channel finder CLI
    osprey knowledge          # Facility knowledge bundles and graph corpus
    osprey facility           # Check and show the facility description under data/facility/
-   osprey app                # Check a deployment's applications
+   osprey app                # Make and check a deployment's apps
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey archive            # Copy artifacts and plan-queue history into var/archive
@@ -1140,11 +1140,14 @@ up`` seeds the store from that view. See
 osprey app
 ==========
 
-Make and check a deployment's applications without building anything.
+Make and check a deployment's apps without building anything; the walkthrough
+is :doc:`/how-to/apps/index`.
 
 ``osprey app new NAME [--force] [--repo DIRECTORY]``
-   Copy the shipped example application into ``apps/NAME/``, its names rewritten
-   to ``NAME`` (the Python package to ``NAME`` with underscores), and list it as
+   Copy the shipped scaffold — one container, a panel with a state route, one read
+   tool, one approval write tool — into ``apps/NAME/``; it passes ``osprey app
+   check`` as copied. Its names are rewritten to ``NAME`` (the Python package to
+   ``NAME`` with underscores), and it is listed as
    ``NAME: {}`` in the ``apps:`` block of ``profile.yml``; ``.gitignore`` gains
    ``/apps/*/panel/vendor/`` when it lacks it. No port is pinned. A name whose
    package would be a Python keyword or shadow a standard-library or OSPREY module
@@ -1643,13 +1646,6 @@ All subcommands accept a common flag:
    is given. ``--from`` names the preset (default: the preset this repo was
    created from).
 
-``osprey scaffold apps [--from PRESET] [--force]``
-   Write ``apps/<name>.yml`` for every app the preset's roster shares, as
-   ``osprey init`` does. A file that already matches is left untouched; one
-   that differs is reported and left alone unless ``--force`` is given.
-   ``--from`` names the preset (default: the preset this repo was created
-   from).
-
 ``osprey scaffold pull PRESET[:PATH] [--list] [--force] [--with-content] [--repo DIRECTORY]``
    Copy a preset's packaged content into this repo, each file at the same path,
    for you to edit and commit: ``control-assistant`` copies the whole app
@@ -1713,7 +1709,6 @@ All subcommands accept a common flag:
    osprey scaffold ci                             # Re-emit the CI files
    osprey scaffold systemd                        # Write the boot unit
    osprey scaffold tiers                          # Write the tier files
-   osprey scaffold apps                           # Write the app files
    osprey scaffold pull control-assistant --list  # Show what a preset offers
    osprey scaffold list                           # Show all artifacts
    osprey scaffold claim agents/channel-finder    # Claim for editing

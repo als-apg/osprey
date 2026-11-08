@@ -2283,7 +2283,7 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
     assert container_lifecycle._deployed_project_image_services(dict(config)) == [
-        "knob-example",
+        "orbit-bump",
         "agent_record",
     ], (
         "on the project image the plan-stack lanes deploy only the preset's example "

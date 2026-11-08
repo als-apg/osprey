@@ -51,6 +51,7 @@ export default {
       'tests/**/*.test.{js,mjs}',
       'src/osprey/interfaces/**/*.test.{js,mjs}',
       'src/osprey/profiles/presets/apps/*/tests/**/*.test.{js,mjs}',
+      'src/osprey/apps/scaffold-app/tests/**/*.test.{js,mjs}',
     ],
   },
 };

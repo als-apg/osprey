@@ -3993,7 +3993,7 @@ describe('panel frames — agent-writable panels are opaque, first-party panels 
     await settled(() => expect(frame('results')?.dataset.panelFrame).toBe('first-party'));
     const el = /** @type {HTMLIFrameElement} */ (frame('results'));
     expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
-    expect(new URL(el.src).pathname).toBe('/panel/results');
+    expect(new URL(el.src).pathname).toBe('/panel/results/');
   });
 
   test.each([

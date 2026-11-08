@@ -216,85 +216,8 @@ class Delta:
 
 
 #: Provider catalog entries ``providers.yml`` carries beyond the frozen fixtures.
-#: Every render lists the whole catalog under ``api.providers``, so every document
-#: of every frozen cell gains them.
-_CATALOG_ADDITIONS = ("openrouter",)
-
-
-#: The leaves the three-way write switch moves in every render, root, tier or
-#: app: the governed tools' per-tool approval policies retire, so the presets no
-#: longer spell ``approval.tools.channel_write: always`` or
-#: ``approval.tools.execute: selective`` and the position decides instead.
-def _retired_governed_policies(document: str) -> tuple[Delta, ...]:
-    return (
-        Delta(document=document, path="approval.tools.channel_write", fixture="always"),
-        Delta(document=document, path="approval.tools.execute", fixture="selective"),
-    )
-
-
-#: Every render a control-assistant cell freezes.
-_CONTROL_ASSISTANT_RENDERS = (
-    "root",
-    "admin",
-    "channel-finder",
-    "knowledge",
-    "logbook",
-    "readonly",
-    "readwrite",
-)
-
-
-#: The control-assistant renders that show the CANOPY panel and open on it: the
-#: root and its personal logins. The shared logins carry the panel's block
-#: switched off and keep their own default tab.
-_CANOPY_RENDERS = ("root", "admin", "readonly", "readwrite")
-
-
-def _canopy_panel_deltas(document: str) -> tuple[Delta, ...]:
-    """The leaves the CANOPY panel adds to one control-assistant render."""
-    shown = document in _CANOPY_RENDERS
-    deltas = [
-        Delta(document=document, path="web.panels.canopy.enabled", fixture=ABSENT, live=shown),
-        Delta(
-            document=document,
-            path="web.panels.canopy.home_screen",
-            fixture=ABSENT,
-            live="facility/overview",
-        ),
-        Delta(
-            document=document,
-            path="web.panels.canopy.vole_bytes_max",
-            fixture=ABSENT,
-            live=268435456,
-        ),
-    ]
-    if shown:
-        deltas.append(
-            Delta(document=document, path="web.default_panel", fixture=ABSENT, live="canopy")
-        )
-    return tuple(deltas)
-
-
-def _retired_lattice_panel_deltas(document: str) -> tuple[Delta, ...]:
-    """The retired LATTICE tab's block, gone from each render that showed it."""
-    if document not in _CANOPY_RENDERS:
-        return ()
-    return (Delta(document=document, path="web.panels.lattice.enabled", fixture=True, live=ABSENT),)
-
-
-def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
-    """The ``api.providers`` delta each of *documents* gains from the catalog additions.
-
-    Args:
-        documents: The rendered documents the cell emits.
-
-    Returns:
-        One delta per document.
-    """
-    return tuple(
-        Delta(document=document, path="api.providers", added=_CATALOG_ADDITIONS)
-        for document in documents
-    )
+#: Empty while the fixtures list the whole catalog under ``api.providers``.
+_CATALOG_ADDITIONS: tuple[str, ...] = ()
 
 
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
@@ -302,21 +225,7 @@ def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
 #: mapping must equal its fixture exactly. See the module docstring for how to
 #: spell a delta. The fixtures stay frozen at the baseline: the render-identity
 #: proof is the baseline render plus exactly these leaves.
-CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
-    "hello-world/unset": _retired_governed_policies("root") + _catalog_addition_deltas("root"),
-    **{
-        f"control-assistant/{mode}": _catalog_addition_deltas(*_CONTROL_ASSISTANT_RENDERS)
-        + tuple(
-            delta
-            for document in _CONTROL_ASSISTANT_RENDERS
-            for delta in (
-                *_canopy_panel_deltas(document),
-                *_retired_lattice_panel_deltas(document),
-            )
-        )
-        for mode in ("in_context", "hierarchical", "middle_layer", "graph")
-    },
-}
+CELL_DELTAS: dict[str, tuple[Delta, ...]] = {}
 
 #: Logins whose staged tier posture each cell is allowed to differ from its
 #: frozen ``staged/login_tiers.yml`` by, as ``login -> (fixture, live)`` — the
