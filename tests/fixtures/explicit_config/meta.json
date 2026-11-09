@@ -1,7 +1,7 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "d5553e2b14f4a85000309fd23a24a99ea975d5e6",
-  "baseline_sha": "d5553e2b1",
+  "baseline_commit": "158f4a520a2c25c0326717b463d30cb37563319e",
+  "baseline_sha": "158f4a520a",
   "build_account": "osprey-freeze-builder",
   "cells": [
     "hello-world/unset",
@@ -12,7 +12,7 @@
   ],
   "completeness": {
     "demo/graph": {
-      "build_configs_checked": 26,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -33,7 +33,7 @@
       ]
     },
     "demo/hierarchical": {
-      "build_configs_checked": 26,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -54,7 +54,7 @@
       ]
     },
     "demo/in_context": {
-      "build_configs_checked": 26,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -75,7 +75,7 @@
       ]
     },
     "demo/middle_layer": {
-      "build_configs_checked": 26,
+      "build_configs_checked": 25,
       "documents": [
         "admin.yml",
         "channel-finder.yml",
@@ -104,7 +104,7 @@
       "renders": []
     }
   },
-  "external_source": true,
+  "external_source": false,
   "masked_keys": {
     "replaced": {
       "api.providers": "sorted list of provider names, in place of the catalog mapping"
