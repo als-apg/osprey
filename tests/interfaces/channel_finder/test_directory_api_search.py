@@ -43,7 +43,10 @@ _UNAVAILABLE = {
 class FakeService:
     """Answers every search with the fixture's page; records each call's keywords."""
 
-    def __init__(self, *, total: int = 2, count: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self, *, total: int = 2, count: dict[str, Any] | None = None, filter_cap: int = 5000
+    ) -> None:
+        self.filter_cap = filter_cap
         self.searches: list[dict[str, Any]] = []
         self.counts: list[dict[str, Any]] = []
         self._total = total
@@ -62,11 +65,10 @@ class FakeService:
         return {**_FIXTURE["count"], "total": self._total}
 
 
-def _client(service: FakeService, config: dict[str, Any] | None = None) -> TestClient:
+def _client(service: FakeService) -> TestClient:
     app = FastAPI()
     app.include_router(directory_api.router, prefix="/api/directory")
     app.state.directory_service = service
-    app.state.config = config if config is not None else {"pv_directory": {}}
     return TestClient(app)
 
 
@@ -193,11 +195,10 @@ class TestExport:
         assert service.searches == [{**filters, "page": 0, "page_size": 120}]
 
     def test_above_the_filter_cap_it_carries_the_fetched_pages(self):
-        service = FakeService(total=11)
-        config = {"pv_directory": {"display": {"filter_cap": 10}}}
+        service = FakeService(total=11, filter_cap=10)
         params = {"q": "BPM01", "page": "2", "page_size": "25"}
 
-        resp = _client(service, config).get("/api/directory/export.csv", params=params)
+        resp = _client(service).get("/api/directory/export.csv", params=params)
 
         assert [(call["page"], call["page_size"]) for call in service.searches] == [
             (0, 25),

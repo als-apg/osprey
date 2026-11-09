@@ -313,6 +313,23 @@ async def test_origin_search_without_its_set_has_no_total(tmp_path: Path) -> Non
     await directory.aclose()
 
 
+@pytest.mark.parametrize(
+    ("display", "cap"),
+    [
+        ({"filter_cap": 3}, 3),
+        (None, 5000),
+        ({"filter_cap": -1}, 5000),
+        ({"filter_cap": True}, 5000),
+    ],
+)
+def test_the_filter_cap_answers_display_filter_cap(
+    tmp_path: Path, display: dict[str, Any] | None, cap: int
+) -> None:
+    section = dict(FACILITY) if display is None else {**FACILITY, "display": display}
+
+    assert _service(_config(tmp_path, LIVE_BUILD, section), tmp_path).filter_cap == cap
+
+
 async def test_a_zero_count_drops_the_backend_count_partial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
