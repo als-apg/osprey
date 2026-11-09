@@ -932,6 +932,29 @@ describe('the viewer', () => {
     ]);
   });
 
+  test('the latest pick wins over a slower fetch for an earlier one', async () => {
+    server.byId.sub1 = art('sub1', 'documents', '2026-10-30T07:00:00Z');
+    /** @type {() => void} */
+    let answer = () => {};
+    const gate = new Promise((resolve) => (answer = () => resolve(undefined)));
+    fetchMock.mockImplementation(async (/** @type {string} */ url, /** @type {any} */ init) => {
+      if (String(url).includes('/api/artifacts/sub1')) await gate;
+      return route(url, init);
+    });
+    await boot();
+    mod.showArtifact('sub1');
+    await settle();
+    mod.showArtifact('a2');
+    await settle();
+    expect(shown()).toBe('a2');
+    answer();
+    await settle();
+    expect(shown()).toBe('a2');
+    expect(requests(`/api/sessions/${T1}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
+      { artifact_id: 'a2' },
+    ]);
+  });
+
   test('showArtifact of an artifact that is gone leaves the shown one alone', async () => {
     await boot();
     mod.showArtifact('a2');

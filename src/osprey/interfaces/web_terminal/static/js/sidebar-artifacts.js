@@ -667,16 +667,22 @@ export async function openInAgent(treeId, where = 'sessions') {
   await reveal(now, model.pick() ?? row.last_artifact_id ?? null, false, !wasActive);
 }
 
+/** Counts the picks, so that only the latest one lands (see pickArtifact). */
+let pickSeq = 0;
+
 /**
  * The operator picked an artifact: show it without changing the session and
  * record it as its owner's last-open artifact. One the tree has not loaded is
- * fetched and held first; one that is gone leaves the shown artifact alone.
+ * fetched and held first; one that is gone leaves the shown artifact alone. The
+ * latest pick wins: a fetch that answers after a newer pick is dropped, so a
+ * slow fetch never replaces what the operator picked since.
  * @param {string} id
  * @returns {Promise<void>}
  */
 async function pickArtifact(id) {
+  const seq = ++pickSeq;
   const entry = held(id) ?? (await store.fetchArtifact(id));
-  if (!entry) return;
+  if (!entry || seq !== pickSeq) return;
   data.hold(entry);
   model.setPick(id);
   model.recordLastArtifact(entry);

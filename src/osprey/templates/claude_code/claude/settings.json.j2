@@ -92,9 +92,12 @@
     `NotebookEdit(path)` rule grants nothing and is reported as a
     misconfiguration at every agent start. The bare `Edit` in the deny floor
     outranks these, so the Edit tool itself stays denied, and the memory-guard
-    hook still refuses Write under these trees. -#}
-{%- set _ = allow_entries.append('"Edit(' ~ agent_data_root ~ '/artifacts/**)"') -%}
-{%- set _ = allow_entries.append('"Edit(' ~ agent_data_root ~ '/notebooks/**)"') -%}
+    hook still refuses Write under these trees. Named absolutely (`//`), like
+    the Read rules above: the agent-data root sits beside the render the agent
+    runs in, so a relative rule would match nothing. -#}
+{%- for glob in agent_output_edit_globs -%}
+{%- set _ = allow_entries.append('"Edit(/' ~ glob ~ ')"') -%}
+{%- endfor -%}
 {#- Per-agent Task() permissions -#}
 {%- for a in agents if a.enabled -%}
 {%- set _ = allow_entries.append('"Task(' ~ a.name ~ ')"') -%}
