@@ -59,9 +59,8 @@ dashes to underscores — so ``cborg-open`` reads ``CBORG_OPEN_API_KEY``. Put
 ``CBORG_OPEN_API_KEY=<your CBORG key>`` in the repo's ``.env``; the same CBORG
 key serves both entries.
 
-Any model ID from CBORG's catalogue works in the ``models`` list — the
-*Benchmark snapshot* box on this page shows which ones hold up in practice. The
-provider list and the keys behind it are in :doc:`configure-providers`.
+Any model ID from CBORG's catalogue works in the ``models`` list. The provider
+list and the keys behind it are in :doc:`configure-providers`.
 
 For a model you serve yourself with vLLM, the packaged ``vllm`` provider is
 keyless and points at ``http://localhost:8000/v1``; set ``VLLM_BASE_URL`` for a
@@ -82,8 +81,7 @@ following open families were verified to complete that suite end-to-end:
 
 This set was chosen from the open models **available on the CBORG provider** — it
 reflects CBORG's catalogue at benchmark time, not an exhaustive survey of open
-models. Capability varies widely across the set; the snapshot below is the real
-signal, not the bare "it runs" list.
+models. Capability varies widely across the set.
 
 Benchmark it yourself
 ---------------------
@@ -128,9 +126,6 @@ and the board scores its first attempt:
 
 .. include:: agentic-tests.rst.inc
 
-The full interactive dashboard, with each model's result per test, is linked at the end
-of the snapshot below.
-
 .. code-block:: bash
 
    # see the resolved plan without running anything
@@ -146,78 +141,6 @@ of the snapshot below.
    scripts/benchmark/build_board_images.sh   # once per revision
    scripts/benchmark/matrix.py --parallel 4
    scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
-
-   # re-render the copy this page links to
-   scripts/benchmark/matrix_dashboard.py --results-dir results --artifact \
-       --out docs/source/_static/benchmark-dashboard.html
-
-.. admonition:: Benchmark snapshot — OSPREY [FULL-RUN: version]
-   :class: important
-
-   First-attempt results on the agentic tests of the e2e suite.
-   The judge changed to ``claude-haiku-5-5``, so these numbers are not
-   comparable with the June and October 2026 runs.
-
-   - **Measured against:** OSPREY ``[FULL-RUN: version]``
-   - **Run:** [FULL-RUN: date] · open models via CBORG · ``kolibri-1`` self-hosted on vLLM · Anthropic references via als-apg · 3 seeds each
-   - **Scope:** 34 tests per seed: 28 in Tier 1, 6 in Tier 2
-   - **Scoring:** first attempt only; a timeout counts as a failure (the model did not finish within the 1800s cap), and a test that dies in setup or that the provider refused (auth, network, unserved model) scores nothing. Tier 1: passes over all seeds and the median time per task. Tier 2: passes over all seeds.
-
-   .. list-table::
-      :header-rows: 1
-      :widths: 30 20 16 16
-
-      * - Model
-        - Provider
-        - Tier 1 (passed · median task)
-        - Tier 2 (passed)
-      * - ``cborg-coder``
-        - CBORG
-        - [FULL-RUN]
-        - [FULL-RUN]
-      * - ``gemma-4``
-        - CBORG
-        - [FULL-RUN]
-        - [FULL-RUN]
-      * - ``qwen-3-coder``
-        - CBORG
-        - [FULL-RUN]
-        - [FULL-RUN]
-      * - ``gpt-oss-120b``
-        - CBORG
-        - [FULL-RUN]
-        - [FULL-RUN]
-      * - ``qwen-3``
-        - CBORG
-        - [FULL-RUN]
-        - [FULL-RUN]
-      * - ``gpt-oss-20b``
-        - CBORG
-        - [FULL-RUN]
-        - [FULL-RUN]
-      * - ``kolibri-1``
-        - vLLM · self-hosted
-        - [FULL-RUN]
-        - [FULL-RUN]
-      * - ``claude-haiku-5-5`` *(ref)*
-        - als-apg
-        - [FULL-RUN]
-        - [FULL-RUN]
-      * - ``claude-sonnet-5-5`` *(ref)*
-        - als-apg
-        - [FULL-RUN]
-        - [FULL-RUN]
-      * - ``claude-opus-5-5`` *(ref)*
-        - als-apg
-        - [FULL-RUN]
-        - [FULL-RUN]
-
-   Anthropic models are a control/ceiling reference. These figures are a
-   point-in-time snapshot and *will* drift — regenerate with ``scripts/benchmark/``.
-
-   .. FULL-RUN: re-render _static/benchmark-dashboard.html with the --artifact command above.
-
-   :download:`Download the full interactive dashboard (HTML) <../../_static/benchmark-dashboard.html>`
 
 .. seealso::
 

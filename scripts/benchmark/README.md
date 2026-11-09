@@ -160,7 +160,7 @@ scripts/benchmark/matrix.py --only cborg-coder --parallel 1
 scripts/benchmark/matrix.py --parallel 4
 scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
 
-# Re-render the published copy the docs page links to:
+# A timeless copy to publish with the docs, once a full run is in:
 scripts/benchmark/matrix_dashboard.py --results-dir results --artifact \
     --out docs/source/_static/benchmark-dashboard.html
 
