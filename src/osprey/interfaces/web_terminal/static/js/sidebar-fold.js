@@ -2,10 +2,9 @@
 /* OSPREY Web Terminal — folding a sidebar group
  *
  * A double-click on a group's heading folds the group to its heading; another
- * unfolds it. A click on the heading's chevron, and Enter / Space on the
- * group's name, do the same. The chevron sits at the heading's end, as on the
- * Pinned group: it points down while the group is open and turns to point
- * right while it is folded. Any group with a
+ * unfolds it. Enter / Space on the group's name do the same. Only a folded
+ * group shows a chevron, at the heading's end and pointing right, the sign
+ * that there is more; a click on it unfolds. Any group with a
  * heading folds, built-in or the operator's; the headless group
  * (sidebar-groups.js) never does, whatever is stored. Membership and order
  * are untouched, and the
