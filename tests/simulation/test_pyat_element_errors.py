@@ -191,14 +191,14 @@ CORRECTOR = "SR:MAG:HCM:01:CURRENT:SP"
 
 
 @pytest.fixture(scope="module")
-def demo(built_control_assistant: Any) -> dict[str, Any]:
-    facility = built_control_assistant.facility
+def demo(built_demo: Any) -> dict[str, Any]:
+    facility = built_demo.facility
     (model,) = [entry for entry in facility["models"] if entry["name"] == MODEL]
     wiring = simulator_wiring(FacilityRecords(facility), MODEL)
     roster = fault_variables(wiring)
     return {
         "wiring": wiring,
-        "deck": built_control_assistant.facility_dir / model["deck"],
+        "deck": built_demo.facility_dir / model["deck"],
         "settings": model.get("settings"),
         "quad": roster[f"{QUADRUPOLE}/cal_factor"].element,
         "monitors": [e["address"] for e in wiring if engine._is_monitor_reading(e)],
@@ -314,9 +314,9 @@ def test_a_seed_with_no_closed_orbit_raises_the_solve_error_naming_it(
 # -- default_scenarios, at the VA's boot ---------------------------------------------
 
 
-def _demo_view(built_control_assistant: Any, project: Path, extra: dict[str, Any]) -> Path:
+def _demo_view(built_demo: Any, project: Path, extra: dict[str, Any]) -> Path:
     prefix = "data/simulator/"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith(prefix):
             target = project / "data" / "simulator" / name[len(prefix) :]
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -343,14 +343,14 @@ def _config(project: Path, defaults: list[str]) -> dict[str, Any]:
 
 @pytest.mark.slow
 def test_a_default_scenario_seeds_element_errors_at_boot(
-    built_control_assistant: Any, demo: dict[str, Any], tmp_path: Path
+    built_demo: Any, demo: dict[str, Any], tmp_path: Path
 ) -> None:
     from osprey.simulation.apply import activate_default_scenarios, resolve_simulation_state_dir
     from osprey_connectors.simulation.composite import Composite
 
     seeded = {"faults": {MODEL: {"writes": {f"{demo['quad']}/dx": 1.0e-4}}}}
     broken = {"faults": {MODEL: {"writes": {f"{demo['quad']}/dB1": 50.0}}}}
-    view = _demo_view(built_control_assistant, tmp_path, {"seeded": seeded, "broken": broken})
+    view = _demo_view(built_demo, tmp_path, {"seeded": seeded, "broken": broken})
     reading = demo["monitors"][0]
     plain = Composite(view, clock=lambda: 1_760_000_000.0).get(reading)
 
@@ -363,7 +363,7 @@ def test_a_default_scenario_seeds_element_errors_at_boot(
     assert booted.get(reading) != pytest.approx(plain, abs=1e-12)
 
     other = tmp_path / "other"
-    other_view = _demo_view(built_control_assistant, other, {"broken": broken})
+    other_view = _demo_view(built_demo, other, {"broken": broken})
     config = _config(other, ["broken"])
     assert "broken" in activate_default_scenarios(config, other)
     failed = Composite(

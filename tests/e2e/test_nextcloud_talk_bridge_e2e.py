@@ -141,7 +141,6 @@ from tests.e2e._dispatch_harness import (
 from tests.e2e._worker_record import WorkerRecord, worker_record
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.dockerbuild,
     pytest.mark.skipif(
@@ -685,7 +684,7 @@ def rooms(nextcloud: TalkFixture) -> Rooms:
 
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Init + build a real control-assistant deployment repo once per module.
+    """Init + build a real demo deployment repo once per module.
 
     The provider choice never reaches an assertion here — see the module docstring on
     why these tests are model-independent.

@@ -101,8 +101,8 @@ removed. Those are in the archive.
 Turn the archive on and off
 ===========================
 
-The control-assistant preset deploys the archive service. To turn it on in any
-other profile, add it under ``services:``:
+The demo preset deploys the archive service. To turn it on in any other
+profile, add it under ``services:``:
 
 .. code-block:: yaml
 

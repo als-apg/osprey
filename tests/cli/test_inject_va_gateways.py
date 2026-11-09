@@ -342,7 +342,7 @@ def test_the_only_thing_missing_after_injection_is_the_probe_channel(tmp_path):
 # build that wrote the acknowledgment would be answering, on the operator's
 # behalf, a question about a machine it never addressed.
 #
-# The text assertions run against the REAL Control Assistant template rather
+# The text assertions run against the REAL Demo template rather
 # than a literal fixture, because what they pin is that the shipped
 # ``target_switch`` block — its prose, its wrapped inline comments, and the
 # commented-out example an operator fills in by hand — comes through untouched.

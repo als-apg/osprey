@@ -74,7 +74,7 @@ with CANOPY's Python packages and web pages, built from the canopy repository.
       OSPREY_CANOPY_PAYLOAD=/srv/canopy/payload
 
 3. **Add the panel to** ``profile.yml``. A deployment made from the
-   ``control-assistant`` preset already has it, and the web terminal opens on
+   ``demo`` preset already has it, and the web terminal opens on
    it at the example facility's ``facility/overview``: skip this step. For any
    other profile, add ``canopy`` to ``web_panels``, its three skills to
    ``skills``, and the build step that copies the payload into the deployment:
@@ -117,8 +117,9 @@ Use the panel
 =============
 
 Open a screen from the panel's sidebar or the command palette, or ask the
-agent ("open the RF overview"). Screens and tools open as tabs in tiles, which
-you drag and split like the terminal's own (:ref:`web-terminal-tiles`). The
+agent ("open the RF overview"). Screens and tools open as tabs in CANOPY's own
+tiles, which you drag and split much as you do the terminal's
+(:ref:`web-terminal-tiles`). The
 **☰** menu at the right end of the top-right tile's bar resets the layout,
 saves the open tabs as a collection and reopens recently closed tabs.
 

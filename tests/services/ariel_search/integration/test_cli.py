@@ -7,7 +7,6 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -111,16 +110,6 @@ class TestCLIMigrateCommand:
 
 class TestCLIIngestCommand:
     """Test 'osprey ariel ingest' command."""
-
-    @pytest.fixture
-    def sample_entries_path(self) -> Path:
-        """Path to sample ALS entries fixture file."""
-        return (
-            Path(__file__).parent.parent.parent.parent
-            / "fixtures"
-            / "ariel"
-            / "sample_als_entries.jsonl"
-        )
 
     def test_ingest_command_dry_run(self, database_url, sample_entries_path):
         """Ingest command with --dry-run parses without storing."""

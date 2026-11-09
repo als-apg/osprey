@@ -349,16 +349,14 @@ def test_every_bundled_preset_still_resolves() -> None:
 
 @pytest.fixture(scope="module")
 def exemplar_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The deployment ``control-assistant`` materializes, tiers included."""
+    """The deployment ``demo`` materializes, tiers included."""
     from tests.fixtures.lifecycle_repo import build_exemplar_repo
 
     return build_exemplar_repo(tmp_path_factory.mktemp("exemplar") / "repo")
 
 
 @pytest.mark.parametrize("tier", [None, "readonly", "readwrite"])
-def test_control_assistant_family_keeps_its_bluesky_block(
-    exemplar_repo: Path, tier: str | None
-) -> None:
+def test_demo_family_keeps_its_bluesky_block(exemplar_repo: Path, tier: str | None) -> None:
     """The preset that actually carries a bluesky block resolves it intact,
     and every tier over its deployment inherits it whole.
 
@@ -366,7 +364,7 @@ def test_control_assistant_family_keeps_its_bluesky_block(
     deployment's port block — so what it resolves to is the layout's own pair.
     """
     if tier is None:
-        profile, _dir = resolve_build_profile(None, "control-assistant")
+        profile, _dir = resolve_build_profile(None, "demo")
     else:
         profile, _dir = resolve_build_profile(exemplar_repo / "tiers" / f"{tier}.yml", None)
 

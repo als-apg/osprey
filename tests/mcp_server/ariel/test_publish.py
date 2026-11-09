@@ -210,3 +210,24 @@ async def test_entry_publish_options_unavailable_is_internal_error(ariel_registr
     assert "scan" in envelope["error_message"]
     assert "secret-token-123" not in json.dumps(envelope)
     assert envelope["details"]["field"] == "scan"
+
+
+async def test_entry_publish_follows_up_error_is_validation_error(ariel_registry):
+    """A refused ``follows_up`` is a validation_error naming the field."""
+    ariel_registry()
+
+    from osprey.services.ariel_search.entry_fields import EntryFieldError
+
+    mock_service = AsyncMock()
+    mock_service.publish_entry.side_effect = EntryFieldError(
+        "follows_up", "follows_up names no known entry: 'gone'"
+    )
+
+    with patch_ariel_service(mock_service):
+        fn = _get_entry_publish()
+        with assert_raises_error(error_type="validation_error") as exc_ctx:
+            await fn(entry_id="e1")
+
+    envelope = exc_ctx["envelope"]
+    assert envelope["details"]["field"] == "follows_up"
+    assert "no known entry" in envelope["error_message"]

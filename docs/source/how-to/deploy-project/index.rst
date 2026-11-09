@@ -39,8 +39,8 @@ service's Jinja2 Docker Compose template, and copies source and configuration
 into a per-service build directory. ``osprey up`` hands the result to Docker or
 Podman Compose.
 
-A deployment created from the ``control-assistant`` preset deploys a full stack
-out of the box:
+A deployment created from the ``demo`` preset deploys a full stack out of the
+box:
 
 - ``postgresql``;
 - ``event_dispatcher`` and ``dispatch_worker``;
@@ -58,7 +58,7 @@ Service Configuration
 
 Declare services under ``services:`` in ``config.yml``, and select them for
 deployment with ``deployed_services:``. Here is a minimal example, one of the
-services the ``control-assistant`` preset ships with:
+services the ``demo`` preset ships with:
 
 .. code-block:: yaml
 
@@ -99,9 +99,9 @@ exist for build profiles that ship multiple applications.
 The graph store (``graphdb``)
 -----------------------------
 
-Alongside ``postgresql``, the ``control-assistant`` preset deploys a ``graphdb``
-service: a Neo4j store holding the facility's knowledge graph. Its
-``services.graphdb`` block names:
+Alongside ``postgresql``, the ``demo`` preset deploys a ``graphdb`` service: a
+Neo4j store holding the facility's knowledge graph. Its ``services.graphdb``
+block names:
 
 - the image;
 - the bolt port the seeder and the health checks dial (``port_host``);
@@ -181,12 +181,14 @@ Container Runtime Selection
 ``build/config.yml`` as ``container_runtime: docker`` or ``podman``.
 
 - With the default ``container_runtime: auto``, the build takes Docker when its
-  daemon answers, and Podman otherwise.
+  daemon answers, and Podman otherwise. A host where no runtime answers
+  records ``auto``.
 - An explicit ``docker`` or ``podman`` in the profile's ``config:`` block is
-  taken as written.
+  taken as written. A tier or app file may not state one.
 
-Every later verb reads the recorded runtime and talks only to it. That covers
-``up``, ``down``, ``restart``, ``reset`` and the port preflight. If that
+Every render of the build (each tier, app and image copy) records the same
+answer. Every later verb reads the recorded runtime and talks only to it. That
+covers ``up``, ``down``, ``restart``, ``reset`` and the port preflight. If that
 runtime says it is not running, or does not answer within two minutes, the verb
 refuses and says which. It never switches to the other runtime. A stack started
 under Docker is invisible from Podman, so a ``down`` served there would report
@@ -574,6 +576,29 @@ version, so ``--dev`` stops before staging and says so.
 
 To fix it, run ``git fetch --tags``. A fork or an internal mirror must sync the
 ``osprey-connectors-v*`` tags as well as the ``v*`` ones.
+
+A dev build installs third-party packages at the versions the checkout's
+``uv.lock`` holds, not the newest the index has that day. So the images run
+your code against the dependency set the repo's own tests ran with.
+
+- Each build context receives ``osprey-lock-constraints.txt``, the lock
+  exported with ``uv export --locked``.
+- Every install layer in the image is held to it. Nothing is installed as
+  ``osprey-framework`` from the index.
+- The same applies to the project venv ``osprey build`` creates when it
+  installs an editable checkout.
+
+``--dev`` therefore needs ``uv`` on the host and a current lock. With no
+``uv.lock``, or one out of date with ``pyproject.toml``, it stops and tells you
+to run ``uv lock``. A release build stages no such file, and resolves from the
+index as before.
+
+The optimizer image takes torch's CPU build from the PyTorch index
+(``OPTIMIZER_TORCH_INDEX_URL``). The lock pins exactly that build
+(``torch==<version>+cpu``). A site that empties the variable and serves torch
+from its own mirror must mirror the ``+cpu`` build. A mirror carrying only
+PyPI's plain torch has no candidate the lock admits, so the dev build of that
+image fails.
 
 Troubleshooting
 ===============

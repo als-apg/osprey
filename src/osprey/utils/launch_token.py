@@ -31,8 +31,6 @@ from __future__ import annotations
 import hmac
 import os
 
-from fastapi import HTTPException
-
 from osprey.utils.bearer import credential_bytes
 
 __all__ = [
@@ -70,6 +68,9 @@ def require_launch_token(env_name: str) -> str:
     """
     expected = os.environ.get(env_name, "")
     if not expected.strip():
+        # Readers of the codes import this module without the web framework.
+        from fastapi import HTTPException
+
         raise HTTPException(
             status_code=503,
             detail={
@@ -99,6 +100,8 @@ def verify_launch_token(presented: str | None, env_name: str) -> None:
     if not presented or not hmac.compare_digest(
         credential_bytes(presented), credential_bytes(expected)
     ):
+        from fastapi import HTTPException
+
         raise HTTPException(
             status_code=403,
             detail={"code": LAUNCH_TOKEN_INVALID, "detail": "invalid or missing launch token"},

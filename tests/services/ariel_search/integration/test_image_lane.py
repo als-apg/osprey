@@ -163,8 +163,8 @@ class Lane:
             self.repository,
             self.config,
             client=StubClient(text_ranking),
-            search_calls=self.search_calls,
             **kwargs,
+            search_calls=self.search_calls,
         )
         assert isinstance(result, list), (
             f"picture lane failed: {image_lane.last_unavailable_reason()!r} {result!r}"

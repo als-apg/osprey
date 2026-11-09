@@ -3,20 +3,19 @@
 The wrapper's ``main`` is only ever run as a subprocess, never called here: it
 installs signal handlers and exits the process, neither of which belongs in the
 test process. The group stop it calls, ``stop_child``, lives in the product's
-``osprey.deployment.subprocess_capture``; the stopped groups here are probed
-with that module's ``group_is_gone``.
+``osprey.deployment.subprocess_capture``, whose own tests prove the stop's
+signal ladder; the tests here prove only what the wrapper adds to it.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import importlib.util
-import shlex
+import json
 import signal
 import subprocess
 import sys
 import textwrap
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from types import ModuleType
@@ -24,14 +23,36 @@ from typing import Any
 
 import pytest
 
-from osprey.deployment.subprocess_capture import group_is_gone
-from tests._processes import kill_group
+from osprey.deployment import subprocess_capture
+from tests._by_path import load_module
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = _REPO_ROOT / "scripts" / "run_bounded.py"
 CHECK_SCRIPT = _REPO_ROOT / "scripts" / "check.py"
 #: The wrapper after ``uv run --frozen``, the prefix every bounded command carries.
 WRAPPER = ["python", "scripts/run_bounded.py"]
+
+# scripts/ is not a package, so the wrapper is loaded by path, unregistered: its
+# import installs no signal handler, and only its constants are read here.
+rb = load_module("_run_bounded_by_path", SCRIPT)
+
+#: The hang-ceiling multiple: a wait here is bounded by this many times the
+#: waits it covers.
+_CEILING_FACTOR = 3
+
+#: Ceiling on reaping a child sent SIGKILL: the stop's own wait after SIGKILL.
+_REAPED_S = _CEILING_FACTOR * subprocess_capture._KILL_WAIT_S
+
+
+def _ceiling(
+    bound: float, dump: float = rb.DEFAULT_DUMP_S, grace: float = rb.DEFAULT_GRACE_S
+) -> float:
+    """Ceiling on one wrapper run: its bound, the stop's ladder, and the last reads.
+
+    After SIGKILL the stop waits up to ``_KILL_WAIT_S`` for the group, then up
+    to as long again to read the process table for survivors.
+    """
+    return _CEILING_FACTOR * (bound + dump + grace + 2 * subprocess_capture._KILL_WAIT_S)
 
 
 @pytest.fixture(scope="module")
@@ -53,176 +74,118 @@ def check() -> Iterator[ModuleType]:
         sys.modules.pop(name, None)
 
 
-def _run(*args: str) -> subprocess.CompletedProcess[str]:
+def _run(
+    bound: float,
+    *command: str,
+    dump: float = rb.DEFAULT_DUMP_S,
+    grace: float = rb.DEFAULT_GRACE_S,
+) -> subprocess.CompletedProcess[str]:
+    argv = ["--dump", f"{dump:g}", "--grace", f"{grace:g}", f"{bound:g}", "--", *command]
     return subprocess.run(
-        [sys.executable, str(SCRIPT), *args],
+        [sys.executable, str(SCRIPT), *argv],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=_ceiling(bound, dump, grace),
     )
 
 
-def _kill_recorded_group(pgid_file: Path) -> None:
-    if pgid_file.exists() and pgid_file.read_text().strip():
-        kill_group(int(pgid_file.read_text()))
-
-
 def test_the_command_exit_code_passes_through():
-    result = _run("30", "--", sys.executable, "-c", "import sys; sys.exit(3)")
+    result = _run(30, sys.executable, "-c", "import sys; sys.exit(3)")
     assert result.returncode == 3
 
 
-def test_a_command_past_its_bound_is_stopped_with_its_process_group(tmp_path):
-    group_file = tmp_path / "group.pid"
-    # The bound is the child's readiness window as well as the stop stimulus:
-    # a shell is ready in milliseconds on an idle host and within a few seconds
-    # on a loaded one, so three seconds is the window every bounded test here
-    # gives its child. The shell leads the group, so its own pid names it.
-    command = ["sh", "-c", f"echo $$ > {shlex.quote(str(group_file))}; sleep 60 & wait"]
-    try:
-        result = _run("3", "--", *command)
-        assert result.returncode == 124
-        assert "still running after 3 s" in result.stderr
-        assert group_file.exists(), "the child was not ready inside the 3 s bound: no group file"
-        assert group_is_gone(int(group_file.read_text()))
-    finally:
-        _kill_recorded_group(group_file)
+def test_a_command_past_its_bound_exits_124_and_says_so():
+    bound = 1
+    result = _run(bound, "sleep", "60", dump=1, grace=1)
+    assert result.returncode == 124
+    assert f"still running after {bound:g} s" in result.stderr
 
 
-def test_a_command_that_ignores_sigterm_is_killed_after_the_grace(tmp_path):
-    marker = tmp_path / "sigterm-ignored"
-    # An ignored signal stays ignored across exec, so the marker proves the
-    # sleep that receives SIGABRT and SIGTERM is the one that ignores them.
-    # exec keeps the shell's pid, and the child leads its own group, so the
-    # recorded pid names the group the sleep runs in.
-    command = [
-        "sh",
-        "-c",
-        f"trap '' TERM ABRT; echo $$ > {shlex.quote(str(marker))}; exec sleep 60",
-    ]
-    try:
-        started = time.monotonic()
-        result = _run("--dump", "1", "--grace", "1", "3", "--", *command)
-        elapsed = time.monotonic() - started
-        assert result.returncode == 124
-        assert marker.exists(), (
-            "the child was not ready inside the 3 s bound: SIGTERM was never ignored"
+def _wrapped(stop_child_body: str, flags: list[str], command: list[str]) -> str:
+    """A program that runs the wrapper as ``__main__`` with ``stop_child`` replaced.
+
+    ``stop_child_body`` is the replacement's body; ``real`` names the product's
+    stop and ``process`` and ``kwargs`` its arguments.
+    """
+    body = textwrap.indent(textwrap.dedent(stop_child_body), "    ")
+    return (
+        "import json, runpy, sys\n"
+        "from osprey.deployment import subprocess_capture\n"
+        "real = subprocess_capture.stop_child\n"
+        "def stop_child(process, **kwargs):\n"
+        f"{body}\n"
+        "subprocess_capture.stop_child = stop_child\n"
+        f"sys.argv = {[str(SCRIPT), *flags, '--', *command]!r}\n"
+        f"runpy.run_path({str(SCRIPT)!r}, run_name='__main__')\n"
+    )
+
+
+def test_dump_and_grace_reach_the_stop_and_default_to_the_named_constants():
+    recording = """
+    print("stop_child:" + json.dumps(kwargs), file=sys.stderr, flush=True)
+    return real(process, **kwargs)
+    """
+    command = ["sleep", "60"]
+
+    def kwargs_of(flags: list[str], dump: float, grace: float) -> dict[str, float]:
+        result = subprocess.run(
+            [sys.executable, "-c", _wrapped(recording, flags, command)],
+            capture_output=True,
+            text=True,
+            timeout=_ceiling(1, dump, grace),
         )
-        # A run as long as bound plus dump wait plus grace rules out a death by
-        # SIGABRT or SIGTERM; a process that ignored both and is gone was ended
-        # by the SIGKILL.
-        assert elapsed >= 5.0
-        assert group_is_gone(int(marker.read_text()))
-    finally:
-        _kill_recorded_group(marker)
+        assert result.returncode == 124, result.stderr
+        [line] = [ln for ln in result.stderr.splitlines() if ln.startswith("stop_child:")]
+        return json.loads(line.removeprefix("stop_child:"))
+
+    assert kwargs_of(["--dump", "1", "--grace", "2", "1"], 1, 2) == {"dump": 1.0, "grace": 2.0}
+    assert kwargs_of(["1"], rb.DEFAULT_DUMP_S, rb.DEFAULT_GRACE_S) == {
+        "dump": rb.DEFAULT_DUMP_S,
+        "grace": rb.DEFAULT_GRACE_S,
+    }
 
 
+@pytest.mark.wallclock
 def test_a_command_past_its_bound_prints_its_python_stacks_before_it_is_stopped(tmp_path):
+    """The one test here whose bound is also the child's readiness window.
+
+    faulthandler writes stacks only once the child's interpreter is up and
+    blocked, which no bound can attest: the marker says the child was ready,
+    and a loaded host that starts it after the bound fails the run instead.
+    """
     marker = tmp_path / "ready"
     child = f"import pathlib, time; pathlib.Path({str(marker)!r}).touch(); time.sleep(60)"
-    result = _run("--dump", "5", "--grace", "1", "3", "--", sys.executable, "-c", child)
+    result = _run(3, sys.executable, "-c", child, dump=5, grace=1)
     assert result.returncode == 124
     assert marker.exists(), "the child was not ready inside the 3 s bound"
     assert "most recent call first" in result.stderr
 
 
-def test_a_stop_waits_for_the_whole_group_when_its_leader_dies_first(tmp_path):
-    """The gate shape: a leader that dies of SIGABRT at once, Python beneath it.
-
-    ``uv run`` leads every gate's group and dies of SIGABRT without writing
-    anything, while pytest beneath it is still writing its stacks. A shell
-    stands in for it here. The Python child takes a second to "write its
-    stacks" and then ignores SIGTERM, so the stop is right only if it waits
-    out the dump for the group rather than the leader, and kills what is left
-    after the grace.
-    """
-    ready = tmp_path / "ready"
-    dumped = tmp_path / "dumped"
-    child = textwrap.dedent(
-        f"""
-        import pathlib, signal, time
-        def on_abort(*_):
-            time.sleep(1.0)
-            pathlib.Path({str(dumped)!r}).touch()
-        signal.signal(signal.SIGABRT, on_abort)
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        pathlib.Path({str(ready)!r}).touch()
-        while True:
-            time.sleep(60)
-        """
-    )
-    script = tmp_path / "child.py"
-    script.write_text(child)
-    group_file = tmp_path / "group.pid"
-    # The child's streams are not the wrapper's pipes, so a child that
-    # outlives the stop fails the assertions below instead of holding the
-    # pipes open. The leader records its own pid, the group's id, first.
-    leader = (
-        f"echo $$ > {shlex.quote(str(group_file))}; "
-        f"{shlex.quote(sys.executable)} {shlex.quote(str(script))} >/dev/null 2>&1; :"
-    )
-    try:
-        result = _run("--dump", "5", "--grace", "1", "3", "--", "sh", "-c", leader)
-        assert result.returncode == 124
-        assert ready.exists(), "the child was not ready inside the 3 s bound"
-        assert dumped.exists(), "SIGTERM was sent before the group's stacks were written"
-        assert group_is_gone(int(group_file.read_text())), (
-            "a process that survived SIGTERM was never killed"
-        )
-        assert "still running after SIGKILL" not in result.stderr
-    finally:
-        _kill_recorded_group(group_file)
-
-
-def test_a_survivor_of_the_stop_is_named_and_the_run_still_exits_124(tmp_path):
-    marker = tmp_path / "ready"
-    child = f"import pathlib, time; pathlib.Path({str(marker)!r}).touch(); time.sleep(60)"
+def test_a_survivor_of_the_stop_is_named_and_the_run_still_exits_124():
     # The real stop runs, then reports a process it could not end.
-    wrapper = textwrap.dedent(
-        f"""
-        import runpy, sys
-        from osprey.deployment import subprocess_capture
-        real = subprocess_capture.stop_child
-        def stop_child(process, **kwargs):
-            real(process, **kwargs)
-            return subprocess_capture.StopOutcome(ended=(process.pid,), survivors=(999999,))
-        subprocess_capture.stop_child = stop_child
-        sys.argv = [{str(SCRIPT)!r}, "--dump", "1", "--grace", "1", "3", "--",
-                    {sys.executable!r}, "-c", {child!r}]
-        runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
-        """
-    )
+    reporting = """
+    real(process, **kwargs)
+    return subprocess_capture.StopOutcome(ended=(process.pid,), survivors=(999999,))
+    """
+    program = _wrapped(reporting, ["--dump", "1", "--grace", "1", "3"], ["sleep", "60"])
     result = subprocess.run(
-        [sys.executable, "-c", wrapper], capture_output=True, text=True, timeout=60
+        [sys.executable, "-c", program], capture_output=True, text=True, timeout=_ceiling(3, 1, 1)
     )
     assert result.returncode == 124
-    assert marker.exists(), "the child was not ready inside the 3 s bound"
     assert "run_bounded: still running after SIGKILL: pid 999999" in result.stderr
 
 
-def test_a_stop_that_could_not_read_the_table_says_so_and_the_run_still_exits_124(tmp_path):
-    marker = tmp_path / "ready"
-    child = f"import pathlib, time; pathlib.Path({str(marker)!r}).touch(); time.sleep(60)"
+def test_a_stop_that_could_not_read_the_table_says_so_and_the_run_still_exits_124():
     # The real stop runs, then reports that it could not read the process table.
-    wrapper = textwrap.dedent(
-        f"""
-        import runpy, sys
-        from osprey.deployment import subprocess_capture
-        real = subprocess_capture.stop_child
-        def stop_child(process, **kwargs):
-            real(process, **kwargs)
-            return subprocess_capture.StopOutcome(ended=(process.pid,), unknown=(process.pid,))
-        subprocess_capture.stop_child = stop_child
-        sys.argv = [{str(SCRIPT)!r}, "--dump", "1", "--grace", "1", "3", "--",
-                    {sys.executable!r}, "-c", {child!r}]
-        runpy.run_path({str(SCRIPT)!r}, run_name="__main__")
-        """
-    )
+    reporting = """
+    real(process, **kwargs)
+    return subprocess_capture.StopOutcome(ended=(process.pid,), unknown=(process.pid,))
+    """
+    program = _wrapped(reporting, ["--dump", "1", "--grace", "1", "3"], ["sleep", "60"])
     result = subprocess.run(
-        [sys.executable, "-c", wrapper], capture_output=True, text=True, timeout=60
+        [sys.executable, "-c", program], capture_output=True, text=True, timeout=_ceiling(3, 1, 1)
     )
     assert result.returncode == 124
-    assert marker.exists(), "the child was not ready inside the 3 s bound"
     assert "run_bounded: process table unreadable: group" in result.stderr
     assert "still running after SIGKILL" not in result.stderr
 
@@ -249,13 +212,13 @@ def test_sigint_reaches_the_command_and_the_wrapper_dies_of_it():
         assert wrapper.stdout is not None
         assert wrapper.stdout.readline().strip() == "ready"
         wrapper.send_signal(signal.SIGINT)
-        out, _ = wrapper.communicate(timeout=30)
+        out, _ = wrapper.communicate(timeout=_ceiling(30))
         assert "child-interrupted" in out
         assert wrapper.returncode == -signal.SIGINT
     finally:
         if wrapper.poll() is None:
             wrapper.kill()
-            wrapper.wait(10)
+            wrapper.wait(_REAPED_S)
 
 
 def _pytest_checks(checks: tuple[Any, ...]) -> list[Any]:
@@ -300,6 +263,7 @@ def test_every_pytest_check_resolves_through_the_bound(check):
         "pytest",
         "pytest-pty",
         "pytest-wallclock",
+        "pytest-wallclock-unit",
         "readonly-warmups-py314",
         "canopy-contract",
     ]

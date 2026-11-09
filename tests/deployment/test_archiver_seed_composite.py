@@ -102,10 +102,10 @@ def _activate(root: Path, config: dict[str, Any], names: list[str], anchor: date
 
 
 @pytest.fixture
-def demo_render(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
+def demo_render(built_demo: BuiltProject, tmp_path: Path) -> Path:
     """A deployment repo whose render holds the demo's simulator view."""
     render = tmp_path / "build"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith("data/simulator/"):
             target = render / name
             target.parent.mkdir(parents=True, exist_ok=True)

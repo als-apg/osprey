@@ -22,6 +22,13 @@ tab. Any failure wiring the engine degrades to ``app.state.engine = None`` —
 envelope. A missing or invalid ``config.yml`` is *not* such a failure: the engine
 handles it, serving core-category results with default cadence.
 
+**Operator actions.** ``GET /mcp`` and ``POST /mcp/probe`` serve the MCP
+servers' own description of themselves (spawning them only when nothing is
+cached, or on an explicit re-probe — ``/checks`` never does);
+``POST /reprobe`` re-runs part of the report through the engine's single
+flight; ``POST /ping`` sends one small completion to one provider. Each is
+a click, never a poll.
+
 **Lifespan registers teardown only.** No suite runs at startup; the first
 ``/checks`` kicks the first refresh. Startup binds the owning event loop and
 registers the ``atexit`` connector-teardown hook; shutdown cancels any in-flight
@@ -35,7 +42,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
-from fastapi import FastAPI, Query
+from fastapi import Body, FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 
 from osprey.health.config import parse_health_config
@@ -53,6 +60,56 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 SERVICE_NAME = "system-health"
+
+#: Per-server bound on one MCP introspection (spawn + initialize + tools/list).
+_MCP_TIMEOUT_S = 30.0
+
+#: Introspection keys the panel is not served: the server's environment can
+#: carry secrets, and ``description`` repeats ``instructions``.
+_PRIVATE_MCP_KEYS = ("env", "description")
+
+
+#: ``hook_config.json`` lists naming a tool that writes; ``governed_tools`` is
+#: the set the write chain gates.
+_WRITE_LISTS = (
+    "write_tools",
+    "control_system_write_tools",
+    "facility_write_tools",
+    "mixed_read_write_tools",
+)
+
+
+def _public(server: dict[str, Any], hook_config: dict[str, Any] | None) -> dict[str, Any]:
+    """A server as the panel is served it: no env, and each tool's hook coverage.
+
+    With the render's ``hook_config.json`` (the write hooks' own contract),
+    every tool carries ``hooks: {"write", "gated"}`` read from it, so the panel
+    tags a tool as gated only when the chain actually gates it. Without the
+    contract no tool carries ``hooks`` and the panel falls back to the tool's
+    annotations or name.
+    """
+    out = {k: v for k, v in server.items() if k not in _PRIVATE_MCP_KEYS}
+    if hook_config is None or not isinstance(out.get("tools"), list):
+        return out
+    writes = {t for key in _WRITE_LISTS for t in hook_config.get(key) or [] if isinstance(t, str)}
+    gated = {t for t in hook_config.get("governed_tools") or [] if isinstance(t, str)}
+    tools = []
+    for tool in out["tools"]:
+        full = f"mcp__{server.get('name')}__{tool.get('name')}"
+        tools.append({**tool, "hooks": {"write": full in writes, "gated": full in gated}})
+    out["tools"] = tools
+    return out
+
+
+def _hook_config(render: Path) -> dict[str, Any] | None:
+    """The render's ``.claude/hooks/hook_config.json``, or ``None`` when unreadable."""
+    import json
+
+    try:
+        data = json.loads((render / ".claude" / "hooks" / "hook_config.json").read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _build_engine(
@@ -162,6 +219,65 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         if engine is None:
             return _degraded_envelope()
         return engine.get_checks()
+
+    @app.get("/mcp", response_model=None)
+    async def mcp_servers() -> dict[str, Any] | JSONResponse:
+        """The MCP servers' introspection: cached, spawned only when nothing is cached."""
+        return await _mcp(refresh=False, server=None)
+
+    @app.post("/mcp/probe", response_model=None)
+    async def mcp_probe(
+        body: Annotated[dict[str, Any] | None, Body()] = None,
+    ) -> dict[str, Any] | JSONResponse:
+        """Re-introspect one server (``{"server": name}``) or every server (``{}``)."""
+        server = (body or {}).get("server")
+        return await _mcp(refresh=True, server=server if isinstance(server, str) else None)
+
+    async def _mcp(*, refresh: bool, server: str | None) -> dict[str, Any] | JSONResponse:
+        from osprey.mcp_server.introspect import get_mcp_servers_cached, peek_mcp_servers
+
+        path = engine.mcp_json_path() if engine is not None else None
+        if path is None or not path.exists():
+            return {"probed_at": None, "servers": []}
+        try:
+            servers = await get_mcp_servers_cached(
+                path, str(path.parent), timeout=_MCP_TIMEOUT_S, refresh=refresh, server=server
+            )
+        except Exception as exc:  # an unreadable .mcp.json is an answer, not a crash
+            logger.warning("system-health: MCP introspection failed", exc_info=True)
+            return JSONResponse({"detail": f"introspection failed: {exc}"}, status_code=500)
+        _, probed_at = peek_mcp_servers(path)
+        hook_config = _hook_config(path.parent)
+        return {"probed_at": probed_at, "servers": [_public(s, hook_config) for s in servers]}
+
+    @app.post("/reprobe", response_model=None)
+    async def reprobe(
+        body: Annotated[dict[str, Any] | None, Body()] = None,
+    ) -> dict[str, Any] | JSONResponse:
+        """Re-run the rows named (``checks``), one ``component``, or everything (``{}``)."""
+        from osprey.interfaces.health.engine import RefreshSuppressedError
+
+        if engine is None:
+            return _degraded_envelope()
+        body = body or {}
+        checks = [c for c in body.get("checks") or [] if isinstance(c, str)]
+        component = body.get("component") if isinstance(body.get("component"), str) else None
+        try:
+            return await engine.reprobe(checks=checks, component=component)
+        except RefreshSuppressedError as exc:
+            return JSONResponse({"detail": str(exc), "suppressed": True}, status_code=409)
+
+    @app.post("/ping", response_model=None)
+    async def ping(
+        body: Annotated[dict[str, Any] | None, Body()] = None,
+    ) -> dict[str, Any] | JSONResponse:
+        """One small completion to ``{"provider": name}``."""
+        from osprey.health.ping import ping_provider
+
+        provider = (body or {}).get("provider")
+        if not isinstance(provider, str) or not provider:
+            return JSONResponse({"detail": "provider is required"}, status_code=422)
+        return await ping_provider(engine.expanded if engine is not None else None, provider)
 
     @app.get("/", response_model=None)
     async def root() -> FileResponse | JSONResponse:

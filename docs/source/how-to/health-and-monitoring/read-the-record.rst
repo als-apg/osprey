@@ -61,7 +61,7 @@ one reader:
        Entries older than that are not visible to this reader at all; it is a
        scope, not a limit.
 
-The control-assistant preset declares one reader, the deployment's admin
+The demo preset declares one reader, the deployment's admin
 roster user (``carol``).
 
 Hand over the key

@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_autoescape
 
@@ -18,6 +18,9 @@ from osprey_connectors import yaml_loader
 from osprey_connectors.config import resolve_env_vars
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import repo_root_for_config
+
+if TYPE_CHECKING:
+    from osprey.facility.roots import FacilityRoots
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -36,7 +39,7 @@ def _enable_flags(channel_finder_mode: str) -> dict[str, bool]:
     graph`` plus the ``services.graphdb`` declaration is its whole
     configuration. Keeping the flag derived rather than special-casing it out
     holds this set to the registry, and
-    ``tests/templates/test_control_assistant_config.py`` pins both halves —
+    ``tests/templates/test_demo_config.py`` pins both halves —
     the flag is emitted, and no template under ``src/osprey/templates``
     mentions it.
     """
@@ -159,6 +162,7 @@ class TemplateManager:
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
+        facility_roots: "FacilityRoots | None" = None,
     ) -> Path:
         """Create complete project from template.
 
@@ -187,6 +191,12 @@ class TemplateManager:
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
+            facility_roots: The deployment's resolved facility roots. When they
+                are mounted, the machine root's facts are copied into the
+                project's ``data/facility`` beside the deployment's own content,
+                so the render holds one facility tree as a single-tree
+                deployment does. ``None`` (or a single tree) copies *data_root*
+                alone.
 
         Returns:
             Path to created project directory
@@ -265,6 +275,7 @@ class TemplateManager:
             ctx,
             jinja_env=self.jinja_env,
             data_root=data_root,
+            facility_roots=facility_roots,
         )
 
         # 6a. Copy machine_data/ if bundle provides it
@@ -351,7 +362,12 @@ class TemplateManager:
         ctx["deny_defaults"] = list(DENY_DEFAULTS)
 
         # Resolve servers and agents via the data-driven registry.
-        from osprey.registry.mcp import mixed_read_write_tools, resolve_agents, resolve_servers
+        from osprey.registry.mcp import (
+            mixed_read_write_tools,
+            plan_mode_denied_tools,
+            resolve_agents,
+            resolve_servers,
+        )
 
         ctx["servers"] = resolve_servers(cc_cfg, ctx)
         ctx["agents"] = resolve_agents(cc_cfg, ctx, project_dir, ctx["servers"])
@@ -366,6 +382,11 @@ class TemplateManager:
         # which is why nothing surfaced it — the Jinja environment is not strict, so
         # the difference is one safety file quietly saying "nothing is exempt".
         ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
+        # The plan-mode deny list, derived exactly as build_claude_code_context
+        # derives it, for the same reason.
+        ctx["plan_mode_denied_tools"] = plan_mode_denied_tools(
+            ctx["servers"], ctx.get("control_system_write_tools") or []
+        )
 
         # Resolve allowed outputs from THIS render's effective artifact selection —
         # `artifacts` above, already the caller's own selection where it supplied
@@ -622,7 +643,8 @@ class TemplateManager:
                 answer; see :func:`osprey.cli.templates.claude_code.build_claude_code_context`.
 
         Returns:
-            Dict with 'changed' and 'unchanged' keys
+            Dict with 'changed' and 'unchanged' keys. Unless *dry_run*, the
+            render's manifest ``file_checksums`` are re-taken afterwards.
 
         Note:
             The directory holding ``config.yml`` is not the project root. A
@@ -663,7 +685,7 @@ class TemplateManager:
             )
             if runtime_venv_dir is None:
                 runtime_venv_dir = project_dir
-        return claude_code.regenerate_claude_code(
+        result = claude_code.regenerate_claude_code(
             self.template_root,
             self.jinja_env,
             project_dir,
@@ -672,6 +694,12 @@ class TemplateManager:
             runtime_venv_dir=runtime_venv_dir,
             runtime_interpreter=runtime_interpreter,
         )
+        if not dry_run:
+            # Every regen rewrites `.claude/` and `.mcp.json`; the manifest's
+            # checksums must describe what it wrote, whoever called it (the
+            # build, or a launch-time regen_if_drift).
+            manifest.restamp_file_checksums(Path(project_dir))
+        return result
 
     def regen_if_drift(self, project_dir: Path) -> list[str]:
         """Regenerate Claude Code artifacts only if they have drifted from config.

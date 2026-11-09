@@ -107,10 +107,6 @@ _EXCLUDED_GENERATED_FILES = frozenset(
         _INTERFACES_ROOT / "design_system" / "static" / "css" / "tokens.css",
         _INTERFACES_ROOT / "design_system" / "static" / "js" / "tokens.js",
         _INTERFACES_ROOT / "design_system" / "static" / "js" / "theme-boot.js",
-        # Not a UI asset: the artifact the gallery seeds into an empty
-        # workspace. Plotly's to_html() bakes its default template into the
-        # page; the gallery re-themes it from the tokens at view time.
-        _INTERFACES_ROOT / "artifacts" / "examples" / "interactive-plot.html",
     }
 )
 
@@ -404,8 +400,8 @@ def test_no_token_defining_blocks_outside_design_system() -> None:
 
     - A `[data-theme=...] {}` block declaring ANY custom property. Every
       interface now expresses theme-varying local values as a `color-mix()`
-      composite of a canonical bg/accent/etc. token (see e.g. lattice
-      dashboard's `--surface-card`) instead of a per-theme override block,
+      composite of a canonical bg/accent/etc. token instead of a per-theme
+      override block,
       so no legitimate reason for one remains.
     - A plain `:root {}` declaring a name `tokens.css` ALSO emits — that's
       a shadow of the canonical cascade, which is what silently kept a
@@ -561,7 +557,6 @@ SCALE_ENFORCED_INTERFACES: frozenset[str] = frozenset(
         "channel_finder",
         "health",
         "okf_panel",
-        "lattice_dashboard",
     }
 )
 

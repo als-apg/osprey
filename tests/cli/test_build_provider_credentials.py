@@ -41,7 +41,7 @@ class _SiteGatewayAdapter(BaseProvider):
 @pytest.fixture
 def repo(tmp_path):
     """An empty deployment repo — the directory whose ``.env`` holds the keys."""
-    p = tmp_path / "my-control-assistant"
+    p = tmp_path / "osprey-demo"
     p.mkdir()
     return p
 

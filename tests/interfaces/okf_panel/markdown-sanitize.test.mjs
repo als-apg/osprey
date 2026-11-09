@@ -17,6 +17,8 @@ import createDOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 
+import { mountShell } from './page-shell.mjs';
+
 const HOSTILE = [
   '# Title',
   '',
@@ -77,20 +79,7 @@ function assertInert(root) {
 }
 
 beforeAll(async () => {
-  document.body.innerHTML = `
-    <div id="app">
-      <aside id="sidebar">
-        <form id="search-form"><input id="search-input" type="search" /></form>
-        <a id="structure-link" href="#__structure">Knowledge Base</a>
-        <nav id="tree"></nav>
-        <div id="search-results" hidden></div>
-        <footer id="bundle-health" hidden></footer>
-      </aside>
-      <main id="reader">
-        <button type="button" id="browse-all">Browse all pages</button>
-        <div id="reader-content"></div>
-      </main>
-    </div>`;
+  mountShell();
   // jsdom has no layout, so no scrollIntoView (the tree calls it on select).
   Element.prototype.scrollIntoView = () => {};
   vi.stubGlobal('marked', marked);

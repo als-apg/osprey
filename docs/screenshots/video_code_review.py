@@ -40,9 +40,7 @@ CORRECTOR = "SR:MAG:HCM:01:CURRENT:SP"
 BEAM_MODE = "SR:BEAM:USER_MODE"
 PROMPT_SCAN = f"Write a Python script that steps {CORRECTOR} from 0 to 1 in 10 steps, and run it."
 
-_PRESET = (
-    Path(__file__).parents[2] / "src" / "osprey" / "profiles" / "presets" / "control-assistant.yml"
-)
+_PRESET = Path(__file__).parents[2] / "src" / "osprey" / "profiles" / "presets" / "demo.yml"
 _PROFILE = yaml.safe_load(_PRESET.read_text(encoding="utf-8"))
 HOOKS = [*_PROFILE["hooks"], "code-review"]
 # No Bluesky on this stack: with it, a scan is a plan, which the reviewer does not read.

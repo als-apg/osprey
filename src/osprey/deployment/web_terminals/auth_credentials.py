@@ -505,7 +505,7 @@ def seeded_logins(project_root: str | Path, usernames: Iterable[str]) -> list[tu
     :func:`ensure_auth_credentials` documents why a plaintext password is never
     echoed: the operator typed it into ``.env``, so they already know it. That
     reasoning holds for a password an operator chose and fails for one a profile
-    seeded — ``control-assistant.yml`` declares ``OSPREY_AUTH_PW_ALICE: alice``
+    seeded — ``demo.yml`` declares ``OSPREY_AUTH_PW_ALICE: alice``
     under ``env.defaults`` and ``osprey init`` writes it into ``.env``, so the
     login exists and nobody was ever told what it is. This function names that
     narrow case, and only it.

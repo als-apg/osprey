@@ -32,6 +32,7 @@ from osprey_connectors.control_system._va_in_process_connector import (
     simulation_state_dir,
 )
 from osprey_connectors.simulation import OVERLAP_EVENT
+from tests._facility_file import demo_facility_document
 from tests.cli._lifecycle_build import stub_build
 from tests.cli._simulator_view import (
     IN_PROCESS_CONFIG,
@@ -383,14 +384,13 @@ def test_list_names_the_views_scenarios_and_marks_the_active_set(deployment: Pat
 
 
 def test_list_names_the_built_in_still(lifecycle_repo: Path) -> None:
-    from osprey.facility.build import build_facility
     from osprey.facility.served import resolve_served
     from osprey.facility.views import ViewInputs
     from osprey.facility.views.simulator import write_simulator_view as render_simulator_view
 
     stub_build(lifecycle_repo, config=IN_PROCESS_CONFIG)
     facility = Path(__file__).resolve().parents[2] / "src/osprey/templates/facilities/example"
-    doc = build_facility(facility, project_name="example")
+    doc = demo_facility_document()
     config = {"control_system": {"type": "virtual_accelerator"}}
     render_simulator_view(
         _view(lifecycle_repo),

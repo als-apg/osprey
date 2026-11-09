@@ -1007,11 +1007,11 @@ DEMO_DERIVED = {
 
 @pytest.mark.slow
 def test_every_demo_group_and_ungrouped_class_is_a_family(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
 
-    document, left_out, by_address = _document(built_control_assistant.facility)
+    document, left_out, by_address = _document(built_demo.facility)
 
     assert _families(document) == {
         system: sorted([*DEMO_GROUPS[system], *DEMO_DERIVED[system]]) for system in DEMO_GROUPS
@@ -1028,18 +1028,16 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
     assert len(fields) == 2453
     assert by_address == 2143
     assert left_out == 6
-    assert document["count"] == len(built_control_assistant.facility["channels"]) - left_out
+    assert document["count"] == len(built_demo.facility["channels"]) - left_out
     assert left_out == sum(
         1
-        for channel in built_control_assistant.facility["channels"]
+        for channel in built_demo.facility["channels"]
         if "device" not in (channel.get("on") or {})
     )
 
 
 @pytest.mark.slow
-def test_every_demo_row_names_its_place_index(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
+def test_every_demo_row_names_its_place_index(built_demo: BuiltProject, tmp_path: Path) -> None:
     from osprey.facility.views.channel_finder import (
         _families_by_system,
         _place_indices,
@@ -1047,7 +1045,7 @@ def test_every_demo_row_names_its_place_index(
     )
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     devices = {str(device["id"]): device for device in facility["devices"]}
     on = {str(c["id"]): (c.get("on") or {}).get("device") for c in facility["channels"]}
     indices = _place_indices(FacilityRecords(facility))
@@ -1113,9 +1111,9 @@ def test_every_demo_row_names_its_place_index(
 
 @pytest.mark.slow
 def test_the_demo_bpm_family_keys_each_once_held_signal_as_one_field(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     document, _left_out, _by_address = _document(facility)
     bpm = document["SR"]["BPM"]
     members = _group(facility, "SR/BPM")["members"]
@@ -1142,9 +1140,9 @@ def test_the_demo_bpm_family_keys_each_once_held_signal_as_one_field(
 
 @pytest.mark.slow
 def test_a_demo_field_takes_its_signal_s_vocabulary_sentence(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    document, _left_out, _by_address = _document(built_control_assistant.facility)
+    document, _left_out, _by_address = _document(built_demo.facility)
 
     for system, family in (("SR", "SF"), ("BR", "DIPOLE")):
         field = _fields(document[system][family])["current_setpoint"]
@@ -1154,11 +1152,11 @@ def test_a_demo_field_takes_its_signal_s_vocabulary_sentence(
 
 @pytest.mark.slow
 def test_the_demo_database_holds_a_row_per_channel_and_family(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
     import duckdb
 
-    (_index, database) = _write(tmp_path, built_control_assistant.facility)
+    (_index, database) = _write(tmp_path, built_demo.facility)
 
     con = duckdb.connect(str(database), read_only=True)
     try:
@@ -1203,7 +1201,7 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(
         [
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             "--set",
             "channel_finder_mode=middle_layer",

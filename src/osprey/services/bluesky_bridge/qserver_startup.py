@@ -554,7 +554,7 @@ to test: proving that the list truncates while the total stays exact needs a
 plan of just over ``PREVIEW_MOVE_CAP`` moves, and the walk that proves it costs
 in proportion. It says nothing about how large a plan can be previewed — the
 walk runs to exhaustion whatever this is, and a plan too long to walk inside the
-caller's budget comes back ``preview_timed_out`` regardless of the cap.
+caller's budget comes back ``function_timeout`` regardless of the cap.
 """
 
 PREVIEW_ERROR_CHARS = 2000
