@@ -62,7 +62,9 @@ held BPM at its aim.
    * - ``tight``
      - the MML signed-index rule ``[-1 1]``, relative to the bump BPMs
    * - ``manual``
-     - the correctors you click on the strip
+     - the correctors you click on the strip, or drag across on its corrector
+       row: a drag adds the range, or removes it when every one is selected;
+       under another rule it switches to ``manual`` from the plan's correctors
 
 The ⋯ menu after the toggle adds two wider MML lists, ``[-2 -1 1 2]`` and
 ``[-3 -1 1 3]``, and *Use all correctors of the plane*, which overrides the
@@ -77,6 +79,14 @@ strip. Editing the bump afterwards marks it *edited · not computed* and
 holds Apply until the next Compute. A bump BPM that cannot be read, or reads
 a non-finite value, blocks compute and is named.
 
+After a Compute the Correctors card head shows the solve's singular values on
+a log scale, the kept ones filled, and a cutoff with ``σ k/n``. Drag the
+cutoff, or press ←/→ on it, to keep fewer or more; each change computes again.
+Fewer gives smaller, smoother deltas and a looser fit. By default the solve
+keeps the values above 10⁻⁴ of the largest. Under *hit targets* the target
+step's values come first and the closure step's after, so a lower count drops
+closure before targets.
+
 **6. Read the card.** The Correctors card has one row per corrector: ``now``,
 delta, ``new`` and the limit verdict; a row's note is its tooltip, and the
 closure line is the tooltip of the card's title. The confirmation shows all of
@@ -87,9 +97,10 @@ it, with the channel each row writes.
 - Note: ``no tolerance: not staleness-checked`` marks a setpoint without a
   declared tolerance; ``not settled`` shows a readback that has not reached
   its setpoint.
-- Closure line: singular values kept (``σ kept``), ``max predicted leakage``
-  at the held BPMs, dropped other BPMs, BPMs skipped because the ORM
-  could not solve them, and correctors left at a limit (``at limit``).
+- Closure line: singular values kept (``σ kept``, on the confirmation),
+  ``max predicted leakage`` at the held BPMs, dropped other BPMs, BPMs
+  skipped because the ORM could not solve them, and correctors left at a
+  limit (``at limit``).
 
 **Unreachable bumps.** The solve keeps every corrector inside its declared
 limits (range and step). When the correctors cannot reach the targets — a
@@ -137,13 +148,13 @@ Every panel element has a tool or an argument (:ref:`how-to-apps-skills`):
        corrector ticks; the posture; the current plan; the operator's draft;
        and what holds Apply, in the panel's words, with the approval card's
        lines. ``bpms`` narrows it to a stretch of the ring.
-   * - ``plan_bump(model, plane, targets, rule, correctors, priority, others, all_correctors, bpms, amplitude, shape)``
+   * - ``plan_bump(model, plane, targets, rule, correctors, priority, others, all_correctors, sigma_keep, bpms, amplitude, shape)``
      - Compute. Writes nothing; replaces the current plan and returns it.
        ``targets`` maps BPM to offset from golden, or ``bpms``,
        ``amplitude`` and ``shape`` spread it as the panel does; ``rule`` is
        ``auto``, ``mml:[…]``, or ``manual`` with ``correctors``.
-       ``priority``, ``others`` and ``all_correctors`` are the panel's
-       choices; ``missed`` and ``target_miss_max`` report what the plan does
+       ``priority``, ``others``, ``all_correctors`` and ``sigma_keep`` (the
+       singular-value cutoff) are the panel's choices; ``missed`` and ``target_miss_max`` report what the plan does
        not reach.
    * - ``discard_bump()``
      - Clear: drops the current plan.
