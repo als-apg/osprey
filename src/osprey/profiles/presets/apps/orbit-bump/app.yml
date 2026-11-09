@@ -1,4 +1,4 @@
-# A local closed-orbit bump: a panel and two tools sharing one backend; the write is the plan's apply.
+# A local closed-orbit bump: a panel and a tool per panel action over one backend; the write is the plan's apply.
 name: orbit-bump
 summary: Solves a local orbit bump over a ring's BPMs and correctors and applies it on approval.
 containers:
@@ -18,13 +18,16 @@ panel:
   agent_routes:
     - [GET, /api/state]
     - [GET, /api/approval]
+    - [POST, /api/recompute]
+    - [POST, /api/discard]
     - [POST, /api/compute]
     - [POST, /api/apply]
   roster_grant: {single_user_alias: true}
 tools:
   module: orbit_bump.tools
   deny_in_jobs: true
-  read: [plan_bump]
+  # Only apply writes a channel; discard drops a stored plan, recompute rebuilds a model matrix.
+  read: [bump_state, plan_bump, discard_bump, recompute_orm]
   approval:
     - tool: apply_bump
       prompt: Apply bump plan {{ state.plan_id }} (the call names plan {{ input.plan_id }}).

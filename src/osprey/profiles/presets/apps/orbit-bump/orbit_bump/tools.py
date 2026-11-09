@@ -1,13 +1,18 @@
 """The application's tool server: runs beside the agent, reaches the backend by the panel door.
 
-``plan_bump`` solves a bump and stores it as the caller's current plan; nothing is written.
-``apply_bump`` is a write because the application's ``app.yml`` declares it under
-``tools.approval``: it reaches the backend only with the plan id and setpoint digest the
-approval hook bound from the approval route, and the backend applies only the current plan.
+The tools give the agent what the panel gives the operator. ``bump_state`` reads what the
+panel shows; ``plan_bump`` solves a bump and stores it as the caller's current plan;
+``discard_bump`` drops that plan; ``recompute_orm`` rebuilds a model's response matrix.
+None of them writes to the machine. ``apply_bump`` is a write because the application's
+``app.yml`` declares it under ``tools.approval``: it reaches the backend only with the plan
+id and setpoint digest the approval hook bound from the approval route, and the backend
+applies only the current plan.
 """
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
@@ -28,8 +33,14 @@ if TYPE_CHECKING:
 # The backend's routes, as ``orbit_bump.server`` serves them. They are repeated here so the
 # tool server does not import the backend and its numerics; a test pins the two together.
 STATE_ROUTE = "/api/state"
+APPROVAL_ROUTE = "/api/approval"
+RECOMPUTE_ROUTE = "/api/recompute"
+DISCARD_ROUTE = "/api/discard"
 COMPUTE_ROUTE = "/api/compute"
 APPLY_ROUTE = "/api/apply"
+
+#: The bump shapes the panel offers, by the name its shape toggle sends.
+SHAPES = ("flat", "peak", "cos")
 
 #: A panel call's bound, in seconds.
 TIMEOUT_S = 30.0
@@ -68,7 +79,9 @@ async def _request(
         raise _NoAnswer(f"{route} answered {response.status_code}: {response.text}")
     if response.is_error:
         raise ApprovalRefused("backend_refused", f"{route} refused: {response.text}")
-    answer: dict[str, Any] = response.json()
+    if not response.content:  # a 204, or the approval route with no ready plan
+        return {}
+    answer: dict[str, Any] = response.json() or {}
     return answer
 
 
@@ -111,37 +124,240 @@ async def _report_interrupted_apply(plan_id: str, detail: str) -> dict[str, Any]
     }
 
 
+def shape_weights(count: int, shape: str) -> list[float]:
+    """The weight of each of ``count`` BPMs in ring order, as the panel's shape toggle spreads it.
+
+    ``flat`` is 1 everywhere; ``peak`` a triangle and ``cos`` a raised cosine, both 1 at the
+    centre and 0 at the two ends. Under three BPMs every shape is flat.
+    """
+    if count < 3 or shape == "flat":
+        return [1.0] * count
+    weights = []
+    for at in range(count):
+        t = at / (count - 1)
+        weights.append(
+            1 - abs(2 * t - 1) if shape == "peak" else 0.5 - 0.5 * math.cos(2 * math.pi * t)
+        )
+    return weights
+
+
+def _model_entry(state: Mapping[str, Any], model: str) -> Mapping[str, Any]:
+    """The state's entry for ``model``; ``ValueError`` naming the offered ones."""
+    models = state.get("models") or []
+    for entry in models:
+        if entry.get("name") == model:
+            return entry
+    offered = ", ".join(entry.get("name", "?") for entry in models) or "none"
+    raise ValueError(f"model {model} is not offered; the offered models: {offered}")
+
+
+def _members(entry: Mapping[str, Any], kind: str, plane: str) -> list[Mapping[str, Any]]:
+    """The model's ``kind`` (``bpms`` or ``correctors``) of ``plane``, in ring order."""
+    return [m for m in (entry.get("members") or {}).get(kind) or () if m.get("plane") == plane]
+
+
+def shaped_targets(
+    state: Mapping[str, Any], model: str, plane: str, bpms: list[str], amplitude: float, shape: str
+) -> dict[str, float]:
+    """The targets the panel's amplitude and shape make over ``bpms``, spread in ring order."""
+    if shape not in SHAPES:
+        raise ValueError(f"shape {shape} is not one of {', '.join(SHAPES)}")
+    order = [m["element"] for m in _members(_model_entry(state, model), "bpms", plane)]
+    unknown = [element for element in bpms if element not in order]
+    if unknown:
+        raise ValueError(f"not a BPM of plane {plane} of {model}: {', '.join(unknown)}")
+    ordered = sorted(set(bpms), key=order.index)
+    weights = shape_weights(len(ordered), shape)
+    return {e: round(amplitude * w, 6) + 0.0 for e, w in zip(ordered, weights, strict=True)}
+
+
+def draft_matches_plan(
+    draft: Mapping[str, Any] | None, plan: Mapping[str, Any] | None
+) -> bool | None:
+    """Whether the panel's draft is what the plan was computed from; ``None`` without both."""
+    if not draft or not plan:
+        return None
+    for key, default in (
+        ("plane", None),
+        ("model", None),
+        ("rule", "auto"),
+        ("priority", "closure"),
+        ("outside", "hold"),
+    ):
+        if draft.get(key, default) != plan.get(key, default):
+            return False
+    targets, planned = draft.get("targets") or {}, plan.get("targets") or {}
+    if set(targets) != set(planned) or any(abs(targets[e] - planned[e]) > 1e-6 for e in targets):
+        return False
+    if draft.get("rule") == "manual":
+        rows = sorted(row.get("element") for row in plan.get("correctors") or ())
+        return sorted(draft.get("correctors") or ()) == rows
+    return True
+
+
+#: Plan fields kept per BPM; :func:`digest` moves them into the BPM rows.
+_PER_BPM = ("orbit_at_compute", "predicted", "miss", "residual_after")
+
+
+def digest(
+    state: Mapping[str, Any],
+    approval: Mapping[str, Any] | None,
+    *,
+    model: str | None = None,
+    plane: str | None = None,
+    bpms: list[str] | None = None,
+) -> dict[str, Any]:
+    """What the panel shows, for one model and plane: per-BPM orbit, golden, target and
+    prediction, the corrector ticks, the ORM, the posture, the plan, the operator's draft,
+    and why Apply is held.
+    """
+    plan = state.get("plan") or None
+    models = state.get("models") or []
+    # Default to what the panel shows: the operator's draft, else the plan, else its start.
+    draft = state.get("draft") or {}
+    model = (
+        model
+        or draft.get("model")
+        or (plan or {}).get("model")
+        or (models[0]["name"] if models else None)
+    )
+    plane = plane or draft.get("plane") or (plan or {}).get("plane") or "x"
+    if plane not in ("x", "y"):
+        raise ValueError(f"plane {plane} is not x or y")
+    answer: dict[str, Any] = {
+        "models": [{"name": m.get("name"), "orm": m.get("orm")} for m in models],
+        "model": model,
+        "plane": plane,
+    }
+    posture = state.get("posture") or {}
+    answer["writes"] = {
+        "allowed": bool(posture.get("allowed")),
+        "why_not": None
+        if posture.get("allowed")
+        else posture.get("phrase") or posture.get("reason"),
+    }
+    on_view = plan is not None and plan.get("model") == model and plan.get("plane") == plane
+    if model is not None:
+        entry = _model_entry(state, model)
+        position = (state.get("orbit") or {}).get("position") or {}
+        golden = (state.get("orbit") or {}).get("golden") or {}
+        members = _members(entry, "bpms", plane)
+        if bpms is not None:
+            known = {m["element"] for m in members}
+            unknown = [element for element in bpms if element not in known]
+            if unknown:
+                raise ValueError(f"not a BPM of plane {plane} of {model}: {', '.join(unknown)}")
+            members = [m for m in members if m["element"] in set(bpms)]
+        rows = []
+        for m in members:
+            orbit = position.get(m.get("position_addr"))
+            gold = golden.get(m.get("golden_addr")) if m.get("golden_addr") else None
+            row: dict[str, Any] = {
+                "element": m["element"],
+                "s_m": m.get("s_m"),
+                "orbit": orbit,
+                "golden": gold,
+                "from_golden": None if orbit is None or gold is None else orbit - gold,
+            }
+            if on_view:
+                row["target"] = (plan.get("targets") or {}).get(m["element"])
+                for key in _PER_BPM:
+                    row[key] = (plan.get(key) or {}).get(m["element"])
+            rows.append(row)
+        answer["unit"] = members[0].get("unit") if members else None
+        answer["bpms"] = rows
+        unsolved = set(((entry.get("orm") or {}).get("unsolved")) or ())
+        answer["correctors"] = [
+            {"element": m["element"], "s_m": m.get("s_m"), "solved": m["element"] not in unsolved}
+            for m in _members(entry, "correctors", plane)
+        ]
+    answer["plan"] = None if plan is None else {k: v for k, v in plan.items() if k not in _PER_BPM}
+    answer["draft"] = state.get("draft")
+    answer["draft_matches_plan"] = draft_matches_plan(state.get("draft"), plan)
+    held: list[str] = []
+    if plan is None:
+        held.append("no plan: compute one")
+    elif plan.get("status") != "ready":
+        reason = f": {plan['reason']}" if plan.get("reason") else ""
+        held.append(f"plan {plan.get('id')} is {plan.get('status')}{reason}")
+    elif not approval:
+        held.append(f"plan {plan.get('id')} does not fit the approval card")
+    if not posture.get("allowed"):
+        held.append(answer["writes"]["why_not"] or "writes are refused")
+    answer["apply"] = {
+        "possible": not held,
+        "held_by": held,
+        "approval_lines": (approval or {}).get("display_lines"),
+    }
+    return answer
+
+
 def register(server: FastMCP) -> None:
     """Register the application's tools on the server the SDK built for it."""
+
+    @server.tool()
+    async def bump_state(
+        model: str | None = None, plane: str | None = None, bpms: list[str] | None = None
+    ) -> dict[str, Any]:
+        """Read what the orbit bump panel shows; nothing is written.
+
+        Per BPM: orbit, golden, offset from golden and, when the current plan is on this
+        model and plane, its target, prediction, miss and residual after apply. Also the
+        models and their response-matrix status and age, the plane's correctors, the write
+        posture, the current plan whole, and what holds Apply with the approval card's lines.
+        ``draft`` is what the operator has set in the panel, computed or not, and
+        ``draft_matches_plan`` whether the current plan was computed from it.
+
+        Args:
+            model: The model to show; default the panel's, else the plan's, else the first.
+            plane: ``x`` or ``y``; default the panel's, else the plan's, else ``x``.
+            bpms: Show only these BPM elements (the panel's zoom); default every BPM.
+        """
+        state = await _panel_call("GET", STATE_ROUTE)
+        approval = await _panel_call("GET", APPROVAL_ROUTE)
+        return digest(state, approval, model=model, plane=plane, bpms=bpms)
 
     @server.tool()
     async def plan_bump(
         model: str,
         plane: str,
-        targets: dict[str, float],
-        rule: str,
+        targets: dict[str, float] | None = None,
+        rule: str = "auto",
         correctors: list[str] | None = None,
         priority: Literal["closure", "targets"] = "closure",
         outside: Literal["hold", "golden"] = "hold",
+        bpms: list[str] | None = None,
+        amplitude: float | None = None,
+        shape: Literal["flat", "peak", "cos"] = "flat",
     ) -> dict[str, Any]:
         """Solve a local orbit bump on the session's control target; nothing is written.
 
-        The plan replaces the caller's current plan, and its id is what ``apply_bump`` takes.
-        Correctors stay within their limits; ``missed`` lists the monitors the plan does not
-        reach, ``target_miss_max`` the largest miss.
+        The plan replaces the caller's current plan, which the panel then shows, and its
+        id is what ``apply_bump`` takes. Give ``targets``, or ``bpms`` with ``amplitude``
+        and ``shape``, not both. Correctors stay within their limits; ``missed`` lists the
+        monitors the plan does not reach, ``target_miss_max`` the largest miss.
 
         Args:
-            model: One of the offered ring models, as the panel's state names them.
+            model: One of the offered ring models, as ``bump_state`` names them.
             plane: ``x`` or ``y``.
             targets: Monitor element to its offset from golden, in the facility's unit.
-            rule: How the correctors are picked: ``auto``, an MML signed-index rule such as
-                ``mml:[-1 1]``, or ``manual``.
+            rule: How the correctors are picked: ``auto``, an MML signed-index rule
+                (``mml:[-1 1]``, ``mml:[-2 -1 1 2]``, ``mml:[-3 -1 1 3]``), or ``manual``.
             correctors: The corrector elements to use, for the ``manual`` rule only.
             priority: ``closure`` keeps the orbit outside the bump; ``targets`` meets the
                 targets first and lets the orbit outside leak.
             outside: ``hold`` keeps the monitors outside the bump where they are; ``golden``
                 steers them to golden with every corrector of the plane (rule ignored).
+            bpms: The bump BPMs, for an amplitude spread in ring order.
+            amplitude: The offset from golden at the bump's peak, in the facility's unit.
+            shape: ``flat`` (every BPM at the amplitude), ``peak`` (a triangle) or ``cos``
+                (a raised cosine); the ends of ``peak`` and ``cos`` are zero.
         """
+        if (targets is None) == (bpms is None or amplitude is None):
+            raise ValueError("give targets, or bpms with amplitude, not both")
+        if targets is None:
+            state = await _panel_call("GET", STATE_ROUTE)
+            targets = shaped_targets(state, model, plane, bpms or [], amplitude or 0.0, shape)
         body: dict[str, Any] = {
             "model": model,
             "plane": plane,
@@ -153,6 +369,27 @@ def register(server: FastMCP) -> None:
         if correctors is not None:
             body["correctors"] = correctors
         return await _panel_call("POST", COMPUTE_ROUTE, json=body)
+
+    @server.tool()
+    async def discard_bump() -> dict[str, Any]:
+        """Drop the caller's current plan, as the panel's Clear does; nothing is written.
+
+        A plan being applied cannot be dropped.
+        """
+        await _panel_call("POST", DISCARD_ROUTE, json={})
+        return {"discarded": True}
+
+    @server.tool()
+    async def recompute_orm(model: str) -> dict[str, Any]:
+        """Rebuild a model's orbit response matrix from the model; nothing is measured or written.
+
+        The build runs in the background; ``bump_state`` shows its status. A new matrix
+        discards every plan on that model not yet applied.
+
+        Args:
+            model: One of the offered ring models.
+        """
+        return await _panel_call("POST", RECOMPUTE_ROUTE, json={"model": model})
 
     @server.tool()
     async def apply_bump(

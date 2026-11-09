@@ -91,15 +91,22 @@ def test_the_backend_serves_the_routes_the_declaration_names() -> None:
     assert [(route.method, route.path) for route in manifest.panel.agent_routes] == [
         ("GET", backend.STATE_ROUTE),
         ("GET", backend.APPROVAL_ROUTE),
+        ("POST", backend.RECOMPUTE_ROUTE),
+        ("POST", backend.DISCARD_ROUTE),
         ("POST", backend.COMPUTE_ROUTE),
         ("POST", backend.APPLY_ROUTE),
     ]
+    # The draft is the operator's input: the panel posts it, the agent only reads it.
+    assert backend.DRAFT_ROUTE not in {route.path for route in manifest.panel.agent_routes}
     assert manifest.tools is not None
     assert [entry.state_path for entry in manifest.tools.approval] == [backend.APPROVAL_ROUTE]
 
 
 def test_the_tool_server_names_the_backends_routes_and_settle_bound() -> None:
     assert tools.STATE_ROUTE == backend.STATE_ROUTE
+    assert tools.APPROVAL_ROUTE == backend.APPROVAL_ROUTE
+    assert tools.RECOMPUTE_ROUTE == backend.RECOMPUTE_ROUTE
+    assert tools.DISCARD_ROUTE == backend.DISCARD_ROUTE
     assert tools.COMPUTE_ROUTE == backend.COMPUTE_ROUTE
     assert tools.APPLY_ROUTE == backend.APPLY_ROUTE
     assert tools.SETTLE_TIMEOUT_S == backend.SETTLE_TIMEOUT_S
@@ -117,9 +124,10 @@ def test_the_apply_bounds_cover_the_writes_and_the_settle() -> None:
 def test_the_tool_server_registers_exactly_the_declared_tools() -> None:
     manifest = _manifest()
     assert manifest.tools is not None
-    assert manifest.tools.read == ["plan_bump"]
+    # Only apply writes a channel; the others read, plan, drop a plan or rebuild a model.
+    assert manifest.tools.read == ["bump_state", "plan_bump", "discard_bump", "recompute_orm"]
     declared = {*manifest.tools.read, *(entry.tool for entry in manifest.tools.approval)}
-    assert declared == {"plan_bump", "apply_bump"}
+    assert declared == {*manifest.tools.read, "apply_bump"}
     server = application_server(APP_NAME)
     tools.register(server)
     assert {tool.name for tool in asyncio.run(server.list_tools())} == declared
@@ -165,8 +173,13 @@ def test_the_hook_cannot_ask_when_no_plan_is_ready() -> None:
 def test_a_writing_tier_gets_every_route_and_the_launch_token(tier: str) -> None:
     result = project_login([_manifest()], CONFIG, _login(tier))
     block = result["web"]["panels"][APP_NAME]
-    assert {"method": "POST", "path": backend.COMPUTE_ROUTE} in block["agent_routes"]
-    assert {"method": "POST", "path": backend.APPLY_ROUTE} in block["agent_routes"]
+    for route in (
+        backend.RECOMPUTE_ROUTE,
+        backend.DISCARD_ROUTE,
+        backend.COMPUTE_ROUTE,
+        backend.APPLY_ROUTE,
+    ):
+        assert {"method": "POST", "path": route} in block["agent_routes"]
     assert block["launch_token_env"] == launch_token_env(APP_NAME)
     assert block["read_timeout_s"] == _manifest().panel.read_timeout_s  # type: ignore[union-attr]
     assert result["mcp_servers"][APP_NAME]["writes"] == ["apply_bump"]
@@ -177,14 +190,19 @@ def test_a_never_tier_shows_the_panel_with_the_read_routes_only() -> None:
     block = result["web"]["panels"][APP_NAME]
     assert block["agent_routes"] == READ_ROUTES
     assert "launch_token_env" not in block
-    assert result["mcp_servers"][APP_NAME]["permissions"]["allow"] == ["plan_bump"]
+    assert result["mcp_servers"][APP_NAME]["permissions"]["allow"] == [
+        "bump_state",
+        "plan_bump",
+        "discard_bump",
+        "recompute_orm",
+    ]
 
 
-def test_a_job_can_run_neither_tool() -> None:
+def test_a_job_can_run_no_tool() -> None:
     result = project_login([_manifest()], CONFIG, _login("allowed"))
     assert sorted(result["dispatch"]["denied_app_tools"]) == [
-        f"mcp__{APP_NAME}__apply_bump",
-        f"mcp__{APP_NAME}__plan_bump",
+        f"mcp__{APP_NAME}__{name}"
+        for name in ("apply_bump", "bump_state", "discard_bump", "plan_bump", "recompute_orm")
     ]
 
 

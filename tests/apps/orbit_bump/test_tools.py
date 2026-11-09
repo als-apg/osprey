@@ -13,7 +13,14 @@ import yaml
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from orbit_bump import APP_NAME
-from orbit_bump.server import APPLY_ROUTE, APPROVAL_ROUTE, COMPUTE_ROUTE, STATE_ROUTE
+from orbit_bump.server import (
+    APPLY_ROUTE,
+    APPROVAL_ROUTE,
+    COMPUTE_ROUTE,
+    DISCARD_ROUTE,
+    RECOMPUTE_ROUTE,
+    STATE_ROUTE,
+)
 
 from osprey.apps.sdk import ApprovalRefused
 from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
@@ -338,3 +345,343 @@ async def test_a_backend_that_cannot_answer_is_unreachable(door: Door, failure: 
         door.errors[STATE_ROUTE] = httpx.ConnectError("no route")
     with pytest.raises(ToolError, match='"error_type": *"unreachable"'):
         await tools._panel_call("GET", STATE_ROUTE)
+
+
+# -- parity: what the panel shows, what the panel presses ----------------------------
+
+
+def _bpm(element: str, plane: str, index: int) -> dict[str, Any]:
+    return {
+        "element": element,
+        "plane": plane,
+        "index": index,
+        "s_m": float(index),
+        "unit": "mm",
+        "position_addr": f"{element}:{plane}",
+        "golden_addr": f"{element}:{plane}:golden",
+    }
+
+
+def _state(**over: Any) -> dict[str, Any]:
+    """A backend state on one model: five x BPMs, one y BPM, four x correctors."""
+    state: dict[str, Any] = {
+        "models": [
+            {
+                "name": "RING",
+                "orm": {
+                    "status": "ready",
+                    "age_s": 12.0,
+                    "version": 3,
+                    "error": None,
+                    "unsolved": ["c2"],
+                },
+                "members": {
+                    "bpms": [_bpm(f"m{i}", "x", 3 * i) for i in range(5)] + [_bpm("v0", "y", 0)],
+                    "correctors": [
+                        {"element": f"c{i}", "plane": "x", "index": 3 * i + 1, "s_m": 3.0 * i + 1}
+                        for i in range(4)
+                    ],
+                },
+            },
+            {"name": "OTHER", "orm": {"status": "building"}, "members": {}},
+        ],
+        "posture": {"allowed": True, "reason": None, "phrase": None},
+        "orbit": {
+            "position": {"m1:x": 0.35, "m2:x": None, "v0:y": 0.2},
+            "golden": {"m1:x:golden": 0.1, "m2:x:golden": 0.0},
+        },
+        "plan": None,
+        "draft": None,
+    }
+    state.update(over)
+    return state
+
+
+def _ready_plan(**over: Any) -> dict[str, Any]:
+    plan: dict[str, Any] = {
+        "id": PLAN,
+        "model": "RING",
+        "plane": "x",
+        "status": "ready",
+        "reason": None,
+        "rule": "auto",
+        "priority": "closure",
+        "outside": "hold",
+        "targets": {"m1": 0.25},
+        "predicted": {"m1": 0.34, "m3": 0.0},
+        "orbit_at_compute": {"m1": 0.35},
+        "miss": {"m1": -0.01},
+        "missed": [],
+        "target_miss_max": 0.01,
+        "bounded": [],
+        "correctors": [{"element": "c1", "now": 0.0, "delta": 0.5, "new": 0.5}],
+    }
+    plan.update(over)
+    return plan
+
+
+def test_the_digest_reads_each_bpm_of_the_plane_from_its_addresses() -> None:
+    answer = tools.digest(_state(), None)
+    assert (answer["model"], answer["plane"], answer["unit"]) == ("RING", "x", "mm")
+    assert [row["element"] for row in answer["bpms"]] == ["m0", "m1", "m2", "m3", "m4"]
+    m1 = answer["bpms"][1]
+    assert (m1["orbit"], m1["golden"]) == (0.35, 0.1)
+    assert m1["from_golden"] == pytest.approx(0.25)
+    # Unreadable: no offset from golden, and no plan fields without a plan.
+    assert answer["bpms"][2] == {
+        "element": "m2",
+        "s_m": 6.0,
+        "orbit": None,
+        "golden": 0.0,
+        "from_golden": None,
+    }
+
+
+def test_the_digest_shows_every_model_with_its_response_matrix() -> None:
+    answer = tools.digest(_state(), None)
+    assert answer["models"][0] == {
+        "name": "RING",
+        "orm": {"status": "ready", "age_s": 12.0, "version": 3, "error": None, "unsolved": ["c2"]},
+    }
+    assert answer["models"][1]["orm"]["status"] == "building"
+
+
+def test_the_digest_lists_the_planes_correctors_and_which_are_solved() -> None:
+    answer = tools.digest(_state(), None)
+    assert [(c["element"], c["solved"]) for c in answer["correctors"]] == [
+        ("c0", True),
+        ("c1", True),
+        ("c2", False),
+        ("c3", True),
+    ]
+
+
+def test_the_plans_per_bpm_fields_land_in_the_rows_of_its_own_view() -> None:
+    answer = tools.digest(_state(plan=_ready_plan(residual_after={"m1": 0.002})), None)
+    m1 = answer["bpms"][1]
+    assert (m1["target"], m1["predicted"], m1["miss"], m1["residual_after"]) == (
+        0.25,
+        0.34,
+        -0.01,
+        0.002,
+    )
+    assert answer["plan"]["id"] == PLAN
+    for key in ("predicted", "orbit_at_compute", "miss", "residual_after"):
+        assert key not in answer["plan"]
+    # Another plane's view shows the orbit, never this plan's targets.
+    other = tools.digest(_state(plan=_ready_plan()), None, plane="y")
+    assert [row["element"] for row in other["bpms"]] == ["v0"]
+    assert "target" not in other["bpms"][0]
+
+
+def test_the_view_defaults_to_the_panels_draft_then_the_plan() -> None:
+    draft = {"plane": "y", "model": "RING", "targets": {}}
+    assert tools.digest(_state(plan=_ready_plan(), draft=draft), None)["plane"] == "y"
+    assert tools.digest(_state(plan=_ready_plan(plane="y")), None)["plane"] == "y"
+    assert tools.digest(_state(), None, model="OTHER")["bpms"] == []
+
+
+def test_the_bpms_filter_is_the_panels_zoom() -> None:
+    answer = tools.digest(_state(), None, bpms=["m3", "m1"])
+    assert [row["element"] for row in answer["bpms"]] == ["m1", "m3"]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "named"),
+    [({"model": "NOPE"}, "NOPE"), ({"plane": "z"}, "z"), ({"bpms": ["m1", "v0"]}, "v0")],
+)
+def test_the_digest_refuses_what_the_panel_does_not_offer(kwargs: dict, named: str) -> None:
+    with pytest.raises(ValueError, match=named):
+        tools.digest(_state(), None, **kwargs)
+
+
+def test_apply_is_possible_on_a_ready_plan_the_card_can_show_with_writes_allowed() -> None:
+    lines = ["c1: 0 -> 0.5"]
+    answer = tools.digest(_state(plan=_ready_plan()), {"display_lines": lines})
+    assert answer["apply"] == {"possible": True, "held_by": [], "approval_lines": lines}
+    assert answer["writes"] == {"allowed": True, "why_not": None}
+
+
+@pytest.mark.parametrize(
+    ("over", "approval", "held"),
+    [
+        ({}, None, ["no plan: compute one"]),
+        (
+            {"plan": _ready_plan(status="not_applicable", reason="the plan needs 37 lines")},
+            None,
+            [f"plan {PLAN} is not_applicable: the plan needs 37 lines"],
+        ),
+        ({"plan": _ready_plan()}, None, [f"plan {PLAN} does not fit the approval card"]),
+        (
+            {
+                "plan": _ready_plan(),
+                "posture": {"allowed": False, "reason": "switch_off", "phrase": "Writes are off"},
+            },
+            {"display_lines": []},
+            ["Writes are off"],
+        ),
+    ],
+)
+def test_apply_is_held_in_the_panels_words(over: dict, approval: Any, held: list[str]) -> None:
+    answer = tools.digest(_state(**over), approval)
+    assert answer["apply"]["possible"] is False
+    assert answer["apply"]["held_by"] == held
+
+
+def test_the_draft_is_shown_with_whether_the_plan_was_computed_from_it() -> None:
+    draft = {
+        "plane": "x",
+        "model": "RING",
+        "targets": {"m1": 0.25},
+        "rule": "auto",
+        "correctors": [],
+        "priority": "closure",
+        "outside": "hold",
+        "shape": "flat",
+        "amplitude": 0.25,
+    }
+    answer = tools.digest(_state(plan=_ready_plan(), draft=draft), None)
+    assert answer["draft"] == draft
+    assert answer["draft_matches_plan"] is True
+    edited = {**draft, "targets": {"m1": 0.3}}
+    assert tools.draft_matches_plan(edited, _ready_plan()) is False
+    assert tools.draft_matches_plan({**draft, "priority": "targets"}, _ready_plan()) is False
+    assert tools.draft_matches_plan(draft, None) is None
+    assert tools.draft_matches_plan(None, _ready_plan()) is None
+
+
+def test_a_manual_draft_matches_only_the_plans_own_correctors() -> None:
+    draft = {
+        "plane": "x",
+        "model": "RING",
+        "targets": {"m1": 0.25},
+        "rule": "manual",
+        "correctors": ["c1"],
+    }
+    plan = _ready_plan(rule="manual")
+    assert tools.draft_matches_plan(draft, plan) is True
+    assert tools.draft_matches_plan({**draft, "correctors": ["c1", "c3"]}, plan) is False
+
+
+async def test_bump_state_reads_the_state_and_the_approval_through_the_door(door: Door) -> None:
+    door.answers[STATE_ROUTE] = _state(plan=_ready_plan())
+    door.answers[APPROVAL_ROUTE] = {"plan_id": PLAN, "display_lines": ["c1: 0 -> 0.5"]}
+    answer = await _call("bump_state", bpms=["m1"])
+    assert door.routes() == [("GET", STATE_ROUTE), ("GET", APPROVAL_ROUTE)]
+    assert door.requests[0].headers["authorization"] == "Bearer panel"
+    assert answer["apply"]["approval_lines"] == ["c1: 0 -> 0.5"]
+    assert [row["element"] for row in answer["bpms"]] == ["m1"]
+
+
+async def test_bump_state_takes_a_null_approval_as_none(door: Door) -> None:
+    door.answers[STATE_ROUTE] = _state(plan=_ready_plan())
+    door.answers[APPROVAL_ROUTE] = None
+    answer = await _call("bump_state")
+    assert answer["apply"]["held_by"] == [f"plan {PLAN} does not fit the approval card"]
+
+
+@pytest.mark.parametrize(
+    ("count", "shape", "weights"),
+    [
+        (1, "peak", [1.0]),
+        (2, "cos", [1.0, 1.0]),
+        (3, "flat", [1.0, 1.0, 1.0]),
+        (3, "cos", [0.0, 1.0, 0.0]),
+        (5, "peak", [0.0, 0.5, 1.0, 0.5, 0.0]),
+        (5, "cos", [0.0, 0.5, 1.0, 0.5, 0.0]),
+    ],
+)
+def test_shape_weights_match_the_panels(count: int, shape: str, weights: list[float]) -> None:
+    assert tools.shape_weights(count, shape) == pytest.approx(weights, abs=1e-12)
+
+
+async def test_plan_bump_spreads_an_amplitude_over_the_bpms_in_ring_order(door: Door) -> None:
+    door.answers[STATE_ROUTE] = _state()
+    await _call(
+        "plan_bump",
+        model="RING",
+        plane="x",
+        bpms=["m3", "m1", "m2"],
+        amplitude=0.1,
+        shape="peak",
+        rule="mml:[-3 -1 1 3]",
+    )
+    assert door.routes() == [("GET", STATE_ROUTE), ("POST", COMPUTE_ROUTE)]
+    sent = json.loads(door.requests[1].content)
+    assert sent["targets"] == {"m1": 0.0, "m2": 0.1, "m3": 0.0}
+    assert list(sent["targets"]) == ["m1", "m2", "m3"]
+    assert sent["rule"] == "mml:[-3 -1 1 3]"
+
+
+async def test_plan_bump_rounds_spread_targets_as_the_panel_does(door: Door) -> None:
+    door.answers[STATE_ROUTE] = _state()
+    await _call(
+        "plan_bump",
+        model="RING",
+        plane="x",
+        bpms=["m0", "m1", "m2", "m3"],
+        amplitude=0.1,
+        shape="cos",
+    )
+    sent = json.loads(door.requests[1].content)
+    assert sent["targets"] == {"m0": 0.0, "m1": 0.075, "m2": 0.075, "m3": 0.0}
+
+
+async def test_plan_bump_defaults_to_the_auto_rule(door: Door) -> None:
+    await _call("plan_bump", model="RING", plane="x", targets={"m1": 0.1})
+    assert json.loads(door.requests[0].content)["rule"] == "auto"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"targets": {"m1": 0.1}, "bpms": ["m1"], "amplitude": 0.1},
+        {},
+        {"bpms": ["m1"]},
+        {"amplitude": 0.1},
+    ],
+)
+async def test_plan_bump_takes_targets_or_a_shaped_amplitude_not_both(
+    door: Door, arguments: dict
+) -> None:
+    with pytest.raises(ToolError, match="give targets, or bpms with amplitude"):
+        await _call("plan_bump", model="RING", plane="x", **arguments)
+    assert door.requests == []
+
+
+async def test_plan_bump_refuses_a_bpm_the_plane_has_not_without_a_compute(door: Door) -> None:
+    door.answers[STATE_ROUTE] = _state()
+    with pytest.raises(ToolError, match="v0"):
+        await _call("plan_bump", model="RING", plane="x", bpms=["m1", "v0"], amplitude=0.1)
+    assert door.routes() == [("GET", STATE_ROUTE)]
+
+
+async def test_discard_bump_posts_the_discard_as_the_panels_clear(door: Door) -> None:
+    door.status[DISCARD_ROUTE] = 204
+    assert await _call("discard_bump") == {"discarded": True}
+    [request] = door.requests
+    assert (request.method, request.url.path) == ("POST", f"/panel/{APP_NAME}{DISCARD_ROUTE}")
+    assert json.loads(request.content) == {}
+
+
+async def test_discard_bump_passes_a_refusal_on(door: Door) -> None:
+    door.status[DISCARD_ROUTE] = 409
+    door.answers[DISCARD_ROUTE] = {"detail": f"plan {PLAN} is being applied"}
+    with pytest.raises(ToolError, match="being applied"):
+        await _call("discard_bump")
+
+
+async def test_recompute_orm_starts_the_build_of_the_named_model(door: Door) -> None:
+    door.status[RECOMPUTE_ROUTE] = 202
+    door.answers[RECOMPUTE_ROUTE] = {"model": "RING", "started": True}
+    assert await _call("recompute_orm", model="RING") == {"model": "RING", "started": True}
+    [request] = door.requests
+    assert request.url.path == f"/panel/{APP_NAME}{RECOMPUTE_ROUTE}"
+    assert json.loads(request.content) == {"model": "RING"}
+
+
+async def test_recompute_orm_passes_a_refusal_on(door: Door) -> None:
+    door.status[RECOMPUTE_ROUTE] = 409
+    door.answers[RECOMPUTE_ROUTE] = {"detail": "model NOPE is not offered"}
+    with pytest.raises(ToolError, match="NOPE is not offered"):
+        await _call("recompute_orm", model="NOPE")
