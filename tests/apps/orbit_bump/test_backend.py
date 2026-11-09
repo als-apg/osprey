@@ -614,14 +614,56 @@ def test_many_rows_pack_into_lines_that_fit_the_hook(render) -> None:
     assert all(len(html.escape(line, quote=True)) <= 200 for line in lines)
     joined = " ".join(lines)
     assert all(row["setpoint_addr"] in joined for row in rows)
+    assert not lines[0].startswith("40 correctors")
     assert not any(render.TRUNCATION_MARK in line for line in render.render_display_lines(lines))
 
 
-def test_rows_that_cannot_fit_twenty_lines_overflow(client, app) -> None:
-    rows = [_row(f"SR{n:02d}C___HCM&{n}", 1.0, tolerance=None) for n in range(120)]
-    with pytest.raises(DisplayOverflow):
-        display_lines(_plan(correctors=rows))
-    app.state.plans.set_current(OWNER, _plan(correctors=rows))
+def _too_many_rows() -> list[dict[str, Any]]:
+    """120 rows, deltas all distinct and out of order: far more than twenty lines hold."""
+    return [
+        _row(f"SR{n:02d}C___HCM&{n}", 1.0 + ((n * 37) % 120 - 60) / 100, tolerance=None)
+        for n in range(120)
+    ]
+
+
+def test_rows_that_cannot_fit_give_way_to_a_summary_within_the_caps(render) -> None:
+    rows = _too_many_rows()
+    plan = _plan(correctors=rows, bounded=["SR01C___HCM&1", "SR02C___HCM&2"])
+    lines = display_lines(plan)
+    assert len(lines) == MAX_DISPLAY_LINES
+    assert all(len(html.escape(line, quote=True)) <= MAX_DISPLAY_LINE_CHARS for line in lines)
+    assert not any(render.TRUNCATION_MARK in line for line in render.render_display_lines(lines))
+    summary = lines[0]
+    assert summary.startswith("120 correctors, max |delta| 0.6 A, 2 bounded, ")
+    assert f"setpoint digest {setpoint_digest(rows)[:12]};" in summary
+    assert lines[-1].startswith("dropped_bpms:")
+
+
+def test_the_summary_lists_the_largest_deltas_first_and_says_how_many() -> None:
+    rows = _too_many_rows()
+    lines = display_lines(_plan(correctors=rows))
+    shown = [piece.split(" ")[1].rstrip(":") for line in lines[1:-1] for piece in line.split(" | ")]
+    by_size = sorted(rows, key=lambda row: -abs(row["delta"]))
+    assert shown == [row["setpoint_addr"] for row in by_size[: len(shown)]]
+    assert 0 < len(shown) < len(rows)
+    assert lines[0].endswith(f"the {len(shown)} largest |delta| follow")
+
+
+def test_the_display_mode_leaves_the_setpoint_digest_alone(client, app) -> None:
+    rows = _too_many_rows()
+    digest = setpoint_digest(rows)
+    stored = app.state.plans.set_current(OWNER, _plan(correctors=rows, setpoint_digest=digest))
+    approval = client.get(APPROVAL_ROUTE).json()
+    assert approval["display_lines"] == display_lines(stored)
+    assert approval["display_lines"][0].startswith("120 correctors, ")
+    assert approval["setpoint_digest"] == digest
+
+
+def test_a_closure_that_cannot_fit_overflows(client, app) -> None:
+    dropped = [f"B{n:03d}_____________________" for n in range(200)]
+    with pytest.raises(DisplayOverflow, match="closure"):
+        display_lines(_plan(dropped_bpms=dropped))
+    app.state.plans.set_current(OWNER, _plan(dropped_bpms=dropped))
     assert client.get(APPROVAL_ROUTE).json() is None
 
 
@@ -1165,13 +1207,13 @@ def test_compute_with_a_refused_row_is_not_applicable_with_the_reason(
 
 
 @pytest.mark.usefixtures("machine")
-def test_compute_whose_rows_overflow_the_display_is_not_applicable(
+def test_compute_whose_closure_overflows_the_display_is_not_applicable(
     client, app, sdk, monkeypatch
 ) -> None:
     _built(app, sdk, "RING")
 
     def overflow(_plan):
-        raise DisplayOverflow("the plan needs 21 display lines; the approval card shows 20")
+        raise DisplayOverflow("the missed targets and the closure need 21 display lines")
 
     monkeypatch.setattr(backend, "display_lines", overflow)
     plan = client.post(COMPUTE_ROUTE, json=_ask()).json()
@@ -1351,13 +1393,17 @@ def test_golden_outside_drops_an_outside_bpm_without_a_readable_golden(
 
 
 @pytest.mark.usefixtures("periodic")
-def test_a_golden_plan_over_72_correctors_overflows_the_display(client, app, sdk) -> None:
+def test_a_golden_plan_over_72_correctors_is_ready_with_a_summary(client, app, sdk) -> None:
     _built(app, sdk, "RING")
     plan = client.post(COMPUTE_ROUTE, json=_ask(targets=FLAT, outside="golden")).json()
     assert len(plan["correctors"]) == PERIODIC
-    assert plan["status"] == NOT_APPLICABLE
-    assert "display lines" in plan["reason"] and str(MAX_DISPLAY_LINES) in plan["reason"]
-    assert client.get(APPROVAL_ROUTE).json() is None
+    assert plan["status"] == READY and plan["reason"] is None
+    approval = client.get(APPROVAL_ROUTE).json()
+    assert approval["setpoint_digest"] == plan["setpoint_digest"]
+    lines = approval["display_lines"]
+    assert len(lines) <= MAX_DISPLAY_LINES
+    assert lines[0].startswith(f"{PERIODIC} correctors, max |delta| ")
+    assert plan["setpoint_digest"][:12] in lines[0]
 
 
 def test_the_miss_line_sits_between_the_rows_and_the_closure() -> None:
@@ -1372,8 +1418,11 @@ def test_the_miss_line_counts_against_the_line_cap() -> None:
     rows = [_row(f"SR{n:02d}C___HCM&{n}", 1.0, tolerance=None) for n in range(19)]
     fits = display_lines(_plan(correctors=rows))
     assert len(fits) == MAX_DISPLAY_LINES
-    with pytest.raises(DisplayOverflow):
-        display_lines(_plan(correctors=rows, missed=["B1"], target_miss_max=0.2))
+    assert fits[0].startswith("SR00C")
+    summed = display_lines(_plan(correctors=rows, missed=["B1"], target_miss_max=0.2))
+    assert len(summed) == MAX_DISPLAY_LINES
+    assert summed[0].startswith("19 correctors, ")
+    assert summed[-2].startswith("targets missed")
 
 
 def test_residual_after_measures_outside_bpms_from_golden_on_a_golden_plan() -> None:

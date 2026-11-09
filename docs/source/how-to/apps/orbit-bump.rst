@@ -94,8 +94,8 @@ the default:
   targets* meets the targets where the correctors can and lets it leak.
 - *Outside BPMs*: *hold* (default) keeps them at their current orbit;
   *golden* steers them to golden with every corrector of the plane, the rule
-  aside. Such a plan on a large ring may not fit the approval card and is then
-  ``not_applicable``.
+  aside. On a large ring the approval card then shows a summary line and the
+  largest-|Δ| rows; the panel's confirm card lists every row.
 
 **7. Apply.** *Apply…* is enabled only on a ``ready``, unedited plan while
 the session's machine allows writes. It opens a confirmation with the setpoints and the closure line; *Confirm* writes
@@ -153,7 +153,7 @@ Every panel element has a tool or an argument (:ref:`how-to-apps-skills`):
 Ask the agent to *move BPM 7 up by 0.2 mm in the vertical plane*. It calls
 ``plan_bump``, reports the plan — the correctors, each setpoint with its
 limit verdict, the predicted residual — and then asks to apply. At *asked*
-the approval card appears with the plan id and one line per corrector; the
+the approval card appears with the plan id and the corrector rows; the
 operator's approval is the confirmation. At *allowed* the apply runs bound to
 the same plan, with no card. If ``apply_bump`` gets no answer in time, it
 reports the plan status and the row outcomes the backend holds rather than
@@ -236,9 +236,9 @@ Plan states
    * - ``applying``
      - Being written; cannot be discarded until it ends.
    * - ``not_applicable``
-     - A new setpoint violates a declared limit, or the rows do not fit the
-       approval card. The card states the reason. Change targets or rule and
-       compute again.
+     - A new setpoint violates a declared limit, or the missed targets and
+       closure do not fit the approval card. The card states the reason.
+       Change targets or rule and compute again.
    * - ``superseded``
      - Replaced by a newer plan.
    * - ``discarded``

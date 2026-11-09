@@ -79,10 +79,10 @@ replaces your current plan; the answer is the plan with its `id`.
 - `outside`: `hold` (default; the other BPMs keep their current orbit) or
   `golden` (the other BPMs aim at golden and every solved corrector of the
   plane is used; `rule` and `correctors` are ignored). On a ring with many
-  correctors a `golden` plan has more rows than the approval card shows, so
-  it comes back `not_applicable` with that reason and cannot be applied. Say
-  so plainly; do not split it into smaller plans or look for another way to
-  apply it.
+  correctors a `golden` plan has more rows than the approval card shows; the
+  card then shows a summary line (corrector count, largest |delta|, bounded
+  count, setpoint digest) and the largest-|delta| rows. Tell the operator the
+  card lists only some rows and that the panel lists every one.
 
 Switching model or plane in the panel clears the bump; for you, computing on
 another model or plane simply replaces the current plan.
@@ -91,8 +91,8 @@ another model or plane simply replaces the current plan.
 
 - `ready`: can be applied.
 - `not_applicable`: a new setpoint violates a declared limit (the row shows
-  the overshoot) or the rows do not fit the approval card; `reason` says
-  which. Nothing is clamped. Change the targets or the rule and compute again.
+  the overshoot) or the missed targets and closure do not fit the approval
+  card; `reason` says which. Nothing is clamped. Change the targets or the rule and compute again.
 - `missed` non-empty: the correctors cannot reach those targets within their
   limits; `target_miss_max` is the worst miss, in `bpm_unit`. The plan is
   still `ready`, and the approval card carries a line naming the misses.

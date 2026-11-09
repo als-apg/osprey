@@ -130,7 +130,7 @@ ConnectorFor = Callable[[str], Awaitable[Any]]
 
 
 class DisplayOverflow(ValueError):
-    """A plan's rows do not fit the approval hook's display lines."""
+    """A plan's missed targets and closure do not fit the approval hook's display lines."""
 
 
 def panel_dir() -> Path:
@@ -229,29 +229,65 @@ def miss_text(plan: Mapping[str, Any]) -> str | None:
     return f"targets missed: up to {worst:.3f}{unit} at {', '.join(missed)}"
 
 
+def _summary_text(correctors: list[Mapping[str, Any]], plan: Mapping[str, Any], listed: int) -> str:
+    unit = next((f" {row['unit']}" for row in correctors if row.get("unit")), "")
+    largest = max((abs(row["delta"]) for row in correctors), default=0.0)
+    return (
+        f"{len(correctors)} correctors, max |delta| {largest:.6g}{unit}, "
+        f"{len(plan.get('bounded') or [])} bounded, setpoint digest "
+        f"{setpoint_digest(correctors)[:12]}; the {listed} largest |delta| follow"
+    )
+
+
+def _largest_rows(correctors: list[Mapping[str, Any]], room: int) -> tuple[list[str], int]:
+    """The rows by falling |delta|, packed into at most *room* lines; stops at the first
+    row that does not fit, so the rows shown are always the largest."""
+    lines: list[str] = []
+    listed = 0
+    for row in sorted(correctors, key=lambda row: -abs(row["delta"])):
+        piece = _row_text(row)
+        if lines and _width(lines[-1] + ROW_SEPARATOR + piece) <= MAX_DISPLAY_LINE_CHARS:
+            lines[-1] += ROW_SEPARATOR + piece
+        elif len(lines) < room and _width(piece) <= MAX_DISPLAY_LINE_CHARS:
+            lines.append(piece)
+        else:
+            break
+        listed += 1
+    return lines, listed
+
+
 def display_lines(plan: Mapping[str, Any]) -> list[str]:
     """The approval card's lines for *plan*: its corrector rows, the targets it misses,
     then the closure.
 
-    Each line is at most ``MAX_DISPLAY_LINE_CHARS`` once HTML-escaped, and there are at
-    most ``MAX_DISPLAY_LINES`` in all.
+    When every row does not fit, a summary line (corrector count, largest |delta|,
+    bounded count, short setpoint digest) and the largest-|delta| rows that fit take
+    the rows' place. Each line is at most ``MAX_DISPLAY_LINE_CHARS`` once HTML-escaped,
+    and there are at most ``MAX_DISPLAY_LINES`` in all.
 
     Raises:
-        DisplayOverflow: The rows and the closure do not fit.
+        DisplayOverflow: The summary, the missed targets and the closure do not fit.
     """
-    rows = _pack((_row_text(row) for row in plan.get("correctors") or []), ROW_SEPARATOR)
+    correctors = list(plan.get("correctors") or [])
     dropped = list(plan.get("dropped_bpms") or []) or ["none"]
     skipped = list(plan.get("skipped_unsolved") or []) or ["none"]
     closure_text = f"dropped_bpms: {', '.join(dropped)}; skipped_unsolved: {', '.join(skipped)}"
-    closure = _pack(closure_text.split(" "), " ")
     missed = miss_text(plan)
-    lines = rows + (_pack(missed.split(" "), " ") if missed else []) + closure
-    if len(lines) > MAX_DISPLAY_LINES:
+    tail = (_pack(missed.split(" "), " ") if missed else []) + _pack(closure_text.split(" "), " ")
+    try:
+        rows = _pack((_row_text(row) for row in correctors), ROW_SEPARATOR)
+    except DisplayOverflow:
+        rows = None
+    if rows is not None and len(rows) + len(tail) <= MAX_DISPLAY_LINES:
+        return rows + tail
+    room = MAX_DISPLAY_LINES - 1 - len(tail)
+    if room < 0:
         raise DisplayOverflow(
-            f"the plan needs {len(lines)} display lines; the approval card shows "
-            f"{MAX_DISPLAY_LINES}"
+            f"the missed targets and the closure need {len(tail)} display lines; the "
+            f"approval card shows {MAX_DISPLAY_LINES}"
         )
-    return lines
+    rows, listed = _largest_rows(correctors, room)
+    return [_summary_text(correctors, plan, listed), *rows, *tail]
 
 
 def _finite(value: Any) -> float | None:
@@ -403,7 +439,7 @@ def solve_plan(
 
     ``values`` holds every address :func:`compute_reads` names. The plan is ``ready``,
     or ``not_applicable`` with its ``reason`` when a row's pre-write verdict refuses or
-    the rows do not fit the approval card.
+    the missed targets and the closure do not fit the approval card.
 
     Raises:
         ComputeRefused: 409 or 422, naming the cause.

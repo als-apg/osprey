@@ -520,11 +520,11 @@ describe('the compute and apply card', () => {
     mount(
       fetcher,
       state({
-        plan: plan({ status: 'not_applicable', reason: 'the rows do not fit 20 display lines' }),
+        plan: plan({ status: 'not_applicable', reason: 'C3 refused: MAX_EXCEEDED' }),
       })
     );
     expect(button(root, 'apply').disabled).toBe(true);
-    expect(field(root, 'card').textContent).toContain('the rows do not fit 20 display lines');
+    expect(field(root, 'card').textContent).toContain('C3 refused: MAX_EXCEEDED');
   });
 
   it('names the setpoint count on Apply and the plan at the end of the actions row', () => {

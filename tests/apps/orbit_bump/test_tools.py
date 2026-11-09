@@ -507,9 +507,13 @@ def test_apply_is_possible_on_a_ready_plan_the_card_can_show_with_writes_allowed
     [
         ({}, None, ["no plan: compute one"]),
         (
-            {"plan": _ready_plan(status="not_applicable", reason="the plan needs 37 lines")},
+            {
+                "plan": _ready_plan(
+                    status="not_applicable", reason="C3 (C3:x:SP) refused: MAX_EXCEEDED"
+                )
+            },
             None,
-            [f"plan {PLAN} is not_applicable: the plan needs 37 lines"],
+            [f"plan {PLAN} is not_applicable: C3 (C3:x:SP) refused: MAX_EXCEEDED"],
         ),
         ({"plan": _ready_plan()}, None, [f"plan {PLAN} does not fit the approval card"]),
         (
