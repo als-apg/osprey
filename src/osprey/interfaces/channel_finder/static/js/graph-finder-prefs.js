@@ -41,7 +41,7 @@ export const COLUMN_SPECS = [
 export const COLUMNS_KEY = 'cf-graph-columns';
 export const PREFS_KEY = 'cf-graph-prefs';
 export const RAIL_KEY = 'cf-graph-rail';
-export const INSPECTOR_KEY = 'cf-graph-inspector';
+export const INSPECTOR_KEY = 'cf-graph-inspector-height';
 
 /**
  * @typedef {object} ViewPrefs

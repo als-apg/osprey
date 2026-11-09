@@ -3,11 +3,11 @@
 Covers:
   - GET/DELETE /api/artifacts/{id} (single-entry fetch and deletion)
   - GET/POST /api/focus (focus state, stale-focus fallback, fullscreen flag)
-  - the focus_state.txt file the CLI hook reads (pin/unpin/focus lifecycle)
+  - the focus_state.txt file the CLI hook reads (focus lifecycle)
   - GET /files/{id}/{filename} for HTML artifacts (Plotly injection, offline
     CDN rewriting, missing-file 404s)
   - the _SSEBroadcaster queue bookkeeping
-  - config.yml priming in create_app and run_server's uvicorn handoff
+  - config.yml priming in create_app
 """
 
 import asyncio
@@ -22,7 +22,6 @@ from osprey.interfaces.artifacts.app import (
     _inject_html_snippet,
     _SSEBroadcaster,
     create_app,
-    run_server,
 )
 from osprey.interfaces.opaque_origin import INERT_TYPES, OPAQUE_CSP
 
@@ -238,41 +237,28 @@ class TestFocus:
         line to focus_state.txt; GET /api/focus clears the stale id and falls
         back to the newest remaining entry."""
         store = app_client.app.state.artifact_store
+        t_doomed = "44444444-4444-4444-8444-444444444444"
+        t_survivor = "55555555-5555-4555-8555-555555555555"
         doomed = _save_text_artifact(store, title="Doomed")
         app_client.post("/api/focus", json={"artifact_id": doomed.id})
         store.delete_entry(doomed.id)
         survivor = _save_text_artifact(store, title="Survivor")
-
-        # Rewriting the file while the stale id is still set omits the artifact line.
-        app_client.post(f"/api/artifacts/{survivor.id}/pin", json={"pinned": True})
-        text = (tmp_path / "focus_state.txt").read_text()
-        assert "artifact:" not in text
-        assert 'pinned:   "Survivor"' in text
 
         focus = app_client.get("/api/focus").json()
         assert focus["focused"] is False
         assert focus["artifact"]["id"] == survivor.id
         assert app_client.app.state.focused_artifact_id is None  # stale id was cleared
 
-    def test_focus_file_pin_unpin_and_dedupe(self, app_client, tmp_path):
-        """Pinning writes a pinned line; unpinning empties (not deletes) the
-        file; an artifact both focused and pinned appears only as the focused
-        line, not duplicated as a pinned line."""
-        entry = _save_text_artifact(app_client.app.state.artifact_store, title="Both")
-        focus_file = tmp_path / "focus_state.txt"
-
-        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
-        assert 'pinned:   "Both"' in focus_file.read_text()
-
-        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": False})
-        # The file is emptied, not deleted -- the hook treats both as "no focus".
-        assert focus_file.read_text() == ""
-
-        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
-        app_client.post("/api/focus", json={"artifact_id": entry.id})
-        text = focus_file.read_text()
-        assert f'artifact: "Both" (id={entry.id})' in text
-        assert "pinned:" not in text
+        # Rewriting the file while a stale id is still in its slot omits its line.
+        gone = _save_text_artifact(store, title="Gone")
+        app_client.post("/api/focus", json={"artifact_id": gone.id, "transcript_id": t_doomed})
+        store.delete_entry(gone.id)
+        app_client.post(
+            "/api/focus", json={"artifact_id": survivor.id, "transcript_id": t_survivor}
+        )
+        assert (tmp_path / "focus_state.txt").read_text() == (
+            f'[Gallery Focus]\n  artifact: "Survivor" (id={survivor.id}) (session={t_survivor})\n'
+        )
 
     def test_delete_clears_focus_only_for_the_focused_artifact(self, tmp_path):
         """With the lifespan listeners registered, deleting another artifact
@@ -310,11 +296,10 @@ def _save_run_record(store, title="Run"):
 
 
 class TestRunRecordVerdict:
-    """The server's run-record verdict: ``?run=`` on the listing, ``run_record`` everywhere.
+    """The server's legacy run-record verdict: ``run_record`` on every payload.
 
-    The web terminal's sidebar sorts Script runs from Artifacts by what the
-    server says, never by re-deriving the rule, so every entry the gallery
-    sends to a browser has to carry the verdict.
+    The listing no longer filters by it (the sidebar groups runs by form), but
+    every entry the gallery sends to a browser still carries the verdict.
     """
 
     @staticmethod
@@ -347,31 +332,13 @@ class TestRunRecordVerdict:
             if cursor is None:
                 return entries, totals
 
-    def test_run_true_lists_only_run_records(self, app_client):
-        runs, _ = self._seed(app_client.app.state.artifact_store)
-        entries, totals = self._walk(app_client, run="true")
-        assert {e["id"] for e in entries} == runs
-        assert len(entries) == 5
-        assert totals == {5}
-
-    def test_run_false_lists_everything_else(self, app_client):
-        _, others = self._seed(app_client.app.state.artifact_store)
-        entries, totals = self._walk(app_client, run="false")
-        assert {e["id"] for e in entries} == others
-        assert len(entries) == 7
-        assert totals == {7}
-
-    def test_no_run_param_lists_all_of_them(self, app_client):
+    def test_the_listing_has_no_run_filter_any_more(self, app_client):
+        """The sidebar groups runs by form; ``?run=`` is no listing parameter."""
         runs, others = self._seed(app_client.app.state.artifact_store)
-        entries, totals = self._walk(app_client)
-        assert {e["id"] for e in entries} == runs | others
-        assert totals == {12}
-
-    def test_the_filtered_first_page_names_its_cursor_and_count(self, app_client):
-        self._seed(app_client.app.state.artifact_store)
-        body = app_client.get("/api/artifacts", params={"run": "true", "limit": 3}).json()
-        assert (body["count"], body["total"]) == (3, 5)
-        assert body["next_cursor"] is not None
+        for params in ({}, {"run": "true"}, {"run": "false"}):
+            entries, totals = self._walk(app_client, **params)
+            assert {e["id"] for e in entries} == runs | others
+            assert totals == {12}
 
     def test_every_listed_entry_carries_the_boolean_verdict(self, app_client):
         runs, others = self._seed(app_client.app.state.artifact_store)
@@ -381,7 +348,12 @@ class TestRunRecordVerdict:
             assert entry["run_record"] is (entry["id"] in runs)
 
     def test_a_legacy_run_record_is_known_by_what_its_writer_gave_it(self, app_client):
-        """Saved before the metadata key existed: the category alone marks it."""
+        """Saved before the metadata key existed: the stored category alone marks it.
+
+        The save APIs no longer write a category, so the legacy entry is the
+        one an older writer left on disk, reached here the way the stores
+        tests reach it.
+        """
         store = app_client.app.state.artifact_store
         legacy = store.save_file(
             file_content=b"out",
@@ -390,10 +362,9 @@ class TestRunRecordVerdict:
             title="Output",
             mime_type="text/plain",
             tool_source="execute",
-            category="code_output",
         )
-        body = app_client.get("/api/artifacts", params={"run": "true"}).json()
-        assert [e["id"] for e in body["artifacts"]] == [legacy.id]
+        store.update_entry_metadata(legacy.id, category="code_output")
+        assert app_client.get(f"/api/artifacts/{legacy.id}").json()["run_record"] is True
 
     def test_get_artifact_carries_the_verdict(self, app_client):
         store = app_client.app.state.artifact_store
@@ -416,15 +387,6 @@ class TestRunRecordVerdict:
         assert fallback["focused"] is False
         assert fallback["artifact"]["id"] == result.id
         assert fallback["artifact"]["run_record"] is False
-
-    def test_the_pin_frame_carries_the_verdict(self, app_client):
-        run = _save_run_record(app_client.app.state.artifact_store)
-        with patch.object(_SSEBroadcaster, "broadcast") as broadcast:
-            app_client.post(f"/api/artifacts/{run.id}/pin", json={"pinned": True})
-        (event,), _ = broadcast.call_args
-        assert event["type"] == "artifact_updated"
-        assert event["id"] == run.id
-        assert event["run_record"] is True
 
     def test_the_saved_frame_carries_the_verdict(self, tmp_path):
         """The lifespan registers the saved listener; a save then broadcasts its frame."""
@@ -727,7 +689,7 @@ def test_sse_broadcaster_queue_bookkeeping():
 
 
 class TestAppLifecycle:
-    """create_app config priming and run_server's uvicorn handoff."""
+    """create_app config priming."""
 
     def test_config_yml_priming_is_best_effort(self, tmp_path, monkeypatch):
         """A config.yml in the workspace root is loaded at app construction
@@ -765,22 +727,6 @@ class TestAppLifecycle:
 
         assert client.post("/api/focus", json={"artifact_id": entry.id}).status_code == 200
         assert (shared / "focus_state.txt").is_file()
-
-    def test_run_server_builds_app_and_hands_it_to_uvicorn(self, tmp_path, monkeypatch):
-        import uvicorn
-
-        calls = {}
-
-        def fake_run(app, **kwargs):
-            calls["app"] = app
-            calls.update(kwargs)
-
-        monkeypatch.setattr(uvicorn, "run", fake_run)
-        run_server(host="127.0.0.1", port=59999, workspace_root=tmp_path)
-
-        assert calls["host"] == "127.0.0.1"
-        assert calls["port"] == 59999
-        assert calls["app"].title == "OSPREY Artifact Gallery"
 
 
 class TestIndexPlotlyVendorMeta:
@@ -996,3 +942,141 @@ class TestArtifactMessageListener:
         body = app_client.get(f"/files/{entry.id}/{entry.filename}").text
         assert "osprey-artifact-ready" in body
         assert "osprey-artifact-print" in body
+
+
+def _save_listed(store, title, *, session_id="", run_id="", origin="", **kwargs):
+    """A text artifact with explicit provenance, independent of the test's env."""
+    return store.save_file(
+        file_content=title.encode(),
+        filename=f"{title}.txt",
+        artifact_type="text",
+        title=title,
+        mime_type="text/plain",
+        tool_source="test",
+        session_id=session_id,
+        run_id=run_id,
+        origin=origin,
+        **kwargs,
+    )
+
+
+class TestUnscopedListing:
+    """GET /api/artifacts is the unscoped listing: palette search and all sessions."""
+
+    def test_search_finds_watchdog_and_dispatch_artifacts(self, app_client):
+        from osprey.stores.artifact_store import WATCHDOG_ORIGIN
+
+        store = app_client.app.state.artifact_store
+        judge = _save_listed(
+            store, "Beam loss judge verdict", session_id="s-1", origin=WATCHDOG_ORIGIN
+        )
+        dispatched = _save_listed(store, "Beam loss dispatch report", run_id="run-7")
+        _save_listed(store, "Unrelated note", session_id="s-1")
+
+        body = app_client.get("/api/artifacts", params={"search": "beam loss"}).json()
+
+        assert {a["id"] for a in body["artifacts"]} == {judge.id, dispatched.id}
+        assert body["total"] == 2
+
+    def test_a_stray_session_id_narrows_nothing(self, app_client):
+        store = app_client.app.state.artifact_store
+        ids = {
+            _save_listed(store, "mine", session_id="s-a").id,
+            _save_listed(store, "theirs", session_id="s-b").id,
+            _save_listed(store, "untagged").id,
+        }
+
+        plain = app_client.get("/api/artifacts").json()
+        stray = app_client.get("/api/artifacts", params={"session_id": "s-a"}).json()
+
+        assert {a["id"] for a in plain["artifacts"]} == ids
+        assert {a["id"] for a in stray["artifacts"]} == ids
+        assert stray["total"] == plain["total"] == 3
+
+    def test_the_route_no_longer_declares_a_session_id_parameter(self, app_client):
+        schema = app_client.get("/openapi.json").json()
+        params = schema["paths"]["/api/artifacts"]["get"].get("parameters", [])
+        assert "session_id" not in {p["name"] for p in params}
+
+    def test_paging_walks_the_whole_listing_newest_first(self, app_client):
+        store = app_client.app.state.artifact_store
+        saved = [_save_listed(store, f"n{i}", session_id=f"s-{i % 2}").id for i in range(5)]
+
+        seen, cursor = [], None
+        while True:
+            params = {"limit": 2, **({"cursor": cursor} if cursor else {})}
+            body = app_client.get("/api/artifacts", params=params).json()
+            assert body["total"] == 5
+            assert len(body["artifacts"]) <= 2
+            seen.extend(a["id"] for a in body["artifacts"])
+            cursor = body.get("next_cursor")
+            if not cursor:
+                break
+
+        assert sorted(seen) == sorted(saved)
+        assert len(seen) == len(set(seen)) == 5
+
+    def test_a_cursor_it_did_not_issue_is_rejected(self, app_client):
+        resp = app_client.get("/api/artifacts", params={"cursor": "not-a-cursor"})
+        assert resp.status_code == 400
+
+    def test_runs_grouped_drops_a_runs_preview_and_notebook(self, app_client):
+        from osprey.stores.artifact_forms import RUN_RECORD_KEY
+
+        store = app_client.app.state.artifact_store
+        exec_id = "exec-1"
+        store.save_file(
+            b"{}",
+            "review.ipynb",
+            "notebook",
+            "Review: fit",
+            mime_type="application/x-ipynb+json",
+            tool_source="osprey_approval",
+            metadata={"run_part": "preview", RUN_RECORD_KEY: True},
+            session_id="s-1",
+            run_id="",
+            exec_id=exec_id,
+        )
+        store.save_file(
+            b"{}",
+            "run.ipynb",
+            "notebook",
+            "Notebook: fit",
+            mime_type="application/x-ipynb+json",
+            tool_source="execute",
+            metadata={"run_part": "code", RUN_RECORD_KEY: True},
+            session_id="s-1",
+            run_id="",
+            exec_id=exec_id,
+        )
+        output = store.save_file(
+            b"png",
+            "fig.png",
+            "image",
+            "Figure",
+            mime_type="image/png",
+            tool_source="execute",
+            metadata={"run_part": "output", "figure": True},
+            session_id="s-2",
+            run_id="",
+            exec_id=exec_id,
+        )
+        head = store.save_file(
+            b"{}",
+            "result.json",
+            "json",
+            "fit",
+            mime_type="application/json",
+            tool_source="execute",
+            metadata={"run_part": "result", RUN_RECORD_KEY: True},
+            session_id="s-1",
+            run_id="",
+            exec_id=exec_id,
+        )
+
+        every = app_client.get("/api/artifacts").json()
+        grouped = app_client.get("/api/artifacts", params={"runs": "grouped"}).json()
+
+        assert every["total"] == 4
+        assert {a["id"] for a in grouped["artifacts"]} == {head.id, output.id}
+        assert grouped["total"] == 2

@@ -1,8 +1,11 @@
 // @ts-check
 /**
- * ARIEL Dashboard Module
+ * ARIEL Status drawer.
  *
- * Status monitoring and system health display.
+ * Renders system health into #status-content inside #status-drawer.
+ * Store keys: reads `drawer` only, never writes it. layout.js alone opens and
+ * closes the drawer element; this module loads Status when `drawer` becomes
+ * 'status' and auto-refreshes only while it stays 'status'.
  */
 
 import { statusApi } from './api.js';
@@ -14,19 +17,47 @@ import {
   renderErrorState,
   escapeHtml,
 } from './components.js';
+import { getState, subscribe } from './store.js';
 
 // Refresh interval
 /** @type {ReturnType<typeof setInterval> | null} */
 let refreshInterval = null;
 
 /**
- * Initialize dashboard module.
+ * Wire the Status drawer: the refresh button, and load + auto-refresh while
+ * the store's `drawer` is 'status'.
+ * @param {ParentNode} [root]
+ * @returns {{destroy: () => void}}
  */
-export function initDashboard() {
-  const refreshBtn = document.getElementById('refresh-status');
+export function initDashboard(root = document) {
+  const controller = new AbortController();
+  const refreshBtn = root.querySelector('#refresh-status');
   if (refreshBtn) {
-    refreshBtn.addEventListener('click', () => loadStatus());
+    refreshBtn.addEventListener('click', () => loadStatus(), { signal: controller.signal });
   }
+
+  /** @param {unknown} drawer */
+  const apply = (drawer) => {
+    if (drawer === 'status') {
+      loadStatus();
+      startAutoRefresh();
+    } else {
+      stopAutoRefresh();
+    }
+  };
+
+  const unsubscribe = subscribe((next, _prev, changed) => {
+    if (changed.has('drawer')) apply(next.drawer);
+  });
+  if (getState().drawer === 'status') apply('status');
+
+  return {
+    destroy: () => {
+      controller.abort();
+      unsubscribe();
+      stopAutoRefresh();
+    },
+  };
 }
 
 /**
@@ -54,7 +85,7 @@ export async function loadStatus() {
  */
 function renderStatus(container, status) {
   const healthStatus = status.healthy ? 'healthy' : 'error';
-  const healthLabel = status.healthy ? 'ARIEL is healthy' : 'ARIEL has issues';
+  const healthLabel = status.healthy ? 'Logbook is healthy' : 'Logbook has issues';
 
   container.innerHTML = `
     <!-- Overall Health -->
@@ -96,28 +127,18 @@ function renderStatus(container, status) {
               name: 'Semantic Search',
               enabled: status.enabled_search_modules?.includes('semantic'),
             },
-            { name: 'Vision Search', enabled: false, future: true },
           ])}
         </div>
       </div>
+    </div>
 
-      <!-- Enhancement Modules -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Enhancement Modules</span>
-        </div>
-        <div class="card-body">
-          ${renderModuleList([
-            {
-              name: 'Text Embedding',
-              enabled: status.enabled_enhancement_modules?.includes('text_embedding'),
-            },
-            {
-              name: 'Semantic Processor',
-              enabled: status.enabled_enhancement_modules?.includes('semantic_processor'),
-            },
-          ])}
-        </div>
+    <!-- Enhancement Coverage: full width, one column per state -->
+    <div class="card" style="margin-top: 24px;">
+      <div class="card-header">
+        <span class="card-title">Enhancement Modules</span>
+      </div>
+      <div class="card-body" style="padding: 0;">
+        ${renderCoverageTable(status.enhancement_coverage)}
       </div>
     </div>
 
@@ -186,6 +207,63 @@ function renderStatus(container, status) {
   `;
 }
 
+/** Coverage columns, in display order: [state key, column heading]. */
+const COVERAGE_COLUMNS = /** @type {const} */ ([
+  ['complete', 'Complete'],
+  ['not_run', 'Not run'],
+  ['pending', 'Pending'],
+  ['stale', 'Stale'],
+  ['failed', 'Failed'],
+  ['n/a', 'N/A'],
+]);
+
+/**
+ * One count cell: the number, or an em dash when the server sent none.
+ * @param {unknown} value
+ * @returns {string}
+ */
+function formatCount(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '\u2014';
+}
+
+/**
+ * Render the per-module enhancement coverage table: one row per module the
+ * server lists (it lists only enabled ones), labelled with the server's label.
+ * @param {import('./api.js').EnhancementCoverage | undefined | null} coverage
+ * @returns {string} HTML string
+ */
+function renderCoverageTable(coverage) {
+  const modules = coverage ? Object.entries(coverage) : [];
+  if (modules.length === 0) {
+    return '<div class="text-muted" style="padding: 16px;">No enhancement modules enabled</div>';
+  }
+  return `
+    <table class="coverage-table">
+      <thead>
+        <tr>
+          <th>Module</th>
+          ${COVERAGE_COLUMNS.map(([, heading]) => `<th>${heading}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${modules
+          .map(
+            ([name, counts]) => `
+          <tr data-module="${escapeHtml(name)}">
+            <td>${escapeHtml(counts?.label || name)}</td>
+            ${COVERAGE_COLUMNS.map(
+              ([key]) =>
+                `<td class="font-mono" data-state="${key}">${formatCount(counts?.[key])}</td>`
+            ).join('')}
+          </tr>
+        `
+          )
+          .join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 /**
  * Render module list.
  * @param {Array<any>} modules - Module definitions
@@ -197,7 +275,7 @@ function renderModuleList(modules) {
       ${modules
         .map((/** @type {any} */ m) => {
           const dot = m.enabled ? 'healthy' : 'inactive';
-          const label = m.enabled ? 'Enabled' : m.future ? '(Future)' : 'Disabled';
+          const label = m.enabled ? 'Enabled' : 'Disabled';
           const labelColor = m.enabled ? 'text-success' : 'text-muted';
           return `
           <div style="display: flex; align-items: center; justify-content: space-between;">
@@ -232,10 +310,3 @@ export function stopAutoRefresh() {
     refreshInterval = null;
   }
 }
-
-export default {
-  initDashboard,
-  loadStatus,
-  startAutoRefresh,
-  stopAutoRefresh,
-};

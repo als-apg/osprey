@@ -173,7 +173,7 @@ def test_evicted_live_buffer_falls_back_to_tiled(
 
     tiled_body = {
         "run_uid": "bluesky-uid-a",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,
@@ -205,7 +205,7 @@ def test_a_run_with_no_buffer_at_all_falls_back_to_tiled_by_run_id(
     """
     tiled_body = {
         "run_uid": "bluesky-uid-after-restart",
-        "columns": ["motor"],
+        "columns": [{"name": "motor", "unit": None}],
         "rows": [[1.0], [2.0]],
         "row_count": 2,
         "truncated": False,
@@ -288,7 +288,7 @@ def test_schema_parity_between_live_and_tiled_sourced_responses(
     # `_from_tiled` computes for the run it stands in for.
     tiled_body_payload = {
         "run_uid": "uid-schema-tiled",
-        "columns": ["x"],
+        "columns": [{"name": "x", "unit": None}],
         "rows": [[1.0]],
         "row_count": 1,
         "truncated": False,
@@ -306,7 +306,53 @@ def test_schema_parity_between_live_and_tiled_sourced_responses(
         "truncated",
         "analysis",
     }
+    assert live_body["columns"] == tiled_body["columns"]
     # Parity goes one level deeper for `analysis`: a stored run's statistics
     # must read exactly like a live one's, absent results included — which is
     # why the absent shape carries the same keys an available one does.
     assert live_body["analysis"] == tiled_body["analysis"]
+
+
+def test_live_and_tiled_snapshots_of_one_run_agree_on_its_units(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The units the live buffer keeps from the descriptor it was sent are the
+    units the stored run's descriptors give back, column for column."""
+    from tests.services.bluesky_bridge.test_data_route import (
+        _configured,
+        _run_node_with_events,
+    )
+
+    descriptor = {
+        "uid": "desc-1",
+        "run_start": "uid-units",
+        "name": "primary",
+        "data_keys": {
+            "x": {"dtype": "number", "shape": [], "units": "u-x"},
+            "y": {"dtype": "number", "shape": [], "units": "u-y"},
+            "z": {"dtype": "number", "shape": []},
+        },
+    }
+    rows = [{"x": 1.0, "y": 2.0, "z": 3.0}, {"x": 1.5, "y": 2.5, "z": 3.5}]
+
+    recorder = LiveRowRecorder(key="run-units")
+    recorder("start", {"uid": "uid-units"})
+    recorder("descriptor", descriptor)
+    for row in rows:
+        recorder("event", {"data": row})
+    recorder("stop", {})
+    _configured(
+        monkeypatch,
+        "run-units",
+        _run_node_with_events("uid-units", "run-units", rows, descriptors=[descriptor]),
+    )
+
+    live = live_rows.get("run-units")
+    stored = app_module._tiled_run_snapshot("run-units")
+
+    assert live is not None and stored is not None
+    assert live["units"] == stored["units"]
+    declared = descriptor["data_keys"]
+    assert live["units"] == {
+        key: entry["units"] for key, entry in declared.items() if "units" in entry
+    }

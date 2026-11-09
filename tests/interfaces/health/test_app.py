@@ -65,7 +65,7 @@ def _asgi_client(app: object) -> httpx.AsyncClient:
 def test_routes_registered() -> None:
     app = create_app()
     paths = set(app.openapi()["paths"])
-    assert {"/", "/health", "/checks"} <= paths
+    assert {"/", "/health", "/checks", "/mcp", "/mcp/probe", "/reprobe", "/ping"} <= paths
 
 
 def test_health_is_constant_time_and_executes_no_checks(tmp_path: Path) -> None:
@@ -177,3 +177,140 @@ def test_lifespan_registers_then_unregisters_atexit_hook(tmp_path: Path) -> None
 
     # Clean shutdown unregistered it, so stacked TestClients never leak hooks.
     assert lifecycle.atexit_registered is False
+
+
+# -- layout, MCP, re-probe, ping -------------------------------------------------
+
+
+async def test_checks_carries_layers_probe_times_and_the_mcp_summary(tmp_path: Path) -> None:
+    app = create_app(_write_config(tmp_path))
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {"controls": {"command": "x"}}}')
+    async with _asgi_client(app) as client:
+        await client.get("/checks")
+        await _drain(app)
+        env = (await client.get("/checks")).json()
+
+    assert env["scanned_at"] is not None
+    assert all("probed_at" in r and "component" in r and "display" in r for r in env["results"])
+    assert [layer["id"] for layer in env["layers"]][:1] != []
+    # /checks reports what is configured and spawns nothing.
+    assert env["mcp"]["configured"] == ["controls"]
+    assert env["mcp"]["answered"] is None
+
+
+async def test_mcp_lists_an_http_server_without_spawning_and_hides_env(tmp_path: Path) -> None:
+    from osprey.mcp_server.introspect import clear_cache
+
+    clear_cache()
+    app = create_app(_write_config(tmp_path))
+    (tmp_path / ".mcp.json").write_text(
+        '{"mcpServers": {"canopy": {"type": "http", "url": "http://h:1/mcp", "env": {"K": "v"}}}}'
+    )
+    async with _asgi_client(app) as client:
+        body = (await client.get("/mcp")).json()
+    clear_cache()
+
+    (server,) = body["servers"]
+    assert server["transport"] == "http"
+    assert server["tools"] is None
+    assert "env" not in server
+    assert body["probed_at"] is not None
+
+
+async def test_reprobe_of_one_check_reruns_its_category_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = create_app(_write_config(tmp_path))
+    async with _asgi_client(app) as client:
+        await client.get("/checks")
+        await _drain(app)
+        before = (await client.get("/checks")).json()
+
+        ran: list[list[str] | None] = []
+        from osprey.health import refresh
+
+        real = refresh.run_health_suite
+
+        async def spy(records, **kwargs):
+            ran.append(kwargs.get("categories"))
+            return await real(records, **kwargs)
+
+        monkeypatch.setattr(refresh, "run_health_suite", spy)
+        after = (await client.post("/reprobe", json={"checks": ["python_version"]})).json()
+
+    assert ran == [["python_environment"]]
+    assert {r["name"] for r in after["results"]} == {r["name"] for r in before["results"]}
+
+
+async def test_reprobe_is_refused_while_the_breaker_suppresses(tmp_path: Path) -> None:
+    app = create_app(_write_config(tmp_path))
+    engine = app.state.engine
+    engine._suppressed_until = float("inf")
+    engine._suppressed_sig = engine._disk_signature_fn()
+    async with _asgi_client(app) as client:
+        resp = await client.post("/reprobe", json={})
+    assert resp.status_code == 409
+    assert resp.json()["suppressed"] is True
+
+
+async def test_ping_needs_a_provider_and_reports_one_without_a_block(tmp_path: Path) -> None:
+    app = create_app(_write_config(tmp_path))
+    async with _asgi_client(app) as client:
+        assert (await client.post("/ping", json={})).status_code == 422
+        body = (await client.post("/ping", json={"provider": "nope"})).json()
+    assert body["provider"] == "nope"
+    assert body["status"] == "error"
+
+
+async def test_mcp_tags_tools_from_the_render_hook_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from osprey.mcp_server import introspect
+
+    app = create_app(_write_config(tmp_path))
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {"controls": {"command": "x"}}}')
+    hooks = tmp_path / ".claude" / "hooks"
+    hooks.mkdir(parents=True)
+    (hooks / "hook_config.json").write_text(
+        json.dumps(
+            {
+                "write_tools": ["mcp__controls__channel_write", "mcp__controls__set_mode"],
+                "governed_tools": ["mcp__controls__channel_write"],
+            }
+        )
+    )
+    tools = [{"name": n} for n in ("channel_write", "set_mode", "channel_read")]
+
+    async def fake(*_a, **_k):
+        return [{"name": "controls", "transport": "stdio", "tools": tools}]
+
+    monkeypatch.setattr(introspect, "get_mcp_servers_cached", fake)
+    async with _asgi_client(app) as client:
+        body = (await client.get("/mcp")).json()
+
+    gates = {t["name"]: t["hooks"] for t in body["servers"][0]["tools"]}
+    assert gates == {
+        "channel_write": {"write": True, "gated": True},
+        "set_mode": {"write": True, "gated": False},
+        "channel_read": {"write": False, "gated": False},
+    }
+
+
+async def test_mcp_sends_no_hook_tags_when_the_contract_is_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from osprey.mcp_server import introspect
+
+    app = create_app(_write_config(tmp_path))
+    (tmp_path / ".mcp.json").write_text('{"mcpServers": {"controls": {"command": "x"}}}')
+
+    async def fake(*_a, **_k):
+        return [{"name": "controls", "transport": "stdio", "tools": [{"name": "channel_write"}]}]
+
+    monkeypatch.setattr(introspect, "get_mcp_servers_cached", fake)
+    async with _asgi_client(app) as client:
+        body = (await client.get("/mcp")).json()
+
+    assert "hooks" not in body["servers"][0]["tools"][0]

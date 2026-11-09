@@ -48,7 +48,6 @@ CHECK_SCRIPT = "scripts/repo_checks.py"
 #: Every place that runs ruff or tells a contributor how to.
 INVOCATION_SURFACES = (
     CHECK_SCRIPT,
-    "CONTRIBUTING.md",
     "docs/source/contributing/development-setup.rst",
     "plugins/osprey/skills/pre-commit/SKILL.md",
     "plugins/osprey/skills/test-audit/SKILL.md",

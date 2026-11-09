@@ -3,15 +3,15 @@
 <head>
   <!-- Theme boot: applies data-theme pre-paint; zero import deps, must load
        before any stylesheet. Live theme changes are handled by theme-manager
-       in app.js: the HUB role standalone (the display menu is the operator's
-       control, and its pick persists), the FOLLOWER role embedded (the web
-       terminal's own chrome owns theming and broadcasts it here). -->
+       in app.js, as a follower: the web terminal's own chrome owns theming
+       and broadcasts it here. -->
   <script src="/design-system/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/design-system/css/tokens.css">
   <link rel="stylesheet" href="/design-system/css/base.css">
+  <link rel="stylesheet" href="/design-system/css/primitives.css">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ARIEL - Logbook Search Interface</title>
+  <title>Logbook</title>
   <meta name="description" content="Agentic Retrieval Interface for Electronic Logbooks">
 
   <!-- Fonts (self-hosted, no external CDN) -->
@@ -33,290 +33,187 @@
   </style>
 </head>
 <body>
-  <div class="app-container">
-    <!-- Header -->
-    <header class="header">
-      <div class="header-inner">
-        <div class="header-left">
-          <a href="#search" class="logo">
-            <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v6l4 2"/>
-              <path d="M8 12a4 4 0 108 0"/>
-            </svg>
-            <span class="logo-text">ARIEL</span>
-          </a>
-          <nav class="nav">
-            <a href="#search" class="nav-link active" data-view="search">Search</a>
-            <a href="#browse" class="nav-link" data-view="browse">Browse</a>
-            <a href="#create" class="nav-link" data-view="create">New Entry</a>
-            <a href="#status" class="nav-link" data-view="status">Status</a>
-          </nav>
-        </div>
-        <div class="header-right">
-          <!-- Every display preference (Appearance, View, Theme) plus the
-               Settings entry that opens #settings-drawer, behind one trigger.
-               The component hides itself when embedded. -->
-          <osprey-display-menu settings-drawer="settings-drawer"></osprey-display-menu>
-        </div>
+  <div class="app-container" id="ariel-app">
+    <!-- The one screen: mailbox rail | entry list | reader. Pane widths are
+         driven by layout.js through the shared splitter. -->
+    <div class="ariel-shell" id="ariel-shell">
+      <nav class="ariel-pane ariel-rail" id="ariel-rail" aria-label="Mailboxes"></nav>
+      <div class="osprey-splitter" id="ariel-rail-splitter" role="separator"
+           aria-orientation="vertical" aria-label="Resize mailbox rail" tabindex="0"></div>
+
+      <div class="ariel-list-col" id="ariel-list-col">
+        <section class="ariel-pane ariel-list" id="ariel-list" aria-label="Entries"></section>
       </div>
-    </header>
+      <div class="osprey-splitter" id="ariel-list-splitter" role="separator"
+           aria-orientation="vertical" aria-label="Resize entry list" tabindex="0"></div>
 
-    <!-- Main Content -->
-    <main class="main">
-      <!-- Search View -->
-      <section id="view-search" class="view search-view active">
-        <div class="search-hero">
-          <h1>Search the Logbook</h1>
-          <p class="text-secondary">
-            Use natural language to find entries, get AI-powered answers, or browse by keyword.
-          </p>
+      <section class="ariel-pane ariel-reader" id="ariel-reader" aria-label="Entry">
+        <div class="osprey-pane-head ariel-reader-head">
+          <button type="button" class="osprey-icon-btn ariel-back-btn" id="ariel-reader-back"
+                  aria-label="Back to list" title="Back to list"></button>
         </div>
-
-        <!-- Search Form -->
-        <div class="search-form" id="search-form">
-          <div class="search-input-wrapper">
-            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8"/>
-              <path d="M21 21l-4.35-4.35"/>
-            </svg>
-            <input
-              type="text"
-              id="search-input"
-              class="input"
-              placeholder="Search the logbook..."
-              autocomplete="off"
-            >
-            <div class="search-input-actions">
-              <button id="search-btn" class="btn btn-primary">
-                Search
-              </button>
-            </div>
-          </div>
-
-          <!-- Search Mode Tabs -->
-          <div id="search-mode-tabs" class="search-mode-tabs">
-            <!-- Tabs rendered dynamically by JS -->
-          </div>
-
-          <!-- Search Options Bar -->
-          <div class="search-options-bar">
-            <button type="button" class="btn btn-secondary btn-sm" id="advanced-toggle-btn">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3"/>
-                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
-              </svg>
-              Filters &amp; Options
-            </button>
-          </div>
-
-          <!-- Filters & Options Panel -->
-          <div id="advanced-panel" class="advanced-panel hidden">
-            <div class="advanced-header">
-              <span class="advanced-title">Filters &amp; Options</span>
-              <div class="advanced-header-actions">
-                <button type="button" class="btn btn-ghost btn-sm" id="advanced-reset-btn">Reset</button>
-                <button type="button" class="btn btn-ghost btn-sm" id="advanced-close-btn">Close</button>
-              </div>
-            </div>
-
-            <div class="advanced-sections" id="advanced-sections">
-              <!-- Dynamically rendered by advanced-options.js -->
-            </div>
-          </div>
-        </div>
-
-        <!-- Search Results -->
-        <div id="search-results" class="results-section">
-          <!-- Results will be rendered here -->
-          <div class="empty-state">
-            <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <circle cx="11" cy="11" r="8"/>
-              <path d="M21 21l-4.35-4.35"/>
-            </svg>
-            <h3 class="empty-state-title">Ready to Search</h3>
-            <p class="empty-state-text">
-              Enter a query above to search logbook entries. Use natural language or keywords.
-            </p>
-          </div>
-        </div>
+        <!-- The reader body is the container entries render into; it is
+             never re-created. -->
+        <div class="ariel-reader-body" id="ariel-reader-body"></div>
       </section>
 
-      <!-- Browse View -->
-      <section id="view-browse" class="view browse-view">
-        <div class="dashboard-header">
-          <h2>Browse Entries</h2>
-          <p class="text-secondary">View all logbook entries chronologically</p>
+      <!-- Compose sheet (Decisions 10, 11): a sibling of the panes, not a child
+           of .ariel-list-col, so it escapes that column's containing block and
+           its stacked display:none. It sits over the list column (entries.js
+           places it), spans the panel when maximised, and covers the whole
+           tile when stacked. -->
+      <section class="ariel-compose" id="ariel-compose" aria-label="New entry" hidden>
+        <div class="osprey-pane-head ariel-compose-head">
+          <span class="ariel-pane-title" id="ariel-compose-title">New entry</span>
+          <span class="ariel-compose-spacer"></span>
+          <button type="button" class="osprey-icon-btn ariel-compose-max" id="ariel-compose-max"
+                  aria-pressed="false" aria-label="Expand" title="Expand">&#x2922;</button>
+          <button type="button" class="osprey-icon-btn ariel-compose-close" id="ariel-compose-close"
+                  aria-label="Close" title="Close (Esc)">&#x2715;</button>
         </div>
-
-        <!-- Entries List -->
-        <div id="entries-list">
-          <!-- Entries will be rendered here -->
-        </div>
-      </section>
-
-      <!-- Create Entry View -->
-      <section id="view-create" class="view create-entry-view">
-        <div class="dashboard-header">
-          <h2>New Entry</h2>
-          <p class="text-secondary">Create a new logbook entry</p>
-        </div>
-
-        <form id="create-entry-form" class="create-entry-form">
-          <div class="form-section">
-            <div class="input-group">
-              <label class="input-label" for="entry-subject">Subject *</label>
-              <input
-                type="text"
-                id="entry-subject"
-                name="subject"
-                class="input"
-                placeholder="Brief summary of this entry"
-                required
-              >
+        <form id="create-entry-form" class="create-entry-form ariel-compose-form">
+          <div class="ariel-compose-body">
+            <!-- Filled by the draft fill when the draft records who staged it. -->
+            <div class="ariel-compose-banner" id="ariel-compose-banner" hidden></div>
+            <!-- Filled by the follow-up fill: the parent entry, read-only. -->
+            <div class="ariel-compose-parent" id="ariel-compose-parent" hidden>
+              <span class="ariel-compose-parent-label">Follows up</span>
+              <span class="ariel-compose-parent-ref" id="ariel-compose-parent-ref"></span>
             </div>
-          </div>
-
-          <div class="form-section">
-            <div class="input-group">
-              <label class="input-label" for="entry-details">Details *</label>
-              <textarea
-                id="entry-details"
-                name="details"
-                class="input"
-                placeholder="Full description of events, observations, or procedures..."
-                rows="8"
-                required
-              ></textarea>
-            </div>
-          </div>
-
-          <div class="form-section">
-            <div class="form-section-title">Metadata</div>
-            <div class="form-row">
+            <div class="form-section">
               <div class="input-group">
-                <label class="input-label" for="entry-author">Author</label>
+                <label class="input-label" for="entry-subject">Subject *</label>
                 <input
                   type="text"
-                  id="entry-author"
-                  name="author"
+                  id="entry-subject"
+                  name="subject"
                   class="input"
-                  placeholder="Your name"
+                  placeholder="Brief summary of this entry"
+                  required
                 >
               </div>
+            </div>
+
+            <div class="form-section">
               <div class="input-group">
-                <label class="input-label" for="entry-logbook">Logbook</label>
+                <label class="input-label" for="entry-details">Details *</label>
+                <textarea
+                  id="entry-details"
+                  name="details"
+                  class="input"
+                  placeholder="Full description of events, observations, or procedures..."
+                  rows="8"
+                  required
+                ></textarea>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Metadata</div>
+              <div class="form-row">
+                <div class="input-group">
+                  <label class="input-label" for="entry-author">Author</label>
+                  <input
+                    type="text"
+                    id="entry-author"
+                    name="author"
+                    class="input"
+                    placeholder="Your name"
+                  >
+                </div>
+                <div class="input-group">
+                  <label class="input-label" for="entry-logbook">Logbook</label>
+                  <input
+                    type="text"
+                    id="entry-logbook"
+                    name="logbook"
+                    class="input"
+                    placeholder="Logbook to file under"
+                  >
+                </div>
+                <div class="input-group">
+                  <label class="input-label" for="entry-shift">Shift</label>
+                  <input
+                    type="text"
+                    id="entry-shift"
+                    name="shift"
+                    class="input"
+                    placeholder="Shift or run block"
+                  >
+                </div>
+              </div>
+            </div>
+
+            <div id="entry-fields"></div>
+
+            <div class="form-section">
+              <div class="form-section-title">Tags</div>
+              <div class="input-group">
+                <div id="entry-tags" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;"></div>
                 <input
                   type="text"
-                  id="entry-logbook"
-                  name="logbook"
+                  id="entry-tags-input"
                   class="input"
-                  placeholder="Logbook to file under"
+                  placeholder="Type a tag and press Enter"
                 >
               </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Logbook Publishing</div>
+              <div id="publish-helper" class="text-xs text-muted" style="margin-bottom: 8px;">Credentials may be required to publish, depending on the configured logbook.</div>
+              <div id="publish-credentials">
+                <div class="input-group">
+                  <label for="entry-auth-user">Logbook Username</label>
+                  <input
+                    type="text"
+                    id="entry-auth-user"
+                    name="auth_user"
+                    class="input"
+                    placeholder="Username (required to publish)"
+                    autocomplete="username"
+                  >
+                </div>
+                <div class="input-group">
+                  <label for="entry-auth-password">Logbook Password</label>
+                  <input
+                    type="password"
+                    id="entry-auth-password"
+                    name="auth_password"
+                    class="input"
+                    placeholder="Password"
+                    autocomplete="current-password"
+                  >
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="form-section-title">Attachments</div>
               <div class="input-group">
-                <label class="input-label" for="entry-shift">Shift</label>
                 <input
-                  type="text"
-                  id="entry-shift"
-                  name="shift"
+                  type="file"
+                  id="entry-files"
                   class="input"
-                  placeholder="Shift or run block"
+                  multiple
+                  style="padding: 8px;"
                 >
+                <div class="text-xs text-muted" style="margin-top: 4px;">Max 10 MB per file. Images will show previews.</div>
+                <div id="file-preview" class="ariel-compose-preview"></div>
               </div>
             </div>
           </div>
 
-          <div id="entry-fields"></div>
-
-          <div class="form-section">
-            <div class="form-section-title">Tags</div>
-            <div class="input-group">
-              <div id="entry-tags" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px;"></div>
-              <input
-                type="text"
-                id="entry-tags-input"
-                class="input"
-                placeholder="Type a tag and press Enter"
-              >
-            </div>
-          </div>
-
-          <div class="form-section">
-            <div class="form-section-title">Logbook Publishing</div>
-            <div id="publish-helper" class="text-xs text-muted" style="margin-bottom: 8px;">Credentials may be required to publish, depending on the configured logbook.</div>
-            <div id="publish-credentials">
-              <div class="input-group">
-                <label for="entry-auth-user">Logbook Username</label>
-                <input
-                  type="text"
-                  id="entry-auth-user"
-                  name="auth_user"
-                  class="input"
-                  placeholder="Username (required to publish)"
-                  autocomplete="username"
-                >
-              </div>
-              <div class="input-group">
-                <label for="entry-auth-password">Logbook Password</label>
-                <input
-                  type="password"
-                  id="entry-auth-password"
-                  name="auth_password"
-                  class="input"
-                  placeholder="Password"
-                  autocomplete="current-password"
-                >
-              </div>
-            </div>
-          </div>
-
-          <div class="form-section">
-            <div class="form-section-title">Attachments</div>
-            <div class="input-group">
-              <input
-                type="file"
-                id="entry-files"
-                class="input"
-                multiple
-                style="padding: 8px;"
-              >
-              <div class="text-xs text-muted" style="margin-top: 4px;">Max 10 MB per file. Images will show previews.</div>
-              <div id="file-preview" style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px;"></div>
-            </div>
-          </div>
-
-          <div class="form-actions">
-            <button type="button" class="btn btn-secondary" id="create-cancel-btn">
-              Cancel
-            </button>
-            <button type="submit" class="btn btn-primary">
-              Submit Entry
-            </button>
+          <div class="ariel-compose-foot">
+            <button type="submit" class="btn btn-primary">Submit</button>
+            <button type="button" class="btn btn-secondary" id="create-cancel-btn">Discard</button>
+            <span class="ariel-compose-spacer"></span>
+            <span class="ariel-compose-saved" id="ariel-compose-saved" aria-live="polite"></span>
+            <span class="ariel-compose-dest" id="ariel-compose-dest"></span>
           </div>
         </form>
       </section>
-
-      <!-- Status View -->
-      <section id="view-status" class="view dashboard-view">
-        <div class="dashboard-header" style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <h2>System Status</h2>
-            <p class="text-secondary">Monitor database health, embedding status, and service configuration</p>
-          </div>
-          <button id="refresh-status" class="btn btn-secondary">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 2v6h-6M3 12a9 9 0 0115-6.7L21 8M3 22v-6h6M21 12a9 9 0 01-15 6.7L3 16"/>
-            </svg>
-            Refresh
-          </button>
-        </div>
-
-        <div id="status-content">
-          <!-- Status will be rendered here -->
-        </div>
-      </section>
-    </main>
+    </div>
   </div>
 
   <!-- Drawer backdrop -->
@@ -372,22 +269,28 @@
     </div>
   </osprey-drawer>
 
-  <!-- Entry Detail Modal -->
-  <div id="entry-modal" class="modal-overlay hidden">
-    <div class="modal">
-      <div class="modal-header">
-        <span class="modal-title">Entry Details</span>
-        <button id="entry-modal-close" class="btn btn-ghost btn-icon">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 6L6 18M6 6l12 12"/>
-          </svg>
-        </button>
+  <!-- Status Drawer -->
+  <osprey-drawer class="drawer" id="status-drawer">
+    <div class="drawer-header">
+      <span class="drawer-title">System Status</span>
+      <button class="drawer-close-btn">&times;</button>
+    </div>
+    <div class="drawer-body">
+      <div class="ariel-status-head">
+        <p class="text-secondary">Monitor database health, embedding status, and service configuration</p>
+          <button id="refresh-status" class="btn btn-secondary">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 2v6h-6M3 12a9 9 0 0115-6.7L21 8M3 22v-6h6M21 12a9 9 0 01-15 6.7L3 16"/>
+            </svg>
+            Refresh
+          </button>
       </div>
-      <div id="entry-modal-body" class="modal-body">
-        <!-- Entry details will be rendered here -->
+
+      <div id="status-content">
+        <!-- Status will be rendered here -->
       </div>
     </div>
-  </div>
+  </osprey-drawer>
 
   <!-- JavaScript -->
   <script type="module" src="/static/js/app.js"></script>

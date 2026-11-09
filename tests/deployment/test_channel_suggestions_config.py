@@ -20,7 +20,7 @@ import yaml
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 
-PRESET = "control-assistant"
+PRESET = "demo"
 
 
 # ---------------------------------------------------------------------------

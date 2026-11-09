@@ -49,7 +49,7 @@ DROPPED_BRANCHES = ("approval.", "archiver.", "hooks.debug")
 #: The frozen hand-built reference deployment. Two things about it are what the
 #: tests below need and no ``osprey init`` repo has: it states ``image_source``
 #: once, in its ``deploy:`` block, and its roster runs two tiers and shares none
-#: of the apps the control-assistant preset ships.
+#: of the apps the demo preset ships.
 EXEMPLAR = Path(__file__).resolve().parents[1] / "deployment" / "goldens" / "exemplar-profile"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -497,14 +497,14 @@ def _drop_nested_leaf(profile: Path) -> str:
 
 
 def test_a_nested_preset_branch_fills_its_leaves(runner: CliRunner, tmp_path: Path) -> None:
-    """The control-assistant presets spell ``modules.web_terminals:`` nested."""
+    """The demo presets spell ``modules.web_terminals:`` nested."""
     repo = tmp_path / "facility"
-    _init(runner, repo, "control-assistant")
+    _init(runner, repo, "demo")
     profile = repo / "profile.yml"
     text = profile.read_text(encoding="utf-8")
     assert "  modules.web_terminals:" in text, "preset no longer nests this branch"
     profile.write_text(
-        text.replace("\nconfig:\n", f"\n{PRESET_DATA_BUNDLE_KEY}: control_assistant\nconfig:\n", 1),
+        text.replace("\nconfig:\n", f"\n{PRESET_DATA_BUNDLE_KEY}: demo\nconfig:\n", 1),
         encoding="utf-8",
     )
     dropped = _drop_nested_leaf(profile)
@@ -542,11 +542,11 @@ def test_a_profile_without_provenance_fills_from_the_retired_key(
 
 def test_provenance_outranks_the_retired_key(runner: CliRunner, tmp_path: Path) -> None:
     """``provenance.preset`` names the exact preset; the retired key named a bundle."""
-    bundle = _preset_config("control-assistant")
+    bundle = _preset_config("demo")
     recorded = _preset_config("hello-world")
     serving = "control_system.connector.virtual_accelerator.serving"
     epics_timeout = "control_system.connector.epics.timeout_s"
-    # Measured, not assumed: the two presets disagree on these keys.
+    # Measured, not assumed: the presets disagree on these keys.
     assert bundle["control_system.writes"] == "asked"
     assert recorded["control_system.writes"] == "never"
     assert serving not in bundle
@@ -557,7 +557,7 @@ def test_provenance_outranks_the_retired_key(runner: CliRunner, tmp_path: Path) 
     repo = tmp_path / "facility"
     _init(runner, repo, "hello-world")
     profile = repo / "profile.yml"
-    removed = _to_old_shape(profile, drop=("control_system.",), template="control_assistant")
+    removed = _to_old_shape(profile, drop=("control_system.",), template="demo")
 
     result = _revalidate(runner, repo)
     assert result.exit_code == 0, result.output
@@ -580,11 +580,11 @@ def test_preset_overrides_every_other_source(runner: CliRunner, tmp_path: Path) 
     profile = repo / "profile.yml"
     _to_old_shape(profile)
 
-    result = _revalidate(runner, repo, "--preset", "control-assistant")
+    result = _revalidate(runner, repo, "--preset", "demo")
     assert result.exit_code == 0, result.output
 
     data = _profile_data(profile)
-    assert data["provenance"]["preset"] == "control-assistant"
+    assert data["provenance"]["preset"] == "demo"
     assert PRESET_DATA_BUNDLE_KEY not in data
 
 
@@ -656,12 +656,12 @@ def test_an_unknown_recorded_preset_skips_the_fill_but_still_rewrites_the_roster
 ) -> None:
     """A profile from a release that shipped a preset this one does not."""
     repo = tmp_path / "facility"
-    _init(runner, repo, "control-assistant")
+    _init(runner, repo, "demo")
     profile = repo / "profile.yml"
     text = profile.read_text(encoding="utf-8")
     assert "    default_tier: readonly" in text
     profile.write_text(
-        text.replace("  preset: control-assistant", "  preset: neutrino-standalone").replace(
+        text.replace("  preset: demo", "  preset: neutrino-standalone").replace(
             "    default_tier: readonly", f"    {RETIRED_DEFAULT_TIER_KEY}: readonly"
         ),
         encoding="utf-8",
@@ -759,25 +759,25 @@ def test_an_unparsable_catalog_refuses_with_the_repo_untouched(
 # ---------------------------------------------------------------------------
 
 
-def test_control_assistant_keeps_every_section_header_where_it_belongs(
+def test_demo_keeps_every_section_header_where_it_belongs(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     """Two comment blocks stored on a key other than the one they introduce.
 
-    Every control-assistant preset ends ``config:`` with the block that
+    Every demo preset ends ``config:`` with the block that
     introduces ``dispatch:``, and nests ``modules.web_terminals:`` — whose last
     key ``shared`` is a LIST — in front of a key whose own header ruamel
     therefore stores on that list's last item. Appending to the block must move
     the first and copy the second.
     """
     repo = tmp_path / "facility"
-    _init(runner, repo, "control-assistant")
+    _init(runner, repo, "demo")
     profile = repo / "profile.yml"
     before = profile.read_text(encoding="utf-8")
     heading = _block_above(before, "dispatch:")
     assert heading, "preset no longer heads dispatch: with a comment block"
     removed = _to_old_shape(
-        profile, drop=("approval.", "execution.execution_method"), template="control_assistant"
+        profile, drop=("approval.", "execution.execution_method"), template="demo"
     )
     assert "execution.execution_method" in removed
 
@@ -788,9 +788,7 @@ def test_control_assistant_keeps_every_section_header_where_it_belongs(
     # after it — the whole shape of the relocation failure.
     assert [line for line in _config_lines(text) if line.startswith("#")] == []
     assert _block_above(text, "dispatch:") == heading
-    reference = emit_standalone_profile_yaml(
-        "control-assistant", (), "Facility", project_name="facility"
-    )
+    reference = emit_standalone_profile_yaml("demo", (), "Facility", project_name="facility")
     assert [
         key
         for key in removed
@@ -806,7 +804,7 @@ def test_a_deploy_block_keeps_image_source_out_of_the_config_block(
 ) -> None:
     """One fact, one home: ``deploy.image_source`` claims the config leaf."""
     repo = tmp_path / "facility"
-    _init(runner, repo, "control-assistant")
+    _init(runner, repo, "demo")
     profile = repo / "profile.yml"
     text = profile.read_text(encoding="utf-8")
     assert "\n    image_source:" in text, "preset no longer nests image_source"
@@ -844,10 +842,10 @@ def test_the_exemplar_gains_none_of_the_deployments_own_selections(
     assert sorted(p.stem for p in (repo / "tiers").iterdir()) == ["readonly", "readwrite"]
     assert not (repo / "apps").exists()
     # Not vacuous: the preset documents shared apps this repo does not declare.
-    shipped = _preset_config("control-assistant")["modules.web_terminals.shared"]
+    shipped = _preset_config("demo")["modules.web_terminals.shared"]
     assert set(shipped) == {"logbook", "knowledge", "channel-finder"}
 
-    result = _revalidate(runner, repo, "--preset", "control-assistant")
+    result = _revalidate(runner, repo, "--preset", "demo")
     assert result.exit_code == 0, result.output
 
     config = _profile_data(profile)["config"]
@@ -883,7 +881,7 @@ def test_the_exemplar_validates_after_revalidate(runner: CliRunner, tmp_path: Pa
     """The golden holds no data tree, so it never builds on a host; it validates."""
     repo = _exemplar(tmp_path)
 
-    assert _revalidate(runner, repo, "--preset", "control-assistant").exit_code == 0
+    assert _revalidate(runner, repo, "--preset", "demo").exit_code == 0
 
     validated = runner.invoke(validate, ["--repo", str(repo), "--drift", "warn"])
     assert validated.exit_code == 0, validated.output
@@ -893,9 +891,9 @@ def test_revalidating_the_exemplar_twice_changes_nothing(runner: CliRunner, tmp_
     """Byte-level idempotence on a hand-built repo, not only on an emitted one."""
     repo = _exemplar(tmp_path)
 
-    assert _revalidate(runner, repo, "--preset", "control-assistant").exit_code == 0
+    assert _revalidate(runner, repo, "--preset", "demo").exit_code == 0
     once = _repo_files(repo)
-    again = _revalidate(runner, repo, "--preset", "control-assistant")
+    again = _revalidate(runner, repo, "--preset", "demo")
     assert again.exit_code == 0, again.output
 
     assert _repo_files(repo) == once
@@ -908,7 +906,7 @@ def test_a_re_pointed_profile_warns_about_the_drift_it_turns_on(
     """Stamping provenance turns the preset-drift lint on, so the verb says so."""
     repo = _exemplar(tmp_path)
 
-    result = _revalidate(runner, repo, "--preset", "control-assistant")
+    result = _revalidate(runner, repo, "--preset", "demo")
     assert result.exit_code == 0, result.output
 
     assert "DEVIATION" in result.output
@@ -923,11 +921,11 @@ def test_a_re_pointed_profile_warns_about_the_drift_it_turns_on(
     assert warned.exit_code == 0, warned.output
 
 
-def test_an_old_control_assistant_profile_without_shared_does_not_gain_it(
+def test_an_old_demo_profile_without_shared_does_not_gain_it(
     runner: CliRunner, tmp_path: Path
 ) -> None:
     repo = tmp_path / "facility"
-    _init(runner, repo, "control-assistant")
+    _init(runner, repo, "demo")
     profile = repo / "profile.yml"
     _edit_round_trip(profile, lambda doc: doc["config"]["modules.web_terminals"].pop("shared"))
     assert "shared" not in _profile_data(profile)["config"]["modules.web_terminals"]
@@ -946,7 +944,7 @@ def test_a_profile_without_dispatch_gains_no_dispatch_block(
 ) -> None:
     """The fill reads ``config:`` only, so a top-level block is never filled."""
     repo = tmp_path / "facility"
-    _init(runner, repo, "control-assistant")
+    _init(runner, repo, "demo")
     profile = repo / "profile.yml"
     assert "dispatch" in _profile_data(profile)
     profile.write_text(
@@ -963,7 +961,7 @@ def test_a_profile_without_dispatch_gains_no_dispatch_block(
 
 def test_a_dispatch_block_without_a_tier_gains_none(runner: CliRunner, tmp_path: Path) -> None:
     repo = tmp_path / "facility"
-    _init(runner, repo, "control-assistant")
+    _init(runner, repo, "demo")
     profile = repo / "profile.yml"
     _edit_round_trip(profile, lambda doc: doc["dispatch"].pop("tier"))
     assert "tier" not in _profile_data(profile)["dispatch"]
@@ -994,7 +992,7 @@ def test_authorization_roles_are_never_filled(
 
     monkeypatch.setattr(init_revalidate, "_reference_document", reference_with_roles)
     repo = tmp_path / "facility"
-    _init(runner, repo, "control-assistant")
+    _init(runner, repo, "demo")
     profile = repo / "profile.yml"
 
     result = _revalidate(runner, repo)
@@ -1017,12 +1015,12 @@ def test_the_header_prose_names_the_preset_provenance_now_names(
     _to_old_shape(profile)
     assert "Made from the bundled `hello-world` preset" in profile.read_text(encoding="utf-8")
 
-    assert _revalidate(runner, repo, "--preset", "control-assistant").exit_code == 0
+    assert _revalidate(runner, repo, "--preset", "demo").exit_code == 0
 
     text = profile.read_text(encoding="utf-8")
-    assert "Made from the bundled `control-assistant` preset" in text
+    assert "Made from the bundled `demo` preset" in text
     assert "`hello-world` preset" not in text
-    assert f"preset content hash: {compute_preset_hash('control-assistant')}" in text
+    assert f"preset content hash: {compute_preset_hash('demo')}" in text
 
 
 def _empty_config(profile: Path) -> None:

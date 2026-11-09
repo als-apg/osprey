@@ -172,7 +172,7 @@ def test_the_on_off_patterns_catch_the_old_wording(text: str):
         "Set the real machine to off and work on the simulator.",
         "Expansion turned on or off rebuilds the mirror.",
         "the attribute writes on DeviceProxy",
-        "The control-assistant preset turns it on; delete the lines to opt out.",
+        "The demo preset turns it on; delete the lines to opt out.",
         "the switch is off by default and is turned on with an env var",
     ],
 )

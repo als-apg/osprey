@@ -264,17 +264,17 @@ def test_the_graph_view_is_always_written() -> None:
 @pytest.mark.slow
 class TestTheBuiltGraph:
     @pytest.fixture(scope="class")
-    def text(self, built_control_assistant: BuiltProject) -> str:
-        return (built_control_assistant.build_dir / GRAPH_VIEW).read_text(encoding="utf-8")
+    def text(self, built_demo: BuiltProject) -> str:
+        return (built_demo.build_dir / GRAPH_VIEW).read_text(encoding="utf-8")
 
     @pytest.fixture(scope="class")
     def graph(self, text: str) -> Graph:
         return _graph(text)
 
     def test_the_build_writes_the_view_under_its_header(
-        self, built_control_assistant: BuiltProject, text: str
+        self, built_demo: BuiltProject, text: str
     ) -> None:
-        digest = hashlib.sha256(built_control_assistant.facility_raw).hexdigest()
+        digest = hashlib.sha256(built_demo.facility_raw).hexdigest()
 
         assert text.split("\n", 1)[0] == HEADER_PREFIX + digest
 
@@ -282,9 +282,9 @@ class TestTheBuiltGraph:
         assert _narad_predicates(graph) == PREDICATES
 
     def test_every_setpoint_and_readback_with_a_signal_has_one_signal_edge(
-        self, built_control_assistant: BuiltProject, graph: Graph
+        self, built_demo: BuiltProject, graph: Graph
     ) -> None:
-        facility = built_control_assistant.facility
+        facility = built_demo.facility
         code = facility["identity"]["code"]
         edges = Counter(
             subject
@@ -306,11 +306,11 @@ class TestTheBuiltGraph:
         assert sum(edges.values()) == len(signalled)
 
     def test_the_septum_waveform_is_a_binding_of_a_septum(
-        self, built_control_assistant: BuiltProject, graph: Graph
+        self, built_demo: BuiltProject, graph: Graph
     ) -> None:
         from rdflib import OWL
 
-        code = built_control_assistant.facility["identity"]["code"]
+        code = built_demo.facility["identity"]["code"]
         wave = URIRef(iri(code, "channel", "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"))
         sek = URIRef(iri(code, "device", "SR/SEPTUM01"))
 
@@ -323,9 +323,9 @@ class TestTheBuiltGraph:
         assert (SEM.Septum, RDF.type, OWL.Class) in graph
 
     def test_every_device_carries_the_facility_code(
-        self, built_control_assistant: BuiltProject, graph: Graph
+        self, built_demo: BuiltProject, graph: Graph
     ) -> None:
-        facility = built_control_assistant.facility
+        facility = built_demo.facility
         code = facility["identity"]["code"]
 
         assert set(graph.subjects(P.facility, Literal(code))) == {

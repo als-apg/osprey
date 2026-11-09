@@ -1,6 +1,6 @@
 """Spans place each device of the four-model demo from its own model's deck.
 
-The built control-assistant demo holds four deck-bearing models: the periodic
+The built demo holds four deck-bearing models: the periodic
 ``SR`` and the single-pass lines ``LINE``, ``LTB`` and ``BTS``. Every LINE
 device takes its s from the LINE deck and its place ``LINE`` from the LINE
 span; every wired LTB and BTS device takes its s from its own deck and keeps
@@ -66,17 +66,15 @@ def _cells(node: Mapping[str, Any]) -> Iterator[tuple[str, list[str]]]:
 
 
 @pytest.fixture(scope="module")
-def facility(built_control_assistant: BuiltProject) -> dict[str, Any]:
-    return built_control_assistant.facility
+def facility(built_demo: BuiltProject) -> dict[str, Any]:
+    return built_demo.facility
 
 
 @pytest.fixture(scope="module")
-def middle_layer(built_control_assistant: BuiltProject) -> dict[str, Any]:
+def middle_layer(built_demo: BuiltProject) -> dict[str, Any]:
     from osprey.facility.views.channel_finder import middle_layer_document
 
-    document, _left_out, _keyed = middle_layer_document(
-        FacilityRecords(built_control_assistant.facility)
-    )
+    document, _left_out, _keyed = middle_layer_document(FacilityRecords(built_demo.facility))
     return document
 
 

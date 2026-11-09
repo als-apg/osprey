@@ -142,7 +142,7 @@ A deployment baselined on the stand-in
 (``control_system.type: live_standin``) starts on ``standin``, so
 going to the real machine is one tool call — the same call, and the same
 prompts, as on a deployment that never had a stand-in at all. The
-``control-assistant`` preset starts on the simulator (``va``) instead, so there
+``demo`` preset starts on the simulator (``va``) instead, so there
 the stand-in is a switch of its own before the real machine.
 
 Read the roster before you ask for it, so you know what will happen::
@@ -171,7 +171,7 @@ What it cannot do is move a session onto it.
 **The gateways** (``gateways_missing``).
 ``control_system.connector.epics.gateways`` names where the live machine is
 reached. A facility's gateways cannot be guessed, so nothing usable ships
-here: the control-assistant template leaves the whole block commented out —
+here: the demo template leaves the whole block commented out —
 there this is the first gate, and the live target reads *not configured*
 until you author it — while the generic project template writes placeholder
 addresses instead, which pass this gate and fail the probe. Either way, the
@@ -607,8 +607,8 @@ lane's containers. See :doc:`../bluesky/index` for the plan stack itself.
 
 The **BLUESKY panel** follows the same two-lane deployment with a picker of its
 own. It does not follow the control target: which lane the panel shows is its
-own choice, made in the panel. It shows which machine it is pointed at in its
-status strip, labelled by target, and switching lanes there reloads the panel onto the other
+own choice, made in the panel. It shows which machine it is pointed at in the
+lane picker in its toolbar, labelled by target, and switching lanes there reloads the panel onto the other
 lane's bridge: its plans, shared draft, queue and results all move together, and
 starting the queue uses that lane's own launch token. A single-lane deployment
 shows no picker and nothing about its panel changes.
@@ -623,7 +623,7 @@ rehearse the procedure on: a second soft IOC the deployment runs for itself,
 deployed as a third control target of its own.
 
 Setting ``virtual_accelerator.live_standin: true`` in the build profile deploys
-it, and the ``control-assistant`` preset ships that line on. What the build
+it, and the ``demo`` preset ships that line on. What the build
 derives from it is the stand-in's own ``control_system.connector.live_standin``
 block and nothing else — where the stand-in listens, and what proves it
 reachable. The ``epics`` block beside it is untouched, so a facility already

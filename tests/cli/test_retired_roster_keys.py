@@ -527,7 +527,7 @@ def test_extends_in_a_layer_is_refused_without_the_retired_tier_word(
     (repo / "profile.yml").write_text("name: Facility\ndata: data\n", encoding="utf-8")
     path = repo / layer
     path.parent.mkdir(parents=True)
-    path.write_text("extends: control-assistant\n", encoding="utf-8")
+    path.write_text("extends: demo\n", encoding="utf-8")
 
     with pytest.raises(BuildProfileError, match="'extends'") as excinfo:
         resolve_profile_document(yaml.safe_load(path.read_text(encoding="utf-8")), path, warn=False)
@@ -535,9 +535,9 @@ def test_extends_in_a_layer_is_refused_without_the_retired_tier_word(
 
 
 def test_an_emitted_preset_carries_no_retired_catalog() -> None:
-    """The control-assistant roster, folded into one key by a dotted override."""
+    """The demo roster, folded into one key by a dotted override."""
     text = emit_standalone_profile_yaml(
-        "control-assistant",
+        "demo",
         ("config.modules.web_terminals.enabled=false",),
         "Emitted",
         project_name="emitted",
@@ -561,10 +561,10 @@ def test_a_retired_catalog_in_a_profile_config_emits_no_render() -> None:
     assert not emits_layer_profiles(legacy)
 
 
-def test_the_control_assistant_roster_renders_no_retired_key(tmp_path: Path) -> None:
+def test_the_demo_roster_renders_no_retired_key(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yml"
     config_path.write_text(yaml.safe_dump({"system": {}}), encoding="utf-8")
-    profile, _ = resolve_build_profile(None, preset="control-assistant")
+    profile, _ = resolve_build_profile(None, preset="demo")
     config_update_fields(config_path, profile.config)
     wt = yaml.safe_load(config_path.read_text(encoding="utf-8"))["modules"]["web_terminals"]
 
@@ -575,10 +575,10 @@ def test_the_control_assistant_roster_renders_no_retired_key(tmp_path: Path) -> 
         assert RETIRED_TIER_KEY not in user, user
 
 
-def test_the_control_assistant_preset_never_says_the_retired_tier_word() -> None:
+def test_the_demo_preset_never_says_the_retired_tier_word() -> None:
     """Every comment of the preset is copied into the operator's ``profile.yml``,
     so the word here would teach the retired vocabulary to every new deployment."""
-    text = (_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8")
+    text = (_presets_dir() / "demo.yml").read_text(encoding="utf-8")
 
     assert re.findall(rf"(?i){RETIRED_TIER_KEY}", text) == []
 
@@ -649,7 +649,7 @@ def test_a_missing_layer_file_is_named_without_the_retired_catalog(tmp_path: Pat
 
 
 def test_the_render_shape_problem_never_says_the_retired_tier_word() -> None:
-    problem = render_build_profile_shape_problem("control-assistant")
+    problem = render_build_profile_shape_problem("demo")
 
     assert problem is not None
     assert RETIRED_TIER_KEY not in problem.lower()
@@ -666,7 +666,6 @@ def _lint_config(**web_terminals: object) -> dict:
         "web_base_port": default_port("web", 0, base=20000),
         "artifact_base_port": default_port("artifact", 0, base=20000),
         "ariel_base_port": default_port("ariel", 0, base=20000),
-        "lattice_base_port": default_port("lattice", 0, base=20000),
         "users": [{"name": "alice", "index": 0}, {"name": "bob", "index": 1}],
         "shared": ["logbook", "knowledge"],
         "default_tier": "readonly",

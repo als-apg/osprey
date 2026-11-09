@@ -164,3 +164,26 @@ def test_a_short_row_raises():
 def test_a_long_row_raises():
     with pytest.raises(ValueError):
         rows_from_columnar(_COLUMNS, [[1.0, 0.1, 99.0]], 1)
+
+
+# --- Units ---------------------------------------------------------------------
+
+
+def test_a_window_carries_the_units_it_was_given():
+    units = {"corrector_1": "u-c", "bpm3": "u-b"}
+    window = rows_from_columnar(_COLUMNS, [[1.0, -0.5]], 1, units)
+
+    assert dict(window.units) == units
+
+
+def test_a_window_built_without_units_declares_none():
+    assert dict(rows_from_columnar(_COLUMNS, [[1.0, -0.5]], 1).units) == {}
+    assert dict(RowWindow(rows=[], columns=[], rows_complete=True, total_seen=0).units) == {}
+
+
+def test_the_units_are_copied_not_aliased():
+    units = {"bpm3": "u-b"}
+    window = rows_from_columnar(_COLUMNS, [[1.0, -0.5]], 1, units)
+    units["bpm3"] = "changed"
+
+    assert window.units["bpm3"] == "u-b"

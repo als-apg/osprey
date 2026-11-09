@@ -4,9 +4,11 @@ A session key is the one identity a browser tab keeps for its whole life: the
 same string names the PTY pool entry, the chat pool entry and the audit
 session. The *transcript* is a different thing — the Claude
 Code session id whose ``.jsonl`` holds the conversation — and the two are equal
-only until the conversation is replaced. A ``/clear`` in the terminal starts a
+only until the conversation is replaced. A ``/clear`` on either surface starts a
 fresh transcript under a new id while the key stays exactly where it was, so
-after one ``/clear`` the key and the transcript have diverged permanently.
+after one ``/clear`` the key and the transcript have diverged permanently. Two
+routes record the move: the agent-turn route for the terminal, from its hook's
+reports, and the chat route for the chat, from the SDK's own reports.
 
 This module holds that divergence, and nothing else:
 
@@ -50,7 +52,7 @@ from osprey_connectors import posture_store
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["STORE_FILENAME", "get", "load", "set", "store_path"]
+__all__ = ["STORE_FILENAME", "get", "keys_on", "load", "set", "store_path"]
 
 #: The document's name, beside ``control_context.json`` in the same directory.
 STORE_FILENAME = "session-transcripts.json"
@@ -132,6 +134,11 @@ def _mapping(app) -> dict[str, str]:
 def get(app, key: str) -> str:
     """The transcript *key* currently points at — *key* itself when it has moved nowhere."""
     return _mapping(app).get(key) or key
+
+
+def keys_on(app, transcript_id: str) -> list[str]:
+    """The keys the map points at *transcript_id* (a deleted session's to re-point)."""
+    return [key for key, target in _mapping(app).items() if target == transcript_id]
 
 
 def set(app, key: str, transcript_id: str) -> None:

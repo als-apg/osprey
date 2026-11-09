@@ -107,11 +107,10 @@ async def create_dashboard(
             ],
         )
 
-    # Collect artifacts with category and embedded metadata
+    # Collect artifacts with embedded metadata
     artifact_ids = collect_and_register_artifacts(
         exec_result,
         tool_source="create_dashboard",
-        category="dashboard",
         code=code,
         stdout=exec_result.stdout,
     )

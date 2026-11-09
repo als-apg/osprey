@@ -118,8 +118,8 @@ def _ids(records: Iterable[Mapping[str, Any]]) -> list[str]:
     return [str(record["id"]) for record in records]
 
 
-def test_every_record_is_found_by_its_kind_and_id_slot(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_every_record_is_found_by_its_kind_and_id_slot(built_demo: Any) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
 
     for kind, key, slot in RECORD_KINDS:
@@ -146,9 +146,9 @@ def test_a_returned_record_is_the_documents_own_and_read_only() -> None:
 
 
 def test_channels_on_a_device_are_its_on_and_endpoint_channels(
-    built_control_assistant: Any,
+    built_demo: Any,
 ) -> None:
-    doc = built_control_assistant.facility
+    doc = built_demo.facility
     records = FacilityRecords(doc)
 
     for device in doc["devices"]:
@@ -248,8 +248,8 @@ def _wiring(doc: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
-def test_wired_is_the_wiring_record_naming_an_address(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_wired_is_the_wiring_record_naming_an_address(built_demo: Any) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
 
     wiring = _wiring(doc)
@@ -258,8 +258,8 @@ def test_wired_is_the_wiring_record_naming_an_address(built_control_assistant: A
         assert records.wired(entry["address"]) is entry
 
 
-def test_an_address_no_model_wires_has_no_wiring_record(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_an_address_no_model_wires_has_no_wiring_record(built_demo: Any) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
 
     addresses = {entry["address"] for _model, entry in _wiring(doc)}
@@ -290,8 +290,8 @@ def test_a_selection_value_must_be_a_string() -> None:
         ChannelSelection(model=1)  # type: ignore[arg-type]
 
 
-def test_a_model_selection_is_the_models_wired_channels(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_a_model_selection_is_the_models_wired_channels(built_demo: Any) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
     device_model = {device["id"]: device.get("model") for device in doc["devices"]}
 
@@ -309,9 +309,9 @@ def test_a_model_selection_is_the_models_wired_channels(built_control_assistant:
 
 
 def test_a_place_selection_takes_the_place_and_every_place_under_it(
-    built_control_assistant: Any,
+    built_demo: Any,
 ) -> None:
-    doc = built_control_assistant.facility
+    doc = built_demo.facility
     records = FacilityRecords(doc)
     device_place = {device["id"]: device.get("place") for device in doc["devices"]}
     parents = [
@@ -388,8 +388,8 @@ def test_an_unknown_model_place_or_group_is_refused_by_name(selection: ChannelSe
 # --- wiring facets -----------------------------------------------------------------
 
 
-def test_role_and_plane_are_read_from_the_wiring_records(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_role_and_plane_are_read_from_the_wiring_records(built_demo: Any) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
     wiring = _wiring(doc)
 
