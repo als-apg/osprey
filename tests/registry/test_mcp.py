@@ -1489,8 +1489,8 @@ class TestTemplateRendering:
         # Check a sample allow entry
         allow = data["permissions"]["allow"]
         root = DEFAULT_AGENT_DATA_BASE_DIR
-        assert f'"Read({root}/**)"' not in allow  # Not double-quoted
-        assert f"Read({root}/**)" in allow
+        assert f'"Edit({root}/artifacts/**)"' not in allow  # Not double-quoted
+        assert f"Edit({root}/artifacts/**)" in allow
         assert "mcp__osprey_workspace__artifact_read" in allow
         # Check ask entries
         ask = data["permissions"]["ask"]
