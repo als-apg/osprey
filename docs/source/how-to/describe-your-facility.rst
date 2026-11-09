@@ -328,7 +328,7 @@ Limits
 ======
 
 ``limits.yaml`` holds the write limits, one record per channel. The
-control-assistant preset ships this one:
+demo preset ships this one:
 
 .. literalinclude:: ../../../src/osprey/templates/facilities/example/limits.yaml
    :language: yaml
@@ -487,7 +487,7 @@ Measurement
 ===========
 
 ``measurement/<model>.yaml`` states which measurements a model allows and
-what they use. The control-assistant preset ships this one for its storage
+what they use. The demo preset ships this one for its storage
 ring:
 
 .. literalinclude:: ../../../src/osprey/templates/facilities/example/measurement/SR.yaml

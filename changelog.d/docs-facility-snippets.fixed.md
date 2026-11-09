@@ -1,4 +1,4 @@
-The "Describe your facility" page's examples now work on the control-assistant
+The "Describe your facility" page's examples now work on the demo
 preset it describes. The fixes example and the seed examples named channels
 the preset does not have and stopped the build; they now use preset channels.
 The channel-list CSV now gives its device a position, so the import writes the

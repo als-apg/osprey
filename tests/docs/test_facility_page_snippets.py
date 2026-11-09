@@ -1,7 +1,7 @@
 """The facility pages' snippets are facility files the build accepts.
 
 ``describe-your-facility.rst`` walks the tree ``osprey init --preset
-control-assistant`` writes, so each of its YAML blocks is checked against that
+demo`` writes, so each of its YAML blocks is checked against that
 preset's bundled facility, ``templates/facilities/example``:
 
 * a block that states whole records is pasted into one scratch copy of the
@@ -244,11 +244,12 @@ def test_the_channel_list_and_its_fixes_build_on_the_preset(tmp_path: Path) -> N
 
     from osprey.cli.facility_cmd import _replace_or_refuse
     from osprey.facility.layers.list import import_list
+    from osprey.facility.roots import FacilityRoots
 
     facility = tmp_path / "facility"
     shutil.copytree(PRESET, facility)
     with click.Context(click.Command("list")) as ctx:
-        _replace_or_refuse(ctx, "list", facility, tmp_path)
+        _replace_or_refuse(ctx, "list", FacilityRoots.single(facility), tmp_path)
 
     import_list(HOW_TO / CHANNEL_LIST, facility)
     _dump(facility / "fixes.yaml", _block(FACILITY_PAGE, FIXES).data)
