@@ -1275,6 +1275,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         after: str | None = None,
         before: str | None = None,
         runs: Literal["grouped"] | None = Query(None),
+        exec_id: str | None = None,
     ):
         """List one newest-first page of artifacts.
 
@@ -1283,8 +1284,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         before)`` of aware ISO-8601 times; ``runs=grouped`` drops a run's
         preview and notebook, which list under their head, and keeps its
         outputs; ``search`` matches the title, file name, description, type
-        and form label. ``total`` and ``next_cursor`` count and walk the
-        filtered set.
+        and form label; ``exec_id`` keeps one run's entries (the chat's run
+        rows read a run they have not listed this way). ``total`` and
+        ``next_cursor`` count and walk the filtered set.
 
         This is the unscoped listing, the palette's search and the gallery's
         all-sessions view: it takes no session and keeps dispatch and watchdog
@@ -1298,6 +1300,8 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if exec_id:
+            entries = [e for e in entries if e.exec_id == exec_id]
         view = _view()
         entries = _refine(entries, view, form=form, runs=runs, search=search)
         try:

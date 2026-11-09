@@ -18,23 +18,33 @@
  * session rows as the session list.
  *
  * MENUS. The heading's right-click (or Shift+F10 / the menu key): Expand or
- * Collapse, Rename, then Hide pinned sessions. Show pinned sessions, a
+ * Collapse, Rename…, then Hide pinned sessions. Show pinned sessions, a
  * checkable item greyed while nothing is pinned, is on the Sessions row's menu
- * (sidebar-artifact-menus.js) and on a right-click of empty sidebar space.
+ * (sidebar-artifact-menus.js) and on empty sidebar space's menu, between New
+ * group… and Collapse sidebar. A Shift+right-click, the sidebar collapsed to
+ * icons, and a rename in progress keep the browser's menu.
  *
  * VIEW STATE. Hidden, folded and the name are this browser's, per user, under
  * `scopedStorageKey('osprey-sidebar-pinned')`. The first pin shows the group
- * folded; a pin made while the group is hidden shows it again; unpinning the
- * last session takes the group away and keeps its name.
+ * folded; once hidden, the group stays hidden through later pins until Show
+ * pinned sessions brings it back; unpinning the last session takes the group
+ * away and keeps its name.
  *
  * @module sidebar-session-pins
  */
 
 import { icon } from '/design-system/js/icons.js';
-import { isContextMenuKey } from '/design-system/js/context-menu.js';
+import { declinesToBrowser, isContextMenuKey } from '/design-system/js/context-menu.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { openContextMenu } from './panel-context-menu.js';
 import { FOLD_EVENT } from './sidebar-fold.js';
+import { hintFor } from './key-bindings.js';
+import {
+  NEW_GROUP_LABEL,
+  addGroup,
+  isSidebarRenaming,
+  startGroupRename,
+} from './sidebar-groups.js';
 
 /** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
 
@@ -131,8 +141,8 @@ export function setPinnedFolded(folded) {
 }
 
 /**
- * Pin or unpin a session: the group shows (folded on the first pin), then the
- * model sets the pin. session-model.js is imported lazily: the menus import
+ * Pin or unpin a session: the first pin folds the group, which then shows
+ * unless the operator hid it, then the model sets the pin. session-model.js is imported lazily: the menus import
  * this module, and a static edge to the model would close a cycle through the
  * chat (sidebar-artifact-menus.js says why).
  * @param {string} transcriptId
@@ -140,8 +150,7 @@ export function setPinnedFolded(folded) {
  * @returns {Promise<boolean>} whether the hub took it
  */
 export async function setSessionPinned(transcriptId, pinned) {
-  if (pinned && (count === 0 || view.hidden))
-    update({ hidden: false, folded: count === 0 ? true : view.folded });
+  if (pinned && count === 0) update({ folded: true });
   const model = await import('./session-model.js');
   return model.setPinned(transcriptId, pinned);
 }
@@ -232,14 +241,17 @@ function wireHead(head) {
   head.addEventListener('click', () => {
     if (!renaming()) setPinnedFolded(!view.folded);
   });
+  /** @returns {boolean} whether the heading's menu stays shut */
+  const declines = () => renaming() || isSidebarRenaming() || sidebarCollapsed();
   head.addEventListener('contextmenu', (event) => {
-    if (renaming()) return;
+    if (declinesToBrowser(event) || declines()) return;
     event.preventDefault();
     openHeadMenu(head, event.clientX, event.clientY);
   });
   head.addEventListener('keydown', (event) => {
     if (renaming()) return;
     if (isContextMenuKey(event)) {
+      if (declines()) return;
       event.preventDefault();
       const rect = head.getBoundingClientRect();
       openHeadMenu(head, rect.left + 8, rect.bottom);
@@ -258,7 +270,7 @@ function wireHead(head) {
 export function headMenuItems(head) {
   return [
     { label: view.folded ? 'Expand' : 'Collapse', run: () => setPinnedFolded(!view.folded) },
-    { label: 'Rename', run: () => startPinnedRename(head) },
+    { label: 'Rename…', run: () => startPinnedRename(head) },
     { divider: true },
     { label: 'Hide pinned sessions', run: () => setPinnedHidden(true) },
   ];
@@ -321,29 +333,83 @@ export function startPinnedRename(head) {
 /** What counts as empty sidebar space: the containers themselves, not a row in them. */
 const EMPTY_SPACE = '#sidebar, #panel-rail, #panel-rail > .sidebar-group, .sidebar-fold-spacer';
 
-/** @param {MouseEvent} event */
-function onSidebarContextMenu(event) {
+/** @returns {boolean} whether the sidebar shows icons only */
+function sidebarCollapsed() {
+  return document.documentElement.getAttribute('data-sidebar') === 'collapsed';
+}
+
+/**
+ * Empty sidebar space's menu items: New group…, Show pinned sessions and
+ * Collapse sidebar (the labels toggle's verb, with its shortcut).
+ * @returns {MenuItem[]}
+ */
+export function emptySidebarMenuItems() {
+  return [
+    {
+      label: 'New group…',
+      run: () => {
+        const rail = document.getElementById(RAIL_ID);
+        const id = addGroup(NEW_GROUP_LABEL);
+        if (rail) startGroupRename(rail, id);
+      },
+    },
+    showPinnedItem(),
+    {
+      label: 'Collapse sidebar',
+      hint: hintFor('sidebar-toggle'),
+      run: () => document.getElementById('sidebar-toggle')?.click(),
+    },
+  ];
+}
+
+/**
+ * Open empty sidebar space's menu for an event on it; the browser keeps its
+ * own menu for a target that is not empty space, while the sidebar shows
+ * icons only, and while a name is being renamed.
+ * @param {Event} event
+ * @param {number} x
+ * @param {number} y
+ * @returns {boolean} whether the menu opened
+ */
+function openEmptyMenu(event, x, y) {
   const target = event.target instanceof Element ? event.target : null;
-  if (!target?.matches(EMPTY_SPACE)) return;
-  if (document.documentElement.getAttribute('data-sidebar') === 'collapsed') return;
-  event.preventDefault();
+  if (!target?.matches(EMPTY_SPACE) || sidebarCollapsed() || isSidebarRenaming()) return false;
   openContextMenu({
-    x: event.clientX,
-    y: event.clientY,
+    x,
+    y,
     anchorEl: /** @type {HTMLElement} */ (target),
     ariaLabel: 'Sidebar',
-    items: [showPinnedItem()],
+    items: emptySidebarMenuItems(),
   });
+  return true;
+}
+
+/** @param {MouseEvent} event */
+function onSidebarContextMenu(event) {
+  if (declinesToBrowser(event)) return;
+  if (openEmptyMenu(event, event.clientX, event.clientY)) event.preventDefault();
+}
+
+/**
+ * Shift+F10 / the menu key with focus on empty sidebar space (macOS fires no
+ * `contextmenu` for those keys).
+ * @param {KeyboardEvent} event
+ */
+function onSidebarKeydown(event) {
+  if (!isContextMenuKey(event) || !(event.target instanceof Element)) return;
+  const rect = event.target.getBoundingClientRect();
+  if (openEmptyMenu(event, rect.left + 8, rect.bottom)) event.preventDefault();
 }
 
 /** @type {AbortController | null} */
 let wired = null;
 
-/** Listen for right-clicks on empty sidebar space. Idempotent. */
+/** Listen for menu requests on empty sidebar space. Idempotent. */
 export function initPinnedMenus() {
   if (wired) return;
   wired = new AbortController();
   document.addEventListener('contextmenu', onSidebarContextMenu, { signal: wired.signal });
+  document.addEventListener('keydown', onSidebarKeydown, { signal: wired.signal });
 }
 
 /** Forget everything (tests). */

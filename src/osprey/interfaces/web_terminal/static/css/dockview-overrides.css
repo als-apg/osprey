@@ -542,6 +542,16 @@
   flex: 0 0 auto;
 }
 
+/* Open in new window while the pane cannot leave: the primitive's disabled
+ * look, but it keeps its pointer events, so the next hover or click reads the
+ * gate again once the panel has loaded (dock-tab.js buildWindowButton). */
+.tile-tab .tile-tab-window[aria-disabled="true"] {
+  opacity: 0.35;
+  background: none;
+  color: var(--text-secondary);
+  cursor: default;
+}
+
 /* ---- Drop preview ----
  * Painted by the drop bridge (dock-drop.js) in a layer that never takes
  * pointer events — dragover must keep reaching the dock beneath it. */

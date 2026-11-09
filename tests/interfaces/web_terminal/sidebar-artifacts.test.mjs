@@ -81,6 +81,13 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-sync
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js', () => ({
   activateTab: mocks.activateTab,
 }));
+// The panel's frame as dock-iframe holds it: the skeleton's.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
+  managedIframe: (/** @type {string} */ id) => {
+    const iframe = document.querySelector(`iframe.panel-iframe[data-panel-id="${id}"]`);
+    return iframe ? { iframe, title: 'Artifacts' } : null;
+  },
+}));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.js', () => ({
   hasDockedTile: mocks.hasDockedTile,
 }));
@@ -1401,7 +1408,7 @@ describe('session pins: the pinned group and the pin button', () => {
     expect(pinnedCopy(T3).getAttribute('aria-expanded')).toBe('true');
   });
 
-  test('pinning while the group is hidden shows it again; hiding hides no session', async () => {
+  test('pinning while the group is hidden keeps it hidden; hiding hides no session', async () => {
     pinT2OnHub();
     await boot();
     const pins = await import(`${JS}/sidebar-session-pins.js`);
@@ -1410,8 +1417,11 @@ describe('session pins: the pinned group and the pin button', () => {
     expect(sessionTitles()).toEqual(['Orbit study', 'Tune scan']);
     click(pinButton(sessionRowEl(T1)));
     await settle();
-    expect(group().hidden).toBe(false);
+    expect(group().hidden).toBe(true);
     expect(head().querySelector('.sidebar-pinned-count')?.textContent).toBe('2');
+    pins.setPinnedHidden(false);
+    await settle();
+    expect(group().hidden).toBe(false);
   });
 
   test('the collapsed sidebar flyout lists the pinned sessions first, under the group name', async () => {

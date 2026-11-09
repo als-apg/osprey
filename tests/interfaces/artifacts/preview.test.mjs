@@ -1,7 +1,7 @@
 /**
  * Unit tests for the Artifact Gallery preview pane shell (preview.js, task
- * 5.4 extraction: renderPreview's per-type viewport dispatch), and the
- * `deleteArtifact` action the viewer runs.
+ * 5.4 extraction: renderPreview's per-type viewport dispatch). Delete is the
+ * hub's (artifact-verbs.test.mjs).
  *
  * The markdown+KaTeX render pipeline and the JSON viewer moved to the
  * sibling preview-content.js module (split purely to stay under the
@@ -23,9 +23,7 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   setArtifacts,
-  getArtifacts,
   setSelectedArtifact,
-  getSelectedArtifact,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 
 import { createPreviewRenderer } from '../../../src/osprey/interfaces/artifacts/static/js/preview.js';
@@ -317,77 +315,5 @@ describe('renderPreview: the artifact alone (the hub has the bar and the details
     expect(callbacks.onTimeseriesNeeded.mock.calls[0][0]).toBe(
       document.querySelector('.preview-viewport .ts-viewport-container')
     );
-  });
-});
-
-describe('deleteArtifact', () => {
-  test('confirms, DELETEs, updates local state, and re-renders to empty', async () => {
-    const confirmStub = vi.fn(() => true);
-    vi.stubGlobal('confirm', confirmStub);
-    const artifact = makeArtifact();
-    setArtifacts([artifact, makeArtifact({ id: 'a2' })]);
-    setSelectedArtifact(artifact);
-    const callbacks = makeCallbacks();
-    const renderer = createPreviewRenderer(callbacks);
-    renderer.renderPreview();
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await renderer.deleteArtifact(artifact);
-
-    expect(confirmStub).toHaveBeenCalledWith('Delete "Beam Profile"? This cannot be undone.');
-    expect(fetchMock).toHaveBeenCalledWith('/api/artifacts/a1', { method: 'DELETE' });
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
-    expect(getSelectedArtifact()).toBeNull();
-    expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
-  });
-
-  test('deleting an artifact other than the one shown keeps the selection', async () => {
-    const doomed = makeArtifact();
-    const shown = makeArtifact({ id: 'a2', title: 'Orbit', filename: 'orbit.png' });
-    setArtifacts([doomed, shown]);
-    setSelectedArtifact(shown);
-    const renderer = createPreviewRenderer(makeCallbacks());
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
-    );
-
-    await renderer.deleteArtifact(doomed);
-
-    expect(getArtifacts().map((a) => a.id)).toEqual(['a2']);
-    expect(getSelectedArtifact()).toBe(shown);
-    expect(byId('preview-content').classList.contains('hidden')).toBe(false);
-  });
-
-  test('does nothing when the confirm dialog is declined', async () => {
-    vi.stubGlobal(
-      'confirm',
-      vi.fn(() => false)
-    );
-    const artifact = makeArtifact();
-    setArtifacts([artifact]);
-    const callbacks = makeCallbacks();
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
-
-    await createPreviewRenderer(callbacks).deleteArtifact(artifact);
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(getArtifacts()).toEqual([artifact]);
-  });
-
-  test('a refused DELETE leaves the list, the selection and the focus as they were', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    const artifact = makeArtifact();
-    setArtifacts([artifact]);
-    setSelectedArtifact(artifact);
-    const callbacks = makeCallbacks();
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
-
-    await createPreviewRenderer(callbacks).deleteArtifact(artifact);
-
-    expect(getArtifacts()).toEqual([artifact]);
-    expect(getSelectedArtifact()).toBe(artifact);
   });
 });

@@ -1678,6 +1678,7 @@ _OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
     "gchat_bridge": "-gchat-bridge",
     "nextcloud_bridge": "-nextcloud-bridge",
     "teams_bridge": "-teams-bridge",
+    "slack_bridge": "-slack-bridge",
 }
 
 #: Tag those images carry when nothing sets the tag axis — the one ``osprey up``
@@ -2053,9 +2054,38 @@ def write_labels_override(out_base, compose_files, config):
     return target
 
 
+#: Plain scalars a YAML 1.2 reader (compose) resolves to something other than a
+#: string, by the 1.2 core schema. PyYAML resolves by YAML 1.1, so it leaves some
+#: of these unquoted: a repo-id digest such as ``096780950e46`` reached compose as
+#: the float ``9.678095e+53``.
+_YAML12_NON_STRING = re.compile(
+    r"[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+"
+    r"|[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?"
+    r"|[-+]?\.(inf|Inf|INF)|\.(nan|NaN|NAN)"
+    r"|true|True|TRUE|false|False|FALSE|null|Null|NULL|~|"
+)
+
+
+class _OverrideDumper(yaml.SafeDumper):
+    """Quotes every string compose would otherwise read as a number, bool or null."""
+
+
+def _represent_override_str(dumper, value):
+    style = '"' if _YAML12_NON_STRING.fullmatch(value) else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+
+_OverrideDumper.add_representer(str, _represent_override_str)
+
+
 def _dump_override(document):
-    return yaml.safe_dump(
-        document, sort_keys=False, default_flow_style=False, allow_unicode=True, width=4096
+    return yaml.dump(
+        document,
+        Dumper=_OverrideDumper,
+        sort_keys=False,
+        default_flow_style=False,
+        allow_unicode=True,
+        width=4096,
     )
 
 

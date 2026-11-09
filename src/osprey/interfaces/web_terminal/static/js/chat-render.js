@@ -211,6 +211,9 @@ export function createChatRenderer(container, options = {}) {
    * @param {Node} node
    */
   function append(node) {
+    // Entries take focus (on click, see chat-menus.js) so the menu key reaches them.
+    const el = /** @type {any} */ (node);
+    if (el.nodeType === 1 && el.classList.contains('op-entry')) el.setAttribute('tabindex', '-1');
     container.appendChild(node);
     if (loader?.el.isConnected) container.appendChild(loader.el);
   }

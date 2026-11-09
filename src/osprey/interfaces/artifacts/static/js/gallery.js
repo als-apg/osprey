@@ -181,23 +181,25 @@ window.addEventListener('message', (e) => {
 previewRenderer.renderPreview();
 
 // The hub says what to show, what to do with it and when it changed (viewer.js).
-createViewer({
-  getHeld: getArtifacts,
-  fetchEntry,
-  show: showInViewer,
-  update: applyUpdated,
-  remove: applyDeleted,
-  actions: {
-    print: printArtifact,
-    // No stream keeps the held list current here, and the composer's
-    // picker offers it, so it is fetched again first.
-    logbook: (a) => {
-      fetchArtifacts().finally(() => openComposeModal({ artifact_id: a.id }));
-    },
-    delete: (a) => previewRenderer.deleteArtifact(a),
-  },
-});
-
+// The viewer is created only once the type registry has loaded: creating it
+// tells the hub the frame is ready, and the hub answers with its selection at
+// once, so a registry still in flight would render an extension type through
+// the base view, and nothing renders it again when the registry lands.
 initTypeRegistry().then(() => {
+  createViewer({
+    getHeld: getArtifacts,
+    fetchEntry,
+    show: showInViewer,
+    update: applyUpdated,
+    remove: applyDeleted,
+    actions: {
+      print: printArtifact,
+      // No stream keeps the held list current here, and the composer's
+      // picker offers it, so it is fetched again first.
+      logbook: (a) => {
+        fetchArtifacts().finally(() => openComposeModal({ artifact_id: a.id }));
+      },
+    },
+  });
   fetchArtifacts();
 });

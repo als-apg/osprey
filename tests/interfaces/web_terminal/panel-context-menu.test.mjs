@@ -97,6 +97,9 @@ describe('openContextMenu — DOM contract', () => {
     const glyph = rows()[1].querySelector('.rail-context-glyph');
     expect(glyph?.textContent).toBe('⊞');
     expect(glyph?.getAttribute('aria-hidden')).toBe('true');
+    // The glyph leads the row; the label follows it.
+    expect(rows()[1].firstElementChild).toBe(glyph);
+    expect(glyph?.nextElementSibling?.className).toBe('rail-context-label');
 
     const divider = el.querySelector('.rail-context-divider');
     expect(divider?.getAttribute('role')).toBe('separator');

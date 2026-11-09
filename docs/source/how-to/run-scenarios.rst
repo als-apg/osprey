@@ -143,13 +143,17 @@ name. Every key is optional:
        below says what each does.
    * - ``archiver``
      - ``[{channel, events}]``, the history each channel's archive shows.
-       Each event has a ``shape``, ``step`` (``to``), ``ramp`` (``to``) or
+       Each event has a ``shape``, ``step`` (``to``), ``ramp`` (``to``),
        ``spike`` (``amplitude`` and ``width``, a Gaussian sigma in seconds),
-       and one position: ``at_offset`` (seconds from the apply-time anchor; a
-       ramp ends at ``until_offset``), ``at_time`` (a daily ``HH:MM:SS`` in the
+       ``burst`` (``amplitude`` reached at the event, then an exponential
+       decay over ``decay_s``, with an optional slower tail ``tail_decay_s``
+       carrying ``tail_share`` of it) or ``loss`` (``amount`` dropped at the
+       event, refilled only by the channel's top-off), and one position:
+       ``at_offset`` (seconds from the apply-time anchor; a ramp ends at
+       ``until_offset``), ``at_time`` (a daily ``HH:MM:SS`` in the
        facility time zone) or ``at_when`` (``{days_ago, time}``), which places
        an event at the instant a logbook entry's ``when`` names. ``at_time``
-       and ``at_when`` take ``step`` and ``spike`` only. A ``step`` on a float
+       and ``at_when`` take every shape but ``ramp``. A ``step`` on a float
        channel may end with ``until``, ``until_offset`` or ``until_when``,
        matching its position and later than it; after the end the channel
        returns to its baseline. A daily ``at_time`` step does not end.

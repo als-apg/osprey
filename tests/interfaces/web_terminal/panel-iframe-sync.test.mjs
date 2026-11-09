@@ -110,9 +110,9 @@ describe('the artifacts viewer messages', () => {
 
   test('an action names the artifact and the verb, for the hub origin only', () => {
     const { iframe, postMessage } = fakeFrame();
-    sync.sendArtifactActionToIframe(iframe, 'a1', 'delete');
+    sync.sendArtifactActionToIframe(iframe, 'a1', 'print');
     expect(postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-artifact-action', artifact_id: 'a1', action: 'delete' },
+      { type: 'osprey-artifact-action', artifact_id: 'a1', action: 'print' },
       window.location.origin
     );
   });

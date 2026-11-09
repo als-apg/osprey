@@ -17,7 +17,8 @@ const m = vi.hoisted(() => ({
   activateTab: vi.fn(),
   hasDockedTile: vi.fn(() => false),
   isDetached: vi.fn(() => false),
-  menuItems: vi.fn((_shown, run) => [{ label: 'Download', run: () => run('download') }]),
+  /** The panel's frame as dock-iframe holds it, in whichever document it is. */
+  frame: /** @type {HTMLIFrameElement | null} */ (null),
 }));
 const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-sync.js', () => ({
@@ -34,8 +35,9 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.j
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', () => ({
   isDetached: m.isDetached,
 }));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/artifacts-pane-header.js', () => ({
-  menuItems: m.menuItems,
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
+  managedIframe: (/** @type {string} */ id) =>
+    id === 'artifacts' && m.frame ? { iframe: m.frame, title: 'Artifacts' } : null,
 }));
 
 const viewer = await import(`${JS}/sidebar-artifact-viewer.js`);
@@ -46,6 +48,7 @@ function addIframe() {
   iframe.className = 'panel-iframe';
   iframe.dataset.panelId = 'artifacts';
   document.body.append(iframe);
+  m.frame = iframe;
   return iframe;
 }
 
@@ -53,6 +56,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.hasDockedTile.mockReturnValue(false);
   m.isDetached.mockReturnValue(false);
+  m.frame = null;
   document.body.replaceChildren();
 });
 
@@ -75,12 +79,23 @@ test('select and changed reach the iframe; a change with nothing shown does not'
   expect(m.sendArtifactChangedToIframe).toHaveBeenCalledOnce();
 });
 
-test("the tile menu's rows send their action for the shown artifact", () => {
+test("the tile menu's rows are the shown artifact's, the viewer's verbs sent to the frame", () => {
   const iframe = addIframe();
   expect(viewer.viewerMenuItems(null)).toEqual([]);
-  const [row] = viewer.viewerMenuItems(/** @type {any} */ ({ id: 'a1' }));
-  row.run?.();
-  expect(m.sendArtifactActionToIframe).toHaveBeenCalledWith(iframe, 'a1', 'download');
+  const rows = viewer.viewerMenuItems(/** @type {any} */ ({ id: 'a1' }));
+  // The tile menu draws its own divider before the danger row.
+  expect(rows.map((/** @type {any} */ row) => row.label)).toEqual([
+    'Compose logbook entry',
+    'Print…',
+    'Copy ID',
+    'Delete…',
+  ]);
+  rows[0].run?.();
+  rows[1].run?.();
+  expect(m.sendArtifactActionToIframe.mock.calls).toEqual([
+    [iframe, 'a1', 'logbook'],
+    [iframe, 'a1', 'print'],
+  ]);
 });
 
 test('ready is the iframe itself saying so, from this origin', () => {
@@ -98,6 +113,17 @@ test('ready is the iframe itself saying so, from this origin', () => {
   expect(ready({ origin: 'https://elsewhere.example' })).toBe(false);
   expect(ready({ data: { type: 'other' } })).toBe(false);
   expect(ready({ source: window })).toBe(false);
+});
+
+test('the frame is found in its own window too, out of this document', () => {
+  // Open in new window moves the element into the pane's window (pane-window.js).
+  const other = document.implementation.createHTMLDocument('window');
+  const iframe = other.createElement('iframe');
+  other.body.append(iframe);
+  m.frame = iframe;
+  expect(viewer.artifactsIframe()).toBe(iframe);
+  viewer.sendSelect('a1');
+  expect(m.sendArtifactSelectToIframe).toHaveBeenCalledWith(iframe, 'a1');
 });
 
 test('on view when docked or in its own window; the open rule activates only an undocked panel', () => {

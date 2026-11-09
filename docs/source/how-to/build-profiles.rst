@@ -117,7 +117,9 @@ The facility tree
 -----------------
 
 ``data/facility/`` holds every source of the facility file: the authored files
-and the ``imported/<layer>/`` directories the importers write.
+and the ``imported/<layer>/`` directories the importers write. With
+``machine:``, the machine facts come from a
+:doc:`machine repository </how-to/control-systems/machine-repository>` instead.
 :doc:`describe-your-facility` walks the tree file by file.
 
 ``osprey build`` reads the tree and writes the facility file and its views into
@@ -388,7 +390,8 @@ the repository, as must every file the profile ``extends``. ``osprey validate``
 and ``osprey build`` refuse a profile that reads anything outside the
 repository, before anything is installed, naming the path. The resolved tree is
 folded into the profile hash, so editing it reports the built project as out of
-date.
+date. ``machine:``, the facility directory of a mounted machine repository,
+resolves and is folded the same way.
 
 
 .. _profile-claim:
@@ -619,7 +622,7 @@ chiefly ``control_system.writes: never``; for ``admin``, the
 privileges the profile deliberately withholds. The build lays it over the
 profile: lists are added by name, ``config:`` keys win. A tier never subtracts
 and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
-``data:`` or ``services:``.
+``data:``, ``machine:`` or ``services:``.
 
 An app is a whole agent definition — its own skills, rules, brief and tool
 servers — composed over the deployment's services, data and provider. Every app

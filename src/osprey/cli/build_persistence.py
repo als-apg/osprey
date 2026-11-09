@@ -170,8 +170,8 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
 
     Feeds the unknown-root-entry warning's ``extra_known``: the profile's own
     filename plus the first path component of every profile-relative path the
-    profile declares — ``data:``, ``dispatch.triggers``, and
-    each ``services.*.template``. A path that points above the profile root
+    profile declares — ``data:``, ``machine:`` (the mounted machine root, often
+    a git submodule), ``dispatch.triggers``, and each ``services.*.template``. A path that points above the profile root
     contributes nothing (its first component is not a root entry), and a
     bundled ``dispatch.triggers`` name harmlessly exempts a directory that
     does not exist.
@@ -180,7 +180,7 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
     if profile_path is not None:
         known.append(profile_path.name)
 
-    candidates: list[str | None] = [profile.data]
+    candidates: list[str | None] = [profile.data, profile.machine]
     if profile.dispatch is not None:
         candidates.append(profile.dispatch.triggers)
     candidates.extend(service.template for service in profile.services.values())

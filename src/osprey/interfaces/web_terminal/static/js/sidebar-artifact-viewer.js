@@ -14,18 +14,22 @@ import * as iframeSync from './panel-iframe-sync.js';
 import { activateTab } from './panel-manager.js';
 import { hasDockedTile } from './panel-placement.js';
 import { isDetached } from './dock-apply.js';
-import { menuItems } from './artifacts-pane-header.js';
+import { managedIframe } from './dock-iframe.js';
+import { artifactMenuItems } from './artifact-verbs.js';
 
 /** @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry} ArtifactEntry */
 
 /** The panel id of the artifact gallery. */
 export const ARTIFACTS_PANEL_ID = 'artifacts';
 
-/** @returns {HTMLIFrameElement | null} */
+/**
+ * The Artifacts panel's frame, wherever it is: Open in new window moves the
+ * element into the pane's window, out of this document, and its ready message
+ * reaches the hub from there.
+ * @returns {HTMLIFrameElement | null}
+ */
 export function artifactsIframe() {
-  return /** @type {HTMLIFrameElement | null} */ (
-    document.querySelector(`iframe.panel-iframe[data-panel-id="${ARTIFACTS_PANEL_ID}"]`)
-  );
+  return managedIframe(ARTIFACTS_PANEL_ID)?.iframe ?? null;
 }
 
 /**
@@ -60,14 +64,16 @@ export function isViewerReady(event) {
 }
 
 /**
- * The tile menu's rows for the shown artifact; none without one or a viewer.
+ * The tile menu's "This panel" rows for the shown artifact (artifact-verbs.js,
+ * the viewer's verbs sent to the frame); none without one or a viewer. The
+ * tile menu draws its own divider before Delete….
  * @param {ArtifactEntry | null} shown
  */
 export function viewerMenuItems(shown) {
   if (!shown || !artifactsIframe()) return [];
-  return menuItems(shown, (action) =>
-    iframeSync.sendArtifactActionToIframe(artifactsIframe(), shown.id, action)
-  );
+  const viewer = (/** @type {'print' | 'logbook'} */ verb) =>
+    iframeSync.sendArtifactActionToIframe(artifactsIframe(), shown.id, verb);
+  return artifactMenuItems(shown, { viewer }).filter((item) => !item.divider);
 }
 
 /** Whether the Artifacts panel is on view: docked in a tile, or in its own window. */
