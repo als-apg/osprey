@@ -304,10 +304,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # launches, so the full browser is not installed. It sits after the deps layer
 # because the playwright package it runs comes from there, and before the dev
 # wheel so that rebuilding with a local wheel does not fetch it again. The
-# CANOPY panel's sidecar drives the same headless shell. Playwright's own
-# driver is a node binary that links libatomic, which the slim base lacks and
-# the deps layer's toolchain purge takes away, so the layer installs it first:
-# without it the driver cannot start to install anything.
+# CANOPY panel's sidecar drives the same headless shell.
+#
+# libatomic1 is installed first because the node binary playwright bundles as
+# its driver needs libatomic.so.1 to start, and nothing else in the image keeps
+# it: gcc is what pulled it in, so the deps layer's toolchain purge autoremoves
+# it. Without it the install command below dies before it fetches anything.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \

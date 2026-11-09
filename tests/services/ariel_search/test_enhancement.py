@@ -1600,7 +1600,6 @@ class TestTextEmbeddingProviderResolution:
             name = "chat-only"
             requires_api_key = False
             requires_base_url = False
-            requires_model_id = False
             supports_proxy = False
 
         _route_provider(monkeypatch, ChatOnly)
