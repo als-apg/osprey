@@ -223,6 +223,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     fi \
     && rm -rf /tmp/ctx
 
+# Optional offline mode: vendor the panels' web assets into the image so they
+# load without internet access. `0` is falsy for is_offline().
+ARG OSPREY_OFFLINE="0"
+RUN if [ "$OSPREY_OFFLINE" = "1" ]; then osprey vendor fetch; fi
+ENV OSPREY_OFFLINE=${OSPREY_OFFLINE}
+
 # Project metadata, kept as the final metadata-only layer so the shared deps
 # cache chain above stays identical across projects (a per-project value here
 # never invalidates the framework install below it).
