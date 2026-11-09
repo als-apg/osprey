@@ -15,7 +15,7 @@ snippet-coverage scanner:
   framework's modules and adds the snippet's.
 * ``how-to/ariel/web-interface.rst`` -- the ``create_app`` snippet is executed
   with a stand-in ``uvicorn``; the app has the ``/api/search`` route and the
-  snippet binds the address ``osprey ariel web`` binds.
+  snippet binds the ARIEL panel's default address (``resolve_web_server_address``).
 * ``how-to/ariel/index.rst`` and ``how-to/ariel/picture-search.rst`` -- the
   ``ollama pull`` tag is the caption model the preset ships.
 
@@ -48,7 +48,7 @@ import yaml
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry import loader
 from osprey.registry.base import ExtendedRegistryConfig
-from osprey.registry.web import resolve_web_server_bind
+from osprey.registry.web import resolve_web_server_address
 from osprey.services.ariel_search.config import (
     ARIELConfig,
     DatabaseConfig,
@@ -57,6 +57,7 @@ from osprey.services.ariel_search.config import (
 )
 from osprey.services.ariel_search.database.migrations import model_to_table_name
 from osprey.services.ariel_search.enhancement.text_embedding.migration import (
+    HNSW_MIN_PGVECTOR,
     TextEmbeddingMigration,
 )
 from osprey.services.ariel_search.entry_fields import (
@@ -74,7 +75,7 @@ from tests._by_path import load_module
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DOCS = _REPO_ROOT / "docs" / "source"
 _SCRIPT = _REPO_ROOT / "scripts" / "docs" / "snippet_coverage.py"
-_PRESET = _REPO_ROOT / "src" / "osprey" / "profiles" / "presets" / "control-assistant.yml"
+_PRESET = _REPO_ROOT / "src" / "osprey" / "profiles" / "presets" / "demo.yml"
 
 _DATA_INGESTION = "how-to/ariel/data-ingestion.rst"
 _SEARCH_MODES = "how-to/ariel/search-modes.rst"
@@ -88,12 +89,7 @@ _PICTURE_SEARCH = "how-to/ariel/picture-search.rst"
 #: fails once the page no longer says it when no fixing PR is recorded; it skips
 #: while ``fixed_by`` is recorded and the page shows the fixed text. Drop the
 #: entry after that PR merges.
-_STALE: dict[tuple[str, str, str], tuple[str, int | None]] = {
-    (_WEB_INTERFACE, "uvicorn.run host", "0.0.0.0"): (
-        "registry/web.py resolve_web_server_bind('ariel', ...) binds 127.0.0.1 by default",
-        2407,
-    ),
-}
+_STALE: dict[tuple[str, str, str], tuple[str, int | None]] = {}
 
 
 # -- reading blocks ----------------------------------------------------------------
@@ -370,7 +366,7 @@ def test_build_advisory_is_silent_when_it_should_be() -> None:
 
 
 class _RecordingConnection:
-    """Records each statement; answers the pgvector probe with "available"."""
+    """Records each statement; answers the pgvector probe with a version HNSW accepts."""
 
     def __init__(self) -> None:
         self.statements: list[str] = []
@@ -379,7 +375,8 @@ class _RecordingConnection:
         self.statements.append(sql)
 
         async def fetchone():
-            return (True,)
+            # (installed_version, default_version) from pg_available_extensions.
+            return (None, ".".join(map(str, HNSW_MIN_PGVECTOR)))
 
         return types.SimpleNamespace(fetchone=fetchone)
 
@@ -444,11 +441,12 @@ def test_create_app_snippet_builds_the_search_app(monkeypatch) -> None:
     assert len(runs) == 1 and runs[0][0] is app
     kwargs = runs[0][1]
 
-    host, port = resolve_web_server_bind("ariel", {}, host=None, port=None)
+    host, port = resolve_web_server_address("ariel", {})
     assert kwargs["port"] == port == layout_ports(DEFAULT_PORT_BASE)["ariel"]
     if kwargs["host"] != host:
         assert (_WEB_INTERFACE, "uvicorn.run host", kwargs["host"]) in _STALE, (
-            f"{_WEB_INTERFACE} binds {kwargs['host']}; `osprey ariel web` binds {host}"
+            f"{_WEB_INTERFACE} binds {kwargs['host']}; the ARIEL panel's default address "
+            f"binds {host}"
         )
 
 
