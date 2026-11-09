@@ -452,6 +452,69 @@ describe('the orbit-bump table and controls', () => {
       expect(log).toEqual([]);
     });
 
+    describe('the overflow menu', () => {
+      const items = () => [...document.querySelectorAll('[data-field="rule-menu"] [data-rule]')];
+      const more = () => field(root, 'rule-more');
+      const item = (/** @type {string} */ value) =>
+        /** @type {HTMLElement} */ (items().find((i) => i.getAttribute('data-rule') === value));
+
+      afterEach(() => document.body.replaceChildren());
+
+      beforeEach(() => {
+        document.body.append(root);
+      });
+
+      it('offers the two wider lists behind a ⋯ button, labelled', () => {
+        showState(root, state());
+        expect(more().title).toBe('more corrector rules');
+        expect(items().map((i) => [i.getAttribute('data-rule'), i.textContent])).toEqual([
+          ['mml:[-2 -1 1 2]', '±2 (−2 −1 1 2)'],
+          ['mml:[-3 -1 1 3]', '±3 (−3 −1 1 3)'],
+        ]);
+        expect(items().every((i) => i.getAttribute('role') === 'menuitemradio')).toBe(true);
+        expect(more().getAttribute('aria-pressed')).toBe('false');
+      });
+
+      it.each(['mml:[-2 -1 1 2]', 'mml:[-3 -1 1 3]'])('chooses %s', (value) => {
+        showState(root, state());
+        setSelection(root, { rule: 'manual', correctors: ['H2'] });
+        click(more());
+        click(item(value));
+        expect(panelOf(root).selection.rule).toBe(value);
+        expect(panelOf(root).selection.correctors).toEqual([]);
+        expect(pressed(root, 'rule', 'data-rule')).toBeNull();
+        expect(more().getAttribute('aria-pressed')).toBe('true');
+        expect(items().map((i) => i.getAttribute('aria-checked'))).toEqual(
+          value === 'mml:[-2 -1 1 2]' ? ['true', 'false'] : ['false', 'true']
+        );
+      });
+
+      it('goes back to a toggle button and clears the mark', () => {
+        showState(root, state());
+        click(item('mml:[-3 -1 1 3]'));
+        pressSeg(root, 'rule', 'data-rule', 'auto');
+        expect(pressed(root, 'rule', 'data-rule')).toBe('auto');
+        expect(more().getAttribute('aria-pressed')).toBe('false');
+        expect(items().map((i) => i.getAttribute('aria-checked'))).toEqual(['false', 'false']);
+      });
+
+      it('shows a hydrated wider list as such, not as manual', () => {
+        showState(root, state({ plan: plan({ rule: 'mml:[-2 -1 1 2]' }) }));
+        expect(panelOf(root).selection.rule).toBe('mml:[-2 -1 1 2]');
+        expect(panelOf(root).selection.correctors).toEqual([]);
+        expect(pressed(root, 'rule', 'data-rule')).toBeNull();
+        expect(more().getAttribute('aria-pressed')).toBe('true');
+        expect(item('mml:[-2 -1 1 2]').getAttribute('aria-checked')).toBe('true');
+      });
+
+      it('still hydrates a plan without a wider rule as manual', () => {
+        showState(root, state({ plan: plan() }));
+        expect(panelOf(root).selection.rule).toBe('manual');
+        expect(pressed(root, 'rule', 'data-rule')).toBe('manual');
+        expect(more().getAttribute('aria-pressed')).toBe('false');
+      });
+    });
+
     it('drops manual correctors when the rule leaves manual', () => {
       showState(root, state());
       setSelection(root, { rule: 'manual', correctors: ['H2'] });

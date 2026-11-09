@@ -613,3 +613,8 @@ p.ob-refused {
   justify-content: flex-end;
   margin-top: 10px;
 }
+
+.osprey-section-label .osprey-icon-btn[aria-pressed="true"] {
+  background: var(--surface-press);
+  color: var(--text-primary);
+}

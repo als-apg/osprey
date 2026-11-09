@@ -59,6 +59,9 @@ typing in the table. The nudge step (1, 10, 100 µm) is in the ☰ menu.
    * - ``manual``
      - the correctors you click on the strip
 
+The ⋯ menu after the toggle adds two wider MML lists, ``[-2 -1 1 2]`` and
+``[-3 -1 1 3]``.
+
 **5. Compute.** Compute writes nothing. It replaces your current plan with a
 new one and draws the predicted orbit and each corrector's step under the
 strip. Editing the bump afterwards marks it *edited · not computed* and

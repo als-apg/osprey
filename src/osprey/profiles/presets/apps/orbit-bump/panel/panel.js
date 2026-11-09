@@ -7,7 +7,7 @@ import {
   isContextMenuKey,
   openContextMenu,
 } from '/design-system/js/context-menu.js';
-import { togglePopover } from '/design-system/js/popover.js';
+import { closePopover, togglePopover } from '/design-system/js/popover.js';
 import { initTooltips } from '/design-system/js/tooltip.js';
 
 const STATE_URL = 'api/state';
@@ -100,6 +100,7 @@ const REFRESH_MS = 2000;
  * @property {string} [reason] why a plan is not applicable
  * @property {Record<string, number>} targets
  * @property {string} [setpoint_digest]
+ * @property {Rule} [rule] the corrector rule the plan was computed with
  * @property {PlanCorrector[]} correctors
  * @property {Record<string, number | null>} [predicted] position per BPM element after the bump
  * @property {{element: string, predicted_residual: number}[]} [leakage]
@@ -259,13 +260,15 @@ function hydrate(root, plan) {
     showNotice(root, 'A new plan arrived from the agent; the confirm card was closed.');
   }
   panel.amp = amplitudeOf(plan.targets);
+  const rule =
+    plan.rule && MORE_RULES.some(([value]) => value === plan.rule) ? plan.rule : 'manual';
   panel.selection = {
     ...panel.selection,
     plane: plan.plane,
     model: plan.model,
     targets: { ...plan.targets },
-    rule: 'manual',
-    correctors: plan.correctors.map((row) => row.element),
+    rule,
+    correctors: rule === 'manual' ? plan.correctors.map((row) => row.element) : [],
   };
   panel.computed = { id: plan.id, key: selectionKey(panel.selection) };
 }
@@ -1706,6 +1709,18 @@ const RULES = [
 ];
 
 /**
+ * The wider MML corrector lists, in the overflow menu after the rule toggle.
+ * @type {[Rule, string][]}
+ */
+const MORE_RULES = [
+  ['mml:[-2 -1 1 2]', '±2 (−2 −1 1 2)'],
+  ['mml:[-3 -1 1 3]', '±3 (−3 −1 1 3)'],
+];
+
+/** @type {Rule[]} */
+const ALL_RULES = [...RULES.map(([value]) => value), ...MORE_RULES.map(([value]) => value)];
+
+/**
  * A reading for a table cell, signed, in the members' own unit; a dash when missing.
  * @param {number | null | undefined} value
  * @returns {string}
@@ -2038,6 +2053,81 @@ function pressSeg(seg, attr, value) {
 }
 
 /**
+ * The overflow after the rule toggle: a ⋯ button opening a popover with the
+ * wider MML corrector lists, a check on the active one.
+ * @param {Element} root
+ * @returns {HTMLElement}
+ */
+function ruleMenu(root) {
+  const holder = htmlNode('span', { class: 'ob-menu' });
+  const id = `ob-rules-${++pickerSeq}`;
+  const button = htmlNode('button', {
+    type: 'button',
+    class: 'osprey-icon-btn',
+    'data-field': 'rule-more',
+    'aria-controls': id,
+    'aria-haspopup': 'menu',
+    'aria-expanded': 'false',
+    'aria-pressed': 'false',
+    'aria-label': 'more corrector rules',
+    title: 'more corrector rules',
+  });
+  button.append(icon('M5 12h.01M12 12h.01M19 12h.01'));
+  const menu = htmlNode('div', {
+    class: 'osprey-popover',
+    id,
+    role: 'menu',
+    'aria-label': 'more corrector rules',
+    'data-field': 'rule-menu',
+  });
+  menu.hidden = true;
+  for (const [value, text] of MORE_RULES) {
+    const item = htmlNode(
+      'button',
+      {
+        type: 'button',
+        class: 'osprey-popover-item',
+        role: 'menuitemradio',
+        'aria-checked': 'false',
+        'data-rule': value,
+      },
+      text
+    );
+    const check = icon('M5 12.5l4.5 4.5L19 7.5');
+    check.classList.add('osprey-popover-check');
+    item.append(check);
+    menu.append(item);
+  }
+  holder.append(button, menu);
+  button.addEventListener('click', () => togglePopover(button, menu));
+  menu.addEventListener('click', (event) => {
+    const hit = event.target instanceof Element ? event.target.closest('[data-rule]') : null;
+    const value = /** @type {Rule | null} */ (hit?.getAttribute('data-rule') ?? null);
+    if (!value || !ALL_RULES.includes(value)) return;
+    setSelection(root, { rule: value, correctors: [] });
+    closePopover(menu);
+  });
+  return holder;
+}
+
+/**
+ * Mark the active rule: a toggle button, or the ⋯ button and its checked item.
+ * @param {Element} root
+ * @param {Rule} rule
+ */
+function renderRule(root, rule) {
+  pressSeg(field(root, 'rule'), 'data-rule', rule);
+  const wide = MORE_RULES.some(([value]) => value === rule);
+  field(root, 'rule-more').setAttribute('aria-pressed', String(wide));
+  // The popover sits at <body> level while open, so it is found by id.
+  const id = field(root, 'rule-more').getAttribute('aria-controls') ?? '';
+  const menu = root.querySelector(`[id="${id}"]`) ?? root.ownerDocument.getElementById(id);
+  for (const item of menu?.querySelectorAll('[data-rule]') ?? []) {
+    item.setAttribute('aria-checked', String(item.getAttribute('data-rule') === rule));
+  }
+}
+
+/**
  * The header's options menu: a hamburger that opens a popover with the nudge
  * step, the legend and the gestures. Made on first use at the end of the bar.
  * @param {Element} root
@@ -2207,7 +2297,8 @@ function controls(root) {
   corsHead.append(
     htmlNode('span', { 'data-field': 'cor-title' }, 'Correctors'),
     htmlNode('span', { class: 'ob-spacer' }),
-    rule
+    rule,
+    ruleMenu(root)
   );
   const plan = htmlNode('div', { 'data-field': 'card' });
   plan.hidden = true;
@@ -2465,7 +2556,7 @@ function renderTable(root, panel) {
   }
   pressSeg(step, 'data-step', String(panel.step));
 
-  pressSeg(field(root, 'rule'), 'data-rule', selection.rule);
+  renderRule(root, selection.rule);
 
   const title = field(root, 'cor-title');
   const planeCorrectors = new Set(
