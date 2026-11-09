@@ -39,11 +39,15 @@ from osprey.interfaces.web_terminal.feedback_composer import (
     CONTEXT_OK,
     CONTEXT_RECORD_UNAVAILABLE,
     CONTEXT_TRANSCRIPT_NOT_FOUND,
+    NEARBY_ARTIFACTS_HEADER,
+    OWNED_ARTIFACTS_HEADER,
     PAYLOAD_CAP_BYTES,
     PAYLOAD_SEPARATOR,
 )
 from osprey.interfaces.web_terminal.feedback_destination import resolve_deployment_identity
 from osprey.interfaces.web_terminal.routes.feedback import router
+from osprey.stores.artifact_store import ArtifactEntry
+from osprey.stores.session_ledger import EPOCH, Ledger, LedgerRow
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests.agent_record.fakes import FakeRecordClient
 
@@ -96,6 +100,8 @@ class _Env:
         self.store = store
         self.nodes: list[dict[str, Any]] = _nodes()
         self._recorded = recorded
+        # What the hub's session ledger reads as: ``(ledger, available)``.
+        self.ledger: tuple[Ledger, bool] = (Ledger(), True)
 
     def timeline(self, **_kwargs: Any) -> ClientAnswer:
         return ClientAnswer(data=list(self.nodes), complete=True)
@@ -127,6 +133,7 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_for, recorded_ent
     spool_for()
     store = MagicMock()
     store.list_entries.return_value = []
+    store.run_groups.return_value = {}
     holder: dict[str, _Env] = {}
     record = FakeRecordClient({"timeline": lambda **kw: holder["env"].timeline(**kw)})
 
@@ -135,6 +142,8 @@ def env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spool_for, recorded_ent
         "osprey.stores.artifact_store.ArtifactStore",
         lambda *args, **kwargs: store,
     )
+    # Off the disk: the route reads the hub ledger through this one function.
+    monkeypatch.setattr("osprey.stores.artifact_scope.read_ledger", lambda: holder["env"].ledger)
 
     app = FastAPI()
     app.include_router(router)
@@ -669,7 +678,7 @@ def test_the_bundle_carries_the_deployment_build_facts(env: _Env) -> None:
     (``DeploymentIdentity.build_lines``) into each.
     """
     env.client.app.state.deployment_identity = resolve_deployment_identity(
-        preset="control-assistant",
+        preset="demo",
         preset_hash="a3f91c7d2e8b4f6a1c9d0e2f",
         channel_finder_mode="hierarchical",
     )
@@ -681,10 +690,10 @@ def test_the_bundle_carries_the_deployment_build_facts(env: _Env) -> None:
     ).json()["bundle"]
 
     assert "preset" in with_metadata
-    assert "control-assistant (a3f91c" in with_metadata
+    assert "demo (a3f91c" in with_metadata
     assert "hierarchical" in with_metadata
     # The checkbox governs them, so unticked means absent.
-    assert "control-assistant" not in without
+    assert "demo" not in without
 
 
 def test_the_bundle_carries_the_escalation_link(env: _Env) -> None:
@@ -799,6 +808,113 @@ def test_bundle_reads_the_transcript_a_cleared_key_moved_to(env: _Env) -> None:
 
     assert [c["session_id"] for c in env.timeline_calls()] == [OTHER_SESSION_ID]
     assert SESSION_ID in body["bundle"]
+
+
+# ---- The artifact inventory: owned and unowned sections ----
+
+OTHER_KEY = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+THIRD_TRANSCRIPT = "99999999-8888-4777-8666-555555555555"
+
+
+def _artifact(artifact_id: str, ts: str, session_id: str = "", **metadata: Any) -> ArtifactEntry:
+    return ArtifactEntry(
+        id=artifact_id,
+        artifact_type="plot",
+        title=artifact_id,
+        description="",
+        filename=f"{artifact_id}.png",
+        mime_type="image/png",
+        size_bytes=1,
+        timestamp=ts,
+        tool_source="test",
+        session_id=session_id,
+        metadata=metadata,
+    )
+
+
+def _section(text: str, header: str) -> str:
+    if f"## {header}\n" not in text:
+        return ""
+    return text.split(f"## {header}\n", 1)[1].split("\n## ", 1)[0]
+
+
+def _bundle(env: _Env) -> str:
+    response = env.client.post(
+        "/api/feedback/bundle", json={"session_id": SESSION_ID, "text_len": 0, "scrollback": ""}
+    )
+    assert response.status_code == 200
+    return response.json()["bundle"]
+
+
+@pytest.mark.parametrize("path", ["/api/feedback", "/api/feedback/bundle"])
+def test_the_owned_section_is_the_read_transcripts_after_a_clear(env: _Env, path: str) -> None:
+    """Req 14: the scope is the transcript the timeline reads, over the hub ledger."""
+    env.client.app.state.transcript_map[SESSION_ID] = OTHER_SESSION_ID
+    cleared_at = "2026-08-20T18:00:30+00:00"
+    env.ledger = (
+        Ledger(
+            rows=(
+                LedgerRow(SESSION_ID, SESSION_ID, EPOCH),
+                LedgerRow(OTHER_KEY, THIRD_TRANSCRIPT, EPOCH),
+                LedgerRow(SESSION_ID, OTHER_SESSION_ID, cleared_at),
+            )
+        ),
+        True,
+    )
+    env.store.list_entries.return_value = [
+        _artifact("before-clear", "2026-08-20T18:00:10+00:00", SESSION_ID),
+        _artifact("after-clear", "2026-08-20T18:01:00+00:00", SESSION_ID),
+        _artifact("other-tab", "2026-08-20T18:01:00+00:00", OTHER_KEY),
+        _artifact("unowned", "2026-08-20T18:01:00+00:00"),
+    ]
+
+    if path == "/api/feedback":
+        env.client.post(path, json=_send_body())
+        text = env.contexts()[0]["context"]
+    else:
+        text = _bundle(env)
+
+    assert [c["session_id"] for c in env.timeline_calls()] == [OTHER_SESSION_ID]
+    owned = _section(text, OWNED_ARTIFACTS_HEADER)
+    nearby = _section(text, NEARBY_ARTIFACTS_HEADER)
+    assert "after-clear" in owned
+    assert "unowned" in nearby and "unowned" not in owned
+    # The key's earlier transcript and another tab own theirs: in neither section.
+    assert "before-clear" not in text
+    assert "other-tab" not in text
+
+
+def test_with_the_ledger_unavailable_only_stamped_artifacts_are_owned(env: _Env) -> None:
+    env.ledger = (Ledger(), False)
+    env.store.list_entries.return_value = [
+        _artifact("keyed", "2026-08-20T18:01:00+00:00", SESSION_ID),
+        _artifact("other-tab", "2026-08-20T18:01:00+00:00", OTHER_KEY),
+        _artifact("stamped", "2026-08-20T18:01:00+00:00", transcript_id=SESSION_ID),
+        _artifact("stamped-other", "2026-08-20T18:01:00+00:00", transcript_id=THIRD_TRANSCRIPT),
+        _artifact("unowned", "2026-08-20T18:01:00+00:00"),
+    ]
+
+    text = _bundle(env)
+
+    assert "stamped" in _section(text, OWNED_ARTIFACTS_HEADER)
+    assert "unowned" in _section(text, NEARBY_ARTIFACTS_HEADER)
+    for absent in ("keyed", "other-tab", "stamped-other"):
+        assert absent not in text
+
+
+def test_without_a_session_the_ledger_is_not_read(
+    env: _Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom() -> tuple[Ledger, bool]:
+        raise AssertionError("the ledger was read for a report with no session")
+
+    monkeypatch.setattr("osprey.stores.artifact_scope.read_ledger", boom)
+
+    response = env.client.post(
+        "/api/feedback/bundle", json={"session_id": None, "text_len": 0, "scrollback": ""}
+    )
+
+    assert response.status_code == 200
 
 
 # ---- Registration on the composite router ----

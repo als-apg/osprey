@@ -57,7 +57,6 @@ def _set_user(monkeypatch, user: str | None) -> None:
         ("/api/artifact-server", "artifact_server_url", "artifacts"),
         ("/api/ariel-server", "ariel_server_url", "ariel"),
         ("/api/channel-finder-server", "channel_finder_server_url", "channel-finder"),
-        ("/api/lattice-server", "lattice_dashboard_server_url", "lattice"),
         ("/api/okf-server", "okf_server_url", "okf"),
         ("/api/jupyter-server", "jupyter_server_url", "jupyter"),
         ("/api/system-health-server", "system_health_server_url", "system-health"),

@@ -48,7 +48,7 @@ from tests.interfaces.web_terminal._pty_child import (
 
 pytestmark = [
     pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows"),
-    pytest.mark.usefixtures("readable_process_table"),
+    pytest.mark.usefixtures("readable_process_table", "short_process_waits"),
 ]
 
 

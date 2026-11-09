@@ -117,6 +117,11 @@ class TargetDerivation:
     ``transport`` is the wire the child's connector will speak
     (:func:`~osprey_connectors.types.connector_transport`), so a child that
     built the other venue of the simulator is refused by what it echoes.
+
+    ``declares_no_endpoints`` is true only for a block that spells an explicit
+    empty ``gateways: []``: the facility saying this target has nothing to
+    probe. A missing table is not that statement — a forgotten table must never
+    read as a direct connection — so it leaves this false.
     """
 
     target: str
@@ -124,6 +129,7 @@ class TargetDerivation:
     endpoints: dict[str, Endpoint]
     selected_role: str
     transport: str | None
+    declares_no_endpoints: bool = False
 
     def selected_endpoint(self) -> Endpoint | None:
         """The row the child will configure, or ``None`` when config has none."""
@@ -311,7 +317,17 @@ def derive_endpoints(
             gateways, writes_enabled=bool(writes_enabled), readonly_run=bool(readonly_run)
         ),
         transport=transport,
+        declares_no_endpoints=_declares_no_endpoints(block),
     )
+
+
+def _declares_no_endpoints(block: Any) -> bool:
+    """Whether a connector *block* spells ``gateways: []``, and so has nothing to probe.
+
+    Only the explicit empty list counts. A missing table, ``null`` or ``{}``
+    reads as a table nobody filled in, never as "nothing to probe".
+    """
+    return isinstance(block, dict) and block.get("gateways") == []
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +642,14 @@ def verify_host_report(
             f"Target {derivation.target!r} derives no gateway on this deployment, but the "
             f"child reports it configured {report.get('mode')!r} routing to "
             f"{report.get('host')!r} — an endpoint this config never described.",
+        )
+    if derivation.declares_no_endpoints:
+        return Verification(
+            True,
+            detail=(
+                f"Target {derivation.target!r} declares no endpoints (`gateways: []`), "
+                "so there is no gateway to check the child against, and it configured none."
+            ),
         )
     return Verification(
         True,

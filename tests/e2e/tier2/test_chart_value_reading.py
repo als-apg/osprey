@@ -74,7 +74,7 @@ from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.ariel_picture import assert_no_ariel_errors, assert_viewed_in_logbook_turn
 from tests.e2e.fixtures.chart_value_reading import plot_spec as fixture
 from tests.e2e.judge import LLMJudge, Reference, WorkflowResult, check_reported
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import build_model, e2e_provider
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -86,7 +86,6 @@ from tests.e2e.sdk_helpers import (
 )
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.agentic_benchmark,
     pytest.mark.requires_e2e_provider,
     pytest.mark.slow,
@@ -242,8 +241,9 @@ def _init_args(repo: Path) -> list[str]:
     return [
         str(repo),
         "--preset",
-        "control-assistant",
+        "demo",
         "--no-git",
+        *e2e_scenario_pin(),
         *set_pairs(_profile_edits()),
         "--set",
         f"virtual_accelerator.port={VA_CA_PORT}",

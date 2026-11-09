@@ -71,7 +71,7 @@ CHILD = textwrap.dedent(
         # Leaves a member of its own group that ignores SIGTERM, then exits.
         import subprocess
         member = subprocess.Popen(
-            [sys.executable, "-c",
+            [sys.executable, "-S", "-c",
              "import signal, time\\n"
              "signal.signal(signal.SIGTERM, signal.SIG_IGN)\\n"
              "print(1, flush=True)\\n"
@@ -150,7 +150,9 @@ class Harness:
         self._children: list[SupervisedChild] = []
 
     def argv(self, mode: str, code: int = 0, *extra: str) -> list[str]:
-        return [sys.executable, str(self.script), str(self.held.fd), mode, str(code), *extra]
+        # ``-S``: the child is stdlib-only test code; without ``site`` it does not start
+        # coverage (~0.2 s a start under pyproject's subprocess patch, for no data).
+        return [sys.executable, "-S", str(self.script), str(self.held.fd), mode, str(code), *extra]
 
     def supervise(self, mode: str, code: int = 0, *extra: str, **kwargs: object) -> SupervisedChild:
         def argv_for() -> list[str]:
@@ -253,7 +255,7 @@ class TestHeldSocket:
             "    sys.exit(3)\n"
             "sys.exit(0)\n"
         )
-        argv = [sys.executable, "-c", probe, str(held.fd)]
+        argv = [sys.executable, "-S", "-c", probe, str(held.fd)]
         # close_fds=False is the widest inheritance Popen offers: the fd still
         # does not cross, because it is not inheritable.
         assert subprocess.run(argv, close_fds=False, check=False, timeout=60).returncode == 3

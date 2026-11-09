@@ -104,15 +104,13 @@ travel either way.
 - the session's tool-call and agent event log,
 - its chat history,
 - the terminal scrollback,
-- an artifact inventory listing **titles and ids only** — artifacts tagged to
-  this session, plus artifacts created on this deployment during the same time
-  window, which may include work from other terminal tabs or the chat panel.
+- an artifact inventory listing **titles and ids only**, in two sections: the
+  artifacts this session owns (its row in the gallery sidebar), and artifacts
+  no session owns from the same time window.
 
-OSPREY does not tag every artifact with the session that produced it, so the
-inventory falls back to a time window: an artifact somebody else made in a
-different tab during the same minutes can be listed. Only its title and id
-appear — never its contents — but a sender attaching context to a **public**
-issue should know that the list is not strictly their own work.
+The second section is not this session's work: it may come from the chat panel
+or a CLI conversation. Only titles and ids appear — never contents — but a
+sender attaching context to a **public** issue should know it is there.
 
 Session context has a size budget. When a session is over it, the oldest
 content within each part is dropped first, so a long session is attached in

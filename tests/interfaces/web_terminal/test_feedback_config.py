@@ -461,7 +461,7 @@ class TestDeploymentIdentityAndEscalation:
 
     IDENTITY = {
         "osprey_version": "2026.9.0b1",
-        "preset": "control-assistant",
+        "preset": "demo",
         "preset_hash": "a3f91c7d2e8b4f6a1c9d0e2f",
         "channel_finder_mode": "hierarchical",
     }
@@ -474,12 +474,12 @@ class TestDeploymentIdentityAndEscalation:
 
     def test_the_preset_and_its_hash_render_as_one_fact(self):
         identity = resolve_deployment_identity(**self.IDENTITY)
-        assert identity.build_lines()["Preset"].startswith("control-assistant (a3f91c")
+        assert identity.build_lines()["Preset"].startswith("demo (a3f91c")
         assert identity.build_lines()["Channel finder"] == "hierarchical"
 
     def test_a_preset_with_no_hash_still_renders(self):
-        identity = resolve_deployment_identity(preset="control-assistant")
-        assert identity.build_lines() == {"Preset": "control-assistant"}
+        identity = resolve_deployment_identity(preset="demo")
+        assert identity.build_lines() == {"Preset": "demo"}
 
     @pytest.mark.parametrize("bad", [None, 3, [], {"a": 1}, "   "])
     def test_unusable_identity_fields_are_dropped_not_printed(self, bad):
@@ -493,7 +493,7 @@ class TestDeploymentIdentityAndEscalation:
         url = upstream_escalation_url(resolve_deployment_identity(**self.IDENTITY), destination)
         assert url.startswith(f"https://github.com/{DEFAULT_FEEDBACK_GITHUB_REPO}/issues/new?")
         decoded = unquote_plus(url)
-        assert "control-assistant" in decoded
+        assert "demo" in decoded
         assert "hierarchical" in decoded
         assert "2026.9.0b1" in decoded
         assert "Example Controls" in decoded
@@ -523,12 +523,12 @@ class TestDeploymentIdentityAndEscalation:
         """End to end: lifespan resolves them, /api/panels echoes them."""
         overrides = {
             "web.feedback.owner": {"name": "Example Controls", "tracker": OWNER_GITLAB},
-            "provenance.preset": "control-assistant",
+            "provenance.preset": "demo",
             "provenance.preset_hash": "a3f91c7d2e8b4f6a1c9d0e2f",
             "channel_finder.pipeline_mode": "hierarchical",
         }
         with _lifespan_client(project_dir, shared_root, overrides=overrides) as (client, _app):
             payload = client.get("/api/panels").json()
         assert payload["feedback_deployment"]["Channel finder"] == "hierarchical"
-        assert payload["feedback_deployment"]["Preset"].startswith("control-assistant (a3f91c")
+        assert payload["feedback_deployment"]["Preset"].startswith("demo (a3f91c")
         assert DEFAULT_FEEDBACK_GITHUB_REPO in payload["feedback_escalation_url"]

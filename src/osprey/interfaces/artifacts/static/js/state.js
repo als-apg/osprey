@@ -1,28 +1,20 @@
 // @ts-check
 /**
- * OSPREY Artifact Gallery — shared state, fetch layer, and filtering.
+ * OSPREY Artifact Gallery — shared state and the list fetch.
  *
- * Owns the gallery's core mutable state (the artifact list, the selected/
- * focused artifact, the rows picked for a bulk delete, and the current-session scoping) behind explicit
- * get/set accessors, not raw exported `let`
- * bindings — ES modules only give importers a read-only live view of an
- * exported binding, so reassignment has to go through a function here.
- * gallery.js and its sibling render/preview/timeseries modules call these
- * accessors instead of holding local closure copies, so everyone reads and
- * writes the same source of truth.
+ * Owns the viewer's core mutable state (the artifact list, the selected artifact,
+ * the current-session scoping and the transcript the session view resolved its
+ * key to) behind explicit get/set accessors, not raw exported `let` bindings — ES
+ * modules only give importers a read-only live view of an exported binding, so
+ * reassignment has to go through a function here. gallery.js and its sibling
+ * preview/timeseries modules call these accessors instead of holding local
+ * closure copies, so everyone reads and writes the same source of truth.
  *
- * Also owns the artifact-fetch API calls (fetchArtifacts/fetchMoreArtifacts/
- * fetchFocus), the page cursor they follow, the error banner they drive, and
- * getFilteredArtifacts() (search+sort). The list it holds is the pages
- * fetched so far, newest first on the server, not the whole store.
- * Render effects (health indicator, header count, sidebar re-render) are
- * NOT triggered here — DOM rendering belongs to gallery.js and the renderer
- * modules, so fetchArtifacts() takes an optional callbacks object instead,
- * mirroring scaffold/data.js's createScaffoldDataActions callback-injection
- * pattern.
+ * Also owns the artifact-list request (fetchArtifacts) and the error banner it
+ * drives. The list it holds is the server's first page, newest first, not the
+ * whole store; the logbook composer's picker reads it.
  *
- * logbook.js/print.js import `getSelectedArtifact`/`fileUrl` and
- * preview.js/gallery.js import `getFocusedArtifact` directly from here —
+ * logbook.js/print.js import `getSelectedArtifact`/`fileUrl` directly from here —
  * there is no global-object bridge.
  *
  * @module state
@@ -34,22 +26,11 @@
 let artifacts = [];
 /** @type {any|null} */
 let selectedArtifact = null;
-/** @type {any|null} */
-let focusedArtifact = null;
-/** @type {Set<string>} */
-let picked = new Set(); // ids picked for a bulk action; only rows the sidebar shows
 /** @type {string|null} */
-let pickAnchor = null; // the row a Shift-click run starts from
+let currentSessionId = null; // the session key the host reports; null outside a session
 /** @type {string|null} */
-let currentSessionId = null;
-let showAllSessions = false;
-/** @type {string|null} */
-let nextCursor = null; // the cursor the next page needs; null when none is left
-let lastSearch = ''; // the search the current page sequence was fetched with
-/** @type {object|null} */
-let loadingMore = null; // the next-page call in flight; only the call that set it clears it
-let fetchGeneration = 0; // bumped by every first-page fetch; a stale page is dropped
-let settledGeneration = 0; // the first-page fetch whose outcome the held list reflects; behind fetchGeneration while one is in flight
+let heldTranscript = null; // the transcript the session view's first page resolved the key to; null otherwise
+let fetchGeneration = 0; // bumped by every fetch; a stale response is dropped
 
 // ---- Accessors ---- //
 
@@ -71,41 +52,6 @@ export function setSelectedArtifact(a) {
   selectedArtifact = a;
 }
 
-/** @returns {any|null} */
-export function getFocusedArtifact() {
-  return focusedArtifact;
-}
-/** @param {any|null} a */
-export function setFocusedArtifact(a) {
-  focusedArtifact = a;
-}
-
-/** @returns {Set<string>} a copy of the picked ids, so a caller cannot change the picks */
-export function getPickedIds() {
-  return new Set(picked);
-}
-/** @param {Iterable<string>} ids */
-export function setPicked(ids) {
-  picked = new Set(ids);
-}
-/** @param {string} id */
-export function togglePicked(id) {
-  if (!picked.delete(id)) picked.add(id);
-}
-/** @returns {void} */
-export function clearPicked() {
-  picked = new Set();
-}
-
-/** @returns {string|null} */
-export function getPickAnchor() {
-  return pickAnchor;
-}
-/** @param {string|null} id */
-export function setPickAnchor(id) {
-  pickAnchor = id;
-}
-
 /** @returns {string|null} */
 export function getCurrentSessionId() {
   return currentSessionId;
@@ -115,30 +61,38 @@ export function setCurrentSessionId(id) {
   currentSessionId = id;
 }
 
-/** @returns {boolean} */
-export function getShowAllSessions() {
-  return showAllSessions;
-}
-/** @param {boolean} v */
-export function setShowAllSessions(v) {
-  showAllSessions = v;
-}
-
-/** @returns {boolean} whether the server holds a page not yet fetched */
-export function hasMoreArtifacts() {
-  return nextCursor !== null;
+/**
+ * The transcript the session view's listing resolved the key to (contract
+ * C6), held from its first page. Null outside a session and for a key the
+ * ledger has no row for.
+ * @returns {string|null}
+ */
+export function getHeldTranscript() {
+  return heldTranscript;
 }
 
 /**
- * Whether an artifact belongs in the list the current session scope fetches.
- * A locally added artifact has to pass the same session test the fetch
- * applied, and that test admits an untagged artifact.
+ * Whether the gallery shows one session (the sidebar's row for its key): any time
+ * the host has reported a session.
+ * @returns {boolean}
+ */
+function inSessionView() {
+  return currentSessionId !== null && currentSessionId !== '';
+}
+
+/**
+ * Whether an artifact belongs in the list the current view fetches. The
+ * session view lists what its held transcript owns and the operator sees, so
+ * a held null transcript admits nothing, an unowned artifact included.
+ * Every other view admits everything.
  * @param {any} entry
  * @returns {boolean}
  */
 export function inCurrentScope(entry) {
-  if (showAllSessions || !currentSessionId) return true;
-  return !entry.session_id || entry.session_id === currentSessionId;
+  if (!inSessionView()) return true;
+  return (
+    heldTranscript !== null && entry.owner === heldTranscript && entry.operator_visible !== false
+  );
 }
 
 // ---- File URL ---- //
@@ -174,12 +128,6 @@ export function hideErrorBanner() {
 // ---- API ---- //
 
 /**
- * @typedef {object} FetchArtifactsCallbacks
- * @property {(ok: boolean) => void} [onHealthChange] - fired with the health status after every attempt
- * @property {() => void} [onArtifactsUpdated] - fired after a successful fetch, once `artifacts` holds the fresh list
- */
-
-/**
  * Extract a display message from a caught value of unknown type (TS strict
  * mode types `catch` bindings as `unknown`).
  * @param {unknown} e
@@ -190,185 +138,71 @@ function messageOf(e) {
 }
 
 /**
- * @typedef {FetchArtifactsCallbacks & {search?: string}} FetchArtifactsOptions
+ * Request the listing's first page. The session view posts the sidebar's body
+ * to `POST /api/artifacts/session-list` (contract C6), so it lists exactly the
+ * sidebar's row and a run once at its head; every other view reads the unscoped
+ * `GET /api/artifacts`. No `limit` is sent, so the server's configured page size
+ * governs.
+ * @param {boolean} sessionView
+ * @returns {Promise<Response>}
  */
-
-/**
- * The listing URL for a search and the current session scope. No `limit` is
- * sent, so the server's configured page size governs.
- * @param {string} search
- * @param {string|null} [cursor]
- * @returns {string}
- */
-function listingUrl(search, cursor = null) {
-  const params = [];
-  if (search) params.push('search=' + encodeURIComponent(search));
-  if (currentSessionId && !showAllSessions) {
-    params.push('session_id=' + encodeURIComponent(currentSessionId));
+function requestListing(sessionView) {
+  if (sessionView) {
+    return fetch('/api/artifacts/session-list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: currentSessionId, search: '', cursor: null, runs: 'grouped' }),
+    });
   }
-  if (cursor) params.push('cursor=' + encodeURIComponent(cursor));
-  return '/api/artifacts' + (params.length ? '?' + params.join('&') : '');
+  return fetch('/api/artifacts');
 }
 
 /**
- * Fetch the first page of the artifact list, filtered by `search` and scoped
- * to the current session unless `showAllSessions` is set. Replaces the shared
- * `artifacts` state with that page, records the next-page
- * cursor, and drives the error banner directly; render effects (header count,
- * filter chips, sidebar) are the caller's job, via `callbacks`.
- * @param {FetchArtifactsOptions} [callbacks]
+ * Fetch the artifact list, scoped to the current session. Replaces the shared
+ * `artifacts` state with that page and drives the error banner directly.
  * @returns {Promise<void>}
  */
-export async function fetchArtifacts(callbacks = {}) {
-  const search = callbacks.search || '';
+export async function fetchArtifacts() {
   const generation = ++fetchGeneration;
+  const sessionView = inSessionView();
   try {
-    const resp = await fetch(listingUrl(search));
+    const resp = await requestListing(sessionView);
     if (!resp.ok) {
       const errText = await resp.text();
       showErrorBanner('API error (' + resp.status + '): ' + errText);
-      callbacks.onHealthChange?.(false);
       return;
     }
     hideErrorBanner();
     const data = await resp.json();
     if (generation !== fetchGeneration) return;
     artifacts = data.artifacts || [];
-    nextCursor = data.next_cursor ?? null;
-    lastSearch = search;
-    // A new search or scope is a new list: nothing in it is picked yet.
-    picked = new Set();
-    pickAnchor = null;
-    settledGeneration = generation;
-    callbacks.onHealthChange?.(true);
-    callbacks.onArtifactsUpdated?.();
+    heldTranscript = sessionView ? (data.transcript ?? null) : null;
   } catch (err) {
     console.error('Failed to fetch artifacts:', err);
     showErrorBanner('Failed to fetch artifacts: ' + messageOf(err));
-    callbacks.onHealthChange?.(false);
-  } finally {
-    if (generation === fetchGeneration) settledGeneration = generation;
   }
 }
 
 /**
- * Fetch the page after the ones held and append it. A no-op when no cursor is
- * held, a page is already in flight, or a first page is in flight, because the
- * held cursor and search belong to the sequence that page replaces. A scroll
- * handler may call it freely.
- * On failure the cursor is kept, so a later call retries.
- * @param {FetchArtifactsCallbacks} [callbacks]
- * @returns {Promise<void>}
- */
-export async function fetchMoreArtifacts(callbacks = {}) {
-  if (nextCursor === null || loadingMore !== null || settledGeneration !== fetchGeneration) return;
-  const token = {};
-  loadingMore = token;
-  const generation = fetchGeneration;
-  try {
-    const resp = await fetch(listingUrl(lastSearch, nextCursor));
-    if (!resp.ok) {
-      const errText = await resp.text();
-      showErrorBanner('API error (' + resp.status + '): ' + errText);
-      callbacks.onHealthChange?.(false);
-      return;
-    }
-    hideErrorBanner();
-    const data = await resp.json();
-    if (generation !== fetchGeneration) return;
-    // A save between two requests can repeat an entry across pages.
-    const held = new Set(artifacts.map((a) => a.id));
-    const fresh = (data.artifacts || []).filter((/** @type {any} */ a) => !held.has(a.id));
-    artifacts = [...artifacts, ...fresh];
-    nextCursor = data.next_cursor ?? null;
-    // Cleared before the callbacks, so one of them may request the next page.
-    loadingMore = null;
-    callbacks.onHealthChange?.(true);
-    callbacks.onArtifactsUpdated?.();
-  } catch (err) {
-    console.error('Failed to fetch more artifacts:', err);
-    showErrorBanner('Failed to fetch artifacts: ' + messageOf(err));
-    callbacks.onHealthChange?.(false);
-  } finally {
-    // A page chained from the callbacks owns the guard now; only this call's own token is cleared.
-    if (loadingMore === token) loadingMore = null;
-  }
-}
-
-/**
- * Add an artifact the server announced, without a request.
+ * Hold an artifact fetched on its own. One outside the session scope is left out,
+ * because the held list is what the scope admits.
  * @param {any} entry
- * @returns {boolean} whether the held list now reflects that artifact: false
- *   while a search is active, because only the server can say whether the
- *   artifact matches it; true without adding when it is outside the session
- *   scope, because it is correctly absent.
+ * @returns {void}
  */
 export function addArtifact(entry) {
-  if (lastSearch) return false;
-  if (!inCurrentScope(entry)) return true;
-  if (artifacts.some((a) => a.id === entry.id)) return true;
+  if (!inCurrentScope(entry)) return;
+  if (artifacts.some((a) => a.id === entry.id)) return;
   artifacts = [...artifacts, entry];
-  return true;
 }
 
 /**
- * Drop an artifact from the held list and the picks. An id the list does
- * not hold leaves the list alone: it may be out of scope as much as on a page not yet fetched.
+ * Drop an artifact from the held list. An id the list does not hold leaves the
+ * list alone: it may be out of scope as much as on a page not fetched.
  * @param {string} id
  * @returns {void}
  */
 export function removeArtifact(id) {
-  picked.delete(id);
   const kept = artifacts.filter((a) => a.id !== id);
   if (kept.length === artifacts.length) return;
   artifacts = kept;
-}
-
-/**
- * Fetch the current agent focus target, if any, and store it as
- * `focusedArtifact`. Silent on failure (matches the original: console-only).
- * @returns {Promise<void>}
- */
-export async function fetchFocus() {
-  try {
-    const resp = await fetch('/api/focus');
-    const data = await resp.json();
-    if (data.artifact) {
-      focusedArtifact = data.artifact;
-    }
-  } catch (err) {
-    console.error('Failed to fetch focus:', err);
-  }
-}
-
-// ---- Filtering ---- //
-
-/**
- * Search/sort the current artifact list for display: applies the
- * (already-normalized) search query, then sorts pinned-first /
- * newest-first. (Type narrowing is the tree's job — its sections group by
- * type — so there is no separate type filter.)
- * @param {string} [searchQuery] - already-trimmed, lowercased search text (the caller reads it from the DOM)
- * @returns {any[]}
- */
-export function getFilteredArtifacts(searchQuery = '') {
-  let filtered = [...artifacts];
-
-  if (searchQuery) {
-    filtered = filtered.filter(
-      (a) =>
-        a.title.toLowerCase().includes(searchQuery) ||
-        a.filename.toLowerCase().includes(searchQuery) ||
-        (a.description && a.description.toLowerCase().includes(searchQuery)) ||
-        a.artifact_type.toLowerCase().includes(searchQuery)
-    );
-  }
-
-  filtered.sort((a, b) => {
-    if (a.pinned && !b.pinned) return -1;
-    if (!a.pinned && b.pinned) return 1;
-    return (b.timestamp || '').localeCompare(a.timestamp || '');
-  });
-
-  return filtered;
 }

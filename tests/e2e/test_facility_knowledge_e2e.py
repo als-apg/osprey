@@ -1,6 +1,6 @@
-"""Agent e2e: facility knowledge MCP server in the control-assistant preset.
+"""Agent e2e: facility knowledge MCP server in the demo preset.
 
-The test builds a control-assistant deployment (whose example OKF bundle is
+The test builds a demo deployment (whose example OKF bundle is
 rendered to ``build/data/facility/knowledge/``), runs an operator-style query that requires the
 agent to consult the facility_knowledge MCP server, and asserts:
 
@@ -49,7 +49,6 @@ from tests.e2e.sdk_helpers import (
 )
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
@@ -93,7 +92,7 @@ async def test_facility_knowledge_pss_reset(tmp_path: Path) -> None:
     discover the bundle contents, or ``read_concept``/``search`` to retrieve
     the procedure — before composing its answer.
     """
-    repo = init_project(tmp_path, "fk_demo", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "fk_demo", template="demo", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     query = (
         "A PSS fault is preventing beam injection.  Walk me through the "
@@ -132,7 +131,7 @@ async def test_facility_knowledge_vacuum_recovery(tmp_path: Path) -> None:
     event.  An operator question about recovering from a pressure excursion
     should drive the agent to retrieve that content.
     """
-    repo = init_project(tmp_path, "fk_vac", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "fk_vac", template="demo", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     query = (
         "We had an uncontrolled pressure excursion in the storage ring. "
@@ -183,7 +182,7 @@ async def test_facility_knowledge_delegation(tmp_path: Path) -> None:
     - The session completed without an SDK-level error.
     - Answer is grounded: the judge confirms the response addresses the question.
     """
-    repo = init_project(tmp_path, "fk_del", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "fk_del", template="demo", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     prompt = (
         "What status flags does a beam position monitor carry at this facility, "

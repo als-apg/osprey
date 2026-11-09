@@ -50,6 +50,7 @@ from .figure import (
     Point,
     RowWindow,
     Series,
+    bind_units,
     decimate,
     default_figure,
     rows_from_columnar,
@@ -65,13 +66,21 @@ from .plan_types import PlanSpec, Provenance
 from .plan_validation import hash_plan_body, validate_plan
 from .queue_backend import (
     PLAN_META_KEY,
-    FunctionFailedError,
-    FunctionTimeoutError,
+    REASON_AMBIGUOUS_TABLE,
+    REASON_EXPORT_FAILED,
+    REASON_NOTHING_STORED,
+    REASON_RUN_NOT_FINISHED,
+    REASON_TILED_NOT_CONFIGURED,
+    REASON_TILED_UNAVAILABLE,
+    REASON_UNKNOWN_RUN,
+    REASON_UNSUPPORTED_FORMAT,
+    REASON_USE_THE_QUEUE,
+    REFUSAL_REASONS,
     QueueBackend,
     QueueBackendError,
-    QueueUnavailableError,
     run_id_of,
 )
+from .refusals import refusal
 from .session_dir import resolve_session_plan_dir
 from .session_upload import get_session_uploader, upload_after_validation
 from .validation import _assert_limits_readable_if_writable
@@ -101,22 +110,18 @@ _BRIDGE_ONLY_MODULES = {"bluesky", "bluesky_tiled_plugins", "ophyd", "ophyd_asyn
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
-# The refusal code every retired direct-execute route answers with. One code
-# for all of them: the answer is always "this capability belongs to the queue",
-# and the per-route sentence in `detail` says which route owns it.
-_USE_THE_QUEUE = "use_the_queue"
-
 
 def _use_the_queue(detail: str) -> HTTPException:
     """The machine-readable refusal a retired direct-execute route raises.
 
-    Same ``{"code", "detail"}`` body shape as every queue refusal
-    (``queue.py``), so a caller branches on ``detail.code`` uniformly rather
-    than special-casing these four routes. 410 Gone, not 404: the route is
-    still here and still answering — what is gone is the in-process execution
-    behind it.
+    One code for every retired route: the answer is always "this capability
+    belongs to the queue", and the per-route sentence in ``detail`` says which
+    route owns it. Made by `refusal`, like every queue refusal, so a caller
+    branches on ``detail.code`` uniformly rather than special-casing these
+    routes. 410 Gone, not 404: the route is still here and still answering —
+    what is gone is the in-process execution behind it.
     """
-    return HTTPException(status_code=410, detail={"code": _USE_THE_QUEUE, "detail": detail})
+    return refusal(REASON_USE_THE_QUEUE, detail)
 
 
 # The bridge's single `QueueBackend` — one queueserver client handle for the
@@ -341,18 +346,13 @@ async def _capability_dict() -> dict[str, Any]:
     bridge could not confirm a working queue server). The underlying error goes
     in ``detail`` so the operator sees the real cause rather than a shrug, and
     the route still answers 200 — the container healthcheck must not go red
-    over a capability probe.
-
-    The hand-built record below is the ONE capability object on the wire that
-    does not come out of ``Capability.to_dict``, so it has to carry the same
-    keys — a consumer that parses the fallback differently from every other
-    record is a consumer that breaks exactly when the bridge is already in
-    trouble. The lane identity in particular is still perfectly knowable here:
-    it comes from render-time facts (`resolve_lane_identity`, which never
-    raises), not from the probe that just failed.
+    over a capability probe. The lane identity is still knowable here: it comes
+    from render-time facts (`resolve_lane_identity`, which never raises), not
+    from the probe that just failed.
     """
     from .queue_backend import (
         REASON_MANAGER_UNREACHABLE,
+        Capability,
         resolve_lane_connector_type,
         resolve_lane_identity,
     )
@@ -362,14 +362,14 @@ async def _capability_dict() -> dict[str, Any]:
     except Exception as exc:
         logger.warning("capability probe failed; reporting cannot-execute: %s", exc)
         lane, lane_target = resolve_lane_identity()
-        return {
-            "can_execute": False,
-            "reason": REASON_MANAGER_UNREACHABLE,
-            "detail": f"The bridge could not determine whether plans can execute: {exc}",
-            "lane": lane,
-            "lane_target": lane_target,
-            "lane_degraded": resolve_lane_connector_type()[1],
-        }
+        return Capability(
+            can_execute=False,
+            reason=REASON_MANAGER_UNREACHABLE,
+            detail=f"The bridge could not determine whether plans can execute: {exc}",
+            lane=lane,
+            lane_target=lane_target,
+            lane_degraded=resolve_lane_connector_type()[1],
+        ).to_dict()
 
 
 @app.get("/health")
@@ -381,12 +381,13 @@ async def health() -> dict:
     what the bridge in front of it can do:
 
     ``{"status": "ok", "capability": {"can_execute", "reason", "detail",
-    "lane", "lane_target", "lane_degraded"}}``
+    "lane", "lane_target", "lane_degraded", "retryable"}}``
 
     ``can_execute`` is the answer; ``reason`` is one of the machine-readable
     ``REASON_*`` codes in `queue_backend.py`, which panels and MCP tools branch
     on; ``detail`` is the operator-facing sentence, and for a browse-only mock
-    deployment it names the exact command that flips it. ``lane`` and
+    deployment it names the exact command that flips it. ``retryable`` is true
+    only when asking again can help. ``lane`` and
     ``lane_target`` say which plan lane answered and which control target it
     serves — render-time facts, identical before and after a session switch,
     which the host is what composes against the session's own target.
@@ -520,14 +521,11 @@ async def remove_run(run_id: str) -> dict:
             if record["status"] == runs.STATUS_PENDING
             else "POST /queue/abort"
         )
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "run_not_finished",
-                "detail": f"Run {run_id!r} is {record['status']}; only a finished run "
-                f"can be removed from history. Use {instead}.",
-                "status": record["status"],
-            },
+        raise refusal(
+            REASON_RUN_NOT_FINISHED,
+            f"Run {run_id!r} is {record['status']}; only a finished run "
+            f"can be removed from history. Use {instead}.",
+            status=record["status"],
         )
     removed_runs().add(run_id)
     queue._notify_change()
@@ -873,7 +871,16 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
     never turn a PASS into an error. It is not a safety gap either: enqueue
     and queue-start re-check namespace presence and refuse on their own.
 
-    Raises 404 if no session plan named ``request.name`` has been written.
+    A pass is held to the worker's devices when a worker answers: the channels
+    the sample arguments supply under the plan's declared roles go through the
+    same check the enqueue runs (`queue._check_channel_names_built`), so a
+    name the worker never built is refused here with the body ``queue_add``
+    would give, and nothing is recorded or uploaded. With no manager, or one
+    that cannot be read, the pass stands.
+
+    Raises 404 if no session plan named ``request.name`` has been written, and
+    400 ``unknown_device`` if the sample arguments name a device the worker did
+    not build.
     """
     name = _sanitize_plan_name(request.name)
     plan_path = resolve_session_plan_dir() / f"{name}.py"
@@ -889,6 +896,20 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
     )
     upload: dict[str, Any] = {"uploaded": False, "reason": None, "detail": None}
     if result.passed:
+        backend = get_queue_backend()
+        try:
+            status = await backend.status()
+        except Exception as exc:
+            logger.debug("device check skipped; the queue server status is unreadable: %s", exc)
+        else:
+            await queue._check_channel_names_built(
+                backend,
+                name,
+                set(result.movable_channels),
+                set(result.readable_channels),
+                status,
+                session_tier=True,
+            )
         validation_records.record(result.content_hash)
         upload = await upload_after_validation(name)
 
@@ -1167,17 +1188,24 @@ _PREVIEW_FUNCTION = "preview_plan"
 # must not be able to bury the summary it accompanies.
 _PREVIEW_DETAIL_CHARS = 2000
 
-# Why no trajectory could be summarized. Every one of them is a 200 answer
-# carrying the same payload shape as a successful summary, so the approval hook
-# reads `ok` and renders either the trajectory or the reason it has none —
-# never a status code, and never an error branch of its own.
+# The pre-flight's own words, for causes that are its own. A backend failure is
+# named by the backend's reason, a key of `REFUSAL_REASONS`, and the two sets
+# share no word. Every answer is a 200 carrying the same payload shape as a
+# successful summary, so the approval hook reads `ok` and renders either the
+# trajectory or the reason it has none — never a status code, and never an
+# error branch of its own.
 PREVIEW_REASON_UNKNOWN_PLAN = "unknown_plan"
 PREVIEW_REASON_CATALOG_UNAVAILABLE = "plan_catalog_unavailable"
-PREVIEW_REASON_QUEUE_UNREACHABLE = "queue_unreachable"
-PREVIEW_REASON_REFUSED = "preview_refused"
-PREVIEW_REASON_TIMED_OUT = "preview_timed_out"
 PREVIEW_REASON_FAILED = "preview_failed"
 PREVIEW_REASON_PLAN_ERROR = "plan_error"
+PREVIEW_REASONS: frozenset[str] = frozenset(
+    {
+        PREVIEW_REASON_UNKNOWN_PLAN,
+        PREVIEW_REASON_CATALOG_UNAVAILABLE,
+        PREVIEW_REASON_FAILED,
+        PREVIEW_REASON_PLAN_ERROR,
+    }
+)
 
 
 def _declared_channels(spec: PlanSpec[Any], params: Any) -> list[dict[str, str]]:
@@ -1231,7 +1259,14 @@ def _preview_unavailable(
     still be derived, because "these are the channels this launch declares it
     would move" stays true and stays worth showing even when the trajectory
     behind them is unavailable.
+
+    ``reason`` is one of the pre-flight's own words or a backend reason; any
+    other code fails here, where it is made. ``retryable`` is the backend row's
+    answer for a backend reason, and false for the pre-flight's own words: none
+    of them names a cause a retry can fix that this code can tell apart.
     """
+    if reason not in PREVIEW_REASONS and reason not in REFUSAL_REASONS:
+        raise ValueError(f"{reason!r} is not a declared pre-flight or backend reason")
     return {
         "ok": False,
         "plan": name,
@@ -1242,6 +1277,7 @@ def _preview_unavailable(
         "move_cap": None,
         "reason": reason,
         "detail": detail[:_PREVIEW_DETAIL_CHARS],
+        "retryable": REFUSAL_REASONS[reason].retryable if reason in REFUSAL_REASONS else False,
     }
 
 
@@ -1275,19 +1311,19 @@ async def preview_plan(name: str, request: Request) -> dict:
       unknown name is one more reason the gate has no trajectory to show, and
       it arrives in the same shape as every other.
     - ``plan_catalog_unavailable`` — the plan registry itself could not be read.
-    - ``queue_unreachable`` — no queue server could be asked to walk the plan:
-      none is configured, none answered, or the connection to one could not be
-      built from this deployment's settings at all.
-    - ``preview_refused`` — the queue server answered and refused the call. Its
-      own sentence is relayed in ``detail``: the pre-flight function may not be
-      permitted for this deployment, or the worker may not be able to take the
-      call right now. The two are not told apart here, because the queue server
-      does not distinguish them in any way this process could read without
-      pattern-matching its prose.
-    - ``preview_timed_out`` — the call was accepted but had not finished inside
-      the backend's budget.
-    - ``preview_failed`` — the worker ran the pre-flight and the call itself
-      failed, or answered with something that is not a summary.
+    - a backend failure — the queue backend's own ``reason`` and its
+      ``retryable``, with the backend's sentence in ``detail``. The common ones:
+      ``manager_not_configured`` (this deployment holds no queue server),
+      ``manager_unreachable`` (one is configured and did not answer),
+      ``queue_request_rejected`` (it answered and refused the call — the
+      pre-flight function may not be permitted, or the worker may not be able
+      to take it right now; its own sentence is relayed because it does not
+      tell the two apart in anything this process could read),
+      ``function_timeout`` (accepted, unfinished inside the backend's budget)
+      and ``function_failed`` (the call went wrong after it was taken).
+    - ``preview_failed`` — the pre-flight answered with something that is not a
+      summary, or failed in a way this route cannot classify. The failure's
+      own text is relayed in ``detail`` and no cause is named for it.
     - ``plan_error`` — the parameters are what could not produce a plan:
       parameters that do not validate, a channel the worker has no device for,
       anything the plan itself raises. ``detail`` carries the worker's own
@@ -1302,7 +1338,8 @@ async def preview_plan(name: str, request: Request) -> dict:
     ``truncated``, and the ``move_cap`` the worker collected up to — plus
     ``channels``, this process's own reading of the plan's role declaration
     against these parameters. ``channels`` is present on every answer, success
-    or not, whenever the plan is known.
+    or not, whenever the plan is known. ``retryable`` is present on every
+    answer: false on success and for the pre-flight's own words.
     """
     from .plan_loader import get_facility_plans
 
@@ -1345,27 +1382,15 @@ async def preview_plan(name: str, request: Request) -> dict:
 
     try:
         payload = await get_queue_backend().function_execute(_PREVIEW_FUNCTION, name, plan_params)
-    except QueueUnavailableError as exc:
-        return _preview_unavailable(name, channels, PREVIEW_REASON_QUEUE_UNREACHABLE, str(exc))
-    except FunctionTimeoutError as exc:
-        return _preview_unavailable(name, channels, PREVIEW_REASON_TIMED_OUT, str(exc))
-    except FunctionFailedError as exc:
-        return _preview_unavailable(name, channels, PREVIEW_REASON_FAILED, str(exc))
     except QueueBackendError as exc:
-        return _preview_unavailable(name, channels, PREVIEW_REASON_REFUSED, str(exc))
+        return _preview_unavailable(name, channels, exc.reason, str(exc))
     except Exception as exc:
-        # The rungs above name what `queue_backend` translates, and a typed
-        # ladder is only as total as its base class: building the connection
-        # from a malformed environment happens before any translation exists,
-        # and upstream's client raises types of its own that the backend does
-        # not rewrite. Neither may reach an approver as a 500, so the ladder
-        # ends on a rung that cannot be fallen off.
+        # The ladder ends on a rung that cannot be fallen off, and that rung
+        # names no cause: a failure outside the backend's vocabulary is relayed
+        # in its own text and never reaches an approver as a 500.
         logger.warning("pre-flight: the queue call for %r failed", name, exc_info=True)
         return _preview_unavailable(
-            name,
-            channels,
-            PREVIEW_REASON_QUEUE_UNREACHABLE,
-            f"The queue server could not be reached: {exc}",
+            name, channels, PREVIEW_REASON_FAILED, str(exc) or type(exc).__name__
         )
 
     if not isinstance(payload, dict):
@@ -1409,6 +1434,7 @@ async def preview_plan(name: str, request: Request) -> dict:
         "move_cap": payload.get("move_cap"),
         "reason": None,
         "detail": None,
+        "retryable": False,
     }
 
 
@@ -1679,6 +1705,19 @@ def _json_rows(frame: Any) -> list[list[Any]]:
     return rows
 
 
+def _stream_units(stream: Any, columns: Sequence[str]) -> dict[str, str]:
+    """Each of ``columns``' units as the stream's stored descriptors declare them.
+
+    Read through the same rule the live recorder applies to a descriptor it
+    is sent (`live_rows.declared_units`); a later descriptor adds to an
+    earlier one. A column no descriptor gives a unit has none.
+    """
+    declared: dict[str, str] = {}
+    for descriptor in stream.descriptors:
+        declared.update(live_rows.declared_units(descriptor))
+    return {column: declared[column] for column in columns if column in declared}
+
+
 def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     """One run's full stored state, read from the durable Tiled catalog.
 
@@ -1702,6 +1741,10 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
     live-buffer column set exactly as the live path serves it. Cells are plain
     JSON values: a scalar reading is a number, a waveform reading is a list of
     numbers (`_json_rows`), and neither is ever text describing itself.
+
+    ``units`` is each column's unit as the stream's stored descriptors declare
+    it (`_stream_units`), the same map the live buffer keeps from the
+    descriptors it was sent.
 
     ``partial`` is the absence of a stop document, the same signal ``partial``
     means everywhere else, and never the run record: a run still executing
@@ -1739,6 +1782,7 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
         columns: list[str] = []
         rows: list[Any] = []
         total_seen = 0
+        units: dict[str, str] = {}
     else:
         table = _primary_table(run_node)
         if "seq_num" in table.columns:
@@ -1746,11 +1790,13 @@ def _tiled_run_snapshot(run_id: str) -> dict[str, Any] | None:
         columns = _data_columns(table)
         rows = _json_rows(table[columns])
         total_seen = len(table)
+        units = _stream_units(run_node["primary"], columns)
 
     return {
         "columns": columns,
         "rows": rows,
         "total_seen": total_seen,
+        "units": units,
         "partial": metadata.get("stop") is None,
         "plan": start.get(PLAN_META_KEY),
         "run_uid": start.get("uid"),
@@ -1848,14 +1894,14 @@ def _data_response(
     """`get_run_data`'s body, built from whichever source is holding the run.
 
     *held* is everything one source knows about the run — ``columns``,
-    ``rows``, ``total_seen``, ``partial`` and the ``plan`` stamp — as the live
+    ``rows``, ``total_seen``, ``partial``, ``units`` and the ``plan`` stamp — as the live
     buffer (`live_rows.get`) and the catalog snapshot (`_tiled_run_snapshot`)
     both spell it. That shared spelling is what lets one function shape both
     answers, and shaping both here is the point: the route's promise is that a
     run reads the same whichever source served it, and a promise kept by two
     copies of the same code is kept only until one of them is edited.
 
-    Three rules the two sources must not diverge on:
+    The rules the two sources must not diverge on:
 
     - ``run_uid`` is always present, carrying ``None`` when the source does not
       know it, so a caller never has to tell "unknown" from "omitted".
@@ -1865,6 +1911,9 @@ def _data_response(
     - ``analysis`` is computed over ALL the rows the source holds, never the
       window `_window` cuts — statistics over a page of a run describe the
       page.
+    - ``columns`` states each column once, in row order, as ``{"name",
+      "unit"}``: ``unit`` is what the run declared for it and ``None`` when
+      it declared none, so a row's values are read by position against it.
 
     *generation* is the caller's, read BEFORE the source, as the figure route
     reads it: an eviction landing between the two reads then leaves a cache
@@ -1875,6 +1924,10 @@ def _data_response(
     result.update(
         _window(held["columns"], held["rows"], held["total_seen"], max_rows, offset, tail)
     )
+    declared = held["units"]
+    result["columns"] = [
+        {"name": column, "unit": declared.get(column)} for column in result["columns"]
+    ]
     if held["partial"]:
         result["partial"] = True
     result["analysis"] = _run_analysis(
@@ -1972,6 +2025,10 @@ def get_run_data(
     ``analysis`` is the run's peak statistics (`analysis.analyze`), computed
     over the whole run rather than this window and always present: a run that
     has none carries the reason it has none. See `_run_analysis`.
+
+    ``columns`` lists each column once, in the order every row's values
+    follow, as ``{"name", "unit"}``; ``unit`` is the one the run's descriptors
+    declared for it, ``None`` when they declared none.
     """
     generation = figure_cache.snapshot_generation(run_id)
     buf = live_rows.get(run_id)
@@ -2043,27 +2100,6 @@ _EXPORT_FORMATS = {
     "parquet": "application/x-parquet",
 }
 
-# Why an export could not be produced. Same `{"code", "detail"}` refusal body
-# every other refusal on this app uses (`queue.py`, `_use_the_queue`), so a
-# caller branches on `detail.code` here exactly as it does there.
-EXPORT_REASON_UNSUPPORTED_FORMAT = "unsupported_format"
-EXPORT_REASON_TILED_UNAVAILABLE = "tiled_unavailable"
-EXPORT_REASON_UNKNOWN_RUN = "unknown_run"
-EXPORT_REASON_NOTHING_STORED = "nothing_stored"
-EXPORT_REASON_AMBIGUOUS_TABLE = "ambiguous_table"
-EXPORT_REASON_EXPORT_FAILED = "export_failed"
-
-
-def _export_refused(status: int, code: str, detail: str) -> HTTPException:
-    """The refusal an export answers with — always a body, never a bare status.
-
-    A download route that fails has to say *why* in something a caller can
-    branch on: the response body is the only place left, because the bytes it
-    would otherwise be carrying are what is missing.
-    """
-    return HTTPException(status_code=status, detail={"code": code, "detail": detail})
-
-
 # Everything a run id may contribute to a download filename. Deliberately a
 # tiny allowlist rather than a blocklist of the characters that are known to
 # hurt: the quoted-string form of `Content-Disposition` gives a `"` the power to
@@ -2115,7 +2151,9 @@ def _resolve_stored_tables(run_id: str) -> list[Any]:
     judgement belongs to the caller of this function, which is why it makes
     none itself.
 
-    The two ``None``/``not in`` refusals raised here are the opposite case:
+    The refusals raised here are the opposite case. The first, no catalog
+    configured, is a fact about the deployment: there is no catalog to ask, so it
+    is raised before any read. The two ``None``/``not in`` refusals after it are
     facts about the catalog's contents, learned by asking successfully.
 
     What comes back is every table-family part of the stream, in container
@@ -2127,23 +2165,19 @@ def _resolve_stored_tables(run_id: str) -> list[Any]:
     """
     client = _tiled_client()
     if client is None:
-        raise _export_refused(
-            503,
-            EXPORT_REASON_TILED_UNAVAILABLE,
+        raise refusal(
+            REASON_TILED_NOT_CONFIGURED,
             "No Tiled catalog is configured for this deployment, so no run has "
             "stored data to export.",
         )
 
     run_node = _newest_run_node(client, run_id)
     if run_node is None:
-        raise _export_refused(
-            404, EXPORT_REASON_UNKNOWN_RUN, f"No run in the catalog matches {run_id!r}."
-        )
+        raise refusal(REASON_UNKNOWN_RUN, f"No run in the catalog matches {run_id!r}.")
 
     if "primary" not in run_node:
-        raise _export_refused(
-            409,
-            EXPORT_REASON_NOTHING_STORED,
+        raise refusal(
+            REASON_NOTHING_STORED,
             f"Run {run_id!r} recorded no data — it has no 'primary' stream to export.",
         )
 
@@ -2155,12 +2189,16 @@ def _resolve_stored_tables(run_id: str) -> list[Any]:
 def _stored_table_node(run_id: str) -> Any:
     """The catalog node holding *run_id*'s stored rows. Raises a refusal, never a 500.
 
-    Two kinds of failure, told apart because a caller acts on them differently:
+    Three kinds of failure, told apart because a caller acts on them differently:
 
-    **The catalog answered, and its answer was "no".** No catalog configured, no
-    run under that id, a run whose ``primary`` stream never landed, a stream with
-    no table part — each a named refusal raised here or by
-    `_resolve_stored_tables` and passed straight through.
+    **No catalog is configured.** A fact about the deployment, not about the
+    run: 409 `tiled_not_configured`, raised by `_resolve_stored_tables` before
+    any network read and passed straight through. Retrying does not change it.
+
+    **The catalog answered, and its answer was "no".** No run under that id, a
+    run whose ``primary`` stream never landed, a stream with no table part —
+    each a named refusal raised here or by `_resolve_stored_tables` and passed
+    straight through.
 
     **The catalog did not answer at all.** Every line of the resolution reaches
     the Tiled server over the network — `from_uri` performs a handshake GET, the
@@ -2195,28 +2233,26 @@ def _stored_table_node(run_id: str) -> Any:
     try:
         tables = _resolve_stored_tables(run_id)
     except HTTPException:
-        # A refusal `_resolve_stored_tables` already named — the catalog answered.
+        # A refusal `_resolve_stored_tables` already named — the deployment has no
+        # catalog, or the catalog answered.
         raise
     except Exception as exc:
         logger.warning(
             "export: the Tiled catalog could not be read for run %r", run_id, exc_info=True
         )
-        raise _export_refused(
-            503,
-            EXPORT_REASON_TILED_UNAVAILABLE,
+        raise refusal(
+            REASON_TILED_UNAVAILABLE,
             f"The Tiled catalog could not be reached to look up this run: {exc}",
         ) from exc
 
     if not tables:
-        raise _export_refused(
-            409,
-            EXPORT_REASON_NOTHING_STORED,
+        raise refusal(
+            REASON_NOTHING_STORED,
             f"Run {run_id!r} stored no row table, so there is nothing to serialize.",
         )
     if len(tables) > 1:
-        raise _export_refused(
-            409,
-            EXPORT_REASON_AMBIGUOUS_TABLE,
+        raise refusal(
+            REASON_AMBIGUOUS_TABLE,
             f"Run {run_id!r} stored {len(tables)} row tables; an export serializes one "
             "node, and serving part of an archive without saying so is not an option.",
         )
@@ -2252,10 +2288,12 @@ def export_run_data(run_id: str, format: str = "csv") -> Response:
 
     Total by construction, like the data and figure routes: every failure is a
     ``{"code", "detail"}`` body under a status that says which kind it is —
-    400 `unsupported_format`, 404 `unknown_run`, 409 `nothing_stored`,
-    409 `ambiguous_table`, 503 `tiled_unavailable`, 502 `export_failed`. The two
-    409s are told apart because a caller acts on them differently — nothing to
-    serialize versus more than one thing. The two network ones split the
+    400 `unsupported_format`, 404 `unknown_run`, 409 `tiled_not_configured`,
+    409 `nothing_stored`, 409 `ambiguous_table`, 503 `tiled_unavailable`,
+    502 `export_failed`. The three 409s are settled refusals that retrying will
+    not change — no catalog in this deployment, nothing to serialize, more than
+    one thing — told apart because a caller acts on each differently; 503 is the
+    one retryable answer. The two network ones split the
     catalog's failures where a caller can act on the difference: 503 is "could
     not be reached at all, retry later" (`_stored_table_node` owns it, for the
     whole resolution), 502 is "was reached and could not serialize this run",
@@ -2277,9 +2315,8 @@ def export_run_data(run_id: str, format: str = "csv") -> Response:
     """
     media_type = _EXPORT_FORMATS.get(format)
     if media_type is None:
-        raise _export_refused(
-            400,
-            EXPORT_REASON_UNSUPPORTED_FORMAT,
+        raise refusal(
+            REASON_UNSUPPORTED_FORMAT,
             f"{format!r} is not an export format; this bridge serves "
             f"{', '.join(sorted(_EXPORT_FORMATS))}.",
         )
@@ -2291,9 +2328,8 @@ def export_run_data(run_id: str, format: str = "csv") -> Response:
         node.export(buffer, format=media_type)
     except Exception as exc:
         logger.warning("export: serializing run %r as %s failed", run_id, format, exc_info=True)
-        raise _export_refused(
-            502,
-            EXPORT_REASON_EXPORT_FAILED,
+        raise refusal(
+            REASON_EXPORT_FAILED,
             f"The Tiled catalog could not serialize this run as {format}: {exc}",
         ) from exc
 
@@ -2427,6 +2463,7 @@ def _compose_figure(
     plan_stamp: Any,
     partial: bool,
     source: Literal["live", "tiled"],
+    units: Mapping[str, str],
 ) -> tuple[Figure, bool]:
     """One source snapshot in, one servable figure out — total, never raises.
 
@@ -2451,6 +2488,11 @@ def _compose_figure(
     the same order either way, and a declaration that cannot be read at all
     degrades to no role context — the row-index figure — never to a failure.
 
+    ``units`` is each column's declared unit as the source holds it; the
+    `RowWindow` a render is handed carries it, and every figure served from
+    here has its axes' units stated from it by `bind_units`, before
+    decimation, on every path.
+
     The reason ladder, in the order it is walked:
 
     - ``plan_identity_unavailable`` — no plan stamp on the source, a stamp
@@ -2472,30 +2514,40 @@ def _compose_figure(
       window claiming more rows than its run, or ragged rows — same treatment:
       the stored shape no longer matches what the code expects).
     - ``render_failed`` — the plan's `render` raised, returned a non-`Figure`,
-      or produced marks whose decimation truth is inconsistent.
+      returned a figure `bind_units` refuses (a unit set by hand, an axis
+      bound to a column the rows do not hold), or produced marks whose
+      decimation truth is inconsistent.
     """
     try:
-        window = rows_from_columnar(columns, rows, total_seen)
+        window = rows_from_columnar(columns, rows, total_seen, units)
     except ValueError:
         logger.warning("figure: malformed row snapshot; serving the default figure", exc_info=True)
         window = RowWindow(
             rows=[], columns=list(columns), rows_complete=False, total_seen=max(total_seen, 0)
         )
         figure = _decimate_figure(
-            default_figure(window, reason=REASON_PARAMS_MISMATCH, partial=partial, source=source)
+            bind_units(
+                default_figure(
+                    window, reason=REASON_PARAMS_MISMATCH, partial=partial, source=source
+                ),
+                window,
+            )
         )
         return figure, True
 
     def _default(reason: str, roles: tuple[Sequence[str], Sequence[str]] = ((), ())) -> Figure:
         movable, readable = roles
         return _decimate_figure(
-            default_figure(
+            bind_units(
+                default_figure(
+                    window,
+                    reason=reason,
+                    partial=partial,
+                    source=source,
+                    movable=movable,
+                    readable=readable,
+                ),
                 window,
-                reason=reason,
-                partial=partial,
-                source=source,
-                movable=movable,
-                readable=readable,
             )
         )
 
@@ -2540,7 +2592,7 @@ def _compose_figure(
         if not isinstance(rendered, Figure):
             raise TypeError(f"render returned {type(rendered).__name__}, not a Figure")
         figure = _decimate_figure(
-            rendered.model_copy(update={"partial": partial, "source": source})
+            bind_units(rendered.model_copy(update={"partial": partial, "source": source}), window)
         )
         return figure, True
     except Exception:
@@ -2601,6 +2653,7 @@ def get_run_figure(run_id: str) -> dict:
             plan_stamp=plan_stamp,
             partial=partial,
             source="live",
+            units=buf["units"],
         )
         if not partial and cacheable:
             figure_cache.put(key, _CachedFigure(figure, buf["total_seen"], None), generation)
@@ -2625,8 +2678,9 @@ def get_run_figure(run_id: str) -> dict:
             exc_info=True,
         )
         window = RowWindow(rows=[], columns=[], rows_complete=False, total_seen=0)
-        return default_figure(
-            window, reason=REASON_SOURCE_UNAVAILABLE, partial=True, source="tiled"
+        return bind_units(
+            default_figure(window, reason=REASON_SOURCE_UNAVAILABLE, partial=True, source="tiled"),
+            window,
         ).model_dump()
 
     if snapshot is None:
@@ -2640,6 +2694,7 @@ def get_run_figure(run_id: str) -> dict:
         plan_stamp=plan_stamp,
         partial=snapshot["partial"],
         source="tiled",
+        units=snapshot["units"],
     )
     if not snapshot["partial"] and cacheable:
         figure_cache.put(

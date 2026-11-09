@@ -325,16 +325,12 @@ _BEFORE = {
         {**_TERMINAL_TILE, "size": 0.5},
     ],
 }
-#: The layout the dock answers every op with: both panels on screen.
+#: The layout the dock answers every op with: both panels on screen, a tile each.
 _AFTER = {
     "split": "row",
     "items": [
-        {
-            "tile": "t1",
-            "tabs": [_MEMBER_PANEL, _NON_MEMBER_PANEL],
-            "showing": _NON_MEMBER_PANEL,
-            "size": 0.5,
-        },
+        {"tile": "t1", "tabs": [_MEMBER_PANEL], "showing": _MEMBER_PANEL, "size": 0.25},
+        {"tile": "t2", "tabs": [_NON_MEMBER_PANEL], "showing": _NON_MEMBER_PANEL, "size": 0.25},
         {**_TERMINAL_TILE, "size": 0.5},
     ],
 }
@@ -460,7 +456,7 @@ def test_agent_panel_command_mirrors_one_row(path, body, tool, panel):
         pytest.param("open", {"member": _MEMBER_PANEL}, "open_panel", _MEMBER_PANEL, id="open"),
         pytest.param(
             "open-set",
-            {"members": [_NON_MEMBER_PANEL, _MEMBER_PANEL], "as": "tabs"},
+            {"members": [_NON_MEMBER_PANEL, _MEMBER_PANEL], "as": "side"},
             "open_panel_set",
             _NON_MEMBER_PANEL,
             id="open-set",
@@ -472,6 +468,7 @@ def test_agent_panel_command_mirrors_one_row(path, body, tool, panel):
             "Review",
             id="arrange",
         ),
+        pytest.param("close", {"key": _MEMBER_PANEL}, "close_panel", _MEMBER_PANEL, id="close"),
     ],
 )
 async def test_agent_dock_op_mirrors_one_row(route, body, tool, panel):

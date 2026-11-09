@@ -103,11 +103,14 @@ class _Inputs:
         profile_config: Mapping[str, Any],
         va_archiver: VAArchiverConfig | None,
         reported: set[str] | None,
+        content_dir: Path | None = None,
     ) -> None:
         from osprey.cli.build_profile_archiver import _expand_dotted
 
         self.records = records
         self.facility_dir = facility_dir
+        self.content_dir = content_dir if content_dir is not None else facility_dir
+        self.mounted = self.content_dir != facility_dir
         self.project_root = project_root
         self.rendered_config = rendered_config
         self.profile_config = profile_config
@@ -152,13 +155,13 @@ class _Inputs:
 
     @cached_property
     def vocabulary_shipped(self) -> bool:
-        """Whether the facility tree ships ARIEL's vocabulary."""
-        return (self.facility_dir / "ariel" / "vocabulary.yml").is_file()
+        """Whether the content root ships ARIEL's vocabulary."""
+        return (self.content_dir / "ariel" / "vocabulary.yml").is_file()
 
     @cached_property
     def query_sources_shipped(self) -> bool:
-        """Whether the facility tree ships benchmark query sources."""
-        return (self.facility_dir / QUERY_SOURCES).is_dir()
+        """Whether the content root ships benchmark query sources."""
+        return (self.content_dir / QUERY_SOURCES).is_dir()
 
 
 @dataclass(frozen=True)
@@ -276,8 +279,40 @@ def _derive_freshness(inputs: _Inputs) -> Any:
     return freshness_check_override(derived)[FRESHNESS_CONFIG_KEY]
 
 
+def _marked_scenarios(inputs: _Inputs) -> list[str]:
+    """The names of the facility's scenarios marked ``start: true``, sorted."""
+    return sorted(
+        str(s["name"])
+        for s in inputs.records.document.get("scenarios", [])
+        if s.get("start") is True
+    )
+
+
+def _derive_start_set(inputs: _Inputs) -> Any:
+    return _marked_scenarios(inputs) or None
+
+
 def _check_start_set(inputs: _Inputs) -> None:
     stated = inputs.stated(DEFAULT_SCENARIOS_KEY)
+    if stated is None:
+        return
+    marked = _marked_scenarios(inputs)
+    if marked or inputs.mounted:
+        # Mounted, the machine's marks are the only producer of the start set,
+        # so a machine without marks starts no scenario rather than a preset's.
+        found = (
+            f"the facility marks its start set ({quoted_slots(marked)}) with `start: true`"
+            if marked
+            else "the profile mounts a machine root, whose `start: true` marks are the "
+            "only start set"
+        )
+        raise _refusal(
+            DEFAULT_SCENARIOS_KEY,
+            f"{found}, and the profile states one too",
+            f"remove `{DEFAULT_SCENARIOS_KEY}` from the profile; to cancel a value a preset "
+            f"gives, state the dotted key `{DEFAULT_SCENARIOS_KEY}: null`; on a materialized "
+            "profile, keep the existing `SITE-DEVIATION`-style marker line",
+        )
     if not isinstance(stated, list):
         return
     # The scenarios view adds the built-in still to every file that defines none.
@@ -372,7 +407,9 @@ def _facility_settings() -> tuple[FacilitySetting, ...]:
         FacilitySetting(
             FRESHNESS_CONFIG_KEY, FRESHNESS_CHANNEL_KEY, _derive_freshness, _check_freshness
         ),
-        FacilitySetting(DEFAULT_SCENARIOS_KEY, DEFAULT_SCENARIOS_KEY, None, _check_start_set),
+        FacilitySetting(
+            DEFAULT_SCENARIOS_KEY, DEFAULT_SCENARIOS_KEY, _derive_start_set, _check_start_set
+        ),
         FacilitySetting(
             VOCABULARY_ENABLED_KEY,
             VOCABULARY_ENABLED_KEY,
@@ -409,12 +446,14 @@ def fill_facility_settings(
     va_archiver: VAArchiverConfig | None,
     *,
     reported: set[str] | None = None,
+    content_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Check every stated facility setting, then derive every unstated one.
 
     Args:
         records: The build's facility file's records.
-        facility_dir: The build's ``data/facility`` directory.
+        facility_dir: The build's machine root, its ``data/facility``
+            directory unless mounted.
         project_root: The repository the build renders, which a stated
             relative path is resolved against.
         rendered_config: The render's ``config.yml`` before the profile's overlay.
@@ -422,6 +461,10 @@ def fill_facility_settings(
         va_archiver: The profile's parsed ``va_archiver:`` block, or ``None``.
         reported: The notes this build has printed; a warning in it is not
             printed again and one printed is added. ``None`` prints it.
+        content_dir: The content root, where ARIEL's vocabulary and the
+            benchmark query sources are read; ``None`` means ``facility_dir``.
+            Given and different from ``facility_dir``, the roots are mounted
+            and a stated start set is refused.
 
     Returns:
         The dotted keys to write, each row's derived value under its key.
@@ -432,7 +475,14 @@ def fill_facility_settings(
             when the served models do not resolve.
     """
     inputs = _Inputs(
-        records, facility_dir, project_root, rendered_config, profile_config, va_archiver, reported
+        records,
+        facility_dir,
+        project_root,
+        rendered_config,
+        profile_config,
+        va_archiver,
+        reported,
+        content_dir,
     )
     for row in _facility_settings():
         row.check(inputs)

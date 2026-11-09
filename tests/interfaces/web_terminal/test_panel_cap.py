@@ -607,10 +607,22 @@ class TestMinting:
         assert resp.status_code == 200
         assert resp.json() == {"word": "alpha-data"}
 
-    @pytest.mark.parametrize("panel_id", ["facility-dash", "artifacts", "no-such-panel"])
-    def test_no_cap_is_minted_for_a_first_party_or_unknown_panel(self, hub, panel_id):
+    @pytest.mark.parametrize("panel_id", ["facility-dash", "artifacts", "jupyter"])
+    def test_a_first_party_panel_is_answered_not_capped(self, hub, panel_id):
+        """The hub asks about every config panel (the events panel is one): a 404
+        there was a console error on every page load, so the answer is a 200."""
         _app, client = hub
-        assert client.get(f"/api/panels/{panel_id}/cap").status_code == 404
+        resp = client.get(f"/api/panels/{panel_id}/cap")
+        assert resp.status_code == 200
+        assert resp.json() == {"id": panel_id, "opaque": False, "cap_url": None}
+
+    def test_an_opaque_panel_says_it_is_opaque(self, hub):
+        _app, client = hub
+        assert client.get("/api/panels/alpha/cap").json()["opaque"] is True
+
+    def test_no_cap_is_minted_for_an_unknown_panel(self, hub):
+        _app, client = hub
+        assert client.get("/api/panels/no-such-panel/cap").status_code == 404
 
     @pytest.mark.no_auth_seam
     def test_minting_needs_a_login(self, hub):

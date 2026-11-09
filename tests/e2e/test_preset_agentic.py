@@ -39,7 +39,6 @@ from tests.e2e.sdk_helpers import (
 # `tests/conftest.py` hook auto-skips when the key is missing. Every test
 # in this file passes `provider="als-apg"` to `init_project` and `LLMJudge`.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available"),
@@ -162,16 +161,16 @@ async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
 
 @pytest.mark.agentic_benchmark
 @pytest.mark.asyncio
-async def test_control_assistant_channel_finder_flow(tmp_path: Path) -> None:
-    """Control-assistant preset: agent uses the channel-finder pipeline.
+async def test_demo_channel_finder_flow(tmp_path: Path) -> None:
+    """Demo preset: agent uses the channel-finder pipeline.
 
     Soft assertion (the channel-finder backend differs by preset config) —
     we only require that *some* ``mcp__channel-finder__*`` tool was used.
     """
-    repo = init_project(tmp_path, "ca_demo", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "ca_demo", template="demo", provider="als-apg")
     cf_server = _channel_finder_server_name(repo)
     if cf_server is None:
-        pytest.skip("control-assistant preset has no channel-finder server")
+        pytest.skip("demo preset has no channel-finder server")
 
     judge = LLMJudge(provider="als-apg")
     query = "Help me find the address of a beam-position-monitor channel for sector 5."
@@ -221,9 +220,9 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
 
 @pytest.mark.harness_benchmark
 @pytest.mark.asyncio
-async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) -> None:
-    """Control-assistant write probe: same contract on the heavier preset."""
-    repo = init_project(tmp_path, "ca_write", template="control_assistant", provider="als-apg")
+async def test_demo_write_triggers_approval_hook(tmp_path: Path) -> None:
+    """Demo write probe: same contract on the heavier preset."""
+    repo = init_project(tmp_path, "ca_write", template="demo", provider="als-apg")
     enable_writes_in_project(repo)
     channel, value = bounded_setpoint(repo_view(repo))
     await _assert_approval_hook_fires(

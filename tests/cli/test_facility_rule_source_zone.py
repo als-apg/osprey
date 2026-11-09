@@ -28,7 +28,7 @@ from tests.cli._lifecycle_build import invoke_build
 #: A preset whose `rules:` selection includes the facility rule. hello-world
 #: deliberately leaves it out, and a deployment that does not select the rule
 #: has no facility description to keep anywhere.
-PRESET = "control-assistant"
+PRESET = "demo"
 
 
 def _init(repo: Path) -> None:
@@ -70,7 +70,7 @@ def test_init_seeds_the_rule_in_the_source_zone(initialized_repo):
 
 def _bundled_identity_name() -> str:
     """The display name of the facility the preset names, read from the package."""
-    identity = packaged_facility_dir("control_assistant") / "identity.yaml"
+    identity = packaged_facility_dir("demo") / "identity.yaml"
     return yaml.safe_load(identity.read_text(encoding="utf-8"))["name"]
 
 

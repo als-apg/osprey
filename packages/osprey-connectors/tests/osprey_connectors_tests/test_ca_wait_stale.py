@@ -81,6 +81,14 @@ OUTAGE_S = 4.5
 #: The silent window the kill-only client runs with, instead of 30 s.
 SILENT_S = 6.0
 
+#: The hold-down the unserved client runs with, instead of 3 s: its claim is
+#: "past the hold-down", whatever the hold-down is.
+SHORT_HOLD_DOWN_S = 0.5
+
+#: The silent window the successor-while-gone client runs with: its claim is
+#: "past the silent window", and it never connects, so no other timing counts.
+SHORT_SILENT_S = 2.0
+
 #: Liveness: after the restart the client must report stale at all.
 RECONNECT_DEADLINE_S = 60.0
 
@@ -618,12 +626,14 @@ async def _stale_within(connector, seconds: float) -> bool:
 
 
 async def _scenario_unserved(args):
+    epics_connector_module.STALE_HOLD_DOWN_S = SHORT_HOLD_DOWN_S
     connector = await _connected(args)
     for name in UNSERVED:
         await connector.subscribe(name, lambda v: None)
-    await asyncio.sleep(3.5)  # past the hold-down
+    await asyncio.sleep(2 * SHORT_HOLD_DOWN_S)  # past the hold-down
     served_connected = await _read_within(connector, SERVED, CONNECT_DEADLINE_S)
-    waiter = asyncio.ensure_future(_stale_within(connector, 3.0))
+    # Two probes past the confirmation after the served channel connected.
+    waiter = asyncio.ensure_future(_stale_within(connector, 2.0))
     await asyncio.sleep(1.0)
     return {
         "served_connected": served_connected,
@@ -697,11 +707,13 @@ async def _scenario_kill_only(args):
 
 
 async def _scenario_successor_while_gone(args):
-    epics_connector_module.STALE_SILENT_S = SILENT_S
+    epics_connector_module.STALE_SILENT_S = SHORT_SILENT_S
     connector = await _connected(args)
     states: list[bool] = []
     await connector.subscribe(SERVED, lambda v: None, on_connection=states.append)
-    stale = await _stale_within(connector, SILENT_S + 4.0)
+    # Two probes past both the silent window and the hold-down.
+    wait_s = max(SHORT_SILENT_S, epics_connector_module.STALE_HOLD_DOWN_S) + 2.0
+    stale = await _stale_within(connector, wait_s)
     return {"connected": True in states, "stale": stale}
 
 
@@ -721,7 +733,8 @@ async def _scenario_one_shot_unknown(args):
     except ChannelUnreachableError as exc:
         read = type(exc).__name__
     served_read = await _read_within(connector, SERVED, CONNECT_DEADLINE_S)
-    waiter = asyncio.ensure_future(_stale_within(connector, 3.0))
+    # Two probes past the confirmation after the served channel connected.
+    waiter = asyncio.ensure_future(_stale_within(connector, 2.0))
     await asyncio.sleep(1.0)
     return {
         "read": read,
@@ -736,7 +749,9 @@ async def _scenario_udp(args):
     await connector.subscribe(UNSERVED[0], lambda v: None)
     return {
         "name_server": connector._name_server,
-        "stale": await _stale_within(connector, 3.5),
+        # No name server: ``wait_stale`` awaits a future that never resolves
+        # before any probe, so any wait shows it.
+        "stale": await _stale_within(connector, 1.0),
     }
 
 

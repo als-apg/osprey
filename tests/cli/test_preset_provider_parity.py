@@ -2,7 +2,7 @@
 
 Regression for the ds4 gap (2026-06): the ``ds4`` (local DeepSeek V4) provider
 was added to the model registry and the generic ``project/config.yml.j2`` but
-not to the per-app config templates. Building ``--preset control-assistant
+not to the per-app config templates. Building ``--preset demo
 --set provider=ds4`` therefore produced ``claude_code.provider: ds4`` with no
 matching ``api.providers.ds4`` stanza, and the resolver raised ``Unknown Claude
 Code provider 'ds4'`` — every agentic call died at fixture setup. The root cause
@@ -158,7 +158,7 @@ def test_the_llama_cpp_entry_expands_to_its_server_root(monkeypatch):
 
 
 #: The presets that ship an ``ariel:`` block, and so the picture modules.
-ARIEL_PRESETS = ("control-assistant",)
+ARIEL_PRESETS = ("demo",)
 
 
 def _preset_ariel(preset: str) -> dict:

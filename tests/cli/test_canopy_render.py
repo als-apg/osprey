@@ -1,12 +1,12 @@
-"""What a real ``osprey build`` of the control-assistant cell renders for CANOPY.
+"""What a real ``osprey build`` of the demo cell renders for CANOPY.
 
 ``test_canopy_preset.py`` pins the resolved presets. It does not show that the
 pieces agree once a whole deployment has been initialised and built: that the
 agent reaches CANOPY through its own terminal's panel proxy, and that every
 tier keeps CANOPY while every app, which inherits nothing from the profile,
 carries none. So this module reads the session's one real
-``osprey init --preset control-assistant`` + ``osprey build`` (the shared
-``built_control_assistant``) back as parsed YAML and JSON.
+``osprey init --preset demo`` + ``osprey build`` (the shared
+``built_demo``) back as parsed YAML and JSON.
 """
 
 from __future__ import annotations
@@ -81,9 +81,9 @@ _ruamel = YAML(typ="rt")
 
 
 @pytest.fixture(scope="module")
-def default_cell(built_control_assistant: BuiltProject) -> Path:
-    """The session's shared control-assistant build, read and never written."""
-    return built_control_assistant.repo
+def default_cell(built_demo: BuiltProject) -> Path:
+    """The session's shared demo build, read and never written."""
+    return built_demo.repo
 
 
 # ── Reading the artifacts back ───────────────────────────────────────────────
@@ -227,7 +227,7 @@ class TestPrebuildHook:
         Harmless: the payload step is idempotent, so a payload already staged is
         left as it is and running it again for a tier changes nothing.
         """
-        root = _hook_steps("control-assistant")
+        root = _hook_steps("demo")
         steps = _layer_hook_steps(default_cell, tier)
         assert steps == root
         assert [step.name for step in steps] == ["canopy-payload"]
@@ -243,7 +243,7 @@ class TestPrebuildHook:
 # ── The data tree the image copies ───────────────────────────────────────────
 
 #: The template's one facility collection (RULINGS D14a), relative to a project.
-TEMPLATE_COLLECTION = Path("data/canopy/collections/control-assistant.json")
+TEMPLATE_COLLECTION = Path("data/canopy/collections/demo.json")
 
 
 class TestTheDataTree:
@@ -256,7 +256,7 @@ class TestTheDataTree:
     """
 
     def test_the_project_carries_the_template_collection(self, default_cell: Path) -> None:
-        template = Path(TemplateManager().template_root) / "apps" / "control_assistant"
+        template = Path(TemplateManager().template_root) / "apps" / "demo"
         shipped = template / TEMPLATE_COLLECTION
         assert (default_cell / TEMPLATE_COLLECTION).read_bytes() == shipped.read_bytes()
 

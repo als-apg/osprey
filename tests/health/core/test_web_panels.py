@@ -165,7 +165,7 @@ class TestStatusMapping:
         assert row.status is Status.OK
         assert row.value == "up"
         assert row.latency_ms is not None
-        assert "ARIEL" in row.message
+        assert "LOGBOOK" in row.message
 
     async def test_unreachable_panel_warns_and_never_raises(self):
         def handler(request: httpx.Request) -> httpx.Response:
