@@ -66,10 +66,12 @@ NOTHING_ANSWERED = "nothing_answered"
 #: The key each tool that answers part of a request states its map under.
 MAP_KEYS: Mapping[str, str] = MappingProxyType(
     {
+        "alarm_state": MISSING_KEY,
         "channel_read": MISSING_KEY,
         "channel_write": RESULTS_KEY,
         "entries_by_ids": MISSING_KEY,
         "model_response_matrix": MISSING_KEY,
+        "pv_record": MISSING_KEY,
         "pyaml_measure": MISSING_KEY,
     }
 )
