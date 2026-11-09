@@ -1834,6 +1834,31 @@ def resolve_site_image_axes(config):
     return resolved
 
 
+def resolve_site_build_args(config):
+    """Every value the site hands an OSPREY image build, keyed by ARG name.
+
+    The :func:`resolve_site_image_axes` values, plus ``OSPREY_OFFLINE`` when the
+    deployment is offline. That flag is read exactly as
+    :func:`osprey.interfaces.vendor.offline_from_config` reads it for the
+    serving check, so the mode an image is built for and the mode it serves in
+    cannot disagree. Its value is ``"1"``, the one spelling the recipes compare
+    against; an online deployment contributes no entry at all.
+
+    :param config: Configuration dictionary.
+    :type config: dict
+    :return: ARG name -> value, the site axes in table order and
+        ``OSPREY_OFFLINE`` last.
+    :rtype: dict[str, str]
+    :raises ValueError: As :func:`resolve_site_image_axes`.
+    """
+    from osprey.interfaces.vendor import offline_from_config
+
+    resolved = resolve_site_image_axes(config)
+    if offline_from_config(config):
+        resolved["OSPREY_OFFLINE"] = "1"
+    return resolved
+
+
 def resolve_image_axes(config):
     """The registry prefix and tag every OSPREY-built image default carries.
 
@@ -2871,8 +2896,9 @@ def render_template(template_path, config, out_dir):
 def _site_image_args_for_context(config, out_dir):
     """The site build args a service's compose fragment renders.
 
-    The three images ``osprey up`` builds from a command line of its own get
-    these as ``--build-arg`` flags
+    The site settings and the deployment's offline flag
+    (:func:`resolve_site_build_args`). The three images ``osprey up`` builds
+    from a command line of its own get these as ``--build-arg`` flags
     (:func:`osprey.deployment.container_lifecycle.site_image_build_args`). A
     managed service image has no such command line — ``docker compose build``
     builds it from its own rendered context — so the same values have to reach
@@ -2896,7 +2922,8 @@ def _site_image_args_for_context(config, out_dir):
     :type config: dict
     :param out_dir: The service's build context.
     :type out_dir: str
-    :return: ARG name -> value, empty when the deployment declares no axis.
+    :return: ARG name -> value, empty when the deployment declares no axis and
+        is not offline.
     :rtype: dict[str, str]
     """
     # Function-local: container_lifecycle imports this module at module level,
@@ -2908,7 +2935,7 @@ def _site_image_args_for_context(config, out_dir):
 
     return {
         arg_name: SITE_CA_CONTEXT_FILENAME if arg_name == "OSPREY_SITE_CA" else value
-        for arg_name, value in resolve_site_image_axes(config).items()
+        for arg_name, value in resolve_site_build_args(config).items()
     }
 
 

@@ -130,8 +130,9 @@ Build Arguments
   / ``images.pip_extra_index_url`` block
 
 It resolves them once and hands them to the three images built from these
-recipes: the project image, each web-terminal image and the login sidecar. Set
-them there and a site network is configured in one place.
+recipes: the project image, each web-terminal image and the login sidecar, and
+to the managed service images it builds. Set them there and a site network is
+configured in one place.
 
 The build arguments below are the same settings under the names a hand-run
 ``docker build`` uses. An environment variable of the same name
