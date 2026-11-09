@@ -1,0 +1,1 @@
+Exporting a Plotly artifact whose plot did not draw within the render budget no longer writes a blank image; `artifact_export` answers with an error naming the file and the budget, and no image artifact is saved.

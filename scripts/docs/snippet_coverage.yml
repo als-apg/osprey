@@ -348,7 +348,7 @@ pending:
     languages: [yaml]
     kind: runs
     contains: "web_terminals:"
-    what: merges each roster block into the control-assistant preset and runs the build's profile lint on it
+    what: merges each roster block into the demo preset and runs the build's profile lint on it
   - test: tests/docs/test_ariel_parser_examples.py
     pr: 2428
     pages: [how-to/ariel/search-modes.rst]
@@ -547,7 +547,7 @@ pending:
   - test: tests/docs/test_hello_world_addresses.py
     pr: 2406
     marker: "_family"
-    pages: [getting-started/hello-world-tutorial.rst, getting-started/control-assistant.rst]
+    pages: [getting-started/hello-world-tutorial.rst, getting-started/demo.rst]
     languages: [bash, json, text, yaml, literalinclude]
     kind: checks
     what: every channel address, includes too, is a channel of the tutorial's facility
@@ -714,7 +714,7 @@ pending:
     languages: [bash]
     kind: pins
     contains: "ollama pull"
-    what: each pulled model tag equals the one the control-assistant preset names
+    what: each pulled model tag equals the one the demo preset names
   - test: tests/docs/test_bundle_and_tree_examples.py
     pr: W6-5
     pages: [how-to/facility-knowledge/okf-bundle.rst]

@@ -15,7 +15,7 @@ each boundary are one link away wherever they matter.
    :icon: book
 
    - The two questions that decide a tier
-   - What the three tiers the ``control-assistant`` preset ships can and
+   - What the three tiers the ``demo`` preset ships can and
      cannot do, login by login
    - That a tier is nothing more than a small file under ``tiers/`` — and
      what that means when you rename one or add one
@@ -127,7 +127,7 @@ read-only tier.
    :icon: code
 
    The same table, as the rendered projects spell it. The single-user column
-   is the one worth knowing: a plain ``osprey init --preset control-assistant``
+   is the one worth knowing: a plain ``osprey init --preset demo``
    render is readwrite at the machine and floored at the deployment — no
    Config tab, no gallery writes. It opens on the simulator with every switch
    off. Admin in a single-user deployment means editing ``profile.yml`` and

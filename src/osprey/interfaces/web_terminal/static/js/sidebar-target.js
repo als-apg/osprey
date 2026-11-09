@@ -22,10 +22,10 @@
  * Where the deployment has no control-target picker (`html[data-control-target
  * ="off"]`), no chip mounts and the health dot stands alone in the block.
  *
- * HEALTH is the worst outcome across the SYSTEM panel's checks, read from the
+ * HEALTH is the worst outcome across the Health panel's checks, read from the
  * panel's proxy (`GET /panel/system-health/checks`) on the sidecar's own
  * cadence: one dot, with its word on the dot's label. The dot shows and the
- * reads run exactly while the SYSTEM panel is served (panel-availability.js).
+ * reads run exactly while the Health panel is served (panel-availability.js).
  */
 
 import { worstStatus } from '/design-system/js/check-status.js';
@@ -37,7 +37,7 @@ import { getChipElement, subscribe, targetReading } from './control-target-chip.
 /** The panel the dot reports on. */
 const SYSTEM_PANEL_ID = 'system-health';
 
-/** The SYSTEM panel's check report, through the terminal's panel proxy. */
+/** The Health panel's check report, through the terminal's panel proxy. */
 export const HEALTH_API = '/panel/system-health/checks';
 
 /** Poll cadence when the report names none, seconds — the sidecar's default. */
@@ -191,14 +191,14 @@ async function pollHealth() {
   healthTimer = setTimeout(pollHealth, nextHealthDelayS() * 1000);
 }
 
-/** The SYSTEM panel is served: show the dot and start reading. */
+/** The Health panel is served: show the dot and start reading. */
 function startHealth() {
   healthServed = true;
   paintHealth();
   void pollHealth();
 }
 
-/** The SYSTEM panel is not served: hide the dot and stop reading. */
+/** The Health panel is not served: hide the dot and stop reading. */
 function stopHealth() {
   healthEpoch += 1;
   clearTimeout(healthTimer ?? undefined);
@@ -211,7 +211,7 @@ function stopHealth() {
 /**
  * Lay out the control-system block around the chip mounted in
  * `#sidebar-target` (or, with no picker, the health dot alone) and start the
- * health reads while the SYSTEM panel is served. Call once, after the chip's
+ * health reads while the Health panel is served. Call once, after the chip's
  * init. No-op without the block.
  * @returns {void}
  */

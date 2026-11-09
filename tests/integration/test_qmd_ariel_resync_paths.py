@@ -226,7 +226,7 @@ class TestWebLocalEntryPath:
         )
 
         entry_id = result.entry_id
-        assert result.source_system == "ARIEL Web"
+        assert result.source_system == "OSPREY Logbook Web"
         assert result.sync_status.value == "local_only"
         assert lane.mirrored_ids() == set(), "the fallback upsert must bypass the enhancers"
 

@@ -1,2 +1,2 @@
-The web terminal, ARIEL web API, artifact gallery, Bluesky relays, design-system
-generator and lattice dashboard type-check with no errors.
+The web terminal, ARIEL web API, artifact gallery, Bluesky relays and
+design-system generator type-check with no errors.

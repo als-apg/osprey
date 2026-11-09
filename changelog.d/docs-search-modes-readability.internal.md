@@ -1,0 +1,1 @@
+The ARIEL search-modes how-to reads in short sentences: long sentences split, inline enumerations (refusal reasons, normalization rules, status lines, `expand_query` surfaces) as bullet lists. No technical change; code blocks are byte-identical.

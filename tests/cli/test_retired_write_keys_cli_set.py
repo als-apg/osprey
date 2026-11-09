@@ -92,7 +92,7 @@ def test_a_retired_key_pair_is_rewritten_in_the_edit_layer(caplog):
 @pytest.mark.parametrize(
     ("preset", "pair", "expected"),
     [
-        ("control-assistant", "config.control_system.writes_enabled=false", "never"),
+        ("demo", "config.control_system.writes_enabled=false", "never"),
         ("hello-world", "config.control_system.writes_enabled=true", "allowed"),
         (
             "hello-world",
@@ -171,7 +171,7 @@ def test_init_set_emits_the_tier_key_and_no_retired_leaf(tmp_path):
 def test_osprey_set_writes_the_tier_key_into_a_materialized_profile(tmp_path):
     path = tmp_path / "profile.yml"
     path.write_text(
-        emit_standalone_profile_yaml("control-assistant", (), "Demo", project_name="demo"),
+        emit_standalone_profile_yaml("demo", (), "Demo", project_name="demo"),
         encoding="utf-8",
     )
     assert tier_allows(_rendered_section(_read_profile_document(path)["config"], tmp_path))
@@ -194,7 +194,7 @@ def test_the_set_command_refuses_a_retired_key_before_writing(pair, tmp_path):
     """The verb stops short of the write-back above: a retired key never reaches it."""
     path = tmp_path / "profile.yml"
     path.write_text(
-        emit_standalone_profile_yaml("control-assistant", (), "Demo", project_name="demo"),
+        emit_standalone_profile_yaml("demo", (), "Demo", project_name="demo"),
         encoding="utf-8",
     )
     before = path.read_bytes()

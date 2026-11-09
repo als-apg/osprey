@@ -25,7 +25,7 @@ from osprey.services.bluesky_bridge.app import app
 _ORM_ARGS: dict[str, Any] = {
     "correctors": ["COR1"],
     "readbacks": ["BPM1"],
-    "span_a": 1.0,
+    "span": 1.0,
     "num": 3,
 }
 

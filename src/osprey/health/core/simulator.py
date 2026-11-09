@@ -125,7 +125,7 @@ async def _probe(
     section: Any, target: str, models: list[str], addresses: Mapping[str, str], config_path: Path
 ) -> list[CheckResult]:
     """Read every model's status on one target and turn each into a row."""
-    from osprey.simulation.status import MODEL_NO_DECK, MODEL_OK, model_state, read_in_child
+    from osprey.simulation.status import STATUS_NO_DECK, is_error, read_in_child
 
     start = perf_counter()
     try:
@@ -147,21 +147,25 @@ async def _probe(
     rows: list[CheckResult] = []
     for model in models:
         status = statuses[model]
-        state = model_state(status)
         name = f"{CATEGORY}_{target}_{model}"
-        if state == MODEL_OK:
+        if is_error(status):
             rows.append(
                 CheckResult(
                     name,
                     CATEGORY,
-                    Status.OK,
-                    f"{model} on {target}: ok",
-                    value=status,
+                    Status.ERROR,
+                    f"{model} on {target}: failed",
+                    value="failed",
                     latency_ms=latency_ms,
                     probed=True,
+                    details=(
+                        f"{status}\nIts readbacks serve NaN; every other model and the "
+                        "texture serve on. 'osprey sim status --target "
+                        f"{target}' names the model log."
+                    ),
                 )
             )
-        elif state == MODEL_NO_DECK:
+        elif status == STATUS_NO_DECK:
             rows.append(
                 CheckResult(
                     name,
@@ -180,16 +184,11 @@ async def _probe(
                 CheckResult(
                     name,
                     CATEGORY,
-                    Status.ERROR,
-                    f"{model} on {target}: failed",
-                    value="failed",
+                    Status.OK,
+                    f"{model} on {target}: ok",
+                    value=status,
                     latency_ms=latency_ms,
                     probed=True,
-                    details=(
-                        f"{status}\nIts readbacks serve NaN; every other model and the "
-                        "texture serve on. 'osprey sim status --target "
-                        f"{target}' names the model log."
-                    ),
                 )
             )
     return rows

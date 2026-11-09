@@ -1,0 +1,327 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+-#}
+{#- The network axis — this service's network membership and the file-level
+    stanza that matches it — is rendered by the shared macro rather than spelled
+    out here, so every service template states the same topology the same way
+    instead of drifting into a set of near-identical dialects. With no
+    `network:` declared the macros emit the plain osprey-network membership
+    and file-level stanza. -#}
+{%- import "services/_network_axis.j2" as net -%}
+{#- The env passthrough axis — the host variables a service's `env:` key
+    names — is rendered by the shared macro rather than hand-written per
+    template, so every service hands a variable to its container the same
+    way. With none declared it emits nothing. -#}
+{%- import "services/_env_axis.j2" as hostenv -%}
+{#- The site's build settings — a proxy CA, pip's bypass list, an internal
+    package index — are rendered by the shared macro rather than spelled out
+    per template, so every image OSPREY builds is handed the same set. -#}
+{%- import "services/_site_image_args.j2" as site -%}
+{#- The `build:` gate: rendered only while this service runs the image
+    OSPREY builds, by the shared macro so every built template gates alike. -#}
+{%- import "services/_own_image.j2" as own -%}
+# The slack-bridge service receives Slack events over a Socket Mode WebSocket
+# the bridge itself opens to Slack, and dispatches DMs and mentions of the bot
+# through the osprey.dispatch pair (see src/osprey/bridges/slack/). Socket Mode
+# is outbound-only: Slack pushes each event down the connection this container
+# dialed, so no public endpoint is needed. It is therefore a subscriber, not a
+# server: it opens no listening socket, so it publishes no ports and declares
+# no healthcheck.
+# Its image is built from the Dockerfile beside this file unless
+# services.slack_bridge.image names a different image, which this file then runs
+# as named with no build. OSPREY_SLACK_BRIDGE_IMAGE names one for a single shell
+# (e.g. OSPREY_SLACK_BRIDGE_IMAGE=my-registry/osprey-slack-bridge:dev), and
+# a start that reads it builds nothing for this service.
+# Use `osprey build --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+{#- The worker's own wall-clock cap, read from the SAME config key the
+    dispatch_worker template renders it from, so a facility that raises the cap
+    raises it for both halves from one setting. The bridge's poll budget must
+    outlast it (CoreConfig.__post_init__ rejects poll_budget < worker_timeout,
+    which would crash-loop the bridge), hence the +30s default below. The
+    intermediate is defaulted to {} because a deploy may co-locate the bridge
+    with a dispatch stack whose services.dispatch_worker block is absent. The
+    leaf default is the boolean form (`default(300, true)`) because Jinja's
+    plain `default` substitutes only on Undefined: a `timeout_sec:` key written
+    with no value loads as None, which would render the literal "None" and kill
+    CoreConfig.from_env at boot on float("None"). #}
+{% set worker_timeout = (services.dispatch_worker | default({})).timeout_sec | default(300, true) %}
+{#- The dispatch pair's two addresses follow THIS BRIDGE's network axis, not
+    the pair's. On the compose network the pair answers to its service keys; on
+    the host namespace those keys resolve to nothing at all, so every dispatch
+    POST and every status poll would fail at runtime on a stack whose
+    containers all look healthy. Under host the addresses become the host's
+    own instead.
+
+    That substitution assumes the pair is on the host too. It is: the build's
+    pair-parity check refuses a host-mode bridge beside a network-joined pair,
+    so the mixed topology never reaches a deploy and nothing here has to render
+    a plausible-looking address for it.
+
+    Worker 1 is the only instance the dispatcher routes to, and its host port is
+    DERIVED with the same rule the worker template walks (`base + (i - 1) *
+    stride`) rather than restated as the base, so a facility that widens the
+    stride cannot move the workers out from under this address. Both host-only
+    keys are ABSENT under bridge, so the defaults live here — in the boolean
+    form, for the reason spelled out above the worker timeout. #}
+{%- set bridge_on_host = ((services.slack_bridge | default({}, true)).network | default('bridge', true)) == 'host' %}
+{%- set dispatcher_port = (services.event_dispatcher | default({})).port | default(osprey_ports.dispatcher, true) %}
+{%- set worker_port_base = (services.dispatch_worker | default({})).worker_port_base | default(osprey_ports.worker, true) %}
+{%- set worker_port_stride = (services.dispatch_worker | default({})).worker_port_stride | default(1, true) %}
+{#- The instance the dispatcher routes to. Multi-worker routing is not
+    implemented, so this bridge observes worker 1's runs and no others'. #}
+{%- set routed_worker = 1 %}
+{%- set routed_worker_port = (worker_port_base | int) + (routed_worker - 1) * (worker_port_stride | int) %}
+
+services:
+  slack-bridge:
+    image: ${OSPREY_SLACK_BRIDGE_IMAGE:-{{ services.slack_bridge.image | default(osprey_images.slack_bridge) }}}
+{%- call own.build(services.slack_bridge.image, osprey_images.slack_bridge) %}
+    build:
+      # EVERY relative path here resolves against the pinned compose project
+      # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
+      # compose_generator.compose_base_cmd) — never this file's own subdir. So
+      # render output is addressed under build/, and the repo's own zones by
+      # their plain names (data/, .env).
+      context: ./build/services/slack_bridge
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "{{ osprey_version | default('') }}"
+        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{{- site.build_args(site_image_build_args | default({})) }}
+{% if dev_mode | default(false) %}
+        OSPREY_DEV: "1"
+{% endif %}
+{%- if osprey_pip_pre | default(false) %}
+        OSPREY_PIP_PRE: "1"
+{%- endif %}
+{%- endcall %}
+{% if 'event_dispatcher' in deployed_services %}
+    # Only when the dispatch pair is co-deployed: the bridge's boot sequence
+    # reconciles in-flight runs against the dispatcher before accepting a single
+    # new message, so start it after the dispatcher's health probe passes rather
+    # than letting the first reconcile pass fail against a booting server. A
+    # bridge deployed against an EXTERNAL dispatcher must NOT get this — compose
+    # errors on depends_on naming an undefined service.
+    depends_on:
+      event-dispatcher:
+        condition: service_healthy
+{% endif %}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the bridge on one host without colliding
+    # on one name. Nothing reaches this service in-network (it only makes
+    # outbound calls), so the rename needs no network alias.
+    container_name: {{ osprey_labels.project_name }}-slack-bridge
+    command: ["python", "-m", "osprey.bridges.slack"]
+    restart: unless-stopped
+{%- set record_login = (osprey_agent_record_bridge_logins | default({}, true))['slack_bridge'] | default({}, true) %}
+{%- if record_login %}
+    labels:
+      # Recreates the container when its agent-record login file changes:
+      # the file is read once, at start.
+      osprey.agent-record.cred.digest: "{{ record_login.digest_ref }}"
+    # Its agent-record login and nothing else, written by `osprey build`: the
+    # one file this service reads whole, never the bulk .env below.
+    env_file:
+{%- for env_file in record_login.env_files %}
+      - {{ env_file }}
+{%- endfor %}
+{%- endif %}
+    # Deliberately NO bulk .env passthrough. The project .env carries the
+    # provider keys the dispatch worker needs (CBORG/OpenAI/...), and this
+    # service — the one component that talks to Slack — never calls an LLM. Everything it does read arrives by
+    # interpolation into the block below, resolved from that same .env because
+    # `osprey up` runs compose with `--env-file .env`; an env-file mount is
+    # outranked by `environment:` in compose anyway, so it only ever widened what
+    # the container could see.
+    environment:
+      # ── Slack app credentials ───────────────────────────────────────────
+      # No :-default on EITHER of these: an unset value must stay EMPTY so the
+      # entrypoint's require_boot() aborts at boot naming the missing vars,
+      # rather than the bridge coming up authenticating as nobody. Unlike the
+      # dispatch tokens below, these are never auto-generated — an operator
+      # creates the Slack app in their own workspace, installs it, and sets
+      # both in the project .env.
+      #
+      # Bot user OAuth token (xoxb-…) authorising every Web API call: posting,
+      # reading thread history, downloading and uploading files. A credential:
+      # it reaches the container only through this line.
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      # App-level token (xapp-…, connections:write) that opens the Socket Mode
+      # connection. A credential, separate from the bot token.
+      #
+      # ONE BRIDGE PER APP: Slack spreads a Socket Mode app's events across
+      # every connection open on it, so a second deployment holding the same
+      # app token (a staging stack, a leftover container) does not duplicate
+      # events — it SILENTLY SPLITS them, and each half answers only the
+      # messages it happened to receive. Give every deployment its own app.
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      # ── Dispatch pipeline ───────────────────────────────────────────────
+      # No :-default (see the event_dispatcher compose): an unset token must
+      # stay EMPTY so the bridge fails closed at boot rather than dispatching
+      # with a guessable secret. `osprey up` auto-generates strong random
+      # tokens into the project .env when unset.
+      EVENT_DISPATCHER_TOKEN: ${EVENT_DISPATCHER_TOKEN}
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+      # The dispatcher trigger this channel fires (POST /webhook/{trigger}).
+      # Rendered from the build profile's slack_bridge.trigger, which is the
+      # ONLY place the `slack-question` default lives — deliberately no fallback
+      # here, so a config that lost the key fails at startup with the var named
+      # instead of silently firing some other facility's trigger.
+      DISPATCH_TRIGGER: "{{ services.slack_bridge.trigger }}"
+      # Whether an agent's <@ID> becomes a real Slack mention of a conversation
+      # member. From the profile's slack_bridge.mentions, which the build always
+      # writes; a config without the key (hand-edited or older) renders the
+      # default, on.
+      # `sameas false` so that only an explicit false turns mentions off.
+      SLACK_MENTIONS: "{{ 'false' if services.slack_bridge.mentions is sameas false else 'true' }}"
+{% if 'event_dispatcher' in deployed_services %}
+{%- if bridge_on_host %}
+      # Co-deployed dispatcher, addressed across the HOST namespace: this
+      # bridge shares the host's network stack, where the compose service key
+      # `event-dispatcher` is not a name anything resolves. The dispatcher is
+      # on the host too (pair parity), so the port it listens on IS the host's.
+      DISPATCHER_URL: http://localhost:{{ dispatcher_port }}
+{%- else %}
+      # Co-deployed dispatcher: reach it by its compose service key on
+      # osprey-network. The bridge runs IN the network, so the code default
+      # (localhost at the layout's dispatcher slot) and the host-published port
+      # are both wrong here.
+      DISPATCHER_URL: http://event-dispatcher:{{ dispatcher_port }}
+{%- endif %}
+{% else %}
+      # External dispatcher: supplied by the deploy environment/.env, and
+      # REQUIRED (`:?`) rather than a bare reference. Compose resolves an unset
+      # bare ${VAR} to the empty string, not to an absent key, so
+      # CoreConfig.from_env's own localhost default would never fire — which is
+      # exactly why require_boot() re-checks these two beyond require_startup().
+      # Without the `:?` the stack would boot, then every dispatch POST would go
+      # to a protocol-less URL and fail — quietly, which is the problem.
+      # DispatchClient.run turns the transport error into an error result and
+      # the receive loop settles the message regardless, so nothing redelivers
+      # and nothing crashes; the bridge just answers no one. `:?` turns that
+      # silent per-event failure into a startup abort naming the missing
+      # variable, before the container even reaches the code check.
+      DISPATCHER_URL: ${DISPATCHER_URL:?set DISPATCHER_URL when the dispatcher is not co-deployed}
+{% endif %}
+{% if 'dispatch_worker' in deployed_services %}
+{%- if bridge_on_host %}
+      # The bridge polls run status and fetches artifacts from the WORKER
+      # directly (not through the dispatcher), so it needs the worker's address
+      # too — here the host's, for the reason given at DISPATCHER_URL above.
+      # Workers share one port space on the host namespace, so each walks to
+      # its own port and this is worker {{ routed_worker }}'s step of that walk.
+      WORKER_URL: http://localhost:{{ routed_worker_port }}
+{%- else %}
+      # The bridge polls run status and fetches artifacts from the WORKER
+      # directly (not through the dispatcher), so it needs the worker's
+      # in-network address too. Multi-worker routing is not implemented — the
+      # dispatcher routes to dispatch-worker-1 only, so that is the instance
+      # whose runs this bridge observes.
+      WORKER_URL: http://dispatch-worker-{{ routed_worker }}:{{ worker_port_base }}
+{%- endif %}
+{% else %}
+      # External worker: required for the same reason as DISPATCHER_URL above —
+      # an unset bare reference resolves to "" and the bridge would poll run
+      # status against a protocol-less URL forever instead of refusing to boot.
+      WORKER_URL: ${WORKER_URL:?set WORKER_URL when the dispatch worker is not co-deployed}
+{% endif %}
+      # Same var the worker itself reads, from the same config key, so the
+      # bridge's poll budget can never fall below the cap it must outlast.
+      DISPATCH_TIMEOUT_SEC: "{{ worker_timeout }}"
+      # ── Neutral tunables (passthrough) ──────────────────────────────────
+      # Deliberately passed through from the deploy environment with an EMPTY
+      # fallback rather than re-stating CoreConfig's defaults: an empty value
+      # makes CoreConfig.from_env fall back to its own default, so these knobs
+      # have exactly one definition (the dataclass). POLL_BUDGET is the one
+      # exception — its default is derived above from the worker's cap.
+      POLL_BUDGET: "${POLL_BUDGET:-{{ worker_timeout | int + 30 }}}"
+      POLL_INTERVAL: "${POLL_INTERVAL:-}"
+      DRAIN_INTERVAL: "${DRAIN_INTERVAL:-}"
+      RETRY_MIN_AGE: "${RETRY_MIN_AGE:-}"
+      RETRY_GIVE_UP: "${RETRY_GIVE_UP:-}"
+      RETRY_LIFETIME_CAP: "${RETRY_LIFETIME_CAP:-}"
+      # Outbound HTTP proxy honoring, off unless the site's bridge genuinely
+      # sits behind an egress proxy.
+      BRIDGE_TRUST_ENV: "${BRIDGE_TRUST_ENV:-}"
+      # How long an earlier answer may be before a follow-up replays only its
+      # opening; 0 replays every answer in full.
+      HISTORY_ANSWER_LIMIT: "${HISTORY_ANSWER_LIMIT:-}"
+      # GitLab give-up alerts (opt-in): unset means the site has no alert host,
+      # and the drain's health gate skips its alert-issue check entirely. `:-`
+      # here rather than a bare ref precisely because unset is the normal case —
+      # a bare ref would warn on every deploy that files no alert issues.
+      GITLAB_URL: "${GITLAB_URL:-}"
+      GITLAB_PROJECT: "${GITLAB_PROJECT:-}"
+      GITLAB_ISSUES_TOKEN: "${GITLAB_ISSUES_TOKEN:-}"
+      # ── Optional Slack settings ─────────────────────────────────────────
+      # Same empty-fallback discipline, and deliberately NOT in the fail-closed
+      # group above: require_startup() does not cover it, because the bridge
+      # answers perfectly well without it.
+      #
+      # Deployed release tag shown in the ack, so every conversation says which
+      # release answered. Unset falls back to the installed distribution's
+      # version, and failing that the ack simply omits the parenthetical.
+      APP_VERSION_DISPLAY: "${APP_VERSION_DISPLAY:-}"
+      # ── Bridge state paths ──────────────────────────────────────────────
+      # Declared here so relocating bridge state off the /data volume stays a
+      # .env setting even though this service reads no bulk env_file.
+      # These are the one group carrying a LITERAL `:-default`, for two reasons
+      # that both distinguish them from the blocks above. Unlike the
+      # credentials, an unset path is not a fail-closed question — nothing here
+      # is a secret, and require_startup() does not cover them. Unlike the
+      # neutral tunables, the empty `:-` form does not work: CoreConfig reads
+      # these with a plain `e.get(NAME, default)`, for which "" is a value the
+      # code accepts, so an empty fallback would point the stores at the empty
+      # path instead of letting the dataclass default fire. The literals
+      # therefore duplicate the dataclass defaults;
+      # test_slack_bridge_state_paths_match_their_code_defaults binds the two
+      # sides so neither can drift alone.
+      DEDUP_PATH: "${DEDUP_PATH:-/data/dedup.json}"
+      # ── Agent record ────────────────────────────────────────────────────
+      # Where the record's API answers from this container's network: the
+      # compose service on the bridge network, its loopback publish from the
+      # host namespace.
+{%- if bridge_on_host %}
+      OSPREY_AGENT_RECORD_URL: {{ osprey_agent_record_host_url }}
+{%- else %}
+      OSPREY_AGENT_RECORD_URL: {{ osprey_agent_record_url }}
+{%- endif %}
+      # This bridge's own spool and state directories, bound below. The image
+      # runs from /app with no project of its own and no entrypoint, so both
+      # are absolute and plain config the writer reads.
+      OSPREY_SPOOL_DIR: {{ osprey_bridge_spool_dir }}/slack-bridge
+      OSPREY_STATE_DIR: {{ osprey_bridge_state_dir }}/slack-bridge
+      TZ: {{ system.timezone }}
+{{- hostenv.passthrough(services.slack_bridge) }}
+    volumes:
+      # Bridge state, and the ONLY stateful things this service owns: the dedup
+      # store (message_id -> run, the crash-safety ledger), whose DEDUP_PATH
+      # default above sits under /data, and beside it the durable inbox that
+      # holds every event acked to Slack but not yet handled, making /data the
+      # single state root. Conversation history lives in the agent record, not
+      # here. Without a persisted volume every restart would lose both, dropping
+      # questions Slack will never redeliver because they were already acked, or
+      # re-answering ones that were mid-run. Named (not a bind mount) so it is
+      # namespaced per compose project and survives `osprey down`.
+      - slack_bridge_data:/data
+      # Its spool and state directories, and only its own: binds the host
+      # provisions group-shared before the container starts, so agent-record
+      # can ingest and delete what this bridge appends.
+      - {{ osprey_spool_mount_source }}/slack-bridge:{{ osprey_bridge_spool_dir }}/slack-bridge
+      - {{ osprey_state_zone_mount_source }}/slack-bridge:{{ osprey_bridge_state_dir }}/slack-bridge
+{{- net.network(services.slack_bridge) }}
+
+volumes:
+  slack_bridge_data:
+{# A deliberate blank line precedes the file-level stanza, so this one call
+   carries no left-trim marker (`{{-` would eat the blank line along with the
+   newline it is meant to keep): the literal above ends its own line, the macro
+   supplies the separating newline, and under `host` — where nothing is
+   declared — the file simply ends after the volumes block. -#}
+{{ net.network_declaration(services.slack_bridge) }}

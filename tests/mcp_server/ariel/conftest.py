@@ -142,13 +142,16 @@ def ariel_registry(tmp_path, monkeypatch):
     """Factory: write a minimal ARIEL ``config.yml`` and initialize the context.
 
     The test runs from ``tmp_path``. ``entry_text`` becomes ``ariel.entry_text``
-    and ``services`` the top-level ``services`` section, each only when given.
+    and ``services`` the top-level ``services`` section, each only when given;
+    ``database`` replaces the default ``ariel.database`` (a ``uri`` only).
     """
     from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 
-    def setup(*, entry_text=None, services=None):
+    def setup(*, entry_text=None, services=None, database=None):
         monkeypatch.chdir(tmp_path)
-        ariel: dict = {"database": {"uri": "postgresql://localhost/test"}}
+        if database is None:
+            database = {"uri": "postgresql://localhost/test"}
+        ariel: dict = {"database": database}
         if entry_text is not None:
             ariel["entry_text"] = entry_text
         config: dict = {"ariel": ariel}

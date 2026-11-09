@@ -10,17 +10,17 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 from pathlib import PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from osprey.mcp_server.http import gallery_url
 from osprey.services.ariel_search.attachments.compose import FILENAME_MAX_CHARS, _inert
 
-#: The gallery category used for pictures retained from ARIEL.
-PICTURE_ARTIFACT_CATEGORY = "visualization"
-
 # Keep the gallery source stable without making this service-layer helper
 # depend on the ARIEL MCP server's registration module.
 ATTACHMENT_TO_ARTIFACT_TOOL = "attachment_to_artifact"
+
+if TYPE_CHECKING:
+    from osprey.stores.artifact_scope import SessionScope
 
 _RENDITION_EXTENSIONS = {
     "image/png": ".png",
@@ -64,7 +64,12 @@ def picture_description(provenance: Mapping[str, Any]) -> str:
 
 
 def save_viewable_picture_as_artifact(
-    row: Mapping[str, Any], entry: Mapping[str, Any], summary: Mapping[str, Any]
+    row: Mapping[str, Any],
+    entry: Mapping[str, Any],
+    summary: Mapping[str, Any],
+    *,
+    scope: SessionScope,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     """Store a prepared display rendition in Workspace and return its metadata.
 
@@ -72,6 +77,11 @@ def save_viewable_picture_as_artifact(
     routine deliberately performs no gallery focus: the MCP caller may focus
     the gallery for an agent action, while a browser caller activates Workspace
     only in the requesting browser.
+
+    :param scope: The requesting session's scope; an earlier save of the same
+        bytes is reused only when this scope may reuse it (a dispatch run never).
+    :param session_id: The ``session_id`` a new entry is tagged with; ``None``
+        takes the store's environment default, ``""`` leaves it untagged.
     """
     from osprey.stores.artifact_store import get_artifact_store
 
@@ -97,8 +107,9 @@ def save_viewable_picture_as_artifact(
             "mime_type": rendition_mime,
             "tool_source": ATTACHMENT_TO_ARTIFACT_TOOL,
             "metadata": {"sha256": sha256, "logbook_picture": provenance},
-            "category": PICTURE_ARTIFACT_CATEGORY,
+            "session_id": session_id,
         },
+        scope=scope,
     )
     response = artifact.to_tool_response(gallery_url=gallery_url())
     response.update(

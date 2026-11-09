@@ -60,7 +60,6 @@ CHANGE_SET_FILES = (
     "ariel.json",
     "artifacts.json",
     "channel_finder.json",
-    "lattice_dashboard.json",
     "web_terminal.json",
 )
 

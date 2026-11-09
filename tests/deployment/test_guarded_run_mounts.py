@@ -170,6 +170,7 @@ _NO_MCP_SERVER = frozenset(
         "nextcloud_bridge.yml:nextcloud-bridge",
         "optimizer.yml:optimizer",
         "teams_bridge.yml:teams-bridge",
+        "slack_bridge.yml:slack-bridge",
     }
 )
 
