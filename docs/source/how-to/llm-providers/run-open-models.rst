@@ -64,8 +64,8 @@ list and the keys behind it are in :doc:`configure-providers`.
 
 For a model you serve yourself with vLLM, the packaged ``vllm`` provider is
 keyless and points at ``http://localhost:8000/v1``; set ``VLLM_BASE_URL`` for a
-server elsewhere and list its ``--served-model-name`` under ``models`` in your
-copy of ``providers.yml``.
+server elsewhere and list its ``--served-model-name`` under the entry's
+``models`` in ``providers.yml``.
 
 Which models are known to work
 ------------------------------
@@ -88,12 +88,11 @@ Benchmark it yourself
 
 .. note::
 
-   This benchmark is at its very beginning, not an exhaustive test of OSPREY with open
-   or frontier models. It will grow: more Tier 2 tasks, and facilities beyond the
-   storage ring, such as a free-electron laser or other scientific instruments.
-   Contributions are very welcome; see :doc:`/contributing/index`.
+   This benchmark is young, not an exhaustive test of OSPREY with open or frontier
+   models. It will grow: more Tier 2 tasks, and facilities beyond the storage ring
+   such as a free-electron laser. Contributions are welcome: :doc:`/contributing/index`.
 
-The numbers are reproducible. OSPREY ships the benchmark toolchain under
+OSPREY ships the benchmark toolchain under
 ``scripts/benchmark/`` (see its `README
 <https://github.com/als-apg/osprey/blob/main/scripts/benchmark/README.md>`_): it runs the agentic tests of
 ``tests/e2e/`` — those where the model under test drives the agent — across a
@@ -103,9 +102,9 @@ names a ``provider`` and a model ``id``; the launcher resolves credentials,
 derives the route (proxy for OpenAI-protocol models, direct for Anthropic),
 wires the judge, and runs one isolated worker per (model, seed) cell. Adding a
 model — or a self-hosted ``vllm`` server — is a config edit, not a script edit.
-Every answer the tests judge is graded by ``claude-haiku-5-5`` on als-apg. Each
-test carries its tier and a plain-words description on an ``agentic`` marker,
-and the board scores its first attempt:
+An LLM judge, ``claude-haiku-5-5`` on the ``als-apg`` provider, grades the answers.
+Each test's ``agentic`` marker gives its tier and a plain-words description; the
+dashboard scores each test on its first attempt, without reruns:
 
 .. list-table::
    :header-rows: 1
@@ -113,16 +112,13 @@ and the board scores its first attempt:
 
    * - Tier
      - What it covers
-     - What the board shows
+     - What the dashboard shows
    * - 1 · basic
      - The stack works, the model calls the right tools, a simple workflow goes through.
      - Median time and tokens per task; all green expected.
    * - 2 · benchmark
      - Harder tasks a capable model may still miss.
      - Each test's first-attempt result per seed.
-   * - 3 · facility scale
-     - Not built yet: facility-scale tasks, such as searching a whole logbook.
-     -
 
 .. include:: agentic-tests.rst.inc
 
@@ -138,7 +134,7 @@ and the board scores its first attempt:
    scripts/benchmark/matrix.py --only gpt-oss-20b --select vacuum_burst --results-dir results-smoke
 
    # the whole grid, then render the dashboard
-   scripts/benchmark/build_board_images.sh   # once per revision
+   scripts/benchmark/build_board_images.sh   # the images a full run needs, once per revision
    scripts/benchmark/matrix.py --parallel 4
    scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
 
