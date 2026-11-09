@@ -1338,14 +1338,16 @@ class TestTheSelinuxHint:
         assert "cannot write" in run.stderr, run.stderr
         assert self.HINT not in run.stderr, run.stderr
 
-    def test_a_labelled_container_adds_the_hint_on_a_permissive_host(self, sandbox: Sandbox):
-        """Either signal fires the hint: a readable enforce file reading 0
-        does not silence a labelled context."""
+    def test_a_permissive_host_silences_a_labelled_container(self, sandbox: Sandbox):
+        """A readable enforce file reading 0 means SELinux denies nothing, so
+        no SELinux cause is named, whatever the process's label says."""
         spool = sandbox.spool_mount(gid=3000)
 
         run = sandbox.run(spool_dir=spool, probe_rc=1, selinux_enforce="0", proc_attr=LABELLED)
 
-        assert "SELinux labels this container" in run.stderr, run.stderr
+        assert "cannot write" in run.stderr, run.stderr
+        assert self.HINT not in run.stderr, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
 
     def test_a_host_without_selinuxfs_adds_no_hint(self, sandbox: Sandbox):
         spool = sandbox.spool_mount(gid=3000)
