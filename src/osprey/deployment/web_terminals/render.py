@@ -1771,12 +1771,16 @@ def render_web_terminals(
 
     template_dir = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH)
     with as_file(template_dir) as template_path:
+        # The templates root after this directory, so the compose template
+        # imports the shared service partials by the path the service
+        # templates use (`services/_ca_bundles.j2`).
+        search_path = [str(template_path), str(template_path.parents[1])]
         # Compose + nginx emit YAML/conf, not HTML — autoescape=False, matching
         # compose_generator.py's own Jinja2 convention. Landing emits HTML and is
         # rendered with autoescape=True; landing.html.j2 also `|e`-escapes every
         # interpolation itself as defense-in-depth.
-        conf_env = Environment(loader=FileSystemLoader(str(template_path)), autoescape=False)
-        html_env = Environment(loader=FileSystemLoader(str(template_path)), autoescape=True)
+        conf_env = Environment(loader=FileSystemLoader(search_path), autoescape=False)
+        html_env = Environment(loader=FileSystemLoader(search_path), autoescape=True)
 
         rendered_compose = conf_env.get_template(_COMPOSE_TEMPLATE).render(**compose_ctx)
         rendered_nginx = conf_env.get_template(_NGINX_TEMPLATE).render(**nginx_ctx)
