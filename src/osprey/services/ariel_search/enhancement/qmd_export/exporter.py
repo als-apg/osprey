@@ -78,6 +78,10 @@ def resolve_mirror_path(raw: str | Path, config_dir: Path | None = None) -> Path
     return resolve_config_relative_path(raw, config_dir)
 
 
+#: The qmd sidecar only stats it for its mtime; no other uid opens it.
+_TOUCH_MARKER_MODE = 0o600
+
+
 class QmdExportModule(BaseEnhancementModule):
     """Mirror enhanced entries into the markdown tree qmd indexes.
 
@@ -197,7 +201,7 @@ class QmdExportModule(BaseEnhancementModule):
         try:
             marker.parent.mkdir(parents=True, exist_ok=True)
             text = f"{datetime.now(UTC).isoformat()}\n"
-            atomic_replace(marker, text.encode("utf-8"), mode=0o600, sync="required")
+            atomic_replace(marker, text.encode("utf-8"), mode=_TOUCH_MARKER_MODE, sync="required")
         except OSError as e:
             logger.warning(
                 f"qmd_export: could not update freshness marker {marker}: {e} — "

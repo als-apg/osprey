@@ -442,7 +442,7 @@ class TestAClassThatIsNotABaseProviderDeclaresNoFlag:
 class TestCompletionNamesItsProviderAndModel:
     """A completion runs only once it knows which provider and which model it calls."""
 
-    def test_a_provider_that_waives_the_model_id_is_still_refused_without_one(self, monkeypatch):
+    def test_a_call_without_a_model_id_is_refused_before_the_provider_runs(self, monkeypatch):
         from osprey.models import completion as completion_module
         from osprey.models.provider_registry import get_provider_registry
 
@@ -456,7 +456,6 @@ class TestCompletionNamesItsProviderAndModel:
             completion_module, "get_provider_config", lambda provider: {"api_key": "k"}
         )
         cls = get_provider_registry().get_provider("anthropic")
-        monkeypatch.setattr(cls, "requires_model_id", False)
         monkeypatch.setattr(cls, "execute_completion", fake_execute)
 
         with pytest.raises(ValueError, match="Model ID required for anthropic"):

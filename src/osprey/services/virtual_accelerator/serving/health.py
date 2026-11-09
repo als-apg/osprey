@@ -115,6 +115,10 @@ class ServingHealth:
         }
 
 
+#: Read by the compose healthcheck, which runs inside the same container as the same user.
+_HEALTH_FILE_MODE = 0o600
+
+
 def write_document(path: Path, document: dict[str, Any]) -> None:
     """Write ``document`` to ``path`` as sorted JSON, replaced whole.
 
@@ -126,7 +130,7 @@ def write_document(path: Path, document: dict[str, Any]) -> None:
     atomic_replace(
         path,
         json.dumps(document, sort_keys=True).encode("utf-8"),
-        mode=0o600,
+        mode=_HEALTH_FILE_MODE,
         sync="best_effort",
     )
 
