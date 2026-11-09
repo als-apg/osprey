@@ -48,7 +48,7 @@ scratch directory and diff it:
 
 .. code-block:: bash
 
-   osprey init /tmp/fresh --preset control-assistant
+   osprey init /tmp/fresh --preset demo
    diff -u /tmp/fresh/profile.yml my-facility/profile.yml
 
 
@@ -59,7 +59,7 @@ One command creates a deployment repository from a preset:
 
 .. code-block:: bash
 
-   osprey init my-facility --preset control-assistant
+   osprey init my-facility --preset demo
 
 That writes the repository and stops. Look at the profile, edit it, then render
 and start it from inside:
@@ -117,7 +117,9 @@ The facility tree
 -----------------
 
 ``data/facility/`` holds every source of the facility file: the authored files
-and the ``imported/<layer>/`` directories the importers write.
+and the ``imported/<layer>/`` directories the importers write. With
+``machine:``, the machine facts come from a
+:doc:`machine repository </how-to/control-systems/machine-repository>` instead.
 :doc:`describe-your-facility` walks the tree file by file.
 
 ``osprey build`` reads the tree and writes the facility file and its views into
@@ -388,7 +390,8 @@ the repository, as must every file the profile ``extends``. ``osprey validate``
 and ``osprey build`` refuse a profile that reads anything outside the
 repository, before anything is installed, naming the path. The resolved tree is
 folded into the profile hash, so editing it reports the built project as out of
-date.
+date. ``machine:``, the facility directory of a mounted machine repository,
+resolves and is folded the same way.
 
 
 .. _profile-claim:
@@ -597,7 +600,7 @@ Some presets give each operator their own web terminal. Each operator's
 terminal runs the deployment's agent at a **tier** — an access level such as
 read-only, write-capable or admin. Cards everyone on the roster can open run an
 **app** — a second, complete agent, such as the logbook research assistant.
-For those presets (``control-assistant``), ``osprey init`` writes one file per
+For those presets (``demo``), ``osprey init`` writes one file per
 tier and per app:
 
 .. code-block:: text
@@ -619,7 +622,7 @@ chiefly ``control_system.writes: never``; for ``admin``, the
 privileges the profile deliberately withholds. The build lays it over the
 profile: lists are added by name, ``config:`` keys win. A tier never subtracts
 and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
-``data:`` or ``services:``.
+``data:``, ``machine:`` or ``services:``.
 
 An app is a whole agent definition — its own skills, rules, brief and tool
 servers — composed over the deployment's services, data and provider. Every app
@@ -1024,7 +1027,7 @@ It never touches the source zone — only ``osprey init --force`` replaces that.
    osprey init --list-presets
 
    # Create the deployment, then render it
-   osprey init my-assistant --preset control-assistant
+   osprey init my-assistant --preset demo
    cd my-assistant
    osprey build
 

@@ -46,7 +46,7 @@ from osprey.interfaces._serving import run_app_server
 from osprey_connectors_tests._harness._ports import reserved_port
 from tests.agent_record.fakes import FakeRecordClient
 from tests.agent_record.test_identities import _config
-from tests.agent_record.test_reader import BRIDGE, QS, R1, R2, S1, S3, W1, _at, _e, _seed
+from tests.agent_record.test_reader import BRIDGE, QS, R1, R2, S1, S3, T0, W1, _at, _e, _seed
 
 AUDITOR = {"name": "auditor", "kinds": [c.KIND_AUDIT]}
 EXTRA = [
@@ -93,6 +93,9 @@ def url(config, backend, tmp_path_factory):
         service.RECORD_DIR_ENV: str(root / "record"),
         service.TRANSCRIPTS_DIR_ENV: str(root / "transcripts"),
         service.ARCHIVE_DIR_ENV: str(root / "archive"),
+        # The seed is dated T0; on the wall clock the start-up retention run
+        # drops it once T0 falls out of the window, mid-module.
+        service.JOBS_CLOCK_ENV: T0.date().isoformat(),
     }
     with run_app_server(service.create_app(config=config, backend=backend, env=env)) as base:
         yield base

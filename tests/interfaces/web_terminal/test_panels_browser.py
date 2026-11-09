@@ -78,6 +78,7 @@ from osprey.interfaces._serving import run_app_server
 # call sites reading as they did.
 from tests.interfaces._browser import open_hub_page as _open_page
 from tests.interfaces._browser import rail_entry as _rail_entry
+from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._hub import hub_app
 from tests.interfaces._panel_launch import (
     UNSERVED,
@@ -431,6 +432,16 @@ def _context_menu(page: Page):
     return page.locator(_RAIL_MENU)
 
 
+def _pick_tile_menu_row(page: Page, tab, label: str) -> None:
+    """Open the tile's ⋯ and run the row labelled ``label``; the menu closes."""
+    tab.locator(".tile-tab-more").click()
+    menu = _context_menu(page)
+    expect(menu).to_be_visible(timeout=5_000)
+    # The first match: "This panel" lists the panel's rows above the Tile verbs.
+    menu.locator(_RAIL_MENU_ITEM, has_text=label).first.click()
+    expect(menu).to_have_count(0, timeout=5_000)
+
+
 def _menu_labels(page: Page) -> list[str]:
     return page.evaluate(_MENU_LABELS_JS)
 
@@ -457,29 +468,64 @@ def _open_rail_menu(page: Page, panel_id: str):
 def _open_agent_header_menu(page: Page):
     """Right-click the Agent tile's header bar and wait for its context menu.
 
-    The press lands on the bar's status dot: the session label beside it is
+    The press lands on the bar's bare spacer: the session label beside it is
     the session switcher, an interactive child the bar's menu yields to.
     """
-    _terminal_tab(page).locator(".op-session-led:visible, .session-led:visible").first.click(
-        button="right"
-    )
+    _terminal_tab(page).locator(".agent-bar-spacer:visible").first.click(button="right")
     menu = _context_menu(page)
     expect(menu).to_have_count(1, timeout=5_000)
     return menu
 
 
 def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> None:
-    """Open ``panel_id`` as a SECOND tile beside the current one from its menu.
+    """Open ``panel_id`` as a SECOND tile beside the current one.
 
     A rail click replaces the panel the focused service tile shows, so tests
-    that need two service tiles side by side use the entry's context-menu row
-    "Open in a new tile" — the one open that splits. ``base_url`` is unused
-    (kept so call sites read uniformly with the old add-menu dance).
+    that need two service tiles side by side split instead. A panel already in
+    a tile offers "Open in a new tile" on its rail entry; a panel in no tile is
+    opened from the last docked service tile's ⋯ → Open panel ▸ Right ▸ <panel>, the
+    one open that splits for it (with no service tile docked, its rail click
+    opens a tile of its own). ``base_url`` is unused (kept so call sites read
+    uniformly with the old add-menu dance).
     """
     del base_url  # the menu path is purely client-side
     _open_rail_menu(page, panel_id)
-    _menu_row(page, "Open in a new tile").click()
+    beside = _menu_row(page, "Open in a new tile")
+    if beside.count():
+        beside.click()
+    else:
+        page.keyboard.press("Escape")
+        expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+        _split_beside_a_service_tile(page, panel_id)
     expect(_service_tab(page, label)).to_have_count(1, timeout=5_000)
+
+
+def _split_beside_a_service_tile(page: Page, panel_id: str) -> None:
+    """Open ``panel_id`` (in no tile) right of the last docked service tile,
+    through that tile's ⋯ → Open panel ▸ Right; with no service tile docked, the
+    entry's click opens a tile of its own."""
+    bars = page.locator('#dock-root .tile-tab[data-panel-key]:not([data-panel-key="terminal"])')
+    if bars.count() == 0:
+        _rail_entry(page, panel_id).click()
+        return
+    # The submenu names each panel as its sidebar row reads.
+    shown = _rail_entry(page, panel_id).locator(".osprey-nav-label").inner_text().strip()
+    _open_panel_from_tile(page, bars.last, "Right", shown)
+
+
+def _open_panel_from_tile(page: Page, bar, place: str, label: str) -> None:
+    """Run a tile bar's ⋯ → Open panel ▸ ``place`` ▸ ``label``."""
+    bar.locator(".tile-tab-more").click()
+    expect(_context_menu(page)).to_have_count(1, timeout=5_000)
+    root = page.locator(_RAIL_MENU).first
+    root.locator(f'{_RAIL_MENU_ITEM}[aria-haspopup="menu"]').filter(has_text="Open panel").click()
+    depth1 = page.locator(f'{_RAIL_MENU}[data-depth="1"]')
+    expect(depth1).to_have_count(1, timeout=5_000)
+    depth1.get_by_role("menuitem", name=place, exact=True).click()
+    depth2 = page.locator(f'{_RAIL_MENU}[data-depth="2"]')
+    expect(depth2).to_have_count(1, timeout=5_000)
+    depth2.get_by_role("menuitem", name=label, exact=True).click()
+    expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
 
 def _drag_with_dock_shield(page: Page, source, target, **kwargs) -> None:
@@ -922,7 +968,7 @@ def test_service_tile_close_button_is_local_vacate(tmp_path, chromium_browser):
         expect(tab.locator(".tile-tab-grip")).to_have_count(0)
         expect(tab.locator(".tile-tab-title")).to_have_text(_title_case("DATA VIZ"))
         expect(tab.locator(".tile-tab-close")).to_have_count(1)
-        expect(tab.locator(".tile-tab-popout")).to_have_count(1)
+        expect(tab.locator(".tile-tab-window")).to_have_count(1)
         page.wait_for_timeout(600)
 
         posts = _track_panel_posts(page)
@@ -1531,22 +1577,23 @@ def _reset_layout_from_palette(page: Page) -> None:
     expect(page.locator(_PALETTE_OVERLAY)).to_have_count(0, timeout=5_000)
 
 
-def _reset_layout_from_terminal_menu(page: Page) -> None:
-    """Run "Reset layout" from the terminal tile header's right-click menu."""
-    _open_agent_header_menu(page)
+def _reset_layout_from_sidebar_menu(page: Page) -> None:
+    """Run "Reset layout" from the sidebar header's right-click menu."""
+    page.locator("#sidebar-toggle").click(button="right")
+    expect(page.get_by_role("menu", name="Sidebar")).to_have_count(1, timeout=5_000)
     _menu_row(page, "Reset layout").click()
     expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
 
 @pytest.mark.parametrize(
     "reset",
-    [_reset_layout_from_palette, _reset_layout_from_terminal_menu],
-    ids=["palette", "terminal-menu"],
+    [_reset_layout_from_palette, _reset_layout_from_sidebar_menu],
+    ids=["palette", "sidebar-menu"],
 )
 def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
     """The "Reset layout" control clears a custom arrangement back to the default.
 
-    Offered in the command palette and on the terminal tile's menu. Rearrange
+    Offered in the command palette and on the sidebar header's menu. Rearrange
     (terminal → left), then reset: the grid returns to the default split
     (service tile left, terminal right) and the reset survives a reload (the
     stored value is the default, not the discarded custom one).
@@ -2220,7 +2267,7 @@ def test_tile_bar_fixed_height_no_hover_reflow(tmp_path, chromium_browser):
             ws.locator(".osprey-crumb-root:visible, .tile-tab-title:visible").first
         ).to_have_text("Artifacts")
         expect(ws.locator(".tile-tab-close")).to_have_count(1)
-        expect(ws.locator(".tile-tab-popout")).to_have_count(1)
+        expect(ws.locator(".tile-tab-window")).to_have_count(1)
 
         # Same bar height as the terminal's — one header system, one size.
         svc_h = _strip_height(page, terminal=False)
@@ -2405,7 +2452,7 @@ def test_header_contribution_renders_and_round_trips(reserve_port, tmp_path, chr
             tab = _service_tab(page, "CONTRIB")
             expect(tab.locator(".contrib-nav-link")).to_have_count(2, timeout=10_000)
             expect(tab.locator(".contrib-nav-link").first).to_be_visible()
-            expect(tab.locator(".contrib-overflow-btn")).to_have_count(0)
+            expect(tab.locator(".contrib-hidden")).to_have_count(0)
             expect(tab.locator(".contrib-nav-link.active")).to_have_text("Browse")
             expect(tab.locator(".contrib-btn")).to_have_text("Refresh")
             expect(tab.locator(".tile-tab-contrib.has-items")).to_have_count(1)
@@ -2610,14 +2657,15 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
             focused = page.evaluate("() => document.activeElement?.className ?? ''")
             assert "contrib-search-input" in focused, focused
 
-            # Overflow menu: opens body-level, and an entry click round-trips.
-            tab.locator(".contrib-menu-btn").click()
-            popover = page.locator(".contrib-menu-popover")
-            expect(popover).to_be_visible(timeout=5_000)
-            expect(popover.locator(".contrib-menu-item")).to_have_count(2)
-
-            popover.locator(".contrib-menu-item", has_text="Refresh").click()
-            expect(page.locator(".contrib-menu-popover")).to_have_count(0)
+            # The contributed menu is the tile ⋯'s "This panel" section, and an
+            # entry click round-trips.
+            tab.locator(".tile-tab-more").click()
+            menu = _context_menu(page)
+            expect(menu).to_be_visible(timeout=5_000)
+            headings = menu.locator(".rail-context-heading")
+            expect(headings).to_have_text(["This panel", "Tile"])
+            menu.locator(_RAIL_MENU_ITEM, has_text="Refresh").click()
+            expect(menu).to_have_count(0)
 
             actions = _poll_actions(page, frame, 2)
             assert actions and actions[-1] == ["more", "refresh"], actions
@@ -2633,9 +2681,11 @@ def test_header_search_survives_re_contribution_and_menu_round_trips(tmp_path, c
 # so served unsandboxed — which posts a header contribution and records every
 # action the hub routes back.
 #
-# Under header protocol v1 the hub renders exactly what a panel contributes,
-# so each CANOPY page shape shows every item once. Two shapes are pinned, each
-# in its own hub boot:
+# Under header protocol v1 the hub renders exactly the controls a panel
+# contributes, so each CANOPY page shape shows every control once. CANOPY
+# still sends an inert ``text`` item (its subtitle); the hub drops it, since
+# the tile bar carries the tile's name and controls only. Two shapes are
+# pinned, each in its own hub boot:
 #
 #   * a one-tile SCREEN: subtitle, the screen verbs (Print, Export PNG),
 #     Search, ⋯ and Save view;
@@ -2815,19 +2865,15 @@ _CANOPY_IFRAME = '.dock-iframe-overlay iframe[data-panel-id="canopy"]'
 def _canopy_activate(page: Page, tab, label: str) -> None:
     """Click the control labelled ``label`` wherever the bar put it.
 
-    On a wide tile it is a button in the bar or an entry of the contributed ⋯;
-    on a narrow one the ladder may have folded it into the bar's own ⋯. Either
-    way it dispatches the same action, so the round-trip is width-independent.
+    On a wide tile it is a button in the bar; a menu entry, or a button the
+    ladder folded on a narrow tile, is a row of the tile ⋯. Either way it
+    dispatches the same action, so the round-trip is width-independent.
     """
     button = tab.locator(".contrib-btn:visible", has_text=label)
     if button.count():
         button.click()
         return
-    tab.locator(".contrib-menu-btn:visible").click()
-    popover = page.locator(".contrib-menu-popover")
-    expect(popover).to_be_visible(timeout=5_000)
-    popover.locator(".contrib-menu-item", has_text=label).click()
-    expect(page.locator(".contrib-menu-popover")).to_have_count(0, timeout=5_000)
+    _pick_tile_menu_row(page, tab, label)
 
 
 @pytest.mark.parametrize("page_name", ["screen", "workspace"])
@@ -2836,33 +2882,36 @@ def test_canopy_header_contribution_renders_exactly_and_round_trips(
 ):
     """Each CANOPY page shape renders exactly its contributed control set.
 
+    CANOPY's subtitle ``text`` item is part of what the stub sends and none of
+    what the bar shows.
+
     The sidecar is replaced by a stub published at ``app.state.canopy_server_url``
     (what a started sidecar publishes), so the iframe is CANOPY's real mount,
     ``/panel/canopy/embed/…`` through the panel proxy. The hub must render one
-    element per contributed item — counted by ``[data-contrib-key]``, folded
-    ones included, so the count does not depend on the tile's width — with
-    exactly one ⋯ visible, and every button and every ⋯ entry must reach the
+    element per contributed item but the retired ``text`` — counted by
+    ``[data-contrib-key]``, folded ones included, so the count does not depend
+    on the tile's width — with the tile's one ⋯, and every button and every ⋯
+    entry must reach the
     frame as ``canopy-host-header-action`` carrying CANOPY's ids: a button sends
     ``{id}``, a menu entry ``{id: "more", value: <entry id>}``.
     """
     spec = _CANOPY_PAGES[page_name]
-    items = spec["items"]
+    # The bar shows no subtitle: a `text` item is dropped like an unknown kind.
+    items = [it for it in spec["items"] if it["kind"] != "text"]
     expected_keys = sorted(f"{it['kind']}:{it['id']}" for it in items)
 
     with _canopy_hub(tmp_path, chromium_browser, page_name) as (page, base_url):
         tab = _service_tab(page, "CANOPY")
-        (text_item,) = [it for it in items if it["kind"] == "text"]
-        expect(tab.locator(".contrib-text")).to_have_text(text_item["text"], timeout=10_000)
-
-        # Exactly the contributed set: no item dropped, none duplicated, nothing
-        # added under a contribution key (the bar's own ⋯ carries none).
         keyed = tab.locator("[data-contrib-key]")
-        expect(keyed).to_have_count(len(items))
+        expect(keyed).to_have_count(len(items), timeout=10_000)
+        expect(tab.locator(".contrib-text")).to_have_count(0)
+
+        # Exactly the contributed set: no item dropped, none duplicated.
         keys = keyed.evaluate_all("(els) => els.map((el) => el.dataset.contribKey)")
         assert sorted(keys) == expected_keys, keys
-        # One ⋯ only: either the contributed menu, or — when it has folded on a
-        # narrow tile — the bar's own overflow, never both.
-        expect(tab.locator(".contrib-menu-btn:visible")).to_have_count(1)
+        # One ⋯ only, the tile's: a contributed menu renders no button.
+        expect(tab.locator(".tile-tab-more")).to_have_count(1)
+        expect(tab.locator("[data-contrib-key^='menu:']:visible")).to_have_count(0)
 
         # The frame sits at this page's path under CANOPY's mount, same origin.
         frame_url = page.locator(_CANOPY_IFRAME).evaluate("(el) => el.contentWindow.location.href")
@@ -2936,7 +2985,7 @@ _GHOST_ICON_PROBE = """
     const r = el.getBoundingClientRect();
     return { w: Math.round(r.width), h: Math.round(r.height) };
   };
-  const icons = [...ghost.querySelectorAll('.bar-icon')].map((el) => ({
+  const icons = [...ghost.querySelectorAll('.bar-icon, svg.osprey-ic')].map((el) => ({
     cls: el.getAttribute('class'),
     ...box(el),
     parent: el.parentElement.getAttribute('class') || el.parentElement.tagName,
@@ -2999,8 +3048,8 @@ def test_tile_bar_drag_ghost_keeps_icons_bar_sized(tmp_path, chromium_browser):
             assert probe["live"] == {"w": 12, "h": 12}, probe["live"]
 
             icons = probe["icons"]
-            # The bar always renders a close ×, and this panel adds a search
-            # magnifier — a ghost with no icons would be a vacuous pass.
+            # The bar always renders its ⋯ and close ×, and this panel adds a
+            # search magnifier — a ghost with no icons would be a vacuous pass.
             assert len(icons) >= 2, icons
             assert any("search" in i["cls"] for i in icons), icons
 
@@ -3044,9 +3093,10 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
 
     The popover is body-level and viewport-positioned (it has to escape the
     rail's own overflow), names the panel in its accessible name, and carries
-    the verbs in words with the rail's glyphs kept as trailing decoration. The
-    group moves sit in a section of their own, and the membership verb is the
-    only destructive one and is styled apart.
+    the verbs in words with the rail's glyphs kept as trailing decoration. A
+    panel in no tile offers Open; the group moves sit in the Move to submenu,
+    and the membership verb, under a divider, is the only destructive one and
+    is styled apart.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3062,22 +3112,20 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
         menu = _open_rail_menu(page, "data-viz")
 
         assert _menu_labels(page) == [
-            "Focus Data Viz",
-            "Open in a new tile",
+            "Open",
             "Open in new window",
-            "Move to Workspace",
-            "Move to System",
-            "Move to new group…",
+            "Move to",
             "Remove from rail",
         ], _menu_labels(page)
         expect(menu).to_have_attribute("role", "menu")
         expect(menu).to_have_attribute("aria-label", f"{_title_case('DATA VIZ')} actions")
-        expect(menu.locator(".rail-context-divider")).to_have_count(2)
-        expect(menu.locator(".rail-context-glyph")).to_have_count(3)
+        expect(menu.locator(".rail-context-divider")).to_have_count(1)
+        expect(menu.locator(".rail-context-glyph")).to_have_count(2)
+        expect(_menu_row(page, "Move to")).to_have_attribute("aria-haspopup", "menu")
         expect(menu.locator(f"{_RAIL_MENU_ITEM}.danger")).to_have_text(
             re.compile(r"Remove from rail")
         )
-        # data-viz's URL resolved at boot, so the popout row is live.
+        # data-viz's URL resolved at boot, so the window row is live.
         expect(menu.locator(f'{_RAIL_MENU_ITEM}[aria-disabled="true"]')).to_have_count(0)
 
         placement = page.evaluate(
@@ -3120,8 +3168,11 @@ def test_rail_context_menu_keyboard_open_and_escape_restores_focus(tmp_path, chr
 
         # Exactly one popover, and the keyboard user lands on its first row.
         expect(_context_menu(page)).to_have_count(1, timeout=5_000)
-        assert page.evaluate("() => document.activeElement?.textContent ?? ''").startswith(
-            "Focus Data Viz"
+        assert (
+            page.evaluate(
+                "() => document.activeElement?.querySelector('.rail-context-label')?.textContent ?? ''"
+            )
+            == "Open"
         )
 
         page.keyboard.press("Escape")
@@ -3205,14 +3256,13 @@ def test_remove_from_rail_undo_restores_the_entry_at_its_old_position(tmp_path, 
 
 
 def test_rail_context_menu_popout_row_inert_until_url_resolves(tmp_path, chromium_browser):
-    """The Open in new window row renders inert while the panel has no standalone URL.
+    """The Open in new window row renders inert while the panel has no frame to move.
 
     A panel's URL and its health arrive together at boot (one with no URL never
     polls, so it never enables), which is why the entry is force-enabled here:
     the menu's enabled gate is a DOM-class question, and taking the class off is
-    the only way to reach an entry that HAS a menu while its popout target is
-    still unresolved — the state an operator meets when a companion server is
-    slow to answer.
+    the only way to reach an entry that HAS a menu while its frame does not exist
+    yet — the state an operator meets when a companion server is slow to answer.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3294,7 +3344,7 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
 def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser):
     """In chat the PTY verb would act on a surface the operator cannot see.
 
-    The Agent tile header keeps Pop out, Export conversation and the layout
+    The Agent tile header keeps Switch to terminal, Export conversation and the tile
     rows; the Agent rail row holds the session rows.
     """
     workspace = tmp_path / "_agent_data"
@@ -3309,12 +3359,9 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
 
         _open_rail_menu(page, "data-viz")
         assert _menu_labels(page) == [
-            "Focus Data Viz",
-            "Open in a new tile",
+            "Open",
             "Open in new window",
-            "Move to Workspace",
-            "Move to System",
-            "Move to new group…",
+            "Move to",
             "Remove from rail",
         ], _menu_labels(page)
 
@@ -3322,18 +3369,30 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
         _open_agent_header_menu(page)
-        assert _menu_labels(page) == [
-            "Pop out",
-            "Export conversation",
-            "Reset layout",
+        labels = _menu_labels(page)
+        # "Agent": the way to the terminal and the chat's own rows (Export
+        # conversation, Desktop notifications); "Tile": the tile rows, no PTY
+        # verb. The notifications row names a browser that blocks them;
+        # headless may.
+        assert labels[:2] == ["Switch to terminal", "Export conversation"], labels
+        assert labels[2].startswith("Desktop notifications"), labels
+        assert labels[3:] == [
+            "Maximize",
+            "Open in new window",
+            "Reveal in sidebar",
             "Close Agent pane",
-        ], _menu_labels(page)
+        ], labels
 
         page.keyboard.press("Escape")
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
         _open_rail_menu(page, "terminal")
-        assert _menu_labels(page) == ["New session", "Collapse all"], _menu_labels(page)
+        assert _menu_labels(page) == [
+            "New session",
+            "Group by",
+            "Show pinned sessions",
+            "Collapse all",
+        ], _menu_labels(page)
 
         page.close()
 
@@ -3358,13 +3417,18 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         arm_terminal_tab(page)
         page.goto(base_url, wait_until="domcontentloaded")
         expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
+        # The Agent tile's header is re-parented while the dock boots; a press
+        # landing between the two moves opens no menu.
+        wait_for_dock_settled(page)
 
         _open_agent_header_menu(page)
-        assert _menu_labels(page) == [
-            "Pop out",
-            "Restart terminal",
-            "Reset layout",
+        # The pane's "This panel" rows come first; the Tile rows close the menu.
+        assert _menu_labels(page)[-5:] == [
+            "Maximize",
+            "Open in new window",
+            "Reveal in sidebar",
             "Close Agent pane",
+            "Restart terminal",
         ], _menu_labels(page)
 
         # The event xterm emits from its viewport on every streamed line. It
@@ -3381,6 +3445,34 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
         page.evaluate("() => document.dispatchEvent(new Event('scroll'))")
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
+        page.close()
+
+
+def test_agent_header_menu_opens_while_the_panel_list_is_still_loading(tmp_path, chromium_browser):
+    """The Agent tile is on screen before ``/api/panels`` answers, and so is its menu.
+
+    The dock boots beside the panel manager, which then waits on the panel list.
+    Under load that wait is seconds long, and a right-click in it must not fall
+    through to the browser's own menu: the Agent's verbs need no panel list.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(workspace, enabled_panels={"artifacts"}) as (base_url, _app):
+        page = chromium_browser.new_page()
+        held = []
+        page.route("**/api/panels", lambda route: held.append(route))
+        arm_terminal_tab(page)
+        page.goto(base_url, wait_until="domcontentloaded")
+        expect(page.locator(".xterm-viewport")).to_have_count(1, timeout=10_000)
+        assert held, "the panel list was answered before the menu could be tried"
+
+        _open_agent_header_menu(page)
+        assert "Close Agent pane" in _menu_labels(page), _menu_labels(page)
+
+        page.keyboard.press("Escape")
+        for route in held:
+            route.continue_()
         page.close()
 
 
@@ -3413,21 +3505,21 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
             page.wait_for_timeout(500)
             expect(_context_menu(page)).to_have_count(0)
 
-            # The bar itself is a menu surface, with the same verbs the rail
-            # entry offers.
+            # The bar itself is a menu surface: the same menu as its ⋯, the
+            # panel's own rows over the tile verbs.
             tab.locator(".tile-tab-title").click(button="right")
             menu = _context_menu(page)
             expect(menu).to_have_count(1, timeout=5_000)
             expect(menu).to_have_attribute("aria-label", "Searchy actions")
             assert _menu_labels(page) == [
-                "Focus Searchy",
-                "Open in a new tile",
-                "Pop out",
+                "All sessions",
+                "Refresh",
+                "Open panel",
+                "Maximize",
                 "Open in new window",
-                "Move to Workspace",
-                "Move to System",
-                "Move to new group…",
-                "Remove from rail",
+                "Reload",
+                "Reveal in sidebar",
+                "Close tile",
             ], _menu_labels(page)
 
             page.close()
@@ -3494,10 +3586,11 @@ def test_context_menu_closes_when_a_click_lands_in_a_panel_iframe(tmp_path, chro
 #   * FR8 - the Panels rows. The registry unit tests prove the row set from
 #     injected getters; these prove the LIVE getters produce it: ARIEL's
 #     standalone URL really resolved through /api/ariel-server, and the active
-#     panel really is included in the popout source and excluded from the
+#     panel really is included in the window source and excluded from the
 #     new-tile source.
-#   * FR8 - the popout verb end to end: `window.open` opens a real page on the
-#     proxied, same-origin /panel/<id> URL.
+#   * FR8 - the window verb end to end: `window.open` opens the hub's shell page,
+#     and the panel's own frame moves into it, on the proxied, same-origin
+#     /panel/<id> URL.
 #   * FR9 - Recent. Real localStorage, and the section really renders first on
 #     an empty query and survives a reload.
 #
@@ -3506,7 +3599,7 @@ def test_context_menu_closes_when_a_click_lands_in_a_panel_iframe(tmp_path, chro
 # with its companion server URL published post-startup - the catalog entry
 # carries no healthEndpoint, so it is healthy the moment its config fetch
 # resolves, and the stub backend behind it lets the proxied /panel/ariel URL
-# answer for real when a popout navigates to it.
+# answer for real when its frame loads in the window.
 
 _PALETTE_OVERLAY = ".command-palette-overlay.visible"
 _PALETTE_INPUT = ".command-palette-input"
@@ -3555,7 +3648,7 @@ def _palette_live_server(workspace):
     ``_launch_panel_server`` is stubbed to publish only the gallery URL, so
     ARIEL's is set here - after startup, before any page load, which is when
     the browser first fetches /api/ariel-server. It points at the always-200
-    stub so the proxied ``/panel/ariel`` a popout navigates to answers for real
+    stub so the proxied ``/panel/ariel`` its frame loads answers for real
     instead of erroring behind the proxy.
 
     Yields:
@@ -3701,8 +3794,9 @@ def test_palette_query_ariel_offers_popout_of_the_active_panel(tmp_path, chromiu
 
     The two "Open ..." verbs draw on different sources, and the live getters
     are what this proves: ``getPopoutPanels`` includes the ACTIVE panel
-    (popping out what you are looking at is the verb's commonest use, and it
-    needed ARIEL's standalone URL to have resolved through /api/ariel-server),
+    (moving what you are looking at to a window is the verb's commonest use, and
+    it needed ARIEL's frame to exist, once its URL resolved through
+    /api/ariel-server),
     while ``getVisiblePanels`` - the new-tile source - excludes it, because
     opening a panel beside itself is a no-op. The second query proves the
     new-tile verb is present at all, so ARIEL's missing
@@ -3760,15 +3854,14 @@ def test_palette_elog_synonym_matches_logbook(tmp_path, chromium_browser):
         page.close()
 
 
-def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_browser):
-    """FR8: running the Open in new window row opens a real page on same-origin /panel/ariel.
+def test_palette_window_row_moves_the_panel_frame_on_its_proxied_url(tmp_path, chromium_browser):
+    """FR8: running the Open in new window row moves the panel's frame into a hub window.
 
     happy-dom can only prove ``window.open`` was called with some string. What
-    matters to the operator is the page that opens: the proxied, root-relative
-    standalone URL resolved against the terminal's own origin - never the
-    panel's internal address, which the browser cannot reach - carrying the
-    pop-out params (``popout=true`` and the theme) and never
-    ``embedded``, so the page keeps its own chrome and reports to the hub.
+    matters to the operator is what shows: the hub's own shell page, holding the
+    panel's frame on the proxied, root-relative URL resolved against the terminal's
+    origin - never the panel's internal address, which the browser cannot reach -
+    and the tile gone from the dock.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3776,6 +3869,7 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
     with _palette_live_server(workspace) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
         _wait_for_ariel_ready(page)
+        _focus_service_panel(page, "ariel", "LOGBOOK")
         _open_palette(page)
         _palette_query(page, "ariel window")
         row = _palette_row(page, "Open Logbook in new window")
@@ -3784,14 +3878,17 @@ def test_palette_popout_row_opens_the_proxied_panel_url(tmp_path, chromium_brows
         with page.context.expect_page() as popup_info:
             row.click()
         popup = popup_info.value
-        popup.wait_for_url(re.compile(r"/panel/ariel\?.*popout=true"), timeout=10_000)
+        frame = popup.locator('iframe.panel-iframe[data-panel-id="ariel"]')
+        expect(frame).to_be_visible(timeout=10_000)
 
-        opened = urlsplit(popup.url)
+        assert urlsplit(popup.url).path == "/static/attached-window.html"
+        opened = urlsplit(frame.get_attribute("src") or "")
         query = parse_qs(opened.query)
         assert f"{opened.scheme}://{opened.netloc}{opened.path}" == f"{base_url}/panel/ariel"
-        assert query.get("popout") == ["true"], popup.url
-        assert "embedded" not in query, popup.url
-        assert "theme" in query, popup.url
+        assert query.get("embedded") == ["true"], opened
+        assert "theme" in query, opened
+        assert "popout" not in query, opened
+        expect(_service_tab(page, "LOGBOOK")).to_have_count(0)
 
         popup.close()
         page.close()

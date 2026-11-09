@@ -36,12 +36,12 @@ def test_menu_offers_unselected_panels() -> None:
 def test_menu_dedupes_against_preset_comment_mentions() -> None:
     # The preset's skills list already discusses setup-mode in a hand-written
     # comment; the generated menu must not offer it a second time.
-    text = _emit("control-assistant")
+    text = _emit("demo")
     assert text.count("setup-mode") == 1
 
 
 def test_every_selectable_artifact_is_active_or_offered() -> None:
-    text = _emit("control-assistant")
+    text = _emit("demo")
     for entries in artifact_menu_catalog().values():
         for name, _description in entries:
             assert name in text, f"{name} is neither active nor offered"
@@ -56,7 +56,7 @@ def test_empty_lists_still_offer_the_menu() -> None:
 
 
 def test_menu_insertion_is_deterministic() -> None:
-    assert _emit("control-assistant") == _emit("control-assistant")
+    assert _emit("demo") == _emit("demo")
 
 
 def test_the_hooks_menu_offers_no_helper() -> None:

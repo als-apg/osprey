@@ -77,7 +77,7 @@ from typing import Any
 import pytest
 
 from tests.e2e._deploy_support import format_failure
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
 pytestmark = [
     pytest.mark.slow,
@@ -306,8 +306,9 @@ def _build_project(output_dir: Path) -> Path:
                 "init",
                 str(repo),
                 "--preset",
-                "control-assistant",
+                "demo",
                 "--no-git",
+                *e2e_scenario_pin(),
                 *set_pairs(_profile_edits()),
                 "--set",
                 f"virtual_accelerator.port={VA_CA_PORT}",

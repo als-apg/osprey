@@ -59,9 +59,8 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 # Selectors
 # ---------------------------------------------------------------------------
 
-# The Settings entry lives inside <osprey-display-menu>'s popover card, so
-# reaching it means opening the popover first (see _open_settings_drawer).
-MENU_TRIGGER_SELECTOR = "osprey-display-menu .display-menu-trigger"
+# `<osprey-drawer>` installs a document-wide delegated trigger; ARIEL's page has
+# no control carrying it, so _open_settings_drawer adds one.
 TRIGGER_SELECTOR = '[data-drawer="settings-drawer"]'
 DRAWER_SELECTOR = "#settings-drawer"
 BACKDROP_SELECTOR = "#drawer-backdrop"
@@ -76,8 +75,18 @@ LAST_FOCUSABLE_SELECTOR = '.settings-mode-btn[data-mode="raw"]'
 
 
 def _open_settings_drawer(page: Page) -> None:
-    """Open the display-menu popover, click its Settings entry, await the drawer."""
-    page.click(MENU_TRIGGER_SELECTOR)
+    """Add a trigger for the drawer, click it, await the drawer."""
+    page.evaluate(
+        """() => {
+            const trigger = document.createElement('button');
+            trigger.textContent = 'Settings';
+            trigger.dataset.drawer = 'settings-drawer';
+            trigger.style.position = 'fixed';
+            trigger.style.top = '0';
+            trigger.style.left = '0';
+            document.body.append(trigger);
+        }"""
+    )
     page.click(TRIGGER_SELECTOR)
     expect(page.locator(DRAWER_SELECTOR)).to_have_attribute("open", "", timeout=5_000)
 
@@ -216,13 +225,10 @@ def test_focus_enters_traps_and_restores_on_close(tmp_path, monkeypatch, chromiu
         page.keyboard.press("Tab")
         expect(page.locator(CLOSE_BTN_SELECTOR)).to_be_focused(timeout=5_000)
 
-        # Closing restores focus to the display-menu trigger: the Settings
-        # entry that opened the drawer sits inside the popover card, which is
-        # display:none by now, so the component hands focus to its persistent
-        # trigger before the drawer records its return-focus target.
+        # Closing restores focus to the trigger that opened the drawer.
         page.click(CLOSE_BTN_SELECTOR)
         expect(page.locator(DRAWER_SELECTOR)).not_to_have_attribute("open", "", timeout=5_000)
-        expect(page.locator(MENU_TRIGGER_SELECTOR)).to_be_focused(timeout=5_000)
+        expect(page.locator(TRIGGER_SELECTOR)).to_be_focused(timeout=5_000)
         page.close()
 
 

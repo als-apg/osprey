@@ -102,7 +102,7 @@ def test_approval_matcher_parser_extracts_tool_names():
     and every governed set comes back empty — and equal to nothing.
     """
     guard = make_guard()
-    assert guard.governed_tools("control-assistant")
+    assert guard.governed_tools("demo")
 
 
 def test_line_anchored_regexes_are_matched_with_re_m():
@@ -268,7 +268,7 @@ def test_mode_3_deleted_key_in_a_preset_config_override_goes_red():
     guard.check_deleted()
     assert "resurrection" in modes(guard)
     assert "preset config override" in details(guard)
-    assert "control-assistant.yml" in details(guard)
+    assert "demo.yml" in details(guard)
 
 
 def test_mode_3_deleted_key_in_the_loader_defaults_goes_red():
@@ -368,16 +368,39 @@ def test_the_manifest_is_not_scanned_as_source(monkeypatch):
         guard_module._TEXT_CACHE.clear()
 
 
+# The orphan-site controls below replace the manifest's sites with their
+# synthetic one, so the check scans only what the control is about; the real
+# sites' green verdict is test_guard_is_green_on_this_tree's.
+
+#: Cheap clean sites to put ahead of a control's synthetic site, as the real
+#: ones were: a root under an absent path (skipped) and then a clean root in
+#: one site, and a clean site after it, so the synthetic site is only reached
+#: by a scan that goes on past a skipped root, a clean root and a clean key.
+_EARLIER_CLEAN_SITES = [
+    {
+        "root": ["src/osprey/connectors", "src/osprey/deployment/host_ports.py"],
+        "regex": "(?!)",
+        "why": "a skipped root, then a clean one",
+    },
+    {"root": "src/osprey/deployment/host_ports.py", "regex": "(?!)", "why": "a clean site"},
+]
+
+
 def test_mode_4_orphan_site_regex_matching_again_goes_red():
     def resurrect_a_code_site(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {"root": "src/osprey/templates", "regex": "osprey", "why": "negative control"}
-        ]
+        assert "src/osprey/connectors" in [e["path"] for e in manifest["absent_paths"]]
+        manifest["orphan_sites"] = {
+            "earlier": _EARLIER_CLEAN_SITES,
+            "synthetic": [
+                {"root": "src/osprey/templates", "regex": "osprey", "why": "negative control"}
+            ],
+        }
 
     guard = make_guard(resurrect_a_code_site)
     guard.check_orphan_sites()
     assert "orphan-site" in modes(guard)
     assert "synthetic" in details(guard)
+    assert "earlier" not in details(guard)
 
 
 def test_mode_4_scans_every_root_of_a_multi_root_site():
@@ -389,16 +412,18 @@ def test_mode_4_scans_every_root_of_a_multi_root_site():
     """
 
     def resurrect_under_the_second_root(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {
-                "root": [
-                    "src/osprey/templates",
-                    "packages/osprey-connectors/src/osprey_connectors",
-                ],
-                "regex": "class MockArchiverConnector",
-                "why": "negative control: matches only under the connectors root",
-            }
-        ]
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {
+                    "root": [
+                        "src/osprey/templates",
+                        "packages/osprey-connectors/src/osprey_connectors",
+                    ],
+                    "regex": "class MockArchiverConnector",
+                    "why": "negative control: matches only under the connectors root",
+                }
+            ]
+        }
 
     guard = make_guard(resurrect_under_the_second_root)
     guard.check_orphan_sites()
@@ -408,7 +433,7 @@ def test_mode_4_scans_every_root_of_a_multi_root_site():
 
 def test_mode_5_all_presets_parity_miss_goes_red():
     def demand_parity_where_none_exists(manifest):
-        # web.theme is live in control-assistant, commented in hello-world and
+        # web.theme is live in demo, commented in hello-world and
         # absent from the two standalones — deliberately per-preset.
         manifest["keys"]["web.theme"]["all-templates"] = True
 
@@ -455,20 +480,20 @@ def test_a_same_value_key_stated_differently_goes_red(key: str, value: Any):
 
 
 def test_a_same_value_mark_on_a_divergent_key_goes_red():
-    # hooks.debug is false in hello-world and true in control-assistant, on purpose.
+    # hooks.debug is false in hello-world and true in demo, on purpose.
     guard = make_guard(mark_same_value("hooks.debug"))
     guard.check_parity()
     assert "parity" in modes(guard)
     text = details(guard)
     assert "hooks.debug" in text
     assert "False in ['hello-world']" in text
-    assert "control-assistant" in text
+    assert "demo" in text
 
 
 @pytest.mark.parametrize(
     ("key", "message"),
     [
-        # web.theme is live only in control-assistant; services.qmd.port
+        # web.theme is live only in demo; services.qmd.port
         # reaches the union only through the layout fill, which no preset writes.
         ("web.theme", "compares nothing"),
         ("services.qmd.port", "compares nothing"),
@@ -508,7 +533,7 @@ def test_the_parity_table_names_exactly_the_value_marked_keys():
             assert not keys[key].get("same-value"), f"{key} diverges but carries same-value"
 
 
-CONTROL_ASSISTANT = "src/osprey/profiles/presets/control-assistant.yml"
+DEMO = "src/osprey/profiles/presets/demo.yml"
 HELLO_WORLD = "src/osprey/profiles/presets/hello-world.yml"
 
 
@@ -549,7 +574,7 @@ def test_panel_port_stanzas_are_reconciled_with_the_live_registry():
 def test_mode_6_marker_naming_a_panel_that_does_not_exist_goes_red(tmp_path):
     """A count-based check cannot see this: renaming preserves the count."""
     root = copy_presets(tmp_path)
-    victim = root / CONTROL_ASSISTANT
+    victim = root / DEMO
     before = victim.read_text()
     victim.write_text(before.replace("osprey:panel-port okf", "osprey:panel-port okf_panel"))
     assert victim.read_text().count(guard_module.PANEL_PORT_MARKER) == before.count(
@@ -583,7 +608,7 @@ def test_mode_6_full_set_documented_nowhere_goes_red(tmp_path):
     drifted — so this asserts the third claim's own message specifically.
     """
     root = copy_presets(tmp_path)
-    reference = root / CONTROL_ASSISTANT
+    reference = root / DEMO
     reference.write_text(reference.read_text().replace("# osprey:panel-port system_health", "#"))
     minimal = root / HELLO_WORLD
     minimal.write_text(minimal.read_text() + "\n# osprey:panel-port system_health\n")
@@ -651,7 +676,7 @@ def test_a_rendered_key_marked_unrendered_goes_red():
     direction the phantom check exists to catch: a key that starts being shipped
     keeps a marking saying nothing ships it, and the prose beside it goes on
     describing a commented example while a preset writes the key live. The
-    virtual-accelerator ``limits_checking`` paths, live in ``control-assistant``,
+    virtual-accelerator ``limits_checking`` paths, live in ``demo``,
     are keys of that kind.
 
     The failure has to name the source, because the fix is to say what ships it.
@@ -666,7 +691,7 @@ def test_a_rendered_key_marked_unrendered_goes_red():
     guard.check_phantom_keys()
     assert "phantom-key" in modes(guard)
     assert "web.theme" in details(guard)
-    assert "control-assistant" in details(guard), "the failure must name what renders it"
+    assert "demo" in details(guard), "the failure must name what renders it"
 
 
 def test_manifest_defaults_column_is_complete():
@@ -1029,7 +1054,7 @@ def test_the_logbook_claim_is_measured_from_the_app_render():
 
 def test_missing_keeps_asset_goes_red():
     def point_at_a_deleted_asset(manifest):
-        manifest["keeps"] = [{"path": "src/osprey/templates/apps/control_assistant/gone.json.j2"}]
+        manifest["keeps"] = [{"path": "src/osprey/templates/apps/demo/gone.json.j2"}]
 
     guard = make_guard(point_at_a_deleted_asset)
     guard.check_keeps()
@@ -1047,9 +1072,11 @@ def test_resurrected_absent_path_goes_red():
 
 def test_missing_orphan_site_root_goes_red():
     def name_a_root_that_is_gone(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {"root": "src/osprey/never_existed", "regex": "x", "why": "negative control"}
-        ]
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {"root": "src/osprey/never_existed", "regex": "x", "why": "negative control"}
+            ]
+        }
 
     guard = make_guard(name_a_root_that_is_gone)
     guard.check_orphan_sites()
@@ -1243,7 +1270,7 @@ def test_a_well_shaped_provider_passes():
     assert "provider-shape" not in modes(guard)
 
 
-# ── back-test: developer-time, behind a flag ─────────────────────────────
+# ── back-test: behind a flag, needs git history ──────────────────────────
 
 
 def _baseline_commit() -> str:
@@ -1263,7 +1290,7 @@ def _baseline_reachable() -> bool:
 
 needs_baseline = pytest.mark.skipif(
     not _baseline_reachable(),
-    reason="merge-base commit unavailable (shallow clone); back-test is developer-time",
+    reason="merge-base commit unavailable (shallow clone); the back-test needs history",
 )
 
 
@@ -1381,7 +1408,7 @@ def test_an_app_renders_as_the_host_with_the_app_over_it():
     cfg = guard.render_one("channel-finder")
     # The app's own field decides the derived pipeline mode, not the host's.
     assert cfg["channel_finder"]["pipeline_mode"] == "hierarchical"
-    assert guard.render_one("control-assistant")["channel_finder"]["pipeline_mode"] == "graph"
+    assert guard.render_one("demo")["channel_finder"]["pipeline_mode"] == "graph"
     # A host fact survives; the app's switch wins; the write boundary is pinned.
     assert cfg["approval"]["enabled"] is True
     assert cfg["claude_code"]["servers"]["python"]["enabled"] is False

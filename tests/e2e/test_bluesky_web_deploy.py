@@ -107,7 +107,7 @@ BLUESKY_WEB_URL = f"http://localhost:{BLUESKY_WEB_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
-# ariel-postgres is deployed unconditionally by the control-assistant preset,
+# ariel-postgres is deployed unconditionally by the demo preset,
 # and a locally-running deployment routinely holds its port. A bound-port
 # collision aborts `osprey up` before the containers this proof needs ever
 # start, so it moves to a high, unassigned port. Stated in this module's own

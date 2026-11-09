@@ -3,7 +3,6 @@
  * "Ask agent": a reader action (key `a`) that hands the shown entry to the
  * host's assistant prompt.
  *
- * Embedded only — standalone ARIEL has no prompt, so nothing is registered.
  * It posts a citation block (entry id, author, date, then the text selected
  * inside the reader, else the subject) as `osprey-paste-to-terminal` to the
  * parent, addressed to this page's own origin so a host on another origin is
@@ -12,7 +11,6 @@
  * toast because the host owns the feedback.
  */
 
-import { isEmbedded } from '/design-system/js/frame-params.js';
 import { formatTimestamp } from './components.js';
 import { parseEntryText } from './entries-helpers.js';
 import { registerReaderAction } from './reader.js';
@@ -54,13 +52,12 @@ export const askAgentAction = {
   key: 'a',
   title: 'Cite this entry in the assistant prompt (a)',
   run(ctx) {
-    if (!isEmbedded()) return;
     const text = citation(ctx.entry, selectionIn(ctx.container));
     window.parent.postMessage({ type: 'osprey-paste-to-terminal', text }, window.location.origin);
   },
 };
 
-/** Register the action, embedded only. */
+/** Register the action. */
 export function registerAskAgent() {
-  if (isEmbedded()) registerReaderAction(askAgentAction);
+  registerReaderAction(askAgentAction);
 }

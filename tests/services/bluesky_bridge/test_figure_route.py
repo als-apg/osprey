@@ -1097,7 +1097,7 @@ def test_inconsistent_plan_decimation_truth_is_render_failed(
 
 def _orm_rows(correctors: list[str], detectors: list[str], num: int) -> list[dict[str, float]]:
     """Rows a real `orm` run emits: corrector-major, every row carrying every
-    corrector's current (idle 0.0) and every detector's reading."""
+    corrector's setpoint (idle 0.0) and every detector's reading."""
     rng = np.random.default_rng(11)
     truth = rng.normal(size=(len(detectors), len(correctors)))
     span = 2.0

@@ -8,6 +8,8 @@ Pinned here:
   overwrites a user title.
 * **A session's layout** round-trips, is checked (version, shape, root-relative
   pages, size cap; unknown fields dropped) and goes with the tombstone.
+* **A pin** is set once (re-pinning keeps its time), cleared, survives a reload,
+  lists in pin order, and goes with the tombstone; a deleted session takes none.
 * **A damaged document loads defaults**; ``naming_since`` is stamped once, at the
   store's first creation, and kept across reloads.
 * **The identity guard** refuses a hub whose terminal user is not the acting
@@ -66,7 +68,9 @@ class TestMetaRoundTrip:
             "naming": None,
             "last_artifact_id": None,
             "layout": None,
+            "pinned": None,
             "deleted": None,
+            "scenario": None,
         }
         assert session_meta.get_last_active(app) is None
 
@@ -89,7 +93,9 @@ class TestMetaRoundTrip:
             "naming": "done",
             "last_artifact_id": "art-1",
             "layout": None,
+            "pinned": None,
             "deleted": None,
+            "scenario": None,
         }
         t2 = session_meta.get(fresh, T2)
         assert (t2["title"], t2["title_source"], t2["naming"]) == ("My session", "user", "failed")
@@ -241,6 +247,145 @@ class TestLayout:
         session_meta.set_layout(app, T1, LAYOUT)
         session_meta.mark_deleted(app, T1)
         assert session_meta.get(app, T1)["layout"] is None
+
+
+@pytest.mark.usefixtures("shared_root")
+class TestPins:
+    def test_pin_unpin_and_reload(self):
+        app = _app()
+        session_meta.load(app)
+        first = session_meta.set_pinned(app, T1, True)["pinned"]
+        assert first is not None
+        assert session_meta.set_pinned(app, T1, True)["pinned"] == first
+        fresh = _app()
+        session_meta.load(fresh)
+        assert session_meta.get(fresh, T1)["pinned"] == first
+        assert session_meta.set_pinned(fresh, T1, False)["pinned"] is None
+        assert session_meta.pinned_ids(fresh) == []
+
+    def test_pinned_ids_are_in_pin_order(self, monkeypatch):
+        app = _app()
+        session_meta.load(app)
+        stamps = iter(["2026-11-06T10:00:00+00:00", "2026-11-06T09:00:00+00:00"])
+        monkeypatch.setattr(session_meta, "_now", lambda: next(stamps))
+        session_meta.set_pinned(app, T2, True)
+        session_meta.set_pinned(app, T1, True)
+        assert session_meta.pinned_ids(app) == [T1, T2]
+
+    def test_the_pin_goes_with_the_tombstone(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_pinned(app, T1, True)
+        session_meta.mark_deleted(app, T1)
+        assert session_meta.get(app, T1)["pinned"] is None
+        assert session_meta.pinned_ids(app) == []
+        with pytest.raises(KeyError):
+            session_meta.set_pinned(app, T1, True)
+
+    def test_a_seeded_session_takes_a_pin_and_keeps_its_scenario(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.mark_seeded(app, T1, "rf-thermal", "RF cavity thermal drift")
+        pinned = session_meta.set_pinned(app, T1, True)
+        assert pinned["scenario"] == "rf-thermal" and pinned["pinned"] is not None
+        assert session_meta.pinned_ids(app) == [T1]
+
+
+@pytest.mark.usefixtures("shared_root")
+class TestSeededMarker:
+    """A seeded transcript carries its scenario and a finished naming (task 3.4)."""
+
+    def test_marking_sets_the_scenario_title_and_a_done_naming(self):
+        app = _app()
+        session_meta.load(app)
+        record = session_meta.mark_seeded(app, T1, "rf-thermal", "RF cavity thermal drift")
+        assert record == {
+            "title": "RF cavity thermal drift",
+            "title_source": "auto",
+            "auto_title": "RF cavity thermal drift",
+            "naming": "done",
+            "last_artifact_id": None,
+            "layout": None,
+            "pinned": None,
+            "deleted": None,
+            "scenario": "rf-thermal",
+        }
+        assert session_meta.get(app, T1) == record
+
+    def test_the_marker_survives_a_reload(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.mark_seeded(app, T1, "rf-thermal", "RF cavity thermal drift")
+        on_disk = json.loads(session_meta.store_path().read_text())["sessions"][T1]
+        assert on_disk["scenario"] == "rf-thermal"
+
+        fresh = _app()
+        session_meta.load(fresh)
+        record = session_meta.get(fresh, T1)
+        assert (record["scenario"], record["naming"], record["auto_title"], record["title"]) == (
+            "rf-thermal",
+            "done",
+            "RF cavity thermal drift",
+            "RF cavity thermal drift",
+        )
+
+    @pytest.mark.parametrize("bad", [5, "", None, ["x"]])
+    def test_a_malformed_scenario_is_dropped_on_load(self, bad):
+        path = session_meta.store_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"sessions": {T1: {"title": "x", "scenario": bad}}}))
+        app = _app()
+        session_meta.load(app)
+        record = session_meta.get(app, T1)
+        assert record["scenario"] is None and record["title"] == "x"
+
+    def test_a_user_rename_after_marking_wins_and_survives_a_reload(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.mark_seeded(app, T1, "rf-thermal", "RF cavity thermal drift")
+        session_meta.set_title(app, T1, "My drift study")
+
+        fresh = _app()
+        session_meta.load(fresh)
+        record = session_meta.get(fresh, T1)
+        assert (record["title"], record["title_source"]) == ("My drift study", "user")
+        assert (record["auto_title"], record["scenario"]) == (
+            "RF cavity thermal drift",
+            "rf-thermal",
+        )
+        # Clearing the rename reverts to the scenario's title.
+        session_meta.set_title(fresh, T1, "")
+        assert session_meta.get(fresh, T1)["title"] == "RF cavity thermal drift"
+
+    def test_marking_keeps_an_existing_user_title(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.set_title(app, T1, "Mine")
+        record = session_meta.mark_seeded(app, T1, "rf-thermal", "RF cavity thermal drift")
+        assert (record["title"], record["title_source"], record["scenario"]) == (
+            "Mine",
+            "user",
+            "rf-thermal",
+        )
+
+    def test_a_later_naming_outcome_keeps_the_scenario(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.mark_seeded(app, T1, "rf-thermal", "RF cavity thermal drift")
+        session_meta.set_last_artifact(app, T1, "art-1")
+        assert session_meta.get(app, T1)["scenario"] == "rf-thermal"
+
+    def test_marking_writes_to_the_held_document(self):
+        app = _app()
+        session_meta.load(app)
+        session_meta.mark_seeded(app, T1, "rf-thermal", "RF cavity thermal drift")
+        assert app.state.session_meta["sessions"][T1]["scenario"] == "rf-thermal"
+
+    def test_an_empty_scenario_is_refused(self):
+        app = _app()
+        session_meta.load(app)
+        with pytest.raises(ValueError):
+            session_meta.mark_seeded(app, T1, "  ", "Title")
 
 
 @pytest.mark.usefixtures("shared_root")

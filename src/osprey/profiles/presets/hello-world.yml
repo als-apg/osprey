@@ -68,7 +68,7 @@ rules:
   # naming scheme or units to teach. Add it once yours do.
 
 # The three empty lists below are where a real deployment grows. Leaving them
-# empty keeps the interface small; control-assistant shows them filled in.
+# empty keeps the interface small; demo shows them filled in.
 
 skills: []   # Named workflows the agent can run on request
 
@@ -131,7 +131,7 @@ config:
   # the built facility; `serving: in_process` runs it inside this process — the
   # facility's channels, its seeds and scenarios, no hardware and no containers
   # — and refuses any address outside the facility. `served` reaches the same
-  # simulator in its container over Channel Access. The control-assistant
+  # simulator in its container over Channel Access. The demo
   # preset shows the EPICS connector configuration,
   # and `osprey config --defaults` lists every shipped connector type.
   control_system.type: virtual_accelerator
@@ -159,15 +159,12 @@ config:
   # saved as an artifact and reported as a summary plus a handle. One call
   # inlines at most 4x this many elements across all the channels it read.
   control_system.read_inline_max_elements: 2000
-  # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
-  # on save. Pinned entries are never pruned. 0 keeps everything.
-  control_system.channel_read_artifact_retention: 20
 
   # ── Archiver ───────────────────────────────────────────────────────────────
   # Historical channel data behind the archiver_read tool. "mock_archiver"
   # synthesizes history, so "plot the beam current over the last hour" works
   # out of the box. A real deployment sets "epics_archiver" and adds
-  # `archiver.settings.url` — the control-assistant preset shows it, and
+  # `archiver.settings.url` — the demo preset shows it, and
   # `osprey config --defaults` lists every shipped archiver type.
   archiver.type: mock_archiver
   # When a read names no bin size, the bin is chosen so a continuously archived
@@ -207,7 +204,7 @@ config:
   # Only the controls server is on: channel reads, writes and archiver queries.
   claude_code.servers.controls.enabled: true
   # The logbook server stays off until there is a logbook to back it; the
-  # control-assistant preset shows it on.
+  # demo preset shows it on.
   claude_code.servers.ariel.enabled: false
   # The channel-finder server stays off until there is a channel database.
   claude_code.servers.channel-finder.enabled: false

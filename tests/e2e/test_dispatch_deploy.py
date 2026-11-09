@@ -7,7 +7,7 @@ wiring that carries provider auth, and the in-network ``dispatch-worker-1``
 routing baked into the shipped ``tutorial_triggers.yml`` — none of which the
 subprocess path touches.
 
-It inits + builds a control-assistant deployment repo, deploys the stack with
+It inits + builds a demo deployment repo, deploys the stack with
 ``osprey up -d --dev``, fires all four tutorial webhooks at the dispatcher
 (host-published on this deployment's dispatcher slot), and asserts:
 
@@ -65,7 +65,7 @@ enqueue, the bridge lifts the name onto the item, and the item outlives the run
 COEXISTENCE: every host-published web port, the virtual accelerator's Channel
 Access port (the one ``port_base`` does not move) and the compose PROJECT NAME
 are e2e-unique,
-so this deploy can run beside a real control-assistant stack on the same host
+so this deploy can run beside a real demo stack on the same host
 without colliding on ports or container names. The project name is part of that
 promise and not a cosmetic choice: every container is named ``<project>-<service>``
 and teardown addresses the stack BY PROJECT NAME, so a module sharing another's
@@ -134,12 +134,12 @@ from tests.e2e._deploy_support import (
 from tests.e2e._facility_select import bounded_setpoint, facility_view, repo_view
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.sdk_helpers import set_switch_in_record
 
 #: This deploy's own thousand-port block, chosen so the whole stack — the
 #: dispatcher, nginx and every panel family — coexists with a live
-#: control-assistant stack and with every other deploy e2e on the same host
+#: demo stack and with every other deploy e2e on the same host
 #: (test_deploy_lifecycle.py tops out ~20600). One base moves all of them.
 PORT_BASE = 20700
 
@@ -218,7 +218,7 @@ READWRITE_IMAGE = f"{READWRITE_PROJECT}:local"
 CHANNEL_WRITE_TOOL = "mcp__controls__channel_write"
 
 # EVERY published web port follows :data:`PORT_BASE` rather than the preset
-# defaults, so this deploy coexists with a live control-assistant stack on the
+# defaults, so this deploy coexists with a live demo stack on the
 # same host. The test derives them the same way the render does, so a slot
 # that moves in the layout moves here without an edit.
 WEB_PORTS = {
@@ -307,8 +307,9 @@ FIRING_USER = READWRITE_USER
 #: ``osprey init <repo>`` arguments this module's stack is built from.
 INIT_PRESET_ARGS = [
     "--preset",
-    "control-assistant",
+    "demo",
     "--no-git",
+    *e2e_scenario_pin(),
     *set_pairs({"config": {PORT_BASE_CONFIG_KEY: PORT_BASE}}),
     "--set",
     "provider=als-apg",
@@ -592,7 +593,7 @@ def _assert_roster_renders(repo: Path) -> None:
 
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Init + build + ``osprey up`` a control-assistant stack; tear down after."""
+    """Init + build + ``osprey up`` a demo stack; tear down after."""
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 

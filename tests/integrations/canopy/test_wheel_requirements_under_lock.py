@@ -4,10 +4,13 @@ The project image installs the staged wheels as ``pip install -c constraints.txt
 *.whl``, where the constraints are the framework's frozen install minus the two
 wheels' own lines (:mod:`osprey.deployment.constraints`). A requirement of either
 wheel that excludes the version OSPREY's lock holds for that distribution makes the
-image build unresolvable, while this lane, which installs CANOPY freely, stays
-green. So each base requirement (the image installs no extras) is held here to
-every version ``uv.lock`` records for its distribution; a distribution the lock
-does not hold is the wheel's to bring and is not judged.
+image build unresolvable. This lane installs CANOPY under the same kind of
+constraints, ``uv export`` of the lock, so such a requirement already fails its
+install, but only for the lock's versions on the runner's platform and Python.
+So each base requirement (the image installs no extras) is held here to every
+version ``uv.lock`` records for its distribution, on every platform, and the
+requirement that breaks it is named; a distribution the lock does not hold is the
+wheel's to bring and is not judged.
 """
 
 from __future__ import annotations

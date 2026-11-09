@@ -235,9 +235,9 @@ describe('the live edits', () => {
 
   test('an update merges into the held entry; an unknown id is not held', async () => {
     const list = await loadedWith([entry('a', '2026-10-30T01:00:00Z')]);
-    expect(list.update({ id: 'a', pinned: true })).toBe(true);
-    expect(list.find('a')?.pinned).toBe(true);
-    expect(list.update({ id: 'nope', pinned: true })).toBe(false);
+    expect(list.update({ id: 'a', title: 'Renamed' })).toBe(true);
+    expect(list.find('a')?.title).toBe('Renamed');
+    expect(list.update({ id: 'nope', title: 'Renamed' })).toBe(false);
   });
 
   test('a delete drops a held entry and its count; an unheld id changes nothing', async () => {
@@ -278,6 +278,45 @@ describe('fetchArtifact', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/u/alice/panel/artifacts/api/artifacts/a%2Fb');
     fetchMock.mockResolvedValueOnce(reply({ detail: 'gone' }, 404));
     expect(await mod.fetchArtifact('x')).toBeNull();
+  });
+});
+
+describe('a run by exec_id', () => {
+  const T = '2026-11-08T01:00:00Z';
+
+  test('runOf: the listed head when one carries run_parts', () => {
+    const head = entry('r1', T, { exec_id: 'x', run_parts: [{ id: 'o1', role: 'output' }] });
+    const run = mod.runOf([entry('o1', T, { exec_id: 'x' }), head], 'x');
+    expect(run).toBe(head);
+  });
+
+  test('runOf: else read from the members, the result as head, an output by its null part', () => {
+    const run = mod.runOf(
+      [
+        entry('p1', T, { exec_id: 'x', run_part: 'preview' }),
+        entry('o1', T, { exec_id: 'x', run_part: null }),
+        entry('r1', T, { exec_id: 'x', run_part: 'result' }),
+        entry('z', T, { exec_id: 'y', run_part: 'result' }),
+      ],
+      'x'
+    );
+    expect(run?.id).toBe('r1');
+    expect(run?.run_parts?.map((p) => [p.id, p.role])).toEqual([
+      ['p1', 'preview'],
+      ['o1', 'output'],
+    ]);
+    expect(mod.runOf([], 'x')).toBeNull();
+  });
+
+  test('fetchRun reads the store by exec_id; null when it cannot', async () => {
+    const head = entry('r1', T, { exec_id: 'toolu_7', run_parts: [] });
+    fetchMock.mockResolvedValueOnce(reply({ artifacts: [head] }));
+    expect((await mod.fetchRun('toolu_7'))?.id).toBe('r1');
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      '/panel/artifacts/api/artifacts?exec_id=toolu_7&limit=50'
+    );
+    fetchMock.mockResolvedValueOnce(reply({ detail: 'no' }, 500));
+    expect(await mod.fetchRun('toolu_7')).toBeNull();
   });
 });
 

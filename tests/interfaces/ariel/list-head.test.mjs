@@ -3,8 +3,8 @@
  * The ARIEL list pane head (list-head.js):
  *   npx vitest run tests/interfaces/ariel/list-head.test.mjs
  *
- * `buildHead()` builds the search box, mode chip and compose button standalone,
- * and only the chip embedded. `buildFiltersPopover()` replaces the body-level
+ * `buildHead()` builds the mode chip; the tile bar holds search and compose.
+ * `buildFiltersPopover()` replaces the body-level
  * popover with a fresh hidden one. `paintChipIssues` paints a search's
  * diagnostics on the chip (dot, tooltip, accessible description) and the top of
  * the popover; an empty list clears all three. The head wired into the pane
@@ -38,36 +38,16 @@ afterEach(() => {
 });
 
 describe('buildHead', () => {
-  test('standalone: search box seeded from the store, the chip, and compose', async () => {
-    const { store, head } = await load();
-    store.setState({ query: 'beam dump' });
-    const { head: el, input, chip } = head.buildHead();
+  test('only the mode chip', async () => {
+    const { head } = await load('/?embedded=true');
+    const { head: el, chip } = head.buildHead();
 
-    expect(input?.id).toBe('ariel-search-input');
-    expect(input?.value).toBe('beam dump');
     expect(chip.id).toBe('ariel-mode-chip');
     expect(chip.getAttribute('aria-haspopup')).toBe('dialog');
     expect(chip.querySelector('.ariel-mode-chip-label')).not.toBeNull();
-    expect(el.querySelector('#ariel-compose-btn')).not.toBeNull();
-  });
-
-  test('compose opens an empty draft', async () => {
-    const { store, head } = await load();
-    const { head: el } = head.buildHead();
-
-    /** @type {HTMLButtonElement} */ (el.querySelector('#ariel-compose-btn')).click();
-
-    expect(store.getState().compose).toEqual({ draft: null });
-  });
-
-  test('embedded: only the mode chip', async () => {
-    const { head } = await load('/?embedded=true');
-    const { head: el, input, chip } = head.buildHead();
-
-    expect(input).toBeNull();
-    expect(el.querySelector('#ariel-search-input')).toBeNull();
-    expect(el.querySelector('#ariel-compose-btn')).toBeNull();
     expect(el.contains(chip)).toBe(true);
+    expect(el.querySelector('input')).toBeNull();
+    expect(el.querySelector('#ariel-compose-btn')).toBeNull();
   });
 });
 

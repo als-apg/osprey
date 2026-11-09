@@ -538,7 +538,8 @@ def panel_op(op: str, args: dict, *, base_rev: int | None = None) -> dict:
 
     Returns:
         ``{"ok": True, "status": 200, "layout": {...}, "popouts": [...], "rev":
-        <int>}`` when the dock applied the op, else ``{"ok": False, "status": <int|None>,
+        <int>}`` when the dock applied the op (an ``open`` adds ``placed`` and,
+        when it replaced a panel, ``replaced`` and possibly ``note``), else ``{"ok": False, "status": <int|None>,
         "reason": <str>, "detail": <str>}`` (plus ``rev`` when the server gave
         one). ``reason`` is the route's named refusal (``stale_base``,
         ``no_dock_client``, ``terminal_not_agent_movable``, ...) or
@@ -577,6 +578,8 @@ def panel_op(op: str, args: dict, *, base_rev: int | None = None) -> dict:
             "layout": body.get("layout"),
             "popouts": body.get("popouts", []),
             "rev": body.get("rev"),
+            # An open says how it placed the panel (placed / replaced / note).
+            **{key: body[key] for key in ("placed", "replaced", "note") if key in body},
         }
     out: dict = {"ok": False, "status": status}
     if body.get("status") == "refused":

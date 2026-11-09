@@ -276,6 +276,58 @@ describe('a change made just before the page goes away is stored', () => {
   });
 });
 
+describe('a change of the detached panes is stored at once, docked where it was', () => {
+  /** A page with ARIEL left of the terminal, its record stored, nothing waiting to write. */
+  async function detachable() {
+    localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL, { ariel: { title: 'ARIEL' } }));
+    const page = await boot(null);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    return page;
+  }
+
+  /** The stored value, read with no wait for any debounce. */
+  const storedNow = () => JSON.parse(localStorage.getItem(KEY) ?? 'null');
+
+  // The apply's own layout change arms the debounced write: let it land here,
+  // or this page would write over the next test's stored value.
+  afterEach(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  });
+
+  test('a detach writes the pane in place with its record, synchronously', async () => {
+    const page = await detachable();
+    localStorage.removeItem(KEY);
+    expect(page.holder.detach('ariel', '/panel/ariel/')).toBe(true);
+    const stored = storedNow();
+    expect(keysOf(stored.layout)).toEqual(['ariel', 'terminal']);
+    expect(rounded(stored.layout).items.map((/** @type {any} */ i) => i.size)).toEqual([0.7, 0.3]);
+    expect(stored.panels.ariel).toMatchObject({ title: 'ARIEL' });
+    // The live layout has left it out, and a session keeps the same stored form.
+    expect(keysOf(page.holder.layout)).toEqual(['terminal']);
+    expect(page.workspace.currentDock()).toEqual(stored);
+  });
+
+  test('a reattach rewrites it, synchronously', async () => {
+    const page = await detachable();
+    page.holder.detach('ariel', null);
+    localStorage.removeItem(KEY);
+    expect(page.holder.reattach('ariel')).toBe(true);
+    expect(keysOf(storedNow().layout)).toEqual(['ariel', 'terminal']);
+    expect(keysOf(page.holder.layout)).toEqual(['ariel', 'terminal']);
+  });
+
+  test('a forget rewrites it without the pane, synchronously', async () => {
+    const page = await detachable();
+    page.holder.detach('ariel', null);
+    localStorage.removeItem(KEY);
+    expect(page.holder.forget('ariel')).toBe(true);
+    const stored = storedNow();
+    expect(keysOf(stored.layout)).toEqual(['terminal']);
+    expect(stored.panels.ariel).toBeUndefined();
+    expect(page.workspace.currentDock()).toEqual(stored);
+  });
+});
+
 describe('a reload restores tiles, the panel each shows and sizes', () => {
   test('the stored tiles come back as stored, with their records', async () => {
     localStorage.setItem(KEY, v2(SERVICE_AND_TERMINAL, { ariel: { title: 'ARIEL' } }));
@@ -591,6 +643,105 @@ describe("a session's layout is the stored dock, applied live", () => {
     await settle();
     expect(page.workspace.isTerminalPanelOpen()).toBe(false);
     expect(document.documentElement.getAttribute('data-agent')).toBe('closed');
+  });
+
+  test('the Agent pane has three states on <html> and in its event: open, detached, closed', async () => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    const seen = /** @type {any[]} */ ([]);
+    const hear = (/** @type {any} */ e) => seen.push(e.detail);
+    document.addEventListener('osprey-agent-pane', hear);
+    expect(document.documentElement.hasAttribute('data-agent')).toBe(false);
+
+    expect(page.holder.detach('terminal', null)).toBe(true);
+    expect(document.documentElement.getAttribute('data-agent')).toBe('detached');
+    expect(page.workspace.isTerminalPanelOpen()).toBe(false);
+
+    expect(page.holder.reattach('terminal')).toBe(true);
+    expect(document.documentElement.hasAttribute('data-agent')).toBe(false);
+
+    page.holder.detach('terminal', null);
+    page.holder.forget('terminal');
+    expect(document.documentElement.getAttribute('data-agent')).toBe('closed');
+    document.removeEventListener('osprey-agent-pane', hear);
+    expect(seen).toEqual([
+      { open: false, detached: true },
+      { open: true, detached: false },
+      { open: false, detached: true },
+      { open: false, detached: false },
+    ]);
+  });
+
+  /** A window whose shell has loaded, the Agent pane moved into it through pane-window. */
+  async function detachAgent(/** @type {Awaited<ReturnType<typeof boot>>} */ page) {
+    const doc = document.implementation.createHTMLDocument('');
+    doc.documentElement.setAttribute('data-osprey-attached-shell', '');
+    const target = new EventTarget();
+    const win = {
+      document: doc,
+      closed: false,
+      focus: vi.fn(),
+      close: vi.fn(() => {
+        win.closed = true;
+      }),
+      addEventListener: target.addEventListener.bind(target),
+      removeEventListener: target.removeEventListener.bind(target),
+    };
+    vi.spyOn(window, 'open').mockReturnValue(/** @type {any} */ (win));
+    const paneWindow = await import(`${JS}/pane-window.js`);
+    expect(paneWindow.detach('terminal')).toBe(true);
+    await settle();
+    expect(page.holder.isDetached('terminal')).toBe(true);
+    return { win, doc };
+  }
+
+  test.each([
+    ['closeDockPanel', (/** @type {any} */ workspace) => workspace.closeDockPanel('terminal')],
+    ['closeTerminalPanel', (/** @type {any} */ workspace) => workspace.closeTerminalPanel()],
+  ])('%s forgets a detached pane and closes its window', async (_name, close) => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    const { win } = await detachAgent(page);
+
+    expect(close(page.workspace)).toBe(true);
+
+    expect(win.close).toHaveBeenCalledTimes(1);
+    expect(page.holder.isDetached('terminal')).toBe(false);
+    expect(page.holder.holds('terminal')).toBe(false);
+  });
+
+  test('a surfacing of a detached Agent pane goes to its window; it never docks', async () => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    const { win, doc } = await detachAgent(page);
+    expect(doc.querySelector('.attached-window-root > .terminal-panel')).not.toBeNull();
+    const before = page.holder.layout;
+
+    page.workspace.openTerminalPanel();
+
+    expect(win.focus).toHaveBeenCalledTimes(1);
+    expect(page.holder.layout).toBe(before);
+    expect(page.holder.isDetached('terminal')).toBe(true);
+    win.close();
+    page.holder.forget('terminal');
+  });
+
+  test('closing a detached Agent pane closes its window and does not dock it (R4)', async () => {
+    const page = await boot('carol');
+    await openService(page, 'ariel');
+    const { win } = await detachAgent(page);
+
+    expect(page.workspace.closeTerminalPanel()).toBe(true);
+
+    expect(win.closed).toBe(true);
+    expect(page.holder.isDetached('terminal')).toBe(false);
+    expect(page.workspace.isTerminalPanelOpen()).toBe(false);
+    expect(document.documentElement.getAttribute('data-agent')).toBe('closed');
+    // A closed pane reopens from the row, with its live subtree.
+    page.workspace.openTerminalPanel();
+    await settle();
+    expect(page.workspace.isTerminalPanelOpen()).toBe(true);
+    expect(document.querySelector('#dock-root .terminal-panel')).not.toBeNull();
   });
 
   test('a panel the dock cannot build is dropped; a value of another version changes nothing', async () => {

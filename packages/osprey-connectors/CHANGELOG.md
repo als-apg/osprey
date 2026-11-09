@@ -20,6 +20,26 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.7] - 2026-11-08
+
+### Fixed
+
+- The archive seed no longer fails a simulator view that has a model with no
+  deck. `osprey_connectors.simulation.status.is_error()` is the one rule for
+  which model statuses are errors: `ok` and `no deck` are not.
+
+## [2026.11.6] - 2026-11-08
+
+### Added
+
+- Archiver scenarios have two new event shapes. A `burst` jumps by `amplitude` at its instant and decays exponentially over `decay_s`, optionally with a slower tail (`tail_share` of the amplitude decaying over `tail_decay_s`), as a vacuum gauge does after a gas burst. A `loss` drops a channel by `amount` in one step, and only the channel's top-off seed refills it: one shot a second from the first top-off refill after the loss. Neither moves a sample before its instant.
+
+## [2026.11.5] - 2026-11-06
+
+### Added
+
+- The simulator view names its record roles (`SETPOINT`, `READBACK`, `MONITOR`, `OUTPUT`) and refresh `PERIODIC`.
+
 ## [2026.11.4] - 2026-11-05
 
 ### Changed

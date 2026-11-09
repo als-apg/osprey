@@ -11,7 +11,7 @@ pre-unification behaviour) would silently drop both, and no mock can falsify
 that: only a live container dispatch proves the overlay artifacts and data files
 reached the agent.
 
-The test mutates a freshly initialized control-assistant repo's SOURCE zone
+The test mutates a freshly initialized demo repo's SOURCE zone
 *before* ``osprey build``, so the render carries three things that a
 hollow/degraded worker could not satisfy:
 
@@ -70,12 +70,12 @@ from tests.e2e._deploy_support import (
     wait_for_health,
 )
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import E2E_MODEL, e2e_provider
 
 #: This deploy's own thousand-port block — same convention as
 #: test_dispatch_deploy.py (20700) and test_web_bind.py (21000): a real
-#: control-assistant stack owns the default 10000 block on a dev host, so a
+#: demo stack owns the default 10000 block on a dev host, so a
 #: test deploy that landed there would crash-loop the live stack's terminals
 #: against its own dispatcher and panels.
 PORT_BASE = 21100
@@ -281,7 +281,7 @@ def _mutate_source(repo: Path) -> None:
 
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Init + mutate + build + ``osprey up`` a control-assistant stack.
+    """Init + mutate + build + ``osprey up`` a demo stack.
 
     The mutation (overlay skill + data fixture + custom trigger) is applied to
     the source zone between ``osprey init`` and ``osprey build``, so the build
@@ -298,7 +298,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # routing -- drop the preset's web-terminal stack (two render images +
     # nginx, all built locally on `up`) so the deploy only builds the
     # dispatcher/worker images it actually exercises. Web-terminals coverage
-    # lives in control-assistant-demo-e2e / multi-user-deploy-lifecycle-e2e /
+    # lives in demo-e2e / multi-user-deploy-lifecycle-e2e /
     # tests/e2e/web_terminals/. One dotted LEAF key, mirroring
     # tests/e2e/_orm_stack.profile_edits(): stating the
     # `modules.web_terminals` key itself would replace the preset's whole
@@ -312,8 +312,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "init",
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
+            *e2e_scenario_pin(),
             *set_pairs({"config": {"modules.web_terminals.enabled": False}}),
             "--set",
             f"provider={e2e_provider()}",

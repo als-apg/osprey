@@ -24,7 +24,7 @@ from click.testing import CliRunner, Result
 from osprey.cli.main import cli
 from osprey.facility.render import FACILITY_FILE
 from osprey_connectors.workspace import BUILD_DIR_NAME
-from tests._builds import init_project, run_build
+from tests._builds import Restorable, init_project, run_build
 
 pytestmark = pytest.mark.slow
 
@@ -34,8 +34,8 @@ CHANNEL = "BR:DIAG:BPM:01:POSITION:X"
 
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo, initialised once for this module and never edited."""
-    return init_project(tmp_path_factory.mktemp("ca"), "control-assistant", "demo")
+    """A demo repo, initialised once for this module and never edited."""
+    return init_project(tmp_path_factory.mktemp("ca"), "demo", "demo")
 
 
 @pytest.fixture
@@ -44,6 +44,24 @@ def repo(initialised: Path, tmp_path: Path) -> Iterator[Path]:
     copy = tmp_path / initialised.name
     shutil.copytree(initialised, copy, symlinks=True)
     yield copy
+
+
+@pytest.fixture(scope="module")
+def _pristine_built(tmp_path_factory: pytest.TempPathFactory) -> Restorable:
+    """The demo repo after one ``osprey build --skip-deps``, made once."""
+
+    def make(parent: Path) -> tuple[Path, Result]:
+        repo = init_project(parent, "demo", "demo")
+        return repo, run_build(repo)
+
+    return Restorable(tmp_path_factory.mktemp("ca-built"), make)
+
+
+@pytest.fixture
+def built(_pristine_built: Restorable) -> tuple[Path, Result]:
+    """A built repo this test may edit, and what its build printed."""
+    repo = _pristine_built.restore()
+    return repo, _pristine_built.made
 
 
 def _validate(repo: Path) -> Result:
@@ -125,16 +143,18 @@ def test_a_render_warning_prints_once_in_validate_and_show(repo: Path) -> None:
         assert fragment not in result.stdout
 
 
-def test_a_stock_build_prints_no_tolerance_warning(repo: Path) -> None:
-    built = run_build(repo)
+def test_a_stock_build_prints_no_tolerance_warning(built: tuple[Path, Result]) -> None:
+    _repo, result = built
 
-    assert built.exit_code == 0, built.output
-    assert "tolerance" not in built.stderr
+    assert result.exit_code == 0, result.output
+    assert "tolerance" not in result.stderr
 
 
-def test_a_scenario_beyond_a_tolerance_warns_in_the_build_and_in_validate(repo: Path) -> None:
-    built = run_build(repo)
-    assert built.exit_code == 0, built.output
+def test_a_scenario_beyond_a_tolerance_warns_in_the_build_and_in_validate(
+    built: tuple[Path, Result],
+) -> None:
+    repo, result = built
+    assert result.exit_code == 0, result.output
     document = json.loads((repo / BUILD_DIR_NAME / FACILITY_FILE).read_text(encoding="utf-8"))
     channels = {channel["id"]: channel for channel in document["channels"]}
     setpoint = next(
@@ -173,10 +193,10 @@ def test_a_clean_run_leaves_the_repo_byte_unchanged(repo: Path) -> None:
     assert not (repo / BUILD_DIR_NAME).exists()
 
 
-def test_a_run_repairs_nothing_the_build_would(repo: Path) -> None:
+def test_a_run_repairs_nothing_the_build_would(built: tuple[Path, Result]) -> None:
     """Nothing is written for a missing facility description or per-user context."""
-    built = run_build(repo)
-    assert built.exit_code == 0, built.output
+    repo, result = built
+    assert result.exit_code == 0, result.output
     assert (repo / BUILD_DIR_NAME / ".claude" / "rules" / "facility.md").is_file()
     # A repo from before the rule moved into the profile: no source-zone copy,
     # and the library rule selected by its bare name.

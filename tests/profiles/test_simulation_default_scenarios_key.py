@@ -1,7 +1,7 @@
 """The ``simulation.default_scenarios`` key: the set a never-chosen deployment starts in.
 
 ``resolve_default_scenarios`` reads the key from a rendered config; the
-control-assistant preset states it and the other root presets leave it out.
+demo preset states it and the other root presets leave it out.
 """
 
 from __future__ import annotations
@@ -13,9 +13,9 @@ from osprey.cli.build_profile_resolve import resolve_build_document
 from osprey.simulation.apply import resolve_default_scenarios
 
 
-def test_the_control_assistant_preset_starts_in_rf_thermal() -> None:
-    config = _expand_dotted(resolve_build_document(None, "control-assistant").profile.config)
-    assert resolve_default_scenarios(config) == ("rf-thermal",)
+def test_the_demo_preset_starts_in_rf_thermal_with_example_sessions() -> None:
+    config = _expand_dotted(resolve_build_document(None, "demo").profile.config)
+    assert resolve_default_scenarios(config) == ("rf-thermal", "demo-history")
 
 
 @pytest.mark.parametrize("preset", ["hello-world"])

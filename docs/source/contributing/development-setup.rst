@@ -249,12 +249,11 @@ broadest/slowest:
 - If the module is wired into a page: a ``test_load_smokes.py`` entry for
   that page, so a broken import or a typo'd export name surfaces as a real
   thrown exception instead of a silent no-op.
-- If it's a **panel** (embeddable in the Web Terminal hub): support both
-  standalone and embedded modes -- ``applyEmbedded()`` on load, an
-  ``<osprey-display-menu>`` that hides itself when embedded (the hub owns
-  theme chrome there), branding hidden when embedded -- plus a
+- If it's a **panel** (embedded in the Web Terminal hub): ``applyEmbedded()``
+  on load, which also sends a direct visit to the hub; no page chrome of its
+  own, since the hub owns theme and header -- plus a
   ``test_contract_params.py`` case, which is the up-to-date spec for the
-  dual-mode checklist and well-known parameters. See
+  embedding checklist and well-known parameters. See
   :doc:`/how-to/web-terminal/panels` for how panels embed in the hub.
 - If the change is visible on screen: a ``test_visual.py`` ``TARGETS`` entry
   and a committed baseline PNG (regenerate with ``--regen-baselines`` on

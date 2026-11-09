@@ -106,7 +106,7 @@ from tests.e2e._deploy_support import (
     wait_for_health,
 )
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.sdk_helpers import render_dir, set_switch_in_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -473,24 +473,24 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     base = tmp_path_factory.mktemp("va_substrate_build")
     repo = base / PROJECT_NAME
 
-    # Extends control-assistant (which already ships its facility tree) with
+    # Extends demo (which already ships its facility tree) with
     # the one flag it doesn't default to: the
     # control-system type. Written as a flat dotted-string key under `config:`,
     # the spelling the preset itself uses: everything after `config.` is one
     # key naming one leaf, so the rest of the `control_system` block
     # (writes/limits_checking/connector gateways) is left alone.
-    # `dispatch: null` drops control-assistant's default event-dispatcher
+    # `dispatch: null` drops demo's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant here and far slower to
     # build than the VA image already is. The preset's `services:` block holds
     # the record archive, which runs the same project image, so it goes with the
     # dispatch stack: `services: {}` is the spelling because a single service
     # cannot be nulled.
     # `modules.web_terminals.enabled: false` scopes this deploy back to the VA +
-    # bridge substrate: the control-assistant preset now ships the multi-user
+    # bridge substrate: the demo preset now ships the multi-user
     # web-terminal stack on by default, so an unqualified deploy would also
     # render both render projects, build two web images, and start nginx/web
     # containers -- none of which this substrate-equivalence proof exercises
-    # (that topology is covered by test_control_assistant_demo.py).
+    # (that topology is covered by the demo-e2e lane).
     # `_orm_stack.VA_ARCHIVER_CI_KNOBS` shrinks the archive the preset declares
     # to a CI-sized one -- this proof deploys the store (the preset's
     # `va_archiver:` block is what makes the VA's history real) but reads none
@@ -519,8 +519,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "init",
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
+            *e2e_scenario_pin(),
             *set_pairs(edits),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",

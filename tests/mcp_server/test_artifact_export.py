@@ -1,8 +1,9 @@
 """Tests for the artifact_export MCP tool."""
 
+from pathlib import Path
 from unittest.mock import patch
 
-from osprey.mcp_server.export.converter import PlaywrightNotInstalledError
+from osprey.mcp_server.export.converter import PlaywrightNotInstalledError, PlotNotDrawnError
 from osprey.stores.artifact_store import ArtifactStore
 from tests.mcp_server.conftest import (
     assert_raises_error,
@@ -141,3 +142,36 @@ async def test_export_playwright_missing(tmp_path, monkeypatch):
             await fn(artifact_id=entry.id)
 
     _exc_ctx["envelope"]
+
+
+async def test_export_plot_not_drawn_names_it_and_saves_no_image(tmp_path, monkeypatch):
+    """A plot that did not draw is refused by name; no image artifact is saved."""
+    monkeypatch.chdir(tmp_path)
+
+    store = ArtifactStore(workspace_root=tmp_path)
+    entry = store.save_file(
+        file_content=b"<html></html>",
+        filename="plot.html",
+        artifact_type="html",
+        title="Plot",
+        mime_type="text/html",
+        tool_source="test",
+    )
+
+    async def raise_not_drawn(*args, **kwargs):
+        raise PlotNotDrawnError(Path("plot.html"), 10_000)
+
+    with (
+        patch("osprey.stores.artifact_store.get_artifact_store", return_value=store),
+        patch(
+            "osprey.mcp_server.export.converter.convert_html_to_image",
+            side_effect=raise_not_drawn,
+        ),
+    ):
+        fn = _get_artifact_export()
+        with assert_raises_error(error_type="conversion_error") as exc_ctx:
+            await fn(artifact_id=entry.id)
+
+    message = exc_ctx["envelope"]["error_message"]
+    assert "plot.html" in message and "10000 ms" in message
+    assert [e.mime_type for e in store.list_entries()] == ["text/html"]

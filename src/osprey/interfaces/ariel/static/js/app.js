@@ -6,7 +6,7 @@
  * once, the facility time zone before anything renders a time, then the
  * panes and their hosts, and the router last so the initial hash reaches
  * every store subscriber. `initSettings` runs before `initLayout` because it
- * may remove `#settings-drawer`, which the gear menu then leaves out.
+ * may remove `#settings-drawer`.
  *
  * The reader is store-free, so its wiring lives here: it reads `sel` and
  * `att`, writes `att` from the lightbox callbacks, `sel` from thread links and
@@ -17,12 +17,10 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
-import { applyEmbedded, isEmbedded } from '/design-system/js/frame-params.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-drawer.js';
-import '/design-system/js/components/osprey-display-menu.js';
 import { capabilitiesApi } from './api.js';
 import { applyFacilityTimezone, setEnhancementModules } from './components.js';
-import { bindStripSwitch } from './display-prefs.js';
 import { initSettings } from './settings.js';
 import { initLayout } from './layout.js';
 import { initRail } from './rail.js';
@@ -43,13 +41,11 @@ import { getState, setState, subscribe } from './store.js';
 /** Text-entry controls, where keys type rather than act (as in `keyboard.js`). */
 const TYPING_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 
-// Embedded, the host tile bar is the one header; applied before initTheme,
-// which needs to know which surface this is.
+// The host tile bar is the one header.
 applyEmbedded();
 
-// Standalone ARIEL owns theming (hub: the display menu's pick persists);
-// embedded, it only follows the hub's broadcasts.
-initTheme({ role: isEmbedded() ? 'follower' : 'hub' });
+// Theming is the hub's; the panel only follows its broadcasts.
+initTheme({ role: 'follower' });
 
 /**
  * Map `sel` / `att` onto the reader pane.
@@ -167,7 +163,6 @@ async function init() {
   try {
     applyFacilityTimezone(capabilities);
     setEnhancementModules(capabilities?.enhancement_modules);
-    bindStripSwitch(document.getElementById('ariel-strip-toggle'));
     initSettings(capabilities);
     initLayout(document);
 
@@ -185,7 +180,7 @@ async function init() {
 
     initEntries(document);
     initDashboard(document);
-    initKeyboard(document, { embedded: isEmbedded() });
+    initKeyboard(document);
     if (reader) wireReaderKeys(document, reader);
     initHeader({ capabilities });
   } catch (e) {

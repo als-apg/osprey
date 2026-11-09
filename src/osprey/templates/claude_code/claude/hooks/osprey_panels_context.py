@@ -258,8 +258,15 @@ def _occupancy_is_known(data):
     A missing or null ``layout_dock`` says nothing either way; only an
     explicit ``false`` forces unknown. A layout that is present but malformed is
     caught one step later, by :func:`_layout_tiles` returning None.
+
+    One null layout is known: a ``layout_dock: true`` report. That dock said it
+    is empty (its panes in windows of their own, named by ``popouts``, or
+    closed), which is a workspace, not silence.
     """
-    if not isinstance(data.get("layout"), dict):
+    layout = data.get("layout")
+    if layout is None:
+        return data.get("layout_dock") is True
+    if not isinstance(layout, dict):
         return False
     return data.get("layout_dock") is not False
 
@@ -278,7 +285,9 @@ def _workspace_state(data):
         panel id or None) and ``visible`` (launcher-rail membership). Every
         field is defended against a payload of the wrong shape.
     """
-    tiles = _layout_tiles(data.get("layout")) if _occupancy_is_known(data) else None
+    tiles = None
+    if _occupancy_is_known(data):
+        tiles = [] if data.get("layout") is None else _layout_tiles(data.get("layout"))
     popouts = _popout_list(data.get("popouts")) if tiles is not None else []
 
     visible = data.get("visible")
@@ -343,13 +352,14 @@ def _build_tile_line(state):
     tiles = state.get("tiles")
     if tiles is None:
         return None
-    if not tiles:
+    popouts = state.get("popouts") or []
+    if not tiles and not popouts:
         return "Open tiles: none (nothing on screen)."
     active = state.get("active")
     active_part = f"active {active}" if active else "no active panel"
-    popouts = state.get("popouts") or []
     popout_part = f"pop-outs: {', '.join(popouts)}; " if popouts else ""
-    return f"Open tiles: {_render_tiles(tiles)}; {popout_part}{active_part}."
+    rendered = _render_tiles(tiles) if tiles else "none"
+    return f"Open tiles: {rendered}; {popout_part}{active_part}."
 
 
 def _build_ux_context(ux):
@@ -404,8 +414,10 @@ def _build_inventory(data):
         f"Web terminal panels: {panel_list}. "
         f"{active_part} "
         "Each tile shows one panel. open_panel(id) puts one on screen and on the "
-        "rail in one step, replacing the panel in the service tile used last "
-        "(that panel stays on the rail); close_panel(id) takes it off screen; "
+        "rail in one step, by default in a new tile split off the service tile "
+        "used last; place='replace' takes that tile instead, and tile/edge pick "
+        "where. Prefer a new tile: replace only a panel the operator is clearly "
+        "done with, or when asked. close_panel(id) takes a panel off screen; "
         "add_panel_to_rail(id)/remove_panel_from_rail(id) move only whether it "
         "is one click away, and register_panel(...) adds an ad-hoc URL panel. "
         "Those three ask the operator to approve the call unless the deployment "

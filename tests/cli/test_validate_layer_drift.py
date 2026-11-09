@@ -7,7 +7,7 @@ compares each of them with what ``init`` would write from that source today,
 so a facility edit to an app is reported the way an edit to the profile is —
 and a file whose source no longer ships is named rather than crashed on.
 
-The fixture is one real ``osprey init`` of ``control-assistant``, copied per
+The fixture is one real ``osprey init`` of ``demo``, copied per
 test so each test edits its own repo the way an operator would.
 """
 
@@ -32,9 +32,9 @@ PICKER = "web.control_target_picker: false"
 
 @pytest.fixture(scope="module")
 def materialized(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """One real materialization of the control-assistant preset."""
+    """One real materialization of the demo preset."""
     root = tmp_path_factory.mktemp("layer-drift") / "demo"
-    result = CliRunner().invoke(init, [str(root), "--preset", "control-assistant", "--no-git"])
+    result = CliRunner().invoke(init, [str(root), "--preset", "demo", "--no-git"])
     assert result.exit_code == 0, result.output
     return root
 

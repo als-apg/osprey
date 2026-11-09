@@ -3,9 +3,8 @@
 <head>
   <!-- Theme boot: applies data-theme pre-paint; zero import deps, must load
        before any stylesheet. Live theme changes are handled by theme-manager
-       in app.js: the HUB role standalone (the display menu is the operator's
-       control, and its pick persists), the FOLLOWER role embedded (the web
-       terminal's own chrome owns theming and broadcasts it here). -->
+       in app.js, as a follower: the web terminal's own chrome owns theming
+       and broadcasts it here. -->
   <script src="/design-system/js/theme-boot.js"></script>
   <link rel="stylesheet" href="/design-system/css/tokens.css">
   <link rel="stylesheet" href="/design-system/css/base.css">
@@ -35,40 +34,6 @@
 </head>
 <body>
   <div class="app-container" id="ariel-app">
-    <!-- Header (standalone only; body.embedded hides it, the hub's tile bar
-         replaces it). Brand, the gear menu (Status, Settings) and the shared
-         display menu. -->
-    <header class="header">
-      <div class="header-inner">
-        <div class="header-left">
-          <a href="#" class="logo">
-            <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <path d="M12 6v6l4 2"/>
-              <path d="M8 12a4 4 0 108 0"/>
-            </svg>
-            <span class="logo-text">Logbook</span>
-          </a>
-        </div>
-        <div class="header-right">
-          <!-- Gear: opens #ariel-gear-menu (Status, and Settings when the
-               config panel is offered). layout.js adds the icon and items. -->
-          <button type="button" class="osprey-icon-btn" id="ariel-gear-btn"
-                  aria-label="Status and settings" title="Status and settings"
-                  aria-haspopup="menu" aria-expanded="false"></button>
-          <!-- Every display preference (Appearance, View, Theme) plus the
-               Settings entry that opens #settings-drawer, behind one trigger.
-               The component hides itself when embedded. Its children are
-               moved into the card's action row: the badge-strip switch,
-               wired by display-prefs.js. -->
-          <osprey-display-menu settings-drawer="settings-drawer">
-            <button type="button" class="display-menu-settings" id="ariel-strip-toggle"
-                    role="switch" aria-checked="true">Badges<span class="osprey-switch" aria-hidden="true"></span></button>
-          </osprey-display-menu>
-        </div>
-      </div>
-    </header>
-
     <!-- The one screen: mailbox rail | entry list | reader. Pane widths are
          driven by layout.js through the shared splitter. -->
     <div class="ariel-shell" id="ariel-shell">
@@ -250,9 +215,6 @@
       </section>
     </div>
   </div>
-
-  <!-- Gear menu (body-level so it is never clipped by a pane). -->
-  <div class="osprey-popover" id="ariel-gear-menu" role="menu" aria-label="Status and settings" hidden></div>
 
   <!-- Drawer backdrop -->
   <div class="drawer-backdrop" id="drawer-backdrop"></div>

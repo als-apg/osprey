@@ -1,64 +1,37 @@
-"""Embedded-identity contract: host tile bar = the ONE header a tile has.
+"""One-header contract: the host tile bar is the only header a panel has.
 
-When a panel runs inside the web-terminal hub (body.embedded — set by
-frame-params.js applyEmbedded()), it must not render its own top bar at all:
-the hub's tile bar owns identity and window management, and a panel's real
-toolbar controls reach that bar via the header-contribution contract
-(design_system/static/js/header-contrib.js). It must also not render a theme
-control (the hub owns theming) -- the shared <osprey-display-menu> hides
-itself. This is a static contract check on the shipped CSS: each panel's
-stylesheet must carry the body.embedded rule that hides the listed element. Standalone pages are unaffected (all rules are
-body.embedded-scoped by construction).
+A panel page has no chrome of its own and no theme control: the hub's tile bar
+owns identity and window management, and a panel's controls reach that bar via
+the header-contribution contract (design_system/static/js/header-contrib.js).
+So no panel stylesheet has anything to hide when framed, and a
+``body.embedded`` rule in one means a standalone branch has come back.
 """
 
 from pathlib import Path
 
 import pytest
 
-INTERFACES = Path(__file__).resolve().parents[2] / "src" / "osprey" / "interfaces"
+SRC = Path(__file__).resolve().parents[2] / "src" / "osprey"
+INTERFACES = SRC / "interfaces"
 
-# (css file, selector fragment that must appear in a body.embedded rule)
-CONTRACT = [
-    # Whole embedded top bars
-    ("artifacts/static/css/gallery.css", "body.embedded .header"),
-    ("ariel/static/css/layout.css", "body.embedded .header"),
-    ("channel_finder/static/css/channel-finder.css", "body.embedded .app-header"),
-    ("health/static/dashboard.css", "body.embedded .hdr"),
-    ("bluesky_web/panels/bluesky/panel.css", "body.embedded .panel-chrome"),
-    # Theme controls (hub owns theming) are absent by design: every panel
-    # mounts <osprey-display-menu>, and that component injects its own
-    # `body.embedded osprey-display-menu { display: none }` rule, so there is
-    # no panel CSS to check. The browser test
-    # (tests/interfaces/web_terminal/test_contract_params.py's
-    # test_embedded_hides_branding_and_switcher) covers it live, per panel.
+PANEL_PAGES = [
+    "ariel/static/css/layout.css",
+    "artifacts/static/css/gallery.css",
+    "channel_finder/static/css/channel-finder.css",
+    "health/static/dashboard.css",
+    "okf_panel/static/style.css",
+    "bluesky_web/panels/bluesky/panel.css",
+    "design_system/panels/reference/index.html",
 ]
 
 
-@pytest.mark.parametrize(("css_file", "selector"), CONTRACT)
-def test_embedded_rule_present(css_file: str, selector: str) -> None:
-    css = (INTERFACES / css_file).read_text(encoding="utf-8")
-    normalized = " ".join(css.split())
-    assert selector in normalized, (
-        f"{css_file} must hide '{selector.removeprefix('body.embedded ').strip()}' "
-        "when embedded in the web-terminal hub (host tile bar owns identity/theming)"
-    )
+@pytest.mark.parametrize("page", PANEL_PAGES)
+def test_panel_page_has_no_framed_only_rule(page: str) -> None:
+    assert "body.embedded" not in (INTERFACES / page).read_text(encoding="utf-8")
 
 
-#: The EVENTS panel is a single self-contained page served by the event
-#: dispatcher rather than a design-system interface, so its rule lives in an
-#: inline ``<style>`` outside ``INTERFACES`` — same contract, different file.
-DISPATCH_DASHBOARD = (
-    Path(__file__).resolve().parents[2] / "src" / "osprey" / "dispatch" / "dashboard.html"
-)
-
-
-def test_dispatch_dashboard_hides_own_header_when_embedded() -> None:
-    html = " ".join(DISPATCH_DASHBOARD.read_text(encoding="utf-8").split())
-    assert "body.embedded .app-head { display: none; }" in html, (
-        "dispatch/dashboard.html must hide its own .app-head when embedded "
-        "(host tile bar owns identity)"
-    )
-    assert "applyEmbedded()" in html, (
-        "dispatch/dashboard.html must call applyEmbedded() or the body.embedded "
-        "rule above can never match"
-    )
+def test_dispatch_dashboard_has_no_framed_only_rule() -> None:
+    html = (SRC / "dispatch" / "dashboard.html").read_text(encoding="utf-8")
+    assert "body.embedded {" not in html
+    assert "body.embedded ." not in html
+    assert "applyEmbedded()" in html, "header-contrib.js reads the class applyEmbedded() sets"

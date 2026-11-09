@@ -5,7 +5,7 @@ description: >
   longer true — before cutting a release, after a long stretch of merges without one, or when
   the generated project, a shipped skill, a runtime message, or a pinned version is suspected
   of having fallen behind the code — or when the shipped presets, which are supposed to agree
-  (hello-world and control-assistant), may have drifted apart. Triggers: "run housekeeping",
+  (hello-world and demo), may have drifted apart. Triggers: "run housekeeping",
   "check for drift", "what has rotted", "is anything stale", "housekeeping report", "sweep the
   repo", "preset parity", "do the presets still agree", "what maintainer
   chores are outstanding", "pre-release drift check". Prefer it over ad-hoc grepping whenever
@@ -65,7 +65,7 @@ and reality — or, in lane E, between two promises that ship as a set.
 
 Lane E is the odd one: both sides are text that ships, and neither of them is the code. The
 presets are a family rather than a list — `hello-world` is the deliberate teaching subset of
-`control-assistant`, and says so in its own comments — and each preset also owes agreement to
+`demo`, and says so in its own comments — and each preset also owes agreement to
 the app template it selects.
 
 It rots unseen for a precise reason, and knowing it tells you where to look. Each preset's
@@ -78,7 +78,7 @@ config-drift hook are pinned separately; do not re-check those. What is unguarde
 a header comment that counts its own hooks, a cross-reference to a sibling that no longer holds,
 and a change that lands in a preset and its app bundle but not in that bundle's own README or
 `config.yml.j2`. Check the subset relation in the direction that matters — a hook or rule
-`hello-world` carries that `control-assistant` lacks inverts the teaching relationship, and is a
+`hello-world` carries that `demo` lacks inverts the teaching relationship, and is a
 finding rather than a curiosity. An omission the preset explains in a comment is not drift; an
 omission nothing accounts for is. The same self-counting claims are repeated on the tutorial
 page that teaches the preset; those belong to doc-sync, so hand them over rather than verify

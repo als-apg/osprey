@@ -17,7 +17,7 @@ Four environments cover every real case:
   :func:`docs.screenshots.contact_sheet.hermetic_hub`: a seeded workspace and a
   canned terminal transcript, with zero containers and no provider. On by
   default.
-* ``tutorial_stack`` — build the ``control-assistant`` tutorial project, bring up
+* ``tutorial_stack`` — build the ``demo`` tutorial project, bring up
   Postgres, and seed ARIEL via the product's own commands. Opt-in (``--stack``);
   agentic recipes (the web-terminal hero) additionally need ``--agentic``.
 """
@@ -32,11 +32,6 @@ from typing import Literal
 # Fixed output location; filenames keep parity with the consuming ``.rst`` figures.
 OUTPUT_SUBDIR = "source/_static/screenshots"
 MANIFEST_NAME = "manifest.json"
-
-# Determinism anchor: seeded ARIEL logbook dates resolve their relative
-# ``days_ago``/``at_time`` against this frozen instant, so ``--stack`` captures
-# are byte-stable across runs. Passed to ``osprey sim apply --now``.
-ANCHOR = "2024-03-18T12:00:00"
 
 _ALLOWED_THEMES = frozenset({"light", "dark"})
 
@@ -69,12 +64,15 @@ class DocShot:
     themes: tuple[str, ...] = ("light", "dark")
     viewport: tuple[int, int] = (1280, 800)
 
-    # tutorial_stack static app selection
-    stack_app: Literal["ariel", "web_terminal"] = "ariel"
-    """Which app a ``tutorial_stack`` *static* recipe captures: the ARIEL
-    interface (default), or the live web terminal — an ``osprey web`` launch
-    against the built tutorial repo, with no agent turn and no provider key
-    needed (see :func:`docs.screenshots.capture._capture_web_terminal_static`)."""
+    # tutorial_stack static: what the live web terminal shows
+    panel: str | None = None
+    """The panel a ``tutorial_stack`` *static* recipe opens in the live web
+    terminal (``/?open=<panel>``); its waits and sub-view clicks run inside that
+    panel's frame (see :func:`docs.screenshots.capture._capture_web_terminal_panel`).
+    Without it the recipe crops the control-target popover
+    (:func:`docs.screenshots.capture._capture_web_terminal_static`). Either way
+    it is an ``osprey web`` launch against the built tutorial repo, with no agent
+    turn and no provider key needed."""
 
     # standalone_interface / tutorial_stack app boot
     app_factory: str | None = None
@@ -176,13 +174,15 @@ REGISTRY: list[DocShot] = [
         themes=("light", "dark"),
         viewport=(1400, 1000),
     ),
-    # ARIEL (opt-in ``--stack``). One tutorial stack → one PNG of the one
-    # screen: rail, list and the seeded logbook's newest entry, clicked into the
-    # reader. Single-theme (light) → no theme suffix; viewport 1280x900.
+    # ARIEL (opt-in ``--stack``), in the live web terminal. One tutorial stack →
+    # one PNG of the one screen: rail, list and the seeded logbook's newest
+    # entry, clicked into the reader. Single-theme (light) → no theme suffix;
+    # viewport 1280x900.
     DocShot(
         name="ariel",
         environment="tutorial_stack",
         kind="static",
+        panel="ariel",
         themes=("light",),
         viewport=(1280, 900),
         wait_selector='#ariel-list [data-entry-id][aria-selected="true"]',
@@ -218,7 +218,6 @@ REGISTRY: list[DocShot] = [
         name="control_target_popover",
         environment="tutorial_stack",
         kind="static",
-        stack_app="web_terminal",
         capture_mode="element",
         element_selector=".ctc-popover:not([hidden])",
         themes=("light", "dark"),
@@ -280,10 +279,8 @@ def validate_registry(registry: list[DocShot] | None = None) -> None:
         if shot.environment == "standalone_interface" and not shot.app_factory:
             raise ValueError(f"{shot.name!r}: standalone_interface recipes require an app_factory")
 
-        if shot.stack_app != "ariel" and shot.environment != "tutorial_stack":
-            raise ValueError(
-                f"{shot.name!r}: stack_app={shot.stack_app!r} requires the tutorial_stack environment"
-            )
+        if shot.panel is not None and shot.environment != "tutorial_stack":
+            raise ValueError(f"{shot.name!r}: panel requires the tutorial_stack environment")
 
         if shot.environment == "static_page" and not shot.source_file:
             raise ValueError(f"{shot.name!r}: static_page recipes require a source_file")

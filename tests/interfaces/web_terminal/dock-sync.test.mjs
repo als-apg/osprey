@@ -95,20 +95,6 @@ vi.mock(
     getLayoutHolder: () => state.holder,
   })
 );
-// The one question dock-sync asks the pop-out seam: whether a panel lives in
-// its own window. The seam's own behaviour is popout.test.mjs's contract.
-const { isPoppedOut, popoutListeners } = vi.hoisted(() => ({
-  isPoppedOut: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
-  /** The pop-out change listeners dock-sync registered. @type {Function[]} */
-  popoutListeners: /** @type {Function[]} */ ([]),
-}));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
-  isPoppedOut,
-  onPopoutChange: (/** @type {Function} */ fn) => {
-    popoutListeners.push(fn);
-  },
-}));
-
 /** Every body POSTed to /api/panel-layout, in order. @type {any[]} */
 let fetchBodies = [];
 
@@ -137,7 +123,6 @@ beforeEach(() => {
       Promise.resolve({ status: 'ok', layout, popouts, dock, rev: ++rev, updated: true })
   );
   fetchBodies = [];
-  popoutListeners.length = 0;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ _url, /** @type {any} */ opts) => {
@@ -285,7 +270,14 @@ function buildGroup(root, api, panelIds) {
  */
 function makeHolder(layout, popouts = []) {
   /** @type {any} */
-  const holder = { layout, popouts, dirty: true, ackedRev: null };
+  const holder = { layout, popouts, dirty: true, ackedRev: null, detached: [] };
+  /** The detached-set listeners dock-sync registered. @type {Function[]} */
+  holder.detachedListeners = [];
+  holder.detachedKeys = () => [...holder.detached];
+  holder.onDetachedChange = (/** @type {Function} */ fn) => {
+    holder.detachedListeners.push(fn);
+    return () => {};
+  };
   holder.ack = vi.fn((/** @type {number} */ rev) => {
     holder.ackedRev = rev;
     holder.dirty = false;
@@ -686,12 +678,12 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     const { api, holder } = await wireReporting(row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(1);
-    // popout.js vacates the tile (the holder's layout moves) and tells the
-    // holder; dock-sync hears the change and reports both.
+    // The pane's tile leaves the holder's layout and the holder says so;
+    // dock-sync hears the change and reports both.
     holder.layout = row(['terminal']);
     holder.popouts = ['ariel'];
     holder.dirty = true;
-    for (const fn of popoutListeners) fn('ariel', true);
+    for (const fn of holder.detachedListeners) fn();
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenLastCalledWith(row(['terminal']), ['ariel'], true);
     expect(fetchBodies.at(-1).popouts).toEqual(['ariel']);
@@ -699,11 +691,58 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     holder.layout = row(['ariel'], ['terminal']);
     holder.popouts = [];
     holder.dirty = true;
-    for (const fn of popoutListeners) fn('ariel', false);
+    for (const fn of holder.detachedListeners) fn();
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(3);
     expect(serverReport).toHaveBeenLastCalledWith(row(['ariel'], ['terminal']), [], true);
+  });
+
+  test('a null layout with a detached Agent pane is reported, with the pop-outs', async () => {
+    const { holder } = await wireReporting(row(['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    // The Agent pane leaves the default layout for its window: the dock is empty.
+    holder.layout = null;
+    holder.detached = ['terminal'];
+    holder.popouts = ['terminal'];
+    holder.dirty = true;
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(null, ['terminal'], true);
+    expect(fetchBodies.at(-1)).toMatchObject({ layout: null, popouts: ['terminal'], dock: true });
+    expect(holder.ack).toHaveBeenLastCalledWith(2);
+  });
+
+  test('the last detached pane going reports the empty dock, once, and acks the holder', async () => {
+    const { holder } = await wireReporting(null);
+    holder.detached = ['terminal'];
+    holder.popouts = ['terminal'];
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(null, ['terminal'], true);
+    // Its window closes: the server still names the pop-out until it is told.
+    holder.detached = [];
+    holder.popouts = [];
+    holder.dirty = true;
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(null, [], true);
+    expect(holder.dirty).toBe(false);
+    // Acknowledged: nothing further goes out for the same empty dock.
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+  });
+
+  test('a null layout with nothing detached still reports nothing', async () => {
+    const { api, holder } = await wireReporting(null);
+    holder.popouts = ['ariel'];
+    api.fireLayout();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).not.toHaveBeenCalled();
   });
 
   test('a report that never LANDED is retried, not remembered as sent', async () => {
@@ -1360,8 +1399,8 @@ describe('dockPanelAt — placement at an explicit dock position (rail drag / dr
   test('a panel living in its own pop-out window never gets a placeholder, by any placement verb', async () => {
     const api = makeApi();
     const { mod } = await wire(api);
-    const holder = await seedHolder(api, row(['terminal'], ['bluesky']), '2');
-    isPoppedOut.mockImplementation((/** @type {string} */ id) => id === 'okf');
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky'], ['okf']), '2');
+    expect(holder.detach('okf', null)).toBe(true);
 
     mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '2' }, direction: 'right' });
     mod.dockPanelBesideActive('okf', 'KNOWLEDGE');
@@ -1371,7 +1410,6 @@ describe('dockPanelAt — placement at an explicit dock position (rail drag / dr
       split: 'row',
       items: [['terminal'], ['bluesky'], ['ariel']],
     });
-    isPoppedOut.mockImplementation(() => false);
   });
 });
 

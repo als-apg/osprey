@@ -18,9 +18,10 @@ from typing import TYPE_CHECKING, NoReturn
 import click
 
 # Import get_config_value at module level for easier patching in tests
-from osprey_connectors.config import get_config_builder, get_config_value
+from osprey_connectors.config import get_config_value
 
 from . import output
+from .retired import retired_web_command
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -1301,49 +1302,7 @@ def quickstart_command(source: str | None) -> None:
         raise
 
 
-@ariel_group.command("web")
-@click.option(
-    "--port",
-    "-p",
-    type=int,
-    default=None,
-    help="Port to run on (default: OSPREY_ARIEL_PORT, then config, then this deployment's layout port)",
-)
-@click.option(
-    "--host", "-h", default=None, help="Host to bind to (default: from config or 127.0.0.1)"
-)
-@click.option("--reload", is_flag=True, help="Enable auto-reload for development")
-def web_command(port: int | None, host: str | None, reload: bool) -> None:
-    """Launch the ARIEL web interface.
-
-    Starts a FastAPI server providing a web-based search interface
-    for ARIEL with support for search, browsing, and entry creation.
-
-    Example:
-        osprey ariel web                    # Start on this deployment's ARIEL address
-        osprey ariel web --port 8080        # Custom port
-        osprey ariel web --host 0.0.0.0     # Bind to all interfaces
-        osprey ariel web --reload           # Development mode with auto-reload
-    """
-    from osprey.registry.web import resolve_web_server_bind
-
-    _load_ariel_config()
-
-    host, port = resolve_web_server_bind(
-        "ariel", get_config_builder().raw_config, host=host, port=port
-    )
-
-    output.report(f"Starting ARIEL Web Interface on http://{host}:{port}")
-    output.note("Press Ctrl+C to stop")
-    output.report("")
-
-    try:
-        from osprey.interfaces.ariel import run_web
-
-        run_web(host=host, port=port, reload=reload)
-    except KeyboardInterrupt:
-        output.report("")
-        output.report("Shutting down...")
+ariel_group.add_command(retired_web_command("ariel", "ARIEL"))
 
 
 @ariel_group.command("purge")

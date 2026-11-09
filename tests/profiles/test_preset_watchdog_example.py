@@ -1,4 +1,4 @@
-"""The control-assistant preset's one watchdog, and the labelled fixtures around it.
+"""The demo preset's one watchdog, and the labelled fixtures around it.
 
 The preset ships ``guard-circumvention``, off, with its files materialized beside
 the block by ``osprey init``. No preset ships an agent watchdog: that engine is
@@ -42,7 +42,7 @@ def _fixture(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return json.loads(lines[0]), [json.loads(line) for line in lines[1:]]
 
 
-def _init(target: Path, *extra: str, preset: str = "control-assistant") -> Path:
+def _init(target: Path, *extra: str, preset: str = "demo") -> Path:
     args = [str(target), "--preset", preset, "--no-git", *extra]
     result = CliRunner().invoke(init, args, catch_exceptions=False)
     assert result.exit_code == 0, result.output
@@ -50,7 +50,7 @@ def _init(target: Path, *extra: str, preset: str = "control-assistant") -> Path:
 
 
 def test_the_preset_ships_exactly_one_disabled_decision_watchdog() -> None:
-    document = yaml.safe_load((PRESET_DIR / "control-assistant.yml").read_text(encoding="utf-8"))
+    document = yaml.safe_load((PRESET_DIR / "demo.yml").read_text(encoding="utf-8"))
     block = document["watchdogs"]
     assert list(block) == [NAME]
     entry = block[NAME]
@@ -110,17 +110,17 @@ def test_the_source_zone_lists_the_watchdogs() -> None:
 
 
 def test_the_build_succeeds_disabled_and_enabled(
-    built_control_assistant: BuiltProject, built_control_assistant_watchdog_on: Path
+    built_demo: BuiltProject, built_demo_watchdog_on: Path
 ) -> None:
     """The preset builds with the watchdog off, and the same repo rebuilds with it on.
 
     The enabled build is a copy of the disabled one whose profile was edited and
     rebuilt in place (``tests/_builds.py``).
     """
-    assert "watchdogs" not in rendered_config(built_control_assistant.repo)
-    assert not (built_control_assistant.build_dir / "watchdogs").exists()
+    assert "watchdogs" not in rendered_config(built_demo.repo)
+    assert not (built_demo.build_dir / "watchdogs").exists()
 
-    repo = built_control_assistant_watchdog_on
+    repo = built_demo_watchdog_on
     assert rendered_config(repo)["watchdogs"][NAME]["enabled"] is True
     copied = repo / "build" / "watchdogs" / NAME / "instructions.md"
     assert copied.read_bytes() == PACKAGED.read_bytes()
@@ -129,7 +129,7 @@ def test_the_build_succeeds_disabled_and_enabled(
 def _child_profile(directory: Path, *lines: str) -> Path:
     profile = directory / "profile.yml"
     (directory / "data").mkdir()
-    text = "\n".join(("name: Narrowed", "extends: control-assistant", "data: data", *lines, ""))
+    text = "\n".join(("name: Narrowed", "extends: demo", "data: data", *lines, ""))
     profile.write_text(text, encoding="utf-8")
     return profile
 
@@ -172,7 +172,7 @@ def test_init_refuses_a_preset_whose_disabled_watchdog_has_no_files(
         return resolved, directory
 
     monkeypatch.setattr(build_profile, "resolve_build_profile", with_a_ghost)
-    args = [str(tmp_path / "repo"), "--preset", "control-assistant", "--no-git"]
+    args = [str(tmp_path / "repo"), "--preset", "demo", "--no-git"]
     result = CliRunner().invoke(init, args)
     assert result.exit_code != 0
     assert "watchdogs.ghost" in str(result.exception) + result.output

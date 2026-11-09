@@ -97,7 +97,7 @@ from tests.e2e._facility_select import bounded_setpoint, facility_view, repo_vie
 from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._orm_stack import VA_PVA_PORT
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
 #: This deploy's own thousand-port block. Chosen clear of every other deploy e2e
 #: in this suite (dispatch 20700, overlay 21100, sandbox-escape 21400, web-deploy
@@ -140,8 +140,9 @@ WORKER_TIER = "readwrite"
 #: ``osprey init <repo>`` arguments this module's stack is built from.
 INIT_PRESET_ARGS = [
     "--preset",
-    "control-assistant",
+    "demo",
     "--no-git",
+    *e2e_scenario_pin(),
     *set_pairs(
         {
             "config": {
@@ -353,7 +354,7 @@ def _narrow_the_build_account(repo: Path) -> Path:
 
 @pytest.fixture(scope="module")
 def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Init + build + ``osprey up`` a SINGLE-USER control-assistant stack."""
+    """Init + build + ``osprey up`` a SINGLE-USER demo stack."""
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 

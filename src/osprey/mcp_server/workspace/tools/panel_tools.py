@@ -407,6 +407,7 @@ async def _run_panel_op(
             "layout": result.get("layout"),
             "popouts": result.get("popouts", []),
             "rev": result.get("rev"),
+            **{key: result[key] for key in ("placed", "replaced", "note") if key in result},
         }
     )
 
@@ -520,30 +521,48 @@ def _agent_hop_url_refusal(panel_id: str, url: str, hop_ids: frozenset[str]) -> 
 
 
 @mcp.tool()
-async def open_panel(panel_id: str, url: str | None = None) -> str:
+async def open_panel(
+    panel_id: str,
+    url: str | None = None,
+    place: Literal["split", "replace"] | None = None,
+    tile: str | None = None,
+    edge: Literal["left", "right", "top", "bottom"] | None = None,
+) -> str:
     """Put a panel on screen in front of the operator.
 
     The "look at this" verb: use it when the user asks to open or go to a panel,
     and after producing something they should see (a new artifact, a drafted
     plan, a channel search).
 
-    A tile shows one panel, so an open replaces what a tile shows:
+    A tile shows one panel.  A panel already on screen is focused where it is.
+    Otherwise you choose where it goes:
 
-    - the panel is already on screen → it is focused where it is;
-    - otherwise it takes the service tile the operator used last, replacing
-      the panel that tile showed; the replaced panel stays on the rail, one
-      click away, with its state intact;
-    - with no service tile open it opens as the first service tile beside the
-      Agent pane, which is never the target;
-    - a panel not on the rail is added to it once it is on screen.
+    - ``place="split"`` (the default) — a new tile of its own, split off the
+      target tile on ``edge`` (left/right beside it, top/bottom above or below
+      it; omitted: the target's longer side).  Nothing the operator had open
+      leaves the screen.
+    - ``place="replace"`` — the panel takes the target tile in place of the
+      panel it showed, which stays on the rail with its state intact.
+
+    The target is ``tile`` (an id from ``list_panels``' ``layout``), else the
+    service tile the operator used last.  Prefer a split: you do not know what
+    the operator still wants from the panel on screen.  Replace only when that
+    panel is clearly done with, or the user asks for it in its place.  The Agent
+    pane's tile may be split beside, never replaced; with no service tile the
+    panel opens beside the Agent pane.  With no ``place``, an open splits only
+    when both tiles keep about 300 px along the split; an explicit
+    ``place="split"`` goes down to the dock's minimum.  When there is no room
+    for the new tile, the open replaces the target's panel instead and the
+    result says so (``placed: "replaced"`` with a ``note``).  A panel not on the rail is added
+    to it once it is on screen.
 
     A panel whose backend is unhealthy does not open, and a panel living in its
     own pop-out window is brought to the front there, with the layout unchanged.
 
     One panel.  For several at once, side by side, use ``open_panel_set``; for
     an exact arrangement or a configured preset use ``arrange_workspace``; to
-    put a panel in a tile of its own beside a given tile, replacing nothing,
-    use ``drop_panel``.
+    move a panel already on screen, or open one at a border or a dock edge, use
+    ``drop_panel``.
 
     Panel IDs are provided in your context at session start; call
     ``list_panels`` to refresh the live state if needed.  Do NOT guess
@@ -564,13 +583,26 @@ async def open_panel(panel_id: str, url: str | None = None) -> str:
             ``/panel/<that panel>/`` for any panel, or its sidecar's own address
             raises an ``agent_hop_panel_url`` error and opens nothing. Open such
             a panel without a url and change its screen with its tool.
+        place: ``"split"`` for a new tile, ``"replace"`` to take the target
+            tile's place; omitted, a split that keeps both tiles readable.
+        tile: The target tile id; omitted, the service tile used last.
+        edge: With ``place="split"``: the side of the target the new tile
+            goes on; omitted, the target's longer side.
 
     Returns:
-        JSON with ``status``, ``panel``, the resulting ``layout`` and its
+        JSON with ``status``, ``panel``, ``placed`` (``new_tile``,
+        ``replaced`` with the ``replaced`` panel id, ``focused`` or
+        ``not_docked``), an optional ``note``, the resulting ``layout`` and its
         ``rev``; or a structured error whose ``error_type`` names the refusal
-        (``unknown_member``, ``no_dock_client``, ...).
+        (``unknown_member``, ``unknown_tile``, ``no_dock_client``, ...).
     """
     args: dict[str, Any] = {"member": panel_id}
+    if place is not None:
+        args["place"] = place
+    if tile is not None:
+        args["tile"] = tile
+    if edge is not None:
+        args["edge"] = edge
     if url is not None:
         # Judged here as well as by the terminal's route, so a refused url is
         # an error the agent sees rather than a success nothing applied, and the

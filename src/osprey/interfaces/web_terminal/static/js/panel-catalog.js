@@ -42,7 +42,10 @@
  *  renders its sidebar row and routes activate/close to the dock). Kept out of
  *  PANELS so every service-panel iteration stays terminal-free. */
 export const TERMINAL_RAIL_ID = 'terminal';
-export const TERMINAL_RAIL_LABEL = 'Agent';
+/** The sidebar row's name: it lists the agent's sessions. The pane it opens keeps its own name. */
+export const TERMINAL_RAIL_LABEL = 'Sessions';
+/** The Agent pane's name: its tile, its header menu, its pop-out window. */
+export const TERMINAL_PANE_LABEL = 'Agent';
 
 /** Attribute carrying the registry's sidecar panel descriptors, a JSON array. */
 const SIDECAR_PANELS_ATTR = 'data-sidecar-panels';
@@ -120,7 +123,7 @@ export const PANEL_ICONS = Object.freeze({
   ariel: 'book-open',
   okf: 'library',
   'channel-finder': 'radio',
-  bluesky: 'chart-scatter',
+  bluesky: 'bluesky',
   'system-health': 'stethoscope',
 });
 

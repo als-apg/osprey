@@ -664,8 +664,8 @@ def test_a_service_the_layout_does_not_name_is_shown_under_the_facility_band(tmp
     assert ("facility", "beamline-gateway", "127.0.0.1:10900") in entries
 
 
-def _control_assistant_compose(path, base):
-    """A compose file publishing a control-assistant-shaped stack at ``base``.
+def _demo_compose(path, base):
+    """A compose file publishing a demo-shaped stack at ``base``.
 
     Every port comes from :func:`~osprey.port_layout.layout_ports`, so moving a
     slot moves this fixture with it rather than leaving a stale literal that
@@ -713,7 +713,7 @@ def test_a_whole_deployment_prints_as_its_own_block(tmp_path, base):
     and every framework port inside that block — except the one the layout says
     is outside it.
     """
-    compose = _control_assistant_compose(tmp_path / f"docker-compose.{base}.yml", base)
+    compose = _demo_compose(tmp_path / f"docker-compose.{base}.yml", base)
     config = {
         "project_name": "demo",
         "deployment": {"port_base": base},
@@ -748,7 +748,7 @@ def test_a_whole_deployment_prints_as_its_own_block(tmp_path, base):
 @pytest.mark.parametrize("base", [DEFAULT_PORT_BASE, 20000])
 def test_the_whole_block_moves_with_one_key(tmp_path, base):
     """Nothing is described in the default block's numbers when it is elsewhere."""
-    compose = _control_assistant_compose(tmp_path / f"docker-compose.{base}.yml", base)
+    compose = _demo_compose(tmp_path / f"docker-compose.{base}.yml", base)
     config = {"project_name": "demo", "deployment": {"port_base": base}}
 
     entries = deploy_summary.endpoint_entries(config, [compose])

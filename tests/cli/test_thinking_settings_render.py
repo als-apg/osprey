@@ -24,7 +24,7 @@ def _regen_with_display(tmp_path, display):
         manager,
         project_name="thinking-test",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     config = yaml.safe_load((project_dir / "config.yml").read_text())

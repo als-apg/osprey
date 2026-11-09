@@ -78,7 +78,7 @@ RENDERED_CONFIG_ALICE_ONLY = RENDERED_CONFIG.replace("      - name: bob\n       
 
 PROFILE_WITH_ROSTER = textwrap.dedent(
     """
-    preset: control-assistant
+    preset: demo
     config:
       modules.web_terminals:
         enabled: true

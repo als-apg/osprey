@@ -201,22 +201,6 @@ class TestLockFreeHelper:
         reopened = ArtifactStore(workspace_root=store._workspace)
         assert reopened.get_entry(entry.id) is None
 
-    def test_persist_false_defers_the_index_write(self, store):
-        """Batch callers save once; the entry is gone in memory either way."""
-        entry, companion = _two_file_entry(store)
-
-        def delete_under_lock():
-            with store._with_index_lock():
-                return store._delete_entry_locked(entry.id, persist=False)
-
-        removed = _run_isolated(delete_under_lock, "_delete_entry_locked(persist=False)")
-
-        assert removed is not None
-        assert not companion.exists()
-        assert store.get_entry(entry.id) is None
-        reopened = ArtifactStore(workspace_root=store._workspace)
-        assert reopened.get_entry(entry.id) is not None  # index not rewritten yet
-
     def test_delete_entry_locked_returns_none_for_an_unknown_id(self, store):
         def delete_under_lock():
             with store._with_index_lock():

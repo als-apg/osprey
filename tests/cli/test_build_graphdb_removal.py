@@ -1,6 +1,6 @@
 """Running no graph store is spelled by deleting the keys (issue #714).
 
-The graph store used to be *injected*: the control-assistant app template put a
+The graph store used to be *injected*: the demo app template put a
 ``services.graphdb`` block, two published host ports and a ``graphdb`` entry in
 ``deployed_services`` into every render, whether or not the deployment wanted
 one. Opting out therefore meant subtracting after the fact — the bare
@@ -13,7 +13,7 @@ input, so a deployment that runs no graph store simply does not spell one: no
 ``services.graphdb.*`` keys, no ``graphdb`` in ``deployed_services``. There is
 nothing left to subtract, and the subtraction step is gone with it.
 
-These tests build real projects from the ``control-assistant`` preset — the one
+These tests build real projects from the ``demo`` preset — the one
 that does ship the store — and pin the three halves of the new contract:
 
 * **Deleting the keys removes the store.** The render carries no
@@ -47,7 +47,7 @@ from osprey_connectors.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 
 #: The preset that ships the graph store. Every project here starts from it.
-PRESET = "control-assistant"
+PRESET = "demo"
 
 #: Non-graph paradigm, so the mode never supplies the store the tests remove.
 #: The graph mode gets its own project, in :class:`TestGraphModeNeedsAStore`.

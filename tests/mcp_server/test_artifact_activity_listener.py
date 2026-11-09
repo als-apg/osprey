@@ -368,6 +368,20 @@ def test_artifact_delete_all_tool_emits_one_summary_frame(project, notified):
     assert "2" in detail and "everything" in detail
 
 
+def test_unregistered_bulk_delete_is_never_delivered_later(project, notified):
+    """A bulk delete in a process without listeners must not park a frame
+    that a later registration's worker then delivers as fresh activity."""
+    from osprey.mcp_server.startup import initialize_workspace_singletons
+
+    artifact_activity.notify_bulk_delete("everything", 6)
+
+    initialize_workspace_singletons()
+    save_figure(ArtifactStore(workspace_root=project / "_agent_data"))
+    wait_drained()
+
+    assert [kwargs["tool"] for kwargs, _ in notified] == ["artifact_save"]
+
+
 @pytest.mark.usefixtures("web_session")
 def test_artifact_delete_all_of_an_empty_scope_emits_nothing(project, notified):
     """Nothing was destroyed, so there is no action to report."""

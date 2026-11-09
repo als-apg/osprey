@@ -389,3 +389,32 @@ describe('togglePopover and closeAllPopovers', () => {
     expect($('more').hidden).toBe(false);
   });
 });
+
+describe('a popover opened while another is open keeps its dismissal', () => {
+  /** @type {[string, () => void][]} */
+  const DISMISSALS = [
+    ['Escape', () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))],
+    [
+      'an outside press',
+      () => $('outside').dispatchEvent(new Event('pointerdown', { bubbles: true })),
+    ],
+    ['blur', () => window.dispatchEvent(new Event('blur'))],
+  ];
+
+  test.each(DISMISSALS)('over another popover: %s closes it', (_name, dismiss) => {
+    openPopover($('menu'), $('opener'));
+    openPopover($('more'), $('other-opener'));
+    expect($('menu').hidden).toBe(true);
+    expect($('more').hidden).toBe(false);
+    dismiss();
+    expect($('more').hidden).toBe(true);
+  });
+
+  test.each(DISMISSALS)('over itself: %s closes it', (_name, dismiss) => {
+    openPopover($('menu'), $('opener'));
+    openPopover($('menu'), $('opener'));
+    expect($('menu').hidden).toBe(false);
+    dismiss();
+    expect($('menu').hidden).toBe(true);
+  });
+});

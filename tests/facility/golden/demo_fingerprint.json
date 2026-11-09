@@ -1,8 +1,8 @@
 {
   "_reproduce": "Frozen: no command rewrites this golden; its rows are pinned by sha256.",
   "_sources": [
-    "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3/in_context.json",
-    "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3/hierarchical.json"
+    "src/osprey/templates/apps/demo/data/channel_databases/tiers/tier3/in_context.json",
+    "src/osprey/templates/apps/demo/data/channel_databases/tiers/tier3/hierarchical.json"
   ],
   "_sha256_of": "rows as compact UTF-8 JSON, key order as written",
   "count": 2908,

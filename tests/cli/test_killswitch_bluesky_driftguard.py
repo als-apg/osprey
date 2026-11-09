@@ -81,7 +81,7 @@ def _build_project(
         manager,
         project_name=f"killswitch-driftguard-{_PROJECT_COUNTER}",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     _rerender(manager, project_dir, writes, connector_writes)
@@ -273,7 +273,7 @@ def _identity(tmp_path, name: str, writes: str, leaves: dict) -> tuple[str, str]
         manager,
         project_name=name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     _rerender(manager, project_dir, writes)

@@ -50,7 +50,7 @@ from tests.cli._lifecycle_build import invoke_build_in, rendered_config
 #: override written there cannot collide with a stand-in.
 STANDIN_PORT = 5074
 
-#: What the Control Assistant template's VA block proves, and therefore what
+#: What the Demo template's VA block proves, and therefore what
 #: the stand-in must prove too.
 VA_PROBE_CHANNEL = "SR:VAC:GAUGE:SR01:PRESSURE:RB"
 

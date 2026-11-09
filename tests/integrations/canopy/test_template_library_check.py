@@ -1,4 +1,4 @@
-"""The control-assistant template ships its screen library together with its report.
+"""The demo template ships its screen library together with its report.
 
 A project scaffolded from the template holds ``data/canopy/library`` with the
 orbit-feedback screen ``sr/orbit-feedback``, the generated landing page ``facility/overview``,
@@ -88,7 +88,7 @@ def _panel_files() -> list[str]:
 
 @pytest.fixture(scope="module")
 def library() -> Path:
-    root = Path(TemplateManager().template_root) / "apps" / "control_assistant"
+    root = Path(TemplateManager().template_root) / "apps" / "demo"
     path = root / LIBRARY_SUBPATH
     assert path.is_dir(), path
     return path

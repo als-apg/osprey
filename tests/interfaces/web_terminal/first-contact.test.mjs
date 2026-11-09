@@ -737,4 +737,76 @@ describe('the console', () => {
     chip.listeners.forEach((fn) => fn({}));
     expect(messages.querySelector('.op-empty')).toBeNull();
   });
+
+  /** The suggestion buttons anywhere in the console's log. */
+  const suggestions = (/** @type {HTMLElement} */ messages) =>
+    messages.querySelectorAll('.tour-chip');
+
+  test('sending with Enter takes the suggestions away', async () => {
+    const messages = await mountChat();
+    settleOn('real');
+    expect(suggestions(messages).length).toBeGreaterThan(0);
+
+    const input = /** @type {HTMLTextAreaElement} */ (
+      document.querySelector('#operator-container .op-input-area textarea')
+    );
+    input.value = 'hello';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+    expect(suggestions(messages)).toHaveLength(0);
+  });
+
+  test('clicking a suggestion takes the suggestions away and keeps the sentence', async () => {
+    const messages = await mountChat();
+    settleOn('real');
+    const first = /** @type {HTMLButtonElement} */ (suggestions(messages)[0]);
+    const text = first.textContent;
+
+    first.click();
+
+    const input = /** @type {HTMLTextAreaElement} */ (
+      document.querySelector('#operator-container .op-input-area textarea')
+    );
+    expect(input.value).toBe(text);
+    expect(transport.sendPrompt).not.toHaveBeenCalled();
+    expect(suggestions(messages)).toHaveLength(0);
+    expect(messages.querySelector('.op-empty-intro')?.textContent).toContain(
+      'read values from the live machine'
+    );
+
+    // A machine switch rewrites the sentence but does not bring the chips back.
+    chip.kind = 'simulator';
+    chip.listeners.forEach((fn) => fn({}));
+    expect(suggestions(messages)).toHaveLength(0);
+    expect(messages.querySelector('.op-empty-intro')?.textContent).toContain(
+      'read values from the simulator'
+    );
+  });
+
+  test('a session restored with messages shows no suggestions, even when it settles mid-replay', async () => {
+    localStorage.setItem('osprey-pty-session', 'restored-key');
+    /** @type {(turns: unknown[]) => void} */
+    let deliver = () => {};
+    transport.fetchHistory.mockImplementationOnce(
+      () => new Promise((resolve) => (deliver = /** @type {any} */ (resolve)))
+    );
+    try {
+      const messages = await mountChat();
+      // First contact settles while the transcript is still on its way.
+      settleOn('real');
+      deliver([
+        { role: 'user', content: 'earlier question' },
+        { role: 'assistant', content: 'earlier answer' },
+      ]);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(messages.textContent).toContain('earlier answer');
+      expect(suggestions(messages)).toHaveLength(0);
+      expect(messages.querySelector('.op-empty')).toBeNull();
+    } finally {
+      localStorage.clear();
+    }
+  });
 });

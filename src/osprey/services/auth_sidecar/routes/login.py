@@ -113,6 +113,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.datastructures import FormData
 
 from osprey.interfaces.common_middleware import url_mount_prefix
+from osprey.interfaces.design_system.favicon import favicon_data_uri
 
 from .. import audit
 from ..app import (
@@ -200,6 +201,7 @@ _TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates"
 
 _templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 """Autoescaping Jinja2 environment over the package's templates."""
+_templates.env.globals["favicon"] = favicon_data_uri()
 
 _NO_STORE_HEADERS = {"Cache-Control": "no-store"}
 """On every rendered page.
