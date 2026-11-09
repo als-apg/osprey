@@ -94,13 +94,13 @@ from osprey.interfaces.web_terminal.config_view import login_tier, rendered_conf
 from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
 from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
 from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox, builtin_entry_pages
-from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
+from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys, session_is_live
 from osprey.interfaces.web_terminal.routes.workspace_activity import observe_set_workspace
 from osprey.profiles.web_panels import SIDECAR_PANELS, ApplicationPanel
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
-from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
+from osprey.utils.owner_header import OWNER_HEADER, SESSION_HEADER, owner_from_header
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_text
@@ -390,12 +390,6 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
 #: The dispatcher tools that start a job; its other tools only read.
 _JOB_FIRING_TOOLS = frozenset({"manual_fire"})
 
-#: The header naming the calling session on an agent hop's MCP server entry
-#: (the dispatcher's, and each opted-in sidecar's). The panel token is shared,
-#: so it is honest-path: it answers which session is asking, and is no proof
-#: of it.
-_SESSION_HEADER = "x-osprey-session"
-
 #: JSON-RPC's implementation-defined server error, for a call refused before it left.
 _JSONRPC_REFUSED = -32000
 
@@ -422,6 +416,37 @@ def _acting_messages(body: bytes, acting_tools: Collection[str]) -> list[dict] |
     return None
 
 
+async def _held_session_refusal(request: Request, *, agent: bool, what: str) -> str | None:
+    """The refusal a held session earns this acting request; ``None`` lets it through.
+
+    An agent's request names its session (:data:`SESSION_HEADER`), and under a
+    hold store that session must be named and live, so a key nobody runs cannot
+    act past a hold it has no record of. Any other caller is the operator at
+    this terminal, whose request names nothing the terminal can trust: it is
+    held while any session this terminal runs is held. With no store nothing is
+    read.
+
+    Args:
+        request: The proxied request.
+        agent: Whether the terminal's gate admitted the request on the panel token.
+        what: The act the refusal names (``call``, ``write``).
+    """
+    root = session_hold_root_of(request.app)
+    if root is None:
+        return None
+    if agent:
+        key = request.headers.get(SESSION_HEADER, "")
+        if not is_safe_session_key(key) or not session_is_live(request.app, key):
+            return f"This {what} needs a live session; it names none."
+        keys = [key]
+    else:
+        keys = live_session_keys(request.app)
+    for key in keys:
+        if await asyncio.to_thread(is_held, key, root=root):
+            return refusal_text("session_held", detail=f"The {what} is refused while held.")
+    return None
+
+
 async def _refuse_held_call(
     request: Request, acting_tools: Collection[str], *, hop: str
 ) -> Response | None:
@@ -444,18 +469,13 @@ async def _refuse_held_call(
         acting_tools: The bare tool names on this hop that act.
         hop: What the log names when a call is refused.
     """
-    root = session_hold_root_of(request.app)
-    if root is None:
+    if session_hold_root_of(request.app) is None:
         return None
     messages = _acting_messages(await request.body(), acting_tools)
     if messages is None:
         return None
-    key = request.headers.get(_SESSION_HEADER, "")
-    if not is_safe_session_key(key) or not session_is_live(request.app, key):
-        text = "This call needs a live session; it names none."
-    elif await asyncio.to_thread(is_held, key, root=root):
-        text = refusal_text("session_held", detail="The call is refused while held.")
-    else:
+    text = await _held_session_refusal(request, agent=True, what="call")
+    if text is None:
         return None
     logger.warning("Refused a call on the %s while the session is held or unnamed", hop)
     errors = [
@@ -2125,6 +2145,20 @@ async def _forward_to_panel(
             content=_unarmed_refusal(request, unarmed_application, method),
             status_code=403,
         )
+
+    # An application's container serves every session and reads no hold, so a
+    # held session's write to an application panel is refused here: the
+    # agent's, naming its session on the panel token, and the operator's from
+    # the application's own page.
+    application = panel_registry_of(request.app).applications.get(panel_id)
+    if application is not None and application.session_writes and is_write_method(method):
+        state = request.scope.get("state") or {}
+        held = await _held_session_refusal(
+            request, agent=state.get(PANEL_ADMISSION_STATE_KEY) is True, what="write"
+        )
+        if held is not None:
+            logger.warning("Refused a write to application panel %s while held", panel_id)
+            return Response(content=held, status_code=403)
 
     outer_prefix = compute_url_prefix()
     panel_prefix = panel_base or f"{outer_prefix}/panel/{panel_id}"
