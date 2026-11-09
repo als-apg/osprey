@@ -1,0 +1,228 @@
+"""The PV directory search routes: ``search``, ``count`` and ``export.csv``.
+
+A fake service stands in for ``DirectoryService``: the routes pass its answers
+through and build no contract type, so the tests need no connectors release.
+"""
+
+from __future__ import annotations
+
+import copy
+import csv
+import io
+import json
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from osprey.interfaces.channel_finder import directory_api
+
+_FIXTURE = json.loads(
+    (Path(__file__).parent / "fixtures" / "directory_routes.json").read_text(encoding="utf-8")
+)
+_COLUMNS = [
+    "name",
+    "origin",
+    "status",
+    "description",
+    "record_type",
+    "ioc",
+    "host",
+    "last_announced",
+]
+_UNAVAILABLE = {
+    "outcome": "unavailable",
+    "total": None,
+    "source": _FIXTURE["count"]["source"],
+    "reason": "no answer within 6 s",
+}
+
+
+class FakeService:
+    """Answers every search with the fixture's page; records each call's keywords."""
+
+    def __init__(self, *, total: int = 2, count: dict[str, Any] | None = None) -> None:
+        self.searches: list[dict[str, Any]] = []
+        self.counts: list[dict[str, Any]] = []
+        self._total = total
+        self._count = count
+
+    async def search(self, **fields: Any) -> dict[str, Any]:
+        self.searches.append(fields)
+        page = copy.deepcopy(_FIXTURE["search"])
+        page["total"] = self._total
+        return page
+
+    async def count(self, **fields: Any) -> dict[str, Any]:
+        self.counts.append(fields)
+        if self._count is not None:
+            return self._count
+        return {**_FIXTURE["count"], "total": self._total}
+
+
+def _client(service: FakeService, config: dict[str, Any] | None = None) -> TestClient:
+    app = FastAPI()
+    app.include_router(directory_api.router, prefix="/api/directory")
+    app.state.directory_service = service
+    app.state.config = config if config is not None else {"pv_directory": {}}
+    return TestClient(app)
+
+
+def _expected_rows() -> list[list[str]]:
+    return [
+        ["" if row[column] is None else str(row[column]) for column in _COLUMNS]
+        for row in _FIXTURE["search"]["rows"]
+    ]
+
+
+class TestSearch:
+    def test_the_payload_matches_the_shared_fixture(self):
+        resp = _client(FakeService()).get("/api/directory/search", params={"q": "BPM01"})
+
+        assert resp.status_code == 200
+        assert resp.json() == _FIXTURE["search"]
+
+    def test_repeated_filters_reach_the_service_as_keywords(self):
+        service = FakeService()
+        params = [
+            ("q", "BPM01"),
+            ("name", "DEMO:*"),
+            ("origin", "curated"),
+            ("origin", "directory"),
+            ("ioc", "demo-ioc-bpm"),
+            ("ioc", "demo-ioc-rf"),
+            ("record_type", "ai"),
+            ("record_type", "calc"),
+            ("page", "2"),
+            ("page_size", "25"),
+        ]
+
+        _client(service).get("/api/directory/search", params=params)
+
+        assert service.searches == [
+            {
+                "words": "BPM01",
+                "name": "DEMO:*",
+                "origin": ("curated", "directory"),
+                "ioc": ("demo-ioc-bpm", "demo-ioc-rf"),
+                "record_type": ("ai", "calc"),
+                "page": 2,
+                "page_size": 25,
+            }
+        ]
+
+    def test_no_parameters_search_every_pv_from_the_first_page(self):
+        service = FakeService()
+
+        _client(service).get("/api/directory/search")
+
+        assert service.searches == [
+            {
+                "words": "",
+                "name": None,
+                "origin": (),
+                "ioc": (),
+                "record_type": (),
+                "page": 0,
+                "page_size": 50,
+            }
+        ]
+
+    @pytest.mark.parametrize("params", [{"page_size": "51"}, {"page_size": "0"}, {"page": "-1"}])
+    def test_an_out_of_range_page_is_refused(self, params):
+        service = FakeService()
+
+        resp = _client(service).get("/api/directory/search", params=params)
+
+        assert resp.status_code == 422
+        assert service.searches == []
+
+    def test_the_routes_are_read_only(self):
+        client = _client(FakeService())
+        for path in ("search", "count", "export.csv"):
+            assert client.post(f"/api/directory/{path}").status_code == 405
+
+
+class TestCount:
+    def test_without_q_it_counts_the_whole_directory(self):
+        service = FakeService()
+
+        resp = _client(service).get("/api/directory/count")
+
+        assert resp.json() == _FIXTURE["count"]
+        assert service.counts == [{"words": ""}]
+
+    def test_with_q_it_counts_the_words(self):
+        service = FakeService()
+
+        resp = _client(service).get("/api/directory/count", params={"q": "BPM01"})
+
+        assert resp.json() == _FIXTURE["count"]
+        assert service.counts == [{"words": "BPM01"}]
+
+    def test_an_unavailable_count_carries_its_reason(self):
+        resp = _client(FakeService(count=_UNAVAILABLE)).get("/api/directory/count")
+
+        assert resp.status_code == 200
+        assert resp.json() == _UNAVAILABLE
+
+
+class TestExport:
+    def test_the_csv_names_the_search_then_the_columns_then_one_line_per_row(self):
+        resp = _client(FakeService()).get("/api/directory/export.csv", params={"q": "BPM01"})
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/csv")
+        assert resp.headers["x-content-type-options"] == "nosniff"
+        lines = list(csv.reader(io.StringIO(resp.text)))
+        assert lines[0] == [_FIXTURE["search"]["searched"]]
+        assert lines[1] == _COLUMNS
+        assert lines[2:] == _expected_rows()
+
+    def test_within_the_filter_cap_one_search_fetches_the_whole_set(self):
+        service = FakeService(total=120)
+        params = [("q", "BPM01"), ("ioc", "demo-ioc-bpm"), ("page", "1"), ("page_size", "25")]
+
+        _client(service).get("/api/directory/export.csv", params=params)
+
+        filters = {"words": "BPM01", "name": None, "origin": (), "ioc": ("demo-ioc-bpm",)}
+        filters["record_type"] = ()
+        assert service.counts == [filters]
+        assert service.searches == [{**filters, "page": 0, "page_size": 120}]
+
+    def test_above_the_filter_cap_it_carries_the_fetched_pages(self):
+        service = FakeService(total=11)
+        config = {"pv_directory": {"display": {"filter_cap": 10}}}
+        params = {"q": "BPM01", "page": "2", "page_size": "25"}
+
+        resp = _client(service, config).get("/api/directory/export.csv", params=params)
+
+        assert [(call["page"], call["page_size"]) for call in service.searches] == [
+            (0, 25),
+            (1, 25),
+            (2, 25),
+        ]
+        lines = list(csv.reader(io.StringIO(resp.text)))
+        assert lines[2:] == _expected_rows() * 3
+
+    def test_an_unknown_count_carries_the_fetched_pages(self):
+        service = FakeService(count=_UNAVAILABLE)
+
+        _client(service).get("/api/directory/export.csv", params={"page": "1"})
+
+        assert [(call["page"], call["page_size"]) for call in service.searches] == [
+            (0, 50),
+            (1, 50),
+        ]
+
+    def test_an_unavailable_search_answers_its_reason(self):
+        class Unavailable(FakeService):
+            async def search(self, **fields: Any) -> dict[str, Any]:
+                return {"outcome": "unavailable", "reason": "not available for this target"}
+
+        resp = _client(Unavailable(count=_UNAVAILABLE)).get("/api/directory/export.csv")
+
+        assert resp.status_code == 503
+        assert resp.json() == {"detail": "not available for this target"}
