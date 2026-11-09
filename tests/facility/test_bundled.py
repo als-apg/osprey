@@ -50,7 +50,7 @@ def test_no_knowledge_index_carries_the_line() -> None:
 
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return init_project(tmp_path_factory.mktemp("ca"), "control-assistant", "demo")
+    return init_project(tmp_path_factory.mktemp("ca"), "demo", "demo")
 
 
 @pytest.fixture

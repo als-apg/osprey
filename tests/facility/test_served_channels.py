@@ -96,10 +96,10 @@ def _scope(records: FacilityRecords, served: list[str]) -> list[Mapping[str, Any
 
 
 @pytest.fixture(scope="module")
-def built(built_control_assistant: BuiltProject) -> dict[str, Any]:
-    root = built_control_assistant.repo / "build"
+def built(built_demo: BuiltProject) -> dict[str, Any]:
+    root = built_demo.repo / "build"
     config = yaml.safe_load((root / "config.yml").read_text(encoding="utf-8"))
-    records = FacilityRecords(built_control_assistant.facility)
+    records = FacilityRecords(built_demo.facility)
     served = resolve_served(config, records)
     return {
         "config": config,

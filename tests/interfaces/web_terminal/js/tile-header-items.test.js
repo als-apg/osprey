@@ -1,17 +1,22 @@
 /**
- * Unit tests for the extended tile-bar item vocabulary — `search` and `menu`,
- * and the hub-side additions `crumb`, `sep` and icon buttons.
+ * Unit tests for the tile-bar item vocabulary beyond text/nav/button: the v3
+ * `icon` and `menu` kinds, the legacy `search`, and the hub-side additions
+ * `crumb`, `sep` and icon buttons.
  *
  * Pure DOM/logic guard, happy-dom environment (configured globally):
  *   npx vitest run tests/interfaces/web_terminal/js/tile-header-items.test.js
  *
  * Round one's kinds (text/nav/button) and the receive pipeline itself are
  * covered by tile-header-contrib.test.js; this file drives the same public
- * entry points but exercises what tile-header-items.js added: the magnifier
- * pill, the body-level overflow popover, the hub-side kinds, and — the
- * reason the render pass became a reconcile — a contributed input surviving
- * its panel re-sending the whole contribution underneath it.
+ * entry points but exercises what tile-header-items.js renders per kind: the
+ * panel-icon button, the menu's hidden holder (its entries are tile-⋯ rows),
+ * the magnifier pill, the hub-side kinds, and — the reason the render pass
+ * became a reconcile — a contributed input surviving its panel re-sending the
+ * whole contribution underneath it.
  */
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { test, expect, describe, beforeAll, afterEach, vi } from 'vitest';
 
@@ -29,13 +34,9 @@ beforeAll(() => {
 
 import {
   initHeaderContrib,
+  panelMenuRows,
   registerContribHost,
-  unregisterContribHost,
 } from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js';
-import {
-  closeMenu,
-  toggleOverflowMenu,
-} from '../../../../src/osprey/interfaces/web_terminal/static/js/tile-header-items.js';
 
 /** Monotonic id source so each test gets an isolated panel id. */
 let seq = 0;
@@ -91,7 +92,6 @@ function attachedHost(panelId) {
 initHeaderContrib();
 
 afterEach(() => {
-  closeMenu();
   document.body.replaceChildren();
 });
 
@@ -195,14 +195,7 @@ describe('search items', () => {
 });
 
 describe('menu items', () => {
-  /** @param {HTMLElement} host @returns {HTMLElement} */
-  function openMenuIn(host) {
-    const btn = /** @type {HTMLElement} */ (host.querySelector('.contrib-menu-btn'));
-    btn.dispatchEvent(new Event('click', { bubbles: true }));
-    return btn;
-  }
-
-  test('open a body-level popover whose entries carry the right roles', () => {
+  test('render no control: an empty hidden holder keeps the key; the entries are ⋯ rows', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = attachedHost(panelId);
@@ -212,6 +205,7 @@ describe('menu items', () => {
         {
           kind: 'menu',
           id: 'more',
+          label: 'Finder options',
           items: [
             { id: 'all-sessions', label: 'All sessions', checked: false },
             { id: 'refresh', label: 'Refresh' },
@@ -222,104 +216,61 @@ describe('menu items', () => {
       contentWindow
     );
 
-    const btn = openMenuIn(host);
-    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    expect(host.querySelector('button')).toBeNull();
+    const holder = /** @type {HTMLElement} */ (
+      host.querySelector('[data-contrib-key="menu:more"]')
+    );
+    expect(holder.tagName).toBe('SPAN');
+    expect(holder.hidden).toBe(true);
+    expect(holder.childNodes.length).toBe(0);
 
-    const pop = /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-popover'));
-    // Body-level: the contribution region is overflow:hidden and one bar tall.
-    expect(pop.parentElement).toBe(document.body);
-
-    const rows = [...pop.querySelectorAll('.contrib-menu-item')];
-    expect(rows.map((r) => r.getAttribute('role'))).toEqual([
-      'menuitemcheckbox',
-      'menuitem',
-      'menuitem',
+    const rows = panelMenuRows(panelId);
+    expect(rows.map((r) => [r.label, r.checked, r.disabled])).toEqual([
+      ['All sessions', false, false],
+      ['Refresh', undefined, false],
+      ['Stacked layout', undefined, true],
     ]);
-    expect(rows[0].getAttribute('aria-checked')).toBe('false');
-    expect(/** @type {HTMLButtonElement} */ (rows[2]).disabled).toBe(true);
   });
 
-  test('an entry click dispatches the menu id with the entry as value, and closes', () => {
+  test('an entry row dispatches the menu id with the entry as value', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
-    const host = attachedHost(panelId);
+    attachedHost(panelId);
 
     deliverContribution(
       [{ kind: 'menu', id: 'more', items: [{ id: 'refresh', label: 'Refresh' }] }],
       contentWindow
     );
-    openMenuIn(host);
-
-    const row = /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-item'));
-    row.dispatchEvent(new Event('click', { bubbles: true }));
+    panelMenuRows(panelId)[0].run?.();
 
     expect(contentWindow.postMessage).toHaveBeenCalledWith(
       { type: 'canopy-host-header-action', id: 'more', value: 'refresh' },
       window.location.origin
     );
-    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
   });
 
-  test('Escape closes an open popover', () => {
+  test('a re-contribution replaces the rows the next open reads', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = attachedHost(panelId);
-    deliverContribution(
-      [{ kind: 'menu', id: 'more', items: [{ id: 'refresh', label: 'Refresh' }] }],
-      contentWindow
-    );
-    openMenuIn(host);
+    const send = (/** @type {boolean} */ checked) =>
+      deliverContribution(
+        [
+          {
+            kind: 'menu',
+            id: 'more',
+            items: [{ id: 'all-sessions', label: 'All sessions', checked }],
+          },
+        ],
+        contentWindow
+      );
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
-  });
+    send(false);
+    const holder = host.querySelector('[data-contrib-key="menu:more"]');
+    send(true);
 
-  test('a re-contribution while open re-renders the live rows', () => {
-    const panelId = freshPanelId();
-    const { contentWindow } = addPanelIframe(panelId);
-    const host = attachedHost(panelId);
-    deliverContribution(
-      [
-        {
-          kind: 'menu',
-          id: 'more',
-          items: [{ id: 'all-sessions', label: 'All sessions', checked: false }],
-        },
-      ],
-      contentWindow
-    );
-    openMenuIn(host);
-
-    deliverContribution(
-      [
-        {
-          kind: 'menu',
-          id: 'more',
-          items: [{ id: 'all-sessions', label: 'All sessions', checked: true }],
-        },
-      ],
-      contentWindow
-    );
-
-    const row = /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-item'));
-    expect(row.getAttribute('aria-checked')).toBe('true');
-    expect(row.querySelector('.contrib-menu-tick')?.textContent).toBe('✓');
-  });
-
-  test('unregistering the host takes the body-level popover with it', () => {
-    const panelId = freshPanelId();
-    const { contentWindow } = addPanelIframe(panelId);
-    const host = attachedHost(panelId);
-
-    deliverContribution(
-      [{ kind: 'menu', id: 'more', items: [{ id: 'refresh', label: 'Refresh' }] }],
-      contentWindow
-    );
-    openMenuIn(host);
-    expect(document.querySelector('.contrib-menu-popover')).toBeTruthy();
-
-    unregisterContribHost(panelId, host);
-    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
+    expect(host.querySelector('[data-contrib-key="menu:more"]')).toBe(holder);
+    expect(panelMenuRows(panelId)[0].checked).toBe(true);
   });
 });
 
@@ -331,15 +282,13 @@ describe('sanitization of the extended vocabulary', () => {
 
     deliverContribution(
       [
-        { kind: 'text', id: 'dup', text: 'first' },
-        { kind: 'text', id: 'dup', text: 'second' },
+        { kind: 'button', id: 'dup', label: 'first' },
+        { kind: 'button', id: 'dup', label: 'second' },
       ],
       contentWindow
     );
 
-    expect([...host.querySelectorAll('.contrib-text')].map((n) => n.textContent)).toEqual([
-      'first',
-    ]);
+    expect([...host.querySelectorAll('.contrib-btn')].map((n) => n.textContent)).toEqual(['first']);
   });
 
   test('drops a menu with no valid entries, and an unknown kind entirely', () => {
@@ -356,12 +305,12 @@ describe('sanitization of the extended vocabulary', () => {
       contentWindow
     );
 
-    expect(host.querySelector('.contrib-menu-btn')).toBeNull();
+    expect(host.querySelector('[data-contrib-key^="menu:"]')).toBeNull();
     expect(host.children.length).toBe(1);
     expect(host.querySelector('.contrib-search')).toBeTruthy();
   });
 
-  test('menu entry labels reach the DOM as text, never as markup', () => {
+  test('menu entry labels reach the ⋯ rows as text, never as markup', () => {
     const panelId = freshPanelId();
     const { contentWindow } = addPanelIframe(panelId);
     const host = attachedHost(panelId);
@@ -376,12 +325,11 @@ describe('sanitization of the extended vocabulary', () => {
       ],
       contentWindow
     );
-    const btn = /** @type {HTMLElement} */ (host.querySelector('.contrib-menu-btn'));
-    btn.dispatchEvent(new Event('click', { bubbles: true }));
 
-    const pop = /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-popover'));
-    expect(pop.querySelector('img')).toBeNull();
-    expect(pop.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(host.querySelector('img')).toBeNull();
+    // The row carries the literal string; context-menu.js renders it via
+    // textContent, so the markup never becomes an element.
+    expect(panelMenuRows(panelId)[0].label).toBe('<img src=x onerror=alert(1)>');
   });
 });
 
@@ -442,7 +390,7 @@ describe('hub-side kinds', () => {
     deliverContribution([{ kind: 'crumb', id: 'crumb', root: 'Artifacts' }], contentWindow);
     expect(host.classList.contains('has-crumb')).toBe(true);
 
-    deliverContribution([{ kind: 'text', id: 'name', text: 'x' }], contentWindow);
+    deliverContribution([{ kind: 'button', id: 'name', label: 'x' }], contentWindow);
     expect(host.classList.contains('has-crumb')).toBe(false);
   });
 
@@ -591,39 +539,126 @@ describe('hub-side kinds', () => {
   });
 });
 
-// Close-on-scroll guards against the popover drifting off its button, so only
-// a scroll that moves the button may close it -- not the chat pane
-// auto-scrolling on new output, nor the popover's own rows.
-describe('popover close-on-scroll', () => {
-  function openOverflow() {
-    const strip = document.createElement('div');
-    const btn = document.createElement('button');
-    strip.appendChild(btn);
-    document.body.appendChild(strip);
-    toggleOverflowMenu(btn, [{ label: 'Clock', pick: () => {} }]);
-    return {
-      strip,
-      pop: /** @type {HTMLElement} */ (document.querySelector('.contrib-menu-popover')),
-    };
-  }
+describe('v3 icon items', () => {
+  test('render as an osprey-icon-btn in the panel-icon slot, named by the title', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = attachedHost(panelId);
 
-  test('a scroll elsewhere on the page keeps it open', () => {
-    openOverflow();
-    const chat = document.createElement('div');
-    document.body.appendChild(chat);
-    chat.dispatchEvent(new Event('scroll'));
-    expect(document.querySelector('.contrib-menu-popover')).not.toBeNull();
+    deliverContribution(
+      [
+        { kind: 'icon', id: 'refresh', icon: 'refresh', title: 'Refresh fast figures' },
+        { kind: 'icon', id: 'rail', icon: 'panel-left', title: 'Hide filters', pressed: true },
+        { kind: 'icon', id: 'verify', icon: 'check', title: 'Run verification', disabled: true },
+      ],
+      contentWindow
+    );
+
+    const [refresh, rail, verify] = /** @type {HTMLButtonElement[]} */ ([
+      ...host.querySelectorAll('button.osprey-icon-btn.contrib-icon'),
+    ]);
+    expect(refresh.dataset.contribKey).toBe('icon:refresh');
+    expect(refresh.title).toBe('Refresh fast figures');
+    expect(refresh.getAttribute('aria-label')).toBe('Refresh fast figures');
+    expect(refresh.querySelector('svg.osprey-ic')).toBeTruthy();
+    expect(refresh.textContent).toBe('');
+    // aria-pressed only when the panel says so: a plain action claims no toggle.
+    expect(refresh.hasAttribute('aria-pressed')).toBe(false);
+    expect(rail.getAttribute('aria-pressed')).toBe('true');
+    expect(verify.disabled).toBe(true);
   });
 
-  test('scrolling its own rows keeps it open', () => {
-    const { pop } = openOverflow();
-    pop.dispatchEvent(new Event('scroll'));
-    expect(document.querySelector('.contrib-menu-popover')).not.toBeNull();
+  test('a click round-trips the item id', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = attachedHost(panelId);
+    deliverContribution(
+      [{ kind: 'icon', id: 'refresh', icon: 'refresh', title: 'Refresh' }],
+      contentWindow
+    );
+
+    /** @type {HTMLButtonElement} */ (host.querySelector('.contrib-icon')).click();
+
+    expect(contentWindow.postMessage).toHaveBeenCalledWith(
+      { type: 'canopy-host-header-action', id: 'refresh' },
+      window.location.origin
+    );
   });
 
-  test('a scroll that moves the button closes it', () => {
-    const { strip } = openOverflow();
-    strip.dispatchEvent(new Event('scroll'));
-    expect(document.querySelector('.contrib-menu-popover')).toBeNull();
+  test('a patch keeps the element; the pictogram changes only with the icon name', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = attachedHost(panelId);
+    const send = (/** @type {object} */ fields) =>
+      deliverContribution(
+        [{ kind: 'icon', id: 'rail', icon: 'panel-left', title: 'Hide filters', ...fields }],
+        contentWindow
+      );
+
+    send({ pressed: true });
+    const btn = /** @type {HTMLButtonElement} */ (host.querySelector('.contrib-icon'));
+    const svg = btn.querySelector('svg');
+
+    send({ pressed: false, title: 'Show filters', disabled: true });
+    expect(host.querySelector('.contrib-icon')).toBe(btn);
+    expect(btn.querySelector('svg')).toBe(svg);
+    expect(btn.getAttribute('aria-pressed')).toBe('false');
+    expect(btn.title).toBe('Show filters');
+    expect(btn.getAttribute('aria-label')).toBe('Show filters');
+    expect(btn.disabled).toBe(true);
+
+    send({ icon: 'filter' });
+    expect(host.querySelector('.contrib-icon')).toBe(btn);
+    expect(btn.querySelector('svg')).not.toBe(svg);
+    expect(btn.querySelectorAll('svg').length).toBe(1);
+    expect(btn.hasAttribute('aria-pressed')).toBe(false);
+  });
+
+  test('an unknown icon name or a missing title drops the item', () => {
+    const panelId = freshPanelId();
+    const { contentWindow } = addPanelIframe(panelId);
+    const host = attachedHost(panelId);
+
+    deliverContribution(
+      [
+        { kind: 'icon', id: 'ghost', icon: 'no-such-icon', title: 'Ghost' },
+        { kind: 'icon', id: 'nameless', icon: 'refresh' },
+        { kind: 'icon', id: 'blank', icon: 'refresh', title: '' },
+        { kind: 'icon', id: 'ok', icon: 'refresh', title: 'Refresh' },
+      ],
+      contentWindow
+    );
+
+    expect(
+      [...host.querySelectorAll('[data-contrib-key]')].map((el) =>
+        el.getAttribute('data-contrib-key')
+      )
+    ).toEqual(['icon:ok']);
+  });
+});
+
+// The browser half of a rule happy-dom cannot lay out: the contribution
+// region was `overflow: hidden`, which is still a scroll container, so
+// pressing a control at its clipped edge focused it, the browser scrolled the
+// region to reveal it, and that scroll — of an element holding the control —
+// closed the menu the press had just opened. A clipped region cannot scroll,
+// by focus or by script.
+describe('contribution region overflow', () => {
+  test('the region clips its overflow, so focusing a control cannot scroll it', () => {
+    const css = readFileSync(
+      join(
+        import.meta.dirname,
+        '../../../../src/osprey/interfaces/web_terminal/static/css/dockview-overrides.css'
+      ),
+      'utf8'
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    const overflow = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selectors]) =>
+        selectors.split(',').some((s) => s.trim() === '.tile-tab .tile-tab-contrib')
+      )
+      .flatMap(([, , body]) =>
+        [...body.matchAll(/(?:^|;)\s*overflow\s*:\s*([^;]+)/g)].map((d) => d[1].trim())
+      );
+    expect(overflow).toEqual(['clip']);
   });
 });

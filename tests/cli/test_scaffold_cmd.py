@@ -524,10 +524,7 @@ class TestClaimRefusals:
         import osprey
 
         package_profile = (
-            Path(osprey.__file__).resolve().parent
-            / "profiles"
-            / "presets"
-            / "control-assistant.yml"
+            Path(osprey.__file__).resolve().parent / "profiles" / "presets" / "demo.yml"
         )
         assert package_profile.is_file(), "expected a bundled preset to point the manifest at"
         _write_manifest(pair.project, {"profile_path_abs": str(package_profile)})

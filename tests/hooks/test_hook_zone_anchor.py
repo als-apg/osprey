@@ -774,10 +774,13 @@ def test_focus_validate_reads_from_the_state_zone(tmp_path, hook_runner_raw, mon
     repo.mkdir()
     build = _three_zone_repo(repo, project_root_key=str(repo))
 
+    session = "11111111-1111-4111-8111-111111111111"
     agent_data = repo / DEFAULT_AGENT_DATA_BASE_DIR
     (agent_data / "artifacts").mkdir(parents=True)
     (agent_data / "focus_state.txt").write_text(
-        "[Gallery Focus]\nplot alpha (id=keep-me)\nplot beta (id=gone)\n"
+        "[Gallery Focus]\n"
+        f'  artifact: "plot alpha" (id=keep-me) (session={session})\n'
+        f'  artifact: "plot beta" (id=gone) (session={session})\n'
     )
     (agent_data / "artifacts" / "artifacts.json").write_text(
         json.dumps({"entries": [{"id": "keep-me"}]})
@@ -790,6 +793,7 @@ def test_focus_validate_reads_from_the_state_zone(tmp_path, hook_runner_raw, mon
         {},
         cwd=build,
         config_path=build / "config.yml",
+        hook_input_extra={"session_id": session},
     )
 
     assert returncode == 0

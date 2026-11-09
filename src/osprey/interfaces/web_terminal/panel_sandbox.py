@@ -101,8 +101,6 @@ FRAMEWORK_ENTRY_PAGES: dict[str, tuple[str, ...]] = {
     "ariel": ("/",),
     # The channel-finder SPA (channel_finder/app.py root).
     "channel-finder": ("/",),
-    # The lattice dashboard (lattice_dashboard/app.py root template).
-    "lattice": ("/",),
     # The OKF knowledge reader (okf_panel/app.py root).
     "okf": ("/",),
     # The system-health dashboard (health/app.py root).

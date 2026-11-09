@@ -31,7 +31,7 @@ FACTORY_LOGGER = "connector_factory"
 #: so has to say which archiver that tool reaches. The framework template
 #: renders no ``archiver`` block at all — this comes from the preset's own
 #: ``config:``.
-PRESETS_WITH_ARCHIVER = ["hello-world", "control-assistant"]
+PRESETS_WITH_ARCHIVER = ["hello-world", "demo"]
 
 
 def _cfg(preset: str) -> dict:

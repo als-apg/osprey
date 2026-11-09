@@ -32,7 +32,8 @@ __all__ = [
 #: relative to the render root.
 BENCHMARK_DATASET_KEY = "channel_finder.benchmark.dataset_path"
 
-#: The query sources' directory, relative to the facility tree.
+#: The query sources' directory, relative to the content root (the facility
+#: tree of a single-tree deployment).
 QUERY_SOURCES = "benchmarks/cross_paradigm/queries"
 
 #: The pipeline mode whose query set is its own file; every other mode reads the
@@ -79,7 +80,7 @@ def benchmarks_wanted(inputs: ViewInputs) -> tuple[bool, str]:
     """
     if _dataset_path(inputs.rendered_config) is None:
         return False, BENCHMARK_DATASET_KEY
-    if not (inputs.facility_dir / QUERY_SOURCES).is_dir():
+    if not (inputs.content_root / QUERY_SOURCES).is_dir():
         return False, f"data/facility/{QUERY_SOURCES}"
     return True, BENCHMARK_DATASET_KEY
 
@@ -126,7 +127,7 @@ def write_benchmarks_view(root: Path, inputs: ViewInputs) -> list[Path]:
             "such as `data/benchmarks/queries.json`",
         )
     mode = _channel_finder(inputs.rendered_config).get("pipeline_mode")
-    source = inputs.facility_dir / QUERY_SOURCES / query_source_name(mode)
+    source = inputs.content_root / QUERY_SOURCES / query_source_name(mode)
     if not source.is_file():
         raise _refusal(
             "view-unsupported",

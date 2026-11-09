@@ -91,9 +91,9 @@ def test_the_agent_loads_a_mat_deck_by_the_file_the_view_writes(tmp_path: Path) 
 
 
 def test_the_demo_agent_loads_the_served_deck_and_reads_the_variables_file(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    text = (built_control_assistant.build_dir / AGENT).read_text(encoding="utf-8")
+    text = (built_demo.build_dir / AGENT).read_text(encoding="utf-8")
 
     assert "`SR`" in text
     assert "build/data/simulator/decks/SR.json" in text
@@ -108,7 +108,7 @@ _SIMULATOR_PATH = re.compile(r"[`\"]([^`\"\s]*data/simulator/[^`\"\s]+)[`\"]")
 
 
 def test_every_simulator_path_the_agent_names_resolves_in_the_executor_frame(
-    built_control_assistant: BuiltProject, monkeypatch: pytest.MonkeyPatch
+    built_demo: BuiltProject, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Each deck and the variables file exist where ``execute`` resolves them.
 
@@ -119,14 +119,14 @@ def test_every_simulator_path_the_agent_names_resolves_in_the_executor_frame(
     from osprey.mcp_server.python_executor.executor import _resolve_project_root
     from osprey_connectors.simulation.view import VARIABLES_FILE
 
-    text = (built_control_assistant.build_dir / AGENT).read_text(encoding="utf-8")
+    text = (built_demo.build_dir / AGENT).read_text(encoding="utf-8")
     paths = sorted(set(_SIMULATOR_PATH.findall(text)))
     assert any(path.endswith(f"/{VARIABLES_FILE}") for path in paths), paths
     assert any("/decks/" in path for path in paths), paths
 
-    monkeypatch.chdir(built_control_assistant.repo)
+    monkeypatch.chdir(built_demo.repo)
     root = _resolve_project_root()
-    assert root.resolve() == built_control_assistant.repo.resolve()
+    assert root.resolve() == built_demo.repo.resolve()
     missing = [path for path in paths if not (root / path).exists()]
     assert missing == [], f"the agent file names {missing}, which do not exist under {root}"
 
@@ -147,7 +147,7 @@ class _Collect(logging.Handler):
 
 @pytest.fixture(scope="module")
 def texture_only(tmp_path_factory: pytest.TempPathFactory) -> _TextureOnlyRender:
-    """The control-assistant bundle rendered with ``simulation.models: [texture]``.
+    """The demo bundle rendered with ``simulation.models: [texture]``.
 
     The facility file still holds the deck-bearing ``SR``; the render serves
     only ``texture``, and ``claude_code.agents.pyat-specialist.enabled`` is
@@ -158,7 +158,7 @@ def texture_only(tmp_path_factory: pytest.TempPathFactory) -> _TextureOnlyRender
     from osprey.utils.config_writer import config_update_fields
 
     manager = TemplateManager()
-    bundle = "control_assistant"
+    bundle = "demo"
     project = manager.create_project(
         project_name="texture-only",
         output_dir=tmp_path_factory.mktemp("texture-only"),
@@ -166,7 +166,7 @@ def texture_only(tmp_path_factory: pytest.TempPathFactory) -> _TextureOnlyRender
         context={"channel_finder_mode": "hierarchical"},
         data_root=bundle_data_root(bundle),
     )
-    profile, _profile_dir = resolve_build_profile(None, preset="control-assistant")
+    profile, _profile_dir = resolve_build_profile(None, preset="demo")
     config_update_fields(project / "config.yml", profile.config)
     config_update_fields(
         project / "config.yml",
@@ -178,7 +178,7 @@ def texture_only(tmp_path_factory: pytest.TempPathFactory) -> _TextureOnlyRender
     manager.generate_manifest(
         project,
         "texture-only",
-        "control-assistant",
+        "demo",
         {},
         artifacts=manager._effective_artifacts(bundle, None),
     )

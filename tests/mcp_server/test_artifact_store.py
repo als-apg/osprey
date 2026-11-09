@@ -313,7 +313,6 @@ class TestArtifactStore:
         saved = [store.save_object(f"# {i}", title=f"Entry {i}") for i in range(4)]
 
         assert [e.id for e in store.list_entries()] == [e.id for e in saved]
-        assert [e.id for e in store.list_entries(last_n=2)] == [e.id for e in saved[-2:]]
 
     def test_get_entry(self, tmp_path):
         from osprey.stores.artifact_store import ArtifactStore
@@ -1161,42 +1160,36 @@ class TestArtifactGalleryApp:
         assert resp.status_code == 200
         assert client.app.state.focused_artifact_id is None
 
-    def test_delete_pinned_unfocused_refreshes_focus_state(self, app_client):
-        """Deleting a pinned-but-unfocused artifact refreshes focus_state.txt.
+    def test_delete_unfocused_refreshes_focus_state(self, app_client):
+        """Deleting an artifact rewrites focus_state.txt, which carries focus only.
 
-        Regression test for the secondary bug where ``_write_focus_file()`` was
-        only called when the focused artifact was deleted — leaving stale
-        ``pinned:`` lines when an unfocused pin was removed.
+        Deleting an unfocused artifact leaves exactly the focus lines.
         """
         client, tmp_path = app_client
         store = client.app.state.artifact_store
+        t_a = "11111111-1111-4111-8111-111111111111"
+        t_b = "22222222-2222-4222-8222-222222222222"
 
-        pinned_a = store.save_object("# Pinned A", title="Pinned A")
-        pinned_b = store.save_object("# Pinned B", title="Pinned B")
-        store.set_pinned(pinned_a.id, True)
-        store.set_pinned(pinned_b.id, True)
+        unfocused = store.save_object("# Unfocused", title="Unfocused")
+        focused_a = store.save_object("# Focused A", title="Focused A")
+        focused_b = store.save_object("# Focused B", title="Focused B")
 
-        focused = store.save_object("# Focused", title="Focused")
-
-        # Setting focus via the HTTP endpoint also writes focus_state.txt
-        # (the listener path doesn't run on save, only on delete).
-        resp = client.post("/api/focus", json={"artifact_id": focused.id})
-        assert resp.status_code == 200
+        for entry, transcript in ((focused_a, t_a), (focused_b, t_b)):
+            resp = client.post(
+                "/api/focus", json={"artifact_id": entry.id, "transcript_id": transcript}
+            )
+            assert resp.status_code == 200
 
         focus_file = tmp_path / "focus_state.txt"
-        baseline = focus_file.read_text() if focus_file.exists() else ""
-        assert f"id={pinned_a.id}" in baseline
-        assert f"id={pinned_b.id}" in baseline
+        line_a = f'  artifact: "Focused A" (id={focused_a.id}) (session={t_a})'
+        line_b = f'  artifact: "Focused B" (id={focused_b.id}) (session={t_b})'
+        assert focus_file.read_text().splitlines() == ["[Gallery Focus]", line_a, line_b]
 
-        # Delete a pinned but UNFOCUSED artifact via HTTP.
-        resp = client.delete(f"/api/artifacts/{pinned_a.id}")
-        assert resp.status_code == 200
+        assert client.delete(f"/api/artifacts/{unfocused.id}").status_code == 200
+        assert focus_file.read_text().splitlines() == ["[Gallery Focus]", line_a, line_b]
 
-        # focus_state.txt should no longer mention the deleted pin.
-        contents = focus_file.read_text() if focus_file.exists() else ""
-        assert f"id={pinned_a.id}" not in contents
-        assert f"id={pinned_b.id}" in contents
-        assert f"id={focused.id}" in contents
+        assert client.delete(f"/api/artifacts/{focused_a.id}").status_code == 200
+        assert focus_file.read_text().splitlines() == ["[Gallery Focus]", line_b]
 
     @pytest.mark.asyncio
     async def test_mcp_artifact_delete_clears_focus(self, app_client, monkeypatch):
@@ -1250,8 +1243,8 @@ class TestArtifactGalleryApp:
         assert client.app.state.focused_artifact_id is None
 
     @pytest.mark.asyncio
-    async def test_mcp_artifact_delete_all(self, app_client, monkeypatch):
-        """artifact_delete_all(scope="everything") clears the store and empties focus_state."""
+    async def test_mcp_artifact_delete_all(self, app_client, monkeypatch, web_session):
+        """artifact_delete_all("everything") clears this session's artifacts and the focus."""
         from osprey.mcp_server.workspace.tools.artifact_register import artifact_delete_all
         from osprey.stores.artifact_store import initialize_artifact_store
 
@@ -1261,13 +1254,13 @@ class TestArtifactGalleryApp:
 
         store = client.app.state.artifact_store
         entries = [store.save_object(f"data{i}", title=f"Bulk {i}") for i in range(3)]
-        store.set_pinned(entries[0].id, True)
         client.app.state.focused_artifact_id = entries[1].id
 
         result = await get_tool_fn(artifact_delete_all)("everything")
         payload = extract_response_dict(result)
         assert payload["status"] == "success"
         assert payload["scope"] == "everything"
+        assert payload["session"] == web_session.transcript
         assert payload["deleted_count"] == 3
         assert set(payload["artifact_ids"]) == {e.id for e in entries}
 
@@ -1382,12 +1375,12 @@ class TestArtifactStoreConcurrency:
     access, so it does nothing here.
     """
 
-    def test_concurrent_reload_does_not_clobber_pin(self, tmp_path):
-        """A reload firing mid-``set_pinned`` must not drop the pin.
+    def test_concurrent_reload_does_not_clobber_an_update(self, tmp_path):
+        """A reload firing mid-``update_entry_metadata`` must not drop the update.
 
         Deterministically reproduces the watcher race: a worker thread is
         released to call ``_load_index()`` exactly while the main thread is
-        between flipping ``pinned`` and writing the index. With proper in-process
+        between setting the attribute and writing the index. With proper in-process
         locking the worker's reload blocks until the mutation commits.
         """
         import threading
@@ -1396,7 +1389,7 @@ class TestArtifactStoreConcurrency:
         from osprey.stores.artifact_store import ArtifactStore
 
         store = ArtifactStore(workspace_root=tmp_path)
-        target = store.save_object("# Target", title="Target")  # persisted unpinned
+        target = store.save_object("# Target", title="Target")
 
         reload_started = threading.Event()
         reload_finished = threading.Event()
@@ -1410,29 +1403,29 @@ class TestArtifactStoreConcurrency:
         worker = threading.Thread(target=watcher_reload)
         worker.start()
 
-        # Open the vulnerable window: when set_pinned()'s _save_index() builds
+        # Open the vulnerable window: when the update's _save_index() builds
         # the index payload, release the worker and give it time to reload.
         original_build = store._build_index_data
         calls = {"n": 0}
 
         def build_with_window() -> dict:
             calls["n"] += 1
-            if calls["n"] == 1:  # the set_pinned() save
+            if calls["n"] == 1:  # the update's save
                 reload_started.set()
                 time.sleep(0.1)
             return original_build()
 
         store._build_index_data = build_with_window  # type: ignore[method-assign]
         try:
-            store.set_pinned(target.id, True)
+            store.update_entry_metadata(target.id, title="Retitled")
         finally:
             worker.join(timeout=2)
 
         assert not worker.is_alive(), "watcher reload deadlocked"
-        # The pin must survive both in memory and on disk.
-        assert store.get_entry(target.id).pinned is True
+        # The update must survive both in memory and on disk.
+        assert store.get_entry(target.id).title == "Retitled"
         reloaded = ArtifactStore(workspace_root=tmp_path)
-        assert reloaded.get_entry(target.id).pinned is True
+        assert reloaded.get_entry(target.id).title == "Retitled"
 
     def test_concurrent_reader_never_sees_truncated_index(self, tmp_path):
         """A reader opening the index file mid-write must never see partial JSON.
@@ -1476,3 +1469,25 @@ class TestArtifactStoreConcurrency:
             "a concurrent reader saw a truncated/invalid index during "
             "_save_index(); the write is not atomic"
         )
+
+
+def test_an_index_written_with_pins_loads_without_them(tmp_path):
+    """Pins are gone: an older index's ``pinned`` flag and ``pinned_in`` record are dropped."""
+    import json
+
+    from osprey.stores.artifact_store import ArtifactStore
+
+    store = ArtifactStore(workspace_root=tmp_path)
+    entry = store.save_object("# x", title="Old pin", metadata={"keep": 1})
+    index = store._index_file
+    data = json.loads(index.read_text())
+    for row in data["entries"]:
+        row["pinned"] = True
+        row["metadata"]["pinned_in"] = "11111111-1111-4111-8111-111111111111"
+    index.write_text(json.dumps(data))
+
+    reloaded = ArtifactStore(workspace_root=tmp_path).get_entry(entry.id)
+    assert reloaded is not None
+    assert not hasattr(reloaded, "pinned")
+    assert "pinned_in" not in reloaded.metadata
+    assert reloaded.metadata["keep"] == 1

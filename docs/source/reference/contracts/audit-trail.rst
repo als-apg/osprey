@@ -71,7 +71,8 @@ refusal never share one.
      - Tool calls on an OSPREY MCP server, allowed and refused alike, on a
        surface named for the server: ``osprey_workspace``, ``python``, ``bluesky``
    * - ``hook_writes_check``, ``hook_approval``,
-       ``hook_limits``, ``hook_memory_guard``
+       ``hook_limits``, ``hook_memory_guard``,
+       ``hook_plan_mode``
      - What the safety hooks denied, and what they put in front of a person
    * - ``hook_code_review``
      - What the code review decided on a notebook edit --- see

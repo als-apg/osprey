@@ -17,7 +17,8 @@ runs. It hosts:
     :class:`~osprey.agent_record.contract.WaitMark` as JSON, normally the
     drain ``{"drain": {"session_id": <str> | null}}``) and the method's
     own (``session_id``, ``agent_id``, ``key``, ``run_id``, ``kind``,
-    ``surface``, ``conversation``, ``source``, and ``written_by=self``, which
+    ``surface``, ``conversation``, ``source``, ``session_ids`` (comma
+    separated), and ``written_by=self``, which
     keeps the audit entries the caller's own source identity wrote). A
     ``Source`` credential may narrow its view with ``narrow_session`` or with
     one or more ``narrow_run``; no credential can widen it. The body is :meth:`ReadAnswer.to_json` (a timeline page's
@@ -282,7 +283,7 @@ class _Method:
 
 #: Every read route, ``/v1/read/<name>``, by the reader method it calls.
 READ_METHODS: Mapping[str, _Method] = {
-    "list_sessions": _Method(optional=("since", "limit")),
+    "list_sessions": _Method(optional=("since", "before", "limit", "session_ids")),
     "session_users": _Method(optional=("since",)),
     "timeline": _Method(("session_id",), ("after", "limit")),
     "agent_timeline": _Method(("session_id", "agent_id"), ("after", "limit")),
@@ -597,11 +598,11 @@ def _scope(settings: _Settings, grant: ids.CredentialGrant, request: Request) ->
 # ---------------------------------------------------------------------------
 
 
-def _since(value: str) -> datetime:
+def _since(value: str, name: str = "since") -> datetime:
     try:
         when = datetime.fromisoformat(value)
     except ValueError:
-        raise ValueError(f"since {value!r} is not an ISO-8601 time") from None
+        raise ValueError(f"{name} {value!r} is not an ISO-8601 time") from None
     return when if when.tzinfo is not None else when.replace(tzinfo=UTC)
 
 
@@ -609,6 +610,13 @@ def _limit(value: str) -> int:
     if not value.isdigit():
         raise ValueError(f"limit {value!r} is not a non-negative integer")
     return int(value)
+
+
+def _session_ids(value: str) -> frozenset[str]:
+    ids = frozenset(part.strip() for part in value.split(",") if part.strip())
+    if not ids:
+        raise ValueError("session_ids names no session")
+    return ids
 
 
 def _wait(value: str) -> WaitMark:
@@ -644,10 +652,12 @@ def _read_arguments(method: _Method, request: Request) -> dict[str, Any]:
         value = params.get(name)
         if value is None:
             continue
-        if name == "since":
-            kwargs[name] = _since(value)
+        if name in ("since", "before"):
+            kwargs[name] = _since(value, name)
         elif name == "limit":
             kwargs[name] = _limit(value)
+        elif name == "session_ids":
+            kwargs[name] = _session_ids(value)
         else:
             kwargs[name] = value
     if params.get("wait") is not None:
