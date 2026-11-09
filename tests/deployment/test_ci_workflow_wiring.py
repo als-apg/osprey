@@ -15573,3 +15573,28 @@ def test_the_classifier_runs_on_every_event_and_forces_full_on_the_label(
 def test_the_gate_requires_the_classifier_to_succeed(workflow: dict[str, Any]) -> None:
     assert CHANGES_JOB in _jobs(workflow)[GATE_JOB]["needs"]
     assert '"${{ needs.changes.result }}" != "success"' in _gate_run_text(workflow)
+
+
+def _pr_lanes_naming_docs_tests(wf: dict[str, Any]) -> list[str]:
+    """Lanes `docs_only` stands down that run something under tests/docs/."""
+    return sorted(
+        name
+        for name, job in _jobs(wf).items()
+        if DOCS_ONLY_CLAUSE in str(job.get("if", ""))
+        and "tests/docs" in json.dumps(job.get("steps", []))
+    )
+
+
+def test_no_lane_docs_only_stands_down_runs_the_docs_tests(workflow: dict[str, Any]) -> None:
+    """tests/docs/ counts as docs (scripts/ci/docs_only.py) only because the
+    always-on lanes are its sole runners: a docs-only PR's own guard test must
+    still run. A pull-request-scoped lane that ran it would skip it there."""
+    assert _pr_lanes_naming_docs_tests(workflow) == []
+
+
+def test_no_lane_docs_only_stands_down_runs_the_docs_tests__mutation() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[RECORD_E2E_JOB]["steps"].append(
+        {"name": "x", "run": "uv run pytest tests/docs/test_redirects.py"}
+    )
+    assert _pr_lanes_naming_docs_tests(mutated) == [RECORD_E2E_JOB]

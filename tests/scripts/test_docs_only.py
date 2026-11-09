@@ -25,6 +25,9 @@ docs_only = load_module("docs_only", _MODULE_PATH)
         ["docs/source/how-to/a.rst", "changelog.d/x.changed.md"],
         ["changelog.d/x.fixed.md"],
         ["docs/source/how-to/control-systems/examples/archiver-mock.yml"],
+        # a docs page landing with its own guard test
+        ["docs/source/index.rst", "tests/docs/test_redirects.py"],
+        ["tests/docs/screenshots/test_video_probes_browser.py"],
     ],
 )
 def test_docs_and_changelog_paths_are_docs_only(paths: list[str]) -> None:
@@ -36,11 +39,15 @@ def test_docs_and_changelog_paths_are_docs_only(paths: list[str]) -> None:
     [
         ["docs/source/index.rst", "src/osprey/cli/main.py"],
         ["README.md"],
-        ["docs/source/index.rst", "tests/docs/test_redirects.py"],
+        # tests outside tests/docs/, even ones that read docs/
+        ["docs/source/index.rst", "tests/test_docs_links.py"],
+        ["docs/source/index.rst", "tests/e2e/test_dockerfile_e2e.py"],
+        ["docs/source/index.rst", "tests/conftest.py"],
         ["docs/source/index.rst", ".github/workflows/ci.yml"],
         ["pyproject.toml"],
         # a lookalike prefix is not the docs tree
         ["docs-old/index.rst"],
+        ["tests/docs-old/test_x.py"],
         ["src/osprey/docs/readme.rst"],
     ],
 )

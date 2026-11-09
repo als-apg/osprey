@@ -4,13 +4,17 @@
 ci.yml's ``changes`` job pipes the pull request's changed paths into this
 script and publishes the verdict as ``docs_only``. Every pull-request-scoped
 lane (the e2e and deploy set) reads it and stands down when it is ``true``:
-a page under ``docs/`` or a fragment under ``changelog.d/`` reaches no
-container, no deployed stack and no model, so those lanes would spend about
-ten runner-hours proving a tree the change did not touch.
+a page under ``docs/``, a fragment under ``changelog.d/`` or a guard test
+under ``tests/docs/`` reaches no container, no deployed stack and no model, so
+those lanes would spend about ten runner-hours proving a tree the change did
+not touch.
 
 The always-on lanes (unit tests, lint, the docs build, the browser suites,
 ...) carry no condition and are not affected. That is where the 70-odd tests
 that read ``docs/`` run, so a docs-only change is still checked by them.
+``tests/docs/`` is in the set for the same reason: its files are collected by
+the unit and browser lanes only, which are always-on, so a docs page landing
+with its own guard test still gets that test run.
 
 What counts as docs-only is deliberately narrow: every path, old and new name
 alike for a rename, must sit under one of ``DOCS_PREFIXES``. Root files such as
@@ -34,7 +38,7 @@ import sys
 from collections.abc import Iterable
 
 #: The only places a docs-only pull request may touch.
-DOCS_PREFIXES = ("docs/", "changelog.d/")
+DOCS_PREFIXES = ("docs/", "changelog.d/", "tests/docs/")
 
 #: GitHub's pull-request files endpoint stops listing at this many entries, so a
 #: list this long may be truncated and cannot vouch for the rest of the diff.

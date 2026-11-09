@@ -1971,7 +1971,7 @@ jobs:
     #
     # Every lane below whose `if:` has a pull-request arm (the e2e and deploy
     # set) needs this job and reads `docs_only` in that arm. On a pull request
-    # whose every changed path sits under docs/ or changelog.d/
+    # whose every changed path sits under docs/, changelog.d/ or tests/docs/
     # (scripts/ci/docs_only.py holds the rule and why it is that narrow) those
     # lanes skip, and the roll-up gate says so in the run summary. A docs-only
     # run spent ~620 runner-minutes before this, nearly all of it in lanes no
@@ -8051,7 +8051,7 @@ jobs:
           {
             echo "### ℹ️ Docs-only pull request: e2e and deploy lanes did not run"
             echo
-            echo "Every changed path is under \`docs/\` or \`changelog.d/\`"
+            echo "Every changed path is under \`docs/\`, \`changelog.d/\` or \`tests/docs/\`"
             echo "(scripts/ci/docs_only.py), so the pull-request-scoped lanes stood down."
             echo "The always-on lanes, the docs build and the tests that read docs/ ran."
             echo "To run every lane anyway:"
