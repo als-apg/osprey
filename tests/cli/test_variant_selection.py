@@ -1,8 +1,8 @@
 """Tests for the host-local overlay-variant setting.
 
 Covers the four resolution outcomes (`.env.variant` absent, named-and-resolved,
-named-with-no-variants-in-repo, named-unknown), the non-fatal git-tracked probe,
-and the two containment properties the design rests on: the setting file is not
+named-with-no-variants-in-repo, named-unknown), the non-fatal git-tracked probe
+and its three answers (tracked, untracked, could not check), and the two containment properties the design rests on: the setting file is not
 a member of the env chain, and the `.gitignore` `osprey init` authors already
 covers it.
 
@@ -30,6 +30,7 @@ from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.repo_resolver import PROFILE_FILENAME
 from osprey.cli.validate_cmd import validate
 from osprey.cli.variant_selection import (
+    _GIT_PROBE_TIMEOUT_S,
     VARIANT_DIRNAME,
     VARIANT_SETTING_FILENAME,
     VARIANT_SETTING_KEY,
@@ -188,12 +189,27 @@ class TestResolution:
             resolve_variant_selection(repo)
 
 
+_UNCHECKED = f"could not check whether {VARIANT_SETTING_FILENAME} is tracked by git:"
+
+
 class TestGitTrackedProbe:
     """The committed-by-accident warning — loud, and never fatal."""
 
     def test_untracked_setting_is_silent(self, repo: Path) -> None:
+        """Git answers "not tracked" (exit 1) inside a real repository."""
         define_variants(repo, "teststand")
         write_setting(repo, f"{VARIANT_SETTING_KEY}=teststand\n")
+        _git_init_and_track(repo, VARIANT_SETTING_FILENAME, track=False)
+
+        assert resolve_variant_selection(repo).notices == ()
+
+    def test_no_repository_is_silent(self, repo: Path) -> None:
+        """A repo root no git repository encloses has nothing to commit by accident."""
+        if any((ancestor / ".git").exists() for ancestor in (repo, *repo.resolve().parents)):
+            pytest.skip("a git repository encloses the temp directory")
+        define_variants(repo, "teststand")
+        write_setting(repo, f"{VARIANT_SETTING_KEY}=teststand\n")
+
         assert resolve_variant_selection(repo).notices == ()
 
     def test_tracked_setting_warns_and_still_resolves(
@@ -208,12 +224,16 @@ class TestGitTrackedProbe:
 
         assert selection.selected
         assert len(selection.notices) == 1
-        assert "tracked by git" in selection.notices[0]
-        assert "git rm --cached" in selection.notices[0]
-        assert "tracked by git" in caplog.text
+        notice = selection.notices[0]
+        if notice.startswith("could not check"):
+            assert notice in caplog.text
+        else:
+            assert "tracked by git" in notice
+            assert "git rm --cached" in notice
+            assert "tracked by git" in caplog.text
 
-    def test_probe_failure_is_not_fatal(self, repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """No git on the host, or a git that hangs, must not fail a build."""
+    def test_a_missing_git_names_itself(self, repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No git on the host is reported as unchecked, and never fails a build."""
         define_variants(repo, "teststand")
         write_setting(repo, f"{VARIANT_SETTING_KEY}=teststand\n")
 
@@ -225,7 +245,46 @@ class TestGitTrackedProbe:
         selection = resolve_variant_selection(repo)
 
         assert selection.selected
-        assert selection.notices == ()
+        assert len(selection.notices) == 1
+        assert selection.notices[0].startswith(_UNCHECKED)
+        assert "git" in selection.notices[0].removeprefix(_UNCHECKED)
+
+    def test_a_git_that_times_out_names_itself(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        define_variants(repo, "teststand")
+        write_setting(repo, f"{VARIANT_SETTING_KEY}=teststand\n")
+
+        def hang(cmd: list[str], **kwargs: object) -> None:
+            raise subprocess.TimeoutExpired(cmd, _GIT_PROBE_TIMEOUT_S)
+
+        monkeypatch.setattr("osprey.cli.variant_selection.subprocess.run", hang)
+
+        selection = resolve_variant_selection(repo)
+
+        assert selection.selected
+        assert len(selection.notices) == 1
+        assert selection.notices[0].startswith(_UNCHECKED)
+        assert f"{_GIT_PROBE_TIMEOUT_S:g} s" in selection.notices[0]
+
+    def test_an_unexpected_git_exit_inside_a_repo_names_itself(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        define_variants(repo, "teststand")
+        write_setting(repo, f"{VARIANT_SETTING_KEY}=teststand\n")
+        (repo / ".git").mkdir()
+
+        def fail(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(args, 128, "", "fatal: boom\n")
+
+        monkeypatch.setattr("osprey.cli.variant_selection.subprocess.run", fail)
+
+        selection = resolve_variant_selection(repo)
+
+        assert selection.selected
+        assert len(selection.notices) == 1
+        assert selection.notices[0].startswith(_UNCHECKED)
+        assert "git exited 128: fatal: boom" in selection.notices[0]
 
 
 class TestContainment:
@@ -792,8 +851,8 @@ class TestValidateHonorsTheVariant:
         assert f"host variant armed ({VARIANT_DIRNAME}/armed.yml" in result.output
 
 
-def _git_init_and_track(repo: Path, relative: str) -> None:
-    """Make ``relative`` a tracked path in a throwaway repo, or skip."""
+def _git_init_and_track(repo: Path, relative: str, *, track: bool = True) -> None:
+    """Make ``repo`` a throwaway git repo with ``relative`` tracked (or not), or skip."""
     env = {
         "GIT_CONFIG_GLOBAL": str(repo / ".gitconfig-none"),
         "GIT_CONFIG_SYSTEM": str(repo / ".gitconfig-none"),
@@ -801,10 +860,10 @@ def _git_init_and_track(repo: Path, relative: str) -> None:
         "HOME": str(repo),
     }
     try:
-        for args in (
-            ("init", "--quiet"),
-            ("add", "--force", "--", relative),
-        ):
+        steps: list[tuple[str, ...]] = [("init", "--quiet")]
+        if track:
+            steps.append(("add", "--force", "--", relative))
+        for args in steps:
             subprocess.run(
                 ["git", *args], cwd=repo, env=env, capture_output=True, check=True, timeout=30
             )

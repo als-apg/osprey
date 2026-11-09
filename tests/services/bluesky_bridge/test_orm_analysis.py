@@ -35,18 +35,18 @@ KNOWN_MATRIX = np.array(
 
 
 def _rows_for_matrix(matrix: np.ndarray, correctors: list[str], readbacks: list[str]) -> list:
-    """Synthetic ORM rows: one dict per (corrector, current) point, each
+    """Synthetic ORM rows: one dict per (corrector, setpoint) point, each
     carrying only the swept corrector's key (others are a different
     corrector's sweep and never appear in this row) plus every BPM reading --
     mirroring the real `orm` plan's per-point event data.
     """
-    currents = np.linspace(-1.0, 1.0, 5)
+    setpoints = np.linspace(-1.0, 1.0, 5)
     rows = []
     for j, corrector in enumerate(correctors):
-        for current in currents:
-            row = {corrector: float(current)}
+        for setpoint in setpoints:
+            row = {corrector: float(setpoint)}
             for i, bpm in enumerate(readbacks):
-                row[bpm] = float(matrix[i, j] * current)
+                row[bpm] = float(matrix[i, j] * setpoint)
             rows.append(row)
     return rows
 
@@ -131,9 +131,9 @@ def test_setpoint_regression_recovers_the_commanded_slope_through_a_readback_gai
 ):
     """A readback that tracks its demand with a gain and offset error biases only the readback fit.
 
-    Each row carries the commanded current under ``corr1_setpoint`` and a
+    Each row carries the commanded setpoint under ``corr1_setpoint`` and a
     readback of ``0.98 * setpoint + 0.3`` under ``corr1``; the BPM responds to
-    the commanded current. The setpoint fit recovers the response exactly; the
+    the commanded setpoint. The setpoint fit recovers the response exactly; the
     readback fit is off by the tracking gain.
     """
     response = 1.7

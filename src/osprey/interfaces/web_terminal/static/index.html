@@ -27,7 +27,7 @@
     present, because the resolver degrades to UTC rather than failing.
     design_system/static/js/facility-time.js reads it. Double-quoted because a
     zone id never contains a quote. -#}
-<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-sidecar-panels='{{ sidecar_panels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %}{% if web_terminal_offered is false %} data-terminal="off"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not control_target_available %} data-control-target="off"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
+<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}' data-sidecar-panels='{{ sidecar_panels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %}{% if web_terminal_offered is false %} data-terminal="off"{% endif %} data-facility-timezone="{{ facility_timezone }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not control_target_available %} data-control-target="off"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}{% if docs_url %} data-docs-url="{{ docs_url }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -103,7 +103,6 @@
   <!-- OSPREY styles -->
   <link rel="stylesheet" href="{{ prefixed('/static/css/terminal.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sidebar-artifacts.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/artifacts-header.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/files.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/operator.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/md-rendered.css') }}">
@@ -129,8 +128,8 @@
   <div class="shell-body">
 
     <!-- The sidebar (panel-rail.js renders the panel rows, sidebar.js wires
-         the rest). Only the group that holds the Artifacts and Script runs
-         lists gives up height: the head, the control-system block, search,
+         the rest). Only the group that holds the Sessions row's session tree
+         gives up height: the head, the control-system block, search,
          the other groups and the footer never scroll off (terminal.css,
          "Height budget"). -->
     <nav class="sidebar" id="sidebar" aria-label="Panels">
@@ -166,76 +165,41 @@
       </button>
 
       <!-- The panel rows, in the operator's groups (sidebar-groups.js keeps
-           them per user; the two below are the built-in ones). createRail()
+           them per user; the two below are the built-in ones, the first
+           headless). createRail()
            (panel-rail.js) renders the groups and MOVES the page-owned rows
-           below into place on every render, never rebuilding them: the Agent
-           row, the Artifacts row with its lists (sidebar-artifacts.js renders
-           the lists), the Script runs row and "+ Add panel". -->
+           below into place on every render, never rebuilding them: the Sessions
+           row with its new-session button and its session tree
+           (sidebar-artifacts.js renders the tree) and "+ Add panel". -->
       <div class="sidebar-sections" id="panel-rail" role="list">
         <div class="sidebar-group" data-group="workspace" role="listitem"
              aria-labelledby="sidebar-workspace-label">
-          <div class="osprey-section-label sidebar-group-head">
-            <span class="sidebar-group-name" id="sidebar-workspace-label">Workspace</span>
-            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
-                    aria-expanded="false" aria-label="Workspace group options"
-                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+          <div class="osprey-section-label sidebar-group-head" hidden>
+            <span class="sidebar-group-name" id="sidebar-workspace-label">Sessions</span>
           </div>
 
-          <button class="osprey-nav-row panel-rail-button disabled" id="sidebar-agent-row"
-                  data-panel-id="terminal" type="button" aria-label="Agent" title="Agent" data-tip="Agent">
-            <svg class="osprey-ic osprey-nav-icon" data-icon="agent" aria-hidden="true"></svg>
-            <span class="osprey-nav-label">Agent</span>
-            <span class="osprey-dot sidebar-agent-dot" data-agent-dot aria-hidden="true"></span>
-            <span class="sidebar-open-hint" aria-hidden="true">Open</span>
-            <span class="osprey-nav-badge" data-agent-badge hidden></span>
-          </button>
-
-          <div class="sidebar-row" id="sidebar-artifacts-row">
-            <button class="osprey-nav-row parent panel-rail-button disabled" data-panel-id="artifacts"
-                    type="button" aria-expanded="true" aria-controls="sidebar-artifacts-kids"
-                    aria-label="Artifacts" title="Artifacts" data-tip="Artifacts">
-              <svg class="osprey-ic osprey-nav-icon" data-icon="layers" aria-hidden="true"></svg>
-              <span class="osprey-nav-label">Artifacts</span>
-              <span class="osprey-nav-badge" data-art-count hidden></span>
-              <svg class="osprey-ic osprey-nav-disc" data-disc data-icon="chevron-right" aria-hidden="true"></svg>
+          <div class="sidebar-row" id="sidebar-agent-wrap">
+            <button class="osprey-nav-row parent panel-rail-button disabled" id="sidebar-agent-row"
+                    data-panel-id="terminal" type="button" aria-label="Sessions" title="Sessions" data-tip="Sessions"
+                    aria-expanded="true" aria-controls="sidebar-session-tree">
+              <svg class="osprey-ic osprey-nav-icon" data-icon="agent" aria-hidden="true"></svg>
+              <span class="osprey-nav-label">Sessions</span>
+              <span class="sidebar-open-hint" aria-hidden="true">Open</span>
+              <span class="osprey-nav-badge" data-agent-badge hidden></span>
             </button>
-            <div class="sidebar-row-actions">
-              <button class="osprey-mini" type="button" data-art-filter-toggle title="Filter"
-                      aria-label="Filter artifacts" aria-pressed="false"><svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg></button>
-              <button class="osprey-mini" type="button" data-art-menu title="More"
-                      aria-label="Artifact options" aria-haspopup="menu" aria-expanded="false"
-                      aria-controls="sidebar-artifacts-menu"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
-            </div>
-            <div class="sidebar-kids" id="sidebar-artifacts-kids">
-              <label class="sidebar-kids-filter" data-art-filter hidden>
-                <svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg>
-                <input type="search" placeholder="Filter by title" aria-label="Filter artifacts by title">
-              </label>
-              <div class="sidebar-kids-list" id="sidebar-artifacts-list" role="listbox" aria-label="Artifacts"></div>
-            </div>
-          </div>
-
-          <div class="sidebar-row" id="sidebar-runs-row">
-            <button class="osprey-nav-row parent" id="sidebar-runs-toggle" type="button"
-                    aria-expanded="false" aria-controls="sidebar-runs-kids" aria-label="Script runs"
-                    data-tip="Script runs" data-tip-detail="Output of scripts the agent ran">
-              <svg class="osprey-ic osprey-nav-icon" data-icon="bash" aria-hidden="true"></svg>
-              <span class="osprey-nav-label">Script runs</span>
-              <span class="osprey-nav-badge" data-runs-count hidden></span>
-              <svg class="osprey-ic osprey-nav-disc" data-disc data-icon="chevron-right" aria-hidden="true"></svg>
+            <button class="osprey-icon-btn sidebar-new-session" id="sidebar-new-session" type="button"
+                    aria-label="New session" data-tip="New session"
+                    data-tip-detail="Start a new conversation">
+              <svg class="osprey-ic" data-icon="plus" aria-hidden="true"></svg>
             </button>
-            <div class="sidebar-kids" id="sidebar-runs-kids" hidden>
-              <div class="sidebar-kids-list" id="sidebar-runs-list" role="listbox" aria-label="Script runs"></div>
-            </div>
+            <div class="sidebar-kids osprey-tree" id="sidebar-session-tree" data-session-tree
+                 role="tree" aria-label="Sessions"></div>
           </div>
         </div>
 
         <div class="sidebar-group" data-group="tools" role="listitem" aria-labelledby="sidebar-tools-label">
           <div class="osprey-section-label sidebar-group-head">
-            <span class="sidebar-group-name" id="sidebar-tools-label">Tools</span>
-            <button class="osprey-mini" type="button" data-group-menu aria-haspopup="menu"
-                    aria-expanded="false" aria-label="Tools group options"
-                    data-tip-detail="Rename or move this group"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+            <span class="sidebar-group-name" id="sidebar-tools-label">Apps</span>
           </div>
           <button class="osprey-nav-row add" id="panel-add-btn" type="button" aria-label="Add panel"
                   aria-haspopup="dialog" aria-expanded="false" aria-controls="panel-add-menu" data-tip="Add panel"
@@ -320,16 +284,15 @@
         </div>
 
         <!-- Agent pane: the chat / terminal card. The header is the terminal's
-             (the session selector, "+ New" and ⋯); the chat's Agent bar is the
-             console's own. -->
+             Agent bar, the same shape as the chat's (agent-bar.js): the session
+             switcher label and "+" (New session); the tile's ⋯ and × follow. -->
         <div class="terminal-panel">
           <div class="terminal-card">
-            <div class="terminal-header">
-              <span class="session-led" id="session-led"></span>
-              <span class="terminal-label" id="terminal-label">Agent</span>
-              <div class="session-selector" id="session-selector"></div>
-              <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
-              <button class="osprey-icon-btn terminal-more-btn" id="terminal-more-btn" type="button" title="More" aria-label="More" aria-haspopup="menu" aria-expanded="false"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
+            <div class="terminal-header agent-bar">
+              <span class="terminal-label agent-bar-label" id="terminal-label">Agent</span>
+              <span class="agent-bar-spacer"></span>
+              <button class="osprey-icon-btn agent-bar-new" id="new-session-btn" type="button"
+                      title="New session" aria-label="New session"><svg class="osprey-ic" data-icon="plus" aria-hidden="true"></svg></button>
             </div>
             <div class="terminal-body" id="terminal-body">
               <div id="terminal-container"></div>
@@ -346,31 +309,12 @@
 
   <!-- ===== Body-level popovers (design-system popover.js places them) ===== -->
 
-  <!-- The collapsed sidebar's Artifacts flyout: the same list beside the
-       sidebar. sidebar-artifacts.js renders its list and count. -->
-  <div class="osprey-popover sidebar-flyout" id="sidebar-artifacts-flyout" role="dialog" aria-label="Artifacts" hidden>
-    <div class="sidebar-flyout-head">
-      <b>Artifacts</b>
-      <span class="osprey-count" data-art-count></span>
-      <div class="sidebar-row-actions">
-        <button class="osprey-mini" type="button" data-art-filter-toggle title="Filter"
-                aria-label="Filter artifacts" aria-pressed="false"><svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg></button>
-        <button class="osprey-mini" type="button" data-art-menu title="More"
-                aria-label="Artifact options" aria-haspopup="menu" aria-expanded="false"
-                aria-controls="sidebar-artifacts-menu"><svg class="osprey-ic" data-icon="more" aria-hidden="true"></svg></button>
-      </div>
-    </div>
-    <div class="sidebar-kids">
-      <label class="sidebar-kids-filter" data-art-filter hidden>
-        <svg class="osprey-ic" data-icon="search" aria-hidden="true"></svg>
-        <input type="search" placeholder="Filter by title" aria-label="Filter artifacts by title">
-      </label>
-      <div class="sidebar-kids-list" id="sidebar-artifacts-flyout-list" role="listbox" aria-label="Artifacts"></div>
-    </div>
+  <!-- The collapsed sidebar's sessions flyout: the same tree beside the
+       sidebar. sidebar-artifacts.js renders it. -->
+  <div class="osprey-popover sidebar-flyout" id="sidebar-sessions-flyout" role="dialog" aria-label="Sessions" hidden>
+    <div class="sidebar-flyout-head"><b>Sessions</b></div>
+    <div class="sidebar-kids osprey-tree" data-session-tree role="tree" aria-label="Sessions"></div>
   </div>
-
-  <!-- The artifact lists' ⋯ menu (sidebar-artifacts.js fills it). -->
-  <div class="osprey-popover" id="sidebar-artifacts-menu" role="menu" aria-label="Artifact options" hidden></div>
 
   <!-- The "+ Add panel" popover (panel-add-menu.js renders it on open). -->
   <div class="osprey-popover panel-add-menu" id="panel-add-menu" role="dialog" aria-label="Add panel" hidden></div>
@@ -409,6 +353,9 @@
       <div data-theme-families></div>
     </div>
     <div class="osprey-popover-sep" role="separator"></div>
+    <button class="osprey-popover-item" type="button" role="menuitemcheckbox" aria-checked="true"
+            data-more="tab-toggle">Tab shows or hides the sidebar<svg class="osprey-ic osprey-popover-check" data-icon="check" aria-hidden="true"></svg></button>
+    <div class="osprey-popover-sep" role="separator"></div>
     <button class="osprey-popover-item" id="more-settings" type="button" role="menuitem"
             data-drawer-trigger="settings-drawer">
       <svg class="osprey-ic" data-icon="sliders" aria-hidden="true"></svg>Settings
@@ -435,7 +382,7 @@
     <div class="osprey-popover-title">Keyboard shortcuts</div>
     <dl class="shortcuts-list">
       <div><dt>Search everything</dt><dd><kbd class="osprey-kbd" data-chord="K">&#8984;K</kbd></dd></div>
-      <div><dt>Show or hide sidebar labels</dt><dd><kbd class="osprey-kbd" data-chord="\">&#8984;\</kbd></dd></div>
+      <div><dt>Show or hide sidebar labels</dt><dd><kbd class="osprey-kbd" data-chord="\">&#8984;\</kbd> or <kbd class="osprey-kbd">Tab</kbd></dd></div>
       <div><dt>Open settings</dt><dd><kbd class="osprey-kbd" data-chord=",">&#8984;,</kbd></dd></div>
 
     </dl>

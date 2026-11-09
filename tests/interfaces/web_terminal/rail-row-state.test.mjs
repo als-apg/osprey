@@ -5,11 +5,11 @@
  *
  * The rows are drawn by panel-rail.js createRail; the state each row shows
  * while the page runs — active, enabled, the agent's attention badge and its
- * time, reachability, a sidecar's start status, the popped-out mark — is set
+ * time, reachability, a sidecar's start status, the detached mark — is set
  * through the mutators here, which panel-rail.js re-exports to the shell.
  *
  * The rows carry NO per-panel health readout: backend liveness is reported by
- * the SYSTEM panel's `web_panels` health category. `.disabled` and
+ * the Health panel's `web_panels` health category. `.disabled` and
  * `.unreachable` are the only health-derived states a row renders.
  *
  * The environment is happy-dom (vitest.config.js), so `document` is a global;
@@ -25,7 +25,7 @@ import {
   setActive,
   setEntryAttention,
   setEntryEnabled,
-  setEntryPoppedOut,
+  setEntryDetached,
   setEntryReachable,
   setEntryStatus,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/rail-row-state.js';
@@ -34,7 +34,7 @@ import { hideTooltip, initTooltips } from '/design-system/js/tooltip.js';
 import { FACILITY_ZONE, VIEWER_ZONE, stampFacilityZone } from '../_support/facility-zone.mjs';
 
 const PANELS = [
-  { id: 'artifacts', label: 'Artifacts' },
+  { id: 'events', label: 'Events' },
   { id: 'ariel', label: 'Ariel' },
   { id: 'channel-finder', label: 'Channels' },
 ];
@@ -48,14 +48,15 @@ function freshRail() {
   return el;
 }
 
-/** A rail holding the page-owned Artifacts row, as index.html ships it.
+/** A rail holding the page-owned Agent row, as index.html ships it.
  *  @returns {HTMLElement} */
 function pageRail() {
   document.body.innerHTML = `
     <div id="panel-rail">
-      <div class="sidebar-row" id="sidebar-artifacts-row">
-        <button class="osprey-nav-row parent panel-rail-button disabled" data-panel-id="artifacts"
-                type="button"><span class="osprey-nav-label">Artifacts</span></button>
+      <div class="sidebar-row" id="sidebar-agent-wrap">
+        <button class="osprey-nav-row parent panel-rail-button disabled" id="sidebar-agent-row"
+                data-panel-id="terminal" type="button"><span class="osprey-nav-label">Agent</span></button>
+        <div class="sidebar-kids osprey-tree" id="sidebar-session-tree" data-session-tree></div>
       </div>
     </div>`;
   return byId('panel-rail');
@@ -67,7 +68,7 @@ function row(rail, id) {
 }
 
 // The groups live in this browser's storage; every test starts from the
-// default Workspace and Tools.
+// default Workspace and Apps.
 beforeEach(() => {
   localStorage.clear();
 });
@@ -84,20 +85,20 @@ describe('setActive', () => {
     setActive(rail, 'ariel');
     expect(row(rail, 'ariel').classList.contains('active')).toBe(true);
     expect(row(rail, 'ariel').getAttribute('aria-current')).toBe('page');
-    expect(row(rail, 'artifacts').classList.contains('active')).toBe(false);
-    expect(row(rail, 'artifacts').hasAttribute('aria-current')).toBe(false);
+    expect(row(rail, 'events').classList.contains('active')).toBe(false);
+    expect(row(rail, 'events').hasAttribute('aria-current')).toBe(false);
   });
 
   test('switching active clears the previous one', () => {
-    setActive(rail, 'artifacts');
+    setActive(rail, 'events');
     setActive(rail, 'channel-finder');
-    expect(row(rail, 'artifacts').classList.contains('active')).toBe(false);
-    expect(row(rail, 'artifacts').hasAttribute('aria-current')).toBe(false);
+    expect(row(rail, 'events').classList.contains('active')).toBe(false);
+    expect(row(rail, 'events').hasAttribute('aria-current')).toBe(false);
     expect(row(rail, 'channel-finder').classList.contains('active')).toBe(true);
   });
 
   test('a null / unknown id clears active on every row', () => {
-    setActive(rail, 'artifacts');
+    setActive(rail, 'events');
     setActive(rail, null);
     expect(rail.querySelectorAll('.panel-rail-button.active').length).toBe(0);
     expect(rail.querySelectorAll('[aria-current]').length).toBe(0);
@@ -113,10 +114,10 @@ describe('setEntryEnabled', () => {
   });
 
   test('setEntryEnabled toggles the disabled class', () => {
-    setEntryEnabled(rail, 'artifacts', true);
-    expect(row(rail, 'artifacts').classList.contains('disabled')).toBe(false);
-    setEntryEnabled(rail, 'artifacts', false);
-    expect(row(rail, 'artifacts').classList.contains('disabled')).toBe(true);
+    setEntryEnabled(rail, 'events', true);
+    expect(row(rail, 'events').classList.contains('disabled')).toBe(false);
+    setEntryEnabled(rail, 'events', false);
+    expect(row(rail, 'events').classList.contains('disabled')).toBe(true);
   });
 
   test('is a no-op for an unknown id', () => {
@@ -464,7 +465,7 @@ describe('setEntryStatus', () => {
     expect(entry.title).toBe(MESSAGE);
     expect(entry.getAttribute('aria-description')).toBe(MESSAGE);
     entry.click();
-    expect(onActivate).toHaveBeenCalledWith('jupyter');
+    expect(onActivate).toHaveBeenCalledWith('jupyter', expect.any(MouseEvent));
   });
 
   test('clearing the status restores the base tooltip', () => {
@@ -497,12 +498,12 @@ describe('setEntryStatus', () => {
 });
 
 /**
- * A panel popped out into its own window keeps its row: the row says so with
- * a trailing window glyph, and its tooltip detail says what a click now does.
+ * A panel in its own window keeps its row: the row says so with
+ * a trailing reattach icon, and its tooltip detail says what a click now does.
  * The panel's own sentence comes back when the window closes.
  */
-describe('setEntryPoppedOut', () => {
-  const POPPED = 'Popped out — click to bring the window to the front';
+describe('setEntryDetached', () => {
+  const DETAIL = 'In its own window — click to bring it to the front';
   /** @type {HTMLElement} */
   let rail;
   beforeEach(() => {
@@ -513,67 +514,75 @@ describe('setEntryPoppedOut', () => {
     ]);
   });
 
-  test('marks the row, adds the glyph last and parks its detail', () => {
-    expect(setEntryPoppedOut(rail, 'ariel', true)).toBe(true);
+  test('marks the row, adds the icon last and parks its detail', () => {
+    expect(setEntryDetached(rail, 'ariel', true)).toBe(true);
     const entry = row(rail, 'ariel');
-    expect(entry.classList.contains('popped-out')).toBe(true);
-    expect(entry.dataset.tipDetail).toBe(POPPED);
+    expect(entry.classList.contains('detached')).toBe(true);
+    expect(entry.dataset.tipDetail).toBe(DETAIL);
     expect(entry.getAttribute('data-tip-detail-base')).toBe('Search the electronic logbook');
     const trail = /** @type {HTMLElement} */ (entry.lastElementChild);
-    expect(trail.matches('span.osprey-nav-trail[data-popout-trail]')).toBe(true);
+    expect(trail.matches('span.osprey-nav-trail[data-detached-trail]')).toBe(true);
     expect(trail.getAttribute('aria-hidden')).toBe('true');
-    expect(trail.innerHTML).toBe(icon('popout').outerHTML);
+    expect(trail.innerHTML).toBe(icon('reattach').outerHTML);
+    expect(trail.dataset.tipDetail).toBe('Reattach');
+    expect(entry.getAttribute('aria-description')).toBe(DETAIL);
   });
 
   test('clearing the mark puts the row back as it was', () => {
     const entry = row(rail, 'ariel');
     const before = entry.outerHTML;
-    setEntryPoppedOut(rail, 'ariel', true);
-    expect(setEntryPoppedOut(rail, 'ariel', false)).toBe(true);
+    setEntryDetached(rail, 'ariel', true);
+    expect(setEntryDetached(rail, 'ariel', false)).toBe(true);
     expect(entry.outerHTML).toBe(before);
   });
 
   test('a row with no detail of its own has none again when the mark clears', () => {
-    setEntryPoppedOut(rail, 'my-dashboard', true);
+    setEntryDetached(rail, 'my-dashboard', true);
     const entry = row(rail, 'my-dashboard');
-    expect(entry.dataset.tipDetail).toBe(POPPED);
-    setEntryPoppedOut(rail, 'my-dashboard', false);
+    expect(entry.dataset.tipDetail).toBe(DETAIL);
+    setEntryDetached(rail, 'my-dashboard', false);
     expect(entry.hasAttribute('data-tip-detail')).toBe(false);
     expect(entry.hasAttribute('data-tip-detail-base')).toBe(false);
   });
 
-  test('marking twice draws one glyph, and keeps the parked detail', () => {
-    setEntryPoppedOut(rail, 'ariel', true);
-    setEntryPoppedOut(rail, 'ariel', true);
+  test('marking twice draws one icon, and keeps the parked detail', () => {
+    setEntryDetached(rail, 'ariel', true);
+    setEntryDetached(rail, 'ariel', true);
     const entry = row(rail, 'ariel');
-    expect(entry.querySelectorAll('[data-popout-trail]').length).toBe(1);
+    expect(entry.querySelectorAll('[data-detached-trail]').length).toBe(1);
     expect(entry.getAttribute('data-tip-detail-base')).toBe('Search the electronic logbook');
   });
 
-  test('a render of a popped-out page-owned row writes its detail to the parking place', () => {
+  test('a render of a detached page-owned row writes its detail to the parking place', () => {
     const page = pageRail();
-    createRail(page, [{ id: 'artifacts', label: 'Artifacts' }]);
-    setEntryPoppedOut(page, 'artifacts', true);
+    createRail(page, [{ id: 'terminal', label: 'Agent' }]);
+    setEntryDetached(page, 'terminal', true);
 
-    createRail(page, [{ id: 'artifacts', label: 'Artifacts' }]);
+    createRail(page, [{ id: 'terminal', label: 'Agent' }]);
 
-    const entry = row(page, 'artifacts');
-    expect(entry.classList.contains('popped-out')).toBe(true);
-    expect(entry.dataset.tipDetail).toBe(POPPED);
-    expect(entry.getAttribute('data-tip-detail-base')).toBe(
-      'Files, plots and notebooks the agent produced'
-    );
+    const entry = row(page, 'terminal');
+    expect(entry.classList.contains('detached')).toBe(true);
+    expect(entry.dataset.tipDetail).toBe(DETAIL);
+    expect(entry.getAttribute('data-tip-detail-base')).toMatch(/^Chat with the agent/);
   });
 
-  test('the attention dot sits before the glyph, which stays last', () => {
-    setEntryPoppedOut(rail, 'ariel', true);
+  test('the attention dot sits before the icon, which stays last', () => {
+    setEntryDetached(rail, 'ariel', true);
     setEntryAttention(rail, 'ariel', true);
     const trail = /** @type {HTMLElement} */ (row(rail, 'ariel').lastElementChild);
-    expect(trail.hasAttribute('data-popout-trail')).toBe(true);
+    expect(trail.hasAttribute('data-detached-trail')).toBe(true);
     expect(trail.previousElementSibling?.hasAttribute('data-attention-badge')).toBe(true);
   });
 
+  test('a start status keeps its description when the mark clears', () => {
+    setEntryStatus(rail, 'ariel', { failed: true, message: 'Could not start' });
+    setEntryDetached(rail, 'ariel', true);
+    expect(row(rail, 'ariel').getAttribute('aria-description')).toBe(DETAIL);
+    setEntryDetached(rail, 'ariel', false);
+    expect(row(rail, 'ariel').getAttribute('aria-description')).toBe('Could not start');
+  });
+
   test('returns false for an unknown id', () => {
-    expect(setEntryPoppedOut(rail, 'nope', true)).toBe(false);
+    expect(setEntryDetached(rail, 'nope', true)).toBe(false);
   });
 });

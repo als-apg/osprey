@@ -6,7 +6,7 @@ build root. The build renders without the project venv, so a preset whose
 sources stop the facility build, or whose profile no longer renders, is caught
 here without an install.
 
-A control-assistant render that selects the middle-layer pipeline answers
+A demo render that selects the middle-layer pipeline answers
 ``run_sql`` from the DuckDB index the build writes.
 
 The unit lane ignores this module by name and the Tier 0 static job runs it by
@@ -34,7 +34,7 @@ PRESETS = sorted(path.stem for path in PRESETS_DIR.glob("*.yml"))
 
 
 def test_two_deployment_presets_ship() -> None:
-    assert PRESETS == ["control-assistant", "hello-world"], PRESETS
+    assert PRESETS == ["demo", "hello-world"], PRESETS
 
 
 @pytest.mark.parametrize("preset", PRESETS)
@@ -88,7 +88,7 @@ def test_a_middle_layer_render_answers_run_sql_with_its_channel_count(
         [
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             "--set",
             "channel_finder_mode=middle_layer",

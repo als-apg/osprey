@@ -6,7 +6,9 @@ package, the ``simulation`` package's among them, are their own API and list it
 in their own ``__all__``. A name is public when a list names it and private when it starts
 with an underscore; nothing is in between. Which modules the framework may
 import is held by ``lint-imports`` (``[tool.importlinter]`` in the root
-``pyproject.toml``); which names it may take from them is held here.
+``pyproject.toml``); which names it may take from them is held here. Tests
+may read private names: a test proves a module's behaviour and is not a user
+of its API.
 """
 
 from __future__ import annotations

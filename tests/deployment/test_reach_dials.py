@@ -79,6 +79,22 @@ class TestBluesky:
         assert _dial("bluesky", {"services": {"bluesky": {"port": 18090}}}) == ("bridge", 9)
 
 
+class TestOptimizer:
+    def test_follows_the_published_port(self, monkeypatch):
+        monkeypatch.delenv("OPTIMIZER_URL", raising=False)
+        assert _dial("optimizer", {"services": {"optimizer": {"port": 18182}}}) == (
+            "127.0.0.1",
+            18182,
+        )
+
+    def test_the_env_override_wins(self, monkeypatch):
+        monkeypatch.setenv("OPTIMIZER_URL", "http://optimizer:9/")
+        assert _dial("optimizer", {"services": {"optimizer": {"port": 18182}}}) == (
+            "optimizer",
+            9,
+        )
+
+
 @pytest.mark.parametrize(
     ("lane", "prefix"),
     [(lane, lane_env_prefix(lane)) for lane in sorted(SECOND_LANE_KEYS.values())],

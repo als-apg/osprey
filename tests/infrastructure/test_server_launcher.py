@@ -233,7 +233,6 @@ class TestAutoLaunchNesting:
             ("system_health", {"health": {"auto_launch": False}}),
             # Flat readers: the key written one level too deep.
             ("artifact", {"artifact_server": {"web": {"auto_launch": False}}}),
-            ("lattice_dashboard", {"lattice_dashboard": {"web": {"auto_launch": False}}}),
             ("okf", {"facility_knowledge": {"bundle_path": "x", "web": {"auto_launch": False}}}),
         ],
     )

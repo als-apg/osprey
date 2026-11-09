@@ -13,7 +13,7 @@ shared judgement underneath them:
   (a profile plus its ``tiers/<name>.yml`` deltas) and ``osprey up`` (each
   render's rendered ``config.yml``) reach.
 
-The shipped ``control-assistant`` stack is exercised as itself throughout: its
+The shipped ``demo`` stack is exercised as itself throughout: its
 roster is exactly the shape the guards exist for (a privileged ``admin`` tier
 behind a login, a shared ``ariel`` card that is not privileged), so a
 guard that fired on it would be wrong and a guard that let a one-key edit to it
@@ -277,13 +277,13 @@ class TestShippedPresetPrivileges:
     )
     def test_unprivileged_tiers(self, layer: str | None):
         """Everything the base floors — including the shared `logbook` card."""
-        resolved, _dir = resolve_build_profile(None, "control-assistant")
+        resolved, _dir = resolve_build_profile(None, "demo")
         layers = [resolved.config, *([_bundled_layer_config(layer)] if layer else [])]
         assert tier_privileges(*layers) == ()
 
     def test_admin_tier_holds_every_door(self):
         """The one bundled layer that opens the gallery's writes."""
-        resolved, _dir = resolve_build_profile(None, "control-assistant")
+        resolved, _dir = resolve_build_profile(None, "demo")
         assert tier_privileges(resolved.config, _bundled_layer_config("tiers/admin")) == (
             ALL_PRIVILEGES
         )
@@ -444,7 +444,7 @@ class TestAuthIsEnforced:
 
 
 def _shipped_host_config() -> dict[str, Any]:
-    resolved, _dir = resolve_build_profile(None, "control-assistant")
+    resolved, _dir = resolve_build_profile(None, "demo")
     return copy.deepcopy(resolved.config)
 
 
@@ -464,7 +464,7 @@ def _render_texts(config: dict[str, Any]):
     """Run `_layer_profile_texts` over a (possibly edited) host config."""
     from osprey.cli.profile_cmd import _layer_profile_texts
 
-    resolved, _dir = resolve_build_profile(None, "control-assistant")
+    resolved, _dir = resolve_build_profile(None, "demo")
     resolved.config = config
     return _layer_profile_texts(resolved, "Test", "")
 
@@ -997,7 +997,7 @@ def _rendered_repo(tmp_path: Path, *, admin_config: dict[str, Any], access: Any)
     return {
         # The deploy config's own posture is the BASELINE every render is judged
         # against, so the floor has to be here for there to be a tier split at
-        # all — which is exactly what a rendered control-assistant project has.
+        # all — which is exactly what a rendered demo project has.
         "claude_code": {"permissions": {"deny": [SETUP_TOOL]}},
         "web": {"config_panel": {"enabled": False}, "scaffold_gallery": {"write_enabled": False}},
         "modules": {

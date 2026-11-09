@@ -102,6 +102,8 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
 
     Raises:
         click.UsageError: With every accumulated problem, so the caller exits 2.
+        FacilityBuildError: When ``machine:`` names no usable machine root, the
+            same stop ``osprey build`` raises.
     """
     from .build_profile import resolve_build_profile
     from .build_profile_canopy import profile_home_screen_errors, repo_home_screen_errors
@@ -140,6 +142,11 @@ def check_profile_file(profile_file: Path, *, drift: str = "error") -> None:
         build_profile.validate(profile_dir)
     except BuildProfileError as e:
         raise click.UsageError(str(e)) from e
+
+    # Where the deployment reads its facility, checked exactly as the build
+    # checks it: a `machine:` naming an empty submodule or overlapping `data:`
+    # stops here with the same facility stop the build would raise.
+    build_profile.resolved_facility_roots(profile_dir)
 
     # The multi-user web stack the profile declares, judged on the config the
     # build would render — the `config:` block with the `deploy:` block's

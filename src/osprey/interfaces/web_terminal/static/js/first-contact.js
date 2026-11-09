@@ -21,9 +21,11 @@
  */
 
 import { isTerminalSurface } from './agent-surface.js';
+import { onChat } from './chat-events.js';
 import { activeKind, subscribe } from './control-target-chip.js';
 import { KIND_READ_PHRASES } from './control-target-facts.js';
 import { focusTerminal, onSessionChange, pasteToTerminal } from './terminal.js';
+import { showUndoNotice } from './undo-notice.js';
 
 /**
  * What the server knows about this deployment's first contact.
@@ -121,6 +123,47 @@ export function starterPrompts(kind = activeKind(), facts = current) {
 /** The chat's one prompt input. */
 const CHAT_INPUT = '#operator-container .op-input-area textarea';
 
+/** What the operator is told when a contribution has to wait for the input. */
+export const PENDING_NOTICE = 'Added to the prompt when the agent is free';
+
+/**
+ * Contributions that arrived while a hand-off held the input, joined in arrival
+ * order, waiting for the input to be the operator's again. `null` when nothing
+ * waits.
+ * @type {string|null}
+ */
+let pendingAppend = null;
+
+/**
+ * Hold a contribution until the input is open again.
+ *
+ * A panel's addresses are the operator's material, not a proposal they can
+ * re-ask for: dropping them because the session was changing hands would
+ * lose the only copy. Later contributions join the waiting one on their own
+ * line, the same separator an append into a live input uses. The notice is
+ * shown once per waiting batch — a second panel click while the first still
+ * waits has nothing new to say.
+ * @param {string} text
+ */
+function holdAppend(text) {
+  const first = pendingAppend === null;
+  pendingAppend = first ? text : `${pendingAppend}\n${text}`;
+  if (first) showUndoNotice({ message: PENDING_NOTICE });
+}
+
+// The chat enables its input before it reports `busy: false`, so the flush
+// lands in a live input. `busy` repeats with the same value, so the handler
+// does nothing unless something waits. Still appended, never sent: the input
+// opening is not the operator pressing Enter.
+onChat('busy', ({ busy }) => {
+  if (busy || pendingAppend === null) return;
+  const input = /** @type {HTMLTextAreaElement|null} */ (document.querySelector(CHAT_INPUT));
+  if (isTerminalSurface() || !input || input.disabled) return;
+  const text = pendingAppend;
+  pendingAppend = null;
+  insertPrompt(text, { append: true });
+});
+
 /**
  * Put one prompt where the operator is typing, and leave the cursor there.
  *
@@ -141,6 +184,8 @@ const CHAT_INPUT = '#operator-container .op-input-area textarea';
  * sentence would destroy the only copy of it. A chip, which offers a whole
  * question, still replaces. Nothing is appended on the terminal surface: the
  * terminal has no value to read back, and pasting is already additive there.
+ * An append that arrives while a hand-off holds the input is held and lands,
+ * still unsent, when the chat reports itself free.
  * @param {string} text
  * @param {{append?: boolean}} [options]  `append`: add below existing text
  *   instead of replacing it
@@ -148,10 +193,14 @@ const CHAT_INPUT = '#operator-container .op-input-area textarea';
 export function insertPrompt(text, { append = false } = {}) {
   if (!isTerminalSurface()) {
     const input = /** @type {HTMLTextAreaElement|null} */ (document.querySelector(CHAT_INPUT));
-    // Disabled means a turn is streaming: the chat owns the input until it is
-    // done, and overwriting a value it is about to clear would be a no-op the
-    // operator watched happen.
-    if (!input || input.disabled) return;
+    if (!input) return;
+    // Disabled means a hand-off holds the input: the session is not this
+    // view's yet. A chip's whole question is dropped — the chip is still there
+    // to click. A contribution waits for the input instead ({@link holdAppend}).
+    if (input.disabled) {
+      if (append) holdAppend(text);
+      return;
+    }
     // An input holding only whitespace has nothing to preserve, so appending to
     // it would just open the prompt with a blank line. The trailing run is
     // collapsed to the single newline that separates the two, rather than
@@ -222,12 +271,20 @@ export function chipRow(prompts) {
 }
 
 /**
+ * Marks an empty-state block whose suggestions were used: one was clicked, so
+ * the row is gone and a rebuild leaves it out.
+ */
+const SUGGESTIONS_TAKEN = 'suggestionsTaken';
+
+/**
  * Fill (or refill) the empty-state block: the sentence, then the prompts.
  *
  * Both halves read ONE {@link activeKind} answer, so a switch landing between
  * them cannot leave a sentence about one machine above a prompt about another.
  * Rebuilding in place rather than replacing the block keeps the caller's handle
- * valid across a switch.
+ * valid across a switch. A block whose suggestions were taken gets the
+ * sentence alone: offering the other questions again under the one just
+ * picked would read as the pick not having landed.
  * @param {HTMLElement} el
  * @returns {HTMLElement} the same element
  */
@@ -241,18 +298,30 @@ export function renderEmptyStateContent(el) {
   // deployment that published nothing has nothing to promise.
   if (phrases.length) el.append(introParagraph(phrases));
 
-  el.append(chipRow(starterPrompts(kind, facts)));
+  if (!el.dataset[SUGGESTIONS_TAKEN]) el.append(chipRow(starterPrompts(kind, facts)));
   return el;
 }
 
 /**
  * The block the chat shows in place of an empty message list: what the
  * agent can do here, and the questions that start a conversation about it.
+ *
+ * Clicking a suggestion puts its question in the input and takes the row
+ * away; the sentence stays until the first message is sent, when the chat
+ * removes the whole block. The tour's card shares {@link chipRow} but not
+ * this: its chips stay for as long as the card does.
  * @returns {HTMLElement}
  */
 export function buildEmptyState() {
   const block = document.createElement('div');
   block.className = 'op-empty';
+  // The chip's own listener inserts the prompt first; this one, on the way
+  // up, takes the row away.
+  block.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element) || !e.target.closest('.tour-chip')) return;
+    block.dataset[SUGGESTIONS_TAKEN] = 'true';
+    block.querySelector('.tour-chips')?.remove();
+  });
   return renderEmptyStateContent(block);
 }
 

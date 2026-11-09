@@ -18,7 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.build_profile_load import bundled_service_names, manifest_rows, service_family
+from osprey.cli.build_profile_load import manifest_rows, service_family
+from osprey.cli.build_profile_presets import bundled_service_names
 from tests._by_path import load_module
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -145,7 +146,7 @@ def test_the_guard_renders_the_injected_shape(guard_module) -> None:
 
     failures = [f for f in doctored.result.failures if f.mode == "unmapped-key"]
     assert [f.detail.split(" ", 1)[0] for f in failures] == [removed]
-    assert "control-assistant+injectors" in failures[0].detail
+    assert "demo+injectors" in failures[0].detail
 
 
 def test_a_lane_instance_key_is_read_against_its_familys_rows(guard_module) -> None:

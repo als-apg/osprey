@@ -247,7 +247,7 @@ cannot call any of these tools even if it tries. The list is the union of:
 - **Facility-custom write tools** — any tool a custom MCP server in
   ``claude_code.servers`` lists under ``writes:`` or marks under
   ``permissions.ask`` (or a custom server that writes-check-gates all its
-  tools) is blocked too. Declare custom write tools under ``permissions.ask``
+  tools) is blocked too. Declare custom write tools under ``writes:``
   so the read-only path recognises them.
 
 Audited *read* tools (e.g. ``mcp__controls__channel_read``) remain available.

@@ -219,6 +219,10 @@ HOST_SESSION_PREFIX = "chat-"
 #: The prefix of a dispatched job's terminal session, ``dispatch-<run id>``.
 DISPATCH_SESSION_PREFIX = "dispatch-"
 
+#: The prefix of a watchdog judge run's terminal session, ``watchdog-<uuid>``. Its
+#: record rows drop out of the operator's session list like dispatch rows do.
+WATCHDOG_SESSION_PREFIX = "watchdog-"
+
 
 def export_host_terminal_session(environ: MutableMapping[str, str]) -> str:
     """Give a session launched on the host (``osprey chat``/``query``) its terminal session.

@@ -1,0 +1,21 @@
+# The VA-only setup a machine repository carries beside its facility.
+#
+# It serves the facility's virtual accelerator and records it in a stored
+# archive, with no agent services: building and serving it needs no provider
+# key. It is an ordinary profile, not a materialized one, so `osprey validate`
+# checks it as written. The start set is not stated here: the scenarios marked
+# `start: true` in data/facility/scenarios/ are the machine's start set.
+extends: hello-world
+name: Example Machine
+project_name: example-machine
+data: data
+
+virtual_accelerator:
+  port: 5064
+
+va_archiver:
+  host: localhost
+
+config:
+  control_system.connector.virtual_accelerator.serving: served
+  archiver.type: mongodb_archiver

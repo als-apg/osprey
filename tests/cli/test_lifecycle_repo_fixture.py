@@ -439,7 +439,7 @@ def test_ci_pipeline_follows_the_deploy_block(lifecycle_repo: Path) -> None:
     """No deploy coordinates, no pipeline — there is nothing to render one from.
 
     This is the default shape precisely because it is what a bare
-    ``osprey init --preset control-assistant`` can reproduce.
+    ``osprey init --preset demo`` can reproduce.
     """
     assert not (lifecycle_repo / ".gitlab-ci.yml").exists()
     assert not (lifecycle_repo / "scripts").exists()
