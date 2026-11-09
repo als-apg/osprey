@@ -2704,6 +2704,14 @@ keys:
       refused at configure() time rather than skipped.
     default: no-fallback
     default_note: the exporter refuses to mirror with no path
+  ariel.enhancement_modules.qmd_export.settings.embed:
+    rendered: false
+    evidence: '_qmd_export_setting\(config, "embed"\)'
+    note: >-
+      Hidden key, unset in the presets. False builds the `ariel` sidecar's
+      keyword index only, for a deployment on hybrid `strategy: rrf`; refused
+      while hybrid search queries qmd's vectors.
+    default: true
   ariel.embedding: {covered-by: ariel, default: n/a}
   ariel.embedding.provider: {covered-by: ariel.embedding, default: ollama}
 
