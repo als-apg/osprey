@@ -7,6 +7,7 @@ and serves the frontend with REST and WebSocket endpoints.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -515,6 +516,13 @@ def _create_lifespan(
                 config, project_dir=resolve_config_path().parent
             )
 
+            # Current values are read by a supervised child, never here.
+            from osprey.interfaces.channel_finder import directory_values_supervisor
+
+            supervisor = directory_values_supervisor.ValueSupervisor(resolve_config_path())
+            await asyncio.to_thread(supervisor.start)
+            app.state.directory_values = supervisor
+
         logger.info(
             "Channel Finder started (pipeline=%s, cwd=%s)",
             pipeline_type,
@@ -533,6 +541,9 @@ def _create_lifespan(
         if close_index is not None:
             close_index()
         await app.state.http_client.aclose()
+        directory_values = getattr(app.state, "directory_values", None)
+        if directory_values is not None:
+            await asyncio.to_thread(directory_values.stop)
         directory_service = getattr(app.state, "directory_service", None)
         if directory_service is not None:
             await directory_service.aclose()
