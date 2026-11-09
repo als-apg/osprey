@@ -224,6 +224,7 @@ async def run_query(
     tools: Sequence[str] | None = None,
     cwd: Path | None = None,
     env_overrides: Mapping[str, str] | None = None,
+    persist_session: bool = True,
 ) -> SDKWorkflowResult:
     """Run a single-turn agent query via the Claude Agent SDK.
 
@@ -284,6 +285,7 @@ async def run_query(
         tools=tools,
         cwd=cwd,
         env_overrides=env_overrides,
+        persist_session=persist_session,
     )
     _stamp_watchdog_skip(options)
 

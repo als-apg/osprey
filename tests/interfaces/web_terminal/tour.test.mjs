@@ -636,9 +636,10 @@ describe('the chords it teaches', () => {
     expect(body).not.toContain('⌘');
   });
 
-  test('the sidebar card names both sections', () => {
+  test('the sidebar card names the sessions and Apps, and no Workspace heading', () => {
     const body = sidebarStepBody();
-    expect(body).toContain('Workspace');
-    expect(body).toContain('Tools');
+    expect(body).toContain('sessions');
+    expect(body).not.toContain('Workspace');
+    expect(body).toContain('Apps');
   });
 });

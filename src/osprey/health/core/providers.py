@@ -19,6 +19,11 @@ probe at all. A row that never contacted anything is not escalated: a
 config-only provider (a block with no adapter class) is a ``skip``, marked as
 this deployment's agent provider so the operator sees that health did not
 verify it. Zero configured providers yields no rows.
+
+A provider no role of this deployment names (:func:`used_providers`) is not
+probed at all: its row is a ``skip`` whose value is
+:data:`~osprey.health.models.NOT_USED`. An unset key or a gateway that is down
+for a catalogue entry nothing calls is not a fault of this deployment.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from osprey.agent_runner.provider_env import personal_login_allowed
-from osprey.health.models import CheckResult, Status
+from osprey.health.models import NOT_USED, CheckResult, Status
 from osprey.health.probes import ProbeContext, provider_canary
 from osprey.health.runtime import HealthRuntime
 from osprey.models.provider_registry import get_provider_registry
@@ -98,7 +103,8 @@ def providers(
         # its reachability belongs to the module that embeds through it.
         reg = registry if registry is not None else get_provider_registry()
         names = list(api_providers)
-        chat_names = [name for name in names if reg.is_chat(name)]
+        used = used_providers(cfg)
+        chat_names = [name for name in names if name in used and reg.is_chat(name)]
         specs = [_spec(name, api_providers.get(name) or {}) for name in chat_names]
         gathered = await asyncio.gather(
             *(provider_canary.run(spec, ctx, registry=registry) for spec in specs),
@@ -107,6 +113,17 @@ def providers(
         outcomes = dict(zip(chat_names, gathered, strict=True))
 
         for name in names:
+            if name not in used:
+                rows.append(
+                    CheckResult(
+                        name,
+                        CATEGORY,
+                        Status.SKIP,
+                        f"{name}: no role of this deployment names it; not probed",
+                        value=NOT_USED,
+                    )
+                )
+                continue
             if name not in outcomes:
                 rows.append(
                     CheckResult(
@@ -182,6 +199,35 @@ def providers(
         return rows
 
     return _run
+
+
+def used_providers(cfg: Mapping[str, Any]) -> set[str]:
+    """Every provider some role of this deployment names.
+
+    A role names its provider with a ``provider:`` key — ``claude_code.provider``,
+    each ``models.<role>.provider``, ARIEL's enhancement modules, watchdogs, and
+    whatever a later subsystem adds — so the set is every string value of a
+    ``provider`` key anywhere in the config outside the ``api.providers``
+    catalogue itself. Derived from the config rather than listed, so a new
+    subsystem that names a provider counts without an edit here.
+    """
+    found: set[str] = set()
+
+    def walk(node: Any, path: tuple[str, ...]) -> None:
+        if isinstance(node, Mapping):
+            if path == ("api", "providers"):
+                return
+            for key, value in node.items():
+                if key == "provider" and isinstance(value, str) and value:
+                    found.add(value)
+                else:
+                    walk(value, (*path, str(key)))
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, path)
+
+    walk(cfg, ())
+    return found
 
 
 def _own_provider(cfg: Mapping[str, Any]) -> str | None:

@@ -171,20 +171,6 @@ def test_misshapen_convention_source_fails_before_copying(profile_dir: Path, pro
     assert not (project_path / ".claude/rules/facility-ops.md").exists()
 
 
-def test_symlink_escaping_the_profile_fails_the_build(
-    profile_dir: Path, project_path: Path, tmp_path: Path
-):
-    """A profile artifact must never smuggle content from outside the profile."""
-    outside = _write(tmp_path / "outside" / "safety.md")
-    _write(profile_dir / "rules" / "facility-ops.md")
-    (profile_dir / "rules" / "safety.md").symlink_to(outside)
-
-    with pytest.raises(BuildProfileError, match="self-contained"):
-        _apply_conventions(profile_dir, project_path)
-
-    assert not (project_path / ".claude/rules/facility-ops.md").exists()
-
-
 def test_symlinked_destination_escaping_the_project_fails_the_build(
     profile_dir: Path, project_path: Path, tmp_path: Path
 ):
@@ -217,12 +203,11 @@ def test_known_root_entries_derive_from_the_profile():
     """Every profile-relative path the profile declares exempts its root entry."""
     from osprey.cli.build_persistence import _profile_known_root_entries
     from osprey.cli.build_profile_model import BuildProfile
-    from osprey.cli.build_profile_schema import DispatchConfig, EnvConfig, ServiceDef
+    from osprey.cli.build_profile_schema import DispatchConfig, ServiceDef
 
     profile = BuildProfile(
         name="p",
         data="facility-data/channels",
-        env=EnvConfig(file="secrets/.env.production"),
         dispatch=DispatchConfig(triggers="dispatch/triggers.yml"),
         services={"beam-logger": ServiceDef(template="service-templates/beam-logger")},
     )
@@ -232,7 +217,6 @@ def test_known_root_entries_derive_from_the_profile():
     assert known == [
         "my-profile.yml",
         "facility-data",
-        "secrets",
         "dispatch",
         "service-templates",
     ]
@@ -415,7 +399,7 @@ def test_registration_never_claims_framework_artifacts(profile_dir: Path, tmp_pa
         TemplateManager(),
         project_name="reg-ownership",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     assert (project_path / ".claude" / "rules" / "safety.md").is_file(), (

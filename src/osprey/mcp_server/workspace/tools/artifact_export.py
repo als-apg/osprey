@@ -68,6 +68,7 @@ async def artifact_export(
     try:
         from osprey.mcp_server.export.converter import (
             PlaywrightNotInstalledError,
+            PlotNotDrawnError,
             convert_html_to_image,
         )
     except ImportError:
@@ -102,6 +103,15 @@ async def artifact_export(
             [
                 "Install Playwright: pip install playwright",
                 "Install browser: playwright install chromium",
+            ],
+        )
+    except PlotNotDrawnError as exc:
+        return make_error(
+            "conversion_error",
+            str(exc),
+            [
+                "The host may be busy; export the artifact again.",
+                "The interactive artifact in the gallery is unaffected.",
             ],
         )
     except ToolError:

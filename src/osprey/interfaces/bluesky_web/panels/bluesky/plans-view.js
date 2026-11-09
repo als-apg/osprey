@@ -3,13 +3,17 @@
  * BLUESKY panel — the Plans view: a two-pane operator console for the
  * registered plans.
  *
- * LEFT (sidebar): a dense, file-browser-style selector (plan-browser.js).
- * Plans are grouped under collapsible provenance folders and filterable; each
- * row is name-first with trust/validation compressed into a single status dot
- * (full detail in the tooltip and the detail header). The first plan is
- * auto-selected on load so the view never opens onto an empty pane.
+ * LEFT (sidebar): the panel sidebar (design system `panel-sidebar.js`), open
+ * on this view, with the plan filter at its top and a dense selector below
+ * (plan-browser.js). Plans are grouped under collapsible provenance folders;
+ * each row is name-first with trust/validation compressed into a single
+ * status dot (full detail in the row tooltip and the plan's Info popover).
+ * The first plan is auto-selected on load, and while there is none to show
+ * both panes say why in one centred state (plan-states.js), never blank.
  *
- * RIGHT (detail): the selected plan under a two-tab strip —
+ * RIGHT (detail): the selected plan — its name with an Info icon (the
+ * description, provenance and validation stay behind it, off the page) —
+ * under a two-tab strip:
  *   - Parameters: a 2-D GUI generated from the plan's JSON Schema
  *     (schema-form.js): chip editors for device lists, an editable table for
  *     grid axes, typed inputs for scalars — arranged by a per-plan layout and
@@ -17,7 +21,8 @@
  *     "2 correctors × 7 points = 14 sweep points" (both from
  *     plan-presentation.js).
  *   - Source: the plan's source code.
- * plus the local Reset and the deterministic Add-to-queue action in the footer.
+ * plus the local Reset icon and the deterministic Add-to-queue action in the
+ * footer; what an add does next is that button's tooltip.
  *
  * Plans absent from the two registries still render fully — the schema-driven
  * form auto-flows their fields — so facility/session plans need no panel-side
@@ -39,10 +44,10 @@
  *
  * Three actions, three different blast radii — kept visibly distinct because
  * confusing them is the expensive mistake:
- *   - Reset (footer) is LOCAL: re-renders this form from schema defaults and
- *     sends nothing anywhere. It does record that the form now diverges from
- *     the shared draft, so a later enqueue pushes what is on screen rather
- *     than pinning a stale revision.
+ *   - Reset (footer icon) is LOCAL: re-renders this form from schema defaults
+ *     and sends nothing anywhere. It does record that the form now diverges
+ *     from the shared draft, so a later enqueue pushes what is on screen
+ *     rather than pinning a stale revision.
  *   - Discard (draft row) is SHARED: deletes the draft on the bridge, for
  *     every panel and for the agent. Two-step confirm, with the consequence
  *     spelled out.
@@ -61,15 +66,15 @@
 
 import { h } from './hyperscript.js';
 import { enqueuePresentation } from './queue-client.js';
-import {
-  dotClass,
-  groupByProvenance,
-  renderPlanTree as renderPlanTreeInto,
-} from './plan-browser.js';
+import { groupByProvenance, renderPlanTree as renderPlanTreeInto } from './plan-browser.js';
 import { planLayout, summarizePlanArgs } from './plan-presentation.js';
+import { planDetailState, planListState, queueReach } from './plan-states.js';
 import { renderSchemaForm } from './schema-form.js';
-import { initSplitter } from '/design-system/js/splitter.js';
-import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { icon } from '/design-system/js/icons.js';
+import { openInfoPopover } from '/design-system/js/info-popover.js';
+import { initPanelSidebar } from '/design-system/js/panel-sidebar.js';
+import { renderState } from '/design-system/js/panel-state.js';
+import { writeTitle } from '/design-system/js/tooltip.js';
 import {
   createDraftClient,
   resolvePinnedRevision,
@@ -88,32 +93,43 @@ import {
   buildAgentDraftBanner,
 } from './draft-client.js';
 
-const PLAN_SIDEBAR_WIDTH_KEY = 'osprey-plan-sidebar-width';
+/**
+ * The plan sidebar's stored width and open state (`panel-sidebar.js` scopes
+ * it per person). The key predates the shared sidebar: a width chosen on the
+ * old splitter carries over.
+ */
+const PLAN_SIDEBAR_KEY = 'osprey-plan-sidebar-width';
+
+/** Why the sidebar toggle is dead off the Plans view (its slot stays put). */
+const SIDEBAR_OFF_VIEW_TIP = 'The plan list belongs to Plans';
 
 /**
  * @typedef {object} PlansViewDeps
  * @property {HTMLElement} root  The panel root; every element this view drives
- *   is looked up beneath it.
+ *   is looked up beneath it, the toolbar's sidebar toggle included.
  * @property {(path: string) => string} api  Prefix-relative URL builder.
  * @property {(runId: string) => void} onOpenRun  A queued run should be
- *   opened: the shell selects it and switches to the Results tab. This is the
- *   whole of the old cross-panel handoff — the queue and the run's rows are in
- *   this same panel now.
+ *   opened: the shell selects it and switches to the Results view. This is
+ *   the whole of the old cross-panel handoff — the queue and the run's rows
+ *   are in this same panel now.
  * @property {Promise<void>} [channelCatalogReady]  Settles once the channel
  *   catalog has been installed, or once the panel's deadline for it passes.
  *   Awaited before a plan form is rendered, because channel-tagged fields read
  *   the catalog synchronously as they are built and are never retrofitted.
  *   Optional: omitted, a form renders immediately with no suggestions.
+ * @property {() => void} [onRetry]  The operator pressed Retry on a
+ *   connecting or unreachable state. This view reads its plans and the
+ *   capability record again itself; the shell dials the queue stream again.
  */
 
 /**
  * @typedef {object} PlansView
- * @property {(text: string) => void} setFilter  Apply a plan-name filter. The
- *   ONE function behind both the in-body search box and the tile bar's
- *   contributed `search` item, so the two can never diverge.
  * @property {(status: import('./queue-client.js').QueueStatus|null) => void} setQueueStatus
  *   The queue's latest manager summary (`null` = unknown), for the enqueue
- *   button's wording.
+ *   button's wording and the detail pane's state while no plan is shown.
+ * @property {(shown: boolean) => void} setShown  Whether the Plans view is on
+ *   screen. The sidebar opens by default on it and nowhere else, and its
+ *   toggle is disabled in place off it.
  */
 
 /**
@@ -157,6 +173,7 @@ export function createPlansView({
   // Defaulted so a caller that does not care — tests, any embedder without a
   // catalog — behaves exactly as before: render immediately, no suggestions.
   channelCatalogReady = Promise.resolve(),
+  onRetry = () => {},
 }) {
   /**
    * The panel owns its own shell, so every id below is present by
@@ -216,9 +233,22 @@ export function createPlansView({
   let queueing = false;
 
   /**
+   * How far the plan catalog read got (plan-states.js). `loading` holds only
+   * until the first answer: a later re-read keeps the list it has on screen.
+   *
+   * @type {import('./plan-states.js').PlansLoad}
+   */
+  let plansLoad = 'loading';
+  /** How many rows the tree drew last; none means the list shows a state. */
+  let plansShown = 0;
+  /** Whether the Plans view is on screen (`setShown`): the sidebar's default. */
+  let viewShown = true;
+
+  /**
    * The manager summary as the queue view last saw it (`null` = unknown: no
-   * frame yet, or the stream dropped). Drives only the enqueue button's
-   * label and footnote — the bridge decides what an add does, this says it.
+   * frame yet, or the stream dropped). Drives the enqueue button's label and
+   * tooltip — the bridge decides what an add does, this says it — and the
+   * detail pane's state while no plan is shown.
    *
    * @type {import('./queue-client.js').QueueStatus|null}
    */
@@ -253,6 +283,9 @@ export function createPlansView({
     canExecute: false,
     reason: REASON_BRIDGE_UNREACHABLE,
     detail: 'Checking whether this deployment can execute plans…',
+    // Retryable like the unreachable sentinel it stands for: the first health
+    // read clears it.
+    retryable: true,
     // No lane has answered yet, and the boot record must not name one: which
     // lane this panel talks to is the bridge's to report, not the panel's to
     // assume.
@@ -260,26 +293,23 @@ export function createPlansView({
     laneTarget: null,
   };
 
-  // The capability record is re-read on a slow interval, not only at boot: the
-  // connector/config reasons are settled until a redeploy (which reloads this
-  // panel anyway), but `manager_unreachable` clears on its own the moment a
-  // restarted queueserver comes back — and an operator staring at a disabled
-  // button should not have to reload to find that out.
+  // The capability record is re-read on a slow interval, not only at boot: a
+  // reason retrying cannot clear is settled until a redeploy (which reloads
+  // this panel anyway), but a retryable reason clears on its own — and an
+  // operator staring at a disabled button should not have to reload to find
+  // that out.
   const CAPABILITY_REFRESH_MS = 30000;
 
   // ---- element lookups ----
 
-  const rootErrorEl = /** @type {HTMLElement} */ (byId('root-error'));
   const planTreeEl = /** @type {HTMLElement} */ (byId('plan-tree'));
-  const plansEmptyEl = /** @type {HTMLElement} */ (byId('plans-empty'));
-  const plansFilteredEmptyEl = /** @type {HTMLElement} */ (byId('plans-filtered-empty'));
+  const planListStateEl = /** @type {HTMLElement} */ (byId('plan-list-state'));
   const searchEl = /** @type {HTMLInputElement} */ (byId('plan-search'));
+  const sidebarToggleEl = /** @type {HTMLButtonElement} */ (byId('plan-sidebar-toggle'));
   const detailEmptyEl = /** @type {HTMLElement} */ (byId('detail-empty'));
   const detailBodyEl = /** @type {HTMLElement} */ (byId('detail-body'));
   const detailTitleEl = /** @type {HTMLElement} */ (byId('detail-title'));
-  const detailStatusEl = /** @type {HTMLElement} */ (byId('detail-status'));
-  const detailDescEl = /** @type {HTMLElement} */ (byId('detail-desc'));
-  const sessionNoteEl = /** @type {HTMLElement} */ (byId('session-note'));
+  const detailInfoBtnEl = /** @type {HTMLButtonElement} */ (byId('detail-info-btn'));
   const detailSourceEl = /** @type {HTMLElement} */ (byId('detail-source'));
   const paramFormEl = /** @type {HTMLFormElement} */ (byId('param-form'));
   const paramSummaryEl = /** @type {HTMLElement} */ (byId('param-summary'));
@@ -287,7 +317,6 @@ export function createPlansView({
   const capabilityBannerEl = /** @type {HTMLElement} */ (byId('capability-banner'));
   const unvalidatedNoteEl = /** @type {HTMLElement} */ (byId('unvalidated-note'));
   const queueAddBtnEl = /** @type {HTMLButtonElement} */ (byId('queue-add-btn'));
-  const queueFootnoteEl = /** @type {HTMLElement} */ (byId('queue-footnote'));
   const resetBtnEl = /** @type {HTMLButtonElement} */ (byId('reset-btn'));
   const tabParamsEl = /** @type {HTMLButtonElement} */ (byId('tab-params'));
   const tabSourceEl = /** @type {HTMLButtonElement} */ (byId('tab-source'));
@@ -322,17 +351,67 @@ export function createPlansView({
   });
   draftAffordanceEl.insertAdjacentElement('afterend', agentDraftBannerEl);
 
-  // ---- root error ----
+  // ---- states (the plan list, and the detail pane with no plan) ----
 
-  /** @param {string} message */
-  function showRootError(message) {
-    rootErrorEl.textContent = message;
-    rootErrorEl.hidden = false;
+  /** The last state each pane drew, so a frame that changes neither redraws neither. */
+  let listStateKey = '';
+  let detailStateKey = '';
+
+  /**
+   * Draw a plan-states.js answer into `host`, its Retry wired to `retry`.
+   *
+   * @param {HTMLElement} host
+   * @param {import('./plan-states.js').PlanState} spec
+   */
+  function drawState(host, spec) {
+    const { retry: offersRetry, ...state } = spec;
+    renderState(
+      host,
+      offersRetry ? { ...state, action: { label: 'Retry', onClick: retry } } : state
+    );
   }
 
-  function clearRootError() {
-    rootErrorEl.hidden = true;
-    rootErrorEl.textContent = '';
+  /**
+   * Bring both panes' states up to date: the plan list's when it has no rows,
+   * and the detail pane's while no plan is selected. Each redraws only when
+   * what it says changed, so a queue frame a second does not keep replacing
+   * the Retry button under the operator's pointer or focus.
+   */
+  function renderStates() {
+    const list = planListState({ load: plansLoad, total: plans.length, shown: plansShown });
+    planTreeEl.hidden = list !== null;
+    planListStateEl.hidden = list === null;
+    const listKey = JSON.stringify(list);
+    if (list !== null && listKey !== listStateKey) drawState(planListStateEl, list);
+    listStateKey = listKey;
+
+    if (selectedName !== null) return;
+    detailBodyEl.hidden = true;
+    detailEmptyEl.hidden = false;
+    const detail = planDetailState({
+      load: plansLoad,
+      total: plans.length,
+      queue: queueReach(queueStatus),
+    });
+    const detailKey = JSON.stringify(detail);
+    if (detailKey === detailStateKey) return;
+    detailStateKey = detailKey;
+    drawState(detailEmptyEl, detail);
+  }
+
+  /**
+   * The operator's Retry: read the plans (a failed read shows as loading
+   * again) and the capability record now, and have the shell dial the queue
+   * stream again.
+   */
+  function retry() {
+    if (plansLoad === 'error') {
+      plansLoad = 'loading';
+      renderStates();
+    }
+    void loadPlans();
+    void refreshCapability();
+    onRetry();
   }
 
   // ---- sidebar (plan browser) ----
@@ -345,23 +424,13 @@ export function createPlansView({
    * bare `renderPlanTree()`.
    */
   function renderPlanTree() {
-    renderPlanTreeInto({
-      treeEl: planTreeEl,
-      emptyEl: plansEmptyEl,
-      filteredEmptyEl: plansFilteredEmptyEl,
-      plans,
-      selectedName,
-      filterText,
-    });
+    plansShown = renderPlanTreeInto({ treeEl: planTreeEl, plans, selectedName, filterText });
+    renderStates();
   }
 
   /**
-   * Apply a plan filter and re-render the sidebar.
-   *
-   * The ONE place the filter is set. Two surfaces drive it — the in-body search
-   * box and, when the panel is embedded, the tile bar's contributed `search`
-   * item — and they must not be able to disagree, so the header path calls this
-   * rather than reimplementing the trim/re-render.
+   * Apply a plan filter and re-render the sidebar. The ONE place the filter is
+   * set: the search field at the top of the sidebar drives it.
    *
    * @param {string} text
    */
@@ -398,6 +467,31 @@ export function createPlansView({
   // ---- detail ----
 
   /**
+   * What the selected plan's Info icon opens: the details the page no longer
+   * prints — its description, provenance, validation, and the session note.
+   *
+   * @returns {{title: string, text: string, rows: Array<{label: string, value: string}>}}
+   */
+  function planInfo() {
+    const source = selectedSource;
+    if (!source) return { title: selectedName || '', text: '', rows: [] };
+    const plan = plans.find((candidate) => candidate.name === source.name);
+    const notes = [(plan && plan.description) || 'This plan has no description.'];
+    if (source.provenance === 'session') {
+      notes.push('Session plans are in-memory; lost on bridge restart.');
+    }
+    return {
+      title: source.name,
+      text: notes.join('\n\n'),
+      rows: [
+        { label: 'Provenance', value: source.provenance },
+        { label: 'Validation', value: source.validated ? 'validated' : 'not validated' },
+        ...(source.truncated ? [{ label: 'Source', value: 'truncated' }] : []),
+      ],
+    };
+  }
+
+  /**
    * @param {PlanSummary|undefined} plan
    * @param {PlanSource} source
    */
@@ -405,22 +499,6 @@ export function createPlansView({
     detailEmptyEl.hidden = true;
     detailBodyEl.hidden = false;
     detailTitleEl.textContent = source.name;
-
-    const statusText = [
-      source.provenance,
-      source.validated ? 'validated' : 'not validated',
-      ...(source.truncated ? ['source truncated'] : []),
-    ].join(' · ');
-    detailStatusEl.replaceChildren(
-      h('span', {
-        class: `dot ${source.validated ? dotClass(source.provenance) : 'err'}`,
-      }),
-      h('span', { text: statusText })
-    );
-
-    detailDescEl.textContent = (plan && plan.description) || '';
-    detailDescEl.hidden = !(plan && plan.description);
-    sessionNoteEl.hidden = source.provenance !== 'session';
     // Text first, always: `textContent` is inert and renders the source
     // correctly on its own, so a missing or broken highlight.js costs colour
     // and nothing else. The colouring pass is layered on top.
@@ -464,14 +542,14 @@ export function createPlansView({
     resetBtnEl.disabled = collectPlanArgs === null;
     const shown = enqueuePresentation(queueStatus);
     queueAddBtnEl.textContent = queueing ? 'Adding…' : shown.label;
-    // The footnote carries the two facts the click has: what happens next in
+    // The tooltip carries the two facts the click has: what happens next in
     // the queue's current state, and — from the SAME predicate that drives
     // the enqueue (`queueAddReplacesDraft`) — whether the shared draft is
-    // replaced by this form on the way, so the note can never promise one
+    // replaced by this form on the way, so the tooltip can never promise one
     // thing while the enqueue does another.
     const facts = [shown.note];
     if (selectedSource && queueAddReplacesDraft()) facts.push('Replaces the shared draft.');
-    queueFootnoteEl.textContent = facts.filter(Boolean).join(' ');
+    writeTitle(queueAddBtnEl, facts.filter(Boolean).join(' '));
   }
 
   function updateDiscardButton() {
@@ -559,29 +637,27 @@ export function createPlansView({
     try {
       const response = await fetch(api('/plans'));
       if (!response.ok) {
-        showRootError(`could not load plans (HTTP ${response.status})`);
+        // Both panes say the list could not be read, and the detail pane
+        // offers Retry (plan-states.js); the status code is not page content.
+        plansLoad = 'error';
         plans = [];
         renderPlanTree();
-        detailEmptyEl.hidden = false;
         return;
       }
       const body = await response.json();
       plans = Array.isArray(body) ? body : [];
-      clearRootError();
+      plansLoad = 'ready';
       renderPlanTree();
-      if (plans.length === 0) {
-        detailEmptyEl.hidden = false;
-      } else if (!selectedName) {
+      if (plans.length > 0 && !selectedName) {
         // Auto-select the first plan (trust-order first group) so the detail
         // pane is never a dead "select something" placeholder.
         const grouped = groupByProvenance(plans);
         void selectPlan(grouped[0].items[0].name);
       }
     } catch {
-      showRootError('could not reach the bluesky-web sidecar');
+      plansLoad = 'error';
       plans = [];
       renderPlanTree();
-      detailEmptyEl.hidden = false;
     }
   }
 
@@ -612,9 +688,6 @@ export function createPlansView({
         detailEmptyEl.hidden = true;
         detailBodyEl.hidden = false;
         detailTitleEl.textContent = name;
-        detailStatusEl.replaceChildren();
-        detailDescEl.hidden = true;
-        sessionNoteEl.hidden = true;
         detailSourceEl.textContent = '';
         paramFormEl.replaceChildren();
         collectPlanArgs = null;
@@ -790,6 +863,7 @@ export function createPlansView({
           canExecute: false,
           reason: outcome.reason,
           detail: outcome.detail,
+          retryable: outcome.retryable,
           lane: outcome.lane,
           laneTarget: outcome.laneTarget,
         };
@@ -970,10 +1044,10 @@ export function createPlansView({
   paramFormEl.addEventListener('change', updateSummary);
   paramFormEl.addEventListener('form-change', updateSummary);
 
-  // One click. The footnote beside the button already says what happens next
-  // and whether the shared draft is replaced; the bridge token-checks every
-  // add to an armed queue. A confirm here was a second click in front of a
-  // fact the operator could already read.
+  // One click. The button's tooltip already says what happens next and
+  // whether the shared draft is replaced; the bridge token-checks every add
+  // to an armed queue. A confirm here was a second click in front of a fact
+  // the operator could already read.
   queueAddBtnEl.addEventListener('click', () => {
     if (queueAddBtnEl.disabled) return;
     void doQueueAdd();
@@ -982,6 +1056,11 @@ export function createPlansView({
   resetBtnEl.addEventListener('click', () => {
     if (resetBtnEl.disabled) return;
     resetForm();
+  });
+
+  // The plan's description, provenance and validation, off the page.
+  detailInfoBtnEl.addEventListener('click', () => {
+    openInfoPopover(detailInfoBtnEl, planInfo());
   });
 
   paramFormEl.addEventListener('submit', (event) => {
@@ -1009,24 +1088,28 @@ export function createPlansView({
 
   // ---- boot ----
 
-  // Browser/detail split. Plan names are long and deeply namespaced, so the
-  // browser needs to be widenable at the cost of the parameter form — the same
-  // affordance (and the same shared implementation) as the OKF panel's
-  // sidebar/reader split and the artifact gallery's browse view. The chosen
-  // width is persisted per person; the bounds match OKF's.
-  initSplitter({
+  // Icons are built here, so the markup carries no SVG of its own.
+  /** @type {HTMLElement} */ (searchEl.parentElement).prepend(icon('search'));
+  resetBtnEl.append(icon('history'));
+  detailInfoBtnEl.append(icon('info'));
+
+  // The plan list is the panel sidebar: open on the Plans view and nowhere
+  // else (`setShown`), 260 px wide and resizable, an overlay in a narrow
+  // tile. Plan names are long and deeply namespaced, so the operator's own
+  // width and open/closed choice are kept per person.
+  const sidebar = initPanelSidebar({
+    sidebar: byId('plan-sidebar'),
     handle: byId('browser-splitter'),
-    pane: byId('plan-sidebar'),
-    storageKey: scopedStorageKey(PLAN_SIDEBAR_WIDTH_KEY),
-    min: 180,
-    max: 560,
-    collapsedSize: 0,
-  }).restoreSize();
+    toggle: sidebarToggleEl,
+    storageKey: PLAN_SIDEBAR_KEY,
+    defaultOpen: () => viewShown,
+  });
 
   // Publish the fail-closed placeholder before any network call, so the footer
   // explains the disabled button from the first paint rather than after it.
   renderCapability();
   updateDiscardButton();
+  renderStates();
 
   void loadPlans();
   void refreshCapability();
@@ -1035,16 +1118,33 @@ export function createPlansView({
   }, CAPABILITY_REFRESH_MS);
 
   return {
-    setFilter,
     /**
-     * The queue view's latest manager summary, forwarded by the shell. Only
-     * the enqueue button's wording depends on it.
+     * The queue view's latest manager summary, forwarded by the shell: the
+     * enqueue button's wording, and the detail pane's state while no plan
+     * is shown, depend on it.
      *
      * @param {import('./queue-client.js').QueueStatus|null} status
      */
     setQueueStatus(status) {
       queueStatus = status;
       updateQueueButton();
+      renderStates();
+    },
+    /**
+     * Whether the Plans view is on screen. The sidebar follows its default
+     * (never stored), and off this view its toggle stays in its slot,
+     * disabled, with the reason as its tooltip. The reason rides in
+     * `data-tip`, which the tooltip layer reads before `title`: the sidebar
+     * keeps the title itself ("Show sidebar"), and may rewrite it on a resize.
+     *
+     * @param {boolean} shown
+     */
+    setShown(shown) {
+      viewShown = shown;
+      sidebar.applyDefault();
+      sidebarToggleEl.disabled = !shown;
+      if (shown) delete sidebarToggleEl.dataset.tip;
+      else sidebarToggleEl.dataset.tip = SIDEBAR_OFF_VIEW_TIP;
     },
   };
 }

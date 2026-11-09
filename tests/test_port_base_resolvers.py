@@ -342,10 +342,8 @@ def _web_server_address(key: str) -> Callable[[Path, pytest.MonkeyPatch], tuple[
     def run(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
         from osprey.registry.web import resolve_web_server_address
 
-        definition = FRAMEWORK_WEB_SERVERS[key]
-        family = definition.port_family or key
         _host, port = resolve_web_server_address(key, CONFIG)
-        return port, default_port(family, 0, base=PORT_BASE)
+        return port, default_port(key, 0, base=PORT_BASE)
 
     return run
 
@@ -505,17 +503,9 @@ def _panel_cli_port_defaults(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) 
     keeps the decision in the command body, where the config — and therefore
     the deployment's own base — is reachable.
     """
-    from osprey.cli.ariel import web_command as ariel_web
-    from osprey.cli.artifacts_cmd import web as artifacts_web
-    from osprey.cli.channel_finder_cmd import web as channel_finder_web
     from osprey.cli.web_cmd import web as terminal_web
 
-    commands = {
-        "osprey ariel web": ariel_web,
-        "osprey artifacts web": artifacts_web,
-        "osprey channel-finder web": channel_finder_web,
-        "osprey web": terminal_web,
-    }
+    commands = {"osprey web": terminal_web}
     actual = {
         label: next(p.default for p in command.params if p.name == "port")
         for label, command in commands.items()
@@ -594,7 +584,7 @@ CASES: tuple[Case, ...] = (
             f"resolve_web_server_address[{key}]",
             "the config it is handed",
             _web_server_address(key),
-            (FRAMEWORK_WEB_SERVERS[key].port_family or key,),
+            (key,),
         )
         for key in sorted(FRAMEWORK_WEB_SERVERS)
     ),
@@ -604,7 +594,7 @@ CASES: tuple[Case, ...] = (
         "base_ports_from_config",
         "base= keyword, no default",
         _base_ports,
-        ("web", "artifact", "ariel", "lattice", "channel_finder", "okf", "system_health"),
+        ("web", "artifact", "ariel", "channel_finder", "okf", "system_health"),
     ),
     Case(
         "mcp_server.http.web_terminal_url",

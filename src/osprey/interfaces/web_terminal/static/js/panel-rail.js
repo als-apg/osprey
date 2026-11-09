@@ -2,40 +2,44 @@
 /* OSPREY Web Terminal — the sidebar's panel rows (DOM renderer)
  *
  * The labelled sidebar lists the panels inside `#panel-rail`, sorted into the
- * operator's groups (sidebar-groups.js): `Workspace` and `Tools` to begin
+ * operator's groups (sidebar-groups.js): the headless `Sessions` and `Apps` to begin
  * with, then renamed, reordered or joined by groups of the operator's own.
  * The Agent row is always the first row of the first group. Every other row
  * sits in the group the model places it in, and within a group the rows keep
  * the server's rail order, so a group filters the rail and never reorders
- * it. `+ Add panel` is always the last row of the last group. This module
+ * it. `+ Add panel` is always the last row of Apps (the last group when Apps is
+ * not shown). This module
  * builds and places those rows and exposes small imperative mutators — set
  * active, enable, attention, append, remove — so `panel-manager.js`'s state
  * machine can drive the sidebar without owning any DOM specifics.
  *
  * The rows deliberately carry no per-poll readout — coarse reachability only.
- * Backend liveness is reported in one place — the SYSTEM panel's
+ * Backend liveness is reported in one place — the Health panel's
  * `web_panels` health category — so the sidebar stays a navigation surface
  * rather than a status board. Health reaches a row as two coarse states: a row
  * whose backend has never answered is `.disabled` (dimmed and inert), and one
  * that answered before but has stopped is `.unreachable` (dimmed, still
  * clickable, its tooltip saying since when). The one status a row names is a
  * sidecar that failed to start: its row is `.failed` and carries the server's
- * sentence as its tooltip, because a click on it is the retry.
+ * sentence as its tooltip, because a click on it is the retry (its menu offers
+ * Retry start and Remove from rail).
  *
  * The rows are a curated MEMBERSHIP list: a panel has a row iff it is a rail
  * member. Which member holds the workspace tile is per-client layout state,
  * reflected only by `.active` + `aria-current="page"` — never by dimming.
  *
- * PAGE-OWNED ROWS. Two rows ship ready-made in index.html because other
- * modules hang state on them: the Agent row (`#sidebar-agent-row`, the
- * `terminal` entry, whose dot and badge sidebar.js keeps) and the Artifacts
- * row (`#sidebar-artifacts-row`, whose lists sidebar-artifacts.js renders).
- * Beside them sit two page-owned nodes that are not entries at all: the
- * Script runs row (`#sidebar-runs-row`, which follows the Artifacts row in
- * and out of view, and into whichever group the Artifacts row moves to,
- * because its records come from the same server) and `#panel-add-btn`. A
- * render MOVES these nodes into place and never rebuilds them, so their
- * listeners, their lists and their live state survive every render. A
+ * PAGE-OWNED ROWS. The Agent row ships ready-made in index.html because
+ * other modules hang state on it: `#sidebar-agent-row`, the `terminal` entry,
+ * whose dot and badge sidebar.js keeps, inside `#sidebar-agent-wrap` with the
+ * session tree sidebar-artifacts.js renders. Beside it sits a page-owned node
+ * that is not an entry at all: `#panel-add-btn`. A render MOVES these nodes
+ * into place and never rebuilds them, so their listeners, their tree and
+ * their live state survive every render.
+ *
+ * NO ARTIFACTS ROW. The artifacts panel has no rail entry: its artifacts live
+ * in the Agent row's session tree, and the panel stays reachable through the
+ * palette and its tile menu. An `artifacts` entry handed to the rail is
+ * dropped (else it would get a generic row). A
  * page-owned entry whose panel is not a member stays in the document,
  * `hidden`, and counts as absent for every query below. A rail element
  * without the page's skeleton (a test fixture) gets its groups built here and
@@ -60,9 +64,8 @@
  *   <div id="panel-rail" role="list">
  *     <div class="sidebar-group" data-group="workspace" role="listitem"
  *          aria-labelledby="panel-rail-workspace-label">
- *       <div class="osprey-section-label sidebar-group-head">
- *         <span class="sidebar-group-name" id="panel-rail-workspace-label">Workspace</span>
- *         <button class="osprey-mini" type="button" data-group-menu …>…</button>
+ *       <div class="osprey-section-label sidebar-group-head" hidden>
+ *         <span class="sidebar-group-name" id="panel-rail-workspace-label">Sessions</span>
  *       </div>
  *       <div class="osprey-list-empty sidebar-group-empty" data-group-empty hidden>…</div>
  *       <button class="osprey-nav-row panel-rail-button disabled" data-panel-id="events"
@@ -79,10 +82,12 @@
  * A row's tooltip detail (`data-tip-detail`) is the panel's sentence from
  * panel-catalog.js; a panel without one has none.
  *
- * Beyond activation, a row's verbs (open in a new tile, pop out, move to another
- * group, remove) live in the caller's right-click context menu — the rail
- * only forwards the contextmenu event through `onContextMenu` and suppresses
- * the browser menu when the caller reports it handled. A caller-supplied
+ * Beyond activation, a row's verbs (the panel's own rows, focus or open its
+ * tile, open in a new window, move to another group, remove) live in the
+ * caller's right-click context menu — the rail only forwards the contextmenu
+ * event through `onContextMenu` and suppresses the browser menu when the
+ * caller reports it handled. A Shift+right-click is never forwarded: it is the
+ * way to the browser's own menu. A caller-supplied
  * `panel.hint` is appended to the tooltip so the menu is advertised.
  *
  * That menu is reachable from the keyboard, and explicitly so: a focused row
@@ -97,13 +102,14 @@
  * to put it directly above the row it was dropped on (`onReorder`); dropped
  * into another group, it moves to that group first (sidebar-groups.js
  * moveToGroup) and then takes the same position there. The Agent row never
- * moves.
+ * moves. A group's heading drags the whole group among the others
+ * (sidebar-group-drag.js, wired with the rail).
  *
  * State classes on a row: `.active` (surfaced panel), `.disabled` (backend
  * never answered), `.unreachable` (backend stopped answering), `.failed` (a
  * sidecar that failed to start; dimmed but clickable), `.agent-attention`
  * (the agent touched the panel and the operator has not looked yet; drawn as
- * an `.osprey-nav-badge` dot inside the row), `.popped-out` (the panel runs
+ * an `.osprey-nav-badge` dot inside the row), `.detached` (the panel runs
  * in its own window; drawn as a trailing `maximize` glyph). While a badge
  * time, an unreachable notice or a status message owns the tooltip, the row
  * carries a transient `data-title-base` holding the tooltip it borrowed;
@@ -111,15 +117,18 @@
  */
 
 import { icon } from '/design-system/js/icons.js';
+import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import { TERMINAL_RAIL_ID, describePanel } from './panel-catalog.js';
 import { BUTTON_SELECTOR, getEntry, parked, rowOf, writeRowTips } from './rail-row-state.js';
 import {
+  FALLBACK_GROUP,
   groupOf,
   loadGroups,
   moveToGroup,
   onGroupsChange,
   paintGroupHeading,
 } from './sidebar-groups.js';
+import { wireGroupDrag } from './sidebar-group-drag.js';
 
 // ---- Types ----
 
@@ -145,7 +154,7 @@ import {
  * through (the caller's policy — e.g. a disabled row); this module stays
  * policy-free.
  * @typedef {object} RailOptions
- * @property {(id: string) => void} [onActivate]   - a row was clicked
+ * @property {(id: string, e: MouseEvent) => void} [onActivate]   - a row was clicked
  * @property {(id: string, e: MouseEvent) => boolean} [onContextMenu]
  *   - a row was right-clicked, or asked for its menu from the keyboard
  *     (`ContextMenu` / Shift+F10, where `e` is a synthetic contextmenu event
@@ -175,9 +184,11 @@ export {
   setActive,
   setEntryAttention,
   setEntryEnabled,
-  setEntryPoppedOut,
+  setEntryDetached,
   setEntryReachable,
   setEntryStatus,
+  DETACHED_DETAIL,
+  DETACHED_TRAIL_ATTR,
 } from './rail-row-state.js';
 
 /** The event dispatched on `document` after a render. */
@@ -188,18 +199,13 @@ const DEFAULT_ICON = 'workspace';
 
 /** Page-owned rows, by the entry id they hold. */
 const PAGE_ROWS = /** @type {Readonly<Record<string, string>>} */ ({
-  terminal: 'sidebar-agent-row',
-  artifacts: 'sidebar-artifacts-row',
+  terminal: 'sidebar-agent-wrap',
 });
 
-/** The entry the Script runs row follows. */
-const ARTIFACTS_ID = 'artifacts';
+/** The panel that never gets a rail entry (its artifacts are in the session tree). */
+export const OFF_RAIL_IDS = Object.freeze(['artifacts']);
 
-/** The Script runs row: page-owned, shown exactly while Artifacts is, and
- *  always directly after it. */
-const RUNS_ROW_ID = 'sidebar-runs-row';
-
-/** The `+ Add panel` row: page-owned, always the last row of the last group. */
+/** The `+ Add panel` row: page-owned, the last row of the Apps group, or of the last group when Apps is not shown. */
 const ADD_BUTTON_ID = 'panel-add-btn';
 
 /** Marks a group's empty line. */
@@ -259,8 +265,13 @@ function syncGroups(railEl) {
       el.setAttribute('role', 'listitem');
     }
     paintGroupHeading(el, group, `${railEl.id || 'panel-rail'}-${group.id}-label`);
+    // Other children of the rail (the Workspace divider) keep their place
+    // between groups: the next group goes after them, not in front.
     /** @type {Element | null} */
-    const slot = previous ? previous.nextElementSibling : railEl.firstElementChild;
+    let slot = previous ? previous.nextElementSibling : railEl.firstElementChild;
+    while (slot && slot !== el && !slot.classList.contains('sidebar-group')) {
+      slot = slot.nextElementSibling;
+    }
     if (slot !== el) railEl.insertBefore(el, slot);
     found.set(group.id, el);
     previous = el;
@@ -300,16 +311,6 @@ function emptyLineOf(group) {
 function pageRow(railEl, id) {
   const rowId = Object.hasOwn(PAGE_ROWS, id) ? PAGE_ROWS[id] : null;
   return rowId ? /** @type {HTMLElement | null} */ (railEl.querySelector(`#${rowId}`)) : null;
-}
-
-/**
- * Show or hide the Script runs row with the Artifacts row: its records come
- * from the same server, so it has nothing to list where Artifacts is absent.
- * @param {HTMLElement} railEl
- */
-function syncRunsRow(railEl) {
-  const runs = /** @type {HTMLElement | null} */ (railEl.querySelector(`#${RUNS_ROW_ID}`));
-  if (runs) runs.hidden = getEntry(railEl, ARTIFACTS_ID) === null;
 }
 
 /**
@@ -365,9 +366,8 @@ function reconcile(parent, kids) {
 /**
  * Put every group and row where the model and the rail order say. Each group
  * holds its heading and its empty line, then its rows in rail order: the
- * Agent row first in the first group, and the Script runs row directly after
- * the Artifacts row in whichever group that is. `+ Add panel` closes the last
- * group. Nodes are moved, never rebuilt, and only where they are out of
+ * Agent row first in the first group. `+ Add panel` closes Apps (the last
+ * group if Apps is not shown). Nodes are moved, never rebuilt, and only where they are out of
  * place, so every row keeps its live state and a node that stays put keeps
  * its focus.
  * @param {HTMLElement} railEl
@@ -392,19 +392,16 @@ function arrange(railEl) {
     if (id === TERMINAL_RAIL_ID) agent = node;
     else rows.get(groupOf(id))?.push({ id, node });
   }
-  const runs = /** @type {HTMLElement | null} */ (railEl.querySelector(`#${RUNS_ROW_ID}`));
   const add = /** @type {HTMLElement | null} */ (railEl.querySelector(`#${ADD_BUTTON_ID}`));
 
+  const addHome = ids.includes(FALLBACK_GROUP) ? FALLBACK_GROUP : ids.at(-1);
   ids.forEach((groupId, i) => {
     const group = /** @type {HTMLElement} */ (groups.get(groupId));
     const kids = [headingOf(group), emptyLineOf(group)];
     if (i === 0 && agent) kids.push(agent);
     const members = rows.get(groupId) ?? [];
-    for (const { id, node } of members.sort((a, b) => rank(a.id) - rank(b.id))) {
-      kids.push(node);
-      if (id === ARTIFACTS_ID && runs) kids.push(runs);
-    }
-    if (i === ids.length - 1 && add) kids.push(add);
+    for (const { node } of members.sort((a, b) => rank(a.id) - rank(b.id))) kids.push(node);
+    if (groupId === addHome && add) kids.push(add);
     reconcile(group, kids);
   });
   // Every row has moved into a group of the model by now, so the element of a
@@ -412,7 +409,6 @@ function arrange(railEl) {
   for (const el of railEl.querySelectorAll(':scope > .sidebar-group')) {
     if (!groups.has(el.getAttribute('data-group') ?? '')) el.remove();
   }
-  syncRunsRow(railEl);
   syncEmptyLines(railEl);
 }
 
@@ -426,7 +422,7 @@ function announceRender() {
 /**
  * Give a row its identity: label, accessible name, tooltips. The tooltip's
  * explanatory line is the panel's sentence (panel-catalog.js), written so a
- * popped-out mark or a borrowed title keeps showing (rail-row-state.js).
+ * detached mark or a borrowed title keeps showing (rail-row-state.js).
  * @param {HTMLElement} btn
  * @param {RailPanel} panel
  */
@@ -482,12 +478,14 @@ function wireButton(railEl, btn, id, rowOptions) {
   wiredButtons.add(btn);
   const options = () => rowOptionsOf.get(btn) ?? {};
 
-  btn.addEventListener('click', () => options().onActivate?.(id));
+  btn.addEventListener('click', (event) => options().onActivate?.(id, event));
 
   // Right-click → the caller's context menu. The caller decides per-row
   // whether a menu exists (returns true); declining leaves the event alone so
-  // the browser menu shows.
+  // the browser menu shows. A Shift+right-click is the operator asking for
+  // the browser's own menu, so it never reaches the caller.
   btn.addEventListener('contextmenu', (e) => {
+    if (declinesToBrowser(e)) return;
     const onContextMenu = options().onContextMenu;
     if (onContextMenu?.(id, e)) e.preventDefault();
   });
@@ -557,8 +555,7 @@ function entryNode(railEl, panel, options) {
 /**
  * Render every row into `railEl`: the groups of the model in its order, the
  * Agent row first, every other entry in its group in `panels` order (the
- * server's rail order), the Script runs row after Artifacts, and `+ Add
- * panel` last. Page-owned rows are moved into place, never rebuilt; one whose
+ * server's rail order), and `+ Add panel` last; never an artifacts entry. Page-owned rows are moved into place, never rebuilt; one whose
  * panel is not in `panels` stays in its group, hidden.
  *
  * This is the destructive full render: built rows are made anew. Use
@@ -582,11 +579,12 @@ export function createRail(railEl, panels, options = {}) {
     if (pageRow(railEl, id)) rowOf(/** @type {HTMLElement} */ (entry)).hidden = true;
     else entry.remove();
   }
-  for (const panel of panels) {
+  const onRail = panels.filter((panel) => !OFF_RAIL_IDS.includes(panel.id));
+  for (const panel of onRail) {
     const node = entryNode(railEl, panel, options);
     if (!railEl.contains(node)) groups.get(groupOf(panel.id))?.append(node);
   }
-  const ids = panels.map((panel) => panel.id);
+  const ids = onRail.map((panel) => panel.id);
   railOrderOf.set(
     railEl,
     ids.filter((id) => id !== TERMINAL_RAIL_ID)
@@ -602,13 +600,15 @@ export function createRail(railEl, panels, options = {}) {
  * joins the end of the server's rail order; the Agent row takes its place at
  * the head of the first group.
  *
- * Idempotent by id: an entry that already exists is returned unchanged.
+ * Idempotent by id: an entry that already exists is returned unchanged. An
+ * off-rail panel (artifacts) gets no entry: null.
  * @param {HTMLElement} railEl
  * @param {RailPanel} panel
  * @param {RailOptions} [options]
- * @returns {HTMLElement}
+ * @returns {HTMLElement | null}
  */
 export function addEntry(railEl, panel, options = {}) {
+  if (OFF_RAIL_IDS.includes(panel.id)) return null;
   const existing = getEntry(railEl, panel.id);
   if (existing) return existing;
   wireRail(railEl);
@@ -648,7 +648,6 @@ export function removeEntry(railEl, panelId) {
   );
   if (pageRow(railEl, panelId)) {
     rowOf(entry).hidden = true;
-    syncRunsRow(railEl);
     syncEmptyLines(railEl);
     announceRender();
     return;
@@ -708,6 +707,7 @@ const wiredRails = new WeakSet();
 function wireRail(railEl) {
   if (wiredRails.has(railEl)) return;
   wiredRails.add(railEl);
+  wireGroupDrag(railEl);
   const stop = onGroupsChange(() => {
     if (!railEl.isConnected) {
       stop();

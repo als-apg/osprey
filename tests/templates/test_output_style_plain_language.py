@@ -1,6 +1,6 @@
 """Guards for the ``Plain Language`` block in ``control-operator.md.j2``.
 
-The block exists so the control assistant's prose stays readable to operators
+The block exists so the demo's prose stays readable to operators
 working under time pressure, many of whom read English as a second language.
 It is distilled from ASD-STE100 Simplified Technical English and the Google
 developer documentation style guide -- neither text is vendored, because
@@ -76,12 +76,12 @@ def _render_output_style(tmp_path) -> str:
         manager,
         project_name="plain-language-style",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
         # The hooks are along for the build's own gates, not for this test:
         # memory-guard is what keeps the write-tool lint from refusing a
         # profile whose PreToolUse chain never matches `Write`, and the three
-        # write gates are what the control-assistant preset's armed writes
+        # write gates are what the demo preset's armed writes
         # require of any profile that selects hooks at all.
         artifacts={
             "hooks": ["memory-guard", "approval", "writes-check", "limits"],

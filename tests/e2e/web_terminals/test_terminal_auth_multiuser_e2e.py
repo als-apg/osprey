@@ -162,7 +162,7 @@ from tests.e2e.profile_edits import set_pairs
 # expensive framework build would run in the wrong lane. It is also why both
 # postures live in ONE module: a second file would need its own ignore entry and
 # its own job, and would pay for the framework build a second time.
-pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.dockerbuild]
 
 #: The tier both lanes' rosters run: a bundled one, so ``osprey init`` writes
 #: its file and ``osprey build`` renders it.
@@ -258,7 +258,6 @@ TOKEN_LANE = Lane(
         "web": 19671,
         "artifact": 19771,
         "ariel": 19871,
-        "lattice": 19971,
         "channel_finder": 19981,
         "okf": 19631,
         "system_health": 19641,
@@ -278,7 +277,6 @@ OPEN_LANE = Lane(
         "web": 19691,
         "artifact": 19791,
         "ariel": 19891,
-        "lattice": 19941,
         "channel_finder": 19951,
         "okf": 19651,
         "system_health": 19661,
@@ -421,7 +419,6 @@ def _profile_edits(lane: Lane) -> dict[str, Any]:
                 "web_base_port": lane.base_ports["web"],
                 "artifact_base_port": lane.base_ports["artifact"],
                 "ariel_base_port": lane.base_ports["ariel"],
-                "lattice_base_port": lane.base_ports["lattice"],
                 "channel_finder_base_port": lane.base_ports["channel_finder"],
                 "okf_base_port": lane.base_ports["okf"],
                 "system_health_base_port": lane.base_ports["system_health"],

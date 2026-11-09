@@ -2,8 +2,8 @@
 
 A reader copies these literally: a refusal line to search a log for, an
 environment variable a cell reads, a ``postMessage`` type a panel listens for,
-a stylesheet a panel links, a theme name, a lint code, a figure status, or a
-config stanza the preset is said to carry. Each one is defined once in the
+a stylesheet a panel links, a theme name, a lint code, or a config
+stanza the preset is said to carry. Each one is defined once in the
 source. This module holds every quoted copy equal to its definition, so a
 rename in either place fails here instead of in front of an operator.
 """
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import re
 import textwrap
-import typing
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +20,6 @@ import yaml
 
 from osprey.cli.build_profile_presets import _load_preset_raw
 from osprey.interfaces.design_system.theme_config import load_theme_registry
-from osprey.interfaces.lattice_dashboard.schema import FigureStatus
 
 _REPO = Path(__file__).resolve().parents[2]
 _PAGES = _REPO / "docs" / "source" / "how-to" / "web-terminal"
@@ -30,7 +28,6 @@ _SRC = _REPO / "src" / "osprey"
 _NOTEBOOKS = _PAGES / "notebooks.rst"
 _PANELS = _PAGES / "panels.rst"
 _THEMING = _PAGES / "theming.rst"
-_LATTICE = _PAGES / "lattice-dashboard.rst"
 _CANOPY = _PAGES / "canopy.rst"
 _MULTI_USER = _PAGES / "multi-user" / "index.rst"
 _LOGIN = _PAGES / "multi-user" / "login.rst"
@@ -93,7 +90,7 @@ def _is_subset(part: Any, whole: Any) -> bool:
 
 
 def _preset() -> dict[str, Any]:
-    raw, _ = _load_preset_raw("control-assistant")
+    raw, _ = _load_preset_raw("demo")
     return raw
 
 
@@ -246,16 +243,8 @@ def test_every_lint_code_a_page_names_is_one_the_lint_emits(page: Path) -> None:
     assert sorted(codes - _lint_codes()) == []
 
 
-def test_the_lattice_statuses_are_the_figure_statuses() -> None:
-    """The five statuses the lattice page lists are ``FigureStatus``, spelled the same."""
-    section = _LATTICE.read_text(encoding="utf-8").split("When a figure is current", 1)[1]
-    listed = re.findall(r"^- ``([a-z_ ]+)`` —", section, re.MULTILINE)
-
-    assert listed == list(typing.get_args(FigureStatus))
-
-
 def test_the_canopy_stanza_is_what_the_preset_carries() -> None:
-    """The profile stanza the CANOPY page adds is already in the control-assistant preset."""
+    """The profile stanza the CANOPY page adds is already in the demo preset."""
     stanza = yaml.safe_load(_block_with(_CANOPY, "yaml", "web_panels:"))
     preset = _preset()
 

@@ -123,8 +123,8 @@ temp/
 *.bmp
 *.tiff
 *.ico
-# The control-assistant template's CANOPY screens ship their images.
-!src/osprey/templates/apps/control_assistant/data/canopy/library/screens/**/images/*.jpg
+# The demo template's CANOPY screens ship their images.
+!src/osprey/templates/apps/demo/data/canopy/library/screens/**/images/*.jpg
 
 # Landing-page demo video: recorded takes are never committed; the docs build
 # downloads the MP4s from the release manifest.json names. The posters and
@@ -184,7 +184,6 @@ src/osprey/interfaces/web_terminal/static/vendor/*
 !src/osprey/interfaces/web_terminal/static/vendor/dock-engine.d.mts
 src/osprey/interfaces/bluesky_web/panels/bluesky/vendor/
 src/osprey/interfaces/tuning/static/vendor/
-src/osprey/interfaces/lattice_dashboard/static/vendor/
 # The okf panel's own vendored marked.min.js is tracked; only DOMPurify is fetched.
 src/osprey/interfaces/okf_panel/static/vendor/purify.min.js
 tests/e2e/claude_code/benchmark_results/
@@ -224,3 +223,4 @@ docs/superpowers/
 # run data; belongs to the working copy, never to the repo. Anchored to the root
 # so the pattern cannot swallow a same-named path elsewhere in the tree.
 /my-control-assistant/
+/osprey-demo/

@@ -230,10 +230,10 @@ def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = No
     builds the rail asynchronously (it fetches ``/api/panels`` and then each
     panel's config endpoint) while ``dock-workspace.js`` builds the dockview
     grid, so a page that has one is not yet a page that has the other. The
-    rail is waited on through the ``artifacts`` entry because that panel is
-    always enabled and is the default fallback, so it is the one entry a hub
-    is guaranteed to grow. It is matched as a button rather than by
-    ``data-panel-id`` alone: panel iframes carry the same attribute.
+    rail is waited on through the Agent (``terminal``) entry turning enabled:
+    the page ships that row disabled and only the rail render, which runs once
+    the panels have loaded, enables it. (The ``artifacts`` panel has no rail
+    entry; its artifacts are in the session tree.)
 
     Args:
         browser: The function-scoped chromium fixture. The page it hands back
@@ -248,6 +248,8 @@ def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = No
     """
     page = browser.new_page(viewport=viewport) if viewport else browser.new_page()
     page.goto(base_url, wait_until="domcontentloaded")
-    expect(rail_entry(page, "artifacts")).to_be_attached(timeout=_HUB_READY_TIMEOUT_MS)
+    expect(rail_entry(page, "terminal", enabled_only=True)).to_be_attached(
+        timeout=_HUB_READY_TIMEOUT_MS
+    )
     expect(page.locator(".dv-groupview").first).to_be_visible(timeout=_HUB_READY_TIMEOUT_MS)
     return page

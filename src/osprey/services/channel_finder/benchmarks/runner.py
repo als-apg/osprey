@@ -338,7 +338,7 @@ class BenchmarkRunner:
         benchmark = (config.get("channel_finder") or {}).get("benchmark") or {}
         dataset_path = benchmark.get("dataset_path")
         if not dataset_path:
-            # Only the control_assistant bundle ships a benchmark query corpus,
+            # Only the demo bundle ships a benchmark query corpus,
             # so the app templates built around channel finding alone reach here
             # with no `benchmark:` block at all. Name both ways out rather than
             # surfacing a bare KeyError on the config subscript.

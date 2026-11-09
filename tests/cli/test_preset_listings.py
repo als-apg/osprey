@@ -32,7 +32,7 @@ def _expected_refusal(name: str, kind: str) -> str:
     folder = "tiers" if kind == "tier" else "apps"
     return (
         f"`{name}` is a {kind}, not a deployment. It renders inside a repo: "
-        f"`osprey init <dir> --preset control-assistant` writes {folder}/{name}.yml, "
+        f"`osprey init <dir> --preset demo` writes {folder}/{name}.yml, "
         f"and `osprey build` there renders build/<project>-{name}"
     )
 
@@ -65,7 +65,7 @@ def test_bundled_apps_listed() -> None:
 
 def test_list_presets_lists_deployments_only() -> None:
     presets = list_presets()
-    assert {"control-assistant", "hello-world"} <= set(presets)
+    assert {"demo", "hello-world"} <= set(presets)
     assert not set(presets) & (set(list_tiers()) | set(list_apps()))
     assert "tiers" not in presets and "apps" not in presets
 
@@ -94,7 +94,7 @@ def test_listings_empty_when_kind_dir_missing(fake_presets: Path) -> None:
         ("logbook", ProfileKind.APP),
         ("channel-finder", ProfileKind.APP),
         ("channel_finder", ProfileKind.APP),
-        ("control-assistant", None),
+        ("demo", None),
         ("no-such-thing", None),
     ],
 )
@@ -108,7 +108,7 @@ def test_refusal_wording(name: str, kind: str) -> None:
 
 
 def test_refusal_none_for_deployment_and_unknown() -> None:
-    assert layer_preset_refusal("control-assistant") is None
+    assert layer_preset_refusal("demo") is None
     assert layer_preset_refusal("no-such-thing") is None
 
 
@@ -123,7 +123,7 @@ def test_deployment_helpers_ignore_layers() -> None:
     assert _normalize_preset_name("channel_finder") == "channel-finder"
     assert _preset_exists("readonly") is None
     assert _preset_exists("logbook") is None
-    assert _preset_exists("control-assistant") is not None
+    assert _preset_exists("demo") is not None
 
 
 # --- the refusal at every verb ----------------------------------------------

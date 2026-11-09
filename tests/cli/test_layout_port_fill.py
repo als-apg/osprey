@@ -21,9 +21,9 @@ from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 #: A moved deployment: the second base a host would hand a second stack.
 _MOVED_BASE = DEFAULT_PORT_BASE + 20000
 
-#: The ``services:`` blocks the control-assistant render carries, written the
+#: The ``services:`` blocks the demo render carries, written the
 #: way an explicit profile writes them — dotted keys, and no ports at all.
-_CONTROL_ASSISTANT: dict[str, Any] = {
+_DEMO: dict[str, Any] = {
     "services.postgresql.path": "./services/postgresql",
     "services.postgresql.database_name": "ariel",
     "services.postgresql.username": "ariel",
@@ -36,7 +36,7 @@ _CONTROL_ASSISTANT: dict[str, Any] = {
 
 #: Every port the blocks above leave for the layout to fill, as
 #: ``config key -> layout slot``.
-_CONTROL_ASSISTANT_FILLS = {
+_DEMO_FILLS = {
     "services.postgresql.port_host": "postgres",
     "services.qmd.port": "qmd",
     "services.graphdb.port_host": "graphdb_bolt",
@@ -51,17 +51,17 @@ def _expected(base: int, fills: dict[str, str]) -> dict[str, int]:
 
 
 @pytest.mark.parametrize("base", [DEFAULT_PORT_BASE, _MOVED_BASE])
-def test_a_control_assistant_shaped_config_gets_exactly_its_own_ports(base: int) -> None:
+def test_a_demo_shaped_config_gets_exactly_its_own_ports(base: int) -> None:
     """Each deployed block is filled; nothing else in the layout is."""
-    filled = layout_port_fill(_CONTROL_ASSISTANT, base)
+    filled = layout_port_fill(_DEMO, base)
 
-    assert filled == _expected(base, _CONTROL_ASSISTANT_FILLS)
+    assert filled == _expected(base, _DEMO_FILLS)
 
 
 def test_a_moved_base_moves_every_filled_port() -> None:
     """The layout's one rule: the base is the caller's, never the module default."""
-    at_default = layout_port_fill(_CONTROL_ASSISTANT, DEFAULT_PORT_BASE)
-    at_moved = layout_port_fill(_CONTROL_ASSISTANT, _MOVED_BASE)
+    at_default = layout_port_fill(_DEMO, DEFAULT_PORT_BASE)
+    at_moved = layout_port_fill(_DEMO, _MOVED_BASE)
 
     assert set(at_default) == set(at_moved)
     assert all(
@@ -92,20 +92,18 @@ def test_an_external_store_still_gets_both_of_its_ports() -> None:
 def test_a_spelled_port_is_left_alone() -> None:
     """Skip if spelled — the fill never competes with a number the author wrote."""
     moved = layout_ports(DEFAULT_PORT_BASE)["qmd"] + 4321
-    filled = layout_port_fill({**_CONTROL_ASSISTANT, "services.qmd.port": moved}, DEFAULT_PORT_BASE)
+    filled = layout_port_fill({**_DEMO, "services.qmd.port": moved}, DEFAULT_PORT_BASE)
 
     assert "services.qmd.port" not in filled
     assert filled == _expected(
         DEFAULT_PORT_BASE,
-        {key: slot for key, slot in _CONTROL_ASSISTANT_FILLS.items() if key != "services.qmd.port"},
+        {key: slot for key, slot in _DEMO_FILLS.items() if key != "services.qmd.port"},
     )
 
 
 def test_a_port_spelled_as_a_nested_mapping_is_left_alone() -> None:
     """Both legal spellings reach the same leaf, so both count as spelled."""
-    filled = layout_port_fill(
-        {**_CONTROL_ASSISTANT, "services": {"qmd": {"port": 12345}}}, DEFAULT_PORT_BASE
-    )
+    filled = layout_port_fill({**_DEMO, "services": {"qmd": {"port": 12345}}}, DEFAULT_PORT_BASE)
 
     assert "services.qmd.port" not in filled
 
@@ -120,20 +118,20 @@ def test_a_service_whose_keys_were_deleted_is_skipped() -> None:
     validation — so absence is the whole spelling, and every other service's
     port must still be filled around the gap.
     """
-    kept = {key: value for key, value in _CONTROL_ASSISTANT.items() if "graphdb" not in key}
+    kept = {key: value for key, value in _DEMO.items() if "graphdb" not in key}
     filled = layout_port_fill(kept, DEFAULT_PORT_BASE)
 
     assert "services.graphdb.port_host" not in filled
     assert "services.graphdb.http_port_host" not in filled
     assert filled == _expected(
         DEFAULT_PORT_BASE,
-        {key: slot for key, slot in _CONTROL_ASSISTANT_FILLS.items() if "graphdb" not in key},
+        {key: slot for key, slot in _DEMO_FILLS.items() if "graphdb" not in key},
     )
 
 
 def test_a_service_the_profile_never_mentions_is_not_invented() -> None:
     """Absent is not the same as unspelled: no block, no port."""
-    filled = layout_port_fill(_CONTROL_ASSISTANT, DEFAULT_PORT_BASE)
+    filled = layout_port_fill(_DEMO, DEFAULT_PORT_BASE)
 
     assert not [key for key in filled if key.startswith("services.bluesky")]
     assert "services.event_dispatcher.port" not in filled

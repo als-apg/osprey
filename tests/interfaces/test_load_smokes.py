@@ -10,7 +10,7 @@ app object, never a live page): here the browser is the oracle.
 
 Two targets additionally assert their DOM actually rendered, since a page can
 load "clean" by the above signals while its JS silently no-ops before building
-any UI: Web Terminal checks the hub shell's artifacts tab button, and the
+any UI: Web Terminal checks the hub shell's sidebar Agent row, and the
 graph-mode Channel Finder checks that the explore view's class tree drew nodes.
 
 Run:
@@ -30,7 +30,6 @@ from tests.interfaces._launchers import (
     launch_ariel,
     launch_artifacts,
     launch_channel_finder,
-    launch_lattice_dashboard,
     launch_okf_panel,
     launch_web_terminal,
 )
@@ -61,7 +60,6 @@ _ALLOWLISTS: dict[str, object] = {
     "ariel": None,
     "channel_finder": None,
     "channel_finder_graph": None,
-    "lattice_dashboard": None,
     "okf_panel": None,
     "web_terminal_session": None,
 }
@@ -77,7 +75,6 @@ INTERFACE_LAUNCHERS = [
     # launcher (shared with the visual lane) writes the graph config and
     # points the app's store seam at the demo corpus -- no database is dialled.
     ("channel_finder_graph", launch_graph_channel_finder),
-    ("lattice_dashboard", launch_lattice_dashboard),
     ("okf_panel", launch_okf_panel),
 ]
 
@@ -102,11 +99,10 @@ def test_interface_loads_clean(
         if name == "web_terminal":
             if not _PLAYWRIGHT_AVAILABLE:  # pragma: no cover - guarded above too
                 pytest.skip("playwright package not installed")
-            # Hub shell DOM check: the artifacts tab button is always present
-            # (artifacts is always-enabled, see _open_page in
-            # test_panels_browser.py) once panel-manager.js finishes its
-            # async init (fetch /api/panels, then per-panel config).
-            expect(page.locator('button[data-panel-id="artifacts"]')).to_be_visible(timeout=10_000)
+            # Hub shell DOM check: the sidebar's Agent row (the terminal panel's
+            # rail entry, always served) renders once panel-manager.js finishes
+            # its async init (fetch /api/panels, then per-panel config).
+            expect(page.locator("#sidebar-agent-row")).to_be_visible(timeout=10_000)
 
         if name == "channel_finder_graph":
             # Explore is the default route (no hash), and its finder renders

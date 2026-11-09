@@ -67,7 +67,7 @@ def _interpreter_paths(config: dict) -> list[tuple[str, str]]:
 
 
 def _build_project(output_dir: Path, project_name: str, *init_set_args: str) -> Path:
-    """Materialize the control-assistant preset, build it, and return build/.
+    """Materialize the demo preset, build it, and return build/.
 
     ``--skip-deps --skip-lifecycle`` keeps the build Docker- and network-free:
     the rendered config.yml is all these tests read. Any ``--set`` pairs are
@@ -77,7 +77,7 @@ def _build_project(output_dir: Path, project_name: str, *init_set_args: str) -> 
     repo_dir = output_dir / project_name
     init_result = CliRunner().invoke(
         init,
-        [str(repo_dir), "--preset", "control-assistant", "--no-git", *init_set_args],
+        [str(repo_dir), "--preset", "demo", "--no-git", *init_set_args],
     )
     assert init_result.exit_code == 0, init_result.output
 

@@ -3,7 +3,7 @@
 ``golden/demo_census.json`` lists each file that states a count of the demo
 facility -- channels, devices, groups, setpoints, moving channels, benchmark
 queries, logbook entries -- with the text that states it and the value it
-states. Each file must still state its value, and the built control-assistant
+states. Each file must still state its value, and the built demo
 facility must hold the census' own counts. A change to the demo's size
 therefore updates the census and every pin in the same commit; a pin that is
 moved without the census, or a census that is moved without the pins, fails
@@ -146,9 +146,9 @@ def test_the_census_agrees_with_itself() -> None:
 
 @pytest.mark.slow
 def test_the_built_facility_holds_the_census_counts(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    built = built_control_assistant.facility
+    built = built_demo.facility
     channels = built["channels"]
     setpoints = [channel for channel in channels if channel["role"] == "setpoint"]
     assert {

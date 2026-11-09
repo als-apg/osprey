@@ -226,7 +226,7 @@ from tests.e2e.profile_edits import set_pairs
 #: never happens here, not the port it serves on.
 _WEB_SLOT = default_port("web")
 
-pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.dockerbuild]
 
 # The repo DIRECTORY name, which is the deployment name: the compose project and
 # the com.osprey.project label on every image this deploy builds.
@@ -295,7 +295,7 @@ PORT_BASE = 23000
 
 #: The two gateway ports this lane drives from the host, derived the same way
 #: the render derives them: nginx at the base and the auth sidecar one above it.
-#: The per-user families (``web``, ``artifact``, ``ariel``, ``lattice``,
+#: The per-user families (``web``, ``artifact``, ``ariel``,
 #: ``channel_finder``) are NOT listed — nothing here reaches them directly, and
 #: the render places them off the same base.
 HOST_PORTS = {slot: default_port(slot, base=PORT_BASE) for slot in ("nginx", "auth")}

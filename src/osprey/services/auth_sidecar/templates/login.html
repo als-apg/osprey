@@ -97,6 +97,10 @@
       <input class="login-input" id="password" name="password" type="password"
              autocomplete="current-password" required>
       {%- else %}
+      {#- Not submitted (no name): the account this password belongs to, for
+          the browser's password manager, which otherwise sees a lone password
+          field it cannot attach to a username. #}
+      <input type="text" value="{{ user|e }}" autocomplete="username" hidden>
       <label class="login-label" for="password">Password</label>
       <input class="login-input" id="password" name="password" type="password"
              autocomplete="current-password" autofocus required>

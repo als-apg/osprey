@@ -40,6 +40,7 @@
 import { installFocusTrap, removeFocusTrap } from '/design-system/js/focus-trap.js';
 import { isMacPlatform, paletteChord } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
+import { hintFor } from './key-bindings.js';
 import { KIND_REAL, KIND_REHEARSAL, KIND_SIMULATOR, KIND_WORDS } from './control-target-facts.js';
 import { capabilitySentence, chipRow, starterPrompts } from './first-contact.js';
 import { createSpotlight } from './tour-spotlight.js';
@@ -76,13 +77,6 @@ function panelLabel(panelId, fallback) {
   const label = panelRow(panelId)?.querySelector('.osprey-nav-label')?.textContent?.trim();
   return label || fallback;
 }
-
-/**
- * The chord that hides and shows the sidebar labels, as this viewer's
- * platform spells it (collapsible.js binds Cmd+\ on macOS, Ctrl+\ elsewhere).
- * @returns {string}
- */
-const sidebarChord = () => (isMacPlatform() ? '⌘\\' : 'Ctrl+\\');
 
 /* ---- Storage ---- */
 
@@ -252,11 +246,10 @@ const STEPS = [
     place: 'right',
     title: 'The sidebar',
     body: () => [
-      strong('Workspace'),
-      ' holds the agent, its artifacts and its script runs; ',
-      strong('Tools'),
+      'The top of the sidebar holds the agent and its sessions; ',
+      strong('Apps'),
       ' holds the other panels. Hide the labels with this button or ',
-      strong(sidebarChord()),
+      strong(hintFor('sidebar-toggle')),
       ' to give the work more room.',
     ],
   },
@@ -328,7 +321,7 @@ const STEPS = [
       strong(panelLabel('artifacts', 'Artifacts')),
       ', listed here in the sidebar, ready to open or download.',
     ],
-    foot: '＋ Add panel, under Tools, adds more panels.',
+    foot: '＋ Add panel, under Apps, adds more panels.',
   },
   {
     anchor: () => panelRow('okf'),
@@ -351,7 +344,7 @@ const STEPS = [
       strong(panelLabel('ariel', 'Ariel')),
       ' searches the electronic logbook. Ask the agent what happened on a shift, or search it yourself here.',
     ],
-    foot: 'Tip: right-click any sidebar row → “Pop out” to move the panel into its own window.',
+    foot: 'Tip: right-click any sidebar row → “Open in new window” to move the panel into its own window.',
   },
   {
     anchor: () => document.querySelector('#panel-feedback-btn'),

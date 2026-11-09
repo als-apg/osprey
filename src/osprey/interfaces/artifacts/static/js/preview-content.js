@@ -11,7 +11,7 @@
  * here so existing importers keep one path. Both pieces here are stateless:
  * no shared mutable state with preview.js, just an artifact object and a
  * container element passed in as args, mirroring how preview.js already
- * consumes escapeHtml/typeBadge from types.js.
+ * consumes escapeHtml from types.js.
  *
  * The JSON viewer (`renderJsonHtml`) predates its call site — it originally
  * shipped unwired, with case "json" falling through to the same read-only

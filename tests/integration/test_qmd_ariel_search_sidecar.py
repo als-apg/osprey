@@ -64,6 +64,7 @@ from tests.integration import _qmd_ariel_support
 from tests.integration._qmd_ariel_support import (
     DEFAULT_QMD_SIDECAR_IMAGE,
     QMD_IMAGE_ENV,
+    SIDECAR_ARIEL_TEST_TIMEOUT,
     VOCABULARY_AUTHOR,
     VOCABULARY_DISTRACTOR_ROWS,
     VOCABULARY_ENTRY_ID,
@@ -88,11 +89,13 @@ from tests.integration._qmd_ariel_support import (
 
 # xdist_group("docker") pins every container-starting module onto one worker: a
 # run must have a single testcontainers session and a single ryuk reaper, because
-# concurrent reaper starts race the Docker daemon's port mapper.
+# concurrent reaper starts race the Docker daemon's port mapper. The timeout
+# mark lets the sidecar's own waits fail before the check's per-test cap would.
 pytestmark = [
     pytest.mark.dockerbuild,
     pytest.mark.asyncio,
     pytest.mark.xdist_group("docker"),
+    pytest.mark.timeout(SIDECAR_ARIEL_TEST_TIMEOUT),
 ]
 
 #: Token shared by the encoding-safe entries, so one query retrieves that whole
@@ -470,17 +473,18 @@ async def _search(world, repository, client, query=SAFE_TOKEN, **kwargs):
     from osprey.services.ariel_search.search._offload import SearchCallPool
     from osprey.services.ariel_search.search.qmd import hybrid_search
 
-    pool = SearchCallPool()
+    search_calls = SearchCallPool()
     try:
         return await hybrid_search(
             query,
             repository,
             ARIELConfig.from_dict(world.config_dict),
             client=client,
-            **{"search_calls": pool, **kwargs},
+            search_calls=search_calls,
+            **kwargs,
         )
     finally:
-        pool.close()
+        await search_calls.aclose()
 
 
 def _ids(results) -> set[str]:

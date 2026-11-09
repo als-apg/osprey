@@ -89,6 +89,8 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="ImageCaptionModule",
                     description="Caption logbook pictures with a vision model (catch-up only)",
                     execution_order=5,
+                    label="Picture captions",
+                    feeds=("keyword", "semantic"),
                 ),
                 ArielEnhancementModuleRegistration(
                     name="semantic_processor",
@@ -96,6 +98,8 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="SemanticProcessorModule",
                     description="Extract keywords and summaries from logbook entries",
                     execution_order=10,
+                    label="Summary and keywords",
+                    feeds=("keyword",),
                 ),
                 ArielEnhancementModuleRegistration(
                     name="text_embedding",
@@ -103,6 +107,8 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="TextEmbeddingModule",
                     description="Generate vector embeddings for logbook entries",
                     execution_order=20,
+                    label="Text embedding",
+                    feeds=("semantic",),
                 ),
                 ArielEnhancementModuleRegistration(
                     name="image_embedding",
@@ -110,6 +116,8 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="ImageEmbeddingModule",
                     description="Embed logbook pictures for picture search (catch-up only)",
                     execution_order=25,
+                    label="Picture embedding",
+                    feeds=("picture",),
                 ),
                 ArielEnhancementModuleRegistration(
                     name="qmd_export",
@@ -117,6 +125,8 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     class_name="QmdExportModule",
                     description="Mirror entries to the markdown tree the qmd sidecar indexes",
                     execution_order=30,
+                    label="Hybrid mirror",
+                    feeds=("hybrid",),
                 ),
             ],
             # ARIEL ingestion adapters

@@ -26,7 +26,7 @@ INTERVIEW.md with its source, and its ledger row reads the facility's name.
 **Step 1, the skeleton.**
 
 ```
-osprey scaffold pull control-assistant:data/facility/knowledge
+osprey scaffold pull demo:data/facility/knowledge
 ```
 
 It writes six `index.md` files and reports `17 knowledge documents skipped (use
@@ -272,7 +272,7 @@ Middle Layer export (§3.1), or are authored by hand under `data/facility/record
 one file per kind. The reference example's records are the shape to follow:
 
 ```
-osprey scaffold pull control-assistant:data/facility/records
+osprey scaffold pull demo:data/facility/records
 ```
 
 What the pull brings describes the reference facility. It is a `pulled` row whose
@@ -318,8 +318,8 @@ not. An app is a second, complete agent beside the deployment's own, one file in
 `apps/`, opened from a shared landing card by everyone on the roster; the roster
 lists it by name under `shared:`.
 
-`osprey scaffold tiers --from control-assistant` writes every tier that preset's
-roster names, and `osprey scaffold apps --from control-assistant` writes every app
+`osprey scaffold tiers --from demo` writes every tier that preset's
+roster names, and `osprey scaffold apps --from demo` writes every app
 its `shared:` list names. Neither has a selection flag, so every deployment starts
 with all of them and prunes down.
 
@@ -345,7 +345,7 @@ context directory. Leave one behind and the next build either fails on the missi
 file or warns about context for a name not on the roster.
 
 The demo logins are removed, not renamed. In
-`src/osprey/profiles/presets/control-assistant.yml` they are the roster entries
+`src/osprey/profiles/presets/demo.yml` they are the roster entries
 `alice`, `bob` and `carol` under `modules.web_terminals.users`, plus
 `OSPREY_AUTH_PW_ALICE`, `OSPREY_AUTH_PW_BOB` and `OSPREY_AUTH_PW_CAROL` under
 `env.defaults`. Renaming a demo login keeps its password and its index. Delete
