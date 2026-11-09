@@ -243,8 +243,28 @@ html:not([data-sidebar="collapsed"]) .sidebar-group > .sidebar-row > [data-sessi
   text-overflow: ellipsis;
 }
 
-/* Folding (sidebar-fold.js): a double-click on the heading leaves only the
-   heading. */
+/* Folding (sidebar-fold.js): a double-click on the heading, or a click on its
+   chevron, leaves only the heading. The chevron matches the Pinned group's:
+   12 px at the heading's end, down while open, turned right while folded. */
+.sidebar-group-chevron {
+  flex: none;
+  width: 12px !important;
+  height: 12px !important;
+  margin-left: var(--space-1);
+  cursor: pointer;
+  transition: transform var(--duration-fast) ease;
+}
+
+.sidebar-group[data-folded] > .sidebar-group-head > .sidebar-group-chevron {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-group-chevron {
+    transition: none;
+  }
+}
+
 .sidebar-group-head .sidebar-group-name {
   outline: none;
 }
@@ -349,6 +369,7 @@ html:not([data-sidebar="collapsed"]) #panel-rail > .sidebar-group[data-sized]:no
 
 /* Icons only: no names to edit, and no empty line to read. */
 html[data-sidebar="collapsed"] .sidebar :is(
+  .sidebar-group-chevron,
   .sidebar-group-rename,
   .sidebar-group-empty,
   .osprey-nav-trail
