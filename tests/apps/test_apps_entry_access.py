@@ -13,12 +13,16 @@ tier alone decides writes.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
+from osprey.apps.manifest import parse_manifest
+from osprey.apps.projection import project_login
+from osprey.apps.rules import AppSelection, LoginSelection
 from osprey.cli.build_profile_load import load_profile_document, reject_unknown_kind_keys
 from osprey.cli.profile_root import ProfileKind
 from osprey.deployment.web_terminals.lint import lint_web_terminals
@@ -306,3 +310,99 @@ def test_without_a_login_wall_nobody_is_forwarded() -> None:
     )
 
     assert resolved == frozenset({"domain:lab.org"})
+
+
+def _panel_repo(tmp_path: Path, admin_access: Any) -> Path:
+    _write_yaml(
+        tmp_path / "apps" / "dial" / "app.yml",
+        _PANEL_MANIFEST,
+    )
+    (tmp_path / "data").mkdir()
+    web_terminals = _web_terminals()
+    web_terminals.pop("renders")
+    _write_yaml(
+        tmp_path / "profile.yml",
+        {
+            "name": "site",
+            "data": "data",
+            "apps": {"dial": {}},
+            "config": {f"modules.web_terminals.{k}": v for k, v in web_terminals.items()},
+        },
+    )
+    _write_yaml(
+        tmp_path / "tiers" / "admin.yml",
+        {"name": "admin", "apps": {"dial": {"access": admin_access}}},
+    )
+    _write_yaml(tmp_path / "tiers" / "viewer.yml", {"name": "viewer"})
+    return tmp_path
+
+
+def test_the_build_resolves_each_logins_entry(tmp_path: Path) -> None:
+    from osprey.apps.loader import ROOT_LOGIN, check_deployment
+
+    logins = check_deployment(_panel_repo(tmp_path, ["self", "domain:lab.org"])).logins
+
+    assert logins["admin"].apps["dial"].access == json.dumps(
+        ["domain:lab.org", "user:alice@example.org"], separators=(",", ":")
+    )
+    assert logins["viewer"].apps["dial"].access is None
+    assert logins[ROOT_LOGIN].apps["dial"].access is None
+
+
+def test_the_build_refuses_a_set_no_browser_caller_can_match(tmp_path: Path) -> None:
+    from osprey.apps.loader import check_deployment
+
+    with pytest.raises(BuildProfileError, match="login 'admin' apps.dial.access admits no"):
+        check_deployment(_panel_repo(tmp_path, ["tier:ghost"]))
+
+
+def test_a_login_gets_the_apps_skill_only_when_it_may_see_the_app(tmp_path: Path) -> None:
+    """``access:`` narrows who on the login opens the panel, not what its agent knows.
+
+    The agent works on the panel token and is judged by the login alone, so a login
+    whose ``access:`` restricts the application still carries its skill; a login that
+    does not see the application at all does not.
+    """
+    from osprey.apps.loader import check_deployment
+    from osprey.apps.projection import login_skills
+
+    repo = _panel_repo(tmp_path, ["self"])
+    _write_yaml(repo / "apps" / "dial" / "app.yml", {**_PANEL_MANIFEST, "skills": ["dial-ops"]})
+    skill = repo / "apps" / "dial" / "skills" / "dial-ops" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: dial-ops\ndescription: Turn the dial.\n---\n", encoding="utf-8")
+    _write_yaml(
+        repo / "tiers" / "viewer.yml", {"name": "viewer", "apps": {"dial": {"shown": False}}}
+    )
+
+    checked = check_deployment(repo)
+
+    assert checked.logins["admin"].apps["dial"].access is not None
+    assert login_skills(checked.manifests, checked.logins["admin"]) == [("dial", "dial-ops")]
+    assert login_skills(checked.manifests, checked.logins["viewer"]) == []
+
+
+# ---------------------------------------------------------------------------
+# Projection: the panel block carries the resolved set
+# ---------------------------------------------------------------------------
+
+
+def _project(access: str | None) -> dict[str, Any]:
+    manifest = parse_manifest(dict(_PANEL_MANIFEST), app="dial")
+    selection = LoginSelection(
+        audience="person",
+        apps={"dial": AppSelection(shown=True, access=access)},
+        tier="never",
+        shared_cards=(),
+    )
+    return project_login([manifest], {"services": {"dial": {"port": 18950}}}, selection)
+
+
+def test_the_panel_block_carries_the_resolved_set() -> None:
+    wire = json.dumps(["user:alice@example.org"], separators=(",", ":"))
+
+    assert _project(wire)["web"]["panels"]["dial"]["access"] == wire
+
+
+def test_an_entry_without_access_projects_no_key() -> None:
+    assert "access" not in _project(None)["web"]["panels"]["dial"]
