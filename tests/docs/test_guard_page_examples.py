@@ -10,7 +10,7 @@ number), then handed to the code that owns it:
   and the session view a watchdog judges; the report lines are matched against
   what ``_report_row`` prints; the profile tree is built on disk and loaded by
   ``load_profile_watchdogs``; the included instructions are the ones
-  ``osprey init --preset control-assistant`` writes and the loader reads.
+  ``osprey init --preset demo`` writes and the loader reads.
 * ``architecture/python-executor.rst``: the refusal is the text the raw-put
   block raises, with and without ``osprey_connectors``; the write example passes
   the readonly import check and the approval hook's raw-spelling scan, and its
@@ -246,14 +246,12 @@ def test_profile_tree_without_its_required_instructions_is_refused(tmp_path: Pat
 
 
 @pytest.fixture(scope="module")
-def control_assistant(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    return init_project(
-        tmp_path_factory.mktemp("control-assistant"), "control-assistant", "my-facility"
-    )
+def demo_project(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    return init_project(tmp_path_factory.mktemp("demo"), "demo", "my-facility")
 
 
 def test_included_instructions_are_what_init_writes_and_the_loader_reads(
-    control_assistant: Path,
+    demo_project: Path,
 ) -> None:
     block = _block(WATCHDOGS_PAGE, "literalinclude", "guard-circumvention")
     assert block.include.endswith(f"guard-circumvention/{INSTRUCTIONS_FILENAME}")
@@ -265,15 +263,15 @@ def test_included_instructions_are_what_init_writes_and_the_loader_reads(
     )
     assert caption is not None, "the include lost its caption"
 
-    assert (control_assistant / caption.group(1)).read_text(encoding="utf-8") == block.text
-    definitions = {d.name: d for d in load_profile_watchdogs(control_assistant)}
+    assert (demo_project / caption.group(1)).read_text(encoding="utf-8") == block.text
+    definitions = {d.name: d for d in load_profile_watchdogs(demo_project)}
     assert definitions["guard-circumvention"].instructions == block.text
     assert definitions["guard-circumvention"].enabled is False
 
 
-def test_the_enable_snippet_names_the_watchdog_init_writes(control_assistant: Path) -> None:
+def test_the_enable_snippet_names_the_watchdog_init_writes(demo_project: Path) -> None:
     snippet = yaml.safe_load(_block(WATCHDOGS_PAGE, "yaml", "enabled: true").text)
-    profile = yaml.safe_load((control_assistant / "profile.yml").read_text(encoding="utf-8"))
+    profile = yaml.safe_load((demo_project / "profile.yml").read_text(encoding="utf-8"))
     assert set(snippet["watchdogs"]) <= set(profile["watchdogs"])
 
 
