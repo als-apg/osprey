@@ -137,9 +137,10 @@ def _compare_catalog(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list
 # Top-level keys `osprey init` writes for the repo rather than copies from the
 # preset: the display name, the deployment's own name, the materialized data
 # tree, the schema floor, and the provenance stamp itself — whose hash
-# difference is the note, not a finding.
+# difference is the note, not a finding. `machine` sits with `data`: a
+# repository-own location (a mounted machine repository) no preset carries.
 _MATERIALIZATION_KEYS: frozenset[str] = frozenset(
-    {"name", "project_name", "data", "provenance", "requires_osprey_version"}
+    {"name", "project_name", "data", "machine", "provenance", "requires_osprey_version"}
 )
 
 
@@ -150,7 +151,7 @@ class DriftFinding:
     Attributes:
         subject: What differs, as an operator would name it — a dotted key
             (``config.web.theme``, ``bluesky``) or a list member
-            (``web_panels: lattice``).
+            (``web_panels: ariel``).
         detail: Which way it differs.
         profile_ref: ``file:line`` in the profile, or the file alone when the
             profile has no line for it.

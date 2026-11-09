@@ -25,7 +25,7 @@ from osprey.utils.workspace import RETIRED_LAYER_DIRS, TIERS_DIRNAME
 from tests._renders import tier_render
 
 #: A pre-delta value: the bundled preset name a facility used to write here.
-_LEGACY_VALUE = "control-assistant"
+_LEGACY_VALUE = "demo"
 
 
 def _profile_root(tmp_path: Path) -> Path:

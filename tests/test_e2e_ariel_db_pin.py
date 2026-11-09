@@ -80,7 +80,7 @@ def test_a_run_that_exported_no_database_pins_the_default(
     """Outside the matrix a project names the host database the skip guard probes."""
     _export(monkeypatch, None)
 
-    assert sdk_helpers._ariel_db_pins("control_assistant") == {"ariel.database.uri": DEFAULT_URI}
+    assert sdk_helpers._ariel_db_pins("demo") == {"ariel.database.uri": DEFAULT_URI}
 
 
 def test_an_ariel_preset_is_pinned_to_the_exported_database(
@@ -88,7 +88,7 @@ def test_an_ariel_preset_is_pinned_to_the_exported_database(
 ) -> None:
     monkeypatch.setenv("OSPREY_ARIEL_DB_URI", CELL_URI)
 
-    assert sdk_helpers._ariel_db_pins("control_assistant") == {"ariel.database.uri": CELL_URI}
+    assert sdk_helpers._ariel_db_pins("demo") == {"ariel.database.uri": CELL_URI}
 
 
 def test_a_preset_that_extends_an_ariel_preset_is_pinned(
@@ -99,7 +99,7 @@ def test_a_preset_that_extends_an_ariel_preset_is_pinned(
 
     monkeypatch.setenv("OSPREY_ARIEL_DB_URI", CELL_URI)
     real = build_profile_presets._load_preset_raw
-    variant = {"name": "Variant", "extends": "control-assistant", "config": {"web.port": 1}}
+    variant = {"name": "Variant", "extends": "demo", "config": {"web.port": 1}}
 
     def _load(name: str) -> tuple[dict, Path]:
         if name == "variant":
@@ -121,8 +121,8 @@ def test_a_preset_without_ariel_is_not_pinned(monkeypatch: pytest.MonkeyPatch) -
 @pytest.mark.parametrize(
     ("template", "exported", "pinned"),
     [
-        ("control_assistant", CELL_URI, CELL_URI),
-        ("control_assistant", None, DEFAULT_URI),
+        ("demo", CELL_URI, CELL_URI),
+        ("demo", None, DEFAULT_URI),
         ("hello_world", CELL_URI, None),
     ],
     ids=["exported", "default", "no-ariel"],
@@ -165,7 +165,7 @@ def test_the_guard_probes_the_database_a_project_is_pinned_to(
 
     dialled, _reason = _probe(monkeypatch)
 
-    assert dialled == sdk_helpers._ariel_db_pins("control_assistant")["ariel.database.uri"]
+    assert dialled == sdk_helpers._ariel_db_pins("demo")["ariel.database.uri"]
     assert dialled == (exported or DEFAULT_URI)
 
 
@@ -240,7 +240,7 @@ def test_without_an_export_a_render_must_name_the_default(
 def test_the_agent_loads_the_database_the_guard_probes_from_a_real_render(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """``osprey init`` + ``osprey build`` of the control-assistant preset, read back
+    """``osprey init`` + ``osprey build`` of the demo preset, read back
     the way the ARIEL MCP server reads it, against the URI the skip guard dials.
 
     The last assertion is what makes the others mean something: the same render

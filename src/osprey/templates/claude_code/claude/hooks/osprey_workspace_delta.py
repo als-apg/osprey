@@ -3,7 +3,7 @@
 ---
 name: Workspace Delta
 description: Tells the agent what moved in the web workspace since its last turn
-summary: One terse line when tiles, their tabs, the active tab or rail membership changed — silence when nothing did
+summary: One terse line when tiles, the panels they show, the active panel or rail membership changed — silence when nothing did
 event: UserPromptSubmit
 ---
 
@@ -35,25 +35,25 @@ UserPromptSubmit ──► read stdin JSON ──► session_id (absent/malforme
 ## Details
 
 The SessionStart sibling (``osprey_panels_context.py``) tells the agent what the
-workspace looked like when the session began.  Between turns a human can close a
-tab or a whole tile, drag a tab into another tile or out into a new one, or switch
-the tab a tile shows — none of which the agent would
-otherwise see without spending a ``list_panels`` round-trip on every turn.  This
-hook spends nothing when nothing moved.
+workspace looked like when the session began.  Between turns a human can open a
+panel into a tile (replacing the panel it showed), close a tile, drag a panel or
+a tile to a new place, or make another panel the active one — none of which the
+agent would otherwise see without spending a ``list_panels`` round-trip on every
+turn.  This hook spends nothing when nothing moved.
 
 **Silence is the default.**  The hook writes to stdout only when the workspace
 genuinely differs from the snapshot, and then only one line naming what moved::
 
-    Workspace changed: lattice tab moved to [bluesky, lattice (showing)]; active now lattice.
+    Workspace changed: ariel replaced okf in its tile; active now ariel.
 
-Tiles are compared tab by tab, the terminal included: a whole tile opened or
-closed (``bluesky tile opened``, ``lattice tile closed``), a tab opened into or
-closed out of a tile that remains (``bluesky tab opened in [...]``, ``ariel tab
-closed``), a tab moved to another tile or a new one (``... moved to a new
-tile``), a tile now showing another of its tabs (``artifacts tab now
-showing``), and — only when nothing else moved — a reordering.  A tile has no
-identity across turns (ids are reused after a close), so earlier and later
-tiles are paired by the tabs they keep; see :func:`_match_tiles`.
+Each tile shows one panel, and tiles are compared panel by panel, the
+terminal's included: a tile opened or closed (``bluesky tile opened``,
+``okf tile closed``), a tile that kept its id while its panel left the
+screen and another came on (``ariel replaced okf in its tile``), a panel
+now in a tile with another id (``okf moved to a new tile``), and — only
+when nothing else moved — a reordering.  Ids are reused after a close, so a
+tile closed and a new one opened under its id between two turns reads as a
+replacement too; see :func:`_describe_tiles`.
 
 Everything else exits 0 with byte-empty stdout: an unchanged workspace, a
 missing or corrupt snapshot (reseeded first, so the *next* turn diffs cleanly),
@@ -87,12 +87,12 @@ Reads and rewrites the file seeded by ``osprey_panels_context.py``::
 
     {
       "tiles": [                                   # on-screen, reading order;
-        {"tile": "t1", "tabs": ["terminal"], "showing": "terminal"},
-        {"tile": "t2", "tabs": ["lattice", "artifacts"], "showing": "artifacts"}
+        {"tile": "t1", "panel": "terminal"},       # each tile shows one panel
+        {"tile": "t2", "panel": "artifacts"}
       ] | null,                                    # null = occupancy UNKNOWN
       "popouts": ["ariel"],                        # panels in their own windows
-      "active":  "artifacts" | null,               # active tab id
-      "visible": ["lattice", "artifacts", "bluesky"]  # launcher-rail membership
+      "active":  "artifacts" | null,               # active panel id
+      "visible": ["okf", "artifacts", "bluesky"]  # launcher-rail membership
     }
 
 The schema is documented in full in the sibling hook, which owns it.  Both hooks
@@ -208,32 +208,20 @@ def _load_snapshot(path):
 def _normalize_tiles(tiles):
     """Coerce a snapshot's ``tiles`` into the tile list, or None when unknown.
 
-    Anything but a non-empty list of well-formed tiles is unknown. A live
-    layout always holds at least one tile, so ``[]`` is never a real current
-    state.
+    Anything but a list of well-formed ``{"tile", "panel"}`` tiles is unknown.
+    ``[]`` is an empty dock: every pane is in a window of its own.
     """
-    if not isinstance(tiles, list) or not tiles:
+    if not isinstance(tiles, list):
         return None
     out = []
     for tile in tiles:
         if not isinstance(tile, dict):
             return None
-        tabs = tile.get("tabs")
-        if not isinstance(tabs, list) or not tabs:
+        panel = tile.get("panel")
+        if not isinstance(panel, str) or not panel:
             return None
-        if not all(isinstance(key, str) and key for key in tabs):
-            return None
-        showing = tile.get("showing")
-        if showing not in tabs:
-            showing = tabs[0]
         tile_id = tile.get("tile")
-        out.append(
-            {
-                "tile": tile_id if isinstance(tile_id, str) else None,
-                "tabs": list(tabs),
-                "showing": showing,
-            }
-        )
+        out.append({"tile": tile_id if isinstance(tile_id, str) else None, "panel": panel})
     return out
 
 
@@ -267,22 +255,23 @@ def _layout_tiles(layout):
 
     A layout node is a tile ``{tile, tabs, showing, ...}`` or a split ``{split,
     items, ...}``; tiles are read depth-first, each split's items in order — the
-    order ``dock_engine.layout_keys`` uses on the server. The terminal is a tab
-    like any other (key ``"terminal"``) and is kept.
+    order ``dock_engine.layout_keys`` uses on the server. A tile shows one
+    panel, the one its ``tabs`` lists; the terminal's tile (key ``"terminal"``)
+    is kept like any other.
 
     Args:
         layout: The ``layout`` value of a ``GET /api/panels`` response.
 
     Returns:
-        A list of ``{"tile": id|None, "tabs": [key, ...], "showing": key}``
-        dicts, or None when
-        ``layout`` is not a well-formed tree (a non-dict, a tile without string
-        tabs, a split without items, nesting past :data:`_MAX_LAYOUT_DEPTH`).
-        A ``showing`` that is missing or names no tab of its tile falls back to
-        the first tab, the engine's own default. Sizes and split directions are
-        dropped: the context lines name what is where, not how big it is. The
-        tile id is kept only as a tie-break for the delta hook's tile matching —
-        ids are reused after a close, so it is never shown or trusted alone.
+        A list of ``{"tile": id|None, "panel": key}`` dicts, or None when
+        ``layout`` is not a well-formed tree (a non-dict, a tile whose ``tabs``
+        is not a list of one non-empty string, a split without items, nesting past
+        :data:`_MAX_LAYOUT_DEPTH`). The server refuses a tile listing several
+        panels, so such a tile is a payload of the wrong shape as well. Sizes,
+        split directions and ``showing`` are dropped: the context lines name
+        what is where, not how big it is. The tile id is kept for the delta
+        hook, which reads a tile that kept its id while its panel changed as a
+        replacement; ids are reused after a close, so it is never shown.
     """
     tiles = []
 
@@ -295,21 +284,13 @@ def _layout_tiles(layout):
                 return False
             return all(walk(item, depth + 1) for item in items)
         tabs = node.get("tabs")
-        if not isinstance(tabs, list) or not tabs:
+        if not isinstance(tabs, list) or len(tabs) != 1:
             return False
-        if not all(isinstance(key, str) and key for key in tabs):
+        panel = tabs[0]
+        if not isinstance(panel, str) or not panel:
             return False
-        showing = node.get("showing")
-        if showing not in tabs:
-            showing = tabs[0]
         tile = node.get("tile")
-        tiles.append(
-            {
-                "tile": tile if isinstance(tile, str) else None,
-                "tabs": list(tabs),
-                "showing": showing,
-            }
-        )
+        tiles.append({"tile": tile if isinstance(tile, str) else None, "panel": panel})
         return True
 
     return tiles if walk(layout, 0) else None
@@ -334,8 +315,15 @@ def _occupancy_is_known(data):
     A missing or null ``layout_dock`` says nothing either way; only an
     explicit ``false`` forces unknown. A layout that is present but malformed is
     caught one step later, by :func:`_layout_tiles` returning None.
+
+    One null layout is known: a ``layout_dock: true`` report. That dock said it
+    is empty (its panes in windows of their own, named by ``popouts``, or
+    closed), which is a workspace, not silence.
     """
-    if not isinstance(data.get("layout"), dict):
+    layout = data.get("layout")
+    if layout is None:
+        return data.get("layout_dock") is True
+    if not isinstance(layout, dict):
         return False
     return data.get("layout_dock") is not False
 
@@ -348,7 +336,9 @@ def _workspace_state(data):
     is not the same as empty, and the difference decides whether this hook says
     anything about tiles at all.
     """
-    tiles = _layout_tiles(data.get("layout")) if _occupancy_is_known(data) else None
+    tiles = None
+    if _occupancy_is_known(data):
+        tiles = [] if data.get("layout") is None else _layout_tiles(data.get("layout"))
     return _normalize_state(
         {
             "tiles": tiles,
@@ -392,120 +382,59 @@ def _merge_state(previous, current):
     return merged
 
 
-def _match_tiles(before, after, survivors):
-    """Pair each earlier tile with the later tile that continues it.
-
-    A tile has no identity the hook can trust across turns — ids are reused
-    after a close — so tiles are matched by the tabs they keep: the pair sharing
-    the most surviving tabs first, a shared tile id breaking a tie (the engine
-    keeps the source tile's id when a tab is dragged out of it), then reading
-    order. Each tile is matched at most once; a tile sharing no surviving tab
-    with any other is unmatched (closed before, new after).
-
-    Returns:
-        ``{before_index: after_index}``.
-    """
-    candidates = []
-    for bi, old in enumerate(before):
-        kept = survivors.intersection(old["tabs"])
-        for ai, new in enumerate(after):
-            overlap = len(kept.intersection(new["tabs"]))
-            if overlap:
-                same_id = old["tile"] is not None and old["tile"] == new["tile"]
-                candidates.append((-overlap, 0 if same_id else 1, bi, ai))
-    match, taken = {}, set()
-    for _, _, bi, ai in sorted(candidates):
-        if bi not in match and ai not in taken:
-            match[bi] = ai
-            taken.add(ai)
-    return match
-
-
-def _group(keys, where):
-    """Group ``keys`` by tile index, keeping first-appearance order."""
-    groups: dict[object, list] = {}
-    for key in keys:
-        groups.setdefault(where[key], []).append(key)
-    return groups
-
-
-def _tile_name(tile):
-    """A tile as a reader names it: its key alone when it holds one tab."""
-    return tile["tabs"][0] if len(tile["tabs"]) == 1 else _render_tile(tile)
-
-
 def _describe_tiles(previous, current):
-    """Describe how tiles and their tabs moved, in the order a reader wants them.
+    """Describe how tiles and the panels they show moved, in the order a reader wants them.
 
-    Clauses come as: tabs opened (a whole new tile, or a tab added to a tile),
-    tabs moved to another tile, tabs closed (a whole tile, or a tab out of a
-    tile that remains), tiles now showing another tab, and — only when nothing
-    else changed — a reordering. Returns a list of clause strings (possibly
-    empty). Nothing is said when the tiles are unknown on either side: a first
-    report cannot be phrased as a transition, and a workspace that stopped being
-    reported has not changed — it stopped being observed.
+    Each tile shows one panel. Clauses come as: tiles opened, panels that
+    replaced another in a tile that kept its id, panels moved to a new tile
+    (their tile's id changed), tiles closed, and — only when nothing else
+    changed — a reordering. A tile whose id names no tile on the other side is
+    opened or closed; the id is the only identity a tile has across turns, and
+    since ids are reused after a close, a tile closed and another opened under
+    its id reads as a replacement too. Returns a list of clause strings
+    (possibly empty). Nothing is said when the tiles are unknown on either
+    side: a first report cannot be phrased as a transition, and a workspace that
+    stopped being reported has not changed — it stopped being observed.
     """
     before, after = previous.get("tiles"), current.get("tiles")
     if after is None:
         return []
     if before is None:
-        return [f"tiles now {_render_tiles(after)}"]
+        return [f"tiles now {_render_tiles(after) if after else 'none'}"]
 
-    where_before = {key: i for i, tile in enumerate(before) for key in tile["tabs"]}
-    where_after = {key: i for i, tile in enumerate(after) for key in tile["tabs"]}
-    after_order = [key for tile in after for key in tile["tabs"]]
-    before_order = [key for tile in before for key in tile["tabs"]]
-    survivors = set(where_before) & set(where_after)
-    match = _match_tiles(before, after, survivors)
-    continued = set(match.values())
+    tile_before = {tile["panel"]: tile["tile"] for tile in before}
+    tile_after = {tile["panel"]: tile["tile"] for tile in after}
+    opened = [tile for tile in after if tile["panel"] not in tile_before]
+    closed = [tile for tile in before if tile["panel"] not in tile_after]
 
-    opened = [key for key in after_order if key not in where_before]
+    # A tile that kept its id while its panel left the screen and another came on.
+    left = {tile["tile"]: tile["panel"] for tile in closed if tile["tile"] is not None}
+    replaced = {}
+    for tile in opened:
+        if tile["tile"] in left:
+            replaced[tile["panel"]] = left.pop(tile["tile"])
+    gone = set(replaced.values())
+
+    new_tiles = [tile["panel"] for tile in opened if tile["panel"] not in replaced]
     moved = [
-        key
-        for key in after_order
-        if key in survivors and match.get(where_before[key]) != where_after[key]
+        tile["panel"]
+        for tile in after
+        if tile["panel"] in tile_before
+        and None not in (tile["tile"], tile_before[tile["panel"]])
+        and tile["tile"] != tile_before[tile["panel"]]
     ]
-    closed = [key for key in before_order if key not in where_after]
+    gone_tiles = [tile["panel"] for tile in closed if tile["panel"] not in gone]
 
     clauses = []
-
-    new_tiles, into = [], []
-    for ai, keys in _group(opened, where_after).items():
-        if ai not in continued and len(keys) == len(after[ai]["tabs"]):
-            new_tiles.append(_tile_name(after[ai]))
-        else:
-            into.append(
-                f"{', '.join(keys)} {_noun(keys, 'tab')} opened in {_render_tile(after[ai])}"
-            )
     if new_tiles:
         clauses.append(f"{', '.join(new_tiles)} {_noun(new_tiles, 'tile')} opened")
-    clauses.extend(into)
-
-    for ai, keys in _group(moved, where_after).items():
-        destination = _render_tile(after[ai]) if ai in continued else "a new tile"
-        clauses.append(f"{', '.join(keys)} {_noun(keys, 'tab')} moved to {destination}")
-
-    gone_tiles, out_of = [], []
-    for bi, keys in _group(closed, where_before).items():
-        if len(keys) == len(before[bi]["tabs"]):
-            gone_tiles.append(_tile_name(before[bi]))
-        else:
-            out_of.append(f"{', '.join(keys)} {_noun(keys, 'tab')} closed")
+    clauses.extend(f"{new} replaced {old} in its tile" for new, old in replaced.items())
+    if moved:
+        clauses.append(f"{', '.join(moved)} moved to {_noun(moved, 'a new tile', 'new tiles')}")
     if gone_tiles:
         clauses.append(f"{', '.join(gone_tiles)} {_noun(gone_tiles, 'tile')} closed")
-    clauses.extend(out_of)
 
-    showing = [
-        after[ai]["showing"]
-        for bi, ai in sorted(match.items(), key=lambda pair: pair[1])
-        if after[ai]["showing"] != before[bi]["showing"]
-        and where_before.get(after[ai]["showing"]) == bi
-        and len(after[ai]["tabs"]) > 1
-    ]
-    if showing:
-        clauses.append(f"{', '.join(showing)} {_noun(showing, 'tab')} now showing")
-
-    if not clauses and [t["tabs"] for t in before] != [t["tabs"] for t in after]:
+    if not clauses and [t["panel"] for t in before] != [t["panel"] for t in after]:
         clauses.append(f"tiles rearranged to {_render_tiles(after)}")
     return clauses
 
@@ -517,15 +446,8 @@ def _noun(items, noun, plural=None):
 
 
 def _render_tile(tile):
-    """One tile as ``[a]``, or ``[a, b (showing)]`` when it holds several tabs.
-
-    A one-tab tile can only show that tab, so it carries no marker.
-    """
-    tabs = tile["tabs"]
-    if len(tabs) == 1:
-        return f"[{tabs[0]}]"
-    listed = ", ".join(f"{key} (showing)" if key == tile["showing"] else key for key in tabs)
-    return f"[{listed}]"
+    """One tile as ``[panel]``: the one panel it shows."""
+    return f"[{tile['panel']}]"
 
 
 def _render_tiles(tiles):
@@ -546,19 +468,19 @@ def _describe_popouts(previous, current):
     out = [key for key in after if key not in before]
     back = [key for key in before if key not in after]
     if out:
-        clauses.append(f"{', '.join(out)} popped out to {_noun(out, 'a window', 'windows')}")
+        clauses.append(f"{', '.join(out)} moved to {_noun(out, 'a window', 'windows')}")
     if back:
         clauses.append(f"{', '.join(back)} back from {_noun(back, 'its window', 'their windows')}")
     return clauses
 
 
 def _describe_active(previous, current):
-    """Describe an active-tab change, or nothing when it held still."""
+    """Describe an active-panel change, or nothing when it held still."""
     before, after = previous.get("active"), current.get("active")
     if before == after:
         return []
     if after is None:
-        return ["no tab active now"]
+        return ["no panel active now"]
     return [f"active now {after}"]
 
 

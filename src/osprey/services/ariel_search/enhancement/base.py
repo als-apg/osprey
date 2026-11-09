@@ -266,6 +266,28 @@ class BaseEnhancementModule(ABC):
         catch-up drives it through :meth:`run_entry`.
         """
 
+    async def inspect(
+        self,
+        entry_id: str,  # noqa: ARG002 - the default reads nothing
+        repository: "ARIELRepository",  # noqa: ARG002
+    ) -> dict[str, Any] | None:
+        """Return what this module produced for one entry, for the reader's inspector.
+
+        The default answers None, which gives the entry's inspector card its
+        stored status only. An override reads its own output through
+        ``repository`` and returns a JSON-serialisable mapping; it must never
+        include an embedding vector. A raise is caught by the caller and also
+        gives a status-only card.
+
+        Args:
+            entry_id: The entry to describe.
+            repository: Repository for the module's own reads.
+
+        Returns:
+            The module's output for the entry, or None.
+        """
+        return None
+
     def required_relations(self) -> list[str]:
         """Return the database relations the module needs before it can run.
 

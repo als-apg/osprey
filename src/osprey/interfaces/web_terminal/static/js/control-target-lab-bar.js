@@ -10,20 +10,27 @@
  * `routes/proxy.py`), and everything below it is the hub's own chip,
  * unchanged.
  *
+ * **A direct visit opens the terminal.** A Lab page opened at its own address
+ * leaves for the web terminal with Jupyter on that path. Lab pages never call
+ * `applyEmbedded`, so this entry runs the same guard ({@link boot}); nothing
+ * else here starts on a page that is leaving.
+ *
  * **One picker per window.** Inside the hub the Jupyter tile is an iframe
  * beside the sidebar, and the sidebar's chip is the picker; a second one in
- * the frame would be the same switch drawn twice. So the bar mounts only when
- * the Lab page is its own top-level document — popped out of the hub, or
- * opened at its own address — and does nothing at all when framed: no host,
- * no stylesheets, no stream. The proxy injects the tag either way, because
- * only the page can tell which it is ({@link isEmbedded}).
+ * the frame would be the same switch drawn twice. In a window of its own the
+ * pane has no sidebar, so there the bar is the picker: it mounts when the Lab
+ * page's parent is a detached pane's window, or when the page is its own
+ * document (an explicit `embedded=true` visit), and does nothing at all framed
+ * in the hub: no host, no stylesheets, no stream. The proxy injects the tag
+ * either way, because only the page can tell which it is
+ * ({@link barBelongsHere}).
  *
  * **The framed page's own job.** Framed, the page needs something else, and
  * this entry starts that too: `lab-theme-follow.js` puts the hub's light/dark
  * on JupyterLab, which themes itself and would otherwise stay in the theme the
- * sidecar pinned at start. Each half guards itself — the bar on a top-level
- * window, the follower on the `embedded=true` the hub frames the page with —
- * and each boots inside its own `try`.
+ * sidecar pinned at start. Each half guards itself — the bar on a window with
+ * no other picker, the follower on the `embedded=true` the hub frames the page
+ * with — and each boots inside its own `try`.
  *
  * The bar owns three things and nothing else:
  *
@@ -81,6 +88,7 @@ import {
   teardownControlTargetPopover,
 } from './control-target-popover.js';
 import { initLabThemeFollow } from './lab-theme-follow.js';
+import { redirectTopLevelVisit } from '/design-system/js/frame-params.js';
 
 /** The bar itself. Also the chip's host, and the CSS hook below. */
 const BAR_ID = 'osprey-control-target-bar';
@@ -198,6 +206,24 @@ export function isEmbedded(win = /** @type {any} */ (globalThis)) {
   }
 }
 
+/**
+ * Whether this page has no other picker: it is its own document, or its parent
+ * is the window of a detached pane, whose root carries `data-osprey-detached`
+ * (pane-window.js). This is the one place that reaches into the parent, so it
+ * sits in a `try`: a parent it may not read is not the hub's window.
+ *
+ * @param {{self?: unknown, top?: unknown, parent?: any}} [win] the window to ask; the global one by default
+ * @returns {boolean}
+ */
+export function barBelongsHere(win = /** @type {any} */ (globalThis)) {
+  if (!isEmbedded(win)) return true;
+  try {
+    return win.parent?.document?.querySelector('[data-osprey-detached]') != null;
+  } catch {
+    return false;
+  }
+}
+
 /** @type {HTMLElement|null} */
 let bar = null;
 
@@ -210,13 +236,13 @@ let themeObserver = null;
  * Idempotent: a second call re-uses the same bar element and re-enters the
  * chip's own idempotent init, which re-renders rather than mounting a second
  * chip. Answers `null` on a document with no `<body>` to mount into, and on
- * a document framed inside the hub, where the header chip is the picker.
+ * a document framed inside the hub, where the sidebar's chip is the picker.
  *
  * @returns {HTMLElement|null} The bar, or null if it does not belong on this page.
  */
 export function initControlTargetLabBar() {
   if (typeof document === 'undefined' || !document.body) return null;
-  if (isEmbedded()) return null;
+  if (!barBelongsHere()) return null;
 
   ensureStyles();
 
@@ -338,6 +364,11 @@ function watchTheme() {
  * earlier than the tag the proxy injects does.
  */
 function boot() {
+  try {
+    if (redirectTopLevelVisit()) return;
+  } catch (err) {
+    console.error('OSPREY direct-visit redirect failed:', err);
+  }
   try {
     initControlTargetLabBar();
   } catch (err) {

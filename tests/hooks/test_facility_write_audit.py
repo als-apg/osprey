@@ -45,7 +45,7 @@ _BASE_VARS = ("PATH", "PYTHONPATH", "SYSTEMROOT", "TEMP", "TMP", "TMPDIR", "LANG
 
 @pytest.fixture(scope="module")
 def rendered_hook_config(tmp_path_factory) -> Path:
-    """The ``hook_config.json`` a control-assistant regeneration ships with the server."""
+    """The ``hook_config.json`` a demo regeneration ships with the server."""
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.cli.templates.manager import TemplateManager
     from osprey.utils.config_writer import config_update_fields
@@ -53,11 +53,11 @@ def rendered_hook_config(tmp_path_factory) -> Path:
 
     tmp_path = tmp_path_factory.mktemp("facility-write-audit")
     manager = TemplateManager()
-    profile, _ = resolve_build_profile(None, preset="control-assistant")
+    profile, _ = resolve_build_profile(None, preset="demo")
     project = manager.create_project(
         project_name="facility-write-audit",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         data_root=bundle_data_root(),
         context={"channel_finder_mode": "hierarchical"},
         force=True,
@@ -66,9 +66,9 @@ def rendered_hook_config(tmp_path_factory) -> Path:
     manager.generate_manifest(
         project,
         "facility-write-audit",
-        "control-assistant",
+        "demo",
         {},
-        artifacts=manager._effective_artifacts("control_assistant", None),
+        artifacts=manager._effective_artifacts("demo", None),
     )
     config_file = project / "config.yml"
     config = yaml.safe_load(config_file.read_text())

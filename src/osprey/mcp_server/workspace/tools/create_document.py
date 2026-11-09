@@ -157,9 +157,7 @@ async def create_document(
             tool_source="create_document",
             metadata={"figures_included": len(resolved_files)},
         )
-        store.update_entry_metadata(
-            pdf_entry.id, category="document", source_agent="data-visualizer"
-        )
+        store.update_entry_metadata(pdf_entry.id, source_agent="data-visualizer")
         output_artifact_ids.append(pdf_entry.id)
 
         # Save .tex source
@@ -172,9 +170,7 @@ async def create_document(
             mime_type="application/x-tex",
             tool_source="create_document",
         )
-        store.update_entry_metadata(
-            tex_entry.id, category="document", source_agent="data-visualizer"
-        )
+        store.update_entry_metadata(tex_entry.id, source_agent="data-visualizer")
         output_artifact_ids.append(tex_entry.id)
 
     response: dict = {

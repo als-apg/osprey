@@ -58,7 +58,7 @@ const UPLOAD_FAILED = 'The file could not be attached.';
 const REMOVE_TO_SEND = 'Remove the file that could not be attached to send it.';
 const HELD = 'Sending when the upload finishes.';
 const NO_TEXT = 'Type what you want to know about the file, then send.';
-const WAIT = 'Attach files once the agent has finished replying.';
+const WAIT = 'Attach files once the session has switched here.';
 const FULL = `A message can carry ${MAX_FILES_PER_MESSAGE} files.`;
 
 const PASTED_EXTENSIONS = new Map([
@@ -224,7 +224,8 @@ export function initChatAttachments(ctx) {
   inputArea.append(picker);
 
   // The paperclip is unavailable exactly when the composer is: the controller
-  // disables the textarea while a turn runs or a hand-off is pending.
+  // disables the textarea while a hand-off is pending. Files attached while a
+  // turn runs stay in the tray and go with the next message actually sent.
   new MutationObserver(() => {
     if (!textarea.disabled && notice === WAIT) notice = '';
     sync();

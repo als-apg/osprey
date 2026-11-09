@@ -32,7 +32,7 @@ says.
 ## Regenerating the profile fixture
 
 `exemplar-profile/` is a trimmed materialization of the bundled
-`control-assistant` preset — `data/` is empty on purpose (the fixture is
+`demo` preset — `data/` is empty on purpose (the fixture is
 validated and parsed, never built). It carries no `provenance:` block: trimmed
 by hand, it is not the preset's materialization, so `osprey validate` has no
 preset to compare it with. `providers.yml` sits beside the profile as a copy of
@@ -41,7 +41,7 @@ deployment that adds an entry of its own edits that file, and nothing here
 depends on it staying identical to the packaged one.
 
 To regenerate it, run the migration verb over it rather than re-emitting from
-the preset: `osprey init <this dir> --revalidate --preset control-assistant`.
+the preset: `osprey init <this dir> --revalidate --preset demo`.
 For the profile it only adds the keys a profile leaves to its preset, so the trims that
 make this fixture what it is — the shorter artifact lists, the two-user roster,
 `deployed_services: []` — survive it, where a fresh emission would

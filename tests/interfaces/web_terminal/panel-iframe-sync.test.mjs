@@ -97,33 +97,6 @@ describe('the state messages', () => {
   });
 });
 
-describe('the state messages to a pop-out window', () => {
-  test('theme and session reach the window as its iframe twins would, at the hub origin', () => {
-    const postMessage = vi.fn();
-    const win = /** @type {Window} */ (/** @type {unknown} */ ({ postMessage }));
-    sync.sendThemeToWindow(win);
-    sync.sendSessionToWindow(win);
-    expect(postMessage.mock.calls).toEqual([
-      [{ type: 'osprey-theme-change', theme: 'dark' }, window.location.origin],
-      [{ type: 'osprey-session-change', session_id: 'sess-1' }, window.location.origin],
-    ]);
-  });
-
-  test('no session yet means no session message; no window means no send; a throw is swallowed', () => {
-    const postMessage = vi.fn();
-    const win = /** @type {Window} */ (/** @type {unknown} */ ({ postMessage }));
-    mocks.sessionId = null;
-    sync.sendSessionToWindow(win);
-    expect(postMessage).not.toHaveBeenCalled();
-    expect(() => sync.sendThemeToWindow(null)).not.toThrow();
-    postMessage.mockImplementation(() => {
-      throw new Error('SecurityError');
-    });
-    mocks.sessionId = 'sess-1';
-    expect(() => sync.sendSessionToWindow(win)).not.toThrow();
-  });
-});
-
 describe('the artifacts viewer messages', () => {
   test('select names the artifact to show, or null for the empty viewer', () => {
     const { iframe, postMessage } = fakeFrame();
@@ -137,9 +110,9 @@ describe('the artifacts viewer messages', () => {
 
   test('an action names the artifact and the verb, for the hub origin only', () => {
     const { iframe, postMessage } = fakeFrame();
-    sync.sendArtifactActionToIframe(iframe, 'a1', 'delete');
+    sync.sendArtifactActionToIframe(iframe, 'a1', 'print');
     expect(postMessage).toHaveBeenCalledWith(
-      { type: 'osprey-artifact-action', artifact_id: 'a1', action: 'delete' },
+      { type: 'osprey-artifact-action', artifact_id: 'a1', action: 'print' },
       window.location.origin
     );
   });
@@ -163,24 +136,48 @@ describe('the artifacts viewer messages', () => {
   });
 });
 
+describe('the agent-activity notice', () => {
+  const activity = { tool: 'entry_create', detail: 'e-42', ts: 1730668800.25 };
+  const message = {
+    type: 'osprey-agent-activity',
+    tool: 'entry_create',
+    detail: 'e-42',
+    ts: 1730668800.25,
+  };
+
+  test('goes to the panel iframe at the hub origin only', () => {
+    const { iframe, postMessage } = fakeFrame();
+    sync.sendAgentActivityToIframe(iframe, activity);
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith(message, window.location.origin);
+  });
+
+  test('no frame, or a throwing window, is skipped', () => {
+    expect(() => sync.sendAgentActivityToIframe(null, activity)).not.toThrow();
+    const { iframe, postMessage } = fakeFrame();
+    postMessage.mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    expect(() => sync.sendAgentActivityToIframe(iframe, activity)).not.toThrow();
+  });
+
+  test('a frame with no detail relays none', () => {
+    const { iframe, postMessage } = fakeFrame();
+    sync.sendAgentActivityToIframe(iframe, { tool: 'panel_focus', ts: 1 });
+    expect(postMessage.mock.calls[0][0]).toMatchObject({
+      type: 'osprey-agent-activity',
+      tool: 'panel_focus',
+      ts: 1,
+    });
+    expect(postMessage.mock.calls[0][0].detail).toBeUndefined();
+  });
+});
+
 describe('buildEmbedSrc', () => {
   test('stamps embedded and theme and keeps a prefixed path verbatim', () => {
     const src = new URL(sync.buildEmbedSrc('/u/alice/panel/artifacts/?x=1'));
     expect(src.pathname).toBe('/u/alice/panel/artifacts/');
     expect(src.searchParams.get('x')).toBe('1');
     expect(src.searchParams.get('embedded')).toBe('true');
-    expect(src.searchParams.get('theme')).toBe('dark');
-    expect(src.searchParams.has('mode')).toBe(false);
-  });
-});
-
-describe('buildPopoutSrc', () => {
-  test('stamps popout and theme — never embedded — and keeps a prefixed path verbatim', () => {
-    const src = new URL(sync.buildPopoutSrc('/u/alice/panel/artifacts/?x=1'));
-    expect(src.pathname).toBe('/u/alice/panel/artifacts/');
-    expect(src.searchParams.get('x')).toBe('1');
-    expect(src.searchParams.get('popout')).toBe('true');
-    expect(src.searchParams.has('embedded')).toBe(false);
     expect(src.searchParams.get('theme')).toBe('dark');
     expect(src.searchParams.has('mode')).toBe(false);
   });

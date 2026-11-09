@@ -50,7 +50,8 @@ list, and that list, not the payload, is the security control.
 ========
 
 Who is in the conversation. Present only when the bridge can list the room
-(Google Chat, Microsoft Teams and Nextcloud Talk):
+(Google Chat, Microsoft Teams, Nextcloud Talk, and Slack outside one-to-one
+direct messages):
 
 .. list-table::
    :header-rows: 1

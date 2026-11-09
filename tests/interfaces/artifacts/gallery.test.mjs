@@ -1,18 +1,16 @@
 // @ts-check
 /**
- * The gallery page entry (gallery.js): which mode follows the panel's event
- * stream, and how the embedded viewer applies the hub's change messages.
+ * The gallery page entry (gallery.js): how the viewer applies the hub's change
+ * messages, and which listing it holds.
  *   npx vitest run tests/interfaces/artifacts/gallery.test.mjs
  *
- * Standalone, the page opens `/api/events` itself. Embedded (`?embedded=true`)
- * it opens no stream: each one holds one of the browser's six connections to
- * the hub's origin, which every panel iframe shares, so the hub forwards the
- * shown artifact's `osprey-artifact-changed` instead.
+ * The page opens no event stream: each one holds one of the browser's six
+ * connections to the hub's origin, which every panel iframe shares, so the hub
+ * forwards the shown artifact's `osprey-artifact-changed` instead.
  *
  * gallery.js wires itself on import, so each test sets the URL, imports a
  * fresh copy (vi.resetModules) and reads the state through the same copy of
- * state.js. Seams mocked: the preview and sidebar renderers, the browse
- * layout, the ⋯ menu, the pick bar, print, the logbook composer, the
+ * state.js. Seams mocked: the preview renderer, print, the logbook composer, the
  * timeseries view, the type registry and the theme runtime. The real
  * viewer.js and state.js run, over a stubbed fetch and EventSource. The
  * listeners each import adds to window and document are removed after the
@@ -36,42 +34,15 @@ vi.mock('/design-system/js/theme-manager.js', () => ({
   initTheme: () => {},
   subscribe: () => {},
 }));
-vi.mock('/design-system/js/components/osprey-display-menu.js', () => ({}));
 vi.mock('../../../src/osprey/interfaces/artifacts/static/js/preview.js', () => ({
   createPreviewRenderer: () => {
     mocks.preview = {
       renderPreview: vi.fn(),
-      isFullscreen: () => false,
-      enterFullscreen: vi.fn(),
-      exitFullscreen: vi.fn(),
-      noteNewArtifactArrival: vi.fn(),
-      updateNewArtifactBadge: vi.fn(),
-      setPinned: vi.fn(),
-      deleteArtifact: vi.fn(),
-      setAsFocus: vi.fn(),
     };
     return mocks.preview;
   },
 }));
-vi.mock('../../../src/osprey/interfaces/artifacts/static/js/render.js', () => ({
-  createSidebarRenderer: () => ({
-    renderSidebar: () => {},
-    getBrowseMode: () => 'tree',
-    setBrowseMode: () => {},
-    getSidebarLayout: () => 'list',
-    setSidebarLayout: () => {},
-  }),
-  isNearListEnd: () => false,
-}));
-vi.mock('../../../src/osprey/interfaces/artifacts/static/js/browse-layout.js', () => ({
-  initBrowseLayout: () => {},
-}));
-vi.mock('../../../src/osprey/interfaces/artifacts/static/js/sidebar-menu.js', () => ({
-  initSidebarMenu: () => {},
-}));
-vi.mock('../../../src/osprey/interfaces/artifacts/static/js/pick-bar.js', () => ({
-  mountPickBar: () => ({ render: () => {}, clear: () => false }),
-}));
+
 vi.mock('../../../src/osprey/interfaces/artifacts/static/js/print.js', () => ({
   printArtifact: () => {},
 }));
@@ -95,7 +66,6 @@ const art = (id, extra = {}) => ({
   artifact_type: 'markdown',
   title: `Artifact ${id}`,
   filename: `${id}.md`,
-  pinned: false,
   ...extra,
 });
 
@@ -120,11 +90,18 @@ const reply = (body, status = 200) => ({
 /** The list the server holds, served by `GET /api/artifacts`. */
 let listed = [art('a1'), art('a2')];
 
-/** @param {string} url */
-function route(url) {
+/** The session view's list and the transcript its key resolves to, served by `POST /api/artifacts/session-list`. */
+let sessionListed = [art('s1', { owner: 'T1', operator_visible: true })];
+/** @type {string|null} */
+let transcript = 'T1';
+
+/** @param {string} url @param {any} [init] */
+function route(url, init) {
   const path = new URL(url, 'http://gallery').pathname;
+  if (path === '/api/artifacts/session-list' && init?.method === 'POST') {
+    return reply({ artifacts: sessionListed, next_cursor: null, transcript, ledger: 'ok' });
+  }
   if (path === '/api/artifacts') return reply({ artifacts: listed, next_cursor: null });
-  if (path === '/api/focus') return reply({ focused: false, artifact: null });
   const one = path.match(/^\/api\/artifacts\/(.+)$/);
   const entry = one && listed.find((a) => a.id === decodeURIComponent(one[1]));
   return entry ? reply(entry) : reply({ detail: 'not found' }, 404);
@@ -136,11 +113,10 @@ async function settle() {
 }
 
 /**
- * Load the page at `search` and let its first fetches land.
- * @param {string} search
+ * Load the page and let its first fetches land.
  */
-async function load(search) {
-  window.history.replaceState({}, '', `/${search}`);
+async function load() {
+  window.history.replaceState({}, '', '/?embedded=true');
   await import(`${JS}/gallery.js`);
   state = await import(`${JS}/state.js`);
   await settle();
@@ -169,17 +145,14 @@ beforeEach(() => {
       original(type, listener, options);
     });
   }
-  fetchMock = vi.fn(async (/** @type {string} */ url) => route(url));
+  sessionListed = [art('s1', { owner: 'T1', operator_visible: true })];
+  transcript = 'T1';
+  fetchMock = vi.fn(async (/** @type {string} */ url, /** @type {any} */ init) => route(url, init));
   vi.stubGlobal('fetch', fetchMock);
   vi.stubGlobal('requestAnimationFrame', () => 0);
   events = stubEventSource();
-  // The page's own slots gallery.js reads on boot (index.html); the embedded
-  // page keeps them too, hidden.
+  // The page's own slots (index.html).
   document.body.innerHTML = `
-    <div id="browse-sidebar">
-      <input id="search" type="search">
-      <div id="sidebar-body"></div>
-    </div>
     <div id="preview-empty"></div>
     <div id="preview-content"></div>
   `;
@@ -197,36 +170,18 @@ afterEach(() => {
 });
 
 describe('the event stream', () => {
-  test('standalone, the page opens the panel stream and reads the focus', async () => {
-    await load('');
-
-    expect(events.opened.map((source) => source.url)).toEqual(['/api/events']);
-    expect(paths()).toContain('/api/focus');
-  });
-
-  test('embedded, the page opens no stream and leaves the focus to the hub', async () => {
-    await load('?embedded=true');
+  test('the page opens no stream and leaves the focus to the hub', async () => {
+    await load();
 
     expect(events.opened).toEqual([]);
     expect(paths()).toEqual(['/api/artifacts']);
   });
-
-  test('standalone, an update frame re-renders the shown artifact', async () => {
-    await load('');
-    state.setSelectedArtifact(state.getArtifacts()[0]);
-    mocks.preview.renderPreview.mockClear();
-
-    events.emit({ type: 'artifact_updated', ...art('a1', { pinned: true }) });
-
-    expect(state.getSelectedArtifact()).toEqual(art('a1', { pinned: true }));
-    expect(mocks.preview.renderPreview).toHaveBeenCalledTimes(1);
-  });
 });
 
-describe('embedded: the hub says when the shown artifact changed', () => {
+describe('the hub says when the shown artifact changed', () => {
   /** Load the embedded page and have the hub show a1. */
   async function showA1() {
-    await load('?embedded=true');
+    await load();
     fromHub({ type: 'osprey-artifact-select', artifact_id: 'a1' });
     expect(state.getSelectedArtifact()?.id).toBe('a1');
     mocks.preview.renderPreview.mockClear();
@@ -239,11 +194,11 @@ describe('embedded: the hub says when the shown artifact changed', () => {
       type: 'osprey-artifact-changed',
       artifact_id: 'a1',
       change: 'updated',
-      artifact: art('a1', { pinned: true }),
+      artifact: art('a1', { title: 'Renamed' }),
     });
 
-    expect(state.getSelectedArtifact()).toEqual(art('a1', { pinned: true }));
-    expect(state.getArtifacts().find((a) => a.id === 'a1')?.pinned).toBe(true);
+    expect(state.getSelectedArtifact()).toEqual(art('a1', { title: 'Renamed' }));
+    expect(state.getArtifacts().find((a) => a.id === 'a1')?.title).toBe('Renamed');
     expect(mocks.preview.renderPreview).toHaveBeenCalledTimes(1);
   });
 
@@ -254,7 +209,7 @@ describe('embedded: the hub says when the shown artifact changed', () => {
       type: 'osprey-artifact-changed',
       artifact_id: 'a2',
       change: 'updated',
-      artifact: art('a2', { pinned: true }),
+      artifact: art('a2', { title: 'Renamed' }),
     });
 
     expect(state.getSelectedArtifact()?.id).toBe('a1');
@@ -297,5 +252,58 @@ describe('embedded: the hub says when the shown artifact changed', () => {
     expect(paths()).toEqual(['/api/artifacts']);
     expect(state.getArtifacts().map((a) => a.id)).toEqual(['a3', 'a1', 'a2']);
     expect(mocks.openComposeModal).toHaveBeenCalledWith({ artifact_id: 'a1' });
+  });
+});
+
+describe('the session view is the sidebar row', () => {
+  /** Load the page and have the host name session key k1. */
+  async function enterSession() {
+    await load();
+    fromHub({ type: 'osprey-session-change', session_id: 'k1' });
+    await settle();
+  }
+
+  /** The session-list requests the page made. */
+  const sessionLists = () =>
+    fetchMock.mock.calls.filter(([url]) => String(url) === '/api/artifacts/session-list');
+
+  test('no session id shows all sessions through GET /api/artifacts', async () => {
+    await load();
+
+    expect(paths()).toContain('/api/artifacts');
+    expect(sessionLists()).toEqual([]);
+    expect(state.getArtifacts().map((a) => a.id)).toEqual(['a1', 'a2']);
+  });
+
+  test('a session key posts the exact gallery body and holds the transcript', async () => {
+    await enterSession();
+
+    expect(sessionLists()).toHaveLength(1);
+    const [, init] = sessionLists()[0];
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body)).toEqual({ key: 'k1', search: '', cursor: null, runs: 'grouped' });
+    expect(state.getHeldTranscript()).toBe('T1');
+    expect(state.getArtifacts().map((a) => a.id)).toEqual(['s1']);
+  });
+
+  test('a same-key change reads the list again', async () => {
+    await enterSession();
+    fetchMock.mockClear();
+
+    fromHub({ type: 'osprey-session-change', session_id: 'k1' });
+    await settle();
+
+    expect(state.getCurrentSessionId()).toBe('k1');
+    expect(sessionLists()).toHaveLength(1);
+  });
+
+  test('a new key lists that session', async () => {
+    await enterSession();
+    fetchMock.mockClear();
+
+    fromHub({ type: 'osprey-session-change', session_id: 'k2' });
+    await settle();
+
+    expect(JSON.parse(sessionLists()[0][1].body).key).toBe('k2');
   });
 });

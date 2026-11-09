@@ -195,3 +195,15 @@ def test_a_nested_run_whose_table_could_not_be_read_fails_saying_so(monkeypatch)
         "process table unreadable: group",
     ):
         run_nested_pytest([sys.executable, "-c", "pass"], cwd=None, env=None)
+
+
+def test_a_run_killed_by_a_signal_names_it_in_its_stderr():
+    """A crash reads as a bare negative return code otherwise, and every caller
+    prints only stdout and stderr beside its ``returncode == 0`` assertion."""
+    result = run_nested_pytest(
+        [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGSEGV)"],
+        cwd=None,
+        env=None,
+    )
+    assert result.returncode == -signal.SIGSEGV
+    assert "nested run killed by SIGSEGV" in result.stderr

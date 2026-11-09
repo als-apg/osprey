@@ -14,6 +14,8 @@ the handler owes the client around that door:
 - a newer terminal on the key displaces the older one, which is closed
   with 4409; an outgoing child that survives its kill refuses the terminal
   with 4503; a hand-off error is an ``error`` frame and a close;
+- a reconnect reattaches the pooled PTY while the server would launch it
+  under the same overlay, and replaces it once that overlay has changed;
 - a resize sent while waiting sizes the spawn, one that lands after the
   spawn is applied once the door returns, and a reused PTY is resized to
   the client's size by the handler itself;
@@ -43,8 +45,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from starlette.testclient import TestClient
 
+from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
 from osprey.interfaces.web_terminal.process_tree import ProcessGroup
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry, env_fingerprint
+from osprey.interfaces.web_terminal.routes import websocket as websocket_route
 from osprey.interfaces.web_terminal.routes.websocket import _spawn_pooled_pty
 from osprey.interfaces.web_terminal.session_handoff import (
     ERROR_HANDOFF_STARTED_COMMANDS,
@@ -571,7 +575,8 @@ def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(ws_app, sess
     sid = new_session_id()
     (sessions_dir / f"{sid}.jsonl").write_text("")
 
-    # ``acquire_surface``'s signature: the websocket route names ``interrupt`` and ``end_started``.
+    # ``acquire_surface``'s signature: the websocket route names ``interrupt``,
+    # ``end_started`` and ``launch_env``.
     async def spawn_then_linger(
         app_,
         key,
@@ -581,8 +586,11 @@ def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(ws_app, sess
         interrupt=False,  # noqa: ARG001
         spawn=None,
         end_started=False,  # noqa: ARG001
+        launch_env=None,
     ):
-        session = await spawn(SimpleNamespace(key=key, resume_id=None, transcript_id=key))
+        session = await spawn(
+            SimpleNamespace(key=key, resume_id=None, transcript_id=key, launch_env=launch_env(key))
+        )
         app_.state.pty_registry.attach_session(key, channel)
         # The door is still busy after the spawn; the client's resize lands now.
         await asyncio.sleep(0.4)
@@ -621,6 +629,40 @@ def test_a_reused_pty_is_resized_to_the_clients_size(ws_app):
             assert (session._last_rows, session._last_cols) == (30, 100)
 
     assert len(spawns) == 1
+
+
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_reconnect_after_the_launch_env_changed_gets_a_fresh_pty(ws_app):
+    """A pooled PTY launched under an older overlay is replaced, not reattached."""
+    real_build = websocket_route._build_extra_env
+    changed: dict[str, dict[str, str]] = {}
+
+    def build_with_a_new_token(websocket, claude_session_id, telemetry_session_id=None):
+        overlay = real_build(websocket, claude_session_id, telemetry_session_id)
+        overlay[PANEL_TOKEN_ENV] = "rotated-" + overlay[PANEL_TOKEN_ENV]
+        changed["overlay"] = overlay
+        return overlay
+
+    with TestClient(ws_app) as client:
+        spawns = _patch_spawn(ws_app)
+        _chats(ws_app)
+        with client.websocket_connect("/ws/terminal") as ws:
+            send_resize(ws)
+            sid = recv_json(ws, "session_info")["session_id"]
+
+        with (
+            patch.object(websocket_route, "_build_extra_env", build_with_a_new_token),
+            client.websocket_connect(resume_url(sid)) as ws,
+        ):
+            send_resize(ws)
+            recv_json(ws, "session_info")
+            sync_session(ws, sid)
+
+        registry = ws_app.state.pty_registry
+        assert len(spawns) == 2
+        assert spawns[0].session.is_alive is False
+        assert registry.get_session(sid) is spawns[1].session
+        assert registry._env_fingerprints[sid] == env_fingerprint(changed["overlay"])
 
 
 # ---------------------------------------------------------------------------

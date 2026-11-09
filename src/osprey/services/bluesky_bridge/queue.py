@@ -67,7 +67,9 @@ start documents, live rows, and Tiled results all key back to it. One check is
 new rather than inherited: a plan whose role-typed channel parameters name
 something the worker's namespace lacks is refused at add time
 (`_check_devices_exist`), because that mistake would otherwise only surface as
-a failed run.
+a failed run. Session-plan validation holds the channels its sample arguments
+name to the same check (`_check_channel_names_built`), so a validated plan run
+with those arguments is never refused for a missing device.
 
 A deployment whose capability record says it cannot execute (mock connector,
 unreadable config, no manager) refuses enqueue outright — a browse-only
@@ -114,22 +116,21 @@ from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
 from .plan_types import PlanSpec
 from .queue_backend import (
     PLAN_META_KEY,
-    REASON_MANAGER_NOT_CONFIGURED,
-    REASON_MANAGER_UNREACHABLE,
-    AbortPauseTimeoutError,
-    EnvironmentUnavailableError,
+    REASON_INTERRUPTED_ITEM_IN_QUEUE,
+    REASON_MANAGER_NOT_IDLE,
+    REASON_QUEUE_CHANGED_SINCE_APPROVAL,
+    REASON_UNKNOWN_DEVICE,
+    REFUSAL_REASONS,
     ExecutionUnavailableError,
-    NothingRunningError,
     QueueBackend,
     QueueBackendError,
-    QueueItemInvalidError,
     QueueRequestRejectedError,
-    QueueUnavailableError,
     is_queue_active,
     run_id_of,
     split_owner,
 )
 from .queue_removals import ACTION_ABORT, ACTION_CLEAR, ACTION_REMOVE, removal_log
+from .refusals import refusal
 from .security import verify_launch_token
 from .session_upload import (
     SessionPlanNotReadyError,
@@ -227,40 +228,18 @@ async def shutdown() -> None:
 def _http_error(exc: QueueBackendError, *, extra: Mapping[str, Any] | None = None) -> HTTPException:
     """Map one typed backend failure to the HTTP refusal the wire contract promises.
 
-    - `ExecutionUnavailableError` carries the capability record in the body so
-      the caller sees the same reason/remediation the status surface
-      publishes. Manager-side reasons are 503 (deploy the manager / bring it
-      back and retry); connector/config reasons are 409 (the deployment
-      itself cannot execute — retrying changes nothing).
-    - `QueueUnavailableError` / `EnvironmentUnavailableError` /
-      `AbortPauseTimeoutError` are 503 — genuinely retryable. The abort timeout
-      belongs in that bucket rather than getting a status of its own: the
-      operator's next move is to try again (or reach for out-of-band means),
-      and every client already branches on `detail.code`, so a fourth status
-      would only be one more thing to learn.
-    - `QueueRequestRejectedError` / `NothingRunningError` are 409 — the manager
-      answered and the request does not apply.
-    - `QueueItemInvalidError` is 400 — the request itself is malformed, and the
-      fix is in the caller's hands, the same reading `_refuse_unknown_devices`
-      gives an item naming a device that does not exist.
+    The status and ``retryable`` both come from the reason's row in
+    `REFUSAL_REASONS`; the body is ``{code, detail, retryable}``.
+    `ExecutionUnavailableError` also carries the capability record, so the
+    caller sees the same reason and remedy the status surface publishes.
 
     *extra* carries caller-side facts the backend exception cannot, merged into
     the body beside ``code`` and ``detail``.
     """
-    detail: dict[str, Any] = {"code": exc.reason, "detail": str(exc), **(extra or {})}
-    if isinstance(exc, QueueItemInvalidError):
-        return HTTPException(status_code=400, detail=detail)
+    facts: dict[str, Any] = dict(extra or {})
     if isinstance(exc, ExecutionUnavailableError):
-        detail["capability"] = exc.capability.to_dict()
-        retryable = exc.reason in (REASON_MANAGER_UNREACHABLE, REASON_MANAGER_NOT_CONFIGURED)
-        return HTTPException(status_code=503 if retryable else 409, detail=detail)
-    if isinstance(
-        exc, (QueueUnavailableError, EnvironmentUnavailableError, AbortPauseTimeoutError)
-    ):
-        return HTTPException(status_code=503, detail=detail)
-    if isinstance(exc, (QueueRequestRejectedError, NothingRunningError)):
-        return HTTPException(status_code=409, detail=detail)
-    return HTTPException(status_code=500, detail=detail)
+        facts["capability"] = exc.capability.to_dict()
+    return refusal(exc.reason, str(exc), **facts)
 
 
 def _token_is_valid(header: str) -> bool:
@@ -286,14 +265,11 @@ def _require_arming_token(header: str, action: str, extra: Mapping[str, Any] | N
     try:
         verify_launch_token(header)
     except HTTPException as exc:
-        refusal = cast(Mapping[str, Any], exc.detail)
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={
-                **refusal,
-                "detail": f"{action} requires the launch token: {refusal['detail']}",
-                **(extra or {}),
-            },
+        refused = cast(Mapping[str, Any], exc.detail)
+        raise refusal(
+            refused["code"],
+            f"{action} requires the launch token: {refused['detail']}",
+            **(extra or {}),
         ) from exc
 
 
@@ -368,23 +344,18 @@ def _refuse_interrupted_item(item: dict[str, Any]) -> NoReturn:
     exit_status = result.get("exit_status") if isinstance(result, dict) else None
     uid = item.get("item_uid")
     name = item.get("name")
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "interrupted_item_in_queue",
-            "detail": (
-                f"the queue still holds {name!r}, a plan that already ran and ended "
-                f"{exit_status!r}; the queue server puts an interrupted plan back at the "
-                "front of the queue, so starting now would re-run it. Every start is "
-                "refused while that copy is queued, so removing it with "
-                f"DELETE /queue/items/{uid} is the only way on. To run the plan again, "
-                "remove it first and then re-stage it through the draft and enqueue it "
-                "afresh, to run it deliberately."
-            ),
-            "item_uid": uid,
-            "plan": name,
-            "exit_status": exit_status,
-        },
+    raise refusal(
+        REASON_INTERRUPTED_ITEM_IN_QUEUE,
+        f"the queue still holds {name!r}, a plan that already ran and ended "
+        f"{exit_status!r}; the queue server puts an interrupted plan back at the "
+        "front of the queue, so starting now would re-run it. Every start is "
+        "refused while that copy is queued, so removing it with "
+        f"DELETE /queue/items/{uid} is the only way on. To run the plan again, "
+        "remove it first and then re-stage it through the draft and enqueue it "
+        "afresh, to run it deliberately.",
+        item_uid=uid,
+        plan=name,
+        exit_status=exit_status,
     )
 
 
@@ -416,19 +387,14 @@ def _refuse_manager_not_idle(running_item: dict[str, Any]) -> NoReturn:
     """
     uid = running_item.get("item_uid")
     name = running_item.get("name")
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "manager_not_idle",
-            "detail": (
-                f"the queue is already running {name!r}, so there is nothing for a start "
-                "to do — the queue moves on to the next item by itself when this one "
-                "finishes. Poll GET /queue to follow it, or POST /queue/abort to halt "
-                "the plan in motion."
-            ),
-            "item_uid": uid,
-            "plan": name,
-        },
+    raise refusal(
+        REASON_MANAGER_NOT_IDLE,
+        f"the queue is already running {name!r}, so there is nothing for a start "
+        "to do — the queue moves on to the next item by itself when this one "
+        "finishes. Poll GET /queue to follow it, or POST /queue/abort to halt "
+        "the plan in motion.",
+        item_uid=uid,
+        plan=name,
     )
 
 
@@ -455,20 +421,15 @@ def _refuse_queue_changed(expected_uid: str, current_uid: Any) -> NoReturn:
     quoting that uid. 409, not 503: nothing is broken and an unchanged retry
     would be refused identically; a human has to look again.
     """
-    raise HTTPException(
-        status_code=409,
-        detail={
-            "code": "queue_changed_since_approval",
-            "detail": (
-                "the queue has changed since it was approved: the start named queue "
-                f"{expected_uid!r}, but the manager now holds {current_uid!r}. An item "
-                "has been added, removed or re-ordered in between, so the approved list "
-                "is not the list this start would run. Re-read GET /queue, check what it "
-                "now holds, and start again with the plan_queue_uid it reports."
-            ),
-            "plan_queue_uid": current_uid,
-            "expected_plan_queue_uid": expected_uid,
-        },
+    raise refusal(
+        REASON_QUEUE_CHANGED_SINCE_APPROVAL,
+        "the queue has changed since it was approved: the start named queue "
+        f"{expected_uid!r}, but the manager now holds {current_uid!r}. An item "
+        "has been added, removed or re-ordered in between, so the approved list "
+        "is not the list this start would run. Re-read GET /queue, check what it "
+        "now holds, and start again with the plan_queue_uid it reports.",
+        plan_queue_uid=current_uid,
+        expected_plan_queue_uid=expected_uid,
     )
 
 
@@ -483,7 +444,8 @@ def _session_refusal(exc: SessionPlanNotReadyError) -> HTTPException:
     with the same value repeated under the queue surface's canonical ``code``
     key so clients branch on one name everywhere.
     """
-    return HTTPException(status_code=409, detail={**exc.to_dict(), "code": exc.reason})
+    facts = {key: value for key, value in exc.to_dict().items() if key != "detail"}
+    return refusal(exc.reason, exc.detail, **facts)
 
 
 # ---------------------------------------------------------------------------
@@ -494,7 +456,9 @@ def _session_refusal(exc: SessionPlanNotReadyError) -> HTTPException:
 # has no device for is not caught by any schema, and surfaces only as a failed
 # run after an enqueue and a start. Checking the names against the worker's own
 # `devices_allowed` before the add turns that into one legible refusal at the
-# moment the name was chosen.
+# moment the name was chosen. Session-plan validation runs the same check on
+# the channels its sample arguments name, so the two points refuse the same
+# mistake with the same body.
 #
 # WHICH strings in the params are channel names is the plan's own declaration,
 # never a guess this module makes: an author annotates each channel field with
@@ -647,21 +611,18 @@ def _refuse_unknown_devices(
     first = min(unknown_movable or unknown_readable)
     label = "session plan" if session_tier else "plan"
     cap = device_page_size()
-    detail: dict[str, Any] = {
-        "code": "unknown_device",
-        "detail": (
-            f"{label} {plan_name!r} referenced device {first!r}, which this worker "
-            f"did not build; available devices: {_available_devices_phrase(available, cap)}"
-        ),
-        "plan": plan_name,
-        "devices": sorted(unknown),
-    }
+    facts: dict[str, Any] = {"plan": plan_name, "devices": sorted(unknown)}
     if len(available) <= cap:
-        detail["available_devices"] = sorted(available)
+        facts["available_devices"] = sorted(available)
     else:
-        detail["available_count"] = len(available)
-        detail["available_devices_url"] = "/devices"
-    raise HTTPException(status_code=400, detail=detail)
+        facts["available_count"] = len(available)
+        facts["available_devices_url"] = "/devices"
+    raise refusal(
+        REASON_UNKNOWN_DEVICE,
+        f"{label} {plan_name!r} referenced device {first!r}, which this worker "
+        f"did not build; available devices: {_available_devices_phrase(available, cap)}",
+        **facts,
+    )
 
 
 async def _built_device_names(
@@ -678,13 +639,13 @@ async def _built_device_names(
     tree is refetched only when the uid says the cached names are no longer
     the worker's.
 
-    ``status`` is the document the enqueue already read under the arming lock
-    — a ``reload=True`` read, so it is the manager's current answer rather than
-    the client's ~0.5 s cache or whatever the SSE poller (which runs only while
-    a subscriber is connected) last left behind. Reading it here again would
-    put a second round trip in the add path for the same document; a status
-    that could not be read never reaches this point, because the enqueue is
-    refused on it first.
+    ``status`` is the document the caller already read; only its uid is used,
+    to key the cache. The enqueue hands it the ``reload=True`` read it made
+    under the arming lock — the manager's current answer rather than the
+    client's ~0.5 s cache or whatever the SSE poller last left behind — so the
+    add path makes no second round trip for the same document. Session-plan
+    validation hands it a plain read: a stale uid costs at most one refetch of
+    the tree, never a wrong answer about it.
 
     Returns the built names, or ``None`` when there is nothing certain to check
     against: a status carrying no uid just costs the fetch this cache saves
@@ -776,6 +737,37 @@ async def _check_devices_exist(
         return
 
     movable, readable = _referenced_channel_names(spec, plan_args)
+    await _check_channel_names_built(
+        backend,
+        plan_name,
+        movable,
+        readable,
+        status,
+        session_tier=spec.provenance in ("session", "unreviewed"),
+    )
+
+
+async def _check_channel_names_built(
+    backend: QueueBackend,
+    plan_name: str,
+    movable: AbstractSet[str],
+    readable: AbstractSet[str],
+    status: Mapping[str, Any],
+    *,
+    session_tier: bool,
+) -> None:
+    """Refuse (400 ``unknown_device``) channel names the worker did not build.
+
+    The one check both the enqueue (`_check_devices_exist`, over the draft's
+    arguments) and session-plan validation (over its sample arguments) run, so
+    the two refuse the same mistake with the same body and sentence
+    (`_refuse_unknown_devices`). ``movable`` and ``readable`` are the names the
+    plan's declared roles collected; ``session_tier`` picks the sentence's noun.
+
+    Fail-open where the answer is not certain: no names to check, or a worker
+    whose device tree cannot be read or is empty (`_built_device_names`),
+    returns without a refusal.
+    """
     if not movable and not readable:
         return
 
@@ -783,10 +775,9 @@ async def _check_devices_exist(
     if built is None:
         return
 
-    unknown_movable = movable - built
-    unknown_readable = readable - built
+    unknown_movable = set(movable) - built
+    unknown_readable = set(readable) - built
     if unknown_movable or unknown_readable:
-        session_tier = spec.provenance in ("session", "unreviewed")
         _refuse_unknown_devices(
             plan_name, unknown_movable, unknown_readable, built, session_tier=session_tier
         )
@@ -819,9 +810,18 @@ def _status_summary(status: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
-def _unavailable_summary(reason: str) -> dict[str, Any]:
-    """The summary published when the manager (or backend) cannot be read."""
-    summary: dict[str, Any] = {"available": False, "reason": reason}
+def _unavailable_summary(reason: str, detail: str) -> dict[str, Any]:
+    """The summary published when the manager (or backend) cannot be read.
+
+    ``detail`` is the backend's own sentence, so a reader is told the cause the
+    backend stated and nothing it could not tell apart.
+    """
+    summary: dict[str, Any] = {
+        "available": False,
+        "reason": reason,
+        "retryable": REFUSAL_REASONS[reason].retryable,
+        "detail": detail,
+    }
     for key in _SUMMARY_KEYS:
         summary[key] = None
     summary["runs_removed"] = None
@@ -835,7 +835,7 @@ async def _current_summary() -> dict[str, Any]:
         # client's ~0.5 s status cache would quietly halve that.
         return _status_summary(await _get_backend().status(reload=True))
     except QueueBackendError as exc:
-        return _unavailable_summary(exc.reason)
+        return _unavailable_summary(exc.reason, str(exc))
 
 
 def _with_progress(running_item: Any) -> Any:
@@ -1167,10 +1167,7 @@ async def add_queue_item(
 
     checked = await draft.check_launchable(body.draft_revision)
     if isinstance(checked, draft.LaunchRejected):
-        raise HTTPException(
-            status_code=409,
-            detail={"code": checked.code, "detail": checked.detail, "revision": checked.revision},
-        )
+        raise refusal(checked.code, checked.detail, revision=checked.revision)
 
     run_id = uuid.uuid4().hex
     item = {
@@ -1607,6 +1604,8 @@ async def abort_running_plan(
     - 503 ``abort_pause_timeout`` — the Run Engine never paused, so NOTHING was
       aborted and the plan may still be running. Never dressed up as a halt.
     - 503 ``manager_unreachable`` — the manager did not answer at all.
+    - 409 ``manager_not_configured`` — this deployment names no queue server;
+      only an operator can fix that.
     - 409 ``queue_request_rejected`` — the manager refused the abort itself.
 
     WHERE THE ABORTED PLAN ENDS UP, which is not where the wording above might

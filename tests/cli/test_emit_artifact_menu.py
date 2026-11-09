@@ -23,25 +23,25 @@ def test_catalog_covers_the_six_profile_list_keys() -> None:
     # Panels that are universal (always served) are not offered as opt-ins.
     panel_names = [name for name, _ in menu["web_panels"]]
     assert "artifacts" not in panel_names
-    assert "lattice" in panel_names
+    assert "okf" in panel_names
 
 
 def test_menu_offers_unselected_panels() -> None:
     # hello-world selects no panel; every built-in panel is offered.
     text = _emit("hello-world")
-    for panel in ("channel-finder", "jupyter", "lattice", "okf", "system-health"):
+    for panel in ("channel-finder", "jupyter", "okf", "system-health"):
         assert f"# - {panel}" in text
 
 
 def test_menu_dedupes_against_preset_comment_mentions() -> None:
     # The preset's skills list already discusses setup-mode in a hand-written
     # comment; the generated menu must not offer it a second time.
-    text = _emit("control-assistant")
+    text = _emit("demo")
     assert text.count("setup-mode") == 1
 
 
 def test_every_selectable_artifact_is_active_or_offered() -> None:
-    text = _emit("control-assistant")
+    text = _emit("demo")
     for entries in artifact_menu_catalog().values():
         for name, _description in entries:
             assert name in text, f"{name} is neither active nor offered"
@@ -56,7 +56,7 @@ def test_empty_lists_still_offer_the_menu() -> None:
 
 
 def test_menu_insertion_is_deterministic() -> None:
-    assert _emit("control-assistant") == _emit("control-assistant")
+    assert _emit("demo") == _emit("demo")
 
 
 def test_the_hooks_menu_offers_no_helper() -> None:

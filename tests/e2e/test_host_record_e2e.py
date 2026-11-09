@@ -76,7 +76,6 @@ from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider, e2e_provider
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.harness_benchmark,
     pytest.mark.slow,
     pytest.mark.requires_e2e_provider,
@@ -438,7 +437,9 @@ def test_host_sessions_record_without_a_container(deployment, web_port):
             _await(_signed_in, 120, "the web login")
             listed = b.get("/api/sessions").json()
             assert listed.get("record") == "complete", listed
-            assert new <= {s["session_id"] for s in listed["sessions"]}, listed
+            # Host sessions are not the operator's own conversations, so the
+            # session picker leaves them out; the chat route still serves them.
+            assert new.isdisjoint({s["transcript_id"] for s in listed["sessions"]}), listed
             for session in new:
                 chat = b.get(
                     "/api/session-chat", params={"session_id": session, "events": "1"}

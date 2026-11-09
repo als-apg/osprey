@@ -42,7 +42,10 @@
  *  renders its sidebar row and routes activate/close to the dock). Kept out of
  *  PANELS so every service-panel iteration stays terminal-free. */
 export const TERMINAL_RAIL_ID = 'terminal';
-export const TERMINAL_RAIL_LABEL = 'Agent';
+/** The sidebar row's name: it lists the agent's sessions. The pane it opens keeps its own name. */
+export const TERMINAL_RAIL_LABEL = 'Sessions';
+/** The Agent pane's name: its tile, its header menu, its pop-out window. */
+export const TERMINAL_PANE_LABEL = 'Agent';
 
 /** Attribute carrying the registry's sidecar panel descriptors, a JSON array. */
 const SIDECAR_PANELS_ATTR = 'data-sidecar-panels';
@@ -118,11 +121,10 @@ export const PANEL_ICONS = Object.freeze({
   artifacts: 'layers',
   events: 'activity',
   ariel: 'book-open',
-  lattice: 'hexagon',
   okf: 'library',
   'channel-finder': 'radio',
-  bluesky: 'flask',
-  'system-health': 'activity',
+  bluesky: 'bluesky',
+  'system-health': 'stethoscope',
 });
 
 /** The glyph of a panel {@link PANEL_ICONS} does not name. */
@@ -152,7 +154,6 @@ export const PANEL_DESCRIPTIONS = Object.freeze({
   events: 'Event dispatcher dashboard',
   ariel: 'Search the electronic logbook',
   'channel-finder': 'Find control-system channels by name or property',
-  lattice: 'Optics of the lattice models the simulator serves',
   okf: 'Browse the facility knowledge bundle',
   'system-health': 'Health checks for the framework and its services',
   bluesky: 'Write plans, run the queue and watch live results',
@@ -248,11 +249,6 @@ export const PANELS = [
     id: 'channel-finder',
     label: labelOf('channel-finder'),
     configEndpoint: '/api/channel-finder-server',
-  },
-  {
-    id: 'lattice',
-    label: labelOf('lattice'),
-    configEndpoint: '/api/lattice-server',
   },
   // The sidecar panels, from the page's stamp, where the notebook panel has
   // always sat in the roster.

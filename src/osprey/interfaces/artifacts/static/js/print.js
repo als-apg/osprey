@@ -2,10 +2,7 @@
 /**
  * OSPREY Artifact Gallery — Print / Save as PDF
  *
- * Injects a print icon button into .preview-header-actions following
- * the same injection pattern as logbook.js. `printArtifact` is exported
- * too: the embedded viewer, which renders no preview header, runs it for
- * the hub's `print` action.
+ * `printArtifact` runs for the hub's `print` action (viewer.js).
  *
  * Strategy: opens a dedicated print window for each artifact type so
  * the print output is clean (no gallery chrome) and WYSIWYG:
@@ -31,21 +28,13 @@
  */
 
 import { escapeHtml as esc } from '/design-system/js/dom.js';
-import { getSelectedArtifact, fileUrl } from './state.js';
+import { fileUrl } from './state.js';
 import { openUrl, isOpaque, isTimeseries, isoToDate } from './types.js';
 import { formatFacilityTime } from '/design-system/js/facility-time.js';
 
 export { esc };
 
 // ---- SVG icon (printer) ----
-
-const PRINT_ICON =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
-  '<polyline points="6 9 6 2 18 2 18 9"/>' +
-  '<path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/>' +
-  '<rect x="6" y="14" width="12" height="8"/>' +
-  '</svg>';
 
 // ---- Shared styles for self-built print windows ----
 //
@@ -290,8 +279,7 @@ function printImage(a) {
 /** @param {any} a */
 function printTimeseries(a) {
   // Scoped to the preview pane, the one place the gallery mounts a chart: the
-  // artifact printed is the one shown there (standalone, the Print button sits
-  // in that pane's header; embedded, the hub's print action names the
+  // artifact printed is the one shown there (the hub's print action names the
   // artifact its viewer shows).
   const chartEl = document.querySelector(
     '#preview-content .ts-viewport-container [data-ts-chart] .js-plotly-plot'
@@ -380,43 +368,3 @@ export function printArtifact(a) {
       else printIframe(a);
   }
 }
-
-// ---- Button injection (mirrors logbook.js pattern) ----
-
-/** @param {any} a */
-function createPrintBtn(a) {
-  const btn = document.createElement('button');
-  btn.className = 'btn-action-icon print-action-btn';
-  btn.title = 'Print / Save as PDF';
-  // PRINT_ICON is a hardcoded SVG constant — safe for innerHTML
-  btn.innerHTML = PRINT_ICON; // PRINT_ICON is a trusted module-level SVG constant (no user input) — safe innerHTML assignment
-  btn.addEventListener('click', function (e) {
-    e.stopPropagation();
-    printArtifact(a);
-  });
-  return btn;
-}
-
-function injectPrintButton() {
-  // Remove stale buttons from previous render
-  document.querySelectorAll('.print-action-btn').forEach(function (b) {
-    b.remove();
-  });
-
-  const selected = getSelectedArtifact();
-  if (!selected) return;
-
-  const bar = document.querySelector('#preview-content .preview-header-actions');
-  if (!bar) return;
-
-  const btn = createPrintBtn(selected);
-  // Insert before Delete — destructive action stays rightmost
-  const deleteBtn = bar.querySelector('.btn-action-danger');
-  if (deleteBtn) {
-    bar.insertBefore(btn, deleteBtn);
-  } else {
-    bar.appendChild(btn);
-  }
-}
-
-export { injectPrintButton };

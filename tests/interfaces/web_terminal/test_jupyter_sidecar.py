@@ -41,6 +41,7 @@ from osprey.profiles.sidecar_panels import JUPYTER_PANEL_ID, SIDECAR_PANELS
 from tests._live import wait_until
 from tests._processes import kill_group, kill_quietly, pid_alive, pid_gone
 
+# The budget for a sidecar to start, and for a ready sidecar to answer a request.
 READY_TIMEOUT = 90.0
 
 spawns = pytest.mark.slow
@@ -81,13 +82,29 @@ def sidecar(config_env: None, shared_root: Path) -> Iterator[JupyterSidecar]:  #
     yield from _running(shared_root)
 
 
+def _timed_out(exc: BaseException) -> bool:
+    if isinstance(exc, urllib.error.URLError):
+        return isinstance(exc.reason, TimeoutError)
+    return isinstance(exc, TimeoutError)
+
+
+def _no_answer(request: urllib.request.Request) -> AssertionError:
+    return AssertionError(
+        f"{request.get_method()} {request.full_url} got no answer within {READY_TIMEOUT:g} s"
+    )
+
+
 def _get(url: str, headers: dict[str, str] | None = None) -> tuple[int, bytes]:
     request = urllib.request.Request(url, headers=headers or {}, method="GET")
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=READY_TIMEOUT) as response:
             return int(response.status), response.read()
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.read()
+    except (TimeoutError, urllib.error.URLError) as exc:
+        if _timed_out(exc):
+            raise _no_answer(request) from exc
+        raise
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -104,10 +121,14 @@ def _get_no_redirect(url: str, headers: dict[str, str] | None = None) -> tuple[i
     """GET *url* without following a redirect; returns status and ``Location``."""
     request = urllib.request.Request(url, headers=headers or {}, method="GET")
     try:
-        with _no_redirect_opener.open(request, timeout=10) as response:
+        with _no_redirect_opener.open(request, timeout=READY_TIMEOUT) as response:
             return int(response.status), response.headers.get("Location", "")
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.headers.get("Location", "")
+    except (TimeoutError, urllib.error.URLError) as exc:
+        if _timed_out(exc):
+            raise _no_answer(request) from exc
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +221,9 @@ def test_stop_leaves_no_process_and_removes_the_tempdir(shared_root: Path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_a_stop_during_wait_ready_ends_the_wait(shared_root: Path) -> None:
+def test_a_stop_during_wait_ready_ends_the_wait(
+    shared_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A stop that lands while the sidecar is still coming up ends the wait at once.
 
     No Jupyter is spawned: a sleeping interpreter stands in for a server that
@@ -211,22 +234,30 @@ def test_a_stop_during_wait_ready_ends_the_wait(shared_root: Path) -> None:
         [sys.executable, "-c", "import time; time.sleep(30)"], start_new_session=True
     )
     failures: list[BaseException] = []
+    polling = threading.Event()
+
+    def _probe(process: subprocess.Popen[bytes], runtime_dir: Path | None) -> int | None:
+        polling.set()
+        return JupyterSidecar._read_port(process, runtime_dir)
+
+    monkeypatch.setattr(sidecar, "_read_port", _probe)
 
     def _wait() -> None:
         try:
-            sidecar.wait_ready(30)
+            sidecar.wait_ready(READY_TIMEOUT)
         except BaseException as exc:  # the test inspects whatever it raised
             failures.append(exc)
 
     waiter = threading.Thread(target=_wait, daemon=True)
     waiter.start()
     try:
-        time.sleep(0.2)
+        assert polling.wait(READY_TIMEOUT), "wait_ready never polled"
         stopper = threading.Thread(target=sidecar.stop, daemon=True)
         stopper.start()
-        waiter.join(2.0)
+        waiter.join(READY_TIMEOUT)
         assert not waiter.is_alive(), "wait_ready kept waiting after stop()"
-        stopper.join(10.0)
+        stopper.join(READY_TIMEOUT)
+        assert not stopper.is_alive(), "stop() did not return"
     finally:
         sidecar.stop()
 
@@ -277,7 +308,7 @@ def test_an_early_exit_surfaces_the_stderr_tail(
     sidecar.spawn()
     try:
         with pytest.raises(RuntimeError) as failure:
-            sidecar.wait_ready(10)
+            sidecar.wait_ready(READY_TIMEOUT)
     finally:
         sidecar.stop()
 
@@ -482,10 +513,14 @@ def _request(
 ) -> tuple[int, bytes]:
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=READY_TIMEOUT) as response:
             return int(response.status), response.read()
     except urllib.error.HTTPError as exc:
         return int(exc.code), exc.read()
+    except (TimeoutError, urllib.error.URLError) as exc:
+        if _timed_out(exc):
+            raise _no_answer(request) from exc
+        raise
 
 
 @spawns
@@ -1009,7 +1044,7 @@ class TestTheStarterNotebooksExampleRead:
     ) -> None:
         assert starter_read_channel(config) == expected
 
-    def test_a_built_control_assistant_offers_its_beam_current(self, tmp_path: Path) -> None:
+    def test_a_built_demo_offers_its_beam_current(self, tmp_path: Path) -> None:
         """The resolver is pinned to the shape the build really emits.
 
         The canary is declared as ``va_archiver.freshness_channel`` and reaches
@@ -1039,7 +1074,7 @@ class TestTheStarterNotebooksExampleRead:
             "      probe_channel: SR:VAC:GAUGE:SR01:PRESSURE:RB\n",
             encoding="utf-8",
         )
-        # The channel the control-assistant preset names as its canary.
+        # The channel the demo preset names as its canary.
         overrides = va_archiver_config_overrides(
             VAArchiverConfig(freshness_channel="SR:DIAG:DCCT:01:CURRENT:RB")
         )

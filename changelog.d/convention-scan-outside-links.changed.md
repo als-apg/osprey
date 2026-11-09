@@ -1,0 +1,1 @@
+A link out of a profile convention directory is refused once, by the repository-boundary line "… resolves to …, outside the repository. Move it into the repository."; the second "symlink pointing outside the profile" refusal is gone.
