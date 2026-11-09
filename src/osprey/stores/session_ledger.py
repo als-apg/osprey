@@ -206,10 +206,15 @@ def _read(state_dir: Path | None, *, no_location_available: bool = True) -> tupl
     return Ledger(rows), True
 
 
+#: Read by the artifacts app and the agent's MCP processes, a dispatch worker's among
+#: them under another uid, through the state directory's setgid group.
+_LEDGER_FILE_MODE = 0o640
+
+
 def _write(path: Path, rows: Sequence[LedgerRow]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps({"rows": [list(row) for row in rows]}, indent=2)
-    atomic_replace(path, text.encode("utf-8"), mode=0o600, sync="best_effort")
+    atomic_replace(path, text.encode("utf-8"), mode=_LEDGER_FILE_MODE, sync="best_effort")
 
 
 def append_many(

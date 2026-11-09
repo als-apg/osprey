@@ -36,6 +36,10 @@ logger = logging.getLogger(__name__)
 #: Data Browser's element for the live sample buffer of one trace, in its own spelling.
 _SAMPLE_BUFFER = "<ring_size>5000</ring_size>"
 
+#: Read back by this tool and downloaded through the operator's own terminal, under the
+#: same uid; Phoebus is sent the content, never this path.
+_PLT_FILE_MODE = 0o600
+
 
 def sanitize_xml_text(text: str) -> str:
     """Sanitize text for safe inclusion in XML content.
@@ -249,6 +253,7 @@ def create_plt_from_config(
 </databrowser>"""
 
     with os.fdopen(temp_fd, "w") as f:
+        os.fchmod(f.fileno(), _PLT_FILE_MODE)
         f.write(xml_content)
 
     logger.info("Created PLT file: %s", temp_path)

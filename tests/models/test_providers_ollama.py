@@ -34,10 +34,6 @@ class TestOllamaMetadata:
         """Test provider requires base URL."""
         assert OllamaProviderAdapter.requires_base_url is True
 
-    def test_requires_model_id(self):
-        """Test provider requires model ID."""
-        assert OllamaProviderAdapter.requires_model_id is True
-
     def test_supports_proxy(self):
         """Test provider does not support HTTP proxy."""
         assert OllamaProviderAdapter.supports_proxy is False

@@ -374,6 +374,11 @@ class TestDockerfileContent:
         browser = bodies[0]
         assert "--with-deps" in browser
         assert "chromium" in browser
+        # Playwright's bundled node needs libatomic.so.1, which the deps
+        # layer's toolchain purge autoremoves; the browser RUN restores it
+        # before the driver first starts.
+        assert "install -y --no-install-recommends libatomic1" in browser
+        assert browser.index("libatomic1") < browser.index("playwright install")
 
         env = re.search(r"^ENV PLAYWRIGHT_BROWSERS_PATH=(\S+)$", text, re.MULTILINE)
         assert env, "the browser path must be shared, not root's home cache"

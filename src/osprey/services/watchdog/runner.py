@@ -224,10 +224,14 @@ def _replaced(marker: Path, submission_id: str) -> bool:
     return _read_marker(marker) not in (None, submission_id)
 
 
+#: Read by the other waiters of the same watchdog, which share its 0o600 lock file and so its uid.
+_MARKER_MODE = 0o600
+
+
 def _write_marker(marker: Path, submission_id: str) -> None:
     # Best effort: the marker only outlives the waiters polling it by accident,
     # so a lost flush costs nothing a crash had not already cost.
-    atomic_replace(marker, submission_id.encode("utf-8"), mode=0o600, sync="best_effort")
+    atomic_replace(marker, submission_id.encode("utf-8"), mode=_MARKER_MODE, sync="best_effort")
 
 
 def _clear_marker(marker: Path, submission_id: str) -> None:
