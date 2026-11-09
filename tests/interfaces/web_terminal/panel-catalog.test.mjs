@@ -149,7 +149,6 @@ describe('the sidecar panels come from the page', () => {
       'artifacts',
       'ariel',
       'channel-finder',
-      'lattice',
       'jupyter',
       'canopy',
       'okf',
@@ -197,7 +196,7 @@ describe('the sidecar panels come from the page', () => {
     const { PANELS } = await freshCatalog();
 
     expect(PANELS.find((p) => p.id === 'screens')?.label).toBe('Screens');
-    expect(PANELS).toHaveLength(7);
+    expect(PANELS).toHaveLength(6);
   });
 
   test.each([
@@ -216,7 +215,6 @@ describe('the sidecar panels come from the page', () => {
       'artifacts',
       'ariel',
       'channel-finder',
-      'lattice',
       'okf',
       'system-health',
     ]);
@@ -226,11 +224,12 @@ describe('the sidecar panels come from the page', () => {
 });
 
 describe('how the sidebar names and draws a panel', () => {
-  test('the Agent pane row is labelled Agent', async () => {
-    const { TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL } = await freshCatalog();
+  test('the Agent pane row is labelled Sessions; the pane keeps its name', async () => {
+    const { TERMINAL_RAIL_ID, TERMINAL_RAIL_LABEL, TERMINAL_PANE_LABEL } = await freshCatalog();
 
     expect(TERMINAL_RAIL_ID).toBe('terminal');
-    expect(TERMINAL_RAIL_LABEL).toBe('Agent');
+    expect(TERMINAL_RAIL_LABEL).toBe('Sessions');
+    expect(TERMINAL_PANE_LABEL).toBe('Agent');
   });
 
   test('every named glyph is one icons.js can draw, and so is the fallback', async () => {

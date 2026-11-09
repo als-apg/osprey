@@ -66,9 +66,9 @@ def _fresh_build_package_source() -> str:
 # -- builtin registration + definition -----------------------------------------
 
 
-def test_system_health_is_a_builtin_panel_with_system_label():
+def test_system_health_is_a_builtin_panel_with_health_label():
     assert PANEL_ID in BUILTIN_PANELS
-    assert BUILTIN_PANEL_LABELS[PANEL_ID] == "SYSTEM"
+    assert BUILTIN_PANEL_LABELS[PANEL_ID] == "Health"
 
 
 def test_web_server_definition_fields():

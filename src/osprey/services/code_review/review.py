@@ -331,6 +331,9 @@ async def _run_review(
                 model=None,
                 cwd=Path(work_dir),
                 env_overrides=_reviewer_env(),
+                # The operator's CLAUDE_CONFIG_DIR is the one the record tails: a written
+                # transcript would enter the record as one of the operator's sessions.
+                persist_session=False,
             ),
             settings.time_limit,
         )

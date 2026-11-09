@@ -63,11 +63,17 @@ CONFIG_DEPENDENT = frozenset(
         "reach",
         "archive",
         "simulator",
+        "safety_chain",
+        "rendered",
+        "versions",
+        "dispatch",
+        "service_capabilities",
+        "ariel_modules",
     }
 )
 
 # Core categories in the on_demand cost class (gated behind ``--full``).
-ON_DEMAND_CORE = frozenset({"claude_cli_pinned", "model_chat"})
+ON_DEMAND_CORE = frozenset({"claude_cli_pinned", "model_chat", "ariel_modules"})
 
 
 def load_config(
@@ -275,6 +281,11 @@ def build_records(
             # `simulator`: the simulator view is found from the repo root, the
             # way `osprey sim status` finds it.
             func = factory(expanded, context=None, cwd=project_path)
+        elif name in ("safety_chain", "rendered", "service_capabilities"):
+            # Build output: the rendered `.claude/`, `.mcp.json`, the hook files
+            # and the knowledge bundle's manifest sit beside the rendered config,
+            # so these compare the render zone against what the build wrote.
+            func = factory(expanded, context=None, cwd=render_path)
         elif name == "channel_finder":
             # NOT the repo root. A channel database is build-owned output, and
             # the rendered config states its path relative to the config's own

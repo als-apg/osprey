@@ -44,7 +44,7 @@ from osprey.cli.init_cmd import init
 from osprey.cli.validate_cmd import validate
 
 PROFILE = "profile.yml"
-PRESET = "control-assistant"
+PRESET = "demo"
 
 #: A documented value the preset carries and a facility plausibly changes.
 THEME = "  web.theme: light"

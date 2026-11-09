@@ -18,6 +18,13 @@ code. A scenario that moves a readback beyond its setpoint's tolerance, and a
 lane whose float setpoints declare no tolerance, print the build's
 settle-tolerance warning on stderr; it does not change the exit code. Render and image renders are checked by ``osprey build`` alone.
 
+A profile that states ``machine:`` mounts a machine root: every verb reads and
+writes machine facts there, through
+:meth:`~osprey.cli.build_profile_model.BuildProfile.resolved_facility_roots`, and
+keeps the deployment's ``knowledge/``, ``ariel/`` and ``benchmarks/`` under
+``data/facility/``. ``validate`` then stops on any other entry of
+``data/facility/`` (``machine-restated``).
+
 ``osprey facility show [--json] [ID]`` builds in memory as ``validate`` does
 and prints what the build holds: the identity, the records per kind and the
 wiring records per model, each model's engine, served flag and solve setting,
@@ -29,7 +36,8 @@ stderr; an error leaves stdout empty.
 
 ``osprey facility import`` runs one step before every format reads its source,
 :func:`_replace_or_refuse`, and that step is the one place a format's verb
-inspects ``data/facility/``:
+inspects the facility tree (while mounted, the machine root with the
+deployment's content directories; each file is removed under its own root):
 
 ==========================================  ==========================================
 what the tree holds                         what the step does
@@ -73,14 +81,20 @@ from .phase_reporter import current_reporter
 from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 
 if TYPE_CHECKING:
+    from osprey.facility.bundled import Classification
     from osprey.facility.records import FacilityRecords
+    from osprey.facility.roots import FacilityRoots
 
     from .build_profile_load import LoadedProfile
 
 
 @click.group()
 def facility() -> None:
-    """Import into, check and show the facility description under data/facility/."""
+    """Import into, check and show the facility description under data/facility/.
+
+    A profile that states machine: reads machine facts from that root and keeps
+    only knowledge/, ariel/ and benchmarks/ under data/facility/.
+    """
 
 
 @facility.command("validate")
@@ -88,6 +102,10 @@ def facility() -> None:
 @click.pass_context
 def validate(ctx: click.Context, repo: Path | None) -> None:
     """Check data/facility/ and render every facility view in memory; writes nothing.
+
+    A profile that states machine: validates that machine root, with the
+    deployment's knowledge/, ariel/ and benchmarks/ from data/facility/; any
+    other entry of data/facility/ then stops with machine-restated.
 
     Exits 0 when the tree builds, every kept response export passes its check
     and every view renders; otherwise prints each error line to stderr and
@@ -113,7 +131,10 @@ class _InMemoryBuild:
     Attributes:
         repo_root: The deployment repo.
         document: The facility file.
-        facility_dir: The repo's ``data/facility`` directory.
+        facility_dir: The machine root: ``machine:`` when the profile states
+            it, otherwise the repo's ``data/facility`` directory.
+        content_dir: The deployment's ``data/facility`` when it is apart from
+            ``facility_dir``, otherwise ``None``.
         rendered_config: The main render's ``config.yml``, as a nested mapping;
             empty unless the caller asked for it.
         primary_config: Where ``osprey build`` writes that ``config.yml``.
@@ -122,6 +143,7 @@ class _InMemoryBuild:
     repo_root: Path
     document: dict[str, Any]
     facility_dir: Path
+    content_dir: Path | None
     rendered_config: dict[str, Any]
     primary_config: Path
 
@@ -144,34 +166,60 @@ def _build_in_memory(
     from osprey.facility.validate import report, report_warnings, run_stages
     from osprey_connectors.errors import BuildProfileError
 
-    from .build_cmd import _render_project, _render_zones, _rendered_config, _SharedRenderInputs
+    from .build_cmd import (
+        _content_dir,
+        _render_project,
+        _render_zones,
+        _rendered_config,
+        _SharedRenderInputs,
+        _stated_machine_route,
+    )
+    from .build_environment import _plan_project_venv
     from .profile_conventions import (
         PROJECT_MIRROR_DIR,
         facility_mirror_violation,
         handwritten_limits_violation,
+        machine_restated_violation,
     )
     from .templates.manager import TemplateManager
 
     repo_root = find_repo_root(repo)
     profile_path = repo_root / PROFILE_FILENAME
 
-    mirror_stop = facility_mirror_violation(repo_root / PROJECT_MIRROR_DIR)
+    # The mirror guard checks the deployment's project/ before anything is
+    # resolved; a stated machine root only changes where its remedy points.
+    mirror_stop = facility_mirror_violation(
+        repo_root / PROJECT_MIRROR_DIR, authoring_route=_stated_machine_route(profile_path)
+    )
     if mirror_stop is not None:
         raise mirror_stop
 
     try:
         resolved, overlays = _main_profile(repo_root)
         name = _project_name(resolved, repo_root)
-        facility_dir = _facility_dir(resolved, repo_root)
+        roots = _facility_roots(resolved, repo_root)
     except (BuildProfileError, ValueError, RuntimeError) as error:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
     build_profile = resolved.profile
-    limits_stop = handwritten_limits_violation(facility_dir.parent, repo_root)
+    # The limits guard checks the deployment's data root; a mounted machine
+    # only changes where its remedy says the limits go.
+    data_root = build_profile.resolved_data_root(repo_root)
+    assert data_root is not None  # resolved with the roots above
+    limits_stop = handwritten_limits_violation(
+        data_root, repo_root, machine_root=roots.machine if roots.mounted else None
+    )
     if limits_stop is not None:
         raise limits_stop
+    restated_stop = machine_restated_violation(roots)
+    if restated_stop is not None:
+        raise restated_stop
 
-    result = run_stages(facility_dir, project_name=name, later=LATER_STAGES)
+    facility_dir = roots.machine
+    content_dir = _content_dir(roots)
+    result = run_stages(
+        facility_dir, project_name=name, later=LATER_STAGES, content_dir=content_dir
+    )
     if not result.ok:
         report(result.errors)
         ctx.exit(1)
@@ -193,15 +241,16 @@ def _build_in_memory(
         repo_root=repo_root,
         build_dir=build_dir,
         runtime_root=None,
-        project_deps=list(build_profile.dependencies or []),
+        project_deps=list(_plan_project_venv(build_profile, install=False).extra_deps),
         skip_deps=True,
         manager=TemplateManager(),
         graph_indexes={},
         graph_facts_reported=set(),
         model_facts_reported=set(),
         facility=document,
-        facility_sha256=facility_digest(facility_dir),
+        facility_sha256=facility_digest(facility_dir, content_dir=content_dir),
         profile_overlays=overlays,
+        facility_roots=roots,
     )
     # The render narrates what it builds on stdout; that narration is the
     # build's, so it is captured and dropped here and only trouble, which goes
@@ -229,6 +278,7 @@ def _build_in_memory(
         repo_root=repo_root,
         document=document,
         facility_dir=facility_dir,
+        content_dir=content_dir,
         rendered_config=rendered,
         primary_config=build_dir / "config.yml",
     )
@@ -261,6 +311,7 @@ def _views(built: _InMemoryBuild, served: list[str]) -> list[dict[str, Any]]:
         rendered_config=built.rendered_config,
         facility_dir=built.facility_dir,
         served=served,
+        content_dir=built.content_dir,
     )
     rows = []
     for view in views.VIEWS:
@@ -424,7 +475,10 @@ def show(ctx: click.Context, record_id: str | None, as_json: bool, repo: Path | 
 
 @facility.group("import")
 def import_group() -> None:
-    """Write an export as sources under data/facility/imported/."""
+    """Write an export as sources under data/facility/imported/.
+
+    A profile that states machine: imports into that machine root instead.
+    """
 
 
 def _main_profile(repo_root: Path) -> tuple[LoadedProfile, tuple[Path, ...]]:
@@ -452,12 +506,22 @@ def _project_name(resolved: LoadedProfile, repo_root: Path) -> str:
     return _profile_project_name(resolved.profile.project_name, repo_root)
 
 
-def _facility_dir(resolved: LoadedProfile, repo_root: Path) -> Path:
-    """The ``data/facility`` directory under a resolved profile's data root."""
-    data_root = resolved.profile.resolved_data_root(repo_root)
-    if data_root is None:
+def _facility_roots(resolved: LoadedProfile, repo_root: Path) -> FacilityRoots:
+    """Where a resolved profile's machine facts and deployment content are read.
+
+    Raises:
+        FacilityBuildError: When a stated ``machine:`` root is missing or
+            overlaps the data root.
+    """
+    roots = resolved.profile.resolved_facility_roots(repo_root)
+    if roots is None:
         raise RuntimeError("a resolved profile names no data root")
-    return data_root / "facility"
+    return roots
+
+
+def _facility_dir(resolved: LoadedProfile, repo_root: Path) -> Path:
+    """The machine root: ``machine:`` when the profile states it, else ``data/facility``."""
+    return _facility_roots(resolved, repo_root).machine
 
 
 def _shown(path: Path, repo_root: Path) -> str:
@@ -505,36 +569,107 @@ def _named_together(names: list[str]) -> str:
     return ", ".join(names[:-1]) + f" and {names[-1]}"
 
 
-def _remove_bundled(facility_dir: Path, bundled: tuple[str, ...]) -> None:
-    """Remove the bundled files; their directories stay until :func:`_prune_empty`."""
+def _root_of(roots: FacilityRoots, relative: str) -> Path:
+    """The root a path of the import's view lives under.
+
+    The deployment's content directories are the content root's; everything
+    else is the machine root's. For a single tree both are the same directory.
+    """
+    from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
+
+    if relative.split("/", 1)[0] in DEPLOYMENT_CONTENT_DIRS:
+        return roots.content
+    return roots.machine
+
+
+def _classify(roots: FacilityRoots, template_root: Path) -> Classification:
+    """Classify what an import sees: one tree, or a mounted machine with its content.
+
+    While mounted, the import sees the machine root's entries and the content
+    root's content directories, as the facility digest does, and classifies
+    them together so the bundled facility is named from both. ``imported/``
+    is left out of that union: it never names a bundled facility and the
+    import does not act on its class.
+    """
+    import shutil
+    import tempfile
+
+    from osprey.facility.bundled import classify
+    from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS, is_machine_entry
+
+    if not roots.mounted:
+        return classify(roots.machine, template_root)
+    with tempfile.TemporaryDirectory(prefix="osprey-facility-import-") as scratch:
+        view = Path(scratch)
+        sources = [
+            (path, path.relative_to(roots.machine))
+            for path in roots.machine.rglob("*")
+            if is_machine_entry(roots, path.relative_to(roots.machine))
+        ]
+        sources += [
+            (path, path.relative_to(roots.content))
+            for name in DEPLOYMENT_CONTENT_DIRS
+            for path in (roots.content / name).rglob("*")
+        ]
+        for path, relative in sources:
+            if path.is_file() and relative.parts[0] != "imported":
+                (view / relative).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, view / relative)
+        return classify(view, template_root)
+
+
+def _remove_bundled(roots: FacilityRoots, bundled: tuple[str, ...]) -> None:
+    """Remove the bundled files, each under its own root.
+
+    Their directories stay until :func:`_prune_empty`.
+    """
     for relative in bundled:
-        (facility_dir / relative).unlink()
+        (_root_of(roots, relative) / relative).unlink()
 
 
 def _prune_empty(facility_dir: Path) -> None:
-    """Remove every empty directory under *facility_dir*, deepest first."""
-    directories = (path for path in facility_dir.rglob("*") if path.is_dir())
+    """Remove every empty directory under *facility_dir*, deepest first.
+
+    Version-control metadata is left as it is: a machine root that is a clone
+    keeps its ``.git``.
+    """
+    from osprey.facility.roots import is_vcs_metadata
+
+    directories = (
+        path
+        for path in facility_dir.rglob("*")
+        if path.is_dir() and not is_vcs_metadata(path.relative_to(facility_dir))
+    )
     for directory in sorted(directories, key=lambda path: -len(path.parts)):
         if not any(directory.iterdir()):
             directory.rmdir()
 
 
-def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_root: Path) -> None:
-    """Make ``data/facility/`` ready for a format; every format under the group calls it first.
+def _replace_or_refuse(
+    ctx: click.Context, verb: str, roots: FacilityRoots, repo_root: Path
+) -> None:
+    """Make the facility tree ready for a format; every format under the group calls it first.
 
     Refuses only on overlap: hand-written records of the kinds this verb writes
-    exit 1 with nothing changed. Otherwise bundled files are replaced, and the
+    exit 1 with nothing changed, and files seeded under the former header are
+    named apart with the line that fixes them. Otherwise bundled files are replaced, and the
     line that says so prints at once, so a later stop of the format never hides
     the deletion. Everything else stays; the knowledge indexes are settled, and a
     blank index is left when no page remains.
+
+    While mounted, the machine root and the content root's content directories
+    are classified together; each bundled file is removed under its own root,
+    and the knowledge indexes settled are the content root's.
     """
-    from osprey.facility.bundled import classify
+    from osprey.facility.bundled import under_former_header
+    from osprey.facility.layers import HEADER
     from osprey.services.facility_knowledge.okf.index import _settle_bundle
 
     from .templates.manager import TemplateManager
 
+    facility_dir = roots.machine
     writes = _writes()[verb]
-    kinds = classify(facility_dir, Path(TemplateManager().template_root))
+    kinds = _classify(roots, Path(TemplateManager().template_root))
     overlap = [
         (path, kind)
         for path in kinds.authored
@@ -542,27 +677,40 @@ def _replace_or_refuse(ctx: click.Context, verb: str, facility_dir: Path, repo_r
         if path == entry or path.startswith(f"{entry}/")
     ]
     if overlap:
-        found = {kind for _path, kind in overlap}
-        named = _named_together([kind for _entry, kind in writes if kind in found])
-        lines = [
-            f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
-            "records, which this import writes:",
-            *(_shown(facility_dir / path, repo_root) for path, _kind in overlap),
-            "move corrections into fixes.yaml and remove the record sources, "
-            "or start a new repo: osprey init <name> --preset control-assistant",
-        ]
+        former = [path for path, _kind in overlap if under_former_header(facility_dir / path)]
+        written = [(path, kind) for path, kind in overlap if path not in former]
+        lines = []
+        if written:
+            found = {kind for _path, kind in written}
+            named = _named_together([kind for _entry, kind in writes if kind in found])
+            lines += [
+                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds hand-written {named} "
+                "records, which this import writes:",
+                *(_shown(facility_dir / path, repo_root) for path, _kind in written),
+                "move corrections into fixes.yaml and remove the record sources, "
+                "or start a new repo: osprey init <name> --preset demo",
+            ]
+        if former:
+            lines += [
+                f"import {verb}: {_shown(facility_dir, repo_root)}/ holds files seeded under "
+                "the old header, which this import writes:",
+                *(_shown(facility_dir / path, repo_root) for path in former),
+                f"set line 1 of each to: {HEADER}",
+            ]
         click.echo("\n".join(lines), err=True)
         ctx.exit(1)
     if kinds.bundled:
-        _remove_bundled(facility_dir, kinds.bundled)
+        _remove_bundled(roots, kinds.bundled)
         click.echo(
             f"import {verb}: replaced the bundled {kinds.name} facility "
             f"({len(kinds.bundled)} files)",
             err=True,
         )
-    seeded = _settle_bundle(facility_dir / "knowledge")
+    seeded = _settle_bundle(roots.content / "knowledge")
     if kinds.bundled:
-        _prune_empty(facility_dir)
+        _prune_empty(roots.machine)
+        if roots.mounted:
+            _prune_empty(roots.content)
     if seeded is not None:
         report(f"wrote {_shown(seeded, repo_root)}")
         report(KNOWLEDGE_PLACEHOLDER_LINE)
@@ -598,6 +746,10 @@ def _print_exporter(ctx: click.Context, _param: click.Parameter, value: bool) ->
 @click.pass_context
 def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None) -> None:
     """Write MML exports as sources under data/facility/imported/mml/.
+
+    A profile that states machine: imports into that machine root instead:
+    imported/mml/ and every seeded file go there, and the knowledge index is
+    settled under data/facility/knowledge/.
 
     EXPORT is an export's <stem>.ao.json file; its sibling files are read from
     beside it. First replaces a bundled facility, saying so in one line, and
@@ -649,12 +801,13 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
 
     repo_root = find_repo_root(repo)
     try:
-        facility_dir = _facility_dir(_main_profile(repo_root)[0], repo_root)
+        roots = _facility_roots(_main_profile(repo_root)[0], repo_root)
     except (BuildProfileError, ValueError, RuntimeError) as error:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
 
-    _replace_or_refuse(ctx, "mml", facility_dir, repo_root)
+    _replace_or_refuse(ctx, "mml", roots, repo_root)
+    facility_dir = roots.machine
 
     try:
         for path in run_import(list(exports), facility_dir):
@@ -677,6 +830,9 @@ def import_mml(ctx: click.Context, exports: tuple[Path, ...], repo: Path | None)
 @click.pass_context
 def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
     """Write a CSV channel list as sources under data/facility/imported/list/.
+
+    A profile that states machine: imports into that machine root instead,
+    and the knowledge stub is seeded under data/facility/knowledge/.
 
     \b
     FILE is UTF-8 CSV. A header row names its columns, in any order:
@@ -706,12 +862,12 @@ def import_list(ctx: click.Context, listing: Path, repo: Path | None) -> None:
 
     repo_root = find_repo_root(repo)
     try:
-        facility_dir = _facility_dir(_main_profile(repo_root)[0], repo_root)
+        roots = _facility_roots(_main_profile(repo_root)[0], repo_root)
     except (BuildProfileError, ValueError, RuntimeError) as error:
         fail("The profile does not resolve.", str(error))
         ctx.exit(1)
 
-    _replace_or_refuse(ctx, "list", facility_dir, repo_root)
+    _replace_or_refuse(ctx, "list", roots, repo_root)
 
-    for path in run_import(listing, facility_dir):
+    for path in run_import(listing, roots.machine):
         report(f"wrote {_shown(path, repo_root)}")

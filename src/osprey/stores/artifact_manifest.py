@@ -71,11 +71,20 @@ def save_artifact(obj, title="Untitled", description="", artifact_type=None, cat
         title: Human-readable title shown in the gallery.
         description: Optional longer description.
         artifact_type: Override the auto-detected type.
-        category: Optional category key for gallery grouping.
+        category: Deprecated and ignored (artifacts are grouped by form).
     """
     import json as _json
     import uuid as _uuid
+    import warnings as _warnings
     from pathlib import Path as _Path
+
+    if category:
+        _warnings.warn(
+            "save_artifact(category=...) is deprecated and ignored; "
+            "artifacts are grouped by form instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
     from osprey.stores.artifact_store import serialize_object as _serialize_object
 
@@ -102,8 +111,6 @@ def save_artifact(obj, title="Untitled", description="", artifact_type=None, cat
         "mime_type": mime_type,
         "size_bytes": len(content),
     }
-    if category:
-        entry["category"] = category
     manifest.append(entry)
     manifest_path.write_text(_json.dumps(manifest, indent=2))
 
@@ -309,8 +316,6 @@ def collect_artifacts(execution_folder: Path) -> list[dict]:
             "artifact_type": entry.get("artifact_type", "file"),
             "mime_type": entry.get("mime_type", "application/octet-stream"),
         }
-        if entry.get("category"):
-            art["category"] = entry["category"]
         artifacts.append(art)
 
     return artifacts

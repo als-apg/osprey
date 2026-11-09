@@ -3,7 +3,7 @@
  *
  * The lookup of a panel's sidebar row and the state the row shows while the
  * page runs: active, enabled, the agent's attention badge, a sidecar's start
- * status, reachability, and the popped-out mark. panel-rail.js renders and
+ * status, reachability, and the detached mark. panel-rail.js renders and
  * places the rows and re-exports every function here, so the rest of the
  * shell keeps importing them from panel-rail.js.
  *
@@ -11,7 +11,7 @@
  * unreachable notice or a status message owns the native `title`, the row
  * carries a transient `data-title-base` holding the title it borrowed;
  * clearing all of them restores it and removes the attribute. While the row
- * is popped out, its explanatory line (`data-tip-detail`) names the window,
+ * is detached, its explanatory line (`data-tip-detail`) names the window,
  * and the panel's own sentence waits in `data-tip-detail-base`.
  * {@link writeRowTips} is how a render writes the row's own tooltips under
  * both rules.
@@ -31,18 +31,18 @@ export const BUTTON_SELECTOR = '.panel-rail-button';
 /** The tooltip layer's explanatory line (tooltip.js). */
 const DETAIL_ATTR = 'data-tip-detail';
 
-/** Where a popped-out row parks its own tooltip detail while the window's
+/** Where a detached row parks its own tooltip detail while the window's
  *  sentence stands in for it. */
 const DETAIL_BASE_ATTR = 'data-tip-detail-base';
 
 /** The state class of a row whose panel runs in its own window. */
-const POPPED_OUT_CLASS = 'popped-out';
+const DETACHED_CLASS = 'detached';
 
-/** Marks the trailing glyph a popped-out row carries. */
-const POPOUT_TRAIL_ATTR = 'data-popout-trail';
+/** Marks the trailing icon a detached row carries; a click on it reattaches. */
+export const DETACHED_TRAIL_ATTR = 'data-detached-trail';
 
-/** A popped-out row's tooltip detail: the click's new meaning. */
-const POPPED_OUT_DETAIL = 'Popped out — click to bring the window to the front';
+/** A detached row's tooltip detail: the click's new meaning. */
+export const DETACHED_DETAIL = 'In its own window — click to bring it to the front';
 
 /**
  * Where a row's own tooltip is parked while a badge time, an unreachable
@@ -88,7 +88,7 @@ export function parked(entry) {
 /**
  * Write a row's own tooltips: the native `title` and the explanatory line.
  * A title borrowed by a notice is written to its stash, and a detail that a
- * popped-out mark stands in for is written to its parking place, so the
+ * detached mark stands in for is written to its parking place, so the
  * notice and the mark keep showing and give back the new text when they
  * clear.
  * @param {HTMLElement} btn
@@ -96,7 +96,7 @@ export function parked(entry) {
  * @param {string | null} detail - none when null
  */
 export function writeRowTips(btn, title, detail) {
-  const detailAttr = btn.classList.contains(POPPED_OUT_CLASS) ? DETAIL_BASE_ATTR : DETAIL_ATTR;
+  const detailAttr = btn.classList.contains(DETACHED_CLASS) ? DETAIL_BASE_ATTR : DETAIL_ATTR;
   if (detail) btn.setAttribute(detailAttr, detail);
   else btn.removeAttribute(detailAttr);
   if (btn.hasAttribute(TITLE_BASE_ATTR)) btn.setAttribute(TITLE_BASE_ATTR, title);
@@ -198,7 +198,7 @@ function renderTitle(entry) {
 
 /**
  * Show or remove a row's attention dot: an `.osprey-nav-badge` beside the
- * label (before the disclosure chevron or the popped-out glyph, where the
+ * label (before the disclosure chevron or the detached icon, where the
  * row has one, so that glyph stays last).
  * @param {HTMLElement} entry
  * @param {boolean} on
@@ -216,7 +216,7 @@ function renderAttentionBadge(entry, on) {
   dot.setAttribute('aria-hidden', 'true');
   entry.insertBefore(
     dot,
-    entry.querySelector(`:scope > .osprey-nav-disc, :scope > [${POPOUT_TRAIL_ATTR}]`)
+    entry.querySelector(`:scope > .osprey-nav-disc, :scope > [${DETACHED_TRAIL_ATTR}]`)
   );
 }
 
@@ -314,42 +314,49 @@ export function setEntryReachable(railEl, panelId, reachable, sinceMs) {
 }
 
 /**
- * Mark a row whose panel runs in its own popped-out window, or clear the
- * mark: `.popped-out` on the row, a trailing `span.osprey-nav-trail`
- * (`data-popout-trail`, `aria-hidden="true"`) holding the `maximize` glyph as
- * the row's last child, and the tooltip detail "Popped out — click to bring
- * the window to the front", which is what a click on the row now does. The
- * row's own detail is parked in `data-tip-detail-base` while the mark is up,
- * and is restored (or removed, when there was none) when it clears. Marking
- * a marked row, or clearing a clear one, changes nothing.
+ * Mark a row whose pane runs in a window of its own, or clear the mark:
+ * `.detached` on the row, a trailing `span.osprey-nav-trail`
+ * (`data-detached-trail`) holding the `reattach` icon as the row's last child,
+ * whose tooltip says what a click on it does, and the row's tooltip detail and
+ * `aria-description` saying what a click on the row now does. The row's own
+ * detail is parked in `data-tip-detail-base` while the mark is up, and is
+ * restored (or removed, when there was none) when it clears. A click belongs to
+ * panel-menu-policy.js, which tells the icon from the row by this trail. The
+ * icon is mouse-only (`aria-hidden`): the row's menu has the same verb. Marking a
+ * marked row, or clearing a clear one, changes nothing.
  * @param {HTMLElement} railEl
  * @param {string} panelId
  * @param {boolean} on
  * @returns {boolean} true when the row existed and was updated; false for an
  *   unknown id
  */
-export function setEntryPoppedOut(railEl, panelId, on) {
+export function setEntryDetached(railEl, panelId, on) {
   const entry = getEntry(railEl, panelId);
   if (!entry) return false;
-  const popped = entry.classList.contains(POPPED_OUT_CLASS);
-  if (on && !popped) {
+  const marked = entry.classList.contains(DETACHED_CLASS);
+  if (on && !marked) {
     const own = entry.getAttribute(DETAIL_ATTR);
     if (own !== null) entry.setAttribute(DETAIL_BASE_ATTR, own);
-    entry.setAttribute(DETAIL_ATTR, POPPED_OUT_DETAIL);
-    entry.classList.add(POPPED_OUT_CLASS);
+    entry.setAttribute(DETAIL_ATTR, DETACHED_DETAIL);
+    entry.setAttribute('aria-description', DETACHED_DETAIL);
+    entry.classList.add(DETACHED_CLASS);
     const trail = document.createElement('span');
     trail.className = 'osprey-nav-trail';
-    trail.setAttribute(POPOUT_TRAIL_ATTR, '');
+    trail.setAttribute(DETACHED_TRAIL_ATTR, '');
     trail.setAttribute('aria-hidden', 'true');
-    trail.append(icon('popout'));
+    trail.setAttribute(DETAIL_ATTR, 'Reattach');
+    trail.append(icon('reattach'));
     entry.append(trail);
-  } else if (!on && popped) {
+  } else if (!on && marked) {
     const own = entry.getAttribute(DETAIL_BASE_ATTR);
     if (own !== null) entry.setAttribute(DETAIL_ATTR, own);
     else entry.removeAttribute(DETAIL_ATTR);
     entry.removeAttribute(DETAIL_BASE_ATTR);
-    entry.classList.remove(POPPED_OUT_CLASS);
-    entry.querySelector(`:scope > [${POPOUT_TRAIL_ATTR}]`)?.remove();
+    const status = entry.getAttribute(STATUS_ATTR);
+    if (status !== null) entry.setAttribute('aria-description', status);
+    else entry.removeAttribute('aria-description');
+    entry.classList.remove(DETACHED_CLASS);
+    entry.querySelector(`:scope > [${DETACHED_TRAIL_ATTR}]`)?.remove();
   }
   return true;
 }

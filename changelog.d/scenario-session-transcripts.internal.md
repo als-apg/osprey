@@ -1,0 +1,1 @@
+A scenario's stated agent session can be written as the agent CLI's own transcript (`agent_runner/transcript_author.py`), so the chat replay and the agent record read it as one they recorded; the approved-call note the replay reads now lives there.

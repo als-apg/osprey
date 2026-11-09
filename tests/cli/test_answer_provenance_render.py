@@ -79,12 +79,12 @@ def _assert_no_facility_identifier(region: str, where: str) -> None:
 
 @pytest.fixture(scope="module")
 def control_project(tmp_path_factory) -> Path:
-    return _build_preset("control-assistant", tmp_path_factory.mktemp("ctrl"))
+    return _build_preset("demo", tmp_path_factory.mktemp("ctrl"))
 
 
 @pytest.fixture(scope="module")
 def ariel_project(control_project: Path) -> Path:
-    """The control-assistant build's logbook-app render, where the ARIEL render lands."""
+    """The demo build's logbook-app render, where the ARIEL render lands."""
     render = control_project / f"{control_project.parent.name}-logbook"
     assert render.is_dir(), f"logbook render not built: {render}"
     return render

@@ -284,6 +284,9 @@ class RunDocumentRouter:
         with self._lock:
             if run_uid in self._recorders:
                 self._descriptors[descriptor_uid] = run_uid
+        # The descriptor is where a run declares its columns' units; the
+        # recorder keeps them beside the rows.
+        self._forward(run_uid, "descriptor", doc)
 
     def _on_stop(self, doc: dict[str, Any]) -> None:
         run_uid = doc.get("run_start")

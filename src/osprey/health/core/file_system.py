@@ -20,7 +20,8 @@ Rows emitted:
   resolved under the project root) is writable or can be created; warning when it
   is not writable or cannot be created.
 * ``env_file`` — ok when a ``.env`` file is present at the repo root (the
-  deployment's single secret store), warning otherwise.
+  deployment's single secret store), warning otherwise; skip ("n/a in
+  container") inside a container, whose environment the runtime supplies.
 * ``registry_file`` — emitted only when the config declares an application
   registry (``registry_path``, its ``application.registry_path`` alias, or the
   ``REGISTRY_PATH`` environment override, resolved by the loader's own
@@ -50,7 +51,8 @@ from pathlib import Path
 from typing import Any
 
 from osprey.health.config import DiskThresholds, parse_disk_thresholds
-from osprey.health.models import CheckResult, Status
+from osprey.health.derive import in_container
+from osprey.health.models import N_A_IN_CONTAINER, CheckResult, Status
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.workspace import agent_data_base_dir
 
@@ -182,6 +184,18 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     env_file = cwd / ".env"
     if env_file.exists():
         results.append(CheckResult("env_file", _CATEGORY, Status.OK, ".env file found"))
+    elif in_container():
+        # A container is handed its environment by the runtime; the repo's
+        # `.env` lives on the host and is not expected beside this render.
+        results.append(
+            CheckResult(
+                "env_file",
+                _CATEGORY,
+                Status.SKIP,
+                ".env is read on the host",
+                value=N_A_IN_CONTAINER,
+            )
+        )
     else:
         results.append(CheckResult("env_file", _CATEGORY, Status.WARNING, ".env file not found"))
 

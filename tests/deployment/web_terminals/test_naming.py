@@ -42,7 +42,7 @@ TEMPLATE_SERVICE_KEY = "  web-{{ svc.user }}:"
 
 
 def test_name_format():
-    assert web_container_name("control-assistant", "alice") == "control-assistant-web-alice"
+    assert web_container_name("demo", "alice") == "demo-web-alice"
 
 
 def test_helper_takes_the_project_name():
@@ -52,7 +52,7 @@ def test_helper_takes_the_project_name():
 
 def test_name_follows_the_resolved_project_name():
     """A config's containers carry the name ``resolve_project_name`` gives it."""
-    cfg = {"project_name": "control-assistant"}
+    cfg = {"project_name": "demo"}
     project = resolve_project_name(cfg)
     assert web_container_name(resolve_project_name(cfg), "alice") == f"{project}-web-alice"
 

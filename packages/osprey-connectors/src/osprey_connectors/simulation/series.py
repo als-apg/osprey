@@ -1,7 +1,7 @@
 """Pure time-series synthesis primitives for the simulated archive and texture.
 
 These functions turn a baseline series plus a scenario's archiver events
-(step/ramp/spike, positioned by window fraction, wall-clock offset, or daily
+(step/ramp/spike/burst/loss, positioned by window fraction, wall-clock offset, or daily
 time-of-day) into a concrete value series, and supply the keyed draws and the
 band-limited texture the texture engine layers on a served value. They hold no
 state: the caller supplies the channel values and events and these functions
@@ -9,7 +9,7 @@ do the math (see ``tests/simulation/test_series_primitives.py``).
 """
 
 import hashlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from datetime import time as dtime
 from typing import Any
@@ -22,7 +22,9 @@ from osprey_connectors.relative_time import RelativeTimestamp, resolve_relative_
 
 __all__ = [
     "anchored_instant",
+    "BURST_WINDOW_TAUS",
     "apply_events",
+    "loss_refill_bound",
     "channel_key_bytes",
     "clamp",
     "daily_occurrences",
@@ -60,6 +62,15 @@ _WANDER_COMPONENTS = 5
 _WANDER_OCTAVE_SPAN = 3.5
 _WANDER_DECAY_PER_OCTAVE = 0.5
 _WANDER_JITTER_OCTAVES = 0.15
+
+#: How many of a ``burst``'s slowest time constants count as inside its window:
+#: ``exp(-10)`` leaves under 0.005% of the burst outside it.
+BURST_WINDOW_TAUS = 10.0
+#: Injector shots per second while top-off refills a ``loss``.
+_REFILL_RATE_HZ = 1.0
+#: Charge one refill shot adds, as a fraction of the top-off ``ceiling``
+#: (0.75 mA on a 500 mA ring).
+_REFILL_SHOT_FRACTION = 0.0015
 
 
 def channel_key_bytes(channel: str) -> bytes:
@@ -393,6 +404,79 @@ def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = N
     return positions
 
 
+def _burst_profile(event: Mapping[str, Any], dt: "np.ndarray") -> "np.ndarray":
+    """A ``burst``'s excursion at ``dt`` seconds after its instant.
+
+    Zero before the instant, ``amplitude`` at it, then a fast exponential
+    pump-down with ``decay_s`` plus, when ``tail_share`` and ``tail_decay_s``
+    are stated, a slower exponential carrying that share of the amplitude::
+
+        amplitude * ((1 - share) * exp(-dt / decay_s) + share * exp(-dt / tail_decay_s))
+
+    Args:
+        event: A ``burst`` event.
+        dt: Seconds since the event instant; negative is before it.
+
+    Returns:
+        The excursion, same shape as ``dt``.
+    """
+    amplitude = float(event["amplitude"])
+    share = float(event.get("tail_share", 0.0))
+    tail = float(event.get("tail_decay_s", event["decay_s"]))
+    after = np.maximum(dt, 0.0)
+    shape = (1.0 - share) * np.exp(-after / float(event["decay_s"])) + share * np.exp(-after / tail)
+    return np.where(dt >= 0.0, amplitude * shape, 0.0)
+
+
+def _loss_deficit(
+    event: Mapping[str, Any],
+    at: float,
+    x: "np.ndarray",
+    topoff: Mapping[str, Any] | None,
+) -> "np.ndarray":
+    """How far a ``loss`` holds a channel below its level at each instant of ``x``.
+
+    The channel drops by ``amount`` in one step at ``at`` and nothing brings it
+    back but top-off: from the first top-off refill instant after ``at`` (an
+    epoch-aligned multiple of the seed's ``period_s``) the injector adds one shot
+    of ``_REFILL_SHOT_FRACTION * ceiling`` every ``1 / _REFILL_RATE_HZ`` seconds
+    until the amount is replaced. A channel without a ``topoff`` seed never
+    recovers.
+
+    Args:
+        event: A ``loss`` event.
+        at: Its instant, in epoch seconds.
+        x: Epoch seconds, ascending.
+        topoff: The channel's ``topoff`` seed record, or None.
+
+    Returns:
+        The deficit, ``amount`` right after ``at`` and 0 before it and once
+        refilled.
+    """
+    amount = float(event["amount"])
+    deficit = np.where(x >= at, amount, 0.0)
+    if topoff is None:
+        return deficit
+    period = float(topoff["period_s"])
+    shot = _REFILL_SHOT_FRACTION * abs(float(topoff["ceiling"]))
+    refill = (np.floor(at / period) + 1.0) * period
+    shots = np.where(x >= refill, np.floor((x - refill) * _REFILL_RATE_HZ) + 1.0, 0.0)
+    return np.maximum(deficit - shot * shots, 0.0)
+
+
+def loss_refill_bound(event: Mapping[str, Any], topoff: Mapping[str, Any] | None) -> float | None:
+    """Seconds after its instant by which a ``loss`` is surely refilled; None if never.
+
+    One top-off period to the first refill, wherever in the period the loss
+    falls, plus the shots the amount takes.
+    """
+    if topoff is None:
+        return None
+    shot = _REFILL_SHOT_FRACTION * abs(float(topoff["ceiling"]))
+    shots = np.ceil(float(event["amount"]) / shot) if shot > 0 else 0.0
+    return float(topoff["period_s"]) + float(shots) / _REFILL_RATE_HZ
+
+
 def apply_events(
     series: "np.ndarray",
     events: list[dict[str, Any]],
@@ -400,11 +484,15 @@ def apply_events(
     t_abs: "np.ndarray | None",
     anchor: float,
     tz: ZoneInfo | None = None,
+    topoff: Mapping[str, Any] | None = None,
 ) -> "np.ndarray":
-    """Apply step/ramp/spike events in order (window-fraction or wall-clock).
+    """Apply step/ramp/spike/burst/loss events in order (window-fraction or wall-clock).
 
     A step with an end (see :func:`step_end`) holds ``to`` over ``[start, end)``
     and leaves later samples on the baseline; without one it holds to the end.
+    A ``burst`` (:func:`_burst_profile`) and a ``loss`` (:func:`_loss_deficit`)
+    start at their instant and never move a sample before it; ``topoff`` is the
+    channel's ``topoff`` seed record, which alone refills a loss.
     """
     if not events:
         return series
@@ -433,6 +521,10 @@ def apply_events(
                 mask = (x >= at) & (x <= until)
                 series[mask] = start + (to - start) * (x[mask] - at) / (until - at)
                 series[x > until] = to
+            elif shape == "burst":
+                series = series + _burst_profile(event, x - at)
+            elif shape == "loss":
+                series = series - _loss_deficit(event, at, x, topoff)
             else:  # spike (gaussian bump; width as window fraction, or seconds when anchored)
                 amplitude = float(event["amplitude"])
                 width = float(event["width"])

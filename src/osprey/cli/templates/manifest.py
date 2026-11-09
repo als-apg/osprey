@@ -97,8 +97,8 @@ def load_template_manifest(
     carry no artifact declaration of their own.
 
     Args:
-        template_name: The app bundle directory ("control_assistant"), or the
-            preset a built project's manifest records ("control-assistant").
+        template_name: The app bundle directory ("demo"), or the
+            preset a built project's manifest records ("demo").
             Both spellings resolve, because the bundled-preset fallback below
             normalizes whichever it is given onto the hyphenated preset file.
             ``None`` when the caller has no name to offer — a project built
@@ -118,7 +118,7 @@ def load_template_manifest(
     # The bundled preset profile is the canonical source of artifact declarations.
     #
     # Resolved through the profile resolver, not read as raw YAML: a preset
-    # that says `extends: control-assistant` declares only its DELTA, so
+    # that says `extends: demo` declares only its DELTA, so
     # reading its file alone answers with a fraction of what it selects —
     # the tier presets would report no skills, or web_panels with no
     # agents. Resolving is also what applies `exclude:`, so a render that
@@ -569,6 +569,27 @@ def generate_manifest(
         json.dump(manifest_data, f, indent=2, sort_keys=False)
 
     return manifest_data
+
+
+def restamp_file_checksums(project_dir: Path) -> None:
+    """Re-take ``file_checksums`` in an existing manifest from the finished render.
+
+    The build writes the manifest before it re-renders the Claude Code
+    artifacts (the re-render reads the manifest's artifact selection), so the
+    checksums taken then describe a ``.claude/`` and ``.mcp.json`` that the
+    re-render replaces. Calling this once the render is final makes the
+    recorded checksums the ones a drift check compares against. A missing
+    manifest is left missing.
+
+    :param project_dir: Root directory of the built project.
+    """
+    manifest_path = project_dir / MANIFEST_FILENAME
+    if not manifest_path.exists():
+        return
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    data["file_checksums"] = calculate_file_checksums(project_dir)
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=False)
 
 
 def note_retired_creation_keys(creation: Any) -> None:
