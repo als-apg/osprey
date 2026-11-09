@@ -228,7 +228,7 @@ export function countDirectory(q) {
 
 /**
  * @param {string} name
- * @returns {Promise<PvFactsSection[]>}
+ * @returns {Promise<{ name: string, sections: PvFactsSection[] }>}
  */
 export function fetchPvFacts(name) {
   return fetchJSON(`/api/directory/pv/${encodeURIComponent(name)}`);
