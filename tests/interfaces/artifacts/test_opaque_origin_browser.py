@@ -47,6 +47,7 @@ from osprey.interfaces._serving import run_app_server
 from osprey_connectors import posture_store
 from osprey_connectors_tests._harness import write_control_context
 from tests.interfaces._hub import LONG_LIVED_SHELL, hub_server
+from tests.interfaces._panel_host import PanelHost, open_panel_host
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.web_terminal._posture_chip import reset_process_memos
 
@@ -417,7 +418,7 @@ def _assert_control_flips(page: Page, base_url: str) -> None:
 def _probe(frame: Frame | Page) -> dict:
     """Wait for the attack script to report, and return what it saw."""
     frame.wait_for_function(
-        "() => document.documentElement.hasAttribute('data-probe')", timeout=TIMEOUT
+        "() => document.documentElement?.hasAttribute('data-probe') === true", timeout=TIMEOUT
     )
     return json.loads(frame.evaluate("() => document.documentElement.getAttribute('data-probe')"))
 
@@ -430,16 +431,58 @@ def _assert_refused(probe: dict) -> None:
     assert probe["cors"] == "blocked", probe
 
 
-def open_gallery(page: Page, base_url: str, theme: str = "dark") -> None:
-    page.goto(f"{base_url}{GALLERY}?theme={theme}")
-    expect(page.locator(".tree-item").first).to_be_visible(timeout=TIMEOUT)
+def open_gallery(page: Page, base_url: str, theme: str = "dark") -> PanelHost:
+    """The gallery framed the way the hub frames it; drive it through the returned host."""
+    host = open_panel_host(page, f"{base_url}{GALLERY}?theme={theme}")
+    expect(host.locator("#preview-empty")).to_be_visible(timeout=TIMEOUT)
+    return host
 
 
-def select_artifact(page: Page, title: str) -> None:
-    page.locator(".tree-item", has_text=title).click()
-    expect(page.locator("#preview-content .preview-header-title")).to_have_text(
-        title, timeout=TIMEOUT
+def select_artifact(page: PanelHost, title: str) -> None:
+    """Select the artifact titled *title*, as the hub does on a row click."""
+    page.shown_artifact = page.evaluate(
+        """async (title) => {
+            const listing = await (await fetch('api/artifacts')).json();
+            const entry = listing.artifacts.find((a) => a.title === title);
+            window.postMessage(
+                { type: 'osprey-artifact-select', artifact_id: entry.id },
+                window.location.origin
+            );
+            return entry.id;
+        }""",
+        title,
     )
+    expect(page.locator("#preview-content .preview-viewport")).to_be_visible(timeout=TIMEOUT)
+
+
+def _request_print(page: PanelHost) -> None:
+    """Post the hub's Print action for the artifact shown."""
+    page.evaluate(
+        """(id) => window.postMessage(
+            { type: 'osprey-artifact-action', artifact_id: id, action: 'print' },
+            window.location.origin
+        )""",
+        page.shown_artifact,
+    )
+
+
+def _open_in_new_tab(page: PanelHost) -> Page:
+    """Open the shown artifact's own page in a window, on the URL the viewer's links use."""
+    with page.expect_popup(timeout=TIMEOUT) as popup_info:
+        page.evaluate(
+            """async ({ id, theme }) => {
+              const types = performance.getEntriesByType('resource')
+                .map((e) => e.name).find((n) => n.endsWith('/js/types.js'));
+              const { openUrl } = await import(types);
+              const entry = await (await fetch(`api/artifacts/${encodeURIComponent(id)}`)).json();
+              window.open(openUrl(entry, theme), '_blank');
+            }""",
+            {
+                "id": page.shown_artifact,
+                "theme": page.evaluate("() => document.documentElement.getAttribute('data-theme')"),
+            },
+        )
+    return popup_info.value
 
 
 def artifact_frame(page: Page, artifact_id: str) -> Frame:
@@ -493,17 +536,64 @@ def _stub_print(page: Page) -> None:
     )
 
 
-def _print_popup(page: Page) -> Page:
-    """Press the preview's Print button; return the window it opened."""
+# Lifts print.js's ready budget for the press below. A Plotly page inlines 5 MB
+# of library, so on a loaded runner its load event can come after those 3 s: the
+# gallery then gives up on the handshake, alerts, and ignores the late ready, and
+# the popup renders but is never asked to print. What the fallback does when the
+# budget runs out is pinned in print.test.mjs; these tests are about the handshake.
+_LIFT_READY_BUDGET_JS = """
+async (budgetMs) => {
+  const entry = performance.getEntriesByType('resource')
+    .map((e) => e.name).find((n) => n.endsWith('/js/print.js'));
+  const { READY_TIMEOUT_MS } = await import(entry);
+  const realSetTimeout = window.setTimeout;
+  window.setTimeout = (fn, ms, ...rest) =>
+    realSetTimeout(fn, ms === READY_TIMEOUT_MS ? budgetMs : ms, ...rest);
+}
+"""
+
+
+def _print_popup(page: PanelHost) -> Page:
+    """Send the hub's Print action; return the window it opened."""
+    page.evaluate(_LIFT_READY_BUDGET_JS, 4 * TIMEOUT)
     with page.expect_popup(timeout=TIMEOUT) as popup:
-        page.locator("#preview-content .print-action-btn").click()
+        _request_print(page)
     return popup.value
 
 
 def _wait_printed(target: Page | Frame) -> None:
     target.wait_for_function(
-        "() => document.documentElement.getAttribute('data-printed') === '1'", timeout=TIMEOUT
+        "() => document.documentElement?.getAttribute('data-printed') === '1'", timeout=TIMEOUT
     )
+
+
+_IMAGES_SETTLED_JS = """
+async (scope) => {
+  const imgs = [...document.querySelectorAll(scope)].flatMap((s) => [...s.querySelectorAll('img')]);
+  await Promise.all(
+    imgs
+      .filter((i) => !i.complete)
+      .map((i) => new Promise((r) => {
+        i.addEventListener('load', r, { once: true });
+        i.addEventListener('error', r, { once: true });
+      })),
+  );
+  await new Promise((r) => requestAnimationFrame(r));
+  return imgs.filter((i) => i.complete && i.naturalWidth === 0).length;
+}
+"""
+
+
+def _await_images_settled(target: Page | Frame, scope_selector: str) -> int:
+    """Wait until every image under the scope has loaded or failed and its handlers
+    have had a frame to run; return how many are broken."""
+    target.wait_for_function(
+        "(scope) => [...document.querySelectorAll(scope)]"
+        ".every((s) => [...s.querySelectorAll('img')].every((i) => i.complete))",
+        arg=scope_selector,
+        timeout=TIMEOUT,
+    )
+    return target.evaluate(_IMAGES_SETTLED_JS, scope_selector)
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +605,7 @@ def test_artifact_script_in_gallery_cannot_turn_writes_on(hub, chromium_browser)
     """In the gallery preview the script runs, opaque, and the switch stays off."""
     page = chromium_browser.new_page()
     assert _switch(page, hub.base_url) == "off"
-    open_gallery(page, hub.base_url)
+    page = open_gallery(page, hub.base_url)
     select_artifact(page, ATTACK_TITLE)
 
     iframe = page.locator("#preview-content .preview-viewport iframe")
@@ -532,12 +622,10 @@ def test_artifact_script_in_gallery_cannot_turn_writes_on(hub, chromium_browser)
 def test_artifact_script_in_new_tab_cannot_turn_writes_on(hub, chromium_browser):
     """Opened top-level ("Open in new tab"), the header alone makes it opaque."""
     page = chromium_browser.new_page()
-    open_gallery(page, hub.base_url)
+    page = open_gallery(page, hub.base_url)
     select_artifact(page, ATTACK_TITLE)
 
-    with page.expect_popup(timeout=TIMEOUT) as popup_info:
-        page.locator("#preview-content a[data-theme-link]").click()
-    popup = popup_info.value
+    popup = _open_in_new_tab(page)
     popup.wait_for_load_state("load", timeout=TIMEOUT)
     assert hub.ids[ATTACK_TITLE] in popup.url
     assert GALLERY in popup.url
@@ -553,7 +641,7 @@ def test_artifact_script_in_print_window_cannot_turn_writes_on(hub, chromium_bro
     """Print opens the page in its own window; it prints, and stays opaque."""
     page = chromium_browser.new_page()
     _stub_print(page)
-    open_gallery(page, hub.base_url)
+    page = open_gallery(page, hub.base_url)
     select_artifact(page, ATTACK_TITLE)
 
     popup = _print_popup(page)
@@ -586,14 +674,14 @@ def test_markdown_script_html_runs_nothing_in_gallery(hub, chromium_browser):
     """The gallery renders markdown into its own (first-party) document, so
     the sanitizer is the only barrier: no vector may run, math must render."""
     page = chromium_browser.new_page()
-    open_gallery(page, hub.base_url)
+    page = open_gallery(page, hub.base_url)
     select_artifact(page, MARKDOWN_TITLE)
 
     rendered = page.locator("#preview-content .osprey-md-rendered")
     expect(rendered.locator("h1")).to_have_text("Shift notes", timeout=TIMEOUT)
     expect(rendered.locator(".katex").first).to_be_visible(timeout=TIMEOUT)
     # Let the broken image fire its error event, then look for any trace.
-    page.wait_for_timeout(500)
+    _await_images_settled(page, "#preview-content .osprey-md-rendered")
     assert rendered.locator("script").count() == 0
     assert rendered.locator("[onerror]").count() == 0
     hrefs = rendered.locator("a").evaluate_all("els => els.map(a => a.getAttribute('href'))")
@@ -610,12 +698,10 @@ def test_markdown_math_renders_opaque_in_new_tab_and_prints(hub, chromium_browse
     the proxy (C-ASSETS), runs none of the artifact's script, and prints."""
     page = chromium_browser.new_page()
     _stub_print(page)
-    open_gallery(page, hub.base_url, theme="light")
+    page = open_gallery(page, hub.base_url, theme="light")
     select_artifact(page, MARKDOWN_TITLE)
 
-    with page.expect_popup(timeout=TIMEOUT) as popup_info:
-        page.locator("#preview-content a[data-theme-link]").click()
-    tab = popup_info.value
+    tab = _open_in_new_tab(page)
     tab.wait_for_load_state("load", timeout=TIMEOUT)
     assert "/api/markdown/" in tab.url and GALLERY in tab.url
     assert tab.evaluate("() => String(self.origin)") == "null"
@@ -626,9 +712,9 @@ def test_markdown_math_renders_opaque_in_new_tab_and_prints(hub, chromium_browse
         timeout=TIMEOUT,
     )
     tab.wait_for_function(
-        "() => document.documentElement.getAttribute('data-theme') === 'light'", timeout=TIMEOUT
+        "() => document.documentElement?.getAttribute('data-theme') === 'light'", timeout=TIMEOUT
     )
-    tab.wait_for_timeout(500)
+    _await_images_settled(tab, "body")
     assert tab.evaluate("() => document.documentElement.getAttribute('data-md-pwned')") is None
 
     popup = _print_popup(page)
@@ -658,6 +744,7 @@ _PLOT_PROBE = """() => {
 def _plot_follows(frame: Frame | Page, theme: str) -> None:
     frame.wait_for_function(
         """(theme) => {
+          if (!document.documentElement) return false;  // a popup before its document
           const a = document.getElementById('plot-a');
           const css = getComputedStyle(document.documentElement);
           return document.documentElement.getAttribute('data-theme') === theme
@@ -673,15 +760,11 @@ def _plot_follows(frame: Frame | Page, theme: str) -> None:
     assert probe["font"] == probe["textToken"]
 
 
-def set_gallery_theme(page: Page, theme: str) -> None:
-    """Change the gallery's theme through the module instance it runs."""
+def set_gallery_theme(page: PanelHost, theme: str) -> None:
+    """Change the gallery's theme with the hub's broadcast."""
     page.evaluate(
-        """async (theme) => {
-          const entry = performance.getEntriesByType('resource')
-            .map((e) => e.name).find((n) => n.endsWith('/js/theme-manager.js'));
-          const mod = await import(entry);
-          mod.setTheme(theme);
-        }""",
+        "(theme) => window.postMessage({ type: 'osprey-theme-change', theme },"
+        " window.location.origin)",
         theme,
     )
 
@@ -689,7 +772,7 @@ def set_gallery_theme(page: Page, theme: str) -> None:
 def test_plotly_artifact_renders_follows_theme_and_prints(hub, chromium_browser):
     page = chromium_browser.new_page()
     _stub_print(page)
-    open_gallery(page, hub.base_url, theme="dark")
+    page = open_gallery(page, hub.base_url, theme="dark")
     select_artifact(page, PLOT_TITLE)
 
     frame = artifact_frame(page, hub.ids[PLOT_TITLE])
@@ -708,7 +791,7 @@ def test_plotly_artifact_renders_follows_theme_and_prints(hub, chromium_browser)
 def test_notebook_renders_and_prints(hub, chromium_browser):
     page = chromium_browser.new_page()
     _stub_print(page)
-    open_gallery(page, hub.base_url)
+    page = open_gallery(page, hub.base_url)
     select_artifact(page, NOTEBOOK_TITLE)
 
     frame = artifact_frame(page, hub.ids[NOTEBOOK_TITLE])
@@ -726,7 +809,7 @@ def test_pdf_renders_unsandboxed_and_prints(hub, chromium_browser):
     does not render under one), framed without one, printed directly."""
     page = chromium_browser.new_page()
     _stub_print(page)
-    open_gallery(page, hub.base_url)
+    page = open_gallery(page, hub.base_url)
 
     pdf_id = hub.ids[PDF_TITLE]
     with page.expect_response(lambda r: f"/files/{pdf_id}/" in r.url, timeout=TIMEOUT) as info:
@@ -752,5 +835,5 @@ def test_pdf_renders_unsandboxed_and_prints(hub, chromium_browser):
         ) as request_info,
         page.expect_popup(timeout=TIMEOUT),
     ):
-        page.locator("#preview-content .print-action-btn").click()
+        _request_print(page)
     assert GALLERY in request_info.value.url

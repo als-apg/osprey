@@ -37,16 +37,13 @@ from osprey.services.ariel_search.enhancement.provider_resolver import (
     resolve_reachable_base_url,
 )
 from osprey.services.ariel_search.exceptions import ModuleConfigError, ModuleUnavailable
-from osprey.services.ariel_search.search._offload import (
-    QUERY_EMBEDDING_TIMEOUT_S,
-    SearchCallPool,
-    run_search_call,
-)
+from osprey.services.ariel_search.search._offload import QUERY_EMBEDDING_TIMEOUT_S
 from osprey.services.ariel_search.search.fusion import ImageHit
 
 if TYPE_CHECKING:
     from osprey.models.providers.base import BaseProvider
     from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.search._offload import SearchCallPool
 
 __all__ = [
     "IMAGE_LANE_COOLDOWN_S",
@@ -303,8 +300,7 @@ async def search_images(
         fetch_limit: Text candidates the caller fetches; the lane fetches
             :data:`PICTURE_FACTOR` times as many pictures, at most
             :data:`MAX_PICTURES`.
-        search_calls: The search service's pool for search-time provider
-            calls; the query is embedded on it.
+        search_calls: The pool the query embedding runs on.
 
     Returns:
         ``{entry_id: ImageHit}`` (possibly empty) on success; None when the
@@ -318,13 +314,8 @@ async def search_images(
     generation = _generation
     try:
         settings = _settings_for(config)
-        vector = await run_search_call(
-            search_calls,
-            _embed_query,
-            settings,
-            query,
-            generation,
-            timeout_s=QUERY_EMBEDDING_TIMEOUT_S + 1,
+        vector = await search_calls.run(
+            _embed_query, settings, query, generation, timeout_s=QUERY_EMBEDDING_TIMEOUT_S + 1
         )
         sql_budget = min(
             deadline - loop.time(), IMAGE_LANE_SQL_TIMEOUT_S + STATEMENT_TIMEOUT_MS / 1000

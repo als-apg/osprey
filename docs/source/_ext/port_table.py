@@ -37,13 +37,10 @@ COLUMNS = ("Offset", "Port", "Service", "Tier", "Override key", "Environment var
 #: Relative widths for the six columns, in the same order.
 COLUMN_WIDTHS = (10, 14, 18, 12, 26, 20)
 
-#: Port-family name → the registry definition that owns it. The family name is
+#: Port-family name → the registry definition that owns it. A registry key is
 #: exactly what the layout calls a per-user slot, which is what lets a row find
-#: its env var; ``port_family`` covers the one server whose family is named
-#: differently from its registry key (``lattice_dashboard`` → ``lattice``).
-_DEFINITIONS_BY_FAMILY = {
-    (definition.port_family or key): definition for key, definition in FRAMEWORK_WEB_SERVERS.items()
-}
+#: its env var.
+_DEFINITIONS_BY_FAMILY = dict(FRAMEWORK_WEB_SERVERS)
 
 #: Placeholder for a cell with nothing in it — an em dash reads as "there is
 #: none here", where a blank cell reads as "this was not filled in".

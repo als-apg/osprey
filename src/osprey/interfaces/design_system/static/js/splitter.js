@@ -4,7 +4,7 @@
  *
  * One draggable divider behind every resizable pane in the product: the OKF
  * knowledge panel's sidebar/reader split, the artifact gallery's browse view,
- * the PLAN panel's plan-list/detail split, the LATTICE control sidebar, the
+ * the PLAN panel's plan-list/detail split, the
  * settings drawer, and the event dashboard's three layout zones. The visual
  * half lives in css/base.css as `.osprey-splitter`; this module is the
  * behaviour half.

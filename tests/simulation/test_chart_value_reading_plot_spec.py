@@ -145,7 +145,7 @@ def test_installed_scenarios_build_with_the_preset_facility(tmp_path: Path) -> N
     from osprey.facility.build import build_facility
 
     facility = tmp_path / "facility"
-    shutil.copytree(packaged_facility_dir("control_assistant"), facility)
+    shutil.copytree(packaged_facility_dir("demo"), facility)
     fixture.install_scenarios(facility / "scenarios")
     assert (facility / "scenarios" / fixture.LOGBOOK_SCENARIO / fixture.SPEC_PATH).is_file()
 
@@ -189,7 +189,7 @@ def _named_channels(node: object) -> set[str]:
 
 
 def test_every_address_the_scenarios_name_is_an_example_channel() -> None:
-    records = packaged_facility_dir("control_assistant") / "records" / "channels.yaml"
+    records = packaged_facility_dir("demo") / "records" / "channels.yaml"
     channel_ids = {record["id"] for record in yaml.safe_load(records.read_text("utf-8"))}
     in_scenarios: set[str] = set()
     for path in sorted(fixture.SCENARIOS_DIR.glob("*.yaml")):

@@ -48,7 +48,7 @@ def _pull(runner: CliRunner, repo: Path, preset: str, *extra: str):
 
 def test_every_preset_is_covered() -> None:
     """An empty parametrization would pass every test below."""
-    assert {"control-assistant", "hello-world"} <= set(list_presets())
+    assert {"demo", "hello-world"} <= set(list_presets())
 
 
 def test_the_starter_lands_where_the_settings_default_points() -> None:

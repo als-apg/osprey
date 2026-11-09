@@ -60,7 +60,7 @@ RENDERED_CONFIG = textwrap.dedent(
 
 PROFILE = textwrap.dedent(
     """
-    preset: control-assistant
+    preset: demo
     config:
       modules.web_terminals:
         enabled: true

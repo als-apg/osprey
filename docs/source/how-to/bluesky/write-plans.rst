@@ -161,11 +161,15 @@ mounts that file unchanged.
      - name: SR:MAG:HCM:01:CURRENT:SP
        setpoint: SR:MAG:HCM:01:CURRENT:SP
        readback: SR:MAG:HCM:01:CURRENT:RB
+       unit: A
+       setpoint_unit: A
    readables:
      - name: SR:MAG:HCM:01:CURRENT:RB
        pv: SR:MAG:HCM:01:CURRENT:RB
+       unit: A
      - name: SR:DIAG:BPM:01:POSITION:X
        pv: SR:DIAG:BPM:01:POSITION:X
+       unit: m
 
 The file has two lists:
 
@@ -179,15 +183,23 @@ The file has two lists:
 A device's name is its address, which is also the column heading in the run's
 data.
 
+A device carries the ``unit`` its channel states in the facility file. A
+settable with a separate readback also carries its setpoint's unit, as
+``setpoint_unit``. Every run records them, so ``get_run_data`` and the run's
+figure state each column's unit.
+
 Don't edit this file: the build rewrites it every time. To change the device
 set, change the channels under ``data/facility/`` and build again.
 
 A plan the agent writes during a session names channels from this same set.
-``list_devices`` reads it. The pre-enqueue check refuses a plan that names a
-device the file does not declare. Validation alone cannot catch this, because
-it builds a mock for whatever the sample arguments name, so it says nothing
-about what the worker has. The channel finder answers for the whole facility.
-This file answers for the queue worker, and a plan's channels come from here.
+``list_devices`` reads it. When the queue worker is running, two checks refuse
+a device the file does not declare, and both answer ``unknown_device``:
+
+- validation refuses such a device in the sample arguments;
+- the pre-enqueue check refuses it in a plan's own arguments.
+
+The channel finder answers for the whole facility. This file answers for the
+queue worker, and a plan's channels come from here.
 
 When a plan drives a settable, the move waits for its readback to come within
 a bound of the demand. The setpoint's ``tolerance`` in the facility file, next

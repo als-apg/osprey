@@ -119,7 +119,9 @@ def serving_bridge(routes: dict[str, object], posted: list | None = None):
         {"routes": routes, "posted": posted if posted is not None else []},
     )
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}"
@@ -831,7 +833,7 @@ def test_queue_add_renders_trajectory_unavailable_without_blocking_approval(
             "total_moves": 0,
             "truncated": False,
             "move_cap": None,
-            "reason": "preview_timed_out",
+            "reason": "function_timeout",
             "detail": "The pre-flight was accepted but had not finished in time.",
         },
     }
@@ -843,7 +845,7 @@ def test_queue_add_renders_trajectory_unavailable_without_blocking_approval(
     # `ask_reason` asserts the decision is still "ask"; `hook_runner` asserts the
     # hook exited zero, so the degradation neither blocks nor crashes.
     reason = ask_reason(result)
-    assert "Setpoint trajectory: unavailable (reason: preview_timed_out)" in reason
+    assert "Setpoint trajectory: unavailable (reason: function_timeout)" in reason
     assert "approval is not blocked" in reason
     assert "had not finished in time" in reason
     # What the plan declares it would touch survives the failed pre-flight.

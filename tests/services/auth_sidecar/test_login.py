@@ -31,6 +31,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.interfaces.design_system.favicon import favicon_data_uri
 from osprey.services.auth_sidecar.app import create_app
 from osprey.services.auth_sidecar.passwords import generation_tag, hash_password
 from osprey.services.auth_sidecar.return_to import MAX_RETURN_TO_LENGTH
@@ -194,12 +195,30 @@ def test_page_states_the_user_and_asks_only_for_a_password() -> None:
     # One password input, and every other field hidden: nothing on this page
     # invites typing a username.
     assert sum('type="password"' in field for field in fields) == 1
-    editable = [field for field in fields if 'type="hidden"' not in field]
+    editable = [
+        field for field in fields if 'type="hidden"' not in field and not field.endswith(" hidden>")
+    ]
     assert len(editable) == 1
     assert 'type="password"' in editable[0]
     assert 'name="user"' not in editable[0]
     # The username still travels with the form, as a value the browser cannot edit.
     assert any('type="hidden"' in field and 'name="user"' in field for field in fields)
+
+
+def test_page_names_the_account_to_the_password_manager_without_submitting_it() -> None:
+    """A lone password field gets a hidden username hint that carries no name."""
+    response = _client().get(LOGIN_PATH, params={"user": "alice", "next": "/u/alice/"})
+
+    hints = [field for field in _inputs(response.text) if 'autocomplete="username"' in field]
+    assert hints == ['<input type="text" value="alice" autocomplete="username" hidden>']
+
+
+def test_enter_submits_the_form_and_the_tab_shows_the_osprey_mark() -> None:
+    """The frame carries the Enter handler and the inlined tab icon."""
+    response = _client().get(LOGIN_PATH, params={"user": "alice", "next": "/u/alice/"})
+
+    assert "form.requestSubmit()" in response.text
+    assert f'<link rel="icon" type="image/svg+xml" href="{favicon_data_uri()}">' in response.text
 
 
 def test_page_is_never_cached() -> None:

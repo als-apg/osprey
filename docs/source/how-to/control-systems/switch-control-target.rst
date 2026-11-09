@@ -160,8 +160,8 @@ Go live
 A deployment baselined on the stand-in (``control_system.type: live_standin``)
 starts on ``standin``. There, going to the real machine is one tool call: the
 same call, and the same prompts, as on a deployment that never had a stand-in
-at all. The ``control-assistant`` preset starts on the simulator (``va``)
-instead, so there the stand-in is a switch of its own before the real machine.
+at all. The ``demo`` preset starts on the simulator (``va``) instead, so there
+the stand-in is a switch of its own before the real machine.
 
 Moving toward the live machine is the direction with the extra gates. Clearing
 them **is** the go-live procedure:
@@ -206,9 +206,8 @@ to. What the switch cannot do is move a session onto it.
 reached. A facility's gateways cannot be guessed, so nothing usable ships
 here. The shipped templates differ:
 
-- The control-assistant template leaves the whole block commented out. There
-  this is the first gate, and the live target reads *not configured* until you
-  author it.
+- The demo template leaves the whole block commented out. There this is the
+  first gate, and the live target reads *not configured* until you author it.
 - The generic project template writes placeholder addresses instead. They pass
   this gate and fail the probe.
 
@@ -687,10 +686,10 @@ containers. See :doc:`../bluesky/index` for the plan stack itself.
 
 The **BLUESKY panel** follows the same two-lane deployment with a picker of its
 own. It does not follow the control target: you choose which lane the panel
-shows, in the panel. The panel's status strip shows which machine it is
-pointed at, labelled by target. Switching lanes there reloads the panel onto
-the other lane's bridge. Its plans, shared draft, queue and results all move
-together, and starting the queue uses that lane's own launch token. A
+shows, in the panel. The lane picker in the panel's toolbar shows which machine
+it is pointed at, labelled by target. Switching lanes there reloads the panel
+onto the other lane's bridge. Its plans, shared draft, queue and results all
+move together, and starting the queue uses that lane's own launch token. A
 single-lane deployment shows no picker, and nothing about its panel changes.
 
 Rehearse on a stand-in live machine
@@ -703,12 +702,12 @@ something to rehearse the procedure on. It is a second soft IOC the deployment
 runs for itself, deployed as a third control target of its own.
 
 Setting ``virtual_accelerator.live_standin: true`` in the build profile deploys
-it, and the ``control-assistant`` preset ships that line on. From it, the build
-derives the stand-in's own ``control_system.connector.live_standin`` block and
-nothing else: where the stand-in listens, and what proves it reachable. The
-``epics`` block beside it is untouched. So a facility already pointed at its
-own control system can stand a rehearsal up next to it, without losing sight
-of its machine.
+it, and the ``demo`` preset ships that line on. From it, the build derives the
+stand-in's own ``control_system.connector.live_standin`` block and nothing
+else: where the stand-in listens, and what proves it reachable. The ``epics``
+block beside it is untouched. So a facility already pointed at its own control
+system can stand a rehearsal up next to it, without losing sight of its
+machine.
 
 **Limits are the profile's to state.** Limits are optional, and the limits
 pair lives in the profile's ``config:`` block. The stand-in gets no block of

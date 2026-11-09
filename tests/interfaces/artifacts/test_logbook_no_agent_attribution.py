@@ -93,8 +93,7 @@ class TestSubmitDoesNotBroadcast:
         """Dropping the broadcast must not drop the URL the client navigates to.
 
         The returned URL is now the *only* thing that gets the operator to
-        their draft — the gallery hands it to its host, and a standalone
-        gallery renders it as the "Open in ARIEL" link.
+        their draft — the gallery hands it to its host.
         """
         with (
             patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),

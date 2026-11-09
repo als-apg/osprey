@@ -13,6 +13,10 @@
 #   * wheel layer — when `osprey up --dev` stages a locally-built wheel
 #     into the build context, this later layer overlays it (so unreleased code
 #     is included). With no wheel staged it is a no-op.
+#   * source builds — `osprey up --dev` also stages osprey-lock-constraints.txt,
+#     the checkout's uv.lock exported as constraints. With it present the deps
+#     layer primes no release, and every install layer holds each third-party
+#     package to the version the lock holds (see the deps layer).
 # This image is built locally by `osprey up`; override with
 # OSPREY_GCHAT_BRIDGE_IMAGE to use a prebuilt/published image.
 
@@ -128,7 +132,21 @@ ARG OSPREY_PIP_PRE=""
 ARG PIP_NO_PROXY=""
 ARG PIP_INDEX_URL=""
 ARG PIP_EXTRA_INDEX_URL=""
-COPY .osprey-layer-anchor osprey-local-requirements.tx[t] /tmp/deps-ctx/
+# A build from an osprey source checkout (`osprey up --dev`) also stages
+# osprey-lock-constraints.txt, the checkout's uv.lock exported as constraints,
+# and the file's presence (not OSPREY_DEV) puts this layer on the lock-driven
+# install: nothing is primed from a released framework, the staged wheels' own
+# dependency list is installed with every third-party package held to the
+# version the lock holds, and the file is kept at
+# /opt/osprey/lock-constraints.txt so that every later install layer is held to
+# it as well. The lock's lines are appended to the setuptools constraint file
+# below rather than replacing it, so they reach uv's build environments too,
+# and a lock that pins setuptools>=84 fails this layer loudly instead of
+# quietly dropping the fix that constraint is for. With no file staged (a
+# release build) the layer is exactly what it was. The `.osprey-layer-anchor`
+# sibling keeps the glob COPY matching either way, and the file is the same
+# bytes in every context, so the layer stays shared.
+COPY .osprey-layer-anchor osprey-local-requirements.tx[t] osprey-lock-constraints.tx[t] /tmp/deps-ctx/
 # setuptools 84.0.0 breaks setuptools_dso's compile-probe error handling and
 # fails sdist compiles of the EPICS toolchain (pvxslibs/epicscorelibs/softioc)
 # where no binary wheel exists (notably linux/arm64); PIP_CONSTRAINT reaches
@@ -151,15 +169,23 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
     && pip install "uv==0.12.21" \
-    && { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION" \
-         || if [ "$OSPREY_DEV" = "1" ]; then \
-                echo "WARNING: pin unreleased, priming with latest" \
-                && uv pip install "osprey-framework" ; \
-            else \
-                exit 1 ; \
-            fi ; } \
-    && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
-           uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+    && if [ -f /tmp/deps-ctx/osprey-lock-constraints.txt ]; then \
+           echo "Source build: installing the staged wheels' dependencies at the checkout's uv.lock versions" \
+           && mkdir -p /opt/osprey \
+           && cp /tmp/deps-ctx/osprey-lock-constraints.txt /opt/osprey/lock-constraints.txt \
+           && cat /opt/osprey/lock-constraints.txt >> /tmp/deps-ctx/pip-constraints.txt \
+           && uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+       else \
+           { uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION" \
+             || if [ "$OSPREY_DEV" = "1" ]; then \
+                    echo "WARNING: pin unreleased, priming with latest" \
+                    && uv pip install "osprey-framework" ; \
+                else \
+                    exit 1 ; \
+                fi ; } \
+           && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
+                  uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt ; \
+              fi ; \
        fi \
     && pip uninstall -y uv \
     && apt-get purge -y build-essential python3-dev \
@@ -175,9 +201,22 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # dependencies, so a `--dev` build whose pin is not on PyPI still gets the
 # Google clients — without them the bridge dies on its first import. The
 # extra's dependencies all ship binary wheels, so no toolchain here.
+#
+# On the lock-driven path (see the deps layer) no framework is installed yet
+# and none may come from the index, so the layer installs the extra's own
+# requirements instead, staged beside the wheels as
+# osprey-extra-requirements.txt, under /opt/osprey/lock-constraints.txt. The
+# `.osprey-layer-anchor` sibling keeps the glob COPY matching on a release
+# build, which stages neither file.
+COPY .osprey-layer-anchor osprey-extra-requirements.tx[t] /tmp/extras-ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
-    pip install "osprey-framework[gchat]"
+    if [ -f /opt/osprey/lock-constraints.txt ]; then \
+        pip install -c /opt/osprey/lock-constraints.txt -r /tmp/extras-ctx/osprey-extra-requirements.txt ; \
+    else \
+        pip install "osprey-framework[gchat]" ; \
+    fi \
+    && rm -rf /tmp/extras-ctx
 
 # ── wheel layer ──────────────────────────────────────────────────────────────
 # Overlay a locally-built wheel when `osprey up --dev` stages one into the build
@@ -197,12 +236,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # writes the same `pyaml/` files, and neither the resolver nor `pip check` sees
 # two of them installed together. The manifest above is staged only beside these
 # wheels, so every build that installed it runs the assertion.
+#
+# On the lock-driven path (see the deps layer) the first install runs under
+# /opt/osprey/lock-constraints.txt, so anything the wheels add beyond what the
+# earlier layers installed is held to the checkout's uv.lock as well; the
+# staged wheels satisfy one another, so nothing resolves an osprey
+# distribution from the index.
 COPY .osprey-layer-anchor *.wh[l] /tmp/ctx/
 RUN --mount=type=cache,target=/root/.cache/pip \
     if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Overlaying locally-built osprey wheel (dev build)" \
+        && lock= && { [ ! -f /opt/osprey/lock-constraints.txt ] || lock="-c /opt/osprey/lock-constraints.txt" ; } \
         && whl="$(ls /tmp/ctx/osprey_framework-*.whl)" \
-        && pip install "${whl}[gchat]" $(ls /tmp/ctx/*.whl | grep -v /osprey_framework-) \
+        && pip install $lock "${whl}[gchat]" $(ls /tmp/ctx/*.whl | grep -v /osprey_framework-) \
         && pip install --no-deps --force-reinstall /tmp/ctx/*.whl \
         && python -m osprey.deployment.pyaml_owner \
         && pip check ; \

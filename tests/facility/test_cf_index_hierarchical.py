@@ -564,9 +564,9 @@ def _leaf_of(document: dict[str, Any], address: str) -> dict[str, Any]:
 
 @pytest.mark.slow
 def test_the_demo_index_holds_every_channel_at_one_depth(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     document, database = _written(tmp_path, facility)
     levels = [level["name"] for level in document["hierarchy"]["levels"]]
 
@@ -581,11 +581,11 @@ def test_the_demo_index_holds_every_channel_at_one_depth(
 
 @pytest.mark.slow
 def test_a_demo_leaf_takes_its_channel_s_description(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
     from tests.facility.test_cf_view_parity import golden_leaf_sentences
 
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     document, _database = _written(tmp_path, facility)
     channels = {channel["id"]: channel for channel in facility["channels"]}
     sentences = golden_leaf_sentences()
@@ -608,9 +608,7 @@ def test_a_demo_leaf_takes_its_channel_s_description(
 
 
 @pytest.mark.slow
-def test_a_hierarchical_build_writes_the_index(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
+def test_a_hierarchical_build_writes_the_index(built_demo: BuiltProject, tmp_path: Path) -> None:
     """The shared build's deployment rendered selecting hierarchical: that index, no other."""
     from osprey.facility.views.channel_finder import (
         CHANNEL_FINDER_SCHEMA,
@@ -620,7 +618,7 @@ def test_a_hierarchical_build_writes_the_index(
     )
     from tests.facility._built_render import render_built
 
-    written = render_built(built_control_assistant, tmp_path / "render", "hierarchical")
+    written = render_built(built_demo, tmp_path / "render", "hierarchical")
 
     indexes = tmp_path / "render" / "data" / "channel_finder"
     assert indexes / HIERARCHICAL_FILE in written

@@ -178,11 +178,6 @@ All new functionality must include tests.
    # With coverage
    uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey
 
-.. warning::
-
-   E2E tests **must** be run with ``pytest tests/e2e/`` not ``pytest -m e2e``.
-   The marker-based approach causes registry state leaks and service conflicts.
-
 Front-End (JavaScript) Testing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -254,12 +249,11 @@ broadest/slowest:
 - If the module is wired into a page: a ``test_load_smokes.py`` entry for
   that page, so a broken import or a typo'd export name surfaces as a real
   thrown exception instead of a silent no-op.
-- If it's a **panel** (embeddable in the Web Terminal hub): support both
-  standalone and embedded modes -- ``applyEmbedded()`` on load, an
-  ``<osprey-display-menu>`` that hides itself when embedded (the hub owns
-  theme chrome there), branding hidden when embedded -- plus a
+- If it's a **panel** (embedded in the Web Terminal hub): ``applyEmbedded()``
+  on load, which also sends a direct visit to the hub; no page chrome of its
+  own, since the hub owns theme and header -- plus a
   ``test_contract_params.py`` case, which is the up-to-date spec for the
-  dual-mode checklist and well-known parameters. See
+  embedding checklist and well-known parameters. See
   :doc:`/how-to/web-terminal/panels` for how panels embed in the hub.
 - If the change is visible on screen: a ``test_visual.py`` ``TARGETS`` entry
   and a committed baseline PNG (regenerate with ``--regen-baselines`` on
@@ -303,12 +297,10 @@ the exemplars below have worked examples):
 
 - Vitest unit, factory-with-injected-callbacks pattern:
   ``tests/interfaces/artifacts/preview.test.mjs``,
-  ``tests/interfaces/lattice_dashboard/render.test.mjs``,
   ``tests/interfaces/web_terminal/scaffold/detail.test.mjs``.
 - Interaction pin, proving a multi-module split still wires up end to end:
   ``tests/interfaces/artifacts/test_gallery_interactions.py``,
   ``tests/interfaces/web_terminal/test_scaffold_detail.py``,
-  ``tests/interfaces/lattice_dashboard/test_settings_form.py``,
   ``tests/interfaces/web_terminal/test_session_page.py``.
 - Contract + dual-mode chrome: ``tests/interfaces/web_terminal/test_contract_params.py``.
 - Visual baselines: ``tests/interfaces/design_system/test_visual.py``.

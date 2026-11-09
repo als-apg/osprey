@@ -23,6 +23,7 @@ import {
   oneLine,
   summarizeInput,
   toolCategory,
+  toolKey,
   toolLabel,
 } from './chat-tool-vocab.js';
 
@@ -174,6 +175,10 @@ export function createToolChip(event, openFor = NO_HOLD) {
     label: toolLabel(event),
     detail: summarizeInput(event.input),
   });
+  // The call's id and tool name it for the chat's run menu (chat-menus.js): a
+  // script run's `exec_id` is the `tool_use_id` of the call that ran it.
+  if (event.tool_use_id) row.el.dataset.callId = String(event.tool_use_id);
+  row.el.dataset.tool = toolKey(raw);
   const result = resultSection('Waiting for the result…');
   const inputBox = elem('div', 'op-tool-pre');
   inputBox.append(inputView(event.input));

@@ -29,7 +29,7 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.registry.mcp import governed_write_tools, resolve_servers
 
 #: The presets the project ships.
-PRESETS = ("hello-world", "control-assistant")
+PRESETS = ("hello-world", "demo")
 
 GOVERNED = (
     "mcp__controls__channel_write",

@@ -796,7 +796,7 @@ def with_plain_progress(cmd: list[str], *, provider: ComposeProvider | None) -> 
     Compose's default (``auto``) selects a TTY renderer on an interactive
     terminal, which repaints each frame by moving the cursor up N lines and
     rewriting them — without erasing to end of line. Long project and service names
-    (``my-control-assistant-bluesky-queueserver`` and friends) wrap on a
+    (``osprey-demo-bluesky-queueserver`` and friends) wrap on a
     normal-width terminal, the renderer's N is then wrong by the number of
     wrapped lines, and successive frames overprint each other into
     unreadable fragments. ``plain`` is append-only, so it has no frame

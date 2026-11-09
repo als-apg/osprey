@@ -1,8 +1,9 @@
 # Build-context hygiene for the auth-sidecar image.
 #
 # The Dockerfile needs only the locally-built osprey wheel (*.whl) and, on dev
-# builds, the staged osprey-local-requirements.txt. It is also COPYed itself as
-# the guaranteed sibling that keeps those optional globs matching.
+# builds, the staged osprey-local-requirements.txt and
+# osprey-lock-constraints.txt. It is also COPYed itself as the guaranteed
+# sibling that keeps those optional globs matching.
 #
 # Nothing else belongs in this context, and one exclusion is load-bearing rather
 # than cosmetic: the sidecar's credentials live in `.env.auth` at the project

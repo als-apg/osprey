@@ -13,8 +13,8 @@
  * stay legible with the panel shut -- hence the "N of M · <what>" readout and
  * the clear-all ✕ on the meta line itself.
  *
- * Mirrors the factory/injection pattern scaffold/data.js and
- * lattice_dashboard/render.js already use: {@link createScaffoldGalleryView}
+ * Mirrors the factory/injection pattern scaffold/data.js already uses:
+ * {@link createScaffoldGalleryView}
  * is a factory bound to a gallery's DOM refs and mutable filter/view state
  * (passed in as `gallery` -- the same "pass `this`" shape
  * createScaffoldDataActions(this, ...) uses in scaffold-gallery.js's
