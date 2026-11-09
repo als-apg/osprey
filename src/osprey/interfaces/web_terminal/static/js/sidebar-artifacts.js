@@ -161,7 +161,7 @@ const cues = createSessionCues({
     },
     total: (treeId) => data.totals.counts[treeId]?.total ?? null,
     shownId: () => (panelWasOnView ? state.shownId : null),
-    onPick: (id) => pickArtifact(id),
+    onPick: (id) => void pickArtifact(id),
     onMore: (treeId) => void openInAgent(treeId),
   },
 });
@@ -605,7 +605,7 @@ function onClick(event) {
     rows.flip(state.openRuns, run.dataset.run ?? '');
     return render();
   }
-  pickArtifact(/** @type {string} */ (row.dataset.id));
+  void pickArtifact(/** @type {string} */ (row.dataset.id));
 }
 
 /**
@@ -669,12 +669,17 @@ export async function openInAgent(treeId, where = 'sessions') {
 
 /**
  * The operator picked an artifact: show it without changing the session and
- * record it as its owner's last-open artifact.
+ * record it as its owner's last-open artifact. One the tree has not loaded is
+ * fetched and held first; one that is gone leaves the shown artifact alone.
  * @param {string} id
+ * @returns {Promise<void>}
  */
-function pickArtifact(id) {
+async function pickArtifact(id) {
+  const entry = held(id) ?? (await store.fetchArtifact(id));
+  if (!entry) return;
+  data.hold(entry);
   model.setPick(id);
-  model.recordLastArtifact(held(id));
+  model.recordLastArtifact(entry);
   render();
   showArtifactsPanel();
 }
@@ -683,9 +688,10 @@ function pickArtifact(id) {
  * Show an artifact as a pick of its row does, from a place other than the
  * tree (a run's menu in the sidebar or in the chat, artifact-verbs.js).
  * @param {string} id
+ * @returns {Promise<void>}
  */
 export function showArtifact(id) {
-  pickArtifact(id);
+  return pickArtifact(id);
 }
 
 /** @returns {TreeView} the tree mode in force */

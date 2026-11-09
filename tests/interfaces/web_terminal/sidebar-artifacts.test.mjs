@@ -919,6 +919,29 @@ describe('the viewer', () => {
     expect(tree().querySelector('.osprey-list-row[data-id="u1"]')).toBeNull();
   });
 
+  test('showArtifact of an artifact the tree has not loaded shows that artifact (#2497)', async () => {
+    // A subagent's run part: listed under no loaded group, fetched by id.
+    server.byId.sub1 = art('sub1', 'documents', '2026-10-30T07:00:00Z');
+    await boot();
+    expect(shown()).toBe('a3');
+    mod.showArtifact('sub1');
+    await settle();
+    expect(shown()).toBe('sub1');
+    expect(requests(`/api/sessions/${T1}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
+      { artifact_id: 'sub1' },
+    ]);
+  });
+
+  test('showArtifact of an artifact that is gone leaves the shown one alone', async () => {
+    await boot();
+    mod.showArtifact('a2');
+    await settle();
+    expect(shown()).toBe('a2');
+    mod.showArtifact('gone');
+    await settle();
+    expect(shown()).toBe('a2');
+  });
+
   test('the tile menu keeps its artifact verbs', async () => {
     await boot();
     expect(mocks.setServiceMenuExtras).toHaveBeenCalledWith('artifacts', expect.any(Function));
