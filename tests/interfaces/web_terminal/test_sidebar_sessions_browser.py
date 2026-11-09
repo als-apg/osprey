@@ -81,15 +81,20 @@ def _send(page: Page, prompt: str) -> None:
     expect(box).to_have_value("")
 
 
-def _bar(page: Page, sid: str, prop: str) -> str:
-    """A computed property of a session row's accent bar (its ``::before``)."""
-    return page.evaluate(
-        """([sid, prop]) => {
+def _expect_bar(page: Page, sid: str, prop: str, *, equals=None, differs=None) -> None:
+    """Wait until a computed property of a session row's accent bar (its ``::before``)
+    equals ``equals``, or differs from ``differs``. A listing redraws the tree, so the
+    row can be absent for a moment; the wait reads again until it is there and matches."""
+    page.wait_for_function(
+        """([sid, prop, equals, differs]) => {
           const row = document.querySelector(
             `#sidebar-session-tree .osprey-tree-session[data-session-id="${sid}"]`);
-          return getComputedStyle(row, '::before').getPropertyValue(prop);
+          if (!row) return false;
+          const value = getComputedStyle(row, '::before').getPropertyValue(prop);
+          return equals !== null ? value === equals : value !== differs;
         }""",
-        [sid, prop],
+        arg=[sid, prop, equals, differs],
+        timeout=_TIMEOUT_MS,
     )
 
 
@@ -141,7 +146,7 @@ def test_a_clicked_session_takes_the_accent_and_only_the_active_one_is_bold(hub,
     expect(target).to_have_class(re.compile(r"\bactive\b"), timeout=_TIMEOUT_MS)
     expect(page.locator(f"{_TREE} .osprey-tree-session.accent")).to_have_count(1)
     expect(page.locator(f"{_TREE} .osprey-tree-session.active")).to_have_count(1)
-    assert _bar(page, _PROFILE.transcript_id, "content") != "none"
+    _expect_bar(page, _PROFILE.transcript_id, "content", differs="none")
     weights = page.evaluate(
         """() => [...document.querySelectorAll('#sidebar-session-tree .osprey-tree-session')]
           .map((r) => [r.classList.contains('active'), Number(getComputedStyle(r).fontWeight)])"""
@@ -160,12 +165,12 @@ def test_the_session_the_agent_works_in_breathes(hub, page):
     expect(busy).to_have_count(1, timeout=_TIMEOUT_MS)
     sid = busy.get_attribute("data-session-id")
     expect(busy).to_have_class(re.compile(r"\bactive\b"))
-    assert _bar(page, sid, "animation-name") == "osprey-tree-pulse"
+    _expect_bar(page, sid, "animation-name", equals="osprey-tree-pulse")
 
     # Reduced motion: the accent stays, still.
     page.emulate_media(reduced_motion="reduce")
-    assert _bar(page, sid, "animation-name") == "none"
-    assert _bar(page, sid, "content") != "none"
+    _expect_bar(page, sid, "animation-name", equals="none")
+    _expect_bar(page, sid, "content", differs="none")
 
 
 def test_a_folded_session_peeks_at_its_artifacts_and_a_click_opens_one(hub, page):

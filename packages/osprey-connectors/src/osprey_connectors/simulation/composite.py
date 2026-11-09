@@ -131,7 +131,6 @@ __all__ = [
     "ENGINE_GROUP",
     "INSTANCES",
     "STATUS_NO_DECK",
-    "STATUS_OK",
     "UDF",
     "Composite",
     "WriteRefusedError",

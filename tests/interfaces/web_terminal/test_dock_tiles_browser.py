@@ -37,7 +37,10 @@ row and its iframe), a docked panel is focused where it is, a reload brings
 the stored arrangement back whole, and a stored tile holding several panels
 comes back with the one it showed. Last, the two narrow-tile defects of the
 tab release: removing a panel from the rail leaves the other tiles alone, and
-a narrow artifacts tile keeps its bar and a working overflow menu.
+a narrow artifacts tile keeps its bar and a working overflow menu. Maximize /
+Restore closes the file: a maximized tile's iframe fills the dock with every
+other iframe hidden, Restore gives every tile its rectangle back, a maximize is
+never stored, and a layout applied whole ends it.
 
 Run:
 
@@ -1218,12 +1221,13 @@ def test_an_open_replaces_the_panel_in_the_service_tile_used_last(tmp_path, chro
         assert after["shape"] == S("row[column[d,b],c,terminal]")
         assert _tile_of(after, d) == "t1", after["held"]
 
-        # The agent's open lands by the same rule as the row click.
+        # The agent's open asked to replace lands by the same rule as the row
+        # click (its default is a new tile).
         start = _restore(page, MATRIX_START)
         _focus_tile(page, c)
         r = requests.post(
             f"{hub.base_url}/api/panel-op/open",
-            json={"request_id": "tiles-open-1", "member": d},
+            json={"request_id": "tiles-open-1", "member": d, "place": "replace"},
             timeout=10,
         )
         assert r.status_code == 200, r.text
@@ -1332,7 +1336,10 @@ def test_a_stored_tile_holding_several_panels_comes_back_with_the_one_it_showed(
 
 
 def test_removing_a_panel_from_the_rail_leaves_the_other_tiles_alone(tmp_path, chromium_browser):
-    """ "Remove from rail" on a tile's own menu closes that tile and touches no other.
+    """ "Remove from rail" on a docked panel's rail entry closes its tile and touches no other.
+
+    A docked member's tile menu carries Reveal in sidebar, not the rail
+    membership row; the membership verb lives on the panel's sidebar row.
 
     The tab release's defect: removing the panel the operator was on handed
     the view to a fallback panel opened INTO a tile that still showed one, and
@@ -1362,7 +1369,7 @@ def test_removing_a_panel_from_the_rail_leaves_the_other_tiles_alone(tmp_path, c
             1, timeout=5_000
         )
 
-        _bar(page, c).locator(".tile-tab-title").click(button="right")
+        rail_entry(page, c).click(button="right")
         menu = page.locator(".rail-context-menu")
         expect(menu).to_have_count(1, timeout=5_000)
         menu.locator(".rail-context-item", has_text="Remove from rail").click()
@@ -1463,4 +1470,258 @@ def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_tile_menu(tmp_path,
         row.click()
         expect(menu).to_have_count(0, timeout=5_000)
         assert page.evaluate("() => window.__picked") == [key.split(":", 1)[1]]
+        assert hub.errors == []
+
+
+# ---------------------------------------------------------------------------
+# Maximize / Restore
+# ---------------------------------------------------------------------------
+
+#: Maximize the tile showing `key`, restore, or read which tile is maximized,
+#: through dock-workspace.js's wrappers over dockview's group maximize.
+_MAXIMIZE_JS = """
+async ({ action, key }) => {
+  const dock = await import('/static/js/dock-workspace.js');
+  if (action === 'maximize') return dock.maximizeTile(key);
+  if (action === 'restore') return dock.restoreTile();
+  return dock.maximizedTileKey();
+}
+"""
+
+#: The maximized tile's key and content rectangle, the dock's rectangle, every
+#: overlay iframe's display and rectangle, how many overlay siblings (notices,
+#: body states) are on screen besides the maximized panel's, and, for each
+#: point asked about, the panel whose iframe is the topmost element there
+#: ("terminal" for the terminal's tile, null for anything else).
+_MAXIMIZED_JS = """
+async (points) => {
+  const { getDockApi, maximizedTileKey } = await import('/static/js/dock-workspace.js');
+  const api = getDockApi();
+  const r = (el) => {
+    const b = el.getBoundingClientRect();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  };
+  const key = maximizedTileKey();
+  const group = api.groups.find((g) => g.api.isMaximized()) ?? null;
+  const content = group?.element.querySelector('.dv-content-container') ?? null;
+  const frames = {};
+  for (const f of document.querySelectorAll('.dock-iframe-overlay iframe[data-panel-id]')) {
+    frames[f.dataset.panelId] = { display: f.style.display, rect: r(f) };
+  }
+  const siblings = [...document.querySelectorAll('.dock-iframe-overlay > :not(iframe)')]
+    .filter((el) => el.style.display !== 'none' && getComputedStyle(el).display !== 'none')
+    .map(r);
+  const hits = points.map((p) => {
+    const el = document.elementFromPoint(p.x, p.y);
+    if (!el) return null;
+    if (el instanceof HTMLIFrameElement) return el.dataset.panelId ?? null;
+    if (el.closest('.dv-groupview')?.querySelector('.tile-tab-terminal')) return 'terminal';
+    return null;
+  });
+  return {
+    key,
+    has: api.hasMaximizedGroup(),
+    content: content ? r(content) : null,
+    dock: r(document.querySelector('#dock-root')),
+    frames,
+    siblings,
+    hits,
+  };
+}
+"""
+
+
+def _maximize(page: Page, key: str) -> None:
+    assert page.evaluate(_MAXIMIZE_JS, {"action": "maximize", "key": key}) is True, key
+
+
+def _restore_tile(page: Page) -> None:
+    page.evaluate(_MAXIMIZE_JS, {"action": "restore", "key": None})
+
+
+def _maximized(page: Page, points: list[dict] | None = None) -> dict:
+    return page.evaluate(_MAXIMIZED_JS, points or [])
+
+
+def _settle_maximized(page: Page, key: str, points: list[dict]) -> dict:
+    """Wait until `key`'s tile is maximized and its iframe fills it, stable for two reads."""
+    deadline = time.monotonic() + _SETTLE_S
+    previous = None
+    seen = _maximized(page, points)
+    while time.monotonic() < deadline:
+        seen = _maximized(page, points)
+        frame = seen["frames"].get(key)
+        ready = (
+            seen["key"] == key
+            and seen["content"] is not None
+            and (key == TERMINAL or (frame and _close(frame["rect"], seen["content"])))
+        )
+        if ready:
+            snapshot = json.dumps(seen, sort_keys=True)
+            if snapshot == previous:
+                return seen
+            previous = snapshot
+        else:
+            previous = None
+        page.wait_for_timeout(100)
+    raise AssertionError(f"{key} never settled maximized: {json.dumps(seen)[:2000]}")
+
+
+def _assert_fills_the_dock(seen: dict, start: dict) -> None:
+    """The maximized tile's body spans the area every tile of `start` shared."""
+    content = seen["content"]
+    tiles = [t["rect"] for t in start["tiles"].values()]
+    left = min(t["x"] for t in tiles)
+    right = max(t["x"] + t["width"] for t in tiles)
+    bottom = max(t["y"] + t["height"] for t in tiles)
+    top = min(t["y"] for t in tiles)
+    assert abs(content["x"] - left) <= PX, (content, tiles)
+    assert abs(content["x"] + content["width"] - right) <= PX, (content, tiles)
+    assert abs(content["y"] + content["height"] - bottom) <= PX, (content, tiles)
+    # Below the tile's own bar, at the top of the grid.
+    assert top < content["y"] <= top + 60, (content, tiles)
+
+
+def _assert_frames_follow_their_tiles(page: Page, state: dict, keys: list[str]) -> None:
+    seen = _maximized(page)
+    assert seen["key"] is None and not seen["has"], seen
+    for key in keys:
+        frame = seen["frames"][key]
+        assert frame["display"] != "none", (key, frame)
+        assert _close(frame["rect"], _content(state, key)), (key, frame, _content(state, key))
+
+
+def test_maximize_fills_the_dock_and_nothing_shows_through_then_restore(tmp_path, chromium_browser):
+    """A maximized tile's iframe fills the dock alone; Restore puts every tile back.
+
+    B sits under A beside C and the terminal. Maximizing B hides every other
+    overlay iframe outright (its tile is only squeezed to nothing by dockview,
+    so its frame would otherwise linger), and at each other tile's old centre
+    the topmost element is B's iframe. Restore gives every tile its old
+    rectangle and every iframe its tile's body again.
+    """
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        start = _restore(page, MATRIX_START)
+        assert start["shape"] == S("row[column[a,b],c,terminal]")
+        others = [a, c, TERMINAL]
+        points = [_centre(start, key) for key in others]
+
+        _maximize(page, b)
+        seen = _settle_maximized(page, b, points)
+        _assert_fills_the_dock(seen, start)
+        assert seen["frames"][b]["display"] != "none", seen["frames"][b]
+        for key in (a, c):
+            assert seen["frames"][key]["display"] == "none", (key, seen["frames"][key])
+        assert seen["hits"] == [b, b, b], seen["hits"]
+        for sibling in seen["siblings"]:
+            assert _close(sibling, seen["content"]), (sibling, seen["content"])
+        _type_in_service(page, b, "while-maximized")
+
+        _restore_tile(page)
+        after = _settle(page)
+        assert after["shape"] == start["shape"], after["shape"]
+        _assert_same_rects(start, after, [a, b, c, TERMINAL])
+        _assert_frames_follow_their_tiles(page, after, [a, b, c])
+        _type_in_service(page, c, "after-restore")
+        assert hub.errors == []
+
+
+def test_maximize_the_terminal_hides_every_service_iframe(tmp_path, chromium_browser):
+    """The terminal's tile maximized: no service iframe shows over it."""
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        start = _restore(page, MATRIX_START)
+        points = [_centre(start, key) for key in (a, b, c)]
+
+        _maximize(page, TERMINAL)
+        seen = _settle_maximized(page, TERMINAL, points)
+        _assert_fills_the_dock(seen, start)
+        for key in (a, b, c):
+            assert seen["frames"][key]["display"] == "none", (key, seen["frames"][key])
+        assert seen["siblings"] == [], seen["siblings"]
+        assert seen["hits"] == [TERMINAL] * 3, seen["hits"]
+
+        _restore_tile(page)
+        after = _settle(page)
+        _assert_same_rects(start, after, [a, b, c, TERMINAL])
+        _assert_frames_follow_their_tiles(page, after, [a, b, c])
+        assert hub.errors == []
+
+
+#: The holder's layout and whether its sizes are those of `before`.
+_HELD_SIZES_JS = """
+async (before) => {
+  const { getLayoutHolder, sameShape, sameSizes } = await import('/static/js/dock-apply.js');
+  const live = getLayoutHolder()?.layout ?? null;
+  return !!live && sameShape(live, before) && sameSizes(live, before);
+}
+"""
+
+
+def test_maximize_is_not_stored_and_a_reload_comes_back_restored(tmp_path, chromium_browser):
+    """A maximize is view state: the stored layout keeps the tiles' own sizes.
+
+    While A is maximized the holder's layout and the stored value stay the
+    arrangement (A over B, C, the terminal) at its sizes, and a reload taken then opens that
+    arrangement with no tile maximized.
+    """
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        start = _restore(page, MATRIX_START)
+        _wait_until_stored(page)
+
+        _maximize(page, a)
+        _settle_maximized(page, a, [])
+        # Past the persist debounce: whatever a maximize would store is stored.
+        page.wait_for_timeout(600)
+        assert page.evaluate(_HELD_SIZES_JS, start["layout"]), "the maximize reached the holder"
+        _wait_until_stored(page)
+        stored = page.evaluate(_STORED_JS)["values"]
+        assert stored and all("maximized" not in json.dumps(v).lower() for v in stored), stored
+
+        page.reload()
+        wait_for_dock_settled(page)
+        for key in (a, b, c):
+            expect(_iframe(page, key)).to_be_visible(timeout=10_000)
+        after = _settle_until(
+            page,
+            lambda state: (
+                state["shape"] == start["shape"]
+                and all(
+                    _close(_rect(start, k), _rect(state, k), 2 * PX) for k in (a, b, c, TERMINAL)
+                )
+            ),
+        )
+        assert after["shape"] == start["shape"], after["shape"]
+        for key in (a, b, c, TERMINAL):
+            assert _close(_rect(start, key), _rect(after, key), 2 * PX), key
+        assert page.evaluate(_MAXIMIZE_JS, {"action": "read", "key": None}) is None
+        assert hub.errors == []
+
+
+def test_a_layout_applied_whole_ends_a_maximize(tmp_path, chromium_browser):
+    """A holder apply while A is maximized shows the applied layout, nothing maximized."""
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        _restore(page, FOUR_TASKS_START)
+        _maximize(page, a)
+        _settle_maximized(page, a, [])
+
+        after = _restore(page, MATRIX_START)
+        assert after["shape"] == S("row[column[a,b],c,terminal]"), after["shape"]
+        assert page.evaluate(_MAXIMIZE_JS, {"action": "read", "key": None}) is None
+        _assert_frames_follow_their_tiles(page, after, [a, b, c])
+        # Restore with nothing maximized changes nothing.
+        _restore_tile(page)
+        again = _settle(page)
+        _assert_same_rects(after, again, [a, b, c, TERMINAL])
         assert hub.errors == []

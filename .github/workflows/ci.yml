@@ -1617,6 +1617,7 @@ jobs:
           tests/interfaces/web_terminal/test_chat_browser.py \
           tests/interfaces/web_terminal/test_session_persistence_browser.py \
           tests/interfaces/web_terminal/test_artifact_sessions_browser.py \
+          tests/interfaces/web_terminal/test_context_menus_browser.py \
           tests/interfaces/web_terminal/test_canopy_host_themes.py \
           tests/interfaces/web_terminal/test_osprey_drawer.py \
           tests/interfaces/web_terminal/test_scaffold_detail.py \

@@ -163,16 +163,13 @@ export function initChat(containerId = 'operator-container') {
     key: () => boundKey,
     sending: () => handle !== null,
     setStreaming,
-    dismissInvitation: () => {
-      emptyState?.remove();
-      emptyState = null;
-    },
+    dismissInvitation: () => dismissInvitation(),
     scrollToBottom: () => scrollToBottom(),
     redraw: (turns) => {
       renderer.reset();
       emptyState = null;
       renderer.replay(turns);
-      inviteIfEmpty();
+      syncInvitation();
     },
   });
 
@@ -245,11 +242,22 @@ export function initChat(containerId = 'operator-container') {
     messages.scrollTop = messages.scrollHeight;
   };
 
-  /** Offer first contact when the log is empty and there is something to say. */
-  function inviteIfEmpty() {
-    if (!settled || emptyState || renderer.messageCount() > 0) return;
-    emptyState = buildEmptyState();
-    messages.prepend(emptyState);
+  /** Take the first-contact block away; the log is the conversation from here. */
+  function dismissInvitation() {
+    emptyState?.remove();
+    emptyState = null;
+  }
+
+  /**
+   * Offer first contact when the log is empty and there is something to say,
+   * and take it away when the log is not empty. Called after every replay as
+   * well as at the settled moment: a reloaded page can settle while its
+   * session's transcript is still in flight, and the block put up then would
+   * otherwise stay above the conversation the replay brings back.
+   */
+  function syncInvitation() {
+    if (renderer.messageCount() > 0) dismissInvitation();
+    else if (settled && !emptyState) messages.prepend((emptyState = buildEmptyState()));
   }
 
   // First contact, once there is enough known to say something true. A log that
@@ -257,7 +265,7 @@ export function initChat(containerId = 'operator-container') {
   // page reaches the settled moment too.
   onSettled(() => {
     settled = true;
-    inviteIfEmpty();
+    syncInvitation();
   });
 
   // A switch changes what the sentence may claim. Rebuilt in place, and only
@@ -527,7 +535,7 @@ export function initChat(containerId = 'operator-container') {
     // A newer bind landed while the transcript was in flight; it owns the log.
     if (boundKey !== key) return;
     renderer.replay(turns);
-    inviteIfEmpty();
+    syncInvitation();
     scrollToBottom();
     // Follow the agent from here on, so a turn still running — after a reload,
     // or sent from another tab — keeps drawing.
@@ -660,9 +668,7 @@ export function initChat(containerId = 'operator-container') {
    */
   function send(prompt, onUnsent) {
     const entry = renderer.addUserMessage(prompt);
-    // The invitation has been taken; the log is the conversation from here.
-    emptyState?.remove();
-    emptyState = null;
+    dismissInvitation();
     slash.close();
     setStreaming(true);
     renderer.beginTurn();
@@ -743,7 +749,7 @@ export function initChat(containerId = 'operator-container') {
     boundKey = key;
     setPointer(key);
     resetLog();
-    inviteIfEmpty();
+    syncInvitation();
     if (!isTerminalSurface()) {
       notifySessionChange(key);
       follow(key);
@@ -786,6 +792,8 @@ export function initChat(containerId = 'operator-container') {
     renderer,
     getKey: () => boundKey,
     onBeforeSend: (transform) => void sendTransforms.push(transform),
+    scrollToBottom,
+    onNewSession: startConversation,
   });
   // After the features, so the queued message sits nearest the box, below the task bar.
   inputArea.before(queue.root);

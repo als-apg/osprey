@@ -679,6 +679,15 @@ function pickArtifact(id) {
   showArtifactsPanel();
 }
 
+/**
+ * Show an artifact as a pick of its row does, from a place other than the
+ * tree (a run's menu in the sidebar or in the chat, artifact-verbs.js).
+ * @param {string} id
+ */
+export function showArtifact(id) {
+  pickArtifact(id);
+}
+
 /** @returns {TreeView} the tree mode in force */
 export function treeView() {
   return state.view;

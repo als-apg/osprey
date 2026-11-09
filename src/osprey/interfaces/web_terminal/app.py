@@ -35,6 +35,7 @@ from osprey.interfaces.common_middleware import (
     forwarded_identity,
     resolve_storage_scope,
 )
+from osprey.interfaces.design_system.favicon import FAVICON_PATH
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal import scenario_sessions, session_meta
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
@@ -82,6 +83,7 @@ from osprey.profiles.web_panels import (
     BUILTIN_PANELS,
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
+    in_catalog_order,
     panel_id_refusal,
     panel_spec_enabled,
     sidecar_panel_descriptors,
@@ -104,7 +106,7 @@ if TYPE_CHECKING:
 STATIC_DIR = Path(__file__).parent / "static"
 
 #: The tab icon, in the design system's static tree.
-_FAVICON = Path(__file__).parent.parent / "design_system" / "static" / "img" / "osprey-mark.svg"
+_FAVICON = FAVICON_PATH
 
 
 def _favicon_url() -> str:
@@ -907,7 +909,7 @@ def _load_panel_runtime_config(
     except Exception:
         pass
 
-    visible_panels = [p for p in enabled_panels if p not in hidden_builtins] + [
+    visible_panels = [p for p in in_catalog_order(enabled_panels) if p not in hidden_builtins] + [
         cp["id"] for cp in custom_panels if cp["id"] not in hidden_custom_ids
     ]
     return _PanelRuntimeConfig(

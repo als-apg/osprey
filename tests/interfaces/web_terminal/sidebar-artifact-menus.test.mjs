@@ -1,9 +1,11 @@
 /**
  * The session tree's context menus (sidebar-artifact-menus.js): each row
- * kind's exact items, New session through switchTo, a session's Pin / Unpin
- * and Show pinned sessions, rename in place, the transcript export, a
- * disabled approval preview, and the delete guard on an artifact, on a run
- * head and on a past session.
+ * kind's exact items, New session through switchTo, Group by on the Agent row
+ * only, a session's Open / Focus and Pin / Unpin, Show pinned sessions, rename
+ * in place, the transcript export, Collapse others, a disabled approval
+ * preview, Copy run ID, Download, the delete guard on an artifact, on a run
+ * head and on a past session — and every menu built synchronously from the
+ * held listing, with no network read (it opens offline).
  *
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifact-menus.test.mjs
  */
@@ -24,10 +26,19 @@ const listing = vi.hoisted(() => ({
   fetchArtifact: /** @type {import('vitest').Mock<(id: string) => Promise<any>>} */ (
     vi.fn(async () => null)
   ),
+  heldEntry: /** @type {import('vitest').Mock<(id: string) => any>} */ (vi.fn(() => null)),
+  heldRun: vi.fn(() => null),
+  fetchRun: vi.fn(async () => null),
   readTreeView: vi.fn(() => 'kind'),
 }));
+const policy = vi.hoisted(() => ({ focusAgentPane: vi.fn() }));
+const paneHeader = vi.hoisted(() => ({ downloadArtifact: vi.fn() }));
 const confirm = vi.hoisted(() => ({ showConfirm: vi.fn() }));
-const controller = vi.hoisted(() => ({ setTreeView: vi.fn(), openInAgent: vi.fn(async () => {}) }));
+const controller = vi.hoisted(() => ({
+  setTreeView: vi.fn(),
+  openInAgent: vi.fn(async () => {}),
+  showArtifact: vi.fn(),
+}));
 const sidebar = vi.hoisted(() => ({ toggleEverySession: vi.fn() }));
 
 vi.mock(
@@ -45,20 +56,26 @@ vi.mock(
 );
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar.js', () => sidebar);
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js', () => policy);
+vi.mock(
+  '../../../src/osprey/interfaces/web_terminal/static/js/artifacts-pane-header.js',
+  () => paneHeader
+);
 
 const menus = await import(`${JS}/sidebar-artifact-menus.js`);
 const pins = await import(`${JS}/sidebar-session-pins.js`);
 
 const RUN = {
   id: 'run1',
+  exec_id: 'exec-7',
   title: 'orbit scan',
   run_parts: [
     { id: 'run1', role: 'head' },
-    { id: 'out1', role: 'output', form: 'plots' },
+    { id: 'out1', role: 'output', form: 'plots', title: 'orbit.png' },
     { id: 'code1', role: 'code' },
   ],
 };
-const PLOT = { id: 'a1', title: 'BPM plot' };
+const PLOT = { id: 'a1', title: 'BPM plot', filename: 'bpm.png' };
 
 /** Build a tree: a session (open), a group head, a run head with parts, an artifact. */
 function buildTree() {
@@ -69,6 +86,7 @@ function buildTree() {
         <span class="osprey-tree-title">Beam study</span>
       </div>
       <div class="osprey-tree-head" data-group-head="t1:plots" aria-expanded="true"></div>
+      <div class="osprey-tree-head" data-group-head="t1:tables" aria-expanded="true"></div>
       <div class="box">
         <button class="osprey-list-row osprey-tree-run" data-id="run1" data-run="run1" aria-expanded="false">
           <span data-tree-disc></span>
@@ -113,9 +131,12 @@ async function rightClick(el) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  listing.fetchArtifact.mockImplementation(async (id) =>
-    id === 'run1' ? RUN : id === 'a1' ? PLOT : { id, title: id }
-  );
+  listing.heldEntry.mockImplementation((id) => (id === 'run1' ? RUN : id === 'a1' ? PLOT : null));
+  listing.fetchArtifact.mockImplementation(async (id) => ({
+    id,
+    title: id,
+    filename: `${id}.png`,
+  }));
   buildTree();
   menus.initTreeMenus();
   vi.stubGlobal(
@@ -133,17 +154,32 @@ afterEach(() => {
 });
 
 describe('the Agent row', () => {
-  test('New session, Expand all — and New session goes through switchTo({new: true})', async () => {
+  test('New session, Group by, Show pinned sessions, Expand all — and New session goes through switchTo({new: true})', async () => {
     const items = menus.buildAgentRowMenuItems();
     /** @param {{label?: string}} i */
     const label = (i) => i.label;
     expect(items.filter(label).map(label)).toEqual([
       'New session',
-      'Expand all',
+      'Group by',
       'Show pinned sessions',
+      'Expand all',
     ]);
     items[0].run();
     await vi.waitFor(() => expect(sessionModel.switchTo).toHaveBeenCalledWith({ new: true }));
+  });
+
+  test('Group by ▸ Kind / Activity, checked from the stored mode, applies through the controller', async () => {
+    listing.readTreeView.mockReturnValue('activity');
+    const group = /** @type {any} */ (
+      menus.buildAgentRowMenuItems().find((/** @type {any} */ i) => i.label === 'Group by')
+    );
+    expect(group.submenu.map((/** @type {any} */ i) => [i.label, i.checked])).toEqual([
+      ['Kind', false],
+      ['Activity', true],
+    ]);
+    group.submenu[0].run();
+    await vi.waitFor(() => expect(controller.setTreeView).toHaveBeenCalledWith('kind'));
+    listing.readTreeView.mockReturnValue('kind');
   });
 });
 
@@ -160,7 +196,12 @@ describe('the Agent row: Expand all / Collapse all', () => {
   test('the label reads Collapse all only when every session is open, and collapses them all', async () => {
     $('[data-session-id="t1"]').setAttribute('aria-expanded', 'true');
     const labels = menus.buildAgentRowMenuItems().map((/** @type {any} */ i) => i.label);
-    expect(labels.filter(Boolean)).toEqual(['New session', 'Collapse all', 'Show pinned sessions']);
+    expect(labels.filter(Boolean)).toEqual([
+      'New session',
+      'Group by',
+      'Show pinned sessions',
+      'Collapse all',
+    ]);
     item('Collapse all').run();
     await vi.waitFor(() => expect(sidebar.toggleEverySession).toHaveBeenCalledWith(false));
   });
@@ -203,26 +244,50 @@ describe('a session row', () => {
     const ev = await rightClick($('.osprey-tree-title'));
     expect(ev.defaultPrevented).toBe(true);
     expect(menuLabels()).toEqual([
+      'Open',
       'Pin',
-      'Group by Kind',
-      'Group by Activity',
       'Rename…',
       'Export transcript',
       'Copy ID',
       'Delete…',
     ]);
-    expect(menuRow('Group by Kind').getAttribute('aria-checked')).toBe('true');
     expect(menuRow('Open in Agent')).toBeUndefined();
   });
 
-  test('Pin is first and pins the session; on a pinned row it is Unpin', async () => {
+  test('Group by is not on a session row (it is the Sessions row’s)', async () => {
+    await rightClick($('.osprey-tree-title'));
+    expect(menuLabels().some((l) => l.startsWith('Group by'))).toBe(false);
+  });
+
+  test('Open clicks the row (the controller switches the Agent to it)', async () => {
+    const clicked = vi.fn();
+    $('[data-session-id="t1"]').addEventListener('click', clicked);
+    await rightClick($('.osprey-tree-title'));
+    menuRow('Open').click();
+    expect(clicked).toHaveBeenCalledTimes(1);
+  });
+
+  test('on the session the Agent is on, Open is Focus and focuses the Agent pane', async () => {
+    const clicked = vi.fn();
+    const row = $('[data-session-id="t1"]');
+    row.classList.add('active');
+    row.addEventListener('click', clicked);
+    await rightClick($('.osprey-tree-title'));
+    expect(menuLabels()[0]).toBe('Focus');
+    expect(menuRow('Open')).toBeUndefined();
+    menuRow('Focus').click();
+    await vi.waitFor(() => expect(policy.focusAgentPane).toHaveBeenCalledTimes(1));
+    expect(clicked).not.toHaveBeenCalled();
+  });
+
+  test('Pin follows Open and pins the session; on a pinned row it is Unpin', async () => {
     await rightClick($('.osprey-tree-title'));
     menuRow('Pin').click();
     await vi.waitFor(() => expect(sessionModel.setPinned).toHaveBeenCalledWith('t1', true));
     document.querySelector('.rail-context-menu')?.remove();
     $('[data-session-id="t1"]').dataset.pinned = '2026-11-06T10:00:00+00:00';
     await rightClick($('.osprey-tree-title'));
-    expect(menuLabels()[0]).toBe('Unpin');
+    expect(menuLabels()[1]).toBe('Unpin');
     menuRow('Unpin').click();
     await vi.waitFor(() => expect(sessionModel.setPinned).toHaveBeenCalledWith('t1', false));
   });
@@ -230,7 +295,7 @@ describe('a session row', () => {
   test('a synthesized session (no transcript) has no Pin', async () => {
     $('[data-session-id="t1"]').dataset.sessionId = 'key:k1';
     await rightClick($('.osprey-tree-title'));
-    expect(menuLabels()[0]).toBe('Group by Kind');
+    expect(menuLabels()).toEqual(['Open', 'Rename…', 'Export transcript', 'Copy ID', 'Delete…']);
   });
 
   test('Use automatic name appears only on a hand-named session', async () => {
@@ -288,12 +353,6 @@ describe('a session row', () => {
     spy.mockRestore();
   });
 
-  test('Group by Activity applies the mode through the controller', async () => {
-    await rightClick($('.osprey-tree-title'));
-    menuRow('Group by Activity').click();
-    await vi.waitFor(() => expect(controller.setTreeView).toHaveBeenCalledWith('activity'));
-  });
-
   test('the menu key opens the same menu', async () => {
     const ev = new KeyboardEvent('keydown', {
       key: 'ContextMenu',
@@ -302,7 +361,23 @@ describe('a session row', () => {
     });
     $('.osprey-tree-title').dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
-    await vi.waitFor(() => expect(menuLabels()[0]).toBe('Pin'));
+    expect(menuLabels()[0]).toBe('Open');
+  });
+
+  test('Shift+right-click is left to the browser', () => {
+    // Clear of the menu-key window the previous test's key press opened.
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000);
+    const ev = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      shiftKey: true,
+      detail: 1,
+      button: 2,
+    });
+    $('.osprey-tree-title').dispatchEvent(ev);
+    now.mockRestore();
+    expect(ev.defaultPrevented).toBe(false);
+    expect(document.querySelector('.rail-context-menu')).toBeNull();
   });
 });
 
@@ -373,33 +448,79 @@ describe('Delete… on a session row', () => {
 });
 
 describe('a group head', () => {
-  test('offers Collapse when open', async () => {
+  test('offers Collapse and Collapse others when open', async () => {
     await rightClick($('[data-group-head]'));
-    expect(menuLabels()).toEqual(['Collapse']);
+    expect(menuLabels()).toEqual(['Collapse', 'Collapse others']);
+  });
+
+  test('Collapse others clicks every other open group of the session, never this one', async () => {
+    const plots = vi.fn();
+    const tables = vi.fn();
+    $('[data-group-head="t1:plots"]').addEventListener('click', plots);
+    $('[data-group-head="t1:tables"]').addEventListener('click', tables);
+    await rightClick($('[data-group-head="t1:plots"]'));
+    menuRow('Collapse others').click();
+    expect(tables).toHaveBeenCalledTimes(1);
+    expect(plots).not.toHaveBeenCalled();
+  });
+
+  test('Collapse others is disabled when no other group of the session is open', async () => {
+    $('[data-group-head="t1:tables"]').setAttribute('aria-expanded', 'false');
+    await rightClick($('[data-group-head="t1:plots"]'));
+    expect(menuRow('Collapse others').getAttribute('aria-disabled')).toBe('true');
   });
 });
 
 describe('a run head', () => {
   test('Open result, Open approval preview (disabled: never asked), Open code, Delete…', async () => {
     await rightClick($('[data-run]'));
-    expect(menuLabels()).toEqual(['Open result', 'Open approval preview', 'Open code', 'Delete…']);
+    expect(menuLabels()).toEqual([
+      'Open result',
+      'Open approval preview',
+      'Open code',
+      'Copy run ID',
+      'Delete…',
+    ]);
     expect(menuRow('Open approval preview').getAttribute('aria-disabled')).toBe('true');
     expect(menuRow('Open result').getAttribute('aria-disabled')).toBeNull();
   });
 
-  test('Open code clicks the run’s code part', async () => {
-    const picked = vi.fn();
-    $('[data-id="code1"]').addEventListener('click', picked);
+  test('opens with the network offline: built from the held listing, nothing fetched', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch');
+      })
+    );
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    $('[data-run]').dispatchEvent(ev);
+    // Synchronous: the menu is up before any await.
+    expect(ev.defaultPrevented).toBe(true);
+    expect(menuLabels()[0]).toBe('Open result');
+    expect(listing.fetchArtifact).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  test('Copy run ID copies the run’s exec id', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    await rightClick($('[data-run]'));
+    menuRow('Copy run ID').click();
+    expect(writeText).toHaveBeenCalledWith('exec-7');
+    vi.unstubAllGlobals();
+  });
+
+  test('Open code shows the run’s code part as the tree’s pick does', async () => {
     await rightClick($('[data-run]'));
     menuRow('Open code').click();
-    expect(picked).toHaveBeenCalled();
+    await vi.waitFor(() => expect(controller.showArtifact).toHaveBeenCalledWith('code1'));
   });
 
   test('Delete… asks first and says the run and its parts go', async () => {
     await rightClick($('[data-run]'));
     menuRow('Delete…').click();
+    await vi.waitFor(() => expect(confirm.showConfirm).toHaveBeenCalledTimes(1));
     expect(globalThis.fetch).not.toHaveBeenCalled();
-    expect(confirm.showConfirm).toHaveBeenCalledTimes(1);
     const spec = confirm.showConfirm.mock.calls[0][0];
     expect(spec.title).toBe('Delete run?');
     expect(JSON.stringify(spec.body)).toContain('and its parts (2)');
@@ -414,9 +535,50 @@ describe('a run head', () => {
 });
 
 describe('an artifact row', () => {
-  test('Open, Delete…, Copy ID (no Pin)', async () => {
+  test('Open, Copy ID, Download, Delete… (no Pin)', async () => {
     await rightClick($('[data-id="a1"]'));
-    expect(menuLabels()).toEqual(['Open', 'Delete…', 'Copy ID']);
+    expect(menuLabels()).toEqual(['Open', 'Copy ID', 'Download', 'Delete…']);
+    expect(listing.fetchArtifact).not.toHaveBeenCalled();
+  });
+
+  test('Download hands the held entry to downloadArtifact', async () => {
+    await rightClick($('[data-id="a1"]'));
+    menuRow('Download').click();
+    await vi.waitFor(() => expect(paneHeader.downloadArtifact).toHaveBeenCalledWith(PLOT));
+    expect(listing.fetchArtifact).not.toHaveBeenCalled();
+  });
+
+  test('a run’s part row resolves through its run head’s run_parts', async () => {
+    await rightClick($('[data-id="out1"]'));
+    expect(menuLabels()).toEqual(['Open', 'Copy ID', 'Download', 'Delete…']);
+    expect(listing.fetchArtifact).not.toHaveBeenCalled();
+    menuRow('Delete…').click();
+    expect(JSON.stringify(confirm.showConfirm.mock.calls[0][0].body)).toContain('orbit.png');
+  });
+
+  test('Download on a part reads its filename at the pick, not at the build', async () => {
+    await rightClick($('[data-id="out1"]'));
+    expect(listing.fetchArtifact).not.toHaveBeenCalled();
+    menuRow('Download').click();
+    await vi.waitFor(() =>
+      expect(paneHeader.downloadArtifact).toHaveBeenCalledWith({
+        id: 'out1',
+        title: 'out1',
+        filename: 'out1.png',
+      })
+    );
+    expect(listing.fetchArtifact).toHaveBeenCalledWith('out1');
+  });
+
+  test('a row neither held nor a run part is left to the browser', () => {
+    const stray = document.createElement('button');
+    stray.className = 'osprey-list-row';
+    stray.dataset.id = 'zz';
+    $('[data-session-tree]').prepend(stray);
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    stray.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(false);
+    expect(document.querySelector('.rail-context-menu')).toBeNull();
   });
 
   test('Delete… confirms before anything is deleted', async () => {

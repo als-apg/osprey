@@ -613,13 +613,15 @@ def build(
 
     Raises:
         RuntimeError: A physics model fails to build or read at the start
-            state; the message names it and its engine's error.
+            state; the message names it and its engine's error. A model without
+            a deck is unbuilt by design (``no deck``) and does not raise.
         ValueError: A ``pulse`` seed names a channel the view does not hold.
         NoSimulatorView: The directory holds no simulator view.
         ViewSchemaError: A view file is not the schema this OSPREY reads.
     """
     from osprey_connectors.config import get_facility_timezone
-    from osprey_connectors.simulation.composite import STATUS_OK, Composite
+    from osprey_connectors.simulation.composite import Composite
+    from osprey_connectors.simulation.status import is_error
 
     if not isinstance(view, SimulatorView):
         view = SimulatorView.open(view)
@@ -642,7 +644,7 @@ def build(
         failed = {
             model: status
             for model in composite.models
-            if (status := composite.status(model)) != STATUS_OK
+            if is_error(status := composite.status(model))
         }
         if failed:
             raise RuntimeError(

@@ -10,7 +10,8 @@ shows up as an actual interaction failure here.
 The page is a viewer of one artifact, framed by ``tests/interfaces/_panel_host.py``:
 the artifact the hub selects (an ``osprey-artifact-select`` message) renders
 through the same dispatch for every seeded type, and the hub's
-``osprey-artifact-action`` messages run the gallery's own logbook and delete paths.
+``osprey-artifact-action`` messages run the gallery's own logbook and print paths
+(Delete is the hub's: the store's delete frame empties the viewer).
 
 Unlike _launchers.py's `launch_artifacts` (an empty tmp_path -- fine
 there, since it only checks the page loads clean), this suite needs real
@@ -204,8 +205,9 @@ def test_the_viewer_shows_what_the_hub_selects(tmp_path, monkeypatch, chromium_b
 
 def test_the_viewer_runs_the_actions_the_hub_sends(tmp_path, monkeypatch, chromium_browser):
     """The hub's tile menu reaches the gallery's own code paths through
-    ``osprey-artifact-action``: logbook opens the composer, and delete, once confirmed, removes the artifact and
-    empties the viewer.
+    ``osprey-artifact-action``: logbook opens the composer. Delete is not one of
+    them: the hub asks and deletes, so a ``delete`` action asks nothing here and
+    deletes nothing.
     """
     from osprey.stores.artifact_store import ArtifactStore
 
@@ -217,19 +219,16 @@ def test_the_viewer_runs_the_actions_the_hub_sends(tmp_path, monkeypatch, chromi
         _act_in_viewer(page, artifact_id, "logbook")
         expect(page.locator(".logbook-overlay")).to_be_visible(timeout=5_000)
 
-        messages: list[str] = []
-
-        def accept(dialog):
-            messages.append(dialog.message)
-            dialog.accept()
-
-        page.once("dialog", accept)
+        dialogs: list[str] = []
+        page.on("dialog", lambda dialog: (dialogs.append(dialog.message), dialog.dismiss()))
         _act_in_viewer(page, artifact_id, "delete")
+        # The action's message is queued ahead of this task: once it has run,
+        # the viewer has handled (and ignored) the action.
+        page.evaluate("() => new Promise((done) => setTimeout(done, 0))")
 
-        expect(page.locator("#preview-empty")).to_be_visible(timeout=5_000)
-        assert messages == [f'Delete "{HTML_TITLE}"? This cannot be undone.']
+        assert dialogs == []
         titles = [e.title for e in ArtifactStore(workspace_root=tmp_path).list_entries()]
-        assert HTML_TITLE not in titles
+        assert HTML_TITLE in titles
         page.close()
 
 

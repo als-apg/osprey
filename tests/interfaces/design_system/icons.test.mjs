@@ -32,6 +32,7 @@ const CONTRACT_NAMES = [
   'radio',
   'stethoscope',
   'chart-scatter',
+  'bluesky',
   'plus',
   'help',
   'message',

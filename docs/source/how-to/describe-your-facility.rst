@@ -8,7 +8,9 @@ A deployment describes its facility once, as source files under
 ``data/facility/``. ``osprey build`` combines them into one facility file,
 ``build/facility.json``, and writes every file a service reads from it: the
 channel finder's index, the limits database, the simulator's channel list, the
-knowledge graph. Nothing else in the deployment lists a channel.
+knowledge graph. Nothing else in the deployment lists a channel. The machine
+facts can instead live in a
+:doc:`machine repository </how-to/control-systems/machine-repository>`.
 
 This page walks the tree a fresh ``osprey init --preset demo``
 writes, file by file, then the three ways records get into it: by hand, from
@@ -548,7 +550,9 @@ Scenarios
 
 Each file under ``scenarios/`` is one way the simulated machine departs from
 its baseline: value overrides, model and channel faults, its own motion
-(drivers, couplings, noise), archive history and logbook entries.
+(drivers, couplings, noise), archive history and logbook entries. The
+simulator activates the scenarios marked ``start: true`` when it first comes
+up; with such marks the profile states no ``simulation.default_scenarios``.
 Writing and applying them is in :doc:`/how-to/run-scenarios`.
 
 Knowledge

@@ -117,10 +117,11 @@ def test_inventory_empty_returns_none():
 
 
 def test_inventory_mentions_control_tools():
-    """The one close verb, and the open rule: an open replaces what a tile showed."""
+    """The one close verb, and the agent's open: a new tile by default, replace on request."""
     data = {"enabled": ["bluesky"], "labels": {"bluesky": "Bluesky"}, "visible": ["bluesky"]}
     result = panels._build_inventory(data)
-    assert "open_panel(id)" in result and "replacing the panel" in result
+    assert "open_panel(id)" in result and "new tile" in result
+    assert "place='replace'" in result and "Prefer a new tile" in result
     assert re.findall(r"close_panel\w*", result) == ["close_panel"]
     assert "add_panel_to_rail" in result and "remove_panel_from_rail" in result
     assert not re.search(r"\btabs?\b", result)

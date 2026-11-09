@@ -262,11 +262,11 @@ button {
   z-index: var(--z-dropdown);
 }
 
-/* Verb on the left, its glyph trailing right. */
+/* Three columns (js/context-menu.js): leading glyph, verb, right-aligned hint.
+   The column rules shared with the rail skin follow the divider rule. */
 .osprey-context-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   width: 100%;
   padding: var(--space-2) var(--space-3);
@@ -332,9 +332,13 @@ button {
   cursor: default;
 }
 
-/* Caption over a group of toggles ("Columns"), in the facet-head idiom. */
-.osprey-context-heading {
-  padding: var(--space-1) var(--space-3) 2px;
+/* Section heading over a group of rows ("Columns", "This panel"), in the
+   facet-head idiom; shared with the rail skin. Indented past the glyph column
+   so it starts where the labels under it start. */
+.osprey-context-heading,
+.rail-context-heading {
+  padding: var(--space-1) var(--space-3) 2px
+    calc(var(--space-3) + 16px + var(--space-3));
   font-family: var(--font-display);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
@@ -347,6 +351,56 @@ button {
   height: 1px;
   margin: var(--space-1) 0;
   background: var(--border-default);
+}
+
+/* Row columns, shared by both skins (the rail's `rail-context-*` names come
+   from terminal.css's prefix; the rest of its skin stays there). The leading
+   column is a fixed 16px whether it holds a glyph or the blank slot, so every
+   label in a menu starts at the same x; the heading indent above repeats the
+   width. */
+.osprey-context-glyph,
+.osprey-context-glyph-blank,
+.rail-context-glyph,
+.rail-context-glyph-blank {
+  flex: 0 0 16px;
+  width: 16px;
+  text-align: center;
+}
+
+.osprey-context-label,
+.rail-context-label {
+  flex: 1 1 auto;
+}
+
+/* Secondary text right-aligned after the verb (a shortcut, a count). */
+.osprey-context-hint,
+.rail-context-hint {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: var(--text-md);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* A row that opens a submenu ends in ▸; after a hint it keeps a gap rather
+   than a second auto margin, so the hint stays right-aligned beside it. The
+   row whose submenu is open keeps its highlight while the pointer is in it. */
+.osprey-context-submenu,
+.rail-context-submenu {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.osprey-context-hint + .osprey-context-submenu,
+.rail-context-hint + .rail-context-submenu {
+  margin-left: 8px;
+}
+
+.osprey-context-item[aria-expanded="true"],
+.rail-context-item[aria-expanded="true"] {
+  background: var(--bg-elevated);
 }
 
 /* Table columns — the visual half of js/table-columns.js. A header carries a

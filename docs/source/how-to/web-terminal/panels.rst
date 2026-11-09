@@ -471,10 +471,11 @@ What is on screen:
 - ``list_panels`` — the panels this deployment has, the dock's tiles with
   the panel each shows (the terminal included), the panes in windows of
   their own (the Agent pane included), and the configured layouts.
-- ``open_panel`` — put a panel on screen by the opening rule: it replaces the
-  panel in the service tile used last, which keeps its sidebar row. A panel
-  already open is brought forward where it is. It gets a sidebar row if it
-  had none.
+- ``open_panel`` — put a panel on screen: by default in a new tile split off
+  the service tile used last; ``place="replace"`` puts it in that tile instead
+  (the replaced panel keeps its sidebar row), and ``tile``/``edge`` choose
+  where. A panel already open is brought forward where it is. It gets a
+  sidebar row if it had none.
 - ``open_panel_set`` — open several panels in one call, side by side in tiles
   of their own.
 - ``arrange_workspace`` — apply a configured layout, or an exact one, in place

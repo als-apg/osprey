@@ -46,9 +46,9 @@
  * ignored.
  * @type {ReadonlyArray<ViewerAction>}
  */
-export const VIEWER_ACTIONS = ['print', 'logbook', 'delete'];
+export const VIEWER_ACTIONS = ['print', 'logbook'];
 
-/** @typedef {'print'|'logbook'|'delete'} ViewerAction */
+/** @typedef {'print'|'logbook'} ViewerAction */
 
 /**
  * @typedef {object} ViewerDeps

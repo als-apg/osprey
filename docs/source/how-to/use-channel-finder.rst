@@ -265,7 +265,9 @@ for you to send. The panel never submits anything itself.
 Right-click a row, a facet value, a chip or a channel in the card for the
 actions that apply there: copy the address, device name or row, send to the
 assistant, open the device, or narrow the search to that row's section, system
-or signal. Shift+F10 or the menu key opens the same menu from the keyboard. The
+or signal; the empty results area clears the filters or the selection or
+chooses columns. Shift+F10 or the menu key opens the same menu from the
+keyboard. The
 table is one Tab stop: arrows, Home and End move between rows, Space selects,
 Enter opens the device and ⌘C/Ctrl+C copies the address. A focused header sorts
 on Enter and moves with Alt+←/→.

@@ -2,13 +2,14 @@
 /* OSPREY Web Terminal — the Agent pane's rows in its tile ⋯
  *
  * The Agent pane's bar holds only the session switcher and `+` (agent-bar.js).
- * Its other actions are rows in the Agent tile's ⋯, section "This panel":
+ * Its other actions are rows in the Agent tile's ⋯, section "Agent":
  * Export conversation (chat-export.js) and Desktop notifications
  * (chat-attention.js). Each chat feature registers its own row here, and this
  * module hands the set to the hub's menu (panel-menu-policy.js) under the
  * Agent pane's id, in one fixed order whatever order the features started in.
- * The way between the chat and the terminal is the session switcher's last
- * row, not a ⋯ row.
+ * The docked bar heads the section with Switch to terminal / chat, which the
+ * hub builds itself (the session switcher's handler, so the row is not
+ * registered here); the pane's own window shows these rows alone.
  *
  * @module agent-menu
  */

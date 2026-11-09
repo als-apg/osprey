@@ -10,9 +10,12 @@ copies the demo build's simulator view, pins one scenario in its
 Signatures pinned:
 
 - ``vacuum-burst``: in a 10-min window straddling 14:32:08, SR07 pressure and
-  the DCCT current anti-correlate (Pearson r <= -0.75); SR07 is the most
-  anti-correlated of the twelve sectors by more than 0.3; SR07 peaks above
-  1.5e-7; the DCCT dips by 4-6.5 mA.
+  the DCCT current anti-correlate (Pearson r <= -0.5: the burst pumps down in
+  seconds while the lost current waits up to one top-off period for its
+  refill, so the two overlap only partly); SR07 is the most anti-correlated
+  of the twelve sectors by more than 0.3; SR07 peaks above 1.2e-7 (it jumps
+  to 1.5e-7 and a 1 s read can land up to a second into the pump-down); the
+  DCCT drops by 4-6.5 mA.
 - ``rf-thermal``: the story its logbook tells -- three CAVITY01 excursions over
   32 degC in the week before the investigation entry, the last the trip four
   days back (34.2 degC, forward power off 03:15-04:30, reflected power over
@@ -108,7 +111,7 @@ def _r(x: np.ndarray, y: np.ndarray) -> float:
 
 
 class TestVacuumBurst:
-    """SR07 pressure spike anti-correlates with the DCCT beam-current dip."""
+    """The SR07 pressure burst anti-correlates with the DCCT beam-current loss."""
 
     @pytest.fixture(scope="class")
     def window(self, built_demo, tmp_path_factory) -> dict[str, np.ndarray]:
@@ -126,7 +129,7 @@ class TestVacuumBurst:
 
     def test_sector7_anticorrelates_with_the_beam_current(self, window):
         r = _r(window[GAUGE.format(7)], window[DCCT])
-        assert r <= -0.75, f"SR07/DCCT Pearson r = {r:.3f}, contract <= -0.75"
+        assert r <= -0.5, f"SR07/DCCT Pearson r = {r:.3f}, contract <= -0.5"
 
     def test_sector7_is_unambiguously_the_anomaly(self, window):
         """SR07 leads the runner-up sector by a wide margin.
@@ -140,10 +143,10 @@ class TestVacuumBurst:
         separation = abs(r[7]) - abs(r[ranked[1]])
         assert separation > 0.3, f"SR07 leads the next sector by {separation:.3f}, contract > 0.3"
 
-    def test_the_spike_and_the_dip_have_their_size(self, window):
+    def test_the_burst_and_the_loss_have_their_size(self, window):
         sr07 = window[GAUGE.format(7)]
         dcct = window[DCCT]
-        assert sr07.max() > 1.5e-7, f"SR07 peak {sr07.max():.3e}, contract > 1.5e-7"
+        assert sr07.max() > 1.2e-7, f"SR07 peak {sr07.max():.3e}, contract > 1.2e-7"
         dip = float(np.median(dcct) - dcct.min())
         assert 4.0 < dip < 6.5, f"DCCT dip = {dip:.3f} mA, contract 4.0 < dip < 6.5"
 

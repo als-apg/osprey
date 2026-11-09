@@ -4,15 +4,17 @@
  * A tile has ONE ⋯ menu (the button in its bar and a right-click on the bar
  * open the same one), with two sections:
  *
- *   This panel — the panel's own rows: its contributed `menu` entries, the
+ *   This panel — (for the Agent pane: "Agent") the panel's own rows: its contributed `menu` entries, the
  *     rows the module owning its content registered (setServiceMenuExtras),
  *     and whatever the bar's fold ladder took out of a narrow tile. The
  *     section and its heading are absent when there is nothing to show;
  *     destructive rows (`danger`) go last, after a divider, in their own
  *     order; an entry's `separator` draws a divider before it.
- *   Tile — the hub's verbs on the tile (open beside, move, pop out, reload,
- *     link, help, rail membership, layout). Its heading shows only when a
- *     "This panel" section sits above it; alone it needs none.
+ *   Tile — the hub's verbs on the tile (pop out, reload, help, pin to rail,
+ *     close). Its heading shows only when a "This panel" section sits above
+ *     it; alone it needs none.
+ *
+ * In both sections destructive rows (`danger`) go last, after a divider.
  *
  * This module is the one place that shape lives. It is pure: rows in, rows
  * out, for the design-system context menu (context-menu.js) to render.
@@ -28,17 +30,21 @@
 /** The section captions, as the menu shows them. */
 export const THIS_PANEL_HEADING = 'This panel';
 export const TILE_HEADING = 'Tile';
+/** The Agent pane's content section reads "Agent", not "This panel". */
+export const AGENT_HEADING = 'Agent';
 
 /**
- * Compose the two sections into one row list.
- * @param {{ thisPanel: PanelRow[], tile: MenuItem[] }} sections
+ * Compose the two sections into one row list. `heading` captions the content
+ * section: "This panel" unless the caller names it (the Agent pane's reads
+ * {@link AGENT_HEADING}).
+ * @param {{ thisPanel: PanelRow[], tile: MenuItem[], heading?: string }} sections
  * @returns {MenuItem[]}
  */
-export function composeTileMenu({ thisPanel, tile }) {
+export function composeTileMenu({ thisPanel, tile, heading = THIS_PANEL_HEADING }) {
   const panelRows = tidy(dangerLast(thisPanel));
-  const tileRows = tidy(tile);
+  const tileRows = tidy(dangerLast(tile));
   if (!panelRows.length) return tileRows;
-  return [{ heading: THIS_PANEL_HEADING }, ...panelRows, { heading: TILE_HEADING }, ...tileRows];
+  return [{ heading }, ...panelRows, { heading: TILE_HEADING }, ...tileRows];
 }
 
 /**
