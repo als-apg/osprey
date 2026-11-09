@@ -155,8 +155,6 @@ __all__ = [
     "LEDGER_DIR_ENV_VAR",
     "LEDGER_VIEW_DIR_ENV_VAR",
     "MAX_EXPIRES_S",
-    "MAX_LEASE_S",
-    "MAX_STEPS",
     "PRUNE_AFTER_S",
     "REQUESTS_DIR_ENV_VAR",
     "REQUESTS_DIR_NAME",
