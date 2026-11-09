@@ -297,6 +297,20 @@ def test_the_podman_document_carries_the_labels_on_every_service(
     assert services["site-probe"]["labels"]["site.owner"] == "ops"
 
 
+@pytest.mark.parametrize("value", ["096780950e46", "1e5", "123", "0x1F", "true", "null", ""])
+def test_a_label_value_compose_would_read_as_a_number_is_quoted(value: str) -> None:
+    """PyYAML (YAML 1.1) leaves some of these plain; compose (YAML 1.2) would
+    read them as a float, an int, a bool or null instead of the string."""
+    text = compose_generator._dump_override({"services": {"s": {"labels": {"k": value}}}})
+    assert f'k: "{value}"' in text
+    assert yaml.safe_load(text)["services"]["s"]["labels"]["k"] == value
+
+
+def test_a_plain_label_value_stays_plain() -> None:
+    text = compose_generator._dump_override({"services": {"s": {"labels": {"k": "1.0.0"}}}})
+    assert "k: 1.0.0" in text
+
+
 # ---------------------------------------------------------------------------
 # What compose itself sees
 # ---------------------------------------------------------------------------

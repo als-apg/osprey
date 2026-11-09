@@ -86,7 +86,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
 
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
     kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
@@ -149,7 +149,7 @@ def _render_project(root: Path, *, servers: dict | None = None) -> Path:
         manager,
         project_name="build",
         output_dir=root,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"project_root": str(root), "channel_finder_mode": "hierarchical"},
     )
     if servers is not None:

@@ -80,10 +80,10 @@ def test_allocate_ports_distinct_indices_do_not_collide() -> None:
 def test_allocate_ports_missing_family_raises_value_error() -> None:
     """A base_ports dict missing a required family must raise a clear ValueError."""
     # Arrange
-    incomplete_base_ports = {f: p for f, p in _BASE_PORTS.items() if f != "lattice"}
+    incomplete_base_ports = {f: p for f, p in _BASE_PORTS.items() if f != "okf"}
 
     # Act / Assert
-    with pytest.raises(ValueError, match="lattice"):
+    with pytest.raises(ValueError, match="okf"):
         allocate_ports(incomplete_base_ports, index=0)
 
 
@@ -136,9 +136,7 @@ def test_allocate_ports_negative_index_is_refused() -> None:
 def test_every_registry_server_has_a_port_family() -> None:
     """FAMILY_BASE_FIELDS must contain web plus exactly one family per
     FRAMEWORK_WEB_SERVERS entry — registering a companion server IS the wiring."""
-    expected_families = {"web"} | {
-        defn.port_family or key for key, defn in FRAMEWORK_WEB_SERVERS.items()
-    }
+    expected_families = {"web"} | set(FRAMEWORK_WEB_SERVERS)
     assert set(FAMILY_BASE_FIELDS.values()) == expected_families
     # One config field per family, named `<family>_base_port`.
     assert FAMILY_BASE_FIELDS == {f"{family}_base_port": family for family in _FAMILIES}
@@ -208,20 +206,18 @@ def test_panel_env_vars_match_launcher_derivation() -> None:
     """The env var the compose render exports per family must be exactly the one
     the in-container launcher reads (WebServerDefinition.port_env_var)."""
     for key, defn in FRAMEWORK_WEB_SERVERS.items():
-        family = defn.port_family or key
-        assert PANEL_ENV_VARS[family] == defn.port_env_var
+        assert PANEL_ENV_VARS[key] == defn.port_env_var
         assert defn.port_env_var == f"OSPREY_{defn.config_key.upper()}_PORT"
 
 
 def test_base_ports_from_config_fills_layout_defaults() -> None:
-    """A config that predates a companion server (sets only the classic four
+    """A config that predates a companion server (sets only the classic three
     fields) must still resolve every family — new ones from the layout block."""
     # Arrange
     config = {
         "web_base_port": 9091,
         "artifact_base_port": 9291,
         "ariel_base_port": 9391,
-        "lattice_base_port": 9491,
     }
 
     # Act

@@ -1,6 +1,6 @@
 """Render the shared build under its deployment's ``config.yml`` with another channel-finder mode.
 
-The shared build is ``built_control_assistant`` (``tests/_builds.py``).
+The shared build is ``built_demo`` (``tests/_builds.py``).
 """
 
 from __future__ import annotations

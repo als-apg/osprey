@@ -134,7 +134,9 @@ def every_write() -> list[list[ScriptedCall]]:
 
 def _serve(handler: type[BaseHTTPRequestHandler]) -> tuple[ThreadingHTTPServer, str]:
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    ).start()
     return server, f"http://127.0.0.1:{server.server_address[1]}"
 
 
@@ -444,7 +446,7 @@ class Stack:
 
 @pytest.fixture(scope="module")
 def deployment(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo: watchdog on, every write surface offered, writes armed."""
+    """A demo repo: watchdog on, every write surface offered, writes armed."""
     root = tmp_path_factory.mktemp("watchdog-hold")
     repo = init_project(root, "watchdog-hold", provider="als-apg")
     profile_path = repo / "profile.yml"

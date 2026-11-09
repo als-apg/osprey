@@ -714,3 +714,64 @@ def test_each_parity_world_is_the_verdict_it_claims_to_be(
 
     assert verdict.allowed is allowed
     assert verdict.reason == reason
+
+
+# ---------------------------------------------------------------------------
+# A Channel Access target's gateways table: rows, `gateways: []`, or none
+# ---------------------------------------------------------------------------
+
+
+def _config_with_va_gateways(gateways: Any) -> dict[str, Any]:
+    """The default world with the ``va`` block's gateways replaced, or removed for ``...``."""
+    config = _config()
+    block = config["control_system"]["connector"][VA_TYPE]
+    if gateways is ...:
+        del block["gateways"]
+    else:
+        block["gateways"] = gateways
+    return config
+
+
+def test_a_baseline_that_declares_no_endpoints_skips_the_reachability_rung() -> None:
+    """`gateways: []` is the facility saying there is nothing to probe: a live
+    server that published nothing for it is not waiting on anything."""
+    verdict = _gate(
+        config=_config_with_va_gateways([]),
+        current_target=LIVE,
+        baseline=VA,
+        reports=(_report(),),
+    )
+
+    assert verdict.allowed is True
+    assert verdict.reachability == te.REACHABILITY_NOT_APPLICABLE
+    assert "declares no endpoints" in verdict.detail
+
+
+def test_a_baseline_with_no_gateways_table_is_refused_as_gateways_missing() -> None:
+    """A table nobody wrote is never read as a direct connection."""
+    verdict = _gate(
+        config=_config_with_va_gateways(...),
+        current_target=LIVE,
+        baseline=VA,
+        reports=(_report(),),
+    )
+
+    assert verdict.allowed is False
+    assert verdict.reason == te.REASON_GATEWAYS_MISSING
+    assert "gateways: []" in verdict.suggestions[0]
+
+
+def test_a_baseline_with_gateway_rows_is_probed_as_before() -> None:
+    verdict = _gate(current_target=LIVE, baseline=VA, reports=(_report(),))
+
+    assert verdict.allowed is False
+    assert verdict.reason == te.REASON_REACHABILITY_UNKNOWN
+
+
+def test_switching_away_to_a_target_that_declares_no_endpoints_is_refused_in_plain_words() -> None:
+    """Nothing to point a connector at: only the return to the baseline accepts it."""
+    verdict = _gate(config=_config_with_va_gateways([]))
+
+    assert verdict.allowed is False
+    assert verdict.reason == te.REASON_GATEWAYS_MISSING
+    assert "declares no endpoints" in verdict.detail

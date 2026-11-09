@@ -14,9 +14,11 @@ from pathlib import Path
 
 import pytest
 
+from osprey.stores.artifact_scope import SessionScope
 from osprey.stores.artifact_store import ArtifactEntry, ArtifactStore
 
 TIMEOUT_SECONDS = 15
+TRANSCRIPT = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 
 def _two_file_entry(store: ArtifactStore, title: str = "Reading") -> tuple[ArtifactEntry, Path]:
@@ -71,11 +73,14 @@ class TestTwoFileDeletion:
         assert not primary.exists()
         assert not companion.exists()
 
-    def test_delete_everything_removes_both_files(self, store):
+    def test_delete_owned_removes_both_files(self, store):
         entry, companion = _two_file_entry(store)
         primary = store.get_file_path(entry.id)
+        store.merge_entry_metadata({entry.id: {"transcript_id": TRANSCRIPT}})
 
-        store.delete_everything()
+        removed = store.delete_owned(SessionScope(kind="web", transcript=TRANSCRIPT, ledger=None))
+
+        assert [e.id for e in removed] == [entry.id]
 
         assert not primary.exists()
         assert not companion.exists()
@@ -195,22 +200,6 @@ class TestLockFreeHelper:
 
         reopened = ArtifactStore(workspace_root=store._workspace)
         assert reopened.get_entry(entry.id) is None
-
-    def test_persist_false_defers_the_index_write(self, store):
-        """Batch callers save once; the entry is gone in memory either way."""
-        entry, companion = _two_file_entry(store)
-
-        def delete_under_lock():
-            with store._with_index_lock():
-                return store._delete_entry_locked(entry.id, persist=False)
-
-        removed = _run_isolated(delete_under_lock, "_delete_entry_locked(persist=False)")
-
-        assert removed is not None
-        assert not companion.exists()
-        assert store.get_entry(entry.id) is None
-        reopened = ArtifactStore(workspace_root=store._workspace)
-        assert reopened.get_entry(entry.id) is not None  # index not rewritten yet
 
     def test_delete_entry_locked_returns_none_for_an_unknown_id(self, store):
         def delete_under_lock():

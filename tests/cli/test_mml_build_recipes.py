@@ -13,7 +13,7 @@ wrote, so each recipe here is the literal sequence an operator types --
   copy, and ``run_sql`` answers from the copy. The set line never spells
   ``channel_finder.pipelines.*``: those keys are build-derived and ``validate``
   refuses a profile that states them.
-* **control-assistant, from a 2.0 export.** The recipe over an export that
+* **demo, from a 2.0 export.** The recipe over an export that
   carries a model, once per supported tree: ``init``, the tree's reviewed
   ``imported/mml/mapping.yaml``, ``facility import mml``, which replaces the
   preset's bundled facility, the ``osprey set`` lines, ``validate``, ``build``.
@@ -325,7 +325,7 @@ def middle_layer_repo(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any
 
 @pytest.fixture(scope="module")
 def served_recipe(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], dict[str, Any]]:
-    """Each tree's control-assistant recipe, driven at most once in the module.
+    """Each tree's demo recipe, driven at most once in the module.
 
     Some cases narrow ``served_repo`` to a subset of the trees, and pytest orders
     those apart from the cases that take every tree, so the cases on one tree are
@@ -350,12 +350,12 @@ def served_recipe(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], d
 def served_repo(
     request: pytest.FixtureRequest, served_recipe: Callable[[str], dict[str, Any]]
 ) -> dict[str, Any]:
-    """The control-assistant recipe over a 2.0 export, for one supported tree."""
+    """The demo recipe over a 2.0 export, for one supported tree."""
     return served_recipe(request.param)
 
 
 def drive_served_recipe(tree: str, workdir: Path) -> dict[str, Any]:
-    """The control-assistant recipe over a 2.0 export, driven for one supported tree.
+    """The demo recipe over a 2.0 export, driven for one supported tree.
 
     The exports enter the facility description through ``facility import
     mml``, which replaces the preset's bundled facility. The first build runs
@@ -372,7 +372,7 @@ def drive_served_recipe(tree: str, workdir: Path) -> dict[str, Any]:
     runner = CliRunner()
     repo = workdir / "demo"
 
-    invoke(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
+    invoke(runner, "init", str(repo), "--preset", "demo", "--no-git")
     imported = import_facility(runner, repo, exports, facility_mapping(fixture))
     invoke(runner, "set", "--repo", str(repo), NO_START_SET, *MIDDLE_LAYER_SETTINGS)
 

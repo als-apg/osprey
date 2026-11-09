@@ -12,7 +12,7 @@ handed. Two kinds of test here read that declaration and nothing else:
   without one fails here, which is the point: the registry is only a single
   source of truth while it is complete.
 * **The seams, on a real built stack.** For every render the
-  control-assistant preset builds: each consumer the render switches on
+  demo preset builds: each consumer the render switches on
   resolves an endpoint; each credential its gate grants is a line in that
   render's compose ``environment:``; each shared path its gate entitles is a
   mount in that render's compose ``volumes:``. One walk over the registry,
@@ -501,9 +501,9 @@ def test_a_target_that_does_not_resolve_carries_no_consumer():
 
 
 @pytest.fixture(scope="module")
-def built_stack(built_control_assistant) -> Path:
-    """The shipped control assistant: the run's shared, read-only build (``tests/_builds.py``)."""
-    return built_control_assistant.repo
+def built_stack(built_demo) -> Path:
+    """The shipped demo: the run's shared, read-only build (``tests/_builds.py``)."""
+    return built_demo.repo
 
 
 @pytest.fixture(scope="module")
@@ -882,6 +882,21 @@ def test_every_always_resolving_consumer_is_refused_the_same_way():
         errors = reach_errors({**switched_on, "deployed_services": ["qmd"]})
         assert len(errors) == 1, (service, errors)
         assert f"`{service}`" in errors[0], (service, errors)
+
+
+def test_the_optimizer_server_needs_the_published_port_in_an_attached_render():
+    """The optimizer server resolves only from ``services.optimizer.port``, which
+    the build writes where it deploys the optimizer and projects into an attached
+    render. Switched on in an attached render with no port, it would dial the
+    layout slot on a guess, so the build refuses; with the port, it does not."""
+    switched_on = {"claude_code": {"servers": {"optimizer": {"enabled": True}}}}
+
+    (error,) = reach_errors({**switched_on, "deployed_services": []})
+    assert "optimizer MCP server" in error
+    assert "services.optimizer.port" in error
+
+    with_port = {**switched_on, "services": {"optimizer": {"port": 18182}}}
+    assert reach_errors({**with_port, "deployed_services": []}) == []
 
 
 def test_every_render_local_key_names_its_own_services_file_and_is_not_projected():

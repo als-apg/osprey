@@ -72,6 +72,12 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts
 }));
 
 import { initArtifactLinks } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';
+import {
+  clearPointer,
+  setPointer,
+} from '../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js';
+
+const KEY = '11111111-1111-4111-8111-111111111111';
 
 /** Mount one artifact control in an agent answer and wire it; returns the control. */
 function mount() {
@@ -88,6 +94,31 @@ describe('initArtifactLinks', () => {
     gallery.focusCalls.length = 0;
     panels.navigate.mockClear();
     window.__OSPREY_PREFIX__ = '/u/alice';
+    clearPointer();
+  });
+
+  test("the focus names the operator's current session key", async () => {
+    gallery.status = 200;
+    setPointer(KEY);
+    const control = mount();
+    control.click();
+
+    await vi.waitFor(() => expect(gallery.focusCalls).toHaveLength(1));
+    expect(JSON.parse(String(gallery.focusCalls[0].init?.body))).toEqual({
+      artifact_id: 'a57934cf00dd',
+      session_key: KEY,
+    });
+  });
+
+  test('with no current session the focus carries no session field', async () => {
+    gallery.status = 200;
+    const control = mount();
+    control.click();
+
+    await vi.waitFor(() => expect(gallery.focusCalls).toHaveLength(1));
+    const body = JSON.parse(String(gallery.focusCalls[0].init?.body));
+    expect(body).not.toHaveProperty('session_key');
+    expect(body).not.toHaveProperty('transcript_id');
   });
 
   test('a click focuses the artifact in the gallery, then opens the artifacts panel', async () => {

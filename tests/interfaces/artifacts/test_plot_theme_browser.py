@@ -264,7 +264,7 @@ def test_embedded_page_retheme_on_hub_broadcast(tmp_path, monkeypatch, chromium_
     message by its source (its parent), since its own origin proves nothing."""
     with _launch(tmp_path, monkeypatch) as (base_url, path):
         page = chromium_browser.new_page()
-        open_gallery(page, base_url, theme="dark")
+        page = open_gallery(page, base_url, theme="dark")
         select_artifact(page, PLOT_TITLE)
         frame = artifact_frame(page, path.split("/")[-2])
         assert frame.evaluate("() => String(self.origin)") == "null"

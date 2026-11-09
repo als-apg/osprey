@@ -4,7 +4,7 @@
 lists the screenshots. A :class:`DocVideo` names the file stem, the pages that
 embed it, the screen it starts on (its :class:`~docs.screenshots.video_layout.
 Layout`: view, active sidebar entry, open tiles), the deployment it is recorded on (``osprey init --set`` values on the
-control-assistant tutorial stack, and the environment variables that must
+demo tutorial stack, and the environment variables that must
 reach it) and its storyboard: beats from :mod:`docs.screenshots.video_beats`,
 plus custom beats where a probe is specific to one video.
 
@@ -125,7 +125,7 @@ VIDEOS: tuple[DocVideo, ...] = (
         stem="osprey-demo",
         storyboard=LANDING,
         # What the landing take has always shown: the Claude Code terminal
-        # beside the Artifacts tile, with the preset's example plot.
+        # beside the Artifacts tile.
         layout=Layout(surface="terminal", active="artifacts", tiles=("artifacts",)),
         pages=("index.rst",),
         poster_step="rotate",
@@ -135,15 +135,12 @@ VIDEOS: tuple[DocVideo, ...] = (
         name="watchdog",
         stem="osprey-watchdog",
         storyboard=WATCHDOG,
-        # The operator chat with Knowledge open; no terminal, no example plot.
+        # The operator chat with Knowledge open; no terminal.
         layout=Layout(surface="chat", active="okf", tiles=("okf",)),
         pages=("how-to/safety-watchdogs.rst",),
         poster_step="dialog",
         window_s=(15.0, 60.0),
-        init_sets=(
-            f"watchdogs.{WATCHDOG_NAME}.enabled=true",
-            "config.artifact_server.example_artifact=false",
-        ),
+        init_sets=(f"watchdogs.{WATCHDOG_NAME}.enabled=true",),
         needs_env=("TYPESAFE_API_KEY",),
         history=WATCHDOG_HISTORY,
         write_switch=("va", "asked"),

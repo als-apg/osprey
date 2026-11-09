@@ -365,7 +365,8 @@ async def test_session_log_answers_incomplete(stalled_record, monkeypatch, sessi
 def test_the_session_list_answers_incomplete(stalled_record, monkeypatch, web_terminal):
     _aim(monkeypatch, stalled_record)
 
-    response, elapsed = _timed(lambda: web_terminal.get("/api/sessions"))
+    # Only ``drain=1`` waits on ingest; that is the listing a stalled record can leave incomplete.
+    response, elapsed = _timed(lambda: web_terminal.get("/api/sessions", params={"drain": "1"}))
 
     _not_complete(response.json(), "incomplete")
     assert STALLED_WAIT_S <= elapsed < STALLED_BOUND_S

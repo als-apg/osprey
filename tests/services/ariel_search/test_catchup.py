@@ -56,11 +56,25 @@ def _reset_availability():
 class CatchupRepo(FakeRepo):
     """``FakeRepo`` that also serves the text stage (reads without a marker)."""
 
-    def __init__(self, *, text_todo: list[str] | None = None, **kw: Any) -> None:
+    def __init__(
+        self,
+        *,
+        text_todo: list[str] | None = None,
+        text_status: dict[str, dict[str, Any]] | None = None,
+        **kw: Any,
+    ) -> None:
         super().__init__(**kw)
         self.text_todo = list(text_todo or [])
+        #: ``enhancement_status`` per text entry id; absent ids carry none.
+        self.text_status = dict(text_status or {})
         self.text_complete: list[tuple[str, str]] = []
         self.text_failed: list[tuple[str, str]] = []
+        #: ``(module_name, marker)`` of every text read.
+        self.text_reads: list[tuple[str | None, str | None]] = []
+        self.stamped: list[dict[str, str]] = []
+
+    async def stamp_baseline_markers(self, markers: dict[str, str]) -> None:
+        self.stamped.append(dict(markers))
 
     async def get_incomplete_entries(
         self,
@@ -70,12 +84,29 @@ class CatchupRepo(FakeRepo):
         *,
         marker: str | None = None,
     ) -> list[dict]:
-        if marker is None:
+        if module_name not in IMAGE_MODULES:
+            self.text_reads.append((module_name, marker))
             done = {entry_id for entry_id, name in self.text_complete if name == module_name}
+
+            def owed(entry_id: str) -> bool:
+                if entry_id in done:
+                    return False
+                if marker is not None:
+                    return True
+                # The marker-less read never returns a completed key, whatever its marker.
+                state = self.text_status.get(entry_id, {}).get(module_name)
+                return not (isinstance(state, dict) and state.get("status") == "complete")
+
+            # ``text_todo`` is the order the real catch-up query returns.
             return [
-                {"entry_id": i, "raw_text": f"text of {i}", "attachments": []}
+                {
+                    "entry_id": i,
+                    "raw_text": f"text of {i}",
+                    "attachments": [],
+                    "enhancement_status": self.text_status.get(i, {}),
+                }
                 for i in self.text_todo
-                if i not in done
+                if owed(i)
             ][:limit]
         return await super().get_incomplete_entries(module_name, status, limit, marker=marker)
 
@@ -494,6 +525,203 @@ async def test_text_stage_checks_the_stop_event_per_entry(monkeypatch) -> None:
     h.text = [text]
     await ops.run_catchup(_config(), budget_s=60.0, stop_event=stop)
     assert text.seen == ["t1"]
+
+
+# ---------------------------------------------------------------------------
+# Marker-stale text entries and their budget share
+# ---------------------------------------------------------------------------
+
+_NEW_MODEL = "new-model"
+
+
+def _semantic_config(budget: Any = "unset", **modules: bool) -> dict:
+    """``_config`` with ``semantic_processor`` enabled under ``model_id = new-model``."""
+    cfg = _config(budget=budget, **modules)
+    cfg["enhancement_modules"]["semantic_processor"] = {
+        "enabled": True,
+        "provider": "cborg",
+        "model": {"model_id": _NEW_MODEL},
+    }
+    return cfg
+
+
+def _stale(*ids: str) -> dict[str, dict[str, Any]]:
+    """Statuses completed under an older ``semantic_processor`` marker."""
+    return {i: {"semantic_processor": {"status": "complete", "marker": "old-model"}} for i in ids}
+
+
+class _SlowSemantic(_Enhancer):
+    """``semantic_processor`` double: each call advances ``clock`` by ``step`` seconds."""
+
+    def __init__(self, clock: Clock, step: float) -> None:
+        super().__init__("semantic_processor")
+        self.clock = clock
+        self.step = step
+
+    async def enhance(self, entry, conn):
+        await super().enhance(entry, conn)
+        self.clock.now += self.step
+
+
+async def test_stale_semantic_processor_entries_are_rerun(monkeypatch) -> None:
+    repo = CatchupRepo(text_todo=["s1", "s2"], text_status=_stale("s1", "s2"))
+    h = Harness(monkeypatch, repo)
+    semantic = _Enhancer("semantic_processor")
+    h.text = [semantic]
+
+    await ops.run_catchup(_semantic_config(), budget_s=60.0, stop_event=None)
+
+    # The read carries the current marker, so the repository owes marker-stale entries.
+    assert ("semantic_processor", _NEW_MODEL) in repo.text_reads
+    assert semantic.seen == ["s1", "s2"]
+    assert repo.text_complete == [("s1", "semantic_processor"), ("s2", "semantic_processor")]
+
+
+async def test_enhance_reads_text_modules_under_their_current_marker(monkeypatch) -> None:
+    repo = CatchupRepo(text_todo=["s1"], text_status=_stale("s1"))
+    h = Harness(monkeypatch, repo)
+    semantic = _Enhancer("semantic_processor")
+    h.text = [semantic, _Enhancer("text_embedding")]
+
+    await ops.run_enhance(_semantic_config(), module=None, force=False, limit=5)
+
+    assert ("semantic_processor", _NEW_MODEL) in repo.text_reads
+    # text_embedding has no completion marker: its read stays marker-less.
+    assert ("text_embedding", None) in repo.text_reads
+    assert semantic.seen == ["s1"]
+
+
+async def test_slow_stale_reruns_stop_at_their_share_and_pictures_still_run(monkeypatch) -> None:
+    ids = [f"s{i}" for i in range(1, 7)]
+    repo = CatchupRepo(text_todo=ids, text_status=_stale(*ids), todo=["p1"])
+    h = Harness(monkeypatch, repo)
+    clock = Clock()
+    h.use_clock(monkeypatch, clock)
+    semantic = _SlowSemantic(clock, 4.0)
+    h.text = [semantic]
+    caption = FakeModule()
+    h.images = {"image_caption": caption}
+
+    await ops.run_catchup(_semantic_config(), budget_s=20.0, stop_event=None)
+
+    # A picture module is enabled, so stale re-runs get half of 20 s: they stop
+    # once 10 s are spent (4 + 4 + 4), and the rest wait for the next pass.
+    assert semantic.seen == ["s1", "s2", "s3"]
+    assert [c for c in repo.text_complete if c[1] == "semantic_processor"] == [
+        ("s1", "semantic_processor"),
+        ("s2", "semantic_processor"),
+        ("s3", "semantic_processor"),
+    ]
+    assert repo.text_failed == []
+    # The picture stage still runs on what is left of the budget.
+    assert caption.run_calls == ["p1"]
+
+
+async def test_stale_reruns_take_the_whole_budget_without_a_picture_module(monkeypatch) -> None:
+    ids = [f"s{i}" for i in range(1, 9)]
+    repo = CatchupRepo(text_todo=ids, text_status=_stale(*ids))
+    h = Harness(monkeypatch, repo)
+    clock = Clock()
+    h.use_clock(monkeypatch, clock)
+    semantic = _SlowSemantic(clock, 4.0)
+    h.text = [semantic]
+
+    await ops.run_catchup(_semantic_config(image_caption=False), budget_s=20.0, stop_event=None)
+
+    # No picture module: the whole 20 s is the share (4 s x 5).
+    assert semantic.seen == ["s1", "s2", "s3", "s4", "s5"]
+
+
+@pytest.mark.parametrize("budget", [0.0, 0.001])
+async def test_one_stale_entry_runs_at_a_budget_near_zero(monkeypatch, budget: float) -> None:
+    repo = CatchupRepo(text_todo=["s1", "s2", "s3"], text_status=_stale("s1", "s2", "s3"))
+    h = Harness(monkeypatch, repo)
+    clock = Clock()
+    h.use_clock(monkeypatch, clock)
+    semantic = _SlowSemantic(clock, 1.0)
+    h.text = [semantic]
+
+    await ops.run_catchup(_semantic_config(), budget_s=budget, stop_event=None)
+
+    assert semantic.seen == ["s1"]
+    assert repo.text_failed == []
+
+
+async def test_never_run_text_entries_are_not_throttled(monkeypatch) -> None:
+    ids = ["s1", "s2", "n1", "n2", "n3"]
+    # n1 is pending under the current marker; n2 and n3 never ran.
+    status = {
+        **_stale("s1", "s2"),
+        "n1": {"semantic_processor": {"status": "pending", "marker": _NEW_MODEL}},
+    }
+    repo = CatchupRepo(text_todo=ids, text_status=status)
+    h = Harness(monkeypatch, repo)
+    clock = Clock()
+    h.use_clock(monkeypatch, clock)
+    semantic = _SlowSemantic(clock, 30.0)
+    embedder = _Enhancer("text_embedding")
+    h.text = [semantic, embedder]
+
+    await ops.run_catchup(_semantic_config(), budget_s=0.0, stop_event=None)
+
+    # One stale re-run (the floor); every owed entry that is not stale runs.
+    assert semantic.seen == ["s1", "n1", "n2", "n3"]
+    # A throttled stale entry still gets the modules it owes that are not stale.
+    assert embedder.seen == ids
+    assert ("s2", "semantic_processor") not in repo.text_complete
+    assert ("s2", "semantic_processor") not in repo.text_failed
+
+
+async def test_stale_backlog_beyond_the_read_limit_does_not_starve_owed_work(monkeypatch) -> None:
+    """A stale backlog filling the 1000-entry read leaves never-run and failed work unthrottled."""
+    stale_ids = [f"s{i:04d}" for i in range(1001)]
+    # The real catch-up order: pending first (a stale marker counts as pending with no
+    # attempts, newest first), then failed. The older never-run entry and the failed
+    # retry under the current marker sort behind the whole stale window.
+    ids = [*stale_ids, "old", "f1"]
+    status = {
+        **_stale(*stale_ids),
+        "f1": {"semantic_processor": {"status": "failed", "attempts": 1, "marker": _NEW_MODEL}},
+    }
+    repo = CatchupRepo(text_todo=ids, text_status=status)
+    h = Harness(monkeypatch, repo)
+    clock = Clock()
+    h.use_clock(monkeypatch, clock)
+    semantic = _SlowSemantic(clock, 30.0)
+    h.text = [semantic]
+
+    result = await ops.run_catchup(_semantic_config(), budget_s=0.0, stop_event=None)
+
+    # One stale re-run (the floor), and both owed entries behind the window run.
+    assert semantic.seen == ["s0000", "old", "f1"]
+    # Entries whose only owed work was a deferred stale re-run are not counted.
+    assert result.entries_processed == 3
+
+
+async def test_stale_reruns_are_unthrottled_without_a_budget(monkeypatch) -> None:
+    ids = [f"s{i}" for i in range(1, 5)]
+    repo = CatchupRepo(text_todo=ids, text_status=_stale(*ids))
+    h = Harness(monkeypatch, repo)
+    clock = Clock()
+    h.use_clock(monkeypatch, clock)
+    semantic = _SlowSemantic(clock, 1000.0)
+    h.text = [semantic]
+
+    await ops.run_catchup(_semantic_config(), budget_s=None, stop_event=None)
+
+    assert semantic.seen == ids
+
+
+async def test_text_catchup_keeps_the_thousand_entry_ceiling(monkeypatch) -> None:
+    ids = [f"n{i:04d}" for i in range(1005)]
+    repo = CatchupRepo(text_todo=ids)
+    h = Harness(monkeypatch, repo)
+    semantic = _Enhancer("semantic_processor")
+    h.text = [semantic]
+
+    await ops.run_catchup(_semantic_config(), budget_s=0.0, stop_event=None)
+
+    assert len(semantic.seen) == 1000
 
 
 # ---------------------------------------------------------------------------

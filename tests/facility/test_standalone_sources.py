@@ -1,6 +1,6 @@
 """The committed facility trees the presets show.
 
-The bundled example facility is the tree the control-assistant preset shows.
+The bundled example facility is the tree the demo preset shows.
 Hello-world's facility is hand-authored and holds
 the channels its tutorial names.
 """
@@ -16,7 +16,7 @@ from osprey.facility.sources import read_yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FACILITIES = REPO_ROOT / "src/osprey/templates/facilities"
-CONTROL_ASSISTANT = FACILITIES / "example"
+EXAMPLE = FACILITIES / "example"
 HELLO_WORLD = FACILITIES / "hello_world"
 
 #: The addresses the hello-world tutorial names.
@@ -30,14 +30,14 @@ HELLO_WORLD_ADDRESSES = [
 
 
 @cache
-def built_control_assistant_facility() -> dict[str, Any]:
-    """The control-assistant tree's facility file."""
-    document: dict[str, Any] = build_facility(CONTROL_ASSISTANT, project_name="ca")
+def built_demo_facility() -> dict[str, Any]:
+    """The demo tree's facility file."""
+    document: dict[str, Any] = build_facility(EXAMPLE, project_name="ca")
     return document
 
 
 def test_paired_readbacks_start_at_their_setpoint_value() -> None:
-    document = built_control_assistant_facility()
+    document = built_demo_facility()
     channels = {channel["id"]: channel for channel in document["channels"]}
     setpoint_of = {c["pair"]: c["id"] for c in channels.values() if "pair" in c}
     models = [model for model in document["models"] if "deck" in model]

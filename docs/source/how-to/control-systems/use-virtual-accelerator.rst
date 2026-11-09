@@ -4,7 +4,7 @@
 Use the Virtual Accelerator
 ===========================
 
-How to run the Control Assistant tutorial against a **Virtual Accelerator** — a
+How to run the demo tutorial against a **Virtual Accelerator** — a
 containerized simulator that serves real EPICS Channel Access, with PyAT physics
 behind the channels your facility wires to a lattice, so correctors move and
 BPMs respond.
@@ -24,13 +24,13 @@ How it is put together is :doc:`/architecture/virtual-accelerator`.
    - Write limits
    - The stored archive the stack deploys, and the one pairing it refuses
 
-   **Prerequisites:** Docker (or Podman) installed; the Control Assistant
-   tutorial project (see :doc:`/getting-started/control-assistant`).
+   **Prerequisites:** Docker (or Podman) installed; the demo
+   tutorial project (see :doc:`/getting-started/demo`).
 
 Overview
 ========
 
-The Control Assistant tutorial ships interchangeable control-system backends,
+The demo tutorial ships interchangeable control-system backends,
 selected by a single ``control_system.type`` value. The value picks the machine
 the deployment **starts** on:
 
@@ -101,7 +101,7 @@ physics runs behind either.
 Quickstart
 ==========
 
-The Control Assistant stack ships pointed at the Virtual Accelerator and
+The demo stack ships pointed at the Virtual Accelerator and
 **already deploys** it: the preset's ``virtual_accelerator:`` block renders a
 compose service, so ``osprey up`` brings the Virtual Accelerator up alongside the
 rest of the stack and the connector is already talking to it. There is nothing
@@ -140,7 +140,7 @@ connector, point it at the Virtual Accelerator explicitly:
    setting until you restart it. No image rebuild is involved.
 
 **The archive has to come first.** On a deployment created from the
-``control-assistant`` preset the switch just works: the preset declares where the
+``demo`` preset the switch just works: the preset declares where the
 archive lives, so the deployment already reads a real store. On one with no
 archive of its own — still reading the mock archiver, which makes its history
 up as it is asked for it — the build **refuses** the profile, and says what to
@@ -173,7 +173,7 @@ A deployment usually has nothing to rehearse the real-machine procedure on: the
 ``epics`` connector points at a facility gateway that may not exist yet, or not
 from this laptop. Setting ``virtual_accelerator.live_standin: true`` in the build
 profile gives it a machine to rehearse on — a **second** simulator container,
-deployed as a control target of its own, ``standin``. The ``control-assistant``
+deployed as a control target of its own, ``standin``. The ``demo``
 preset ships it on; delete the line to run one machine again.
 
 The stand-in is a third machine, not a rewrite of ``live``. It has its own
@@ -324,6 +324,15 @@ instead of quietly changing what the machine looks like.
 
 Serving your facility's own model
 =================================
+
+To version the model with the other machine facts apart from any one
+deployment, keep them in a :doc:`machine repository <machine-repository>`;
+``data/facility/`` in this section is then its machine root.
+
+.. toctree::
+   :hidden:
+
+   machine-repository
 
 A pyAT lattice
 --------------

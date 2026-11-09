@@ -676,7 +676,7 @@ Compose can now delegate builds to bake for better performance.
 #23 exporting config sha256:8a8dc264dd25176f055c2d6c4b8eb18f18a4333cd9990692a5c7f34d4a2c5335 done
 #23 exporting attestation manifest sha256:0542a56c26084ff392fea850636f717fd93a85218324e7b1694a76564bfbefe4 done
 #23 exporting manifest list sha256:86cc1d0f3d889226e010de65f900de700aeb825e6898ef601b3dc0901e570668 done
-#23 naming to docker.io/library/my-control-assistant-va:local done
+#23 naming to docker.io/library/osprey-demo-va:local done
 #23 DONE 57.2s
 
 #27 [virtual-accelerator] resolving provenance for metadata file
@@ -746,9 +746,9 @@ Compose can now delegate builds to bake for better performance.
 #26 exporting config sha256:79035bfd299ba030281539060e294f10ea2a7dccea17d26f65ad6a1443654ade done
 #26 exporting attestation manifest sha256:0d73b2036d6aa4d1682feb0c016ddbaf109a2bad196d26d28ce2535d2f5508a8 done
 #26 exporting manifest list sha256:868137a994ea82d6ff9886e370f6384dc4264ecd46a9ae87276ef6a11e308a33 done
-#26 naming to docker.io/library/my-control-assistant-dispatch:local done
-#26 unpacking to docker.io/library/my-control-assistant-dispatch:local
-#26 unpacking to docker.io/library/my-control-assistant-dispatch:local 11.8s done
+#26 naming to docker.io/library/osprey-demo-dispatch:local done
+#26 unpacking to docker.io/library/osprey-demo-dispatch:local
+#26 unpacking to docker.io/library/osprey-demo-dispatch:local 11.8s done
 #26 DONE 63.3s
 
 #35 [event-dispatcher] resolving provenance for metadata file
@@ -805,9 +805,9 @@ Compose can now delegate builds to bake for better performance.
 #38 exporting config sha256:3e7cc86e98d4f2ec2806d66d4803676d6da63735413fa23a4788ea6c2587df2b done
 #38 exporting attestation manifest sha256:8e160b0ed7435df883110719261827dda53220c177c3beea84bd73c848e0a4b2 0.0s done
 #38 exporting manifest list sha256:729285f1f01c5f97b4f955483542f0b6c34cd1dd2b7297a70f6bc44686d56c91 done
-#38 naming to docker.io/library/my-control-assistant-bluesky-bridge:local done
-#38 unpacking to docker.io/library/my-control-assistant-bluesky-bridge:local
-#38 unpacking to docker.io/library/my-control-assistant-bluesky-bridge:local 9.7s done
+#38 naming to docker.io/library/osprey-demo-bluesky-bridge:local done
+#38 unpacking to docker.io/library/osprey-demo-bluesky-bridge:local
+#38 unpacking to docker.io/library/osprey-demo-bluesky-bridge:local 9.7s done
 #38 DONE 56.9s
 
 #39 [bluesky-bridge] resolving provenance for metadata file
@@ -910,9 +910,9 @@ Compose can now delegate builds to bake for better performance.
 #48 exporting config sha256:968d20fe5f2608eb12bcf1b38b3938ef39a47e2bac3c35188e3d71db0ff70495 done
 #48 exporting attestation manifest sha256:93941d11790572c4619bad9b5ef5e6f1ee96d359713a8371942769a2286faa6b done
 #48 exporting manifest list sha256:44a3e0f37ceb2e0bb4125aabb58bebfa6dfd6aedfa0c287e35f9ba531b549d42 done
-#48 naming to docker.io/library/my-control-assistant-bluesky-web:local done
-#48 unpacking to docker.io/library/my-control-assistant-bluesky-web:local
-#48 unpacking to docker.io/library/my-control-assistant-bluesky-web:local 9.9s done
+#48 naming to docker.io/library/osprey-demo-bluesky-web:local done
+#48 unpacking to docker.io/library/osprey-demo-bluesky-web:local
+#48 unpacking to docker.io/library/osprey-demo-bluesky-web:local 9.9s done
 #48 DONE 57.9s
 
 #49 [bluesky-web] resolving provenance for metadata file

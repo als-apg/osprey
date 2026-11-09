@@ -38,7 +38,7 @@ from dataclasses import dataclass
 #: library's report must name them.
 PROVEN_COMMITS: dict[str, str] = {
     "canopy": "166989aade14853aeefaa8b34ce760ea4d68ed37",  # osprey:not-a-port (a sha)
-    "PyDMConverter": "50147cd5257920371afc7506a52bc21fa85502d6",
+    "PyDMConverter": "67129697d7fa8b87309f96e4f08ee05f38dc7867",
 }
 
 #: The ``STAGED.json`` key that names each distribution's commit.

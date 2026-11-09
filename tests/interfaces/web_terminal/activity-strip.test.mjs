@@ -351,8 +351,7 @@ describe('panel action verbs', () => {
     ['open_panel', 'agent opened'],
     ['open_panel_set', 'agent opened'],
     ['drop_panel', 'agent moved'],
-    ['close_panel_tab', 'agent closed'],
-    ['close_panel_tile', 'agent closed tile'],
+    ['close_panel', 'agent closed'],
     ['register_panel', 'agent added'],
   ];
 
@@ -365,6 +364,19 @@ describe('panel action verbs', () => {
       // The catalog label, not the panel id the frame carries.
       expect(mount.textContent).toContain('Lattice');
       expect(mount.textContent).not.toContain('lattice');
+    });
+  }
+
+  // The tab release's two close verbs are one now (close_panel): a frame
+  // still carrying an old name reads like any panel tool the strip does not
+  // know.
+  for (const tool of ['close_panel_tab', 'close_panel_tile']) {
+    test(`the retired ${tool} has no verb of its own`, () => {
+      const strip = makeStrip();
+      strip.handleActivity(frame({ kind: 'panel', panel: 'lattice' }, tool));
+
+      expect(mount.textContent).toContain('agent touched');
+      expect(mount.textContent).not.toContain('agent closed');
     });
   }
 
@@ -497,7 +509,7 @@ describe('history popover: open, fetch, render', () => {
 
   test('history rows are worded by the same verbs and labels as the live line', async () => {
     serveHistory([
-      pastFrame({ kind: 'panel', panel: 'lattice' }, 3, 'close_panel_tab'),
+      pastFrame({ kind: 'panel', panel: 'lattice' }, 3, 'close_panel'),
       pastFrame({ kind: 'panel', panel: 'ariel' }, 9, 'arrange_workspace'),
     ]);
     const strip = makeStrip();

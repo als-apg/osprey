@@ -73,7 +73,7 @@ def _regenerated_project(output_dir: Path, name: str, execution_overrides: dict)
         manager,
         project_name=name,
         output_dir=output_dir,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
 
@@ -264,7 +264,7 @@ class TestAProjectVenvWinsOverTheGeneratingInterpreter:
             manager,
             project_name="role-split-with-venv",
             output_dir=output_dir,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
         _fake_project_venv(project_dir)
@@ -323,7 +323,7 @@ class TestAStagedRenderNamesTheVenvItWillRunFrom:
             manager,
             project_name=name,
             output_dir=output_zone / ".tmp",
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
         return output_zone, stage
@@ -382,7 +382,7 @@ class TestRenderingForAContainerUsesTheGeneratingInterpreter:
             manager,
             project_name="role-split-container",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
         venv_python = _fake_project_venv(project_dir)
