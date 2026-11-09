@@ -16,13 +16,13 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility import TEXTURE
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     PLANES,
     REFRESH,
     ROLES,
     SCENARIOS_DIR,
-    TEXTURE,
     VARIABLES_FILE,
     VIEW_RELPATH,
     Binding,
@@ -42,8 +42,8 @@ PREFIX = f"{VIEW_RELPATH}/"
 
 
 @pytest.fixture
-def demo_view(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
-    for name, data in built_control_assistant.outputs[0].files.items():
+def demo_view(built_demo: BuiltProject, tmp_path: Path) -> Path:
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith(PREFIX):
             target = tmp_path / "simulator" / name[len(PREFIX) :]
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -205,8 +205,8 @@ def test_find_still_refuses_a_view_of_another_schema(tmp_path: Path) -> None:
         SimulatorView.find(tmp_path)
 
 
-def test_a_repo_and_its_render_open_the_same_view(built_control_assistant: BuiltProject) -> None:
-    repo = built_control_assistant.repo
+def test_a_repo_and_its_render_open_the_same_view(built_demo: BuiltProject) -> None:
+    repo = built_demo.repo
 
     of_repo = SimulatorView.of_project(repo)
     of_render = SimulatorView.of_render(repo / "build")

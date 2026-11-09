@@ -1,0 +1,1 @@
+The session tree in the Workspace sidebar group no longer has a 280 px height cap: it fills all the room down to the divider and scrolls inside when its content is longer, and in automatic sizing it takes what the rail leaves.

@@ -60,6 +60,11 @@ def _api_url(tmp_path: Path, *, proxied: bool, path: str) -> str:
         source = _rewrite_content(source, "ariel", _OUTER)
     module = tmp_path / ("api.proxied.mjs" if proxied else "api.mjs")
     module.write_text(source, encoding="utf-8")
+    # api.js imports its one sibling; filter-state.js has no imports of its own.
+    sibling = (_STATIC_JS / "filter-state.js").read_text(encoding="utf-8")
+    if proxied:
+        sibling = _rewrite_content(sibling, "ariel", _OUTER)
+    (tmp_path / "filter-state.js").write_text(sibling, encoding="utf-8")
     script = (
         f"import {{ apiUrl }} from {json.dumps(module.as_uri())};"
         f"process.stdout.write(apiUrl({json.dumps(path)}));"

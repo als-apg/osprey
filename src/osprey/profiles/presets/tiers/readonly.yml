@@ -23,7 +23,7 @@
 # This tier has no EVENTS/BLUESKY panels, not by any key here, but because only
 # the write-capable tiers add them by name.
 
-name: Control Assistant (Read-Only)
+name: OSPREY Demo (Read-Only)
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block.

@@ -77,7 +77,7 @@ def test_bare_render_writes_integer_ports(tmp_path: Path) -> None:
         TemplateManager(),
         project_name="build",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     config = yaml.safe_load((render / "config.yml").read_text(encoding="utf-8"))
@@ -86,7 +86,7 @@ def test_bare_render_writes_integer_ports(tmp_path: Path) -> None:
     # the build fills each block's port from the layout at the deployment's own
     # base. The render alone therefore writes none, and what this pins is the
     # shape of what the fill produces.
-    profile, _profile_dir = resolve_build_profile(None, preset="control-assistant")
+    profile, _profile_dir = resolve_build_profile(None, preset="demo")
     for key, value in layout_port_fill(profile.config, DEFAULT_PORT_BASE).items():
         node = config
         parts = key.split(".")

@@ -9,7 +9,7 @@
  *   - config ok flattens a NESTED sections tree into leaf dot-keys, and each
  *     item's run calls the injected revealSetting with its dot-key
  *   - Panels emit Show/Focus items wired to showPanel/focusPanel by id
- *   - Panels emit "Pop out …" rows from getPopoutPanels (active panel
+ *   - Panels emit "Open in new window …" rows from getPopoutPanels (active panel
  *     INCLUDED) and "Open … in a new tile" rows from getVisiblePanels (active
  *     panel EXCLUDED, dropped entirely without openPanelBeside)
  *   - panel rows carry domain + verb synonyms in searchText
@@ -21,7 +21,7 @@
  *   npx vitest run tests/interfaces/web_terminal/palette-registry.test.mjs
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import { buildRegistry } from '../../../src/osprey/interfaces/web_terminal/static/js/palette-registry.js';
 
@@ -131,7 +131,7 @@ describe('buildRegistry', () => {
     expect(focused).toEqual(['okf']);
   });
 
-  it('FR8 ACTIVE PANEL: the active panel gets a Pop out row but NO new-tile row', () => {
+  it('FR8 ACTIVE PANEL: the active panel gets an Open in new window row but NO new-tile row', () => {
     // ARIEL is the active panel, so panel-manager's getVisiblePanels (which
     // filters the active id out) omits it while getPopoutPanels keeps it.
     const items = buildRegistry({
@@ -146,15 +146,15 @@ describe('buildRegistry', () => {
     });
 
     const labels = inGroup(items, 'Panels').map((it) => it.label);
-    expect(labels).toContain('Pop out ARIEL');
+    expect(labels).toContain('Open ARIEL in new window');
     // Opening the active panel beside itself is a no-op, so the row is absent.
     expect(labels).not.toContain('Open ARIEL in a new tile');
     // A non-active member gets both verbs.
-    expect(labels).toContain('Pop out Facility');
+    expect(labels).toContain('Open Facility in new window');
     expect(labels).toContain('Open Facility in a new tile');
   });
 
-  it('FR8 NON-ACTIVE PANEL: with ARIEL not active, ARIEL gets Pop out and the new-tile row', () => {
+  it('FR8 NON-ACTIVE PANEL: with ARIEL not active, ARIEL gets Open in new window and the new-tile row', () => {
     const items = buildRegistry({
       getVisiblePanels: () => [{ id: 'ariel', label: 'ARIEL' }],
       getPopoutPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
@@ -164,7 +164,7 @@ describe('buildRegistry', () => {
     });
 
     const labels = inGroup(items, 'Panels').map((it) => it.label);
-    expect(labels).toEqual(['Focus ARIEL', 'Pop out ARIEL', 'Open ARIEL in a new tile']);
+    expect(labels).toEqual(['Focus ARIEL', 'Open ARIEL in new window', 'Open ARIEL in a new tile']);
   });
 
   it('POP OUT / NEW TILE ROWS: run calls popoutPanel / openPanelBeside with the panel id', () => {
@@ -181,7 +181,7 @@ describe('buildRegistry', () => {
 
     const byLabel = (/** @type {string} */ label) =>
       inGroup(items, 'Panels').find((it) => it.label === label);
-    byLabel('Pop out Facility').run();
+    byLabel('Open Facility in new window').run();
     byLabel('Open Facility in a new tile').run();
     expect(poppedOut).toEqual(['okf']);
     expect(besided).toEqual(['okf']);
@@ -199,10 +199,23 @@ describe('buildRegistry', () => {
     });
 
     const labels = inGroup(items, 'Panels').map((it) => it.label);
-    expect(labels).toEqual(['Focus Facility', 'Pop out Facility']);
+    expect(labels).toEqual(['Focus Facility', 'Open Facility in new window']);
   });
 
-  it('NO POPOUT GETTER: omitting getPopoutPanels drops every Pop out row', () => {
+  it('REATTACH: a panel in its window gets a Reattach row that runs the verb', () => {
+    const reattachPanel = vi.fn();
+    const items = buildRegistry({
+      getDetachedPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
+      reattachPanel,
+    });
+    const row = /** @type {any} */ (items.find((it) => it.label === 'Reattach ARIEL'));
+    expect(row.group).toBe('Panels');
+    expect(row.searchText).toContain('pop out');
+    row.run();
+    expect(reattachPanel).toHaveBeenCalledExactlyOnceWith('ariel');
+  });
+
+  it('NO POPOUT GETTER: omitting getPopoutPanels drops every Open in new window row', () => {
     const items = buildRegistry({
       getVisiblePanels: () => [{ id: 'okf', label: 'Facility' }],
       openPanelBeside: () => {},
@@ -214,9 +227,9 @@ describe('buildRegistry', () => {
 
   it('SYNONYMS: a panel domain alias matches EVERY row for that panel', () => {
     const items = buildRegistry({
-      getHiddenPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
-      getVisiblePanels: () => [{ id: 'ariel', label: 'ARIEL' }],
-      getPopoutPanels: () => [{ id: 'ariel', label: 'ARIEL' }],
+      getHiddenPanels: () => [{ id: 'ariel', label: 'LOGBOOK' }],
+      getVisiblePanels: () => [{ id: 'ariel', label: 'LOGBOOK' }],
+      getPopoutPanels: () => [{ id: 'ariel', label: 'LOGBOOK' }],
       openPanelBeside: () => {},
     });
 
@@ -226,13 +239,14 @@ describe('buildRegistry', () => {
       // Only searchText is scored by the matcher, so the alias has to live there.
       expect(row.searchText).toContain('logbook');
       expect(row.searchText).toContain('elog');
-      // The label and id stay searchable alongside the aliases.
-      expect(row.searchText).toContain('ARIEL');
+      // The label and id stay searchable alongside the aliases: the id keeps
+      // the panel's old name, "ariel", reachable.
+      expect(row.searchText).toContain('LOGBOOK');
       expect(row.searchText).toContain('ariel');
     }
   });
 
-  it('SYNONYMS: verb aliases ride the Pop out and new-tile rows, not Show/Focus', () => {
+  it('SYNONYMS: verb aliases ride the Open in new window and new-tile rows, not Show/Focus', () => {
     const items = buildRegistry({
       getHiddenPanels: () => [{ id: 'okf', label: 'Facility' }],
       getVisiblePanels: () => [{ id: 'okf', label: 'Facility' }],
@@ -242,8 +256,8 @@ describe('buildRegistry', () => {
 
     const byLabel = (/** @type {string} */ label) =>
       inGroup(items, 'Panels').find((it) => it.label === label);
-    const popout = byLabel('Pop out Facility').searchText;
-    for (const token of ['pop out', 'window', 'popout', 'standalone']) {
+    const popout = byLabel('Open Facility in new window').searchText;
+    for (const token of ['pop out', 'window', 'detach', 'reattach']) {
       expect(popout).toContain(token);
     }
     const beside = byLabel('Open Facility in a new tile').searchText;

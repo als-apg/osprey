@@ -1,39 +1,30 @@
-"""Browser test: multi-user logout -> landing -> return starts a FRESH station.
+"""Browser test: multi-user logout -> landing -> return resumes the server's last-active.
 
 Exercises the client-side half of the multi-user round trip in a real Chromium
-page — the part a FastAPI TestClient can't see because it neither runs the
+page -- the part a FastAPI TestClient can't see because it neither runs the
 frontend JS nor persists ``localStorage`` across navigations:
 
-  * the ☰ More menu's identity line naming the user and the sidebar footer's
+  * the More menu's identity line naming the user and the sidebar footer's
     Sign out row (``#logout-btn`` carrying ``data-landing-url``) render only
     when the server emitted a non-empty ``terminal_user`` / ``landing_url``
     (multi-user);
   * clicking Sign out asks first (the sign-out dialog); confirming POSTs the
-    real server logout route (``logout_terminal``, routes/websocket.py —
-    empties the PTY and operator registries), clears the client's stored PTY
-    session id, THEN navigates to the configured landing origin;
-  * returning to the terminal origin does NOT resume the prior warm PTY —
-    this render's stored pointer stays empty across the round trip and the
-    client opens a brand-new WebSocket (no ``mode=resume``, no stale
-    ``session_id``) rather than reconnecting to the old session. This is M2:
-    logout is a real station reset, not just a client-side navigation.
+    real server logout route (``logout_terminal``, routes/websocket.py),
+    clears the client's stored pointer, THEN navigates to the landing origin;
+  * the ruling: logout clears the browser's pointer, and a later login resumes
+    the session the SERVER recorded as last active (``session-meta.json``'s
+    ``last_active`` outlives ``logout_terminal``). With the server's answer
+    withheld, the return opens a fresh station -- the proof the pointer is gone;
+    with it, the return resumes that key (``mode=resume``);
   * the pointer is the PER-RENDER key. On a multi-user mount every ``/u/<user>/``
     shares one origin and so one ``localStorage``; the server stamps
-    ``data-osprey-storage-scope`` on ``<html>`` and terminal.js reads, writes
-    and clears ``osprey-pty-session--<user>`` (design_system/storage-scope.js),
-    never the bare shared slot. This is the only multi-user browser suite, so it
-    is also the live proof that the scoped clear is what logout performs.
+    ``data-osprey-storage-scope`` on ``<html>`` and the client reads, writes and
+    clears ``osprey-pty-session--<user>``, never the bare shared slot.
 
-Scope note — no live model turn. A genuinely live PTY session id is minted by
-Claude (``SessionDiscovery`` watching for the CLI's ``.jsonl`` file), which needs
-the ``claude`` binary + a provider and is infeasible in a headless CI browser.
-So this asserts the reset *mechanism* deterministically: the shell command is a
-long-lived ``sleep`` (so a supposed resume connection would stay open rather
-than exiting, which would otherwise mask a resume-vs-fresh distinction), and a
-warm session is represented by seeding ``localStorage`` directly before logout.
-What's proven is the client contract — the stored pointer is gone and the
-post-logout WebSocket asks for a fresh session — not a real Claude conversation
-being torn down.
+Scope note -- no live model turn. A warm session is represented by seeding the
+pointer and the server's last-active directly; the shell is a long-lived
+``sleep``, so a resume connection stays open rather than masking the
+difference.
 
 Skips cleanly when the chromium headless binary is not installed.
 """
@@ -63,19 +54,27 @@ except ImportError:  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not _PLAYWRIGHT_AVAILABLE, reason="playwright not installed")
-def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_browser):
-    """Full multi-user loop: identity + Sign out render, logout resets the station.
+def _put_last_active(base_url: str, key: str) -> None:
+    """Record ``key`` as the operator's last-active session, as the page does."""
+    import httpx
 
-    Closes M2: a warm PTY (represented here by a seeded ``localStorage`` id, see
-    the module docstring) does NOT survive the logout -> landing -> return round
-    trip. Logout clears the client's stored session id before navigating away
-    (logout.js, run by the sign-out dialog; backed server-side by the real
-    ``logout_terminal`` registry cleanup), so the return visit opens a brand-new
-    terminal — no ``mode=resume``, no ``session_id`` carried over from the prior
-    visit, and no re-adopted stored id — rather than reconnecting to the old
-    warm PTY the earlier (Phase-1) version of this test exercised.
-    """
+    from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER
+    from osprey.interfaces.web_auth import get_web_credentials
+
+    response = httpx.put(
+        f"{base_url}/api/sessions/last-active",
+        json={"session_key": key},
+        headers={OPERATOR_SECRET_HEADER: get_web_credentials().operator_secret},
+        timeout=10.0,
+    )
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.skipif(not _PLAYWRIGHT_AVAILABLE, reason="playwright not installed")
+def test_logout_clears_the_pointer_and_login_resumes_the_server_last_active(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """Logout empties the scoped pointer; the next login resumes the server's last-active."""
     user = "operator-alpha"
     stored_id = "11111111-2222-3333-4444-555555555555"
 
@@ -88,102 +87,76 @@ def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_
         page = chromium_browser.new_page()
         arm_terminal_tab(page, scope=user)
 
-        # --- First load: multi-user chrome renders, fresh (new) session opens ---
+        # --- First load: multi-user chrome renders ---
         with page.expect_websocket() as first_ws:
             page.goto(base_url, wait_until="load")
-        opening_url = first_ws.value.url
-        assert "mode=resume" not in opening_url, (
-            f"first visit with empty storage should open a NEW session, got {opening_url}"
-        )
-        assert "session_id=" not in opening_url
+        assert "mode=resume" not in first_ws.value.url
 
-        # The logout control carries the landing url.
         logout = page.locator("#logout-btn")
         expect(logout).to_have_count(1)
         assert logout.get_attribute("data-landing-url") == landing_url
-        # It is a row of the sidebar footer, on screen from the first paint.
         expect(logout).to_be_visible()
 
-        # --- Represent an established (warm) PTY session (see module docstring) ---
-        # Seed the key the client actually reads: derived from the scope the
-        # server stamped for this render, exactly as storage-scope.js derives it.
+        # --- A warm session: the scoped pointer and the server's last-active ---
         scope = page.evaluate(
             "() => document.documentElement.getAttribute('data-osprey-storage-scope')"
         )
         assert scope == user, f"multi-user page must be stamped with its render, got {scope!r}"
-        session_key = f"osprey-pty-session--{scope}"
-        page.evaluate("([k, id]) => localStorage.setItem(k, id)", [session_key, stored_id])
-        captured = page.evaluate("(k) => localStorage.getItem(k)", session_key)
-        assert captured == stored_id
+        pointer_key = f"osprey-pty-session--{scope}"
+        # Let the page's own debounced last-active write settle before ours.
+        page.wait_for_timeout(600)
+        page.evaluate("([k, id]) => localStorage.setItem(k, id)", [pointer_key, stored_id])
+        _put_last_active(base_url, stored_id)
 
-        # Record the auth-sidecar chaining request. This deployment has NO
-        # sidecar (no auth stanza, so nginx renders no `location /auth/` and
-        # nothing is listening), which makes this the live proof of the
-        # authentication-off case: the request is made, it fails, and the
-        # logout still completes. A *navigation* to the sidecar here would
-        # strand the browser on a 404 instead of the landing page.
         auth_requests: list[str] = []
+        page.on(
+            "request",
+            lambda request: (
+                auth_requests.append(request.url) if "/auth/logout" in request.url else None
+            ),
+        )
 
-        def _record(request) -> None:
-            if "/auth/logout" in request.url:
-                auth_requests.append(request.url)
-
-        page.on("request", _record)
-
-        # --- Logout: clears the stored pointer, THEN navigates to landing ---
-        # The ☰ More menu names the operator, so they can confirm WHICH terminal
-        # they are leaving before they leave it.
+        # --- Logout: asks first, then lands ---
         page.click("#more-btn")
         expect(page.locator("#more-menu .more-menu-user")).to_have_text(user)
         page.keyboard.press("Escape")
-        # Sign out is the sidebar footer's row, and it asks first.
         page.click("#logout-btn")
         dialog = page.locator(".posture-modal-overlay:not([data-closing])")
         expect(dialog.locator(".posture-modal-title")).to_have_text("Sign out of OSPREY?")
         dialog.locator(".posture-modal-confirm").click()
         page.wait_for_url(lambda u: u.startswith(landing_url))
-        assert page.url.startswith(landing_url)
         expect(page.locator("#landing-marker")).to_be_visible()
 
-        # The auth session was asked to end, addressed at the ORIGIN ROOT — not
-        # under `/u/<user>/` (which `base_url` is, and which would reach this
-        # container rather than the sidecar) — and naming exactly this user once.
-        assert auth_requests, "logout did not attempt to end the auth session"
-        assert len(auth_requests) == 1
+        # The auth session was asked to end at the ORIGIN ROOT, naming this user once.
+        assert len(auth_requests) == 1, auth_requests
         requested = urlsplit(auth_requests[0])
         assert requested.path == "/auth/logout"
         assert parse_qs(requested.query) == {"user": [user]}
 
-        # NOTE: we can't read the terminal origin's localStorage from here —
-        # the page has navigated to the landing origin (a different
-        # scheme+host+port), and localStorage is origin-scoped. Whether
-        # clearStoredSessionId() actually ran is only observable once we're
-        # back on the terminal origin below.
-
-        # --- Return to the terminal origin: a FRESH station, not a resume ---
-        # Logout revoked the browser session server-side and expired its cookie
-        # (``logout_terminal``, routes/websocket.py), which is the point: the
-        # credential must not survive the round trip. So the return visit needs
-        # a NEW one, exactly as a returning operator gets from the perimeter
-        # (nginx + the auth sidecar) before nginx ever proxies them back to this
-        # container. ``chromium_browser``'s seam mints the first session at
-        # ``new_page()`` and cannot re-mint mid-test, so the perimeter's re-issue
-        # is stood in for here. Without it the navigation below is refused 401
-        # and never opens a socket — which would say nothing about resume.
+        # Logout revoked the cookie; the perimeter re-issues one on return.
         authorize_browser_context(page.context)
 
+        # --- Return with the server's answer withheld: the pointer is gone ---
+        page.route("**/api/sessions/last-active", lambda route: route.abort())
+        with page.expect_websocket() as cut_ws:
+            page.goto(base_url, wait_until="load")
+        assert f"session_id={stored_id}" not in cut_ws.value.url, (
+            f"logout left the stored pointer behind: {cut_ws.value.url}"
+        )
+        assert page.evaluate("(k) => localStorage.getItem(k)", pointer_key) != stored_id
+        assert page.evaluate("() => localStorage.getItem('osprey-pty-session')") is None
+        page.unroute("**/api/sessions/last-active")
+
+        # --- A later login: the server's last-active is resumed ---
+        page.wait_for_timeout(600)
+        _put_last_active(base_url, stored_id)
         with page.expect_websocket() as return_ws:
             page.goto(base_url, wait_until="load")
-        fresh_url = return_ws.value.url
-        assert "mode=resume" not in fresh_url, (
-            f"return visit after logout must start a fresh session, got {fresh_url}"
-        )
-        assert f"session_id={stored_id}" not in fresh_url
-
-        # No re-adoption of the old id: the prior warm PTY is not inherited.
-        assert page.evaluate("(k) => localStorage.getItem(k)", session_key) != stored_id
-        # And a scoped page never touches the shared slot — neither the seed nor
-        # the fresh session's confirmation lands under the bare key.
+        resumed = return_ws.value.url
+        # The socket asks for the server's key. (No PTY by that id lives in this
+        # stand-in, so what the client stores after the server's answer is not
+        # the point here.)
+        assert "mode=resume" in resumed and f"session_id={stored_id}" in resumed, resumed
         assert page.evaluate("() => localStorage.getItem('osprey-pty-session')") is None
 
         page.close()

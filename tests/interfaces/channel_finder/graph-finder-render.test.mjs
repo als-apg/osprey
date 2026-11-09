@@ -16,6 +16,7 @@ import {
   chipsHtml,
   resultsHtml,
   footerHtml,
+  resultCountHtml,
   deviceCardHtml,
   deviceCardErrorHtml,
   directionOf,
@@ -168,6 +169,11 @@ test('facetRailHtml renders every facet group as buttons carrying the click cont
     expect(el.getAttribute('type')).toBe('button');
     expect(el.getAttribute('data-facet')).toBeTruthy();
     expect(el.hasAttribute('data-value')).toBe(true);
+    // The shared sidebar row and heading (primitives.css), not a local copy.
+    expect(el.classList.contains('osprey-list-row')).toBe(true);
+  }
+  for (const head of container.querySelectorAll('.facet-head')) {
+    expect(head.classList.contains('osprey-section-label')).toBe(true);
   }
 
   const facetsUsed = new Set(items.map((el) => el.getAttribute('data-facet')));
@@ -200,12 +206,17 @@ test('facetRailHtml marks the active multi-select values with .on', () => {
   const container = parse(facetRailHtml(makeFacets(), makeTree(), state));
 
   const on = (/** @type {string} */ sel) => container.querySelector(sel)?.classList.contains('on');
+  const pressed = (/** @type {string} */ sel) =>
+    container.querySelector(sel)?.getAttribute('aria-pressed');
 
   expect(on('[data-facet="section"][data-value="SR"]')).toBe(true);
   expect(on('[data-facet="section"][data-value="BR"]')).toBe(false);
   expect(on('[data-facet="signal"][data-value="current"]')).toBe(true);
   expect(on('[data-facet="dir"][data-value="none"]')).toBe(true);
   expect(on('[data-facet="dir"][data-value="R"]')).toBe(false);
+  // Assistive tech hears the same selection the row shows.
+  expect(pressed('[data-facet="section"][data-value="SR"]')).toBe('true');
+  expect(pressed('[data-facet="section"][data-value="BR"]')).toBe('false');
 });
 
 test('facetRailHtml marks the single-select class facet from state.cls', () => {
@@ -435,7 +446,7 @@ test('resultsHtml escapes every store-sourced row field', () => {
 // ---------------------------------------------------------------------------
 
 test('footerHtml disables every selection action at zero selection', () => {
-  const container = parse(footerHtml(120, 30, 1, 3, 0, true));
+  const container = parse(footerHtml(1, 3, 0, true));
 
   for (const action of ['copy', 'send', 'clear']) {
     const btn = /** @type {HTMLButtonElement | null} */ (
@@ -448,7 +459,7 @@ test('footerHtml disables every selection action at zero selection', () => {
 });
 
 test('footerHtml enables the selection actions once something is selected', () => {
-  const container = parse(footerHtml(120, 30, 1, 3, 2, true));
+  const container = parse(footerHtml(1, 3, 2, true));
 
   for (const action of ['copy', 'send', 'clear']) {
     const btn = /** @type {HTMLButtonElement} */ (
@@ -460,12 +471,12 @@ test('footerHtml enables the selection actions once something is selected', () =
 });
 
 test('footerHtml renders Send only when embedded', () => {
-  const standalone = parse(footerHtml(120, 30, 1, 3, 2, false));
+  const standalone = parse(footerHtml(1, 3, 2, false));
   expect(standalone.querySelector('[data-action="send"]')).toBeNull();
   expect(standalone.querySelector('[data-action="copy"]')).not.toBeNull();
   expect(standalone.querySelector('[data-action="clear"]')).not.toBeNull();
 
-  const embedded = parse(footerHtml(120, 30, 1, 3, 2, true));
+  const embedded = parse(footerHtml(1, 3, 2, true));
   expect(embedded.querySelector('[data-action="send"]')).not.toBeNull();
 });
 
@@ -475,31 +486,41 @@ test('footerHtml disables the pager at both bounds', () => {
   const nextOf = (/** @type {HTMLElement} */ c) =>
     /** @type {HTMLButtonElement} */ (c.querySelector('[data-page="next"]'));
 
-  const first = parse(footerHtml(120, 30, 1, 3, 0, true));
+  const first = parse(footerHtml(1, 3, 0, true));
   expect(prevOf(first).disabled).toBe(true);
   expect(nextOf(first).disabled).toBe(false);
 
-  const middle = parse(footerHtml(120, 30, 2, 3, 0, true));
+  const middle = parse(footerHtml(2, 3, 0, true));
   expect(prevOf(middle).disabled).toBe(false);
   expect(nextOf(middle).disabled).toBe(false);
 
-  const last = parse(footerHtml(120, 30, 3, 3, 0, true));
+  const last = parse(footerHtml(3, 3, 0, true));
   expect(prevOf(last).disabled).toBe(false);
   expect(nextOf(last).disabled).toBe(true);
 
-  const empty = parse(footerHtml(0, 0, 1, 0, 0, true));
+  const empty = parse(footerHtml(1, 0, 0, true));
   expect(prevOf(empty).disabled).toBe(true);
   expect(nextOf(empty).disabled).toBe(true);
 });
 
-test('footerHtml states the channel and device counts', () => {
-  const container = parse(footerHtml(120, 30, 1, 3, 0, true));
-  const text = container.textContent ?? '';
-  expect(text).toContain('120');
-  expect(text).toContain('30');
-  expect(text).toContain('channels');
-  expect(text).toContain('devices');
-  expect(text).toContain('1 / 3');
+test('footerHtml is one row: the pager, then the selection, Send last', () => {
+  const foot = parse(footerHtml(1, 3, 0, true)).querySelector('.result-foot');
+  const order = [...(foot?.children ?? [])].map(
+    (el) => el.getAttribute('data-action') ?? el.className
+  );
+  expect(order).toEqual(['pager', 'spacer', 'sel-count', 'copy', 'clear', 'send']);
+  // The counts are the toolbar's now (resultCountHtml), not the footer's.
+  expect(foot?.textContent).not.toContain('channels');
+});
+
+test('resultCountHtml states the channels and the devices behind them', () => {
+  const el = parse(resultCountHtml(3338, 645));
+  expect(el.textContent).toBe(`${(3338).toLocaleString()} channels on 645 devices`);
+  expect([...el.querySelectorAll('strong')].map((s) => s.textContent)).toEqual([
+    (3338).toLocaleString(),
+    '645',
+  ]);
+  expect(parse(resultCountHtml(1, 1)).textContent).toBe('1 channel on 1 device');
 });
 
 // ---------------------------------------------------------------------------
@@ -869,17 +890,18 @@ test('the inspector heading and meta stay inert under a hostile payload', () => 
 });
 
 test('the skeleton carries every region the panel redraws, each once', () => {
-  const el = parse(skeletonHtml('comfortable'));
+  const el = parse(skeletonHtml());
   for (const id of Object.values(FINDER_IDS)) {
     expect(el.querySelectorAll(`#${id}`)).toHaveLength(1);
   }
-  expect(el.querySelector(`#${FINDER_IDS.search}`)?.tagName).toBe('INPUT');
+  // The search, the count and the options are the panel toolbar's now.
+  expect(el.querySelector('.cf-toolbar, input[type="search"], [data-density]')).toBeNull();
 });
 
-test('the density toggle presses the density it is given and no other', () => {
-  for (const density of /** @type {const} */ (['comfortable', 'compact'])) {
-    const el = parse(skeletonHtml(density));
-    const pressed = [...el.querySelectorAll('[data-density][aria-pressed="true"]')];
-    expect(pressed.map((b) => b.getAttribute('data-density'))).toEqual([density]);
-  }
+test('the facets are a shared panel sidebar, closed until it is wired, its handle right after', () => {
+  const rail = parse(skeletonHtml()).querySelector(`#${FINDER_IDS.rail}`);
+  expect(rail?.tagName).toBe('ASIDE');
+  expect(rail?.classList.contains('osprey-panel-sidebar')).toBe(true);
+  expect(rail?.getAttribute('data-open')).toBe('false');
+  expect(rail?.nextElementSibling?.id).toBe(FINDER_IDS.railSplit);
 });

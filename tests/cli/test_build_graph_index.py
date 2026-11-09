@@ -312,7 +312,7 @@ def test_a_corpus_that_is_not_text_warns_and_the_build_still_succeeds(
 
 
 def _preset_repo(tmp_path: Path, name: str) -> Path:
-    """A control-assistant project as ``osprey init`` writes one, in graph mode.
+    """A demo project as ``osprey init`` writes one, in graph mode.
 
     The bundled preset, not a hand-built profile: its corpus is the one the
     suite renders over and over, so it is the corpus the session cache exists
@@ -328,7 +328,7 @@ def _preset_repo(tmp_path: Path, name: str) -> Path:
         [
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             "--set",
             "channel_finder_mode=graph",

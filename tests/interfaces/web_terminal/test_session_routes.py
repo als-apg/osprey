@@ -38,14 +38,14 @@ def record(monkeypatch):
     return fake
 
 
-def _row(session_id, identity, prompt, last_ts, entries):
+def _row(session_id, identity, prompt, last_ts, message_count):
     return {
         "session_id": session_id,
         "persons": [identity],
         "identities": [identity],
         "first_ts": last_ts,
         "last_ts": last_ts,
-        "entries": entries,
+        "message_count": message_count,
         "prompt": prompt,
         "run_ids": [],
         "terminal_session": "",
@@ -80,18 +80,29 @@ class TestListSessionsEndpoint:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert [s["session_id"] for s in data["sessions"]] == [
+        assert [s["transcript_id"] for s in data["sessions"]] == [
             "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
             SESSION_KEY,
         ]
         assert data["sessions"][0] == {
-            "session_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            "first_message": "Help me tune the beam",
-            "last_modified": "2026-02-17T10:00:00+00:00",
+            "transcript_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "session_key": None,
+            "current_for_key": False,
+            "title": "Help me tune the beam",
+            "title_source": "prompt",
+            "naming": None,
+            "last_artifact_id": None,
+            "pinned": None,
+            "state": "idle",
             "message_count": 42,
+            "first_ts": "2026-02-17T10:00:00+00:00",
+            "last_ts": "2026-02-17T10:00:00+00:00",
+            "truncated": False,
+            "prompt": "Help me tune the beam",
         }
         assert data["record"] == "complete"
-        assert record.calls_to("list_sessions")[0]["wait"] == Drain()
+        # Only ``drain=1`` waits on a drain; a plain listing reads what is ingested.
+        assert record.calls_to("list_sessions")[0]["wait"] is None
 
     def test_an_unavailable_record_is_not_an_empty_list(self, client, monkeypatch):
         monkeypatch.setattr(

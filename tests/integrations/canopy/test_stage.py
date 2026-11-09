@@ -674,7 +674,7 @@ def test_the_step_stages_when_run_as_build_cmd_runs_it(
     empty_stage = tmp_path / "stage"
     empty_stage.mkdir()
 
-    _run_lifecycle_phase("pre_build", [_STEP], repo, empty_stage)
+    _run_lifecycle_phase("pre_build", [_STEP], repo, empty_stage, venv=None, repo_root=repo)
 
     assert _root_wheels(repo) == [CANOPY_WHEEL, PYDM_WHEEL]
     assert (repo / stage.PAYLOAD_DIRNAME / "STAGED.json").is_file()
@@ -688,7 +688,7 @@ def test_the_step_stops_the_build_when_the_payload_is_missing(
     empty_stage.mkdir()
 
     with pytest.raises(BuildProfileError) as excinfo:
-        _run_lifecycle_phase("pre_build", [_STEP], repo, empty_stage)
+        _run_lifecycle_phase("pre_build", [_STEP], repo, empty_stage, venv=None, repo_root=repo)
     assert "canopy-payload" in str(excinfo.value)
 
 
@@ -702,7 +702,7 @@ def test_the_step_stops_the_build_on_a_stale_library_though_staging_is_skipped(
     empty_stage.mkdir()
 
     with pytest.raises(BuildProfileError) as excinfo:
-        _run_lifecycle_phase("pre_build", [_STEP], repo, empty_stage)
+        _run_lifecycle_phase("pre_build", [_STEP], repo, empty_stage, venv=None, repo_root=repo)
     message = str(excinfo.value)
     assert "canopy-payload" in message
     assert "missing: screens/sr/overview.screen.json" in message

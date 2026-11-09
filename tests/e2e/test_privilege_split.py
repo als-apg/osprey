@@ -6,7 +6,7 @@ short of the built image can report it. A unit test can prove the Dockerfile
 template emits a ``chown`` line; only ``stat`` inside the container proves the
 line landed on the file it names, in the layer order that makes it stick.
 
-Two renders of the ``control-assistant`` preset are built (one ``osprey init``
+Two renders of the ``demo`` preset are built (one ``osprey init``
 + ``osprey build``, which renders the deployment's own project AND one per
 layer):
 
@@ -129,13 +129,12 @@ _DOCKER_UNAVAILABLE = docker_cli_unavailable_reason_once()
 _WEB_SLOT = default_port("web")
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.dockerbuild,
     pytest.mark.skipif(_DOCKER_UNAVAILABLE is not None, reason=_DOCKER_UNAVAILABLE or ""),
 ]
 
-PRESET = "control-assistant"
+PRESET = "demo"
 REPO_NAME = "psplit"
 BUILD_TIMEOUT = 3600  # a cold build compiles the EPICS toolchain from source
 RUN_TIMEOUT = 300

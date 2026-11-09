@@ -23,7 +23,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-__all__ = ["HEADER_CAPABLE", "Classification", "bundled_origin", "classify", "header_line"]
+__all__ = [
+    "HEADER_CAPABLE",
+    "Classification",
+    "bundled_origin",
+    "classify",
+    "header_line",
+    "under_former_header",
+]
 
 #: The suffixes of the files that carry the bundled-origin line.
 HEADER_CAPABLE = frozenset({".yaml", ".yml", ".md"})
@@ -73,6 +80,13 @@ def _is_seeded(path: Path) -> bool:
     return path.suffix in HEADER_CAPABLE and _first_line(path) == HEADER
 
 
+def under_former_header(path: Path) -> bool:
+    """Whether a file opens with the seed header an import wrote before the current one."""
+    from osprey.facility.layers import FORMER_HEADER
+
+    return path.suffix in HEADER_CAPABLE and _first_line(path) == FORMER_HEADER
+
+
 @dataclass(frozen=True)
 class Classification:
     """A facility directory by origin; each class is a sorted tuple of relative POSIX paths.
@@ -99,14 +113,17 @@ class Classification:
 
 def _proves_nothing(relative: Path) -> bool:
     from osprey.facility.layers.mml.mapping import MAPPING_FILE
+    from osprey.facility.roots import is_vcs_metadata
 
-    if relative.as_posix() == MAPPING_FILE:
+    if is_vcs_metadata(relative) or relative.as_posix() == MAPPING_FILE:
         return True
     return relative.parts[0] == "knowledge" and relative.name == "index.md"
 
 
 def classify(facility_dir: Path, template_root: Path) -> Classification:
     """Sort every file under ``facility_dir`` by where it came from.
+
+    Version-control metadata (``.git`` at any depth) is no file of the tree.
 
     Args:
         facility_dir: The ``data/facility`` directory; a missing one is empty.

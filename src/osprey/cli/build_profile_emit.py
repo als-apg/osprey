@@ -97,7 +97,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "default_panel",
         "deploy",  # CI/registry/host coordinates, filled in per facility
         "mcp_servers",  # facility tool servers
-        "artifact_server",  # gallery categories + host/port
+        "artifact_server",  # gallery extension types + host/port
         "dispatch",  # the seven optional feature blocks
         "bluesky",
         "virtual_accelerator",
@@ -109,6 +109,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
+        "slack_bridge",
     }
 )
 
@@ -116,7 +117,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
 # which means absent from what the emitter ADDS: never synthesized (a facility
 # should not inherit build plumbing it did not ask for) and never offered as a
 # commented template. It does NOT mean stripped when carried — `claude_md_template`
-# is a preset-author primitive that two bundled presets rely on, and dropping it
+# is a preset-author primitive that bundled presets rely on, and dropping it
 # would silently swap their CLAUDE.md render and break emitted-vs-preset parity.
 _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
     {
@@ -126,6 +127,7 @@ _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
         "environment",  # interpreter + packages: the built Python env
         "dependencies",
         "lifecycle",  # pre/post-build steps
+        "machine",  # a mounted machine repository: the repo's own layout, never a preset's
     }
 )
 
@@ -152,7 +154,7 @@ _SYNTHESIS_RATIONALE: dict[str, str] = {
     "deploy_services": "true builds its own services stack; false attaches to another project's.",
     "config": "config.yml overrides, as dotted keys. Empty means template defaults stand.",
     "services": "Services this profile declares. Injected ones are added at build time.",
-    "env": "Environment variables the deployment needs (required:/defaults:/file:).",
+    "env": "Environment variables the deployment needs (required:/pinned:/defaults:).",
     "panel_presets": "Named web-terminal layouts, as label -> tiles of panel-id tabs.",
     "hooks": "Safety and lifecycle hooks installed into .claude/.",
     "rules": "Facility rules installed into .claude/rules/.",
@@ -183,15 +185,14 @@ _ANNOTATIONS: dict[str, tuple[str, ...]] = {
     "env": (
         "# Environment variables the deployment needs. Replace `env: {}` with any",
         "# of `required` (the variable must be set somewhere), `pinned` (this",
-        "# repo's own env chain owns it outright, and nowhere else), `defaults`",
-        "# (name to value) and `file` (a profile-relative path copied in as .env):",
+        "# repo's own env chain owns it outright, and nowhere else) and `defaults`",
+        "# (name to value):",
         "#",
         "#   env:",
         "#     required: [DISPATCH_WORKER_TOKEN]",
         "#     pinned: [ARIEL_DB_PASSWORD]",
         "#     defaults:",
         '#       OSPREY_FACILITY_NAME: "Example Facility"',
-        "#     file: env/facility.env",
         "#",
         "# If `env:` already has children, add yours under it.",
     ),
@@ -270,18 +271,21 @@ _MCP_SERVERS_APPENDIX = """
 """.replace("__BUILD__", BUILD_OUTPUT_DIR)
 
 # Appended when the resolved profile has no ``artifact_server:`` block.
-_CATEGORIES_APPENDIX = """
-# --- Artifacts gallery: custom categories ------------------------------------
-# Extra buckets in the artifacts gallery. Each key is the id a facility MCP
-# tool passes as category="<key>" when it saves an artifact; label and color
-# (#RRGGBB) decide how the gallery renders that bucket. The artifact_server
-# block also accepts host/port/auto_launch overrides for the gallery server.
+_EXTENSION_TYPES_APPENDIX = """
+# --- Artifacts gallery: extension types -------------------------------------
+# Facility artifact kinds, each conforming to one gallery base form (plots,
+# trends, tables, documents, dashboards, images, data) and listed under it.
+# A label may not repeat a base form's or another type's. The optional viewer
+# is a .js/.mjs ES module under this profile's project/ directory, given
+# relative to it. The block also accepts host/port/auto_launch overrides for
+# the gallery server.
 #
 # artifact_server:
-#   categories:
-#     optics:
-#       label: Optics
-#       color: "#4C9AFF"
+#   extension_types:
+#     beam_scan:
+#       label: Beam scan
+#       base_form: plots
+#       viewer: viewers/beam_scan.js
 """
 
 
@@ -305,7 +309,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
     "data": """
 # --- Facility data tree ------------------------------------------------------
 # Path (relative to this profile) of the data tree the build copies. `osprey
-# init` materializes one from the preset's packaged tree and sets this key; a
+# init` materializes it from the preset's packaged tree and sets this key; a
 # layer under tiers/ inherits it and resolves it against this
 # profile's directory. Full replacement, not a fallback.
 #
@@ -569,6 +573,19 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   trigger: teams-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """,
+    "slack_bridge": """
+# --- Slack bridge ------------------------------------------------------------
+# Answers questions asked from a Slack channel, thread or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Slack credentials are runtime env, not profile keys: declare
+# SLACK_BOT_TOKEN (the xoxb- bot token) and SLACK_APP_TOKEN (the xapp- Socket
+# Mode app token) under `env.required`.
+#
+# slack_bridge:
+#   trigger: slack-question
+#   mentions: true               # false posts the agent's @mentions as plain text
+""",
     "deploy": """
 # --- Deployment coordinates --------------------------------------------------
 # Where this deployment is built, pushed, and run. Needed only once it leaves
@@ -591,7 +608,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
     # The two long-form blocks above this module's helpers, registered here so
     # the partition has a single template table to guard.
     "mcp_servers": _MCP_SERVERS_APPENDIX,
-    "artifact_server": _CATEGORIES_APPENDIX,
+    "artifact_server": _EXTENSION_TYPES_APPENDIX,
 }
 
 # Append order for the commented templates, so two emissions of the same preset
@@ -617,6 +634,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "nextcloud_bridge",
     "gchat_bridge",
     "teams_bridge",
+    "slack_bridge",
 )
 
 # The six artifact-selection lists, in profile spelling. Each gets a generated
@@ -811,7 +829,10 @@ def effective_config_subtree(
     either key alone answers wrong. So:
 
     1. :func:`_collapse_config_prefixes` runs FIRST, folding every
-       prefix-related pair deeper-key-wins;
+       prefix-related pair deeper-key-wins — over only the keys on this
+       path (the path itself, its ancestors, keys under it), so a conflict
+       between keys elsewhere in the block cannot refuse a reader that never
+       asked about them;
     2. then every key that still addresses this path — the path itself, a key
        under it, or an ancestor carrying it nested inside its value — is folded
        into one subtree, shallowest first so the deeper key again wins.
@@ -819,9 +840,14 @@ def effective_config_subtree(
     Returns a plain dict (empty when the config addresses nothing here); the
     caller owns it and may mutate it freely.
     """
-    collapsed = _collapse_config_prefixes(dict(config))
-    segments = _config_segments(collapsed)
     depth = len(subtree_path)
+    on_path = {
+        key: config[key]
+        for key, path in _config_segments(config).items()
+        if path[:depth] == subtree_path or subtree_path[: len(path)] == path
+    }
+    collapsed = _collapse_config_prefixes(on_path)
+    segments = _config_segments(collapsed)
     subtree: dict[str, Any] = {}
     for key in sorted(segments, key=lambda k: len(segments[k])):
         path = segments[key]
@@ -1021,7 +1047,7 @@ def _drop_key_and_pre_comment(cm: CommentedMap, key: Any) -> None:
     :func:`_sync_to_resolved` deletes a key the resolved profile does not carry
     but deliberately KEEPS the block above it, because for a preset-authored
     key that block is usually a section header introducing what follows. For a
-    key the emitted profile must not document at all — one the preset consumes
+    key the emitted profile must not document at all — a key the preset consumes
     on its own behalf — the block is the key's own explanation and has to go
     with it, or the emitted file explains a key it does not contain.
 

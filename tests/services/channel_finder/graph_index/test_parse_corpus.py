@@ -4,7 +4,7 @@ The rows must reproduce what the n10s-seeded store answers through
 ``GRAPH_SEARCH_CYPHER`` and ``GRAPH_ONTOLOGY_CYPHER``; a parity lane checks that
 against a live store, and these tests pin each rule the parse copies from the
 Cypher on corpora small enough to state the expected rows by hand. The graph
-view the control-assistant build writes is then parsed against the counts the
+view the demo build writes is then parsed against the counts the
 store integration tests verified against Neo4j.
 """
 
@@ -32,7 +32,7 @@ SEM = corpora.NARAD_SEM
 DEVICE = corpora.DEVICE
 BINDING = corpora.BINDING
 
-#: Store-verified counts for the control-assistant build's graph view, as
+#: Store-verified counts for the demo build's graph view, as
 #: ``tests/integration/test_graph_mcp.py`` pins them against Neo4j.
 #: ``DEMO_DEVICES`` counts every binding owner: the 1016 typed devices and the
 #: top place ``SR``, which carries the tune, chromaticity, user beam mode

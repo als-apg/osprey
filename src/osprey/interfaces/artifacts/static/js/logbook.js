@@ -14,13 +14,9 @@
  * Depends on: state.js (for getSelectedArtifact and getArtifacts)
  */
 
-import { getArtifacts, getSelectedArtifact } from './state.js';
+import { getArtifacts } from './state.js';
 import { escapeHtml } from '/design-system/js/dom.js';
 import { buildLogbookModal, buildSuccessCard } from './logbook-modal.js';
-
-// Pencil icon SVG for the logbook button
-const PENCIL_ICON =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>';
 
 /** @type {HTMLElement|null} */
 let modal = null;
@@ -516,9 +512,6 @@ async function submitLogbook() {
     // clicked Submit). The host applies a plain activation — no agent
     // attribution anywhere in this payload. Same-origin on both ends: we
     // target our own origin, and the host re-checks event.origin.
-    //
-    // Guarded on actually being embedded: a standalone gallery has no host,
-    // and the success card's "Open in ARIEL" link below stays its affordance.
     if (window.parent !== window) {
       window.parent.postMessage(
         { type: 'osprey:navigate', panel: 'ariel', url: data.url },
@@ -527,7 +520,7 @@ async function submitLogbook() {
     }
 
     const body = document.getElementById('logbook-body');
-    if (body) body.replaceChildren(buildSuccessCard(data.draft_id, data.url));
+    if (body) body.replaceChildren(buildSuccessCard(data.draft_id));
     const actions = document.getElementById('logbook-actions');
     if (actions) actions.innerHTML = '';
     modal = null;
@@ -543,9 +536,8 @@ async function submitLogbook() {
 // ---- API: open compose modal ----
 
 /**
- * Open the composer on its first phase for one artifact. The preview
- * header's Logbook button and the embedded viewer's `logbook` action both
- * land here.
+ * Open the composer on its first phase for one artifact: the viewer's
+ * `logbook` action lands here.
  * @param {{artifact_id: string}} opts - the artifact the entry is about
  */
 async function openComposeModal(opts) {
@@ -555,46 +547,7 @@ async function openComposeModal(opts) {
   showPhase('steering');
 }
 
-// ---- Button injection ----
-
-/** @param {any} opts */
-function createLogbookBtn(opts) {
-  const btn = document.createElement('button');
-  btn.className = 'logbook-action-btn';
-  btn.title = 'Compose logbook entry';
-  btn.innerHTML = PENCIL_ICON + ' Logbook';
-  btn.addEventListener('click', function (e) {
-    e.stopPropagation();
-    openComposeModal(opts);
-  });
-  return btn;
-}
-
-/**
- * Inject logbook buttons into the preview action bar.
- * Called by preview.js after each render that has a header.
- */
-function injectLogbookButtons() {
-  document.querySelectorAll('.logbook-action-btn').forEach(function (b) {
-    b.remove();
-  });
-
-  const selectedArtifact = getSelectedArtifact();
-  if (selectedArtifact) {
-    const bar = document.querySelector('#preview-content .preview-header-actions');
-    if (bar) {
-      const deleteBtn = bar.querySelector('.btn-action-danger');
-      if (deleteBtn) {
-        bar.insertBefore(createLogbookBtn({ artifact_id: selectedArtifact.id }), deleteBtn);
-      } else {
-        bar.appendChild(createLogbookBtn({ artifact_id: selectedArtifact.id }));
-      }
-    }
-  }
-}
-
 export {
-  injectLogbookButtons,
   openComposeModal,
   makeBtn,
   updateHeaderTitle,
