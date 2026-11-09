@@ -1,6 +1,6 @@
 """A default deployment with no llama-server and no caption model runs clean.
 
-The ARIEL config is the ``control-assistant`` preset as the build reads it, so
+The ARIEL config is the ``demo`` preset as the build reads it, so
 ``image_caption``, ``image_embedding``, ``hybrid`` and
 ``ariel.attachments.view.enabled`` are on as shipped. It deviates from the
 preset by one named override, ``ariel.ingestion`` (a ``generic_json`` file
@@ -63,7 +63,7 @@ pytestmark = [
     pytest.mark.real_fetch,
 ]
 
-PRESET = "control-assistant"
+PRESET = "demo"
 CAPTION = "image_caption"
 EMBED = "image_embedding"
 PICTURE_MODULES = (CAPTION, EMBED)
@@ -78,13 +78,12 @@ TEXT_MODEL = "nomic-embed-text"
 TEXT_DIMS = 768
 #: An alias the llama-server stub serves that is not the preset's model.
 OTHER_ALIAS = "some-other-embedding-model"
-#: The vocabulary the control-assistant build ships at ``data/ariel/vocabulary.yml``.
+#: The vocabulary the demo build ships at ``data/facility/ariel/vocabulary.yml``.
 VOCABULARY = (
     Path(osprey.__file__).parent
     / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
+    / "facilities"
+    / "example"
     / "ariel"
     / "vocabulary.yml"
 )
@@ -178,7 +177,9 @@ class OllamaStub:
 
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
         self.url = f"http://127.0.0.1:{self._server.server_address[1]}"
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -227,9 +228,9 @@ def _write_source(tmp_path: Path) -> Path:
     """The generic_json file source: one entry, two relative sidecar PNGs.
 
     The preset's vocabulary file is laid down where the build ships it
-    (``data/ariel/vocabulary.yml`` beside ``config.yml``).
+    (``data/facility/ariel/vocabulary.yml`` beside ``config.yml``).
     """
-    vocabulary = tmp_path / "data" / "ariel" / "vocabulary.yml"
+    vocabulary = tmp_path / "data" / "facility" / "ariel" / "vocabulary.yml"
     vocabulary.parent.mkdir(parents=True, exist_ok=True)
     vocabulary.write_bytes(VOCABULARY.read_bytes())
     for name in PICTURES:
@@ -412,6 +413,16 @@ def _isolated(reserve_port, monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         _local_server, "container_fallback_urls", lambda base_url, default_port: list(fallbacks)
+    )
+    # Every server here is in-test or a closed port that refuses at once, so the
+    # query-time budgets only measure the runner's load. Widened, a reason the
+    # picture lane reports is the server's answer, never a probe that ran out.
+    monkeypatch.setattr(image_lane, "QUERY_EMBEDDING_TIMEOUT_S", 30.0)
+    real_probe = _local_server.probe
+    monkeypatch.setattr(
+        _local_server,
+        "probe",
+        lambda url, path, timeout: real_probe(url, path, max(timeout, 30.0)),
     )
     monkeypatch.setenv("OLLAMA_HOST", _closed_url(reserve_port()))
     monkeypatch.setenv("LLAMA_CPP_HOST", _closed_url(reserve_port()))
@@ -705,6 +716,7 @@ async def test_store_without_pgvector(
     status and every search name the fix. The case then runs with the fix the
     refusal offers applied, semantic search switched off.
     """
+    from osprey.services.ariel_search.database.migrations import MigrationSkippedError
     from osprey.services.ariel_search.enhancement.image_embedding import (
         migration as image_migration,
     )
@@ -715,9 +727,12 @@ async def test_store_without_pgvector(
         migration as text_migration,
     )
 
-    # The preamble both vector migrations share, imported by name into each.
+    async def pgvector_absent(_conn: object, unavailable: str) -> None:
+        raise MigrationSkippedError(unavailable)
+
+    # The preamble every vector migration shares, imported by name into each.
     for module in (text_migration, image_migration, hnsw_migration):
-        monkeypatch.setattr(module, "pgvector_available", AsyncMock(return_value=False))
+        monkeypatch.setattr(module, "require_pgvector_hnsw", pgvector_absent)
     stub = llama_stub()
     monkeypatch.setenv("LLAMA_CPP_HOST", stub.url)
     shipped = _deployment_config(scratch_database, _write_source(tmp_path))

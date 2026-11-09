@@ -31,6 +31,7 @@ from rich.console import Console
 from osprey.cli.build_profile import (
     GChatBridgeProfileConfig,
     NextcloudBridgeProfileConfig,
+    SlackBridgeProfileConfig,
     TeamsBridgeProfileConfig,
     resolve_build_profile,
 )
@@ -53,7 +54,7 @@ from tests.cli._reporters import ConsoleReporter, installed
 _PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 # ---------------------------------------------------------------------------
-# The exemplar: the control-assistant preset, resolved the way `init` resolves
+# The exemplar: the demo preset, resolved the way `init` resolves
 # it, with the layers the materializer parses. Session-scoped: the
 # preset is packaged data, identical for every test here.
 # ---------------------------------------------------------------------------
@@ -61,7 +62,7 @@ _PORTS = layout_ports(DEFAULT_PORT_BASE)
 
 @pytest.fixture(scope="session")
 def exemplar() -> tuple[BuildProfile, dict]:
-    resolved, _preset_dir = resolve_build_profile(None, "control-assistant", (), ())
+    resolved, _preset_dir = resolve_build_profile(None, "demo", (), ())
     texts = _layer_profile_texts(resolved, "Exemplar", "")
     return resolved, _parsed_layer_deltas(texts)
 
@@ -122,7 +123,7 @@ def test_the_card_shows_every_family_the_deployment_publishes(exemplar_lines: li
     """
     ports = line_with(exemplar_lines, "ports (user 0)")
 
-    for family in ("web", "artifact", "ariel", "lattice", "channel finder", "okf", "system health"):
+    for family in ("web", "artifact", "ariel", "channel finder", "okf", "system health"):
         assert family in ports
     assert f"web :{_PORTS['web']}" in ports
     assert f"artifact :{_PORTS['artifact']}" in ports
@@ -365,9 +366,10 @@ def test_the_panels_row_is_the_union_across_renders(exemplar_lines: list[str]) -
     # come from `web.panels.<id>.label` — they are not built-ins.
     # The order is declaration order: the host profile's `web_panels` first, in
     # the order it lists them, then whatever the layers add. JUPYTER
-    # follows SYSTEM because the profile lists `jupyter` after `system-health`.
+    # follows Health because the profile lists `jupyter` after `system-health`,
+    # and CANOPY follows JUPYTER because the profile lists `canopy` next.
     panels = line_with(exemplar_lines, "panels")
-    assert "ARIEL · CHANNELS · LATTICE · KNOWLEDGE · SYSTEM · JUPYTER · EVENTS · BLUESKY" in panels
+    assert "LOGBOOK · CHANNELS · KNOWLEDGE · Health · JUPYTER · CANOPY · EVENTS · BLUESKY" in panels
 
 
 def test_the_agent_group_names_servers_and_counts_its_toolkit(
@@ -512,6 +514,13 @@ def test_a_panel_served_mcp_server_is_listed_only_with_its_panel(monkeypatch) ->
     assert "screens" in _enabled_mcp_servers(without_panel, {"ops": {"web_panels": ["screens"]}})
 
 
+def test_the_mcp_row_lists_the_canopy_server_the_host_panel_ships(
+    exemplar_lines: list[str],
+) -> None:
+    """The host profile selects the CANOPY panel, so every render ships its server."""
+    assert "canopy" in mcp_servers_on(exemplar_lines)
+
+
 def test_the_model_row_names_the_provider_default_when_the_profile_names_none(
     exemplar_lines: list[str],
 ) -> None:
@@ -566,13 +575,14 @@ def test_the_services_group_names_every_chat_bridge_the_profile_carries() -> Non
         nextcloud_bridge=NextcloudBridgeProfileConfig(),
         gchat_bridge=GChatBridgeProfileConfig(),
         teams_bridge=TeamsBridgeProfileConfig(),
+        slack_bridge=SlackBridgeProfileConfig(),
     )
     named = [
         row["value"]
         for row in card_rows(profile, {})
         if row["group"] == "services" and row["label"] == "bridge"
     ]
-    assert named == ["Nextcloud Talk", "Google Chat", "Microsoft Teams"]
+    assert named == ["Nextcloud Talk", "Google Chat", "Microsoft Teams", "Slack"]
 
 
 def test_a_profile_without_a_teams_block_gets_no_teams_row() -> None:
@@ -671,7 +681,7 @@ def test_init_prints_the_card_after_its_report(tmp_path: Path) -> None:
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        ["init", str(tmp_path / "exemplar"), "--preset", "control-assistant", "--no-git"],
+        ["init", str(tmp_path / "exemplar"), "--preset", "demo", "--no-git"],
         catch_exceptions=False,
     )
     assert result.exit_code == 0, result.output

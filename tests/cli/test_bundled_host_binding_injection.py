@@ -21,7 +21,14 @@ from osprey.cli.build_cmd import _inject_services
 from osprey.cli.build_injectors import _declare_bundled_host_bindings, _inject_dispatch
 from osprey.cli.build_profile_schema import DispatchConfig, ServiceDef
 
-_OUTBOUND_ONLY = ("nextcloud_bridge", "gchat_bridge", "teams_bridge", "ariel_sync", "archive")
+_OUTBOUND_ONLY = (
+    "nextcloud_bridge",
+    "gchat_bridge",
+    "teams_bridge",
+    "slack_bridge",
+    "ariel_sync",
+    "archive",
+)
 
 
 def _project(tmp_path: Path, services: dict[str, Any], **extra: Any) -> Path:
@@ -155,8 +162,10 @@ def test_a_service_claimed_in_the_profile_keeps_only_its_authors_declaration(
         nextcloud_bridge=None,
         gchat_bridge=None,
         teams_bridge=None,
+        slack_bridge=None,
         bluesky=None,
         bluesky_web=None,
+        optimizer=None,
         virtual_accelerator=None,
         va_archiver=None,
     )

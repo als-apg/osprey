@@ -25,6 +25,7 @@ from osprey.cli.repo_resolver import find_repo_root
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.fixtures.lifecycle_repo import (
     APP_PRESETS,
+    CANOPY_LIBRARY_RELPATH,
     EXEMPLAR_DIRNAME,
     EXEMPLAR_PRESET,
     IGNORED_ZONE_PATTERNS,
@@ -33,6 +34,7 @@ from tests.fixtures.lifecycle_repo import (
     TIER_PRESETS,
     build_exemplar_repo,
     exemplar_source_files,
+    packaged_canopy_library,
 )
 
 #: Command strings the redesign retires. None may survive in an artifact the
@@ -328,11 +330,42 @@ def test_repo_is_discoverable_from_any_subdirectory(lifecycle_repo: Path) -> Non
 
 
 def _all_text_files(root: Path) -> dict[str, str]:
+    """Every text file the exemplar writes; the screen library holds images."""
     return {
         str(path.relative_to(root)): path.read_text(encoding="utf-8")
         for path in sorted(root.rglob("*"))
-        if path.is_file() and ".git/" not in str(path.relative_to(root))
+        if path.is_file()
+        and ".git/" not in str(path.relative_to(root))
+        and not path.relative_to(root).as_posix().startswith(CANOPY_LIBRARY_RELPATH + "/")
     }
+
+
+def _tree(root: Path) -> dict[str, tuple[int, bytes | None]]:
+    """Each path under ``root`` with its permission bits and, for a file, its bytes."""
+    return {
+        path.relative_to(root).as_posix(): (
+            path.stat().st_mode & 0o777,
+            path.read_bytes() if path.is_file() else None,
+        )
+        for path in sorted(root.rglob("*"))
+    }
+
+
+def test_the_screen_library_is_the_packaged_one(lifecycle_repo: Path) -> None:
+    """The exemplar carries the preset's screen library, byte for byte.
+
+    Modes are the ones a fresh checkout gives: files 0644, directories 0755.
+    """
+    library = lifecycle_repo / CANOPY_LIBRARY_RELPATH
+    packaged = packaged_canopy_library()
+    expected = {
+        rel: (0o644 if data is not None else 0o755, data)
+        for rel, (_mode, data) in _tree(packaged).items()
+    }
+
+    assert (library / "LIBRARY-REPORT.json").is_file()
+    assert _tree(library) == expected
+    assert library.stat().st_mode & 0o777 == 0o755
 
 
 def test_no_retired_command_strings(lifecycle_repo: Path) -> None:
@@ -406,7 +439,7 @@ def test_ci_pipeline_follows_the_deploy_block(lifecycle_repo: Path) -> None:
     """No deploy coordinates, no pipeline — there is nothing to render one from.
 
     This is the default shape precisely because it is what a bare
-    ``osprey init --preset control-assistant`` can reproduce.
+    ``osprey init --preset demo`` can reproduce.
     """
     assert not (lifecycle_repo / ".gitlab-ci.yml").exists()
     assert not (lifecycle_repo / "scripts").exists()

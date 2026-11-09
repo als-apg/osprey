@@ -313,13 +313,14 @@ def get_logger(
     once at startup. A module that only imports Osprey therefore leaves the
     host application's logging exactly as it found it.
 
-    Primary API (recommended):
+    Name the logger by its component (the recommended form), or give ``name``
+    and ``color`` directly for a custom or module-level logger.
+
+    Args:
         component_name: Component name (e.g., 'orchestrator', 'data_analysis')
-        state: Optional state for context
         level: Accepted for backwards compatibility and ignored — set levels
             through :func:`configure_logging` or on the returned logger.
-
-    Explicit API (for custom loggers or module-level usage):
+        state: Optional state for context
         name: Direct logger name (keyword-only)
         color: Direct color specification (keyword-only)
 
@@ -327,12 +328,14 @@ def get_logger(
         ComponentLogger instance
 
     Examples:
-        # Module-level
-        logger = get_logger("orchestrator")
-        logger.info("Planning started")
+        .. code-block:: python
 
-        # Custom logger
-        logger = get_logger(name="test_logger", color="blue")
+            # Module-level
+            logger = get_logger("orchestrator")
+            logger.info("Planning started")
+
+            # Custom logger
+            logger = get_logger(name="test_logger", color="blue")
     """
     del level  # configures nothing here; see configure_logging()
 

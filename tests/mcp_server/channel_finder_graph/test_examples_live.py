@@ -79,7 +79,7 @@ pytestmark = [pytest.mark.xdist_group("docker")]
 DEMO = "demo"
 
 #: The row cap this lane installs.  It sits above every example's own ``LIMIT``
-#: (all of which are at most 200) and below the corpus' 3339 channel bindings,
+#: (all of which are at most 200) and below the corpus' 4731 channel bindings,
 #: which is what gives ``truncated`` its meaning here: an example that
 #: reports truncation filled this cap, and the only way to do that is to have
 #: lost the ``LIMIT`` the catalogue says every query carries.  Under the shipped
@@ -113,11 +113,11 @@ def examples_store_uri(graphdb_plugin_dir: Path) -> Iterator[str]:
 
 
 @pytest.fixture(scope="module")
-def demo_ttl(built_control_assistant: BuiltProject) -> str:
-    """The graph view the control-assistant build writes."""
+def demo_ttl(built_demo: BuiltProject) -> str:
+    """The graph view the demo build writes."""
     from osprey.facility.views.graph import GRAPH_FILE
 
-    path = built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
+    path = built_demo.build_dir / "data" / "graph" / GRAPH_FILE
     return path.read_text(encoding="utf-8")
 
 

@@ -9,11 +9,14 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.facility import STILL_ALL
 from osprey.facility.build import build_facility
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.render import render_facility_outputs
 from osprey.facility.scenarios import _value_errors
-from osprey_connectors.simulation import STILL_ALL
+from osprey_connectors.simulation import STILL_SCENARIO
 from osprey_connectors.simulation.envelope import active_envelopes
+from osprey_connectors.simulation.view import SimulatorView
 from tests.facility._synthetic_trees import plain_tree, write_tree
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -40,8 +43,8 @@ def test_a_corrector_gain_is_its_setpoint_calibration() -> None:
     assert faults["SR:MAG:HCM:01:CURRENT:SP"] == {"cal_factor": 0.5}
 
 
-def test_the_demo_build_carries_every_scenario_verbatim(built_control_assistant: Any) -> None:
-    built = {s["name"]: s for s in built_control_assistant.facility["scenarios"]}
+def test_the_demo_build_carries_every_scenario_verbatim(built_demo: Any) -> None:
+    built = {s["name"]: s for s in built_demo.facility["scenarios"]}
     for path in sorted((FACILITY / "scenarios").glob("*.yaml")):
         source = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert built[path.stem] == {"name": path.stem, **source}
@@ -77,18 +80,31 @@ def test_a_tango_address_fault_round_trips(tmp_path: Path) -> None:
 # --- the still sentinel -----------------------------------------------------------
 
 
-def test_the_still_value_the_build_accepts_is_the_one_the_simulator_stills_on(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("name", "authored"),
+    [("hush", {"still": STILL_ALL}), (STILL_SCENARIO, None)],
+    ids=["authored", "built-in"],
+)
+def test_the_still_value_the_build_accepts_renders_the_trees_float_channels(
+    tmp_path: Path, name: str, authored: dict[str, Any] | None
 ) -> None:
     tree = plain_tree()
-    tree["scenarios/hush.yaml"] = {"still": STILL_ALL}
+    if authored is not None:
+        tree[f"scenarios/{name}.yaml"] = authored
+    facility_dir = write_tree(tmp_path / "facility", tree)
+    document = build_facility(facility_dir, project_name="demo")
 
-    document = build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
+    render_dir = tmp_path / "render"
+    render_dir.mkdir()
+    render_facility_outputs(render_dir, document, {}, facility_dir)
 
-    hush = {s["name"]: s for s in document["scenarios"]}["hush"]
-    assert hush["still"] == STILL_ALL
-    seeds = {"BPM1:X": {"nominal": 1.0, "noise": {"absolute": 0.1}}}
-    assert active_envelopes(seeds, {"hush": hush}, ["hush"]) == {"BPM1:X": 0.0}
+    view = SimulatorView.open(render_dir / "data" / "simulator")
+    hush = {str(s["name"]): s for s in view.scenarios()}[name]
+    floats = [a for a in view.channels() if view.channel(a).value_type == "float"]
+    assert floats
+    assert list(hush["still"]) == floats
+    seeds = {address: {"nominal": 1.0, "noise": {"absolute": 0.1}} for address in floats}
+    assert set(active_envelopes(seeds, {name: hush}, [name]).values()) == {0.0}
 
 
 def test_a_still_value_other_than_the_sentinel_stops_the_build(tmp_path: Path) -> None:
@@ -98,7 +114,7 @@ def test_a_still_value_other_than_the_sentinel_stops_the_build(tmp_path: Path) -
     with pytest.raises(FacilityBuildError) as caught:
         build_facility(write_tree(tmp_path / "facility", tree), project_name="demo")
 
-    assert "neither `all` nor a list of addresses" in str(caught.value)
+    assert "neither `all` nor a list of addresses and selections" in str(caught.value)
 
 
 # --- stop lines carry every digit -------------------------------------------------

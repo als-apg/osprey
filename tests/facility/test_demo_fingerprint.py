@@ -1,12 +1,12 @@
 """The built demo against its frozen fingerprint.
 
-``osprey build`` on the control-assistant preset writes ``build/facility.json``.
+``osprey build`` on the demo preset writes ``build/facility.json``.
 Its channels, joined as the fingerprint joins them less the ``names`` column
 (address, role, value type, description), hold every frozen row with its
 address, role and value type unchanged and its description as the prefix of
 the served one, and what they hold beyond the frozen rows is exactly the
 additions file, the transfer line's rows among them; no demo channel carries
-a name. The build holds 644 devices in 73 groups, five of them the line's,
+a name. The build holds 1016 devices in 79 groups, five of them the line's,
 and twelve sectors under ``SR``. The file validates as the
 generated ``Facility`` model, and the committed sources validate clean. The
 channel roster read off the built render enumerates every frozen address with
@@ -65,9 +65,9 @@ def test_the_frozen_rows_are_unchanged() -> None:
 
 
 def test_every_frozen_row_is_served_with_its_description_as_a_prefix(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    served = {row["address"]: row for row in _rows(built_control_assistant.facility)}
+    served = {row["address"]: row for row in _rows(built_demo.facility)}
     missing = [row["address"] for row in fingerprint_rows() if row["address"] not in served]
     frozen = [row for row in map(_project, fingerprint_rows()) if row["address"] in served]
     changed = [
@@ -80,38 +80,36 @@ def test_every_frozen_row_is_served_with_its_description_as_a_prefix(
     assert changed == []
 
 
-def test_no_demo_channel_carries_a_name(built_control_assistant: BuiltProject) -> None:
-    assert [c["id"] for c in built_control_assistant.facility["channels"] if c.get("names")] == []
+def test_no_demo_channel_carries_a_name(built_demo: BuiltProject) -> None:
+    assert [c["id"] for c in built_demo.facility["channels"] if c.get("names")] == []
 
 
 def test_the_rows_beyond_the_frozen_ones_are_exactly_the_additions(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     frozen = {row["address"] for row in fingerprint_rows()}
-    beyond = [
-        row for row in _rows(built_control_assistant.facility) if row["address"] not in frozen
-    ]
+    beyond = [row for row in _rows(built_demo.facility) if row["address"] not in frozen]
     assert beyond == [
         _project(row) for row in load_golden("demo_fingerprint_additions.json")["rows"]
     ]
 
 
 def test_the_line_rows_are_exactly_the_additions_line_rows(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     def line(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [row for row in rows if row["address"].startswith("LINE:")]
 
-    served = line(_rows(built_control_assistant.facility))
+    served = line(_rows(built_demo.facility))
     added = line([_project(row) for row in load_golden("demo_fingerprint_additions.json")["rows"]])
     assert len(served) == 40
     assert served == added
 
 
-def test_the_demo_holds_644_devices_in_73_groups(built_control_assistant: BuiltProject) -> None:
-    groups = sorted(group["id"] for group in built_control_assistant.facility["groups"])
-    assert len(built_control_assistant.facility["devices"]) == 644
-    assert len(groups) == 73
+def test_the_demo_holds_1016_devices_in_79_groups(built_demo: BuiltProject) -> None:
+    groups = sorted(group["id"] for group in built_demo.facility["groups"])
+    assert len(built_demo.facility["devices"]) == 1016
+    assert len(groups) == 79
     assert [group for group in groups if group.startswith("LINE/")] == [
         "LINE/BPM",
         "LINE/HCM",
@@ -121,42 +119,42 @@ def test_the_demo_holds_644_devices_in_73_groups(built_control_assistant: BuiltP
     ]
 
 
-def test_the_facility_file_validates_as_the_model(built_control_assistant: BuiltProject) -> None:
+def test_the_facility_file_validates_as_the_model(built_demo: BuiltProject) -> None:
     from osprey.facility.schema import Facility
 
-    Facility.model_validate(built_control_assistant.facility)
-    assert built_control_assistant.facility["schema"] == FACILITY_HEADER
+    Facility.model_validate(built_demo.facility)
+    assert built_demo.facility["schema"] == FACILITY_HEADER
 
 
-def test_the_sources_validate_clean(built_control_assistant: BuiltProject) -> None:
+def test_the_sources_validate_clean(built_demo: BuiltProject) -> None:
     from osprey.facility.validate import validate
 
     out = io.StringIO()
     code = validate(
-        built_control_assistant.facility_dir,
-        project_name=built_control_assistant.repo.name,
+        built_demo.facility_dir,
+        project_name=built_demo.repo.name,
         file=out,
     )
     assert (code, out.getvalue()) == (0, "")
 
 
 def test_twelve_sectors_lie_under_sr(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    places = built_control_assistant.facility["places"]
+    places = built_demo.facility["places"]
     sectors = [place["id"] for place in places if place.get("level") == "sector"]
     assert sectors == sorted(f"SR/SECT{n}" for n in range(1, 13))
 
 
 def test_the_roster_enumerates_every_frozen_address_with_its_direction(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     import yaml
 
     from osprey.channel_roster import registered_channels
 
-    config = yaml.safe_load((built_control_assistant.build_dir / "config.yml").read_text())
-    config["config_dir"] = str(built_control_assistant.build_dir)
+    config = yaml.safe_load((built_demo.build_dir / "config.yml").read_text())
+    config["config_dir"] = str(built_demo.build_dir)
 
     roster = registered_channels(config)
 

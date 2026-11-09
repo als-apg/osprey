@@ -147,7 +147,7 @@ def _render_reuses_parsed_templates_and_tokens():
 _OVERRIDE_PORT_BASE = 20000
 _CONFIGURED_BASE_PORTS = {
     family: default_port(family, 0, base=_OVERRIDE_PORT_BASE)
-    for family in ("web", "artifact", "ariel", "lattice")
+    for family in ("web", "artifact", "ariel")
 }
 # No test config in this module sets `deployment.port_base`, so the render
 # resolves the layout's default base and the unconfigured families land on their
@@ -184,7 +184,6 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
         "web_base_port": _CONFIGURED_BASE_PORTS["web"],
         "artifact_base_port": _CONFIGURED_BASE_PORTS["artifact"],
         "ariel_base_port": _CONFIGURED_BASE_PORTS["ariel"],
-        "lattice_base_port": _CONFIGURED_BASE_PORTS["lattice"],
         "users": users,
         "default_tier": "assistant",
         "renders": {"assistant": tier_render("assistant", "dls_controls-assistant")},
@@ -1198,30 +1197,30 @@ def test_render_missing_companion_base_port_uses_layout_default() -> None:
     panel existed) must render with the layout default, not fail."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
-    del config["modules"]["web_terminals"]["lattice_base_port"]
+    del config["modules"]["web_terminals"]["ariel_base_port"]
 
     # Act
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — lattice family renders from its layout band for every user.
-    default_base = framework_web_port_default("lattice_dashboard", base=DEFAULT_PORT_BASE)
+    # Assert — the ariel family renders from its layout band for every user.
+    default_base = framework_web_port_default("ariel", base=DEFAULT_PORT_BASE)
     for index, user in enumerate(["alice", "bob", "carol"]):
         env = compose["services"][f"web-{user}"]["environment"]
-        assert f"OSPREY_LATTICE_DASHBOARD_PORT={default_base + index}" in env
+        assert f"OSPREY_ARIEL_PORT={default_base + index}" in env
 
 
 def test_render_derives_every_family_from_port_base_20000() -> None:
     """The pin: with `deployment.port_base: 20000` and a stanza naming no port at
-    all, user 0's seven families land on the 20000 block — 20100 (terminal),
-    20200 (gallery), 20300 (ARIEL), 20400 (lattice), 20500 (channel finder),
+    all, user 0's six families land on the 20000 block — 20100 (terminal),
+    20200 (gallery), 20300 (ARIEL), 20500 (channel finder),
     20600 (OKF), 20700 (system health). This is the whole feature in one
     assertion: one knob moves the deployment, and nothing here reads a default
     base."""
     # Arrange — strip every base-port key, then set the block's base.
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
-    for family in ("web", "artifact", "ariel", "lattice"):
+    for family in ("web", "artifact", "ariel"):
         web_terminals.pop(f"{family}_base_port", None)
     config["deployment"] = {"port_base": 20000}
 
@@ -1235,7 +1234,6 @@ def test_render_derives_every_family_from_port_base_20000() -> None:
     assert int(env_map["OSPREY_WEB_PORT"]) == 20100
     assert int(env_map[PANEL_ENV_VARS["artifact"]]) == 20200
     assert int(env_map[PANEL_ENV_VARS["ariel"]]) == 20300
-    assert int(env_map[PANEL_ENV_VARS["lattice"]]) == 20400
     assert int(env_map[PANEL_ENV_VARS["channel_finder"]]) == 20500
     assert int(env_map[PANEL_ENV_VARS["okf"]]) == 20600
     assert int(env_map[PANEL_ENV_VARS["system_health"]]) == 20700
@@ -1708,6 +1706,8 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
         "./var/simulator:/app/dls-gui/var/simulator",
         "./var/guarded_run:/app/dls-gui/var/guarded_run",
+        "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+        "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
@@ -1725,16 +1725,18 @@ def test_render_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
         ),
         "./var/simulator:/app/dls_controls-assistant/var/simulator",
         "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
+        "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+        "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
     ]
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A render with no `extra_mounts` emits exactly the eight
+    """A render with no `extra_mounts` emits exactly the
     framework per-user volume lines — claude-config, the transcripts volume
     nested in it, agent-data, this user's own
     spool and state subdirectories, its own control-context record directory, the simulator
-    logs of its mock target and the guarded-run directory — and the extra_mounts
-    loop adds nothing."""
+    logs of its mock target, the guarded-run directory, and the programs' write
+    requests and write ledger — and the extra_mounts loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1756,6 +1758,8 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
             ),
             "./var/simulator:/app/dls_controls-assistant/var/simulator",
             "./var/guarded_run:/app/dls_controls-assistant/var/guarded_run",
+            "./var/write_ledger/requests:/opt/osprey/write_authorization/requests:ro",
+            "./var/write_ledger:/opt/osprey/write_authorization/ledger_view:ro",
         ]
 
 
@@ -4898,7 +4902,7 @@ _LAUNCH_TOKEN_LINE = "BLUESKY_LAUNCH_TOKEN=${BLUESKY_LAUNCH_TOKEN:-}"
 #
 # `osprey up` mints the archiver store's password into the deploy `.env` under
 # the name the connector block reads (`archiver.<type>.auth.password_env`, which the
-# control-assistant preset spells MONGO_ROOT_PASSWORD); an archiver behind a
+# demo preset spells MONGO_ROOT_PASSWORD); an archiver behind a
 # bearer token names its variable under `auth.token_env`. The agent inside a web
 # terminal authenticates with exactly those variables, and `.env.users` excludes
 # service tokens by design -- so a container that is not handed them per-user

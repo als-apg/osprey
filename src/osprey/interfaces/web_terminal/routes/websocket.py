@@ -8,8 +8,9 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -17,7 +18,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, StrictBool, field_validator
 from starlette.concurrency import run_in_threadpool
@@ -703,6 +704,7 @@ class _TerminalChannel:
         interrupt: bool,
         spawn: SpawnCallback,
         end_started: bool = False,
+        launch_env: Callable[[str], dict[str, str] | None] | None = None,
     ) -> AcquireResult:
         """Take *key* for the terminal surface while reading the socket.
 
@@ -722,6 +724,7 @@ class _TerminalChannel:
                 interrupt=interrupt,
                 spawn=spawn,
                 end_started=end_started,
+                launch_env=launch_env,
             )
         finally:
             reader.cancel()
@@ -759,6 +762,7 @@ async def _open_surface(
     interrupt: bool,
     spawn: SpawnCallback,
     end_started: bool = False,
+    launch_env: Callable[[str], dict[str, str] | None] | None = None,
 ) -> AcquireResult | None:
     """Take *key* for this terminal, answering the client for every way that can end.
 
@@ -785,7 +789,12 @@ async def _open_surface(
         await channel.send_json({"type": "handoff_pending", "busy": _chat_is_busy(app, key)})
     try:
         return await channel.acquire(
-            app, key, interrupt=interrupt, spawn=spawn, end_started=end_started
+            app,
+            key,
+            interrupt=interrupt,
+            spawn=spawn,
+            end_started=end_started,
+            launch_env=launch_env,
         )
     except session_handoff.HandoffRefused as refused:
         logger.info("Refusing the terminal session %s: %s", key, refused)
@@ -854,8 +863,8 @@ async def _spawn_pooled_pty(
         command: The child's argv.
         rows: Initial terminal height.
         cols: Initial terminal width.
-        extra_env: The one launch-env overlay used for the mismatch check and
-            the spawn alike.
+        extra_env: The overlay the door compared the key against, used for
+            the mismatch check and the spawn alike.
         cwd: Working directory for a spawned child.
 
     Returns:
@@ -911,7 +920,9 @@ async def terminal_ws(websocket: WebSocket):
     the conversation off from a chat that holds it (``handoff_pending``
     while that finishes), takes it over from an older terminal on the same
     key (closed with 4409), reuses the pooled PTY, or spawns one resuming
-    the key's current transcript. The spawn callback below, through
+    the key's current transcript. A pooled PTY is reused only when it was
+    launched under the overlay this handler would launch it with now;
+    otherwise the door replaces it. The spawn callback below, through
     :func:`_spawn_pooled_pty`, is the only place the registry's create path is
     called from, and it never lets that path kill on the loop.
 
@@ -1014,16 +1025,18 @@ async def terminal_ws(websocket: WebSocket):
             )
         else:
             command = build_session_argv(base_shell_command, session_id=request.key, effort=effort)
-        extra_env = _build_extra_env(websocket, request.key, request.key)
         return await _spawn_pooled_pty(
             registry,
             request.key,
             command,
             rows=channel.rows,
             cols=channel.cols,
-            extra_env=extra_env or None,
+            extra_env=request.launch_env,
             cwd=app.state.project_cwd,
         )
+
+    def launch_env(key: str) -> dict[str, str] | None:
+        return _build_extra_env(websocket, key, key) or None
 
     async def close_displaced() -> None:
         # A newer terminal on the same key took the PTY over. This handler's
@@ -1049,7 +1062,13 @@ async def terminal_ws(websocket: WebSocket):
     output_task: asyncio.Task[None] | None = None
     try:
         result = await _open_surface(
-            channel, app, current_key, interrupt=interrupt, spawn=spawn, end_started=end_started
+            channel,
+            app,
+            current_key,
+            interrupt=interrupt,
+            spawn=spawn,
+            end_started=end_started,
+            launch_env=launch_env,
         )
         if result is None or channel.closed.is_set():
             return
@@ -1153,6 +1172,7 @@ async def terminal_ws(websocket: WebSocket):
                                 interrupt=False,
                                 spawn=spawn,
                                 end_started=False,
+                                launch_env=launch_env,
                             )
                         except Exception:
                             logger.exception("Session switch to %s failed", target_id)
@@ -2925,6 +2945,52 @@ def _switch_state(record: Any, status: str, target: str) -> str | None:
     return None if status == "unreadable" else control_context.switch_position(record, target)
 
 
+def _program_holds(record: Any) -> dict[str, list[dict[str, Any]]]:
+    """This login's program authorizations still in force, by machine. BLOCKING; never raises.
+
+    Read from the ``authorizations`` directory beside the login's record, and
+    the self-issued grants naming this login from the holders' ledger
+    directory this terminal sees read-only
+    (:func:`~osprey_connectors.write_authorization.self_issued_directories`).
+    In force is :func:`~osprey_connectors.write_authorization.grant_standing`'s:
+    not revoked, not expired, issued under the record's epoch, and not ended
+    by the holder's ledger (its lease lapsed or every step spent). A row says
+    a program may write here, not that one is writing now. A directory that
+    cannot be read reports none: a grant there that cannot be read refuses
+    every write already.
+
+    A self-issued row is in force only while the switch stands at ``allowed``,
+    and ends by moving it off ``allowed`` (the row's off control), not by a
+    revoke this terminal could write.
+    """
+    from osprey_connectors import write_authorization
+
+    login = acting_identity()
+    own = write_authorization.authorizations_dir()
+    ledgers = write_authorization.self_issued_directories()
+    now = time.time_ns()
+    holds: dict[str, list[dict[str, Any]]] = {}
+    found, _unreadable = write_authorization.listed_grants([] if own is None else [own], ledgers)
+    for grant, _directory in found:
+        if grant.owner != login:
+            continue
+        standing = write_authorization.grant_standing(grant, record, ledgers, now_ns=now)
+        if not standing.in_force:
+            continue
+        holds.setdefault(grant.target, []).append(
+            {
+                "id": grant.id,
+                "holder": grant.holder,
+                "label": grant.label,
+                "steps": grant.steps,
+                "used": standing.used,
+                "expires_in_s": max(0.0, round((grant.expires_at_ns - now) / 1e9, 1)),
+                "self_issued": grant.approver.surface == write_authorization.SELF_ISSUE_SURFACE,
+            }
+        )
+    return holds
+
+
 def _session_held(app: Any, session_id: str | None) -> bool:
     """Whether the named session has an unanswered hold. BLOCKING; never raises.
 
@@ -2992,6 +3058,7 @@ def _posture_view(
     control_target = record.target if record is not None else baseline
 
     configured = list(_configured_target_names(section))
+    programs = _program_holds(record)
     # Resolved BEFORE the render, and exactly once. The display metadata names
     # one gateway per target, and WHICH gateway depends on the same verdict the
     # rows below publish.
@@ -3031,6 +3098,10 @@ def _posture_view(
                 "reason": reason,
                 "reason_detail": reason_detail,
                 "switch": _switch_state(record, record_status, target),
+                # A program's authorization on this machine, in force: the chip
+                # shows it as held, and the row's off control revokes it.
+                "program_hold": bool(programs.get(target)),
+                "programs": programs.get(target, []),
                 # Whether the next write prompts: the effective position, so a
                 # stored ``allowed`` capped at ``asked`` answers true.
                 "prompt": verdict.position == "asked",
@@ -3058,11 +3129,15 @@ def _posture_view(
         "readonly_run": readonly_run,
         "switch_epoch": None if record is None else wire_epoch(record.switch_epoch),
         # What enables "Turn all off": any machine armed in this login's record,
-        # configured here or not — a machine a later render dropped is still armed.
-        "any_armed": record is not None
-        and any(
-            control_context.switch_position(record, target) != SWITCH_OFF
-            for target in record.switch
+        # configured here or not — a machine a later render dropped is still armed —
+        # or a program's authorization in force, which the stop revokes.
+        "any_armed": bool(programs)
+        or (
+            record is not None
+            and any(
+                control_context.switch_position(record, target) != SWITCH_OFF
+                for target in record.switch
+            )
         ),
         "locks": {"readonly_run": readonly_run, "tier": _login_tier(section, login)},
         "owner": _owner_row(app, record),
@@ -3098,6 +3173,11 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       (C-KIND), and ``short_label`` follows it — never the label's shape or
       the target name, so a stand-in no server vouched for reads as the real
       machine.
+    * ``program_hold`` / ``programs`` — whether a program's write
+      authorization of this login is in force on the machine, and each one's
+      ``{id, holder, label, steps, used, expires_in_s, self_issued}``; ``used``
+      is ``null`` where the holder's ledger cannot be read. The machine's
+      switch may be off beside it; the row's off control revokes it.
     * ``switch`` / ``write_allowed`` / ``write_reason`` / ``write_phrase`` —
       the login's switch for the machine (``on`` | ``off``, ``null`` when the
       record cannot be read) and the write verdict a new call by the signed-in
@@ -3141,7 +3221,8 @@ async def get_terminal_posture(request: Request, session_id: str | None = None):
       sends back unchanged with a turn-on (C-POST); ``null`` for no record or an
       epoch-less one.
     * ``any_armed`` — whether any machine is armed in this login's record,
-      configured here or not; it enables "Turn all off".
+      configured here or not, or a program's authorization is in force; it
+      enables "Turn all off".
     * ``locks`` — ``{readonly_run, tier}``: the two locks no chip gesture
       lifts. ``tier`` is this login's ceiling and its one home: ``never``,
       ``asked``, ``allowed`` or ``unknown``.

@@ -1,6 +1,6 @@
 """Reverse proxy for companion panel servers running inside the container.
 
-Companion servers (artifact gallery, ARIEL, channel-finder, lattice, OKF) and
+Companion servers (artifact gallery, ARIEL, channel-finder, OKF) and
 the notebook sidecar bind to 127.0.0.1 inside the Docker container.  The browser cannot reach them
 directly, so this proxy forwards ``/panel/{panel_id}/{path}`` to the internal
 server and rewrites root-absolute paths in HTML/JS/CSS responses.
@@ -74,6 +74,7 @@ from osprey.interfaces.common_middleware import (
     EXTERNAL_ORIGIN_ENV,
     FACILITY_TIMEZONE_ATTRIBUTE,
     FIRST_PARTY_PANEL_STATIC,
+    FIRST_PARTY_PANEL_VIEWERS,
     MOUNT_SEGMENT_RE,
     PANEL_ADMISSION_STATE_KEY,
     PANEL_ASSET_SUBPATHS,
@@ -147,7 +148,7 @@ class _PanelSandboxRoute(APIRoute):
     by the same path the browser asked for.
     """
 
-    def get_route_handler(self):  # type: ignore[override]
+    def get_route_handler(self):
         handler = super().get_route_handler()
         below = self.path_format.removeprefix(_PANEL_MOUNT_TEMPLATE)
 
@@ -189,6 +190,10 @@ _REWRITE_PREFIXES = (
     "/webhook/",
     "/retry/",
     "/trigger/",
+    # The gallery's extension-type viewer modules (artifact-viewport.js builds
+    # the import URL as a `/viewers/...` literal), answered by
+    # ``proxy_panel_artifacts_viewer`` for the embedded gallery.
+    "/viewers/",
 )
 
 # Content types eligible for path rewriting.
@@ -1376,14 +1381,14 @@ async def proxy_panel_terminal_static(
 #:
 #: The notebook panel is a page an operator runs code from, so it is the one
 #: panel where "which machine does this land on, and may it write?" has to be
-#: answerable on the page itself once the page is on its own — popped out of
-#: the hub, or opened at its own address. Every other panel's HTML is relayed
-#: untouched.
+#: answerable on the page itself once the pane is out in a window of its own.
+#: Every other panel's HTML is relayed untouched.
 #:
-#: The tag goes in regardless of how the page is opened; the bar module mounts
-#: only when its document is a top-level window, so a Lab page framed inside
-#: the hub keeps the header chip as its one picker. That test is the page's to
-#: make: a request does not say whether it came from a frame.
+#: The tag goes in regardless of how the page is opened. The module sends a page
+#: opened at its own address to the hub, and mounts the bar only where the page
+#: has no other picker, so a Lab page framed inside the hub keeps the sidebar's
+#: chip as its one picker. That test is the page's to make: a request does not
+#: say whether it came from a frame.
 _LAB_BAR_PANEL_ID = "jupyter"
 
 #: The bar's entry module, relative to the terminal-static route's root.
@@ -1452,9 +1457,9 @@ def _control_target_bar_markup(
        of ``/panel/jupyter`` would aim every read at JupyterLab, which answers
        none of them.
     2. **A scoped import map**, for the root-absolute module specifiers in the
-       bar's import closure, both under ``/design-system/`` (``confirm-skip.js``
-       imports ``storage-scope.js``, ``lab-theme-follow.js`` imports
-       ``tokens.js``). The hub's own page retargets that prefix with a
+       bar's import closure, all under ``/design-system/`` (the bar imports
+       ``frame-params.js``, ``confirm-skip.js`` imports ``storage-scope.js``,
+       ``lab-theme-follow.js`` imports ``tokens.js``). The hub's own page retargets that prefix with a
        document-wide import map; here the mapping is confined to a
        ``scopes`` entry keyed on the bar's own directory, so nothing the panel
        itself imports can be redirected by it. With an empty prefix the mapping
@@ -1875,6 +1880,36 @@ for _panel_id, _subpaths in FIRST_PARTY_PANEL_STATIC.items():
 del _panel_id, _subpaths, _subpath, _root
 
 
+@router.api_route(f"{FIRST_PARTY_PANEL_VIEWERS}{{key}}.js", methods=["GET", "HEAD"])
+async def proxy_panel_artifacts_viewer(key: str) -> Response:
+    """Serve extension type ``key``'s viewer module to the embedded gallery.
+
+    A C-ASSETS path (:data:`~osprey.interfaces.common_middleware.FIRST_PARTY_PANEL_VIEWERS`):
+    the embedded gallery is an opaque-origin document, so its viewer import is
+    a credential-less CORS request that could not reach the gated catch-all.
+    MUST stay declared above :func:`proxy_panel`.
+
+    The bytes are the one file :func:`~osprey.stores.type_registry.viewer_path`
+    resolved for ``key`` at load, served verbatim; the key never touches the
+    filesystem. An unknown key, or a type without a viewer, is a 404 here and
+    never reaches the backend.
+    """
+    from osprey.stores.type_registry import viewer_path
+
+    path = viewer_path(key)
+    if path is None or not path.is_file():
+        return Response(content="Not found", status_code=404)
+    return Response(
+        content=path.read_bytes(),
+        headers={
+            "cache-control": _DEFAULT_NO_CACHE,
+            "x-content-type-options": "nosniff",
+            **ASSET_CORS_HEADERS,
+        },
+        media_type="text/javascript",
+    )
+
+
 _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 
@@ -2199,6 +2234,11 @@ async def _forward_to_panel(
             content=f"Upstream connection failed: {exc}",
             status_code=502,
         )
+    except BaseException:
+        # Anything else that escapes still leaves each observed call its row.
+        if observer is not None:
+            observer.close()
+        raise
 
     # Filter response headers (see _filter_response_headers); fill in the
     # no-cache default when the upstream made no caching decision of its own

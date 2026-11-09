@@ -1,16 +1,18 @@
-"""Project creation helpers: directory structure, services, data files.
+"""Project creation helpers: directory structure, services, data files."""
 
-Includes :func:`materialize_benchmark_queries`, the build-time step that copies
-the selected mode's benchmark query file to ``data/benchmarks/queries.json``
-and removes the facility tree's channel-finder staging subtrees from the
-render.
-"""
+from __future__ import annotations
 
 import logging
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 from osprey.cli.templates._rendering import render_template
+from osprey.cli.templates.preset_data import FACILITY_DATA_DIRNAME
+from osprey.facility.roots import is_vcs_metadata
+
+if TYPE_CHECKING:
+    from osprey.facility.roots import FacilityRoots
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -187,6 +189,9 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
         "IOC (only on a deployment with `bluesky.second_lane`)"
     ),
     "OSPREY_TERMINAL_SECRET": "the operator login secret for the bluesky-web panel's web gate",
+    "OPTIMIZER_LAUNCH_TOKEN": (
+        "arms the optimizer API's routes that start runs, write to the machine or load a model"
+    ),
     "ARIEL_DB_PASSWORD": "ARIEL Postgres password (also fills the agent's derived DSN)",
     "ARIEL_DB_READONLY_PASSWORD": (
         "password of the SELECT-only Postgres role the agent's SQL tool queries through"
@@ -264,7 +269,8 @@ def create_project_structure(
         (CONFIG_TEMPLATE, "config.yml"),
         ("env.example.j2", ".env.example"),
         ("README.md.j2", "README.md"),
-        # Reference container image — rendered once at build; regen never touches it
+        # Reference container image — rendered into the render on every build;
+        # regenerate_claude_code never touches it
         ("Dockerfile.j2", "Dockerfile"),
     ]
 
@@ -368,6 +374,7 @@ def copy_template_data(
     ctx: dict,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
     jinja_env=None,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
     data_root: Path | None = None,
+    facility_roots: FacilityRoots | None = None,
 ):
     """Copy the profile's data tree to the project root (no src/ package).
 
@@ -388,7 +395,17 @@ def copy_template_data(
             ``data:`` key), required. Symlinks inside the tree are
             dereferenced into real files: a built project is self-contained
             and must not depend on paths under the profile directory
-            surviving.
+            surviving. Version-control metadata (``.git``) is never copied,
+            at any depth.
+        facility_roots: The deployment's resolved facility roots. When
+            mounted, every machine entry of the machine root
+            (:func:`~osprey.facility.roots.is_machine_entry`) is copied into
+            ``data/facility`` after the data tree, so the render carries one
+            facility tree: the machine's facts beside the deployment's own
+            ``knowledge/``, ``ariel/`` and ``benchmarks/``. The two never
+            collide, because the build stops on a deployment file that
+            restates a machine fact. ``None`` or a single tree copies nothing
+            more.
 
     Raises:
         ValueError: If ``data_root`` is None. Every profile declares ``data:``
@@ -413,71 +430,66 @@ def copy_template_data(
 
     dst_data = project_dir / "data"
 
-    def _drop_runtime_output(directory: str, names: list[str]) -> set[str]:
+    root = Path(data_root)
+    benchmarks = root / FACILITY_DATA_DIRNAME / "benchmarks"
+
+    def _skip_unrendered(directory: str, names: list[str]) -> set[str]:
         # data/.runtime/ is runtime-minted material (`osprey up`'s CURVE
         # certificates) — private keys that must not be staged into
-        # build/ or into the images built from it. Top level only, the
-        # same anchoring the fingerprint fold applies to the same name.
-        if Path(directory) == Path(data_root) and RUNTIME_DATA_DIR_NAME in names:
-            return {RUNTIME_DATA_DIR_NAME}
-        return set()
+        # build/ or into the images built from it. data/raw/ holds raw
+        # staging inputs no render reads. Both top level only, the
+        # same anchoring the fingerprint fold applies to the runtime name.
+        # The benchmark query sources reach a render only through the
+        # benchmarks view, so their subtree is not copied, nor a
+        # facility/benchmarks/ that holds nothing else.
+        # A `.git` entry (a clone's directory, a submodule's pointer file) is
+        # version control at any depth, never data.
+        vcs = {name for name in names if is_vcs_metadata(PurePosixPath(name))}
+        here = Path(directory)
+        if here == root:
+            return vcs | ({RUNTIME_DATA_DIR_NAME, "raw"} & set(names))
+        if (
+            here == benchmarks.parent
+            and "benchmarks" in names
+            and {entry.name for entry in benchmarks.iterdir()} <= {"cross_paradigm"}
+        ):
+            return vcs | {"benchmarks"}
+        if here == benchmarks and "cross_paradigm" in names:
+            return vcs | {"cross_paradigm"}
+        return vcs
 
     # dirs_exist_ok is defensive — no build path reaches here with data/ present.
-    shutil.copytree(data_root, dst_data, dirs_exist_ok=True, ignore=_drop_runtime_output)
+    shutil.copytree(data_root, dst_data, dirs_exist_ok=True, ignore=_skip_unrendered)
     logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
 
-
-#: The staging subtrees a facility data tree may carry that no render needs:
-#: the benchmark query sources and the raw inputs. Relative to the render's
-#: ``data/``.
-_RENDER_EXCLUDED_DATA_DIRS: tuple[tuple[str, ...], ...] = (
-    ("benchmarks", "cross_paradigm"),
-    ("raw",),
-)
+    if facility_roots is not None and facility_roots.mounted:
+        copy_machine_tree(facility_roots, dst_data / FACILITY_DATA_DIRNAME)
 
 
-def materialize_benchmark_queries(project_dir: Path, channel_finder_mode: str) -> None:
-    """Copy the mode's benchmark query file into place and prune the staging trees.
+def copy_machine_tree(roots: FacilityRoots, dst_facility: Path) -> None:
+    """Copy a mounted machine root's facts into a render's ``data/facility``.
 
-    The facility tree ships its benchmark query sources under
-    ``data/benchmarks/cross_paradigm/queries/``: ``in_context_queries.json``
-    for ``in_context`` and ``tree_queries.json`` for every other mode. The selected
-    one is copied to ``data/benchmarks/queries.json``. Then
-    ``data/benchmarks/cross_paradigm/`` and ``data/raw/`` are removed from the
-    render; the facility tree they were copied from is never touched. Each channel-finder index is the view the
-    build writes at its own path, so nothing is flattened here.
-
-    A render whose tree ships no ``data/benchmarks/cross_paradigm/`` subtree
-    gets no ``queries.json``.
+    The runtime reads one facility tree, ``data/facility``: the knowledge
+    mounts, the ARIEL vocabulary and the agent rules naming
+    ``data/facility/identity.yaml`` and ``limits.yaml`` all expect it. A
+    mounted deployment's tree is therefore assembled in the render: its own
+    content is already there from the data copy, and the machine's facts land
+    beside it. Only :func:`~osprey.facility.roots.is_machine_entry` entries are
+    copied, so the machine repository's ``.git`` and its own copies of the
+    deployment content directories stay out. Symlinks are dereferenced, as for
+    the data tree.
 
     Args:
-        project_dir: Root directory of the rendered project.
-        channel_finder_mode: Channel-finder mode from the build profile.
-
-    Raises:
-        FileNotFoundError: If the tree ships query sources but none for this
-            mode. Raised before anything is copied or removed.
+        roots: The deployment's resolved, mounted facility roots.
+        dst_facility: The render's ``data/facility`` directory.
     """
-    data_dir = project_dir / "data"
-    queries_root = data_dir / "benchmarks" / "cross_paradigm" / "queries"
-    if queries_root.exists():
-        source_name = (
-            "in_context_queries.json"
-            if channel_finder_mode == "in_context"
-            else "tree_queries.json"
-        )
-        queries_src = queries_root / source_name
-        if not queries_src.exists():
-            raise FileNotFoundError(
-                f"Benchmark queries file not found: {queries_src} "
-                f"(channel_finder_mode={channel_finder_mode!r})"
-            )
-        queries_dst = data_dir / "benchmarks" / "queries.json"
-        shutil.copy2(queries_src, queries_dst)
-        logger.debug("Copied benchmark queries %s to %s", queries_src, queries_dst)
+    from osprey.facility.roots import is_machine_entry
 
-    for parts in _RENDER_EXCLUDED_DATA_DIRS:
-        excluded = data_dir.joinpath(*parts)
-        if excluded.exists():
-            shutil.rmtree(excluded)
-            logger.debug("Removed %s from the render", excluded)
+    machine = roots.machine
+
+    def _skip_non_machine(directory: str, names: list[str]) -> set[str]:
+        rel = Path(directory).relative_to(machine)
+        return {name for name in names if not is_machine_entry(roots, PurePosixPath(rel, name))}
+
+    shutil.copytree(machine, dst_facility, dirs_exist_ok=True, ignore=_skip_non_machine)
+    logger.debug("Copied the machine root %s to %s", machine, dst_facility)

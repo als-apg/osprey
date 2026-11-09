@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Procedure
 title: Vacuum Recovery
 description: Procedure to recover from a vacuum event (vent or pressure excursion) back to UHV operating conditions.

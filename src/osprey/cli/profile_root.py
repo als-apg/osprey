@@ -24,13 +24,14 @@ profile missing everything the root was meant to supply. A stem present in both
 ``tiers/`` and ``apps/`` is refused: the name is the render's name, and one name
 cannot be both an access level of the deployment's agent and a separate app.
 
-The retired layer directory is read as ``tiers/`` for one release, with a single
+The retired layer directory is read as ``tiers/`` until the roster sunset, with a single
 warning naming the rewrite.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from enum import Enum, StrEnum
 from pathlib import Path
@@ -75,6 +76,14 @@ _LAYER_KINDS: dict[str, ProfileKind] = {
     **{d: ProfileKind(word) for d, word in LAYER_DIR_KINDS.items()},
     **{d: ProfileKind(LAYER_DIR_KINDS[live]) for d, live in RETIRED_LAYER_DIRS.items()},
 }
+
+
+def symlink_escapes(path: Path, root: Path) -> bool:
+    """True when ``path`` is a symlink resolving outside ``root``."""
+    if not path.is_symlink():
+        return False
+    # realpath answers for a link loop on every supported Python; ``Path.resolve`` raises on 3.11.
+    return not Path(os.path.realpath(path)).is_relative_to(root.resolve())
 
 
 def layer_files(root_dir: Path) -> list[tuple[ProfileKind, Path]]:

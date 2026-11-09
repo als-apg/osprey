@@ -49,6 +49,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey.facility import DEFAULT_ROLE, TEXTURE
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs, view_bytes
 
 __all__ = [
@@ -102,15 +103,15 @@ def parsed_facility(raw: bytes) -> Any:
     return _parsed[1]
 
 
-def _identity(doc: Mapping[str, Any], project_name: str | None) -> dict[str, Any]:
+def _identity(records: FacilityRecords, project_name: str | None) -> dict[str, Any]:
     from osprey.utils.facility import identity_record
 
-    return dict(identity_record(doc["identity"], project_name))
+    return dict(identity_record(records.document["identity"], project_name))
 
 
-def _place_levels(doc: Mapping[str, Any]) -> list[str]:
+def _place_levels(records: FacilityRecords) -> list[str]:
     depth: dict[str, int] = {}
-    for place in doc.get("places", []):
+    for place in records.of_kind("place"):
         level = place.get("level")
         if level is None:
             continue
@@ -127,11 +128,11 @@ def _class_counts(devices: list[Mapping[str, Any]]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-def _places(doc: Mapping[str, Any]) -> list[dict[str, Any]]:
+def _places(records: FacilityRecords) -> list[dict[str, Any]]:
     """Each place with its level, its names and the devices at or under it by class."""
-    devices = doc.get("devices", [])
+    devices = records.of_kind("device")
     places = []
-    for place in sorted(doc.get("places", []), key=lambda place: str(place["id"])):
+    for place in sorted(records.of_kind("place"), key=lambda place: str(place["id"])):
         here = str(place["id"])
         level = place.get("level")
         places.append(
@@ -155,8 +156,8 @@ def _places(doc: Mapping[str, Any]) -> list[dict[str, Any]]:
     return places
 
 
-def _unplaced_devices(doc: Mapping[str, Any]) -> dict[str, int]:
-    return _class_counts([d for d in doc.get("devices", []) if d.get("place") is None])
+def _unplaced_devices(records: FacilityRecords) -> dict[str, int]:
+    return _class_counts([d for d in records.of_kind("device") if d.get("place") is None])
 
 
 def _authored_aliases(
@@ -174,27 +175,26 @@ def _authored_aliases(
     return {name: sorted(seen.values()) for name, seen in spellings.items()}
 
 
-def _device_classes(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+def _device_classes(records: FacilityRecords) -> dict[str, dict[str, Any]]:
     """Each device class with its count, authored aliases and groups."""
     from osprey.facility.validate import vocabulary
 
-    added = doc.get("classes") or []
+    added = records.document.get("classes") or []
     aliases = _authored_aliases(vocabulary(), added)
 
-    class_of: dict[str, str] = {}
     count: dict[str, int] = {str(row["class"]): 0 for row in added}
-    for device in doc.get("devices", []):
+    for device in records.of_kind("device"):
         if device.get("class") is None:
             continue
         name = str(device["class"])
-        class_of[str(device["id"])] = name
         count[name] = count.get(name, 0) + 1
 
     groups: dict[str, set[str]] = defaultdict(set)
-    for group in doc.get("groups", []):
+    for group in records.of_kind("group"):
         for member in group.get("members") or []:
-            if str(member) in class_of:
-                groups[class_of[str(member)]].add(str(group["id"]))
+            held = records.record("device", str(member))
+            if held is not None and held.get("class") is not None:
+                groups[str(held["class"])].add(str(group["id"]))
 
     return {
         name: {
@@ -206,7 +206,7 @@ def _device_classes(doc: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     }
 
 
-def _vocabulary(doc: Mapping[str, Any]) -> dict[str, Any]:
+def _vocabulary(records: FacilityRecords) -> dict[str, Any]:
     """The roles and signals the channels use, counted."""
     from osprey.facility.validate import vocabulary
 
@@ -214,7 +214,7 @@ def _vocabulary(doc: Mapping[str, Any]) -> dict[str, Any]:
     roles: dict[str, int] = defaultdict(int)
     signals: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     paired = unsigned = 0
-    for channel in doc.get("channels", []):
+    for channel in records.of_kind("channel"):
         role = str(channel.get("role") or DEFAULT_ROLE)
         roles[role] += 1
         if role == "setpoint" and channel.get("pair") not in (None, channel["id"]):
@@ -239,9 +239,9 @@ def _vocabulary(doc: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _models(doc: Mapping[str, Any], served: list[str]) -> list[dict[str, Any]]:
+def _models(records: FacilityRecords, served: list[str]) -> list[dict[str, Any]]:
     models = []
-    for model in doc.get("models", []):
+    for model in records.of_kind("model"):
         engine = str(model["engine"])
         settings = (model.get("settings") or {}).get(engine) or {}
         models.append(
@@ -256,7 +256,7 @@ def _models(doc: Mapping[str, Any], served: list[str]) -> list[dict[str, Any]]:
 
 
 def facts_document(
-    doc: Mapping[str, Any],
+    records: FacilityRecords,
     served: list[str],
     project_name: str | None = None,
     measurement_models: Mapping[str, Any] | None = None,
@@ -264,7 +264,7 @@ def facts_document(
     """The agent facts of one render.
 
     Args:
-        doc: The facility file.
+        records: The facility file's records.
         served: The models the render serves.
         project_name: The project's name, the display name of a facility that
             authors none.
@@ -276,15 +276,15 @@ def facts_document(
     """
     return {
         "schema": FACTS_SCHEMA,
-        "identity": _identity(doc, project_name),
-        "place_levels": _place_levels(doc),
-        "places": _places(doc),
-        "unplaced_devices": _unplaced_devices(doc),
-        "device_classes": _device_classes(doc),
-        "vocabulary": _vocabulary(doc),
-        "models": _models(doc, served),
+        "identity": _identity(records, project_name),
+        "place_levels": _place_levels(records),
+        "places": _places(records),
+        "unplaced_devices": _unplaced_devices(records),
+        "device_classes": _device_classes(records),
+        "vocabulary": _vocabulary(records),
+        "models": _models(records, served),
         "measurement_models": dict(measurement_models or {}),
-        "channel_count": len(doc.get("channels", [])),
+        "channel_count": len(records.of_kind("channel")),
         "snapshot": None,
     }
 
@@ -395,8 +395,7 @@ def measurement_records(data_root: Path) -> dict[str, dict[str, Any]]:
 
 
 #: The most recent measurement blocks, keyed by the digests of the bytes each was
-#: read from and the ``entry_points`` its engines' descriptions came from: a
-#: replaced ``entry_points`` (a test registering an engine) reads the block afresh.
+#: read from.
 _MEASUREMENT_MEMO: OrderedDict[tuple[Any, ...], dict[str, dict[str, Any]]] = OrderedDict()
 _MEASUREMENT_MEMO_KEYS = 8
 
@@ -407,9 +406,8 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     Read from each pyAML view the facts record: its arrays and the addresses
     their members stand for, through the view's one name mapping. A render
     whose facts record no view reads no file. The block is a function of the
-    bytes it reads and of the engines that describe its models' wiring, so it
-    is computed once per distinct content and registry; each caller gets its
-    own copy.
+    bytes it reads, so it is computed once per distinct content; each caller
+    gets its own copy.
 
     Args:
         facts: The facts document.
@@ -427,17 +425,15 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     recorded = facts.get("measurement_models") or {}
     if not recorded:
         return {}
-    from importlib import metadata
-
     from osprey.facility import FACILITY_FILE
 
-    facility = (render_root / FACILITY_FILE).read_bytes()
+    facility_file = render_root / FACILITY_FILE
+    facility = facility_file.read_bytes()
     views = {
         str(model): (record, (render_root / record["path"]).read_bytes())
         for model, record in recorded.items()
     }
     key = (
-        metadata.entry_points,
         hashlib.sha256(facility).hexdigest(),
         tuple(
             (model, record["path"], record.get("sha256"), hashlib.sha256(view).hexdigest())
@@ -446,7 +442,10 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
     )
     block = _MEASUREMENT_MEMO.get(key)
     if block is None:
-        block = _measurement_block(facility, views)
+        records = FacilityRecords.from_file(facility_file)
+        if records is None:
+            raise FileNotFoundError(facility_file)
+        block = _measurement_block(records, views)
         _MEASUREMENT_MEMO[key] = block
         while len(_MEASUREMENT_MEMO) > _MEASUREMENT_MEMO_KEYS:
             _MEASUREMENT_MEMO.popitem(last=False)
@@ -456,22 +455,20 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
 
 
 def _measurement_block(
-    facility: bytes, views: Mapping[str, tuple[Mapping[str, Any], bytes]]
+    records: FacilityRecords, views: Mapping[str, tuple[Mapping[str, Any], bytes]]
 ) -> dict[str, dict[str, Any]]:
-    """The ``measurement`` block read from a facility file and its pyAML views' bytes."""
+    """The ``measurement`` block read from a facility file's records and its pyAML views' bytes."""
     from osprey.facility.views.pyaml import KIND_STEPPED, RF_PLANT_TYPE, view_names
     from osprey_connectors import yaml_loader
     from pyaml_cs_osprey.catalog import parse_reference
 
-    doc = parsed_facility(facility)
-    models = {str(model["name"]): model for model in doc.get("models", [])}
     block: dict[str, dict[str, Any]] = {}
     for model, (record, view) in sorted(views.items()):
         configuration = yaml_loader.safe_load(view.decode("utf-8"))
         arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
         devices = {str(d["name"]): d for d in configuration.get("devices") or []}
-        measurement = models[str(model)].get("measurement") or {}
-        names = view_names(doc, str(model))
+        measurement = records.require("model", str(model)).get("measurement") or {}
+        names = view_names(records, str(model))
         array_of = {
             str(role): names.array_name(str(role))
             for role in measurement.get("groups") or {}
@@ -551,7 +548,7 @@ def write_facts_view(root: Path, inputs: ViewInputs) -> list[Path]:
     """
     project_name = inputs.rendered_config.get("project_name")
     facts = facts_document(
-        inputs.doc,
+        inputs.records,
         inputs.served,
         str(project_name) if project_name else None,
         measurement_records(root),

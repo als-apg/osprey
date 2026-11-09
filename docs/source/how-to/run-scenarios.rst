@@ -15,7 +15,7 @@ them from the simulator view under ``build/data/simulator/``. The
 The scenarios the demo ships
 ============================
 
-The control-assistant preset ships six scenarios in
+The demo preset ships seven scenarios in
 ``data/facility/scenarios/``:
 
 .. list-table::
@@ -49,10 +49,18 @@ The control-assistant preset ships six scenarios in
    * - ``orm-dual-fault``
      - The BPM 17 inversion and corrector HCM01 at half its nominal gain at
        once, both visible only through an orbit-response measurement.
+   * - ``demo-history``
+     - Three past agent sessions (a sector-7 beam loss, an approved corrector
+       nudge, an orbit review), with the archive events and logbook entries
+       behind them.
 
-The preset starts a fresh deployment in ``rf-thermal``, as the profile key
-``simulation.default_scenarios`` names (see
+The preset starts a fresh deployment in ``rf-thermal`` and ``demo-history``,
+as the profile key ``simulation.default_scenarios`` names (see
 :doc:`/reference/configuration/config`).
+
+A scenario's sessions are laid down only by a deployment's first deploy, from
+its default set. ``osprey sim apply`` never adds or removes sessions: a set
+without ``demo-history`` drops its archive events and logbook entries only.
 
 Apply a scenario
 ================
@@ -73,14 +81,40 @@ untouched.
 
 Several scenarios apply together only when no two of them write one target,
 a channel or a model's fault. A set that breaks the rule is refused before
-anything is written, and the refusal names the target.
+anything is written, and the refusal names the target. Archive events are not
+a target: events of several scenarios on one channel combine, so
+``[vacuum-burst, rf-thermal]`` composes.
 
-Every facility has a scenario named ``still`` that stills every reading:
+Every facility has a scenario named ``still`` that stills every float reading:
 ``osprey sim apply still``, or ``simulation.default_scenarios: [still]`` for a
 deployment that should start still. A file may define its own ``still``,
 which replaces the built-in one. ``still`` composes with overrides and faults,
 and is refused beside a scenario that sets the same reading's ``noise`` or
 ``couple``. It holds in both venues of the simulator.
+
+Any scenario can still a family of readings by selecting it over the facility
+file's own records. Each selection names a model or a place, and the build
+resolves it to plain addresses:
+
+.. code-block:: yaml
+
+   still:
+     - {model: <model>, role: monitor}
+     - {place: <place>, signal: <signal>}
+     - <address>
+
+- ``model``: channels a wiring record of that model names, or on a device of
+  that model.
+- ``place``: channels on that place or on a place under it.
+- ``group``: channels on a device of that group.
+- ``signal``: channels stating that ``signal``.
+- ``role``: channels whose wiring record has that role (``setpoint``,
+  ``readback``, ``monitor`` or ``output``), not the channel's own ``role``.
+- ``plane``: channels whose wiring record has that plane.
+
+The keys of one selection all apply. The build stops on a selection that names
+neither a model nor a place, and on one that matches no float channel; a
+matched channel that is not a float is left out.
 
 Write a scenario
 ================
@@ -109,13 +143,17 @@ name. Every key is optional:
        below says what each does.
    * - ``archiver``
      - ``[{channel, events}]``, the history each channel's archive shows.
-       Each event has a ``shape``, ``step`` (``to``), ``ramp`` (``to``) or
+       Each event has a ``shape``, ``step`` (``to``), ``ramp`` (``to``),
        ``spike`` (``amplitude`` and ``width``, a Gaussian sigma in seconds),
-       and one position: ``at_offset`` (seconds from the apply-time anchor; a
-       ramp ends at ``until_offset``), ``at_time`` (a daily ``HH:MM:SS`` in the
+       ``burst`` (``amplitude`` reached at the event, then an exponential
+       decay over ``decay_s``, with an optional slower tail ``tail_decay_s``
+       carrying ``tail_share`` of it) or ``loss`` (``amount`` dropped at the
+       event, refilled only by the channel's top-off), and one position:
+       ``at_offset`` (seconds from the apply-time anchor; a ramp ends at
+       ``until_offset``), ``at_time`` (a daily ``HH:MM:SS`` in the
        facility time zone) or ``at_when`` (``{days_ago, time}``), which places
        an event at the instant a logbook entry's ``when`` names. ``at_time``
-       and ``at_when`` take ``step`` and ``spike`` only. A ``step`` on a float
+       and ``at_when`` take every shape but ``ramp``. A ``step`` on a float
        channel may end with ``until``, ``until_offset`` or ``until_when``,
        matching its position and later than it; after the end the channel
        returns to its baseline. A daily ``at_time`` step does not end.
@@ -132,9 +170,19 @@ name. Every key is optional:
        unit, or ``{<address>: {relative: <fraction>}}`` with the sigma a
        fraction of the reading.
    * - ``still``
-     - ``all``, or a list of addresses: while the scenario is active, those
-       readings serve without drift, couplings or noise; readout faults still
-       apply.
+     - ``all``, or a list of addresses and selections (see `Apply a scenario`_):
+       while the scenario is active, those readings serve without drift,
+       couplings or noise; readout faults still apply.
+   * - ``sessions``
+     - Past agent sessions, ``[{slug, title, when, parts}]``; each part (a
+       ``/clear`` starts the next) has a ``title`` and ``turns``. A turn has
+       ``prompt`` and ``steps`` (``{tool: {server, name}, input, result,
+       approved?}`` or ``{answer}``), and optionally ``at_offset_s``,
+       ``channels``, ``logbook_ids`` and ``artifacts``. ``channels`` must be facility channels
+       and ``logbook_ids`` entries of ``nominal`` or the scenario itself, or
+       the build stops. The scenario must also state, under ``archiver`` and
+       ``logbook``, the events its sessions tell of, so a resumed session that
+       reads the archive sees the same story.
 
 .. list-table::
    :header-rows: 1

@@ -93,6 +93,16 @@ def deps_project(tmp_path_factory):
     )
 
 
+@pytest.fixture(scope="module")
+def packages_project(tmp_path_factory):
+    """The same, for a deployment whose profile declares ``environment.packages``."""
+    return _render(
+        tmp_path_factory.mktemp("dockerfile-packages") / "packages-docker",
+        "hello-world",
+        'environment.packages=["pyepics"]',
+    )
+
+
 class TestDockerfileContent:
     """Content invariants of the rendered Dockerfile."""
 
@@ -469,6 +479,12 @@ class TestDockerfileContent:
             in deps
         )
 
+    def test_environment_packages_on_deps_run(self, packages_project):
+        """A ``--skip-deps`` render installs the list a full build installs:
+        ``environment.packages`` joins the deps RUN after ``$OSPREY_PIP_SPEC``."""
+        deps = self._deps_run_body((packages_project / "Dockerfile").read_text())
+        assert "pyepics" in deps.split('"$OSPREY_PIP_SPEC"', 1)[1]
+
     @staticmethod
     def _run_command_bodies(text: str) -> list[str]:
         """Every RUN instruction's shell body, with line-continuations joined."""
@@ -503,7 +519,8 @@ class TestDockerfileContent:
         immediately before the deps RUN that installs it."""
         text = (hello_project / "Dockerfile").read_text()
         match = re.search(
-            r"^COPY \.dockerignore osprey-local-requirements\.tx\[t\] /tmp/deps-ctx/$",
+            r"^COPY \.dockerignore osprey-local-requirements\.tx\[t\] "
+            r"osprey-lock-constraints\.tx\[t\] /tmp/deps-ctx/$",
             text,
             flags=re.MULTILINE,
         )
@@ -524,10 +541,11 @@ class TestDockerfileContent:
             "manifest install missing or not &&-chained in the deps RUN"
         )
         assert install in deps
-        assert deps.index(install) > deps.index("WARNING: pin unreleased"), (
+        # Twice: alone on the lock-driven path, after the primer on the other.
+        assert deps.rindex(install) > deps.index("WARNING: pin unreleased"), (
             "manifest install must follow the primer's dev-fallback construct"
         )
-        assert deps.index(install) < deps.index("apt-get purge -y build-essential"), (
+        assert deps.rindex(install) < deps.index("apt-get purge -y build-essential"), (
             "manifest install must precede the toolchain purge"
         )
         assert "rm -rf /tmp/deps-ctx" in deps, "deps RUN must clean up /tmp/deps-ctx"
@@ -1127,7 +1145,7 @@ class TestSetupCapabilityConditional:
     and the admin tier — whose whole purpose is the Config panel — can. These
     render the template against both contexts directly, which is what pins the
     conditional itself; `TestTieredPresetConfigChown` below asks the same
-    question of the real `control-assistant` presets that produce each side.
+    question of the real `demo` presets that produce each side.
     """
 
     #: The one line the conditional renders. Matched exactly rather than by the
@@ -1299,14 +1317,14 @@ class TestSetupCapabilityConditional:
 
 @pytest.fixture(scope="module")
 def tiered_render(tmp_path_factory):
-    """Render the `control-assistant` preset once — the deployment's own project
+    """Render the `demo` preset once — the deployment's own project
     plus one per layer, all from a single `osprey build`.
 
     Module-scoped: the tier question below is asked of five Dockerfiles out of
     the same render, and rendering per test would pay for the same build five
     times over.
     """
-    return _render(tmp_path_factory.mktemp("dockerfile-tiers") / "ca-docker", "control-assistant")
+    return _render(tmp_path_factory.mktemp("dockerfile-tiers") / "ca-docker", "demo")
 
 
 class TestTieredPresetConfigChown:
@@ -1611,6 +1629,46 @@ class TestBrowserLayerAndImageChecks:
         full = _render_template(**self._context(panel))
         assert full.count(self._IMAGE_CHECKS) == 1
         assert full.replace(self._IMAGE_CHECKS, "") == plain
+
+    def test_shipped_presets_render_the_browser_everywhere_and_checks_where_canopy_is_shown(
+        self, hello_project, tiered_render
+    ):
+        """The real renders: every project image carries the browser, and the
+        checks follow the CANOPY tab.
+
+        The demo shows the tab on its own project and on its
+        tiers; its apps never inherit it, and hello-world never had it.
+        Whether a render shows it is read from the config rendered beside its
+        Dockerfile.
+        """
+        import yaml
+
+        dockerfiles = [hello_project / "Dockerfile", *sorted(tiered_render.rglob("Dockerfile"))]
+        assert len(dockerfiles) >= 7, dockerfiles
+        with_checks = set()
+        for dockerfile in dockerfiles:
+            # A service's image is not a project's: whatever config sits beside
+            # its Dockerfile, it serves no tab.
+            beside = dockerfile.parent / "config.yml"
+            is_service = dockerfile.parent.parent.name == "services"
+            config = yaml.safe_load(beside.read_text()) if beside.is_file() else {}
+            panel = ((config.get("web") or {}).get("panels") or {}).get("canopy")
+            shown = not is_service and panel is not None and panel.get("enabled", True) is True
+            text = dockerfile.read_text()
+            if not is_service:
+                assert text.count(self._BROWSER_INSTALL) == 1, dockerfile
+            assert ("RUN cd /app/" in text) is shown, dockerfile
+            assert text.count("osprey.integrations.canopy.image_check library") == (
+                1 if shown else 0
+            ), dockerfile
+            if shown:
+                with_checks.add(config["project_name"])
+        assert with_checks == {
+            "ca-docker",
+            "ca-docker-readonly",
+            "ca-docker-readwrite",
+            "ca-docker-admin",
+        }
 
     def test_line_order(self, panel):
         """deps → browser → wheel drop → deployment COPY → checks → chown.

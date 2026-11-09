@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.limits import limits_document
 from osprey_connectors.errors import ChannelLimitsViolationError
 from tests.facility._limits_render import render_limits, validator_under
@@ -85,7 +86,7 @@ def _doc(channels: dict[str, str], records: list[dict[str, Any]] | None) -> dict
 def test_a_record_resolves_to_one_entry(
     role: str, record: dict[str, Any], entry: dict[str, Any]
 ) -> None:
-    document = limits_document(_doc({"A:B": role}, [{"address": "A:B", **record}]))
+    document = limits_document(FacilityRecords(_doc({"A:B": role}, [{"address": "A:B", **record}])))
 
     assert document == {"_version": "4.0", "A:B": entry}
 
@@ -96,45 +97,52 @@ def test_a_channel_without_a_record_has_no_entry() -> None:
         [{"address": "A:SP", "min_value": 0.0, "max_value": 1.0}],
     )
 
-    assert sorted(limits_document(doc)) == ["A:SP", "_version"]
+    assert sorted(limits_document(FacilityRecords(doc))) == ["A:SP", "_version"]
 
 
 @pytest.mark.parametrize("records", [None, []])
 def test_no_records_give_the_version_alone(records: list[dict[str, Any]] | None) -> None:
     doc = _doc({"A:SP": "setpoint", "A:RB": "readback"}, records)
 
-    assert limits_document(doc) == {"_version": "4.0"}
+    assert limits_document(FacilityRecords(doc)) == {"_version": "4.0"}
 
 
 def test_entries_follow_the_version_sorted_by_address() -> None:
     channels = {"C:SP": "setpoint", "A:SP": "setpoint", "B:SP": "setpoint"}
     records = [{"address": address, "writable": False} for address in channels]
 
-    assert list(limits_document(_doc(channels, records))) == ["_version", "A:SP", "B:SP", "C:SP"]
+    assert list(limits_document(FacilityRecords(_doc(channels, records)))) == [
+        "_version",
+        "A:SP",
+        "B:SP",
+        "C:SP",
+    ]
 
 
-# --- the control-assistant build ---------------------------------------------------
+# --- the demo build ---------------------------------------------------
 
 
 @pytest.mark.slow
-class TestTheControlAssistantBuild:
-    def test_every_render_carries_the_view(self, built_control_assistant: BuiltProject) -> None:
-        expected = json.dumps(limits_document(built_control_assistant.facility), indent=2) + "\n"
+class TestTheDemoBuild:
+    def test_every_render_carries_the_view(self, built_demo: BuiltProject) -> None:
+        expected = (
+            json.dumps(limits_document(FacilityRecords(built_demo.facility)), indent=2) + "\n"
+        )
 
-        assert built_control_assistant.outputs
-        for outputs in built_control_assistant.outputs:
+        assert built_demo.outputs
+        for outputs in built_demo.outputs:
             assert outputs.files[LIMITS] == expected.encode("utf-8")
 
     def test_the_rendered_file_is_the_view_not_the_copied_file(
-        self, built_control_assistant: BuiltProject
+        self, built_demo: BuiltProject
     ) -> None:
-        rendered = (built_control_assistant.build_dir / LIMITS).read_bytes()
+        rendered = (built_demo.build_dir / LIMITS).read_bytes()
 
-        assert rendered == built_control_assistant.outputs[0].files[LIMITS]
+        assert rendered == built_demo.outputs[0].files[LIMITS]
         assert "defaults" not in json.loads(rendered)
 
-    def test_the_entries_are_the_limits_golden(self, built_control_assistant: BuiltProject) -> None:
-        document = json.loads((built_control_assistant.build_dir / LIMITS).read_bytes())
+    def test_the_entries_are_the_limits_golden(self, built_demo: BuiltProject) -> None:
+        document = json.loads((built_demo.build_dir / LIMITS).read_bytes())
         version = document.pop("_version")
         resolved = {
             address: {slot: entry.get(slot) for slot in SLOTS}
@@ -273,7 +281,7 @@ class TestTheBuildDerivesTheDatabasePath:
 
         assert "limits_checking" not in (rendered.get("control_system") or {})
 
-    @pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+    @pytest.mark.parametrize("preset", ["demo", "hello-world"])
     def test_no_preset_states_the_path(self, preset: str) -> None:
         from osprey.cli.build_profile import resolve_build_profile
 
@@ -282,12 +290,10 @@ class TestTheBuildDerivesTheDatabasePath:
         assert DATABASE_KEY not in profile.config
 
     @pytest.mark.slow
-    def test_the_built_render_names_the_view(self, built_control_assistant: BuiltProject) -> None:
+    def test_the_built_render_names_the_view(self, built_demo: BuiltProject) -> None:
         import yaml
 
-        config = yaml.safe_load(
-            (built_control_assistant.build_dir / "config.yml").read_text(encoding="utf-8")
-        )
+        config = yaml.safe_load((built_demo.build_dir / "config.yml").read_text(encoding="utf-8"))
 
         assert config["control_system"]["limits_checking"]["database_path"] == LIMITS
-        assert (built_control_assistant.build_dir / LIMITS).is_file()
+        assert (built_demo.build_dir / LIMITS).is_file()

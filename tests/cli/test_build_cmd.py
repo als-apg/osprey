@@ -38,7 +38,7 @@ def _create_project(manager, **kwargs) -> Path:
     render straight from a bundle rather than from a profile, so they name the
     tree that bundle packages.
     """
-    kwargs.setdefault("data_bundle", "control_assistant")
+    kwargs.setdefault("data_bundle", "demo")
     kwargs.setdefault("data_root", bundle_data_root(kwargs["data_bundle"]))
     return manager.create_project(**kwargs)
 
@@ -60,7 +60,7 @@ def _stamp_bundle_selection(manager, project: Path, name: str, bundle: str) -> N
     )
 
 
-def materialize_data(profile_dir: Path, bundle: str = "control_assistant") -> Path:
+def materialize_data(profile_dir: Path, bundle: str = "demo") -> Path:
     """Copy *bundle*'s packaged data tree to ``profile_dir/data``, as init does.
 
     For a test that builds through the real verb: the render stages channel
@@ -1049,7 +1049,7 @@ class TestProjectPyproject:
         monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
-        _create_project_venv(project_path, _plan_project_venv(profile))
+        _create_project_venv(project_path, _plan_project_venv(profile, install=True))
         return tomllib.loads((project_path / "pyproject.toml").read_text())
 
     def test_records_profile_deps(self, monkeypatch, tmp_path: Path):
@@ -1155,21 +1155,31 @@ class TestLifecyclePhaseRunner:
 
         steps = [LifecycleStep(name=name, run=run)]
         # Should not raise
-        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
 
     def test_failing_step_aborts(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
 
         steps = [LifecycleStep(name="bad cmd", run="false")]
         with pytest.raises(BuildProfileError, match="'bad cmd' failed"):
-            _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+            _run_lifecycle_phase(
+                "pre_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+            )
 
     def test_failing_step_warns_when_no_abort(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
 
         steps = [LifecycleStep(name="bad validate", run="false")]
         # Should not raise
-        _run_lifecycle_phase("validate", steps, tmp_path, tmp_path, abort_on_failure=False)
+        _run_lifecycle_phase(
+            "validate",
+            steps,
+            tmp_path,
+            tmp_path,
+            venv=None,
+            repo_root=tmp_path,
+            abort_on_failure=False,
+        )
 
     def test_step_with_cwd(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
@@ -1178,7 +1188,7 @@ class TestLifecyclePhaseRunner:
         subdir.mkdir()
         steps = [LifecycleStep(name="check cwd", run="pwd", cwd="subdir")]
         # Should not raise — cwd relative to default_cwd
-        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
 
     def test_project_root_placeholder(self, tmp_path: Path):
         from osprey.cli.build_cmd import _run_lifecycle_phase
@@ -1190,7 +1200,7 @@ class TestLifecyclePhaseRunner:
                 run="touch {project_root}/marker.txt",
             )
         ]
-        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
         assert marker.exists()
 
     def test_python_placeholder_is_the_running_interpreter(self, tmp_path: Path):
@@ -1212,7 +1222,7 @@ class TestLifecyclePhaseRunner:
                 ),
             )
         ]
-        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
         assert (tmp_path / "python.txt").read_text() == sys.executable
 
     def test_python_placeholder_is_replaced_in_a_shell_step(self, tmp_path: Path):
@@ -1225,7 +1235,7 @@ class TestLifecyclePhaseRunner:
                 run="echo '{python}' | cat > {project_root}/python.txt",
             )
         ]
-        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path)
+        _run_lifecycle_phase("pre_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path)
         assert (tmp_path / "python.txt").read_text().strip() == sys.executable
 
 
@@ -1235,7 +1245,18 @@ class TestLifecyclePhaseRunner:
 
 
 class TestCreateProjectVenv:
-    """Tests for _create_project_venv() — creates venv and installs deps."""
+    """Tests for _create_project_venv() — creates venv and installs deps.
+
+    The lock constraints a source checkout adds are switched off here (the
+    suite runs from one) so these pin the command shape alone;
+    ``TestSourceLockConstraints`` below covers them.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_lock_constraints(self, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.cli.build_environment.source_lock_constraints", lambda spec: None
+        )
 
     def _make_profile(self, deps: list[str], osprey_install: str = "local") -> BuildProfile:
         return BuildProfile(
@@ -1258,7 +1279,8 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/home/user/.local/bin/uv")
 
         _create_project_venv(
-            tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24", "pandas"]))
+            tmp_path,
+            _plan_project_venv(self._make_profile(["numpy>=1.24", "pandas"]), install=True),
         )
 
         assert len(calls) == 2
@@ -1290,7 +1312,9 @@ class TestCreateProjectVenv:
         monkeypatch.delenv("UV", raising=False)
         monkeypatch.setattr("shutil.which", lambda name: None)
 
-        _create_project_venv(tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24"])))
+        _create_project_venv(
+            tmp_path, _plan_project_venv(self._make_profile(["numpy>=1.24"]), install=True)
+        )
 
         assert len(calls) == 2
         # First call: python -m venv
@@ -1315,7 +1339,9 @@ class TestCreateProjectVenv:
         monkeypatch.setenv("UV", "/usr/bin/uv")
 
         with pytest.raises(BuildProfileError, match="Failed to create project venv"):
-            _create_project_venv(tmp_path, _plan_project_venv(self._make_profile(["pkg"])))
+            _create_project_venv(
+                tmp_path, _plan_project_venv(self._make_profile(["pkg"]), install=True)
+            )
 
     def test_raises_on_install_failure(self, monkeypatch, tmp_path):
         """Should raise BuildProfileError when pip install fails."""
@@ -1339,8 +1365,97 @@ class TestCreateProjectVenv:
 
         with pytest.raises(BuildProfileError, match="Failed to install project dependencies"):
             _create_project_venv(
-                tmp_path, _plan_project_venv(self._make_profile(["nonexistent-xyz"]))
+                tmp_path, _plan_project_venv(self._make_profile(["nonexistent-xyz"]), install=True)
             )
+
+
+class TestSourceLockConstraints:
+    """A venv installing an osprey source checkout is held to that checkout's uv.lock."""
+
+    LOCK = "numpy==2.3.0\ntorch==2.13.0+cpu ; sys_platform != 'darwin'\n"
+
+    @staticmethod
+    def _checkout(tmp_path: Path, *, lock: bool = True) -> Path:
+        root = tmp_path / "osprey-checkout"
+        root.mkdir()
+        (root / "pyproject.toml").write_text("[project]\nname = 'osprey-framework'\n")
+        if lock:
+            (root / "uv.lock").write_text("version = 1\n")
+        return root
+
+    @pytest.mark.parametrize(
+        "spec", ["osprey-framework==2026.6.2", "osprey-framework", "git+https://x/osprey.git"]
+    )
+    def test_a_spec_that_is_not_a_checkout_is_not_constrained(self, spec):
+        from osprey.cli.build_environment import source_lock_constraints
+
+        assert source_lock_constraints(spec) is None
+
+    def test_a_checkout_without_a_lock_is_not_constrained(self, tmp_path):
+        from osprey.cli.build_environment import source_lock_constraints
+
+        assert source_lock_constraints(str(self._checkout(tmp_path, lock=False))) is None
+
+    def test_a_checkout_with_a_lock_is_held_to_its_export(self, monkeypatch, tmp_path):
+        from osprey.cli.build_environment import source_lock_constraints
+        from osprey.deployment import lock_constraints
+
+        root = self._checkout(tmp_path)
+        exported = []
+
+        def _export(at):
+            exported.append(at)
+            return self.LOCK
+
+        monkeypatch.setattr(lock_constraints, "export_lock_constraints", _export)
+
+        assert source_lock_constraints(str(root)) == self.LOCK
+        assert exported == [root.resolve()]
+
+    def test_a_stale_lock_stops_the_build(self, monkeypatch, tmp_path):
+        from osprey.cli.build_environment import source_lock_constraints
+        from osprey.deployment import lock_constraints
+
+        def _stale(_at):
+            raise lock_constraints.LockExportError("uv could not export", "run `uv lock`")
+
+        monkeypatch.setattr(lock_constraints, "export_lock_constraints", _stale)
+
+        with pytest.raises(BuildProfileError, match="uv lock"):
+            source_lock_constraints(str(self._checkout(tmp_path)))
+
+    @pytest.mark.parametrize("installer", ["uv", "pip"])
+    def test_both_installers_install_under_the_lock(self, monkeypatch, tmp_path, installer):
+        from osprey.cli.build_cmd import _create_project_venv, _plan_project_venv
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        monkeypatch.setattr(
+            "osprey.cli.build_environment.source_lock_constraints", lambda spec: self.LOCK
+        )
+        if installer == "uv":
+            monkeypatch.setenv("UV", "/usr/bin/uv")
+        else:
+            monkeypatch.delenv("UV", raising=False)
+            monkeypatch.setattr("shutil.which", lambda name: None)
+            monkeypatch.setattr(
+                "osprey.cli.build_environment._pip_member_requirements", lambda spec: []
+            )
+        profile = BuildProfile(name="test", dependencies=["pandas"], osprey_install="local")
+
+        _create_project_venv(tmp_path, _plan_project_venv(profile, install=True))
+
+        lock_file = tmp_path / ".venv" / "osprey-lock-constraints.txt"
+        install = calls[-1]
+        at = install.index("-c")
+        assert install[at + 1] == str(lock_file)
+        assert at < install.index("pandas"), "the constraint must precede the requirements"
+        assert lock_file.read_text() == self.LOCK
 
 
 # ---------------------------------------------------------------------------
@@ -1655,10 +1770,8 @@ class TestProfileExtends:
         assert "mml_get" in matlab.permissions["allow"]
 
     def test_env_merge(self, tmp_path: Path):
-        """Env is deep-merged: file overridden, required unioned, defaults merged."""
+        """Env is deep-merged: required unioned, defaults merged."""
         self._make_base(tmp_path)
-        # Create the env file that the child references
-        (tmp_path / ".env.local").write_text("API_KEY=test\n")
 
         child_path = _write_yaml(
             tmp_path / "child.yml",
@@ -1666,7 +1779,6 @@ class TestProfileExtends:
                 "extends": "base.yml",
                 "name": "Child",
                 "env": {
-                    "file": ".env.local",
                     "required": ["API_KEY", "EXTRA_VAR"],
                     "defaults": {"DEBUG": "true"},
                 },
@@ -1674,7 +1786,6 @@ class TestProfileExtends:
         )
 
         profile = load_profile(child_path)
-        assert profile.env.file == ".env.local"  # overridden
         assert "API_KEY" in profile.env.required  # from both (deduped)
         assert "EXTRA_VAR" in profile.env.required  # from child
         assert profile.env.defaults["LOG_LEVEL"] == "info"  # inherited
@@ -1835,7 +1946,7 @@ def _build_for_web_panels(
     overrides: dict | None = None,
     default_panel: str | None = None,
 ) -> Path:
-    """Build a minimal control_assistant project, optionally with web_panels,
+    """Build a minimal demo project, optionally with web_panels,
     a default_panel pin, and config overrides, and return the rendered
     config.yml path.
 
@@ -1854,7 +1965,7 @@ def _build_for_web_panels(
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
-        # Ship the memory-guard hook the real control_assistant preset ships:
+        # Ship the memory-guard hook the real demo preset ships:
         # without it the built profile leaves Write/NotebookEdit
         # ungated and the build-time write-tool lint (correctly) refuses it.
         "hooks": ["memory-guard"],
@@ -1905,12 +2016,12 @@ class TestWebPanelsRendering:
 
     def test_builtin_panels_rendered_from_web_panels(self, tmp_path: Path):
         """Only builtin panels listed in web_panels appear with enabled: true."""
-        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "lattice"])
+        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "system-health"])
         config = yaml.safe_load(config_path.read_text())
 
         panels = config["web"]["panels"]
         assert panels.get("ariel", {}).get("enabled") is True
-        assert panels.get("lattice", {}).get("enabled") is True
+        assert panels.get("system-health", {}).get("enabled") is True
         assert "channel-finder" not in panels
 
     def test_custom_panels_filtered_from_template_but_configurable(self, tmp_path: Path):
@@ -1952,14 +2063,14 @@ class TestWebPanelsRendering:
         override web.panels.<id>.label merges into the same dict."""
         config_path = _build_for_web_panels(
             tmp_path,
-            web_panels=["lattice"],
-            overrides={"web.panels.lattice.label": "LATTICE"},
+            web_panels=["system-health"],
+            overrides={"web.panels.system-health.label": "SYSTEM"},
         )
         config = yaml.safe_load(config_path.read_text())
 
-        lattice = config["web"]["panels"]["lattice"]
-        assert lattice["enabled"] is True
-        assert lattice["label"] == "LATTICE"
+        health = config["web"]["panels"]["system-health"]
+        assert health["enabled"] is True
+        assert health["label"] == "SYSTEM"
 
     def test_default_panel_rendered_when_set(self, tmp_path: Path):
         """Profile default_panel: ariel ends up as web.default_panel in config.yml.
@@ -2041,11 +2152,12 @@ _PARADIGM_DATABASE_FILENAMES: frozenset[str] = frozenset(
 
 @pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
 def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> None:
-    """A control-assistant render carries the index views and no staging tree.
+    """A demo render carries the index views and no staging tree.
 
     - rendered config.yml names the index the build writes at
       ``data/channel_finder/<paradigm>.json``, and the file is there.
-    - no ``data/benchmarks/cross_paradigm/`` or ``data/raw/`` reaches the
+    - no ``data/facility/benchmarks/``, no
+      ``data/benchmarks/cross_paradigm/`` and no ``data/raw/`` reaches the
       render; the facility tree keeps them.
     - no ``data/channel_databases/<paradigm>.json`` is materialized, for this
       paradigm or any other.
@@ -2069,6 +2181,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     assert (project_dir / expected_path).is_file()
 
     data = project_dir / "data"
+    assert not (data / "facility" / "benchmarks").exists()
     assert not (data / "benchmarks" / "cross_paradigm").exists()
     assert not (data / "raw").exists()
     staged = sorted(path.name for path in (data / "channel_databases").glob("*"))
@@ -2078,7 +2191,7 @@ def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> 
     assert (data / "benchmarks" / "queries.json").is_file()
 
     # The facility tree the render came from is never pruned.
-    assert (repo / "data" / "benchmarks" / "cross_paradigm").is_dir()
+    assert (repo / "data" / "facility" / "benchmarks" / "cross_paradigm").is_dir()
 
     if paradigm == "hierarchical":
         # The levels the channel-finder agent is told are the index's own.
@@ -3168,7 +3281,7 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
         [
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             *_set_args({"channel_finder_mode": "graph"}),
         ],

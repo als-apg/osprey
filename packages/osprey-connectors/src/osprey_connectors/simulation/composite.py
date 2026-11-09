@@ -43,6 +43,12 @@ disconnected reading with the ``udf`` condition. A channel fault acts on live
 reads, writes and severity only; :meth:`Composite.readings` serves history
 without it.
 
+**A model with no deck.** A model whose record names no deck and wires no
+channel is not built: there is nothing for an engine to serve, and the
+facility describes such a machine so that its channels are the texture's. Its
+status is ``no deck`` (:data:`~osprey_connectors.simulation.status.STATUS_NO_DECK`),
+its log records an ``unbuilt`` event, and it is no failure.
+
 **A failed child.** A child whose engine raises while it is built or read is
 failed, with the engine's error text as its status (``ok`` otherwise), capped
 at :data:`_STATUS_MAX_BYTES` UTF-8 bytes. It holds the inputs written to it and
@@ -57,8 +63,8 @@ directory, re-read when its modification time changes. A change rebuilds every
 physics child with the active scenarios' writes and fault seeds as its start
 state, and hands the texture the active writes it owns and the active drivers,
 couplings and noise replacements; session writes are dropped. The readings
-any active scenario stills, ``nominal`` included, are stilled; ``all`` stills
-every one. A set whose scenarios touch one target twice is served without its
+any active scenario's ``still`` list names, ``nominal`` included, are stilled.
+A set whose scenarios touch one target twice is served without its
 scenarios.
 
 **The model log.** Each physics child appends JSON lines ``{instance, pid,
@@ -88,7 +94,6 @@ from osprey_connectors.config import default_config_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.simulation import values
 from osprey_connectors.simulation.channel_faults import CHANNEL_FAULTS, ChannelFault
-from osprey_connectors.simulation.envelope import STILL_ALL
 from osprey_connectors.simulation.state import (
     ACTIVE_SCENARIOS_FILENAME,
     composed_set,
@@ -97,6 +102,7 @@ from osprey_connectors.simulation.state import (
     resolve_active_scenarios,
     scenario_targets,
 )
+from osprey_connectors.simulation.status import STATUS_NO_DECK, STATUS_OK
 from osprey_connectors.simulation.texture import (
     TEXTURE_OWNER,
     TextureModel,
@@ -104,13 +110,20 @@ from osprey_connectors.simulation.texture import (
     channel_variable,
     is_float_channel,
 )
-from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE, Model, SimulatorView
+from osprey_connectors.simulation.view import (
+    MONITOR,
+    SEEDS_FILE,
+    SETPOINT,
+    VARIABLES_FILE,
+    Model,
+    SimulatorView,
+)
 from osprey_connectors.workspace import SIMULATOR_LOG_DIR_RELPATH, repo_root_for_config
 
 __all__ = [
     "ENGINE_GROUP",
     "INSTANCES",
-    "STATUS_OK",
+    "STATUS_NO_DECK",
     "UDF",
     "Composite",
     "WriteRefusedError",
@@ -125,9 +138,6 @@ ENGINE_GROUP = "osprey.simulation.engines"
 #: The serving instances a model log record names.
 INSTANCES = ("virtual_accelerator", "live_standin", "inprocess")
 
-#: A physics child's status while its engine serves it.
-STATUS_OK = "ok"
-
 #: The longest status text, in UTF-8 bytes.
 _STATUS_MAX_BYTES = 1023
 
@@ -138,8 +148,6 @@ _LOG_RECORD_MAX_BYTES = 4096
 UDF = "udf"
 
 _ELLIPSIS = "…"
-_SETPOINT = "setpoint"
-_MONITOR = "monitor"
 _FAULT_SEPARATOR = "/"
 _MODEL_SEPARATOR = "/"
 _LOG_MODE = 0o664
@@ -339,7 +347,7 @@ class Composite(LUMEModel):
         )
         groups: dict[str, list[str]] = {}
         for binding in source.bindings:
-            if binding.role == _MONITOR and binding.element is not None:
+            if binding.role == MONITOR and binding.element is not None:
                 groups.setdefault(str(binding.element), []).append(binding.address)
         partners = {address: tuple(sorted(group)) for group in groups.values() for address in group}
         return _Child(
@@ -381,12 +389,20 @@ class Composite(LUMEModel):
         raise LookupError(f"no simulation engine {name!r} is registered in {ENGINE_GROUP}")
 
     def _build(self, child: _Child) -> None:
-        """Build a child at its active state; a raise leaves it failed with the engine's text."""
+        """Build a child at its active state; a raise leaves it failed with the engine's text.
+
+        A child that names no deck and wires no channel is left unbuilt, with
+        the ``no deck`` status.
+        """
         source = child.source
         child.model = None
         child.engine = None
         child.starts = {}
         child.inputs = self._start_inputs(child)
+        if source.deck is None and not source.bindings:
+            child.status = STATUS_NO_DECK
+            self._log(child.name, {"event": "unbuilt", "status": STATUS_NO_DECK})
+            return
         try:
             child.engine = self._engine(str(source.engine))
             child.model = child.engine.build(
@@ -470,7 +486,6 @@ class Composite(LUMEModel):
         couple: dict[str, list[Mapping[str, Any]]] = {}
         noise: dict[str, Mapping[str, Any]] = {}
         still: set[str] = set()
-        still_all = False
         channel_faults: dict[str, str] = {}
         faulted_by: dict[str, set[str]] = {}
         overridden_by: dict[str, set[str]] = {}
@@ -486,11 +501,7 @@ class Composite(LUMEModel):
             for address, terms in (scenario.get("couple") or {}).items():
                 couple.setdefault(str(address), []).extend(terms)
             noise.update(scenario.get("noise") or {})
-            stilled = scenario.get("still")
-            if stilled == STILL_ALL:
-                still_all = True
-            elif stilled and not isinstance(stilled, str):
-                still.update(str(address) for address in stilled)
+            still.update(str(address) for address in scenario.get("still") or ())
             channel_faults.update(scenario.get("channel_faults") or {})
 
         resolved: dict[str, list[Mapping[str, Any]]] = {}
@@ -501,7 +512,7 @@ class Composite(LUMEModel):
                     logger.warning(f"{address} couples to undeclared driver {term['driver']!r}")
                     continue
                 resolved.setdefault(address, []).append({**term, "drive": drive})
-        self._texture.set_motion(resolved, noise, still=frozenset(still), still_all=still_all)
+        self._texture.set_motion(resolved, noise, still=frozenset(still))
         self._moving = frozenset(
             address
             for address in self._owner
@@ -566,7 +577,7 @@ class Composite(LUMEModel):
             if fault is None or channel is None:
                 logger.warning(f"Ignoring channel fault {word!r} on {address!r}")
                 continue
-            if channel.get("role") != _SETPOINT:
+            if channel.get("role") != SETPOINT:
                 faulted[str(address)] = fault
                 continue
             if fault.write:
@@ -685,7 +696,7 @@ class Composite(LUMEModel):
 
     def _is_moving_readback(self, address: str) -> bool:
         channel = self._channels[address]
-        return channel.get("role") != _SETPOINT and is_float_channel(channel)
+        return channel.get("role") != SETPOINT and is_float_channel(channel)
 
     def _read(self, child: _Child, names: list[str], t_s: float) -> dict[str, Any]:
         """A physics child's channels at ``t_s``: readbacks with motion, readout and clamp."""
@@ -1062,6 +1073,8 @@ class Composite(LUMEModel):
                 f"{name!r} names no model variable; use <model>/<name>, model in {self.models}"
             )
         if child.model is None:
+            if child.status == STATUS_NO_DECK:
+                raise ValueError(f"model {model!r} is not built: it names no deck")
             raise ValueError(f"model {model!r} has failed: {child.status}")
         if variable in self._channels or variable not in child.model.supported_variables:
             raise ValueError(f"model {model!r} has no variable {variable!r}")

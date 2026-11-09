@@ -39,7 +39,7 @@ from tests._container_support import is_docker_available, start_or_skip, stop_qu
 from tests.services.ariel_search.fake_providers import make_fake_embedding_provider
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import AsyncIterator, Iterator
     from concurrent.futures import ThreadPoolExecutor
 
     from osprey.models.providers.base import BaseProvider
@@ -907,21 +907,6 @@ def seed_entry_factory():
 
 
 @pytest.fixture
-def search_calls() -> Iterator[SearchCallPool]:
-    """A search-call pool of the service's type, for tests that call a search module directly.
-
-    Closed at teardown, so no queued call outlives the test.
-    """
-    from osprey.services.ariel_search.search._offload import SearchCallPool
-
-    pool = SearchCallPool()
-    try:
-        yield pool
-    finally:
-        pool.close()
-
-
-@pytest.fixture
 def litellm_callback_pool() -> Iterator[ThreadPoolExecutor]:
     """Run litellm's success handlers on a pool this test owns, shut down after it.
 
@@ -1097,3 +1082,15 @@ def expander(unit_vocabulary_file):
     return SpyExpander(
         EntryExpander(loaded, canonical_to_acronym=True, canonical_to_shorthand=False)
     )
+
+
+@pytest.fixture
+async def search_calls() -> AsyncIterator[SearchCallPool]:
+    """A search-call pool for direct lane calls, closed when the test ends."""
+    from osprey.services.ariel_search.search._offload import SearchCallPool
+
+    pool = SearchCallPool()
+    try:
+        yield pool
+    finally:
+        await pool.aclose()

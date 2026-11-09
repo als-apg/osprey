@@ -258,8 +258,7 @@ MATERIALIZED_SOURCE_ENTRIES: tuple[str, ...] = (
 )
 
 # Build exhaust that a source checkout may hold inside a bundle's data tree but
-# a wheel install never does — hatch excludes it from the package (see the
-# `exclude` in pyproject.toml). Copying it would make an emission from a
+# a wheel install never does. Copying it would make an emission from a
 # checkout differ from an emission from a wheel, so the copy drops it. Paths are
 # relative to the data root, matched segment-wise so an unrelated `results/`
 # elsewhere in the tree is untouched.
@@ -1508,7 +1507,7 @@ def _context_baseline_source(manager: TemplateManager, data_bundle: str) -> Path
     """The ``base.md`` text a new profile's context baseline starts from.
 
     Bundle first: an app template that ships its own
-    ``web-terminal-context/base.md`` (the control assistant does — its text
+    ``web-terminal-context/base.md`` (the demo does — its text
     describes that family's renders) seeds the profile with it. Any other
     bundle falls back to the framework's generic baseline, the same file
     ``osprey build`` installs into every render — so the materialized slot
@@ -1590,7 +1589,7 @@ def _resolve_preset_bundle(preset: str) -> tuple[str, str]:
 
     Args:
         preset: Preset name as typed, in either spelling
-            (``control-assistant`` or ``control_assistant``).
+            (``hello-world`` or ``hello_world``).
 
     Returns:
         ``(preset_name, data_bundle)`` — the normalized (hyphenated) preset

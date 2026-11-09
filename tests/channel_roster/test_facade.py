@@ -6,8 +6,8 @@ makes. Two things are load-bearing here and nowhere else in the package.
 The first is that the stages compose into one honest answer: resolution names
 the facility file, the reader reads it, and an absence travels through
 untouched. The end-to-end assertion is against the facility file built from
-the tree OSPREY ships -- 3339 channels, 522 of them settable, every one of
-those paired with the readback the file states.
+the tree OSPREY ships -- 4731 channels, 674 of them settable, every one of
+those but the gauge trip resets paired with the readback the file states.
 
 The second is memoization. A build asks this question several times -- both
 bridge lanes render from it and the channel snapshot is written from it -- and
@@ -43,9 +43,24 @@ from osprey.channel_roster import (
 from tests._facility_file import channel_tree, write_demo_facility_file, write_facility_file
 
 #: What the facility file of the shipped demo tree holds.
-DEMO_CHANNELS = 3339
-DEMO_WRITES = 522
-DEMO_READS = 2817
+DEMO_CHANNELS = 4731
+DEMO_WRITES = 674
+DEMO_READS = 4057
+
+#: The demo's unpaired setpoints: each vacuum gauge's trip reset, a command with
+#: no readback of its own.
+DEMO_UNPAIRED = 29
+
+
+def demo_readback(setpoint: str) -> str:
+    """The readback the demo pairs a setpoint with.
+
+    ``:SP`` reads back on ``:RB``, but a gate valve's open setpoint reads back on
+    the valve's open limit switch.
+    """
+    if setpoint.startswith("SR:VAC:VALVE:") and setpoint.endswith(":OPEN:SP"):
+        return setpoint.removesuffix("OPEN:SP") + "POSITION:OPEN"
+    return setpoint[: -len("SP")] + "RB"
 
 
 @pytest.fixture(autouse=True)
@@ -131,8 +146,14 @@ class TestTheShippedDemoTree:
         result = registered_channels(demo_config)
 
         paired = [record for record in result.write_records if record.readback is not None]
-        assert len(paired) == DEMO_WRITES
-        assert all(record.readback == record.address[: -len("SP")] + "RB" for record in paired)
+        unpaired = [record.address for record in result.write_records if record.readback is None]
+        assert len(paired) == DEMO_WRITES - DEMO_UNPAIRED
+        assert all(record.readback == demo_readback(record.address) for record in paired)
+        assert len(unpaired) == DEMO_UNPAIRED
+        assert all(
+            address.startswith("SR:VAC:GAUGE:") and address.endswith(":RESET:SP")
+            for address in unpaired
+        )
 
     def test_names_the_file_it_read(self, demo_config) -> None:
         source = registered_channels(demo_config).source

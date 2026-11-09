@@ -49,6 +49,12 @@ together with the regenerated report**. ``osprey build`` checks that the report
 still matches the files before it builds anything, and the image build has
 CANOPY recompute the report and compare.
 
+A deployment made from the ``demo`` preset starts with the
+example facility's screens: ``facility/overview``, a plan of the whole machine
+where each part opens its own screen (``gtl/GTL``, ``br/overview``,
+``bts/BTS``, ``sr/sector-01`` to ``sr/sector-12``), and ``sr/orbit-feedback``.
+They are a starting point to replace with your facility's own.
+
 .. warning::
 
    ``osprey init --force`` replaces the deployment's ``data/`` directory, the
@@ -256,7 +262,10 @@ deployment's own collections are JSON files in ``data/canopy/collections``,
 one ``<id>.json`` each, and every user sees them read-only. The image build
 checks them against the library and fails on a collection that names a
 screen the library does not hold. The format is CANOPY's own; see its
-documentation on collections.
+documentation on collections. The ``demo`` preset ships one,
+``demo``, which opens by default: the overview, orbit feedback,
+and Trace, the correlation plot and the waveform view, each already showing
+channels of the example facility.
 
 When the build refuses the library
 ==================================

@@ -17,6 +17,7 @@ import pytest
 
 from osprey.cli.channel_finder_cmd import _parse_query_indices, channel_finder
 from osprey.deployment.graphdb_service import GRAPHDB_REBUILD_HINT
+from osprey.facility.records import FacilityRecords
 from tests.cli._unrecorded import (
     a_host_local_record_is_up,
     act_as_a_recording_child,
@@ -37,7 +38,7 @@ def _hierarchical_index(tmp_path: Path) -> Path:
         ],
     }
     path = tmp_path / "hierarchical.json"
-    path.write_text(json.dumps(hierarchical_document(doc)), encoding="utf-8")
+    path.write_text(json.dumps(hierarchical_document(FacilityRecords(doc))), encoding="utf-8")
     return path
 
 
@@ -69,7 +70,7 @@ class TestCommandStructure:
         """--help shows --project, and no ``-p`` short alias.
 
         ``-p`` means ``--port`` on every serving verb (``osprey web``,
-        ``artifacts web``, ``ariel``, ``theme-lab``); one letter cannot also
+        ``theme-lab``); one letter cannot also
         mean "the deployment to act on" here.
         """
         result = runner.invoke(channel_finder, ["--help"])
@@ -138,78 +139,26 @@ class TestConfigResolution:
         assert os.environ["CONFIG_FILE"] == str(repo / "build" / "config.yml")
 
 
-class TestWebBindAddress:
-    """``osprey channel-finder web`` binds the address its project's config names."""
+class TestRetiredWeb:
+    """``osprey channel-finder web`` is retired: it says so and starts nothing."""
 
-    CONFIGURED_HOST = "192.0.2.20"
-    CONFIGURED_PORT = 18400
+    MESSAGE = (
+        "`osprey channel-finder web` is retired: Channel Finder runs inside the web terminal "
+        "(`osprey web`)."
+    )
 
-    @staticmethod
-    def _project(root, *, host, port):
-        import yaml
+    @pytest.mark.parametrize(
+        "args",
+        [["web"], ["web", "--host", "0.0.0.0", "--port", "8080"], ["web", "--help"]],
+        ids=["bare", "old-flags", "help"],
+    )
+    def test_stub_exits_2_with_the_message(self, runner, args):
+        result = runner.invoke(channel_finder, args)
+        assert result.exit_code == 2
+        assert self.MESSAGE in result.output
 
-        root.mkdir(parents=True)
-        section: dict = {"pipeline_mode": "in_context"}
-        if host is not None:
-            section["web"] = {"host": host, "port": port}
-        (root / "config.yml").write_text(
-            yaml.safe_dump({"project_name": "demo", "channel_finder": section})
-        )
-        return root
-
-    @pytest.fixture
-    def bound(self, monkeypatch):
-        seen: dict = {}
-        monkeypatch.setattr("osprey.interfaces.channel_finder.app.create_app", lambda: object())
-        monkeypatch.setattr("uvicorn.run", lambda *a, **kw: seen.update(kw))
-        for name in ("OSPREY_CHANNEL_FINDER_PORT", "OSPREY_TERMINAL_SECRET", "OSPREY_WEB_PORT"):
-            monkeypatch.delenv(name, raising=False)
-        return seen
-
-    def test_host_option_has_no_frozen_default(self):
-        web = channel_finder.commands["web"]
-        host = next(p for p in web.params if p.name == "host")
-        assert host.default is None
-
-    def test_the_named_projects_address_is_bound(self, runner, tmp_path, monkeypatch, bound):
-        decoy = self._project(tmp_path / "decoy", host="192.0.2.99", port=18499)
-        project = self._project(
-            tmp_path / "named", host=self.CONFIGURED_HOST, port=self.CONFIGURED_PORT
-        )
-        monkeypatch.chdir(decoy)
-
-        result = runner.invoke(channel_finder, ["--project", str(project), "web"])
-
-        assert result.exit_code == 0, (result.output, repr(result.exception))
-        assert (bound["host"], bound["port"]) == (self.CONFIGURED_HOST, self.CONFIGURED_PORT)
-        assert f"http://{self.CONFIGURED_HOST}:{self.CONFIGURED_PORT}" in result.output
-
-    def test_explicit_host_and_port_win(self, runner, tmp_path, bound):
-        project = self._project(
-            tmp_path / "named", host=self.CONFIGURED_HOST, port=self.CONFIGURED_PORT
-        )
-
-        result = runner.invoke(
-            channel_finder,
-            ["--project", str(project), "web", "--host", "127.0.0.1", "--port", "18999"],
-        )
-
-        assert result.exit_code == 0, (result.output, repr(result.exception))
-        assert (bound["host"], bound["port"]) == ("127.0.0.1", 18999)
-
-    def test_no_configured_host_binds_loopback(self, runner, tmp_path, monkeypatch, bound):
-        from osprey.registry.web import framework_web_port_default
-
-        project = self._project(tmp_path / "named", host=None, port=None)
-        monkeypatch.chdir(project)
-
-        result = runner.invoke(channel_finder, ["--project", str(project), "web"])
-
-        assert result.exit_code == 0, (result.output, repr(result.exception))
-        assert (bound["host"], bound["port"]) == (
-            "127.0.0.1",
-            framework_web_port_default("channel_finder"),
-        )
+    def test_stub_is_hidden_from_the_group_help(self):
+        assert channel_finder.commands["web"].hidden
 
 
 # ============================================================================
@@ -465,7 +414,7 @@ class TestInContextIndexRender:
         from osprey.facility.views.channel_finder import write_in_context
 
         inputs = ViewInputs(
-            doc=built.facility,
+            records=FacilityRecords(built.facility),
             rendered_config={"channel_finder": {"pipeline_mode": "in_context"}},
             facility_dir=built.facility_dir,
             served=[],
@@ -474,10 +423,8 @@ class TestInContextIndexRender:
         return target
 
     @pytest.mark.slow
-    def test_validate_reports_every_row_of_the_index(
-        self, runner, tmp_path, built_control_assistant
-    ):
-        index = self._index(built_control_assistant, tmp_path)
+    def test_validate_reports_every_row_of_the_index(self, runner, tmp_path, built_demo):
+        index = self._index(built_demo, tmp_path)
 
         with patch("osprey.cli.channel_finder_cmd._setup_config"):
             with patch("osprey.cli.channel_finder_cmd._initialize_registry"):
@@ -489,11 +436,11 @@ class TestInContextIndexRender:
         printed = " ".join(result.output.split())
         assert result.exit_code == 0, (result.output, repr(result.exception))
         assert "VALID" in printed
-        assert "Total Channels 569" in printed
+        assert "Total Channels 571" in printed
 
     @pytest.mark.slow
-    def test_preview_prints_the_rows_of_the_index(self, runner, tmp_path, built_control_assistant):
-        index = self._index(built_control_assistant, tmp_path)
+    def test_preview_prints_the_rows_of_the_index(self, runner, tmp_path, built_demo):
+        index = self._index(built_demo, tmp_path)
         first = json.loads(index.read_text())["channels"][0]["channel"]
 
         with patch("osprey.cli.channel_finder_cmd._setup_config"):

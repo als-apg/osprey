@@ -723,6 +723,10 @@ LAMP_LIT = "TRUE"
 #: What the "all paddles out" count reads while any paddle is in.
 PADDLES_IN = 1
 
+#: The storage ring's address prefix. The gate chain stops at the ring, so a ring gate
+#: (a sector valve's closed switch, ``_peripherals.py``) is never the chain's.
+STORAGE_RING_PREFIX = "SR:"
+
 
 def _chain() -> list[_elements.ElementRow]:
     """Every table row, one per address, sections in beam order, rows in table order."""
@@ -769,7 +773,7 @@ def gates() -> dict[str, dict[str, Any]]:
             counts.append(address)
     for address in counts:
         out[address] = {"inputs": dict(sorted(paddles.items())), "gated": PADDLES_IN}
-    if stray := sorted(a for a in out if a.split(":", 1)[0] == "SR"):
+    if stray := sorted(a for a in out if a.startswith(STORAGE_RING_PREFIX)):
         raise ValueError(f"storage ring channels in the gate chain: {stray}")
     return out
 
@@ -788,14 +792,20 @@ def _merge_seeds(
 ) -> None:
     """Set the owned keys in ``seeds.yaml``, written as ``reseed`` writes it.
 
-    Each of ``entries`` gets its ``_SEED_KEYS`` replaced; every entry loses its
-    ``gate`` and the addresses of ``gate_seeds`` get theirs.
+    Each of ``entries`` gets its ``_SEED_KEYS`` replaced; every entry outside the
+    storage ring loses its ``gate`` and the addresses of ``gate_seeds`` get theirs. The
+    chain never reaches the storage ring, so a storage-ring gate (a sector valve's
+    closed switch, ``_peripherals.py``) is not the chain's and is kept.
     """
     import yaml
 
     committed: dict[str, dict[str, Any]] = reseed.load(path) if path.is_file() else {}
     committed = {
-        address: {k: v for k, v in entry.items() if k != _GATE_KEY}
+        address: {
+            k: v
+            for k, v in entry.items()
+            if k != _GATE_KEY or address.startswith(STORAGE_RING_PREFIX)
+        }
         for address, entry in (committed or {}).items()
     }
     for address, keys in entries.items():
@@ -810,7 +820,8 @@ def _merge_seeds(
         for address in sorted(committed)
         if committed[address]
     }
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    text = _line.origin_line() + yaml.safe_dump(document, sort_keys=False)
+    path.write_text(text, encoding="utf-8")
 
 
 def write_sources(tree: Path) -> None:

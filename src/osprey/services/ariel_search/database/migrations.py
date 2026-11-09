@@ -479,9 +479,39 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         None,  # Always runs
     ),
     (
+        "facility_refs_column",
+        "osprey.services.ariel_search.database.facility_refs_migration",
+        "FacilityRefsColumnMigration",
+        None,  # Always runs
+    ),
+    (
         "als_logbook_plain_text",
         "osprey.services.ariel_search.ingestion.adapters.als_text_migration",
         "ALSPlainTextMigration",
+        None,  # Always runs
+    ),
+    (
+        "entry_subject_and_keyset",
+        "osprey.services.ariel_search.database.subject_migration",
+        "EntrySubjectAndKeysetMigration",
+        None,  # Always runs
+    ),
+    (
+        "entry_subject_backfill",
+        "osprey.services.ariel_search.database.subject_backfill",
+        "EntrySubjectBackfillMigration",
+        None,  # Always runs
+    ),
+    (
+        "follows_up_index",
+        "osprey.services.ariel_search.database.follows_up_migration",
+        "FollowsUpIndexMigration",
+        None,  # Always runs
+    ),
+    (
+        "logbook_web_source_system",
+        "osprey.services.ariel_search.database.logbook_web_source_migration",
+        "LogbookWebSourceMigration",
         None,  # Always runs
     ),
 ]
@@ -733,9 +763,9 @@ class MigrationRunner:
                         #
                         # Every migration in KNOWN_MIGRATIONS is transactional DDL
                         # (CREATE/DROP INDEX, CREATE TABLE, ALTER TABLE ... ADD
-                        # COLUMN, CREATE EXTENSION, CREATE FUNCTION), except one
-                        # that rewrites rows with UPDATE, which is transactional
-                        # DML. Nothing here uses CREATE INDEX CONCURRENTLY, VACUUM
+                        # COLUMN, CREATE EXTENSION, CREATE FUNCTION), except the
+                        # backfills that rewrite rows with UPDATE, which is
+                        # transactional DML. Nothing here uses CREATE INDEX CONCURRENTLY, VACUUM
                         # or CREATE DATABASE, which are the statements PostgreSQL
                         # forbids inside a transaction block -- so a migration that
                         # needs one of those cannot simply be added here; it needs

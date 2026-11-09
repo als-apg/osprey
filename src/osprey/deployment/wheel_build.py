@@ -5,9 +5,11 @@ contexts instead of the released PyPI pin. This module owns that wheel's whole
 lifecycle: building it at most once per process
 (:func:`_build_dev_wheel_cached`), caching the build across the many contexts a
 single deploy stages (:data:`_wheel_build_cache`), copying it into a context
-alongside its base-requirements manifest
-(:func:`_copy_local_framework_for_override`,
-:func:`_write_local_requirements_manifest`), and enumerating what staging added
+alongside its base-requirements manifest, the checkout's ``uv.lock`` exported
+as constraints, and — for an image that installs an extra — that extra's
+requirements (:func:`_copy_local_framework_for_override`,
+:func:`_write_local_requirements_manifest`,
+:func:`_write_extra_requirements_manifest`), and enumerating what staging added
 so callers can clean up exactly that (:func:`_staged_dev_artifact_paths`).
 
 The per-context *decision* to stage — gated on ``--dev`` and the presence of a
@@ -25,6 +27,13 @@ from pathlib import Path
 
 from osprey.cli.phase_reporter import report_step
 from osprey.deployment.errors import DevModeUnavailableError
+from osprey.deployment.lock_constraints import (
+    LOCK_CONSTRAINTS_FILENAME,
+    LockExportError,
+    export_lock_constraints,
+    find_uv,
+    reset_export_cache,
+)
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey_connectors.logger import get_logger
 
@@ -84,6 +93,22 @@ def preflight_dev_mode():
             "        or with:  uv pip install build",
         )
 
+    # The images a --dev build makes install third-party packages at the
+    # versions the checkout's uv.lock holds (see osprey.deployment
+    # .lock_constraints). Whether the lock is current is a subprocess away and
+    # is checked at staging; that there is one, and a uv to read it, is not.
+    if not (source_root / "uv.lock").exists():
+        raise DevModeUnavailableError(
+            f"no uv.lock found at the osprey source root ({source_root})",
+            "--dev installs third-party packages at the versions the checkout's "
+            "uv.lock holds.\nCreate the lock with:  uv lock",
+        )
+    if find_uv() is None:
+        raise DevModeUnavailableError(
+            "uv is not installed, and --dev exports the checkout's uv.lock with it",
+            "Install uv (https://docs.astral.sh/uv/), or set UV to its path.",
+        )
+
 
 # Staged next to every dev wheel (see ``_copy_local_framework_for_override``
 # below): the wheel's own base dependency list, which the Dockerfiles' deps
@@ -93,6 +118,15 @@ def preflight_dev_mode():
 # accelerator-toolbox) would have to compile in the later toolchain-less
 # wheel-install layer — and fail.
 LOCAL_REQUIREMENTS_FILENAME = "osprey-local-requirements.txt"
+
+# Staged beside the wheels only for an image that installs one of the
+# framework's extras (``_copy_local_framework_for_override``'s ``extras``): that
+# extra's third-party requirements, which the image's extras layer installs
+# under the lock constraints. The base manifest above leaves them out on
+# purpose — it is the same file in every context, so the deps layer stays one
+# layer every service image shares — and on the lock-driven path no layer may
+# fetch the framework from the index to learn them.
+EXTRA_REQUIREMENTS_FILENAME = "osprey-extra-requirements.txt"
 
 
 def _wheel_base_requirements(wheel_path: str | Path) -> list[str]:
@@ -135,6 +169,72 @@ def _wheel_base_requirements(wheel_path: str | Path) -> list[str]:
         # Collapse header-folding whitespace so the written line is stable
         # and single-line; the requirement text itself stays verbatim.
         requirements.append(" ".join(entry.split()))
+    return sorted(requirements)
+
+
+def _strip_extra_clause(marker: str, extra: str) -> str | None:
+    """*marker* with its ``extra == "<extra>"`` term removed, or ``None`` if it was the whole marker.
+
+    The two shapes a wheel's metadata spells an extra-gated requirement in
+    (``extra == "x"`` alone, or ``(<marker>) and extra == "x"``, which is how
+    hatchling writes one) are the only ones taken apart. Any other shape is
+    refused rather than guessed at: a wrongly unwrapped marker would install a
+    requirement on a platform its extra excludes, or drop one it needs.
+
+    :raises ValueError: If the marker names *extra* in any other shape
+    """
+    import re
+
+    clause = f'extra == "{extra}"'
+    if marker == clause:
+        return None
+    match = re.fullmatch(r"\((?P<rest>.+)\) and " + re.escape(clause), marker)
+    if match and "extra" not in match.group("rest"):
+        return match.group("rest")
+    raise ValueError(f"cannot separate extra {extra!r} from the marker {marker!r}")
+
+
+def _wheel_extra_requirements(wheel_path: str | Path, extras: tuple[str, ...]) -> list[str]:
+    """The third-party requirements *extras* add to the wheel's base set, sorted.
+
+    Each ``Requires-Dist`` gated on one of *extras* is returned with that gate
+    removed and any other marker kept (pip and uv evaluate it in-container);
+    requirements on workspace distributions are dropped, as they are from the
+    base manifest. Deterministic for identical wheels, for the same reason
+    :func:`_wheel_base_requirements` is.
+
+    :raises ValueError: If the wheel has no metadata, declares none of
+        *extras*, or spells a gate this cannot take apart
+    """
+    import zipfile
+    from email.parser import Parser
+
+    from packaging.markers import Marker
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    with zipfile.ZipFile(wheel_path) as whl:
+        metadata_names = sorted(
+            name for name in whl.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        if not metadata_names:
+            raise ValueError(f"no *.dist-info/METADATA found in wheel {wheel_path}")
+        metadata = Parser().parsestr(whl.read(metadata_names[0]).decode("utf-8"))
+
+    declared = {canonicalize_name(e) for e in metadata.get_all("Provides-Extra") or []}
+    requirements: set[str] = set()
+    for extra in extras:
+        if canonicalize_name(extra) not in declared:
+            raise ValueError(f"wheel {Path(wheel_path).name} declares no extra {extra!r}")
+        for entry in metadata.get_all("Requires-Dist") or []:
+            req = Requirement(entry)
+            if req.marker is None or f'extra == "{extra}"' not in str(req.marker):
+                continue
+            rest = _strip_extra_clause(str(req.marker), extra)
+            req.marker = Marker(rest) if rest is not None else None
+            line = str(req)
+            if not _is_workspace_requirement(line):
+                requirements.add(line)
     return sorted(requirements)
 
 
@@ -245,13 +345,46 @@ def _write_local_requirements_manifest(cached_wheels: list[Path], out_dir: str) 
         fh.write(content)
 
 
+def _write_extra_requirements_manifest(
+    primary_wheel: Path, extras: tuple[str, ...], out_dir: str
+) -> None:
+    """Write ``osprey-extra-requirements.txt``: *extras*' third-party requirements.
+
+    Same content contract as the base manifest (one requirement per line,
+    sorted, trailing newline). See :data:`EXTRA_REQUIREMENTS_FILENAME`.
+    """
+    lines = _wheel_extra_requirements(primary_wheel, extras)
+    with open(
+        os.path.join(out_dir, EXTRA_REQUIREMENTS_FILENAME), "w", encoding="utf-8", newline="\n"
+    ) as fh:
+        fh.write("".join(f"{line}\n" for line in lines))
+
+
+def _write_lock_constraints(osprey_source_root: Path, out_dir: str) -> None:
+    """Write the checkout's ``uv.lock``, exported as constraints, into *out_dir*.
+
+    The export runs once per process (see
+    :func:`osprey.deployment.lock_constraints.export_lock_constraints`), so
+    every context a deploy stages receives the same bytes — which is what keeps
+    the shared deps layer shared.
+    """
+    content = export_lock_constraints(osprey_source_root)
+    with open(
+        os.path.join(out_dir, LOCK_CONSTRAINTS_FILENAME), "w", encoding="utf-8", newline="\n"
+    ) as fh:
+        fh.write(content)
+
+
 def _staged_dev_artifact_paths(context_dir: str) -> set[Path]:
-    """All dev-staging artifacts (wheels + requirements manifest) in a context.
+    """All dev-staging artifacts (wheels, manifests, lock constraints) in a context.
 
     Callers that stage into a long-lived directory (project-image and render
     builds) snapshot this before/after staging so their ``finally`` cleanup
-    removes exactly what staging added — wheel AND manifest — and nothing that
-    was already there.
+    removes exactly what staging added — wheels, manifests AND the lock
+    constraints — and nothing that was already there. The constraints file
+    matters most: its presence alone switches a Dockerfile onto the
+    lock-driven install, so one left behind would turn a later release build
+    into a lock-pinned one.
 
     :param context_dir: Build context directory
     :type context_dir: str
@@ -260,9 +393,14 @@ def _staged_dev_artifact_paths(context_dir: str) -> set[Path]:
     """
     root = Path(context_dir)
     artifacts = set(root.glob("*.whl"))
-    manifest = root / LOCAL_REQUIREMENTS_FILENAME
-    if manifest.exists():
-        artifacts.add(manifest)
+    for name in (
+        LOCAL_REQUIREMENTS_FILENAME,
+        EXTRA_REQUIREMENTS_FILENAME,
+        LOCK_CONSTRAINTS_FILENAME,
+    ):
+        staged = root / name
+        if staged.exists():
+            artifacts.add(staged)
     return artifacts
 
 
@@ -295,6 +433,7 @@ def _reset_wheel_build_cache():
     """
     global _wheel_cache_dir
     _wheel_build_cache.clear()
+    reset_export_cache()
     if _wheel_cache_dir is not None:
         shutil.rmtree(_wheel_cache_dir, ignore_errors=True)
     _wheel_cache_dir = None
@@ -378,8 +517,50 @@ def _build_dev_wheel_cached(osprey_source_root):
     return cached_wheel
 
 
-def _copy_local_framework_for_override(out_dir):
+def _members_to_stage(primary_wheel: Path, member: str | None) -> tuple[str, ...]:
+    """The workspace members whose wheels are staged beside *primary_wheel*.
+
+    Every member for the framework wheel (*member* ``None``). For a member's
+    own image (*member* a ``packages/<name>`` path), only the members that
+    wheel's base requirements name, so the image is never handed a wheel that
+    needs the framework it does not install.
+    """
+    if member is None:
+        return WORKSPACE_MEMBERS
+    from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
+
+    required = {
+        canonicalize_name(Requirement(line).name)
+        for line in _wheel_base_requirements(primary_wheel)
+    }
+    own = canonicalize_name(Path(member).name)
+    return tuple(
+        name
+        for name in WORKSPACE_MEMBERS
+        if canonicalize_name(name) in required and canonicalize_name(name) != own
+    )
+
+
+def _copy_local_framework_for_override(out_dir, member=None, extras=()):
     """Build and copy local osprey wheel to container build directory for development mode.
+
+    ``member`` names a workspace package (e.g. ``packages/osprey-optimizer``)
+    whose wheel the context installs in place of the framework's: a service
+    image built on that package alone is handed that wheel and the connectors
+    wheel it requires, and never the framework's.
+
+    ``extras`` names the primary wheel's extras the context's image installs
+    in an extras layer of its own (the gchat bridge's ``gchat``, the virtual
+    accelerator's ``virtual-accelerator``); their third-party requirements are
+    staged as ``osprey-extra-requirements.txt``.
+
+    Every context also receives ``osprey-lock-constraints.txt``, the
+    checkout's ``uv.lock`` exported as constraints (see
+    :mod:`osprey.deployment.lock_constraints`): its presence is what puts the
+    Dockerfile on the lock-driven install, where every third-party package is
+    installed at the lock's version and nothing is fetched as osprey-framework
+    from the index.
 
     This function builds a wheel package from the local osprey source and copies it
     to the container build directory. This approach is cleaner and more reliable than
@@ -392,9 +573,9 @@ def _copy_local_framework_for_override(out_dir):
     :func:`_build_dev_wheel_cached`); each call copies the cached wheel into its
     own ``out_dir`` and writes ``osprey-local-requirements.txt`` (the wheel's
     own base dependency list — see :func:`_write_local_requirements_manifest`)
-    next to it. Success (True) means BOTH landed; a manifest failure removes
-    the staged wheel and reports failure so the ``OSPREY_DEV`` gating never
-    fires for a half-staged context.
+    next to it. Success (True) means everything landed; a failure to write any
+    of the files beside the wheel removes what was staged and reports failure,
+    so the ``OSPREY_DEV`` gating never fires for a half-staged context.
 
     Note: This function only works when osprey is installed in editable/development mode
     (e.g., `pip install -e .`). If osprey is installed from PyPI or via regular
@@ -439,26 +620,35 @@ def _copy_local_framework_for_override(out_dir):
                 "uv pip install -e <path-to-osprey-checkout>",
             )
 
-        cached_wheel = _build_dev_wheel_cached(osprey_source_root)
+        primary_root = osprey_source_root / member if member else osprey_source_root
+        if member and not (primary_root / "pyproject.toml").exists():
+            raise DevModeUnavailableError(
+                f"the {member} workspace member is missing from the checkout ({primary_root})",
+                f"--dev builds the {member} wheel for the service image that installs it.\n"
+                f"Restore {member} in the checkout.",
+            )
+        cached_wheel = _build_dev_wheel_cached(primary_root)
 
-        # The framework wheel requires its workspace members, which pip
-        # resolves from PyPI only once a satisfying release exists there. Build
-        # each from the same checkout and stage it beside the framework wheel:
-        # the Dockerfiles' wheel layer installs every staged wheel in one pip
-        # call, so the requirements are satisfied locally.
+        # The primary wheel requires workspace members, which pip resolves
+        # from PyPI only once a satisfying release exists there. Build each
+        # from the same checkout and stage it beside the primary wheel: the
+        # Dockerfiles' wheel layer installs every staged wheel in one pip call,
+        # so the requirements are satisfied locally. The framework stages every
+        # member; a member's own image stages only the members its wheel
+        # requires (the optimizer: the connectors), never the framework's.
         cached_wheels = [cached_wheel]
         member_wheels: dict[str, tuple[Path, Path]] = {}
-        for member in WORKSPACE_MEMBERS:
-            member_root = osprey_source_root / "packages" / member
+        for staged in _members_to_stage(cached_wheel, member):
+            member_root = osprey_source_root / "packages" / staged
             if not (member_root / "pyproject.toml").exists():
                 raise DevModeUnavailableError(
-                    f"the {member} workspace member is missing from the checkout ({member_root})",
+                    f"the {staged} workspace member is missing from the checkout ({member_root})",
                     "--dev stages every workspace member wheel beside the "
-                    "framework wheel because the framework requires them.\n"
-                    f"Restore packages/{member} in the checkout.",
+                    "wheel that requires it.\n"
+                    f"Restore packages/{staged} in the checkout.",
                 )
             member_wheel = _build_dev_wheel_cached(member_root)
-            member_wheels[member] = (member_root, member_wheel)
+            member_wheels[staged] = (member_root, member_wheel)
             cached_wheels.append(member_wheel)
         _require_members_satisfy_framework(cached_wheel, member_wheels)
 
@@ -470,17 +660,31 @@ def _copy_local_framework_for_override(out_dir):
             dest_wheels.append(dest)
 
         # Stage the wheels' own base dependency list next to them so the
-        # Dockerfiles' toolchain-equipped deps layer can install any deps the
-        # released PyPI pin lacks. A context holding wheels without their
-        # manifest is half-staged — the OSPREY_DEV success signal must not
-        # fire for it, so a manifest failure removes the wheels and fails
+        # Dockerfiles' toolchain-equipped deps layer can install the wheels'
+        # dependencies, then the lock constraints that pin every one of them
+        # to the checkout's uv.lock, then the extras' requirements for an
+        # image that installs an extra. A context holding wheels without all
+        # of these is half-staged — the OSPREY_DEV success signal must not
+        # fire for it, so any failure removes what was staged and fails
         # staging outright (fail-closed, matching the wheel-build path).
+        staged_beside = [
+            os.path.join(out_dir, name)
+            for name in (
+                LOCAL_REQUIREMENTS_FILENAME,
+                LOCK_CONSTRAINTS_FILENAME,
+                EXTRA_REQUIREMENTS_FILENAME,
+            )
+        ]
+
+        def _unstage() -> None:
+            for dest in [*dest_wheels, *staged_beside]:
+                with contextlib.suppress(OSError):
+                    os.remove(dest)
+
         try:
             _write_local_requirements_manifest(cached_wheels, out_dir)
         except Exception as manifest_error:
-            for dest in dest_wheels:
-                with contextlib.suppress(OSError):
-                    os.remove(dest)
+            _unstage()
             raise DevModeUnavailableError(
                 f"could not write {LOCAL_REQUIREMENTS_FILENAME} beside the staged "
                 f"wheels ({manifest_error})",
@@ -488,6 +692,29 @@ def _copy_local_framework_for_override(out_dir):
                 "half-staged and would build against the released pin's "
                 "dependencies.\nCheck that the build context directory is writable.",
             ) from manifest_error
+        try:
+            _write_lock_constraints(osprey_source_root, out_dir)
+        except LockExportError as lock_error:
+            _unstage()
+            raise DevModeUnavailableError(lock_error.reason, lock_error.remedy) from lock_error
+        except OSError as lock_error:
+            _unstage()
+            raise DevModeUnavailableError(
+                f"could not write {LOCK_CONSTRAINTS_FILENAME} beside the staged "
+                f"wheels ({lock_error})",
+                "Check that the build context directory is writable.",
+            ) from lock_error
+        if extras:
+            try:
+                _write_extra_requirements_manifest(cached_wheel, tuple(extras), out_dir)
+            except Exception as extras_error:
+                _unstage()
+                raise DevModeUnavailableError(
+                    f"could not write {EXTRA_REQUIREMENTS_FILENAME} for the "
+                    f"{', '.join(extras)} extra beside the staged wheels ({extras_error})",
+                    "The image installs that extra's requirements from this file; "
+                    "without it the extras layer has nothing to install.",
+                ) from extras_error
 
         # Fires once per build context -- the deployment, each render, each
         # image copy -- so as a step it would repeat one fact N times. The step

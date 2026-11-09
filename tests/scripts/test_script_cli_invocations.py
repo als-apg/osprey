@@ -176,7 +176,7 @@ def test_invocations_stop_at_shell_operators_and_skip_comments():
                 "build",
                 "prov",
                 "--preset",
-                "control-assistant",
+                "demo",
                 "--skip-deps",
                 "--skip-lifecycle",
                 "--output-dir",

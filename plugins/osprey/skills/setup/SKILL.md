@@ -179,7 +179,7 @@ Read `references/map.md`. It carries the closed verdict vocabulary (`port`, `nat
 `placeholder`, `obsolete`, `gap`, `unknown`), the porting-map card, and the rule that `?`
 rows render first. Every element of the locked status quo gets exactly one verdict, read
 live from that card, `osprey profile artifacts`, the emitted `profile.yml`, and the
-`control-assistant` preset. A `gap` verdict becomes an upstream candidate under the rules
+`demo` preset. A `gap` verdict becomes an upstream candidate under the rules
 above. A `placeholder` verdict is answered `refresh` or `localize` on the card itself.
 Each agent model pin is one element: `port` when the `models` list of the provider the
 deployment will run carries its id, landing as
@@ -200,7 +200,7 @@ ships `code:` only.
 ### 3. BUILD
 
 1. `osprey init <name> --preset hello-world`, hello-world by rule, not by choice.
-   `control-assistant` is the reference example this phase reads from. It is never
+   `demo` is the reference example this phase reads from. It is never
    initialized and never pulled with `--with-content`: its data bundle is the reference
    facility's, and a deployment half adapted and half demo is the failure this rule
    prevents.
@@ -220,7 +220,7 @@ ships `code:` only.
    follow that recipe in full. Nothing enters the profile any other way.
    - Profile scalars: `osprey set config.<dotted key>=<value>`.
    - Optional top-level blocks the emitted profile carries commented: uncomment them.
-   - Data and context files: skeletons via `osprey scaffold pull control-assistant:<path>`,
+   - Data and context files: skeletons via `osprey scaffold pull demo:<path>`,
      or, on a `port` verdict, the facility's own file copied unchanged.
    - Custom code: the matching convention directory, with the rest recorded under
      Deferred. Never write a custom component mid-run.
@@ -248,9 +248,10 @@ ships `code:` only.
      proposes each model's `wiring` block; its open slots are answered in a review
      sized to the model, with the MODEL WIRING card in `references/cards.md`
      (`## MODEL WIRING`) as its overview. The import refuses while one is open.
-   - `osprey facility import mml` refuses while `data/facility/` holds record sources
-     of its own — on this base, hello-world's demo records — and prints one `rm` line
-     per file. Run those lines as printed, then import again.
+   - `osprey facility import mml` replaces the bundled facility in one line
+     (`import mml: replaced the bundled <name> facility (<n> files)`) and refuses only
+     hand-written records of the kinds it writes, naming each file with the new-repo
+     remedy.
 8. `osprey validate --drift=warn` after every change. Drift from the preset is expected.
 9. Core four, hardwired, resolved before wrap-up. **Provider, its key, and each agent's
    model**: the list is `providers.yml` beside the profile; `osprey init` writes
@@ -362,7 +363,7 @@ core: provider ✔ · models ✔ · control system ✔ · writes/safety ✖ · i
 | --- | --- | --- | --- |
 | data/facility/knowledge/ | pulled | skeleton | indexes only |
 | data/facility/knowledge/subsystems/rf.md | derived | LCLS | from lcls-ops-wiki/rf.md |
-| data/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
+| data/facility/ariel/vocabulary.yml | stated | LCLS | localized stub, curation owed |
 | services.postgresql | ported | LCLS | ARIEL store |
 ## Decided
 - <decision> — <one-line rationale> (<date>)

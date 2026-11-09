@@ -20,12 +20,22 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["ARIEL_NATIVE_SOURCE_SYSTEM", "build_entry_url", "is_ariel_only"]
+__all__ = [
+    "ARIEL_NATIVE_SOURCE_SYSTEM",
+    "LOGBOOK_WEB_SOURCE_SYSTEM",
+    "build_entry_url",
+    "is_ariel_only",
+]
 
 # The source_system value ARIEL stamps on its own natively-created entries
 # (see mcp_server/ariel/tools/entry.py entry_create direct mode). Such entries
 # are not (yet) in the facility logbook, so no canonical entry_url exists.
 ARIEL_NATIVE_SOURCE_SYSTEM = "ARIEL MCP"
+
+# The source_system value of an entry the Logbook panel's compose sheet saves
+# locally (no facility write path). Entries saved before it was introduced keep
+# their stored "ARIEL Web"; nothing rewrites them.
+LOGBOOK_WEB_SOURCE_SYSTEM = "OSPREY Logbook Web"
 
 # One-time guard so a malformed template does not spam the per-entry hot path.
 _entry_url_template_warned = False
@@ -35,7 +45,7 @@ def is_ariel_only(source_system: str | None, metadata: Mapping[str, Any] | None)
     """Whether the entry lives only in ARIEL, with no facility logbook page.
 
     True for an entry saved local-only (``metadata.sync_status`` is
-    ``local_only``, e.g. an ``ARIEL Web`` save) and for an ARIEL-native entry
+    ``local_only``, e.g. a :data:`LOGBOOK_WEB_SOURCE_SYSTEM` save) and for an ARIEL-native entry
     (``source_system`` is :data:`ARIEL_NATIVE_SOURCE_SYSTEM`).
     """
     from osprey.services.ariel_search.models import SyncStatus

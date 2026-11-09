@@ -724,7 +724,8 @@ def _strip_nominals(path: Path, addresses: set[str]) -> None:
             entry.pop("nominal", None)
         if entry:
             document[address] = {key: entry[key] for key in reseed.KEY_ORDER if key in entry}
-    path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
+    text = _line.origin_line() + yaml.safe_dump(document, sort_keys=False)
+    path.write_text(text, encoding="utf-8")
 
 
 def write_sources(tree: Path) -> None:

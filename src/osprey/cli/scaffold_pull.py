@@ -34,13 +34,18 @@ from .templates.preset_data import PresetData
 _ROOT_ONLY_EXCLUDED_SUFFIXES: tuple[str, ...] = (".j2",)
 _ROOT_ONLY_EXCLUDED_NAMES: frozenset[str] = frozenset({"__init__.py"})
 
+#: Bytecode caches, dropped at any depth: importing a template's modules writes
+#: one beside them, in a checkout or an installed wheel alike, and the build's
+#: template copy never carries it either.
+_BYTECODE_CACHE = "__pycache__"
+
 
 def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[str]:
     """Every path in a preset's packaged content an operator can pull, directories first.
 
     The listing excludes what a pull could never usefully produce: the
     root-level build machinery (:data:`_ROOT_ONLY_EXCLUDED_NAMES` and the
-    ``.j2`` sources), and — inside ``data/`` — whatever the packaged-data copy
+    ``.j2`` sources), bytecode caches at any depth, and — inside ``data/`` — whatever the packaged-data copy
     already drops, read from
     :func:`~.profile_cmd._data_copy_ignore` rather than restated here so the
     two can never disagree about what a wheel actually ships.
@@ -86,7 +91,7 @@ def list_pullable_paths(source: PresetData, subtree: str | None = None) -> list[
         if directory == data_root or data_root in directory.parents:
             ignored = data_ignore(str(directory), names)
         for name in names:
-            if name in ignored:
+            if name in ignored or name == _BYTECODE_CACHE:
                 continue
             path = directory / name
             if at_root and not path.is_dir() and _is_root_machinery(name):

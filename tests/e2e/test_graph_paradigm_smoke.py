@@ -47,7 +47,7 @@ along the ring" is prose that only a reader can grade; a channel-address answer
 is checkable against the corpus by string equality, and a cheaper gate that
 proves the same thing is the better gate.
 
-**Why the standalone graph server is switched off.** ``control_assistant``
+**Why the standalone graph server is switched off.** ``demo``
 declares ``services.graphdb``, so a graph-paradigm render carries *both* the
 standalone ``graph`` server (the facility-knowledge-graph subagent's) and the
 ``channel-finder`` one — two doors onto the same store. Left open, which door
@@ -153,7 +153,7 @@ _RETRIEVAL_TOOLS = frozenset({"mcp__channel-finder__read_cypher", _SEARCH_CHANNE
 
 @pytest.fixture(scope="module")
 def graph_paradigm_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """A built ``control_assistant`` repo in graph channel-finder mode.
+    """A built ``demo`` repo in graph channel-finder mode.
 
     No container and no credential: this is the render alone, which is all the
     ``-k render`` half needs. The live test layers the store on top through
@@ -166,7 +166,7 @@ def graph_paradigm_repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Pa
         yield init_project(
             tmp,
             "graph_paradigm",
-            template="control_assistant",
+            template="demo",
             provider="als-apg",
             channel_finder_mode=GRAPH_MODE,
         )
@@ -221,7 +221,6 @@ def seeded_graph_paradigm_project(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.harness_benchmark
 def test_render_targets_the_graph_channel_finder_server(graph_paradigm_repo: Path) -> None:
@@ -258,7 +257,6 @@ def test_render_targets_the_graph_channel_finder_server(graph_paradigm_repo: Pat
     assert "channel-finder" in expected_mcp_servers(render)
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.harness_benchmark
 def test_render_arms_the_subagent_with_the_paradigm_vocabulary(
@@ -495,7 +493,6 @@ def _print_run(result: Any, prose: str, prompt: str) -> None:
     print("  --- end prose ---\n")
 
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.agentic_benchmark
 @pytest.mark.requires_als_apg

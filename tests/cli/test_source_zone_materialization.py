@@ -131,17 +131,17 @@ def test_data_key_is_active_and_points_at_the_materialized_tree(
 
 
 def test_preset_name_is_normalized(runner: CliRunner, tmp_path: Path) -> None:
-    """``--preset control_assistant`` (underscored) resolves to the hyphenated preset."""
+    """``--preset demo`` (underscored) resolves to the hyphenated preset."""
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "control_assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     parsed = yaml.safe_load((target / "profile.yml").read_text())
-    assert parsed["provenance"]["preset"] == "control-assistant"
+    assert parsed["provenance"]["preset"] == "demo"
     # The provenance header records the CANONICAL spelling rather than the one
     # typed: it is what a later reader — and the drift check — matches the
     # preset by, so a normalization that stopped here would strand both.
-    assert "control-assistant" in (target / "profile.yml").read_text(encoding="utf-8")
+    assert "demo" in (target / "profile.yml").read_text(encoding="utf-8")
 
 
 def test_extends_chain_preset_materializes_flat(
@@ -162,7 +162,7 @@ def test_extends_chain_preset_materializes_flat(
         ignore=shutil.ignore_patterns("__pycache__", "*.py"),
     )
     (presets / "ro-child.yml").write_text(
-        "extends: control-assistant\n"
+        "extends: demo\n"
         "# The child's own comment, carried onto its override.\n"
         "deploy_services: false\n"
         "config:\n"
@@ -188,7 +188,7 @@ def test_extends_chain_preset_materializes_flat(
 def test_preset_comments_survive(runner: CliRunner, tmp_path: Path) -> None:
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "control-assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     text = (target / "profile.yml").read_text()
     assert "Which model answers" in text
@@ -211,7 +211,7 @@ def test_bundled_triggers_are_materialized_and_repointed(runner: CliRunner, tmp_
     ``dispatch.triggers`` names that copy rather than the bundled name."""
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "control-assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     materialized = target / "triggers.yml"
     assert materialized.is_file()
@@ -239,7 +239,7 @@ def test_emitted_triggers_reference_resolves_inside_the_profile(
     profile-local files, so the directory is movable and buildable on its own."""
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "control-assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     resolved, profile_dir = resolve_build_profile((target / "profile.yml").resolve(), None)
     assert resolved.dispatch is not None
@@ -256,10 +256,10 @@ def test_layer_deltas_do_not_restate_the_triggers_reference(
     re-anchors the path — the implicit merge resolves it against the host."""
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "control-assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     layers = layer_files(target)
-    assert layers, "control-assistant should emit tier and app files"
+    assert layers, "demo should emit tier and app files"
     for _kind, layer_file in layers:
         parsed = yaml.safe_load(layer_file.read_text())
         assert "dispatch" not in parsed, layer_file.name
@@ -280,7 +280,7 @@ def _roster_names(preset: str) -> list[str]:
     return [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
 
 
-@pytest.mark.parametrize("preset", ["control-assistant"])
+@pytest.mark.parametrize("preset", ["demo"])
 def test_per_user_context_directories_are_seeded_from_the_roster(
     runner: CliRunner, tmp_path: Path, preset: str
 ) -> None:
@@ -305,7 +305,7 @@ def test_seeded_context_directories_carry_no_content(runner: CliRunner, tmp_path
     what makes the text every seeded user starts from visible in the repo."""
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "control-assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     for user_dir in (target / "web-terminal-context").iterdir():
         if user_dir.is_file():
@@ -316,22 +316,16 @@ def test_seeded_context_directories_carry_no_content(runner: CliRunner, tmp_path
 def test_context_baseline_is_materialized_from_the_bundle(
     runner: CliRunner, tmp_path: Path
 ) -> None:
-    """The control-assistant bundle ships its own baseline text (it describes
+    """The demo bundle ships its own baseline text (it describes
     that family's renders), and the profile starts from a byte-identical
     copy — visible and editable where the operator works."""
     from osprey.cli.templates.manager import TemplateManager
 
     target = tmp_path / "my-facility"
-    assert _new(runner, target, "control-assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     materialized = target / "web-terminal-context" / "base.md"
-    bundle = (
-        TemplateManager().template_root
-        / "apps"
-        / "control_assistant"
-        / "web-terminal-context"
-        / "base.md"
-    )
+    bundle = TemplateManager().template_root / "apps" / "demo" / "web-terminal-context" / "base.md"
     assert materialized.read_bytes() == bundle.read_bytes()
 
 
@@ -489,7 +483,7 @@ def test_a_malformed_layer_delta_is_reported_before_anything_is_written(
     target = tmp_path / "my-facility"
 
     with pytest.raises(BuildProfileError, match="is not valid YAML"):
-        _materialize_profile_directory(target, "control-assistant")
+        _materialize_profile_directory(target, "demo")
 
     assert not target.exists()
 
@@ -660,14 +654,14 @@ def test_materialized_profile_records_the_preset_it_came_from(
 
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "control_assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
     assert resolved.provenance is not None
     # Normalized, not the underscored spelling the caller typed: what is
     # recorded has to be a name a later build can look the preset up by.
-    assert resolved.provenance.preset == "control-assistant"
-    assert resolved.provenance.preset_hash == compute_preset_hash("control-assistant")
+    assert resolved.provenance.preset == "demo"
+    assert resolved.provenance.preset_hash == compute_preset_hash("demo")
 
 
 # ---------------------------------------------------------------------------
@@ -873,11 +867,11 @@ def test_header_carries_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> N
 
 def test_render_profiles_do_not_repeat_the_flow_diagram(runner: CliRunner, tmp_path: Path) -> None:
     target = tmp_path / "p-facility"
-    assert _new(runner, target, "control-assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     layers = layer_files(target)
     assert {kind for kind, _path in layers} == {ProfileKind.TIER, ProfileKind.APP}, (
-        "control-assistant should emit tier and app files"
+        "demo should emit tier and app files"
     )
     for _kind, layer_file in layers:
         assert "edit profile -> rebuild -> redeploy" not in layer_file.read_text(encoding="utf-8")
@@ -1160,7 +1154,7 @@ def test_force_leaves_no_holding_directory_behind(runner: CliRunner, tmp_path: P
     ("edit", "named"),
     [
         # A materialized profile is standalone, so nothing may give it a parent.
-        ("extends=control-assistant", "extends"),
+        ("extends=demo", "extends"),
         ("channel_finder_mode=in-context", "channel_finder_mode"),
     ],
     ids=["extends", "invalid-value"],
@@ -1469,17 +1463,22 @@ def test_resolves_identical_to_the_preset(runner: CliRunner, tmp_path: Path, pre
 
 def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Path) -> None:
     """Sections no bundled preset carries — facility MCP servers and custom
-    artifact categories — are appended as commented guidance, and the guidance
+    artifact extension types — are appended as commented guidance, and the guidance
     is suppressed for a section the written profile actually defines."""
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "control-assistant").exit_code == 0
+    assert _new(runner, target, "demo").exit_code == 0
 
     text = (target / "profile.yml").read_text()
+    # demo declares no mcp_servers of its own (the CANOPY screen
+    # server is the panel's declaration, not the preset's), so it gets the
+    # facility MCP server guidance like every other preset.
     assert "# mcp_servers:" in text
     assert "#   lattice:" in text
     assert "# artifact_server:" in text
-    assert '#       color: "#4C9AFF"' in text
+    assert "#   extension_types:" in text
+    assert "#       base_form: plots" in text
+    assert "#   categories:" not in text
 
     # A profile that defines mcp_servers itself gets the real key, not the hint.
     servers = json.dumps(
@@ -1492,10 +1491,7 @@ def test_facility_extension_guidance_is_appended(runner: CliRunner, tmp_path: Pa
     )
     with_servers = tmp_path / "with-servers"
 
-    assert (
-        _new(runner, with_servers, "control-assistant", "--set", f"mcp_servers={servers}").exit_code
-        == 0
-    )
+    assert _new(runner, with_servers, "demo", "--set", f"mcp_servers={servers}").exit_code == 0
 
     text = (with_servers / "profile.yml").read_text()
     assert "# mcp_servers:" not in text

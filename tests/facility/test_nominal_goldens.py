@@ -3,7 +3,7 @@
 ``tests/facility/golden/nominal_in_process.json`` holds, for every demo
 address but the deck's tune and chromaticity instruments, the transfer
 line's channels and the waveforms, the nominal the simulator served in process serves with no
-scenario active. It serves the control-assistant build's simulator view through a composite, so these tests
+scenario active. It serves the demo build's simulator view through a composite, so these tests
 build that composite from the shared build and hold it to the golden to 1e-12
 on every address, except the declared re-baselines:
 
@@ -16,6 +16,9 @@ on every address, except the declared re-baselines:
   the ideal ``BTS`` trajectory reads the golden's own zero;
 * every bool channel, which the golden holds as a number: a bool reads its
   label, ``TRUE`` where the golden's nominal is non-zero, with no noise.
+
+Two records the capture predates join the deck's instruments as additions: the
+storage ring's beam lifetime and its operation mode, whose enum reads its label.
 
 The served noise is the seed's: a float readback's read at an instant adds its
 seed's ``noise`` times the channel's keyed normal draw for the instant, on top
@@ -55,6 +58,19 @@ BTS_MODEL = "BTS"
 ADDITIONS = frozenset(
     {"SR:BEAM:USER_MODE", "SR:DIAG:CHROM:X", "SR:DIAG:CHROM:Y", "SR:DIAG:TUNE:X", "SR:DIAG:TUNE:Y"}
 )
+
+#: The records the golden's capture predates: the beam lifetime the top-off
+#: current decays with, and the storage ring's operation mode.
+LIFETIME = "SR:DIAG:DCCT:01:LIFETIME:RB"
+MODE = "SR:OPS:MODE:RB"
+RECORD_ADDITIONS = frozenset({LIFETIME, MODE})
+
+#: The operation mode's first option and the label it serves at nominal.
+MODE_FIRST = "User operation"
+MODE_LABEL = "Machine studies"
+
+#: The storage ring's stored current, a top-off sawtooth.
+SR_DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
 
 #: How many transfer line channels the golden's capture predates.
 LINE_CHANNELS = 40
@@ -99,7 +115,7 @@ def close(actual: float, expected: float) -> bool:
 
 
 class Served:
-    """The composite the in-process simulator builds from the control-assistant simulator view."""
+    """The composite the in-process simulator builds from the demo simulator view."""
 
     def __init__(self, view: Path) -> None:
         from osprey_connectors.simulation.composite import Composite
@@ -126,9 +142,9 @@ class Served:
 
 
 @pytest.fixture(scope="module")
-def served(built_control_assistant: BuiltProject) -> Served:
+def served(built_demo: BuiltProject) -> Served:
     pytest.importorskip("at")
-    return Served(built_control_assistant.build_dir / "data" / "simulator")
+    return Served(built_demo.build_dir / "data" / "simulator")
 
 
 def rebaselined() -> set[str]:
@@ -149,15 +165,30 @@ def test_the_golden_holds_every_served_channel_but_the_added_ones(served: Served
     unheld = set(served.channels) - set(golden())
     line = {address for address in unheld if address.startswith("LINE:")}
     assert len(line) == LINE_CHANNELS
-    assert unheld - line == ADDITIONS | WAVEFORMS
+    assert unheld - line == ADDITIONS | RECORD_ADDITIONS | WAVEFORMS
     assert {a for a in served.channels if served.value_type(a) == "waveform"} == WAVEFORMS
     assert set(golden()) <= set(served.channels)
+
+
+def test_the_added_records_serve_the_lifetime_and_the_mode_label(served: Served) -> None:
+    from osprey_connectors.simulation import topoff
+
+    assert served.value_type(LIFETIME) == "float"
+    assert float(served.held[LIFETIME]) == served.seeds[SR_DCCT]["topoff"]["lifetime_h"]
+    assert topoff.held_value(served.seeds[LIFETIME], served.seeds.get) == float(
+        served.held[LIFETIME]
+    )
+    assert served.value_type(MODE) == "enum"
+    assert served.channels[MODE]["options"][0] == MODE_FIRST
+    assert served.held[MODE] == MODE_LABEL
+    assert served.composite.get([MODE])[MODE] == MODE_LABEL
+    assert topoff.topoff_record(served.seeds[SR_DCCT]) is not None
 
 
 def test_float_nominals_equal_the_golden_but_the_declared_rebaselines(served: Served) -> None:
     floats = [a for a in golden() if served.value_type(a) == "float"]
     moved = {a for a in floats if not close(float(served.held[a]), golden()[a]["nominal"])}
-    assert len(floats) == 1869
+    assert len(floats) == 2601
     assert sorted(moved) == sorted(rebaselined() - bts_monitors())
 
 
@@ -178,7 +209,7 @@ def test_the_rebaselined_channels_read_the_physics_model(served: Served) -> None
 
 def test_bool_labels_follow_the_golden(served: Served) -> None:
     bools = [a for a in golden() if served.value_type(a) == "bool"]
-    assert len(bools) == 1423
+    assert len(bools) == 2079
     read = served.composite.get(bools)
     for address in bools:
         label = served.held[address]
@@ -211,4 +242,4 @@ def test_a_read_adds_the_seed_noise_times_the_channel_s_keyed_draw(served: Serve
         expected = sigma * series.keyed_normals(key, counters_ms)
         np.testing.assert_allclose(reading, expected, rtol=1e-9, atol=TOLERANCE, err_msg=address)
         checked += 1
-    assert checked == 350
+    assert checked == 713

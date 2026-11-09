@@ -160,7 +160,7 @@ async def _worker(request: dict) -> dict:
     raise ValueError(f"unknown worker op {op!r}")
 
 
-if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--worker":
     # Leave through ``os._exit`` whichever way the operation ends. A normal
     # exit runs aioca's teardown hook, whose ``ca_context_destroy`` blocks for
     # as long as a name-server circuit is still retrying a port nothing serves
@@ -170,7 +170,9 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     # path: a read of an address not served yet has used Channel Access just
     # the same.
     try:
-        print(json.dumps(asyncio.run(_worker(json.loads(sys.argv[2]))), default=str), flush=True)
+        print(
+            json.dumps(asyncio.run(_worker(json.loads(sys.stdin.read()))), default=str), flush=True
+        )
     except BaseException:
         import traceback
 
@@ -191,12 +193,12 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import yaml  # noqa: E402
 
+from osprey.facility import TEXTURE  # noqa: E402
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
-from osprey_connectors.simulation import decode_char_waveform, pulse  # noqa: E402
+from osprey_connectors.simulation import decode_char_waveform, pulse, topoff  # noqa: E402
 from osprey_connectors.simulation.envelope import _noise_sigma, declares_motion  # noqa: E402
 from osprey_connectors.simulation.values import is_waveform  # noqa: E402
 from osprey_connectors.simulation.view import (  # noqa: E402
-    TEXTURE,
     VIEW_RELPATH,
     Channel,
     SimulatorView,
@@ -255,6 +257,10 @@ OPERATING_POINT = e2e_conftest.OPERATING_POINT
 #: The served address the capture leaves out besides the waveforms: the suite's
 #: synthetic string channel, which the demo does not carry.
 SUITE_ADDITIONS = frozenset({e2e_conftest.STRING_CHANNEL})
+#: The storage ring's operation mode and the label it serves at nominal.
+OPERATION_MODE = "SR:OPS:MODE:RB"
+OPERATION_MODE_LABEL = "Machine studies"
+
 #: The lane model's status channel: ``ok`` while it solves, its error text
 #: once it fails.
 LANE_STATUS = e2e_conftest.LANE.status_address
@@ -308,11 +314,19 @@ class View:
         return declares_motion(self.seed(address))
 
     def motion_band(self, address: str, z: float) -> float:
-        """How far a served read may sit from the held value: z noise sigmas plus the drift."""
+        """How far a served read may sit from the held value.
+
+        z noise sigmas, taken against the held level, plus the drift and, for a
+        top-off seed, the tooth depth: the terms of ``motion_envelope`` with z
+        in place of its fixed sigma count.
+        """
         seed = self.seed(address)
         drift = seed.get("drift") or {}
-        sigma = _noise_sigma(seed.get("noise"), seed.get("nominal"))
-        return z * sigma + abs(float(drift.get("amplitude") or 0.0))
+        shape = topoff.topoff_record(seed)
+        tooth = topoff.tooth_depth(shape) if shape is not None else 0.0
+        held = topoff.held_value(seed)
+        sigma = _noise_sigma(seed.get("noise"), held if held is not None else seed.get("nominal"))
+        return z * sigma + abs(float(drift.get("amplitude") or 0.0)) + tooth
 
     def labels(self, address: str) -> list[str]:
         return list(self.channel(address).options or ("FALSE", "TRUE"))
@@ -359,9 +373,14 @@ def _is_trace(value: Any) -> bool:
 
 
 #: How far the peaks of two captures of one pulse may differ, as a fraction of the
-#: peak: the amplitude drift spans twice its bound, and the sample noise on the
-#: flat top adds a few of its standard deviations.
-TRACE_PEAK_TOL = 2 * pulse.AMPLITUDE_DRIFT_FRACTION + 6 * pulse.NOISE_FRACTION
+#: peak: the amplitude drift spans twice its bound, the per-shot flat-top ringing
+#: adds at most its bound, and the sample noise on the flat top adds a few of its
+#: standard deviations.
+TRACE_PEAK_TOL = (
+    2 * pulse.AMPLITUDE_DRIFT_FRACTION
+    + pulse.RINGING_COMPONENTS * pulse.RINGING_AMPLITUDE_FRACTION
+    + 6 * pulse.NOISE_FRACTION
+)
 
 
 def _same(address: str, expected: Any, served: Any, band: float = 0.0) -> bool:
@@ -403,7 +422,10 @@ def _ca_call(port: int, request: dict, *, timeout: float = 600.0) -> dict:
     """Run one worker operation against the container published on ``port``."""
     environment = e2e_conftest.ca_client_environment(port)
     result = subprocess.run(
-        [sys.executable, __file__, "--worker", json.dumps(request)],
+        # The request goes on stdin: a read of every served address is one JSON
+        # document longer than the kernel allows a single argument to be.
+        [sys.executable, __file__, "--worker"],
+        input=json.dumps(request),
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -567,6 +589,15 @@ def test_the_served_nominals_are_the_captured_golden(
     assert set(golden) - set(session_view.addresses) == set()
     assert set(session_view.addresses) - set(golden) == added
     assert differing == {}
+
+
+def test_the_operation_mode_serves_its_label(
+    session_view: View, nominal_reads: dict[str, Any]
+) -> None:
+    raw = nominal_reads[OPERATION_MODE]["value"]
+
+    assert session_view.value_type(OPERATION_MODE) == "enum"
+    assert _wire_value(session_view, OPERATION_MODE, raw) == OPERATION_MODE_LABEL
 
 
 def test_a_scenario_switch_returns_every_paired_texture_setpoint_to_its_seed(
@@ -844,7 +875,8 @@ def test_a_worker_that_fails_leaves_as_promptly_as_one_that_answers() -> None:
 
         started = time.monotonic()
         result = subprocess.run(
-            [sys.executable, __file__, "--worker", json.dumps(request)],
+            [sys.executable, __file__, "--worker"],
+            input=json.dumps(request),
             capture_output=True,
             text=True,
             timeout=120.0,

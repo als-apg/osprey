@@ -132,7 +132,7 @@ def test_active_envelopes_honour_still_all_and_a_list() -> None:
             "couple": {"T:C": [{"driver": "d1", "gain": 0.5}]},
         },
         "one": {"name": "one", "still": ["T:A"]},
-        "every": {"name": "every", "still": "all"},
+        "every": {"name": "every", "still": ["T:A", "T:B", "T:C"]},
     }
 
     assert active_envelopes(seeds, scenarios, ["one"]) == pytest.approx({"T:A": 0.0, "T:B": 0.005})

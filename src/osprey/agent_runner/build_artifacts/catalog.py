@@ -197,7 +197,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="rules/facility",
             template_path="claude/rules/facility.md.j2",
             output_path=".claude/rules/facility.md",
-            description="Facility identity & context",
+            description="Operator guidance for the facility",
         ),
         BuildArtifact(
             canonical_name="rules/workflows",
@@ -241,7 +241,19 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_approval.py",
             output_path=".claude/hooks/osprey_approval.py",
             description="Human-approval gate hook",
-            requires=("hooks/hook-log", "hooks/safety-file", "hooks/target-state"),
+            requires=(
+                "hooks/hook-log",
+                "hooks/plan-mode",
+                "hooks/safety-file",
+                "hooks/target-state",
+            ),
+        ),
+        BuildArtifact(
+            canonical_name="hooks/plan-mode",
+            template_path="claude/hooks/osprey_plan_mode.py",
+            output_path=".claude/hooks/osprey_plan_mode.py",
+            description="Refuses the tools that act while the session is in plan mode",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/writes-check",
@@ -329,7 +341,10 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/focus-validate",
             template_path="claude/hooks/osprey_focus_validate.py",
             output_path=".claude/hooks/osprey_focus_validate.py",
-            description="UserPromptSubmit hook that strips stale artifact IDs from focus_state.txt",
+            description=(
+                "UserPromptSubmit hook that injects the prompting session's gallery focus"
+                " and pins, dropping stale artifact IDs"
+            ),
             requires=("hooks/hook-log",),
         ),
         BuildArtifact(
@@ -364,7 +379,8 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/turn-state",
             template_path="claude/hooks/osprey_turn_state.py",
             output_path=".claude/hooks/osprey_turn_state.py",
-            description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns",
+            description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns, and keeps a CLI launch's transcript pointer current",
+            requires=("hooks/hook-log", "hooks/safety-file"),
         ),
         BuildArtifact(
             canonical_name="hooks/watchdog-trigger",
@@ -462,7 +478,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="output-styles/control-operator",
             template_path="claude/output-styles/control-operator.md.j2",
             output_path=".claude/output-styles/control-operator.md",
-            description="Communication style for the control assistant",
+            description="Communication style for the demo",
         ),
         # ── Service compose templates ────────────────────────────────
         # Directory artifacts: copied verbatim from templates/services/ into
@@ -542,6 +558,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/slack_bridge",
+            template_path="slack_bridge",
+            output_path="services/slack_bridge",
+            description="Slack bridge compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/ariel_sync",
             template_path="ariel_sync",
             output_path="services/ariel_sync",
@@ -586,6 +610,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="bluesky_web",
             output_path="services/bluesky_web",
             description="Bluesky operator-facing web sidecar compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/optimizer",
+            template_path="optimizer",
+            output_path="services/optimizer",
+            description="Optimizer service compose template + image context",
             template_root="services",
             is_directory=True,
         ),

@@ -145,7 +145,6 @@ async def screenshot_capture(
                 "file_format": "PNG",
                 "view_hint": f"Open {info.filepath} with your file-reading tool to view the screenshot.",
             },
-            category="screenshot",
         )
 
         return json.dumps(entry.to_tool_response(), default=str)

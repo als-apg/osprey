@@ -89,6 +89,7 @@ _HTTP_SERVICES = {
     "bluesky-bridge",
     "tiled",
     "bluesky-web",
+    "optimizer",
 }
 
 # What each port of a multi-port service IS: the word a merged row puts in front
@@ -136,6 +137,7 @@ _SERVICE_SLOTS = {
     "qmd": "qmd",
     "tiled": "tiled",
     "bluesky-web": "bluesky_web",
+    "optimizer": "optimizer",
     "bluesky-bridge": "bluesky",
     "bluesky-va-bridge": "bluesky",
     "bluesky-live-bridge": "bluesky",
@@ -487,10 +489,9 @@ def _families_a_project_serves(project_config: object) -> set[str]:
     summary claim a panel the container never starts.
 
     Panel ids and port families are two namespaces (``artifacts`` is served by
-    registry key ``artifact`` on family ``artifact``; ``lattice`` by
-    ``lattice_dashboard`` on family ``lattice``), so the crossing goes through
-    :data:`~osprey.registry.web.PANEL_ID_TO_REGISTRY_KEY` and the definition's
-    own ``port_family`` rather than through a table kept here.
+    registry key ``artifact``, which is its family), so the crossing goes
+    through :data:`~osprey.registry.web.PANEL_ID_TO_REGISTRY_KEY` rather than
+    through a table kept here.
 
     Args:
         project_config: A render's parsed rendered ``config.yml``. Anything
@@ -501,7 +502,7 @@ def _families_a_project_serves(project_config: object) -> set[str]:
         that declares nothing still has the terminal the roster entry IS.
     """
     from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
-    from osprey.registry.web import FRAMEWORK_WEB_SERVERS, PANEL_ID_TO_REGISTRY_KEY
+    from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY
 
     web = project_config.get("web") if isinstance(project_config, dict) else None
     declared = web.get("panels") if isinstance(web, dict) else None
@@ -517,8 +518,7 @@ def _families_a_project_serves(project_config: object) -> set[str]:
     for panel_id in enabled:
         key = PANEL_ID_TO_REGISTRY_KEY.get(panel_id)
         if key is not None:
-            definition = FRAMEWORK_WEB_SERVERS[key]
-            families.add(definition.port_family or key)
+            families.add(key)
     return families
 
 
@@ -652,18 +652,18 @@ def _panel_entries(
 
     One row per FAMILY, not per family and user. A family is a band, and its
     band is what an operator needs; a four-user deployment would otherwise
-    contribute twenty-eight rows to a list whose whole point is to show the
+    contribute twenty-four rows to a list whose whole point is to show the
     shape of the block at a glance.
 
     But only the users who SERVE it, wherever the renders can be read
     (:func:`_families_by_user`). A band's address is a thing to open, and the
     names beside it are the claim about who answers there; a render that never
-    starts the LATTICE server has a port reserved in that band and nothing
+    starts the ARIEL server has a port reserved in that band and nothing
     listening on it. A family no render serves gets no row at all, because a
     row hedged with "reserved" would still carry the address that does not
     answer — the same claim in smaller type. What the whole tier owes instead is
-    one closing note naming those bands, so a reader who counts six families
-    where the layout has seven knows the seventh was not lost.
+    one closing note naming those bands, so a reader who counts five families
+    where the layout has six knows the sixth was not lost.
 
     Args:
         config: Loaded configuration dictionary.

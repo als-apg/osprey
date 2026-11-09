@@ -133,6 +133,8 @@ async function mount({ key: initialKey = KEY } = {}) {
     onBeforeSend: (transform) => {
       transforms.push(transform);
     },
+    scrollToBottom: () => {},
+    onNewSession: () => {},
   });
 
   const log = { submits: 0 };
@@ -477,7 +479,7 @@ describe('sending', () => {
     const m = await mount();
     m.textarea.disabled = true;
     choose(m, [file('late.txt', 10, TEXT_TYPE)]);
-    expect(statusOf(m)).toMatch(/once the agent has finished/);
+    expect(statusOf(m)).toMatch(/once the session has switched here/);
 
     m.textarea.disabled = false;
     await flush();

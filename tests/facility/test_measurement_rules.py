@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from osprey.facility.errors import FacilityBuildError
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.pyaml import measurement_groups
 from tests.facility._pyaml_trees import built_document, measured_tree, with_rf
 
@@ -63,15 +64,15 @@ def _stop(tmp_path: Path, tree: dict[str, Any]) -> FacilityBuildError:
 # --- what builds --------------------------------------------------------------------
 
 
-def test_the_demo_sr_model_builds_all_five_kinds(built_control_assistant: BuiltProject) -> None:
-    measurement = _model(built_control_assistant.facility, "SR")["measurement"]
+def test_the_demo_sr_model_builds_all_five_kinds(built_demo: BuiltProject) -> None:
+    measurement = _model(built_demo.facility, "SR")["measurement"]
     assert measurement["kinds"] == DEMO_KINDS
     assert set(measurement["instruments"]) == {"tune", "rf"}
 
 
-def test_the_demo_corrector_groups_are_their_planes(built_control_assistant: BuiltProject) -> None:
-    document = built_control_assistant.facility
-    groups = measurement_groups(document, "SR")
+def test_the_demo_corrector_groups_are_their_planes(built_demo: BuiltProject) -> None:
+    document = built_demo.facility
+    groups = measurement_groups(FacilityRecords(document), "SR")
     dipoles = {
         channel["id"]
         for channel in document["channels"]
@@ -91,20 +92,20 @@ def test_the_demo_corrector_groups_are_their_planes(built_control_assistant: Bui
 
 
 def test_the_demo_view_carries_the_tune_and_chromaticity_corrections(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     import yaml
 
-    path = built_control_assistant.build_dir / "data" / "pyaml" / "SR" / "configuration.yaml"
+    path = built_demo.build_dir / "data" / "pyaml" / "SR" / "configuration.yaml"
     configuration = yaml.safe_load(path.read_text(encoding="utf-8"))
     names = {str(device["name"]) for device in configuration["devices"]}
     assert {"DEFAULT_TUNE_CORRECTION", "DEFAULT_CHROMATICITY_CORRECTION"} <= names
 
 
 def test_the_demo_bpm_group_is_both_planes_device_by_device(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    bpm = measurement_groups(built_control_assistant.facility, "SR")["bpm"]
+    bpm = measurement_groups(FacilityRecords(built_demo.facility), "SR")["bpm"]
     assert bpm[:4] == [
         "SR:DIAG:BPM:01:POSITION:X",
         "SR:DIAG:BPM:01:POSITION:Y",
@@ -117,7 +118,7 @@ def test_the_demo_bpm_group_is_both_planes_device_by_device(
 def test_a_line_builds_orm(tmp_path: Path) -> None:
     document, _ = built_document(tmp_path, measured_tree())
     assert _model(document, "LINE")["measurement"]["kinds"] == ["orm"]
-    assert measurement_groups(document, "LINE") == {
+    assert measurement_groups(FacilityRecords(document), "LINE") == {
         "bpm": ["LBPM:X", "LBPM:Y"],
         "hcor": ["LCOR:H:SP"],
         "vcor": ["LCOR:V:SP"],
@@ -141,7 +142,11 @@ def test_a_setpoint_shared_by_two_members_is_listed_once(tmp_path: Path) -> None
         }
     )
     document, _ = built_document(tmp_path, tree)
-    assert measurement_groups(document, "SR")["quad"] == ["Q:FAMILY:SP", "QD:SP", "QF:SP"]
+    assert measurement_groups(FacilityRecords(document), "SR")["quad"] == [
+        "Q:FAMILY:SP",
+        "QD:SP",
+        "QF:SP",
+    ]
 
 
 def _with_family_groups(tree: dict[str, Any]) -> dict[str, Any]:
@@ -157,9 +162,9 @@ def test_a_role_naming_several_groups_stands_for_all_their_members(tmp_path: Pat
     """The members are visited in ``(s, id)`` order whatever the list order, each once."""
     document, _ = built_document(tmp_path, _with_family_groups(measured_tree()))
     _model(document, "SR")["measurement"]["groups"]["quad"] = ["SR/QF", "SR/QD", "SR/Q"]
-    together = measurement_groups(document, "SR")["quad"]
+    together = measurement_groups(FacilityRecords(document), "SR")["quad"]
     _model(document, "SR")["measurement"]["groups"]["quad"] = ["SR/Q"]
-    assert together == measurement_groups(document, "SR")["quad"]
+    assert together == measurement_groups(FacilityRecords(document), "SR")["quad"]
     assert sorted(together) == sorted(
         _setpoints_on(document, "SR", "SR/QF") | _setpoints_on(document, "SR", "SR/QD")
     )
@@ -172,7 +177,7 @@ def test_the_nsls2_storage_correctors_are_180_per_plane_and_disjoint(
 ) -> None:
     """NSLS-II's storage-lattice correctors are combined: each element is steered from both planes."""
     built = mml_built("nsls2", "nsls2.storagering")
-    groups = measurement_groups(built.document, built.name)
+    groups = measurement_groups(FacilityRecords(built.document), built.name)
     assert len(groups["hcor"]) == len(set(groups["hcor"])) == 180
     assert len(groups["vcor"]) == len(set(groups["vcor"])) == 180
     assert not set(groups["hcor"]) & set(groups["vcor"])
@@ -191,7 +196,7 @@ def test_the_spear3_correctors_keep_their_planes_apart(
     document = built.document
     (hcm,) = [g["members"] for g in document["groups"] if g["id"] == "HCM"]
     (vcm,) = [g["members"] for g in document["groups"] if g["id"] == "VCM"]
-    groups = measurement_groups(document, built.name)
+    groups = measurement_groups(FacilityRecords(document), built.name)
     assert (len(hcm), len(vcm)) == (78, 78)
     assert (len(groups["hcor"]), len(groups["vcor"])) == (76, 74)
     assert not set(groups["hcor"]) & set(groups["vcor"])
@@ -375,7 +380,7 @@ def test_one_group_named_for_both_corrector_planes_builds_split_by_plane(
     tree["measurement/LINE.yaml"]["groups"]["vcor"] = "LINE/HCM"
     document, _ = built_document(tmp_path, tree)
     assert _model(document, "LINE")["measurement"]["groups"]["vcor"] == ["LINE/HCM"]
-    groups = measurement_groups(document, "LINE")
+    groups = measurement_groups(FacilityRecords(document), "LINE")
     assert groups["hcor"] == ["LCOR:H:SP"]
     assert groups["vcor"] == ["LCOR:V:SP"]
 

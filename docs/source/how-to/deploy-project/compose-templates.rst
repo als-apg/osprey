@@ -27,21 +27,29 @@ Per-service templates have access to the full configuration plus a few
 engine-injected values:
 
 .. code-block:: yaml
+   :caption: services/postgresql/docker-compose.yml.j2 (excerpt)
 
-   # services/postgresql/docker-compose.yml.j2
    services:
      postgresql:
-       container_name: {{services.postgresql.container_name | default('osprey-postgres')}}
+       container_name: {{ osprey_labels.project_name }}-ariel-postgres
        ports:
-         - "{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432"
+         - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.postgresql.port_host | default(osprey_ports.postgres, true) }}:5432"
        environment:
-         TZ: {{system.timezone}}
+         TZ: {{ system.timezone }}
        networks:
-         - osprey-network
+         osprey-network:
+           aliases:
+             - ariel-postgres
+
+The container name starts with the project name because a container name is
+global on the host: a fixed name collides when two projects run on one host.
+Other containers reach the database through the stable network alias
+``ariel-postgres``.
 
 Common access patterns: ``{{services.<name>.<key>}}``,
 ``{{file_paths.<key>}}``, ``{{system.<key>}}``, ``{{project_root}}``,
-``{{deployment.bind_address}}``, and ``{{osprey_labels.project_name}}`` /
+``{{deployment.bind_address}}``, ``{{osprey_ports.<slot>}}`` (the port layout
+for the deployment's ``port_base``), and ``{{osprey_labels.project_name}}`` /
 ``project_root`` (injected by the deploy engine).
 
 The build writes ``build/osprey-labels.override.yml`` and passes it to every
@@ -108,7 +116,7 @@ When a deploy builds an image
 A service is built on the deploy host only when its rendered compose document
 carries a ``build:`` block. Upstream pins never do. The OSPREY-built services
 (the event dispatcher, the Bluesky bridge, the Bluesky web panel, the Google
-Chat, Nextcloud and Teams bridges, the qmd sidecar and the virtual
+Chat, Nextcloud, Teams and Slack bridges, the qmd sidecar and the virtual
 accelerator) each do while they run the image OSPREY builds. A service whose
 ``services.<name>.image`` names any other image renders without ``build:``, and
 that image is pulled and run as named. Where one template renders several
@@ -237,6 +245,8 @@ fails at ``up`` on the image it forgot:
        image: registry.example.org/mirror/neo4j:5.26-community
      bluesky:
        tiled_image: registry.example.org/mirror/tiled:0.2.18
+       redis_image: registry.example.org/mirror/redis:7.4-alpine
+     optimizer:
        redis_image: registry.example.org/mirror/redis:7.4-alpine
 
    modules:

@@ -17,9 +17,9 @@ rests on:
 * that the row cap and the query timeout are enforced by the *store* rather
   than by a client-side slice.
 
-One store, seeded once per module with the graph view the control-assistant
-build writes (``data/graph/facility.ttl``) through the same primitives
-``osprey up`` uses.
+One store, the session's, wiped and seeded once per module with the graph
+view the demo build writes (``data/graph/facility.ttl``) through
+the same primitives ``osprey up`` uses.
 
 Skips are loud and only ever about the host.  If Docker is not reachable the
 whole module skips with that reason; if Docker *is* reachable every test here
@@ -58,7 +58,7 @@ from tests._graphdb_container import (
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
     WatchedStore,
-    watched_graphdb_store,
+    wiped_graphdb_store,
 )
 from tests.integration._graph_oracles import (
     GRAPH_DEVICE_COUNT_CYPHER,
@@ -85,21 +85,23 @@ logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.xdist_group("docker")]
 
 
-# --- Verified counts for the control-assistant build's graph view ----------
+# --- Verified counts for the demo build's graph view ----------
 # Stated here rather than derived, so a change to the demo facility has to be
 # acknowledged in this module.
 
-EXPECTED_DEVICES = 644
-#: Places carrying channels of their own: the top place ``SR``, whose tune and
-#: chromaticity channels sit on the place rather than on a device. The store
-#: matches a place on ``(:Resource)-[:HASBINDING]->`` as it matches a device.
+EXPECTED_DEVICES = 1016
+#: Places carrying channels of their own: the top place ``SR``, whose tune,
+#: chromaticity, user beam mode and operation-mode channels sit on the place rather than on a
+#: device. The store matches a place on ``(:Resource)-[:HASBINDING]->`` as it
+#: matches a device.
 EXPECTED_BOUND_PLACES = 1
-EXPECTED_BINDINGS = 3339
-EXPECTED_WRITE_ONLY = 522
-EXPECTED_READ_ONLY = 2812
-#: The place's tune and chromaticity channels name no signal.
+EXPECTED_BINDINGS = 4731
+EXPECTED_WRITE_ONLY = 674
+EXPECTED_READ_ONLY = 4052
+#: The place's tune, chromaticity and user beam mode channels name no signal; its
+#: operation mode reads one.
 EXPECTED_UNSIGNALLED = 5
-EXPECTED_MAGNETS = 466
+EXPECTED_MAGNETS = 480
 
 _SEM = "https://narad.example.org/schema/shared_semantics/"
 MAGNET_CLASS_URI = _SEM + "Magnet"
@@ -141,8 +143,8 @@ def _requires_a_real_store(graph_mcp_plugin_dir: Path) -> None:
     """
 
 
-def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[WatchedStore]:
-    """Start a store, seed it through the real seeder, and yield it watched.
+def _seeded_store(shared: WatchedStore, ttl_text: str, label: str) -> Iterator[WatchedStore]:
+    """Wipe the session's store, seed it through the real seeder, and yield it watched.
 
     Seeding goes through :mod:`~osprey.services.facility_knowledge.seeder.graph_seeder`
     rather than raw Cypher because that is the path ``osprey up`` takes —
@@ -152,37 +154,36 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[Watch
     the store's watch: a seeding step that gets no answer fails naming this
     store and the state its container was in.
     """
-    store_label = f"graphdb for {label}"
-    with watched_graphdb_store(plugin_dir, label=store_label) as store:
-        from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.facility_knowledge.seeder import graph_seeder
 
-        with (
-            store.reading(),
-            graph_seeder.open_session(
-                store.uri,
-                GRAPHDB_TEST_USERNAME,
-                GRAPHDB_TEST_PASSWORD,
-                database=GRAPHDB_TEST_DATABASE,
-            ) as session,
-        ):
-            bootstrap = graph_seeder.bootstrap(session)
-            assert bootstrap.ok, bootstrap.message
-            imported = graph_seeder.import_ttl(session, ttl_text)
-            assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
-            graph_seeder.write_marker(
-                session,
-                graph_seeder.ttl_sha256(ttl_text),
-            )
-            logger.info(
-                f"{label}: seeded {imported.triples_loaded} triples, "
-                f"{graph_seeder.resource_count(session)} Resource nodes"
-            )
-        yield store
+    store = wiped_graphdb_store(shared, label=f"graphdb for {label}")
+    with (
+        store.reading(),
+        graph_seeder.open_session(
+            store.uri,
+            GRAPHDB_TEST_USERNAME,
+            GRAPHDB_TEST_PASSWORD,
+            database=GRAPHDB_TEST_DATABASE,
+        ) as session,
+    ):
+        bootstrap = graph_seeder.bootstrap(session)
+        assert bootstrap.ok, bootstrap.message
+        imported = graph_seeder.import_ttl(session, ttl_text)
+        assert imported.termination_status == graph_seeder.TERMINATION_OK, imported.extra_info
+        graph_seeder.write_marker(
+            session,
+            graph_seeder.ttl_sha256(ttl_text),
+        )
+        logger.info(
+            f"{label}: seeded {imported.triples_loaded} triples, "
+            f"{graph_seeder.resource_count(session)} Resource nodes"
+        )
+    yield store
 
 
 @pytest.fixture(scope="module")
-def demo_corpus(built_control_assistant: BuiltProject) -> Path:
-    """The graph view the control-assistant build writes.
+def demo_corpus(built_demo: BuiltProject) -> Path:
+    """The graph view the demo build writes.
 
     One file for both backends: the store is seeded from its text and the
     search index is built from it, so a parity failure can never be two
@@ -190,13 +191,13 @@ def demo_corpus(built_control_assistant: BuiltProject) -> Path:
     """
     from osprey.facility.views.graph import GRAPH_FILE
 
-    return built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
+    return built_demo.build_dir / "data" / "graph" / GRAPH_FILE
 
 
 @pytest.fixture(scope="module")
-def demo_store(graph_mcp_plugin_dir: Path, demo_corpus: Path) -> Iterator[WatchedStore]:
-    """A store seeded with the generated demo corpus."""
-    yield from _seeded_store(graph_mcp_plugin_dir, demo_corpus.read_text(encoding="utf-8"), "demo")
+def demo_store(graphdb_session_store: WatchedStore, demo_corpus: Path) -> Iterator[WatchedStore]:
+    """The session's store, wiped and seeded with the generated demo corpus."""
+    yield from _seeded_store(graphdb_session_store, demo_corpus.read_text(encoding="utf-8"), "demo")
 
 
 # ---------------------------------------------------------------------------
@@ -601,7 +602,7 @@ def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping() -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q1a_counts_the_verified_devices() -> None:
-    """The device census sums to the 644 verified devices, and no place."""
+    """The device census sums to the 1016 verified devices, and no place."""
     payload = _run_example("q1a")
     assert payload["truncated"] is False, payload
     assert sum(row["device_count"] for row in payload["rows"]) == EXPECTED_DEVICES
@@ -609,7 +610,7 @@ def test_example_q1a_counts_the_verified_devices() -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q5_reproduces_the_verified_direction_split() -> None:
-    """The binding rollup reproduces 522 write-only / 2812 read-only / 3339 total."""
+    """The binding rollup reproduces 674 write-only / 4052 read-only / 4731 total."""
     payload = _run_example("q5")
     row = payload["rows"][0]
     assert row["write_only"] == EXPECTED_WRITE_ONLY, row
@@ -619,11 +620,11 @@ def test_example_q5_reproduces_the_verified_direction_split() -> None:
 
 
 def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
-    """Rolling ``Magnet`` up its subclasses lists exactly the 466 verified devices.
+    """Rolling ``Magnet`` up its subclasses lists exactly the 480 verified devices.
 
     The rollup is larger than the shipped row cap, so the cap is lifted to the
     example's own ``LIMIT`` for this test: the claim here is the count, and a
-    capped answer would compare 200 against 466 and say nothing about the
+    capped answer would compare 200 against 480 and say nothing about the
     hierarchy.
     """
     assert _example("q1c").parameters["class_uri"] == MAGNET_CLASS_URI, (
@@ -640,7 +641,7 @@ def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
 
 @pytest.mark.usefixtures("demo_ctx")
 def test_example_q1b_puts_the_magnets_under_one_branch() -> None:
-    """The branch rollup reaches the same 466 without naming a magnet subclass."""
+    """The branch rollup reaches the same 480 without naming a magnet subclass."""
     payload = _run_example("q1b")
     by_branch = {row["branch"]: row["device_count"] for row in payload["rows"]}
     assert by_branch.get("Magnet") == EXPECTED_MAGNETS, by_branch
@@ -687,7 +688,7 @@ def _assert_usable(key: str, payload: dict[str, Any]) -> None:
 
     Truncation is deliberately not asserted here: whether an example's own
     ``LIMIT`` lands above or below the row cap is a property of the corpus (the
-    demo machine has 466 magnets to a 200-row cap), and the tests that need a
+    demo machine has 480 magnets to a 200-row cap), and the tests that need a
     *complete* answer to compare against a verified count say so themselves.
     """
     assert payload["row_count"] >= 1, f"{key} returned no rows: {payload}"

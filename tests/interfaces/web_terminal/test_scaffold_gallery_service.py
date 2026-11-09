@@ -42,22 +42,22 @@ SAFE_ARTIFACT = "rules/safety"  # Always available, real content
 #: no longer savable, claimable or creatable — every test that drives a write,
 #: a claim or a create names this one instead. ``.claude/agents/**`` is the
 #: ordinary-file stand-in the delete path already settled on, and an agent is a
-#: real rendered artifact of the control-assistant preset, so it carries
+#: real rendered artifact of the demo preset, so it carries
 #: framework content to diff against.
 WRITABLE_ARTIFACT = "agents/channel-finder"
 
 
 @pytest.fixture(scope="session")
-def _baked_repo(built_control_assistant) -> Path:
-    """The run's shared build of the control-assistant preset (``tests/_builds.py``).
+def _baked_repo(built_demo) -> Path:
+    """The run's shared build of the demo preset (``tests/_builds.py``).
 
     Its build zone is the RENDER the gallery service reads: config.yml, the
-    manifest and the ``.claude/`` tree. The control-assistant preset because
+    manifest and the ``.claude/`` tree. The demo preset because
     the tests assert the channel-finder and data-visualizer agents and the
     diagnose skill, none of which ship with hello-world. Tests get an isolated
     copy via ``project_dir``, never this tree itself.
     """
-    return built_control_assistant.repo
+    return built_demo.repo
 
 
 def _role_renders(build_zone: Path, names: list[str]) -> set[str]:

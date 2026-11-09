@@ -1,0 +1,180 @@
+{
+ "messages": [
+  {
+   "role": "user",
+   "content": "DEMO-037 says sector 3 drifted horizontally overnight. What do HCM13 and BPM13 and BPM14 read now?"
+  },
+  {
+   "role": "system",
+   "content": [],
+   "output_config": {
+    "effort": "medium"
+   }
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_9c50a44183f1560db69689ad5ae6fb0b",
+     "name": "mcp__controls__channel_read",
+     "input": {
+      "channels": [
+       "SR:MAG:HCM:13:CURRENT:SP",
+       "SR:MAG:HCM:13:CURRENT:RB",
+       "SR:DIAG:BPM:13:POSITION:X",
+       "SR:DIAG:BPM:14:POSITION:X"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_9c50a44183f1560db69689ad5ae6fb0b",
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"SR:MAG:HCM:13:CURRENT:SP\": {\"value\": 0.012, \"unit\": \"A\"}, \"SR:MAG:HCM:13:CURRENT:RB\": {\"value\": 0.013, \"unit\": \"A\"}, \"SR:DIAG:BPM:13:POSITION:X\": {\"value\": 4.1e-05, \"unit\": \"m\"}, \"SR:DIAG:BPM:14:POSITION:X\": {\"value\": 3.4e-05, \"unit\": \"m\"}}"
+      }
+     ],
+     "is_error": false
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "HCM13 is set to 0.012 A and reads back 0.013 A, so the corrector is doing what it is told. BPM13 reads +41 um and BPM14 +34 um in X, the same outward offset DEMO-037 describes. The +0.15 A trim it proposes would take HCM13 to 0.162 A, well inside its \u00b110 A range."
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": "Go ahead, nudge HCM13 to 0.162 A."
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_54f2db8e8f7458fcb496020efe138d5d",
+     "name": "mcp__controls__channel_write",
+     "input": {
+      "operations": [
+       {
+        "channel": "SR:MAG:HCM:13:CURRENT:SP",
+        "value": 0.162,
+        "notes": "+0.15 A trim against the sector 3 horizontal drift (DEMO-037)"
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_54f2db8e8f7458fcb496020efe138d5d",
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"target\": \"Rehearsal \\u2014 nothing moves\", \"results\": [{\"channel\": \"SR:MAG:HCM:13:CURRENT:SP\", \"value_written\": 0.162, \"outcome\": \"confirmed\", \"observed_value\": 0.162}], \"summary\": {\"outcomes\": {\"confirmed\": 1}}}"
+      }
+     ],
+     "is_error": false
+    }
+   ]
+  },
+  {
+   "role": "system",
+   "content": "PostToolUse:mcp__controls__channel_write hook additional context: The operator approved this call at the approval prompt before it ran."
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "You approved the write and it went to the rehearsal target, \"Rehearsal \u2014 nothing moves\". The stand-in confirms HCM13 setpoint 0.162 A. Nothing on the machine moved, so the sector 3 orbit is still where DEMO-037 left it."
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": "Read BPM13 and BPM14 again so I can see."
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "tool_use",
+     "id": "toolu_b10e07d560ba5018bcb2cff3c65279e8",
+     "name": "mcp__controls__channel_read",
+     "input": {
+      "channels": [
+       "SR:DIAG:BPM:13:POSITION:X",
+       "SR:DIAG:BPM:14:POSITION:X"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "tool_result",
+     "tool_use_id": "toolu_b10e07d560ba5018bcb2cff3c65279e8",
+     "content": [
+      {
+       "type": "text",
+       "text": "{\"SR:DIAG:BPM:13:POSITION:X\": {\"value\": 4.1e-05, \"unit\": \"m\"}, \"SR:DIAG:BPM:14:POSITION:X\": {\"value\": 3.4e-05, \"unit\": \"m\"}}"
+      }
+     ],
+     "is_error": false
+    }
+   ]
+  },
+  {
+   "role": "assistant",
+   "content": [
+    {
+     "type": "text",
+     "text": "Unchanged, +41 um and +34 um, as expected from a rehearsal. To apply the trim for real, switch the write target to the machine and ask again; I will read the BPMs straight after."
+    }
+   ]
+  },
+  {
+   "role": "user",
+   "content": [
+    {
+     "type": "text",
+     "text": "<system-reminder>\n(trimmed from the recording)"
+    },
+    {
+     "type": "text",
+     "text": "Resume probe: what did we just do?"
+    }
+   ]
+  },
+  {
+   "role": "system",
+   "content": [
+    {
+     "type": "text",
+     "text": "# Environment\n(trimmed from the recording)",
+     "cache_control": {
+      "type": "ephemeral"
+     }
+    }
+   ]
+  }
+ ]
+}

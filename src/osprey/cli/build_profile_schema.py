@@ -4,7 +4,7 @@ The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
 ``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``,
-``watchdogs``) plus the
+``slack_bridge``, ``watchdogs``) plus the
 checkers that hold their environment-variable names to
 :data:`~osprey_connectors.connection.ENV_NAME_RE`. Parsing, inheritance
 merging, and validation live in
@@ -222,7 +222,6 @@ class EnvConfig:
     # the store or from around it. Same upper-snake names as `required`.
     pinned: list[str] = field(default_factory=list)
     defaults: dict[str, str] = field(default_factory=dict)
-    file: str | None = None  # Profile-relative path to copy as .env
 
 
 @dataclass
@@ -1127,6 +1126,65 @@ class BlueskyWebConfig:
     the key is left unspelled."""
 
 
+OPTIMIZER_TARGETS: tuple[str, ...] = ("va", "standin")
+"""Control targets an optimizer deployment may name in its ``targets:`` list.
+
+``live`` is left out on purpose: the optimizer does not drive the real machine
+yet, so a profile asking for it is refused rather than deployed."""
+
+
+@dataclass
+class OptimizerConfig:
+    """Optimizer service configuration for a build profile (opt-in via the
+    ``optimizer:`` key).
+
+    Consumed by the build pipeline's optimizer-injection step
+    (``_inject_optimizer`` in ``build_cmd.py``) to deploy the optimizer API
+    (compose service ``optimizer``) and its Redis job store. Validated by
+    :meth:`BuildProfile.validate`.
+    """
+
+    port: int = default_port("optimizer")
+    """Host/container port the optimizer API's uvicorn process binds and
+    publishes, at the layout's ``optimizer`` slot — filled from the profile's
+    resolved base when the key is left unspelled."""
+
+    targets: list[str] = field(default_factory=lambda: ["va"])
+    """Control targets this deployment's optimizer may drive, from
+    :data:`OPTIMIZER_TARGETS`. A run naming any other target is refused by the
+    service. Each target also needs its connector block in the project's
+    ``control_system:`` section, exactly as for every other client of it."""
+
+    environments_dir: str | None = None
+    """Optional host directory of optimizer environment files (YAML),
+    bind-mounted read-only into the service at ``/app/environments``. ``None``
+    (default) deploys the service with no environment files, so only installed
+    environment plugins are offered."""
+
+
+def optimizer_errors(optimizer: OptimizerConfig) -> list[str]:
+    """What is wrong with an ``optimizer:`` block, one message per problem."""
+    errors: list[str] = []
+    if not (1 <= optimizer.port <= 65535):
+        errors.append(f"optimizer.port must be in 1..65535 (got {optimizer.port})")
+    if not optimizer.targets:
+        errors.append("optimizer.targets must name at least one control target")
+    if "live" in optimizer.targets:
+        errors.append(
+            "optimizer.targets may not include 'live': the optimizer does not drive the real "
+            f"machine yet. Allowed targets: {', '.join(OPTIMIZER_TARGETS)}"
+        )
+    unknown = [t for t in optimizer.targets if t not in OPTIMIZER_TARGETS and t != "live"]
+    if unknown:
+        errors.append(
+            f"optimizer.targets has unknown target(s) {unknown}; allowed: "
+            f"{', '.join(OPTIMIZER_TARGETS)}"
+        )
+    if len(set(optimizer.targets)) != len(optimizer.targets):
+        errors.append(f"optimizer.targets lists a target twice ({optimizer.targets})")
+    return errors
+
+
 @dataclass
 class NextcloudBridgeProfileConfig:
     """Nextcloud Talk bridge configuration for a build profile (opt-in via the
@@ -1234,5 +1292,42 @@ class TeamsBridgeProfileConfig:
     mentions: bool = True
     """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
     conversation member, rendered as ``TEAMS_MENTIONS`` in the service's compose
+    template. This default is the one place the build-side default lives.
+    """
+
+
+@dataclass
+class SlackBridgeProfileConfig:
+    """Slack bridge configuration for a build profile (opt-in via the
+    ``slack_bridge:`` key).
+
+    Consumed by the build pipeline's slack-bridge-injection step
+    (``_inject_slack_bridge`` in ``build_cmd.py``) to deploy the single
+    ``slack_bridge`` service — a Socket Mode client that ingests the Slack
+    messages addressed to the bot and dispatches them through the
+    event-dispatch pair, so the block is only meaningful alongside a
+    ``dispatch:`` block.
+
+    The Slack credentials are deliberately *not* profile fields: the bot token
+    ``SLACK_BOT_TOKEN`` (``xoxb-…``) and the app-level Socket Mode token
+    ``SLACK_APP_TOKEN`` (``xapp-…``) are user-supplied runtime env (declared
+    via ``env.required``), never baked into a build. Validated by
+    :meth:`BuildProfile.validate`.
+    """
+
+    trigger: str = "slack-question"
+    """Dispatcher trigger the bridge fires (``POST /webhook/{trigger}``),
+    rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
+
+    This default is the ONLY place the ``slack-question`` name is defaulted:
+    the runtime config's ``from_env`` applies no trigger default, so a
+    hand-rolled (non-build) deployment still fails loudly on a missing trigger
+    rather than silently firing a name nobody declared. The value must name a
+    trigger declared in the ``dispatch.triggers`` file.
+    """
+
+    mentions: bool = True
+    """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
+    channel member, rendered as ``SLACK_MENTIONS`` in the service's compose
     template. This default is the one place the build-side default lives.
     """

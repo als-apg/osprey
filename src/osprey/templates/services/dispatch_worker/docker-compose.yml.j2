@@ -263,6 +263,13 @@ services:
       # cross-boundary check.
       BLUESKY_BRIDGE_URL: http://bluesky-bridge:{{ services.bluesky.port | default(osprey_ports.bluesky, true) }}
 {%- endif %}
+{%- if 'optimizer' in (deployed_services | default([])) %}
+      # The optimizer, by its in-network compose service key, for the same
+      # reason and under the same gate as the bridge URL above: left unset,
+      # the agent's optimizer server dials the published port on this
+      # container's own loopback.
+      OPTIMIZER_URL: http://optimizer:{{ (services.optimizer | default({}, true)).port | default(osprey_ports.optimizer, true) }}
+{%- endif %}
 {%- for lane_key in bluesky_second_lane_keys %}
 {%- if lane_key in (deployed_services | default([])) %}
       # The SECOND plan lane, when this deployment renders one: its own bridge

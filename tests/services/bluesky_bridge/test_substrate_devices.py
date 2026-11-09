@@ -44,11 +44,12 @@ from osprey.services.bluesky_bridge.substrate_devices import (
     write_devices_file,
 )
 from tests._facility_file import write_demo_facility_file
+from tests.channel_roster.test_facade import DEMO_UNPAIRED, demo_readback
 
 #: What the shipped demo tree holds, pinned alongside
 #: ``tests/channel_roster/test_facade.py``.
-DEMO_WRITES = 522
-DEMO_READS = 2817
+DEMO_WRITES = 674
+DEMO_READS = 4057
 
 _SOURCE = RosterSource(
     kind=RosterSourceKind.FACILITY, path=Path("/data/facility.json"), spelled="facility.json"
@@ -206,6 +207,20 @@ class TestTolerancesAndMotionBands:
 
         assert validate_device_document(document) == []
 
+    def test_units_follow_the_tolerance_keys(self) -> None:
+        """A device's units come last, after every other optional key; a channel
+        the mapping does not name gets no unit key."""
+        units = {_SP: "u-sp", _RB: "u-rb", _UNPAIRED: "u-unpaired"}
+        document = devices_document(_RECORDS, tolerances={_SP: {"absolute": 0.05}}, units=units)
+
+        paired, unpaired = document["settables"]
+        assert list(paired)[-3:] == ["settle_tolerance", "unit", "setpoint_unit"]
+        assert (paired["unit"], paired["setpoint_unit"]) == (units[_RB], units[_SP])
+        assert unpaired["unit"] == units[_UNPAIRED] and "setpoint_unit" not in unpaired
+        readables = {entry["name"]: entry for entry in document["readables"]}
+        assert readables[_RB]["unit"] == units[_RB]
+        assert "unit" not in readables["SR:DIAG:MON:01:POSITION:X"]
+
     def test_no_mapping_writes_the_same_bytes(self, tmp_path: Path) -> None:
         """Roster-derived callers pass no mapping and see the file they always did."""
         plain = tmp_path / "plain.yml"
@@ -311,7 +326,7 @@ class TestTheShippedDemoRoster:
         return {"config_dir": str(tmp_path), "channel_finder": {"pipeline_mode": "graph"}}
 
     def test_the_demo_machine_yields_a_device_per_channel(self, demo_config) -> None:
-        """522 settables / 2817 readables: every channel the demo tree holds."""
+        """674 settables / 4057 readables: every channel the demo tree holds."""
         result = registered_channels(demo_config)
 
         document = devices_document(result.records)
@@ -324,10 +339,13 @@ class TestTheShippedDemoRoster:
 
         document = devices_document(result.records)
 
-        assert all("readback" in entry for entry in document["settables"])
+        paired = [entry for entry in document["settables"] if "readback" in entry]
+        unpaired = [entry["setpoint"] for entry in document["settables"] if "readback" not in entry]
+        assert len(paired) == DEMO_WRITES - DEMO_UNPAIRED
+        assert all(entry["readback"] == demo_readback(entry["setpoint"]) for entry in paired)
         assert all(
-            entry["readback"] == entry["setpoint"][: -len("SP")] + "RB"
-            for entry in document["settables"]
+            address.startswith("SR:VAC:GAUGE:") and address.endswith(":RESET:SP")
+            for address in unpaired
         )
 
 

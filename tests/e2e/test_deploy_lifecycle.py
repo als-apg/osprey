@@ -102,11 +102,13 @@ from tests.e2e._deploy_support import (
 )
 from tests.integration._qmd_ariel_support import (
     SIDECAR_HEALTH_CEILING,
+    SIDECAR_REINDEX_CEILING,
+    SIDECAR_ROUND_S,
     sidecar_log_mark,
     wait_for_reindex_settled,
 )
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 # ---------------------------------------------------------------------------
 # Fixture identity — kept in sync with tests/e2e/fixtures/multi_user_config.yml
@@ -138,6 +140,15 @@ _BASE_MD_MARKER = "osprey-e2e-mus-p3 fixture CLAUDE.md base"
 _BASE_MD_CONTENT = f"# {_BASE_MD_MARKER}\n\nSeeded by tests/e2e/test_deploy_lifecycle.py.\n"
 
 DEPLOY_UP_TIMEOUT_SEC = 180
+#: Seconds the shared-bundle qmd test may take, setup included. Its longest
+#: chain of waits is the ``osprey up`` (:data:`DEPLOY_UP_TIMEOUT_SEC`), the
+#: sidecar's ``/health`` wait (:data:`SIDECAR_HEALTH_CEILING`) and the re-index
+#: wait after the corpus marker (:data:`SIDECAR_REINDEX_CEILING`); each of the
+#: two ``wait_until_ready`` waits may run one :data:`SIDECAR_ROUND_S` past its
+#: ceiling, so the wait's own failure lands before this mark kills the test.
+DEPLOY_LIFECYCLE_QMD_TIMEOUT = (
+    DEPLOY_UP_TIMEOUT_SEC + SIDECAR_HEALTH_CEILING + SIDECAR_REINDEX_CEILING + 2 * SIDECAR_ROUND_S
+)
 DEPLOY_VERB_TIMEOUT_SEC = 60
 REGISTRY_READY_TIMEOUT_SEC = 30.0
 
@@ -707,7 +718,6 @@ PORTS_A = {
     "web": 19500,
     "artifact": 19600,
     "ariel": 19700,
-    "lattice": 19800,
     "channel_finder": 19550,
     "okf": 19650,
     "system_health": 19750,
@@ -717,7 +727,6 @@ PORTS_B = {
     "web": 19900,
     "artifact": 20000,
     "ariel": 20100,
-    "lattice": 20200,
     "channel_finder": 19950,
     "okf": 20050,
     "system_health": 20150,
@@ -759,7 +768,6 @@ def _make_isolation_repo(
             "modules.web_terminals.web_base_port": ports["web"],
             "modules.web_terminals.artifact_base_port": ports["artifact"],
             "modules.web_terminals.ariel_base_port": ports["ariel"],
-            "modules.web_terminals.lattice_base_port": ports["lattice"],
             "modules.web_terminals.channel_finder_base_port": ports["channel_finder"],
             "modules.web_terminals.okf_base_port": ports["okf"],
             "modules.web_terminals.system_health_base_port": ports["system_health"],
@@ -1021,7 +1029,6 @@ HETERO_PORTS = {
     "web": 20300,
     "artifact": 20400,
     "ariel": 20500,
-    "lattice": 20600,
     "channel_finder": 20350,
     "okf": 20450,
     "system_health": 20550,
@@ -1155,7 +1162,6 @@ def _hetero_config_dict(default_tier_path: Path, alt_render_path: Path) -> dict:
                 "web_base_port": HETERO_PORTS["web"],
                 "artifact_base_port": HETERO_PORTS["artifact"],
                 "ariel_base_port": HETERO_PORTS["ariel"],
-                "lattice_base_port": HETERO_PORTS["lattice"],
                 "channel_finder_base_port": HETERO_PORTS["channel_finder"],
                 "okf_base_port": HETERO_PORTS["okf"],
                 "system_health_base_port": HETERO_PORTS["system_health"],
@@ -1723,6 +1729,7 @@ def _wait_for_qmd_health(timeout: float) -> None:
 
 
 @pytest.mark.qmd
+@pytest.mark.timeout(DEPLOY_LIFECYCLE_QMD_TIMEOUT)
 @pytest.mark.usefixtures("stub_image")
 def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     """One shared knowledge bundle across two web terminals and the sidecar.

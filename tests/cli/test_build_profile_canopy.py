@@ -7,18 +7,27 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import shutil
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
+from osprey.cli.build_cmd import build
 from osprey.cli.build_profile_canopy import (
     HOME_SCREEN_KEY,
     canopy_home_screen_errors,
     without_unstaged_panel,
 )
+from osprey.cli.init_cmd import init
+from osprey.cli.validate_cmd import validate
 from osprey.integrations.canopy.library import find_home_screen
 
 PANELS = ["canopy"]
+
+# --------------------------------------------------------------------------- #
+# Unit half
+# --------------------------------------------------------------------------- #
 
 
 def _screen(library: Path, screen_id: str, kind: str = "screen") -> Path:
@@ -180,7 +189,7 @@ def _canopy_profile() -> _Profile:
         default_panel="canopy",
         skills=["canopy-operator", "canopy-screens", "canopy-panel-builder", "logbook"],
     )
-    profile.inherited_preset = "control-assistant"  # type: ignore[attr-defined]
+    profile.inherited_preset = "demo"  # type: ignore[attr-defined]
     return profile
 
 
@@ -199,7 +208,7 @@ def test_naming_no_payload_takes_the_panel_its_default_and_its_skills_out(tmp_pa
     assert kept.web_panels == ["artifacts"]
     assert kept.default_panel is None
     assert kept.skills == ["logbook"]
-    assert kept.inherited_preset == "control-assistant"
+    assert kept.inherited_preset == "demo"
     assert profile.web_panels == ["artifacts", "canopy"], "the input is not edited"
 
 
@@ -231,3 +240,120 @@ def test_a_profile_without_the_panel_is_returned_as_is(tmp_path: Path):
     profile = _Profile(web_panels=["artifacts"], default_panel="artifacts", skills=["logbook"])
 
     assert without_unstaged_panel(profile, tmp_path) is profile
+
+
+# --------------------------------------------------------------------------- #
+# CLI half — the shipped demo preset and its tiers
+# --------------------------------------------------------------------------- #
+
+ANCHOR = "  web.panels.canopy.vole_bytes_max: 268435456\n"
+TIER_ANCHOR = "\nconfig:\n"
+
+
+@pytest.fixture(scope="module")
+def materialized(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """One real demo materialization to edit copies of."""
+    root = tmp_path_factory.mktemp("home-screen") / "demo"
+    result = CliRunner().invoke(init, [str(root), "--preset", "demo", "--no-git"])
+    assert result.exit_code == 0, result.output
+    return root
+
+
+@pytest.fixture
+def repo(materialized: Path, tmp_path: Path) -> Path:
+    target = tmp_path / "demo"
+    shutil.copytree(materialized, target, symlinks=True)
+    return target
+
+
+def _insert(path: Path, anchor: str, line: str) -> None:
+    body = path.read_text()
+    assert body.count(anchor) == 1
+    path.write_text(body.replace(anchor, anchor + line + "\n"))
+
+
+def _set_home(repo: Path, value: str) -> None:
+    _insert(repo / "profile.yml", ANCHOR, f"  web.panels.canopy.home_screen: {value}")
+
+
+def _set_tier_home(repo: Path, tier: str, value: str) -> None:
+    _insert(
+        repo / "tiers" / f"{tier}.yml",
+        TIER_ANCHOR,
+        f"  web.panels.canopy.home_screen: {value}",
+    )
+
+
+def _build(repo: Path):
+    return CliRunner().invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
+
+
+def _validate(*args: str):
+    return CliRunner().invoke(validate, [*args, "--drift", "warn"])
+
+
+def test_validate_passes_a_home_screen_the_library_holds(repo: Path):
+    _set_home(repo, "facility/overview")
+    result = _validate("--repo", str(repo))
+    assert result.exit_code == 0, result.output
+    assert "Profile is valid" in result.output
+
+
+def test_validate_refuses_a_tier_overriding_to_a_missing_id(repo: Path):
+    _set_tier_home(repo, "readonly", "ro/missing")
+    result = _validate("--repo", str(repo))
+    assert result.exit_code == 2, result.output
+    assert "tiers/readonly.yml:" in result.output
+    assert "'ro/missing'" in result.output
+
+
+def test_validate_of_the_tier_itself_refuses_it(repo: Path):
+    _set_tier_home(repo, "readonly", "ro/missing")
+    result = _validate(str(repo / "tiers" / "readonly.yml"))
+    assert result.exit_code == 2, result.output
+    assert "'ro/missing'" in result.output
+    assert "ro/missing.screen.json" in result.output
+
+
+def test_build_refuses_a_tier_overriding_to_a_missing_id(repo: Path):
+    _set_tier_home(repo, "readwrite", "rw/missing")
+    result = _build(repo)
+    assert result.exit_code == 2, result.output
+    assert "tiers/readwrite.yml:" in result.output
+    assert "'rw/missing'" in result.output
+    assert not (repo / "build" / "config.yml").exists()
+
+
+def _rendered_configs(repo: Path) -> list[Path]:
+    return [repo / "build" / "config.yml", *sorted((repo / "build").glob("demo-*/config.yml"))]
+
+
+def _canopy_enabled(config: Path) -> bool:
+    import yaml
+
+    panels = yaml.safe_load(config.read_text())["web"]["panels"]
+    return bool(panels.get("canopy", {}).get("enabled"))
+
+
+def test_a_build_naming_no_payload_leaves_the_panel_out_and_says_so_once(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("OSPREY_CANOPY_PAYLOAD_CHECK", raising=False)
+    monkeypatch.delenv("OSPREY_CANOPY_PAYLOAD", raising=False)
+    result = _build(repo)
+    assert result.exit_code == 0, result.output
+    assert result.output.count("CANOPY panel off") == 1
+    configs = _rendered_configs(repo)
+    assert len(configs) > 1
+    assert [c for c in configs if _canopy_enabled(c)] == []
+    assert list((repo / "build").glob("**/.claude/skills/canopy-*")) == []
+
+
+def test_a_build_naming_a_payload_keeps_the_panel(repo: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("OSPREY_CANOPY_PAYLOAD_CHECK", raising=False)
+    monkeypatch.setenv("OSPREY_CANOPY_PAYLOAD", str(repo.parent / "payload"))
+    result = _build(repo)
+    assert result.exit_code == 0, result.output
+    assert "CANOPY panel off" not in result.output
+    assert _canopy_enabled(repo / "build" / "config.yml")
+    assert (repo / "build" / ".claude" / "skills" / "canopy-operator").is_dir()

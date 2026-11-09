@@ -16,12 +16,10 @@ import { test, expect, describe, beforeEach } from 'vitest';
 
 import { initSettings } from '../../../src/osprey/interfaces/ariel/static/js/settings.js';
 
-/** The header's display menu plus the drawer it targets, as index.html lays them out. */
+/** The drawers, as index.html lays them out. */
 function mountFixture() {
   document.body.innerHTML = `
-    <osprey-display-menu settings-drawer="settings-drawer">
-      <button class="display-menu-settings" data-drawer="settings-drawer">Settings</button>
-    </osprey-display-menu>
+    <div id="status-drawer"></div>
     <div id="settings-drawer">
       <div class="settings-mode-bar">
         <button class="settings-mode-btn active" data-mode="form">Form</button>
@@ -35,20 +33,15 @@ function mountFixture() {
 describe('initSettings config panel gate', () => {
   beforeEach(() => mountFixture());
 
-  test('a disabled panel loses its Settings entry and its drawer', () => {
+  test('a disabled panel loses its drawer', () => {
     initSettings({ config_panel_enabled: false });
 
-    expect(document.querySelector('.display-menu-settings')).toBeNull();
     expect(document.getElementById('settings-drawer')).toBeNull();
-    expect(
-      document.querySelector('osprey-display-menu')?.getAttribute('settings-drawer')
-    ).toBeNull();
   });
 
   test('an enabled panel is left alone', () => {
     initSettings({ config_panel_enabled: true });
 
-    expect(document.querySelector('.display-menu-settings')).not.toBeNull();
     expect(document.getElementById('settings-drawer')).not.toBeNull();
   });
 

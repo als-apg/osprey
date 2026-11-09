@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import yaml
 
 from osprey_connectors.simulation.state import (
     Overlap,
@@ -15,6 +16,7 @@ from osprey_connectors.simulation.state import (
     validate_composition,
     write_active_state,
 )
+from osprey_connectors_tests._paths import REPO_ROOT
 
 VIEW = {
     "nominal": set(),
@@ -63,9 +65,9 @@ def test_still_composes_with_overrides_and_faults_on_the_same_address() -> None:
     assert validate_composition(view, ["quiet", "logged"]) == []
 
 
-def test_still_all_overlaps_a_noise_scenario() -> None:
+def test_a_still_overlaps_a_noise_scenario_on_each_reading_they_share() -> None:
     view = _targets(
-        quiet={"still": "all"},
+        quiet={"still": ["SR:BPM1:X", "SR:BPM2:X", "SR:BPM3:X"]},
         loud={"noise": {"SR:BPM1:X": {"absolute": 0.1}, "SR:BPM2:X": {"absolute": 0.1}}},
     )
 
@@ -101,7 +103,7 @@ def test_a_channel_fault_and_an_override_on_one_address_overlap() -> None:
         frozen={"channel_faults": {"SR:BPM1:X": "frozen"}},
         pinned={"overrides": {"SR:BPM1:X": 1.0}},
         disconnected={"channel_faults": {"SR:BPM1:X": "disconnected"}},
-        quiet={"still": "all"},
+        quiet={"still": ["SR:BPM1:X"]},
     )
 
     assert validate_composition(view, ["frozen", "pinned"]) == [
@@ -114,9 +116,96 @@ def test_a_channel_fault_and_an_override_on_one_address_overlap() -> None:
 
 
 def test_two_stills_on_one_reading_compose() -> None:
-    view = _targets(a={"still": ["SR:BPM1:X"]}, b={"still": "all"}, c={"still": ["SR:BPM1:X"]})
+    view = _targets(
+        a={"still": ["SR:BPM1:X"]},
+        b={"still": ["SR:BPM1:X", "SR:BPM2:X"]},
+        c={"still": ["SR:BPM1:X"]},
+    )
 
     assert validate_composition(view, ["nominal", "a", "b", "c"]) == []
+
+
+# -- archiver events -----------------------------------------------------------
+
+#: The example facility's scenario files, as the facility ships them.
+EXAMPLE_SCENARIOS = REPO_ROOT / "src/osprey/templates/facilities/example/scenarios"
+
+#: The archiver block a demo-history scenario states when the example facility
+#: does not ship one yet: events on channels rf-thermal and vacuum-burst script too.
+DEMO_HISTORY_FIXTURE: dict = {
+    "archiver": [
+        {
+            "channel": "SR:DIAG:DCCT:01:CURRENT:RB",
+            "events": [{"shape": "step", "at": -0.5, "amplitude": -1.0}],
+        },
+        {
+            "channel": "SR:RF:CAVITY:01:TEMPERATURE:RB",
+            "events": [{"shape": "spike", "at_time": "09:00:00", "amplitude": 0.5, "width": 60}],
+        },
+        {
+            "channel": "SR:VAC:GAUGE:SR07:PRESSURE:RB",
+            "events": [{"shape": "spike", "at_time": "10:00:00", "amplitude": 1e-8, "width": 30}],
+        },
+    ]
+}
+
+
+def _example(name: str) -> dict:
+    return yaml.safe_load((EXAMPLE_SCENARIOS / f"{name}.yaml").read_text(encoding="utf-8"))
+
+
+def _demo_history() -> dict:
+    path = EXAMPLE_SCENARIOS / "demo-history.yaml"
+    if path.is_file():
+        return yaml.safe_load(path.read_text(encoding="utf-8"))
+    return DEMO_HISTORY_FIXTURE
+
+
+def test_an_archiver_entry_writes_no_target() -> None:
+    assert scenario_targets({"archiver": [{"channel": "SR:VAC:PRESSURE", "events": []}]}) == set()
+
+
+def test_archiver_events_on_one_channel_compose() -> None:
+    view = _targets(
+        burst={"archiver": [{"channel": "SR:VAC:PRESSURE", "events": [{"shape": "spike"}]}]},
+        leak={"archiver": [{"channel": "SR:VAC:PRESSURE", "events": [{"shape": "step"}]}]},
+    )
+
+    assert validate_composition(view, ["nominal", "burst", "leak"]) == []
+
+
+def test_the_shipped_vacuum_burst_and_rf_thermal_compose() -> None:
+    view = _targets(**{name: _example(name) for name in ("vacuum-burst", "rf-thermal")})
+
+    assert validate_composition(view, ["vacuum-burst", "rf-thermal"]) == []
+    assert validate_composition(view, ["rf-thermal", "vacuum-burst"]) == []
+
+
+@pytest.mark.parametrize("other", ["rf-thermal", "vacuum-burst"])
+def test_demo_history_composes_with_a_scenario_scripting_its_channels(other: str) -> None:
+    demo_history = _demo_history()
+    view = _targets(**{other: _example(other), "demo-history": demo_history})
+    shared = {str(entry["channel"]) for entry in demo_history.get("archiver") or []} & {
+        str(entry["channel"]) for entry in _example(other).get("archiver") or []
+    }
+
+    assert shared, "the pair must script events on a shared channel"
+    assert validate_composition(view, [other, "demo-history"]) == []
+    assert validate_composition(view, ["demo-history", other]) == []
+
+
+def test_an_override_on_a_channel_another_scenario_archives_composes() -> None:
+    view = _targets(
+        logged={"archiver": [{"channel": "SR:RF:TEMP", "events": [{"shape": "spike"}]}]},
+        pinned={"overrides": {"SR:RF:TEMP": 26.5}},
+        repinned={"overrides": {"SR:RF:TEMP": 30.0}},
+    )
+
+    assert validate_composition(view, ["logged", "pinned"]) == []
+    assert validate_composition(view, ["pinned", "logged"]) == []
+    assert validate_composition(view, ["logged", "pinned", "repinned"]) == [
+        Overlap(target="SR:RF:TEMP", first="pinned", second="repinned")
+    ]
 
 
 # -- the writer ----------------------------------------------------------------

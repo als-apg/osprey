@@ -312,12 +312,13 @@ def measure_labels(render_root: Path, model: str, config_path: Path) -> MeasureL
     import yaml
 
     from osprey.facility import FACILITY_FILE
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.pyaml import view_names
     from pyaml_cs_osprey.catalog import parse_reference
     from pyaml_cs_osprey.names import RF_PLANT_NAME, TUNE_MONITOR_NAME
 
     doc = json.loads((render_root / FACILITY_FILE).read_text(encoding="utf-8"))
-    names = view_names(doc, model)
+    names = view_names(FacilityRecords(doc), model)
     device_of = {
         str(channel["id"]): (channel.get("on") or {}).get("device")
         for channel in doc.get("channels", [])

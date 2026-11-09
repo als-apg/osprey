@@ -110,9 +110,17 @@ def _get_sql_query():
     return get_tool_fn(sql_query)
 
 
+#: An authored store that also names the SQL tool's SELECT-only login, so the
+#: tool is served.
+_DATABASE = {
+    "uri": "postgresql://ariel@localhost/test",
+    "readonly_uri": "postgresql://ariel_ro@localhost/test",
+}
+
+
 async def test_sql_query_valid(ariel_registry):
     """Valid SELECT query executes and returns rows."""
-    ariel_registry()
+    ariel_registry(database=_DATABASE)
 
     mock_rows = [
         {"entry_id": "e1", "author": "Alice"},
@@ -159,7 +167,7 @@ async def test_sql_query_empty():
 
 async def test_sql_query_row_limit(ariel_registry):
     """max_rows > 200 is capped at 200 inside sql_query()."""
-    ariel_registry()
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
@@ -182,7 +190,7 @@ async def test_sql_query_row_limit(ariel_registry):
 
 async def test_sql_query_service_error(ariel_registry):
     """Database error returns internal_error."""
-    ariel_registry()
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
@@ -206,7 +214,7 @@ async def test_sql_query_uses_the_readonly_pool(ariel_registry):
     """The tool queries through the SELECT-only role where the deployment has
     one, so a dangerous function is refused by Postgres rather than by a
     pattern match over the query text."""
-    ariel_registry()
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
@@ -227,15 +235,42 @@ async def test_sql_query_uses_the_readonly_pool(ariel_registry):
     assert mock_sql.call_args.args[0] is mock_service.readonly_pool
 
 
-async def test_sql_query_falls_back_to_the_ingestion_pool(ariel_registry):
-    """A store whose data volume predates the role has no read-only pool. The
-    tool keeps working on the connection it always used; the service logs the
-    one warning about it at start-up rather than here, per query."""
-    ariel_registry()
+async def test_sql_query_without_a_readonly_login_is_not_supported(ariel_registry):
+    """An authored store with no ``readonly_uri`` has no login the tool may run
+    as. The refusal names the key and comes before any service is built, so the
+    ingestion pool is never reached."""
+    from osprey.services.ariel_search.config import READONLY_URI_KEY
+
+    ariel_registry(database={"uri": "postgresql://ariel@localhost/test"})
+
+    service = AsyncMock(side_effect=AssertionError("no service may be built"))
+    mock_sql = AsyncMock(side_effect=AssertionError("no query may run"))
+
+    with (
+        patch("osprey.mcp_server.ariel.server_context.ARIELContext.service", new=service),
+        patch("osprey.mcp_server.ariel.tools.sql_query.execute_sql_query", new=mock_sql),
+    ):
+        fn = _get_sql_query()
+        with assert_raises_error(error_type="not_supported") as _exc_ctx:
+            await fn(sql="SELECT entry_id FROM enhanced_entries")
+
+    envelope = _exc_ctx["envelope"]
+    assert envelope["details"] == {"key": READONLY_URI_KEY}
+    assert READONLY_URI_KEY in envelope["error_message"]
+    service.assert_not_awaited()
+    mock_sql.assert_not_awaited()
+
+
+async def test_sql_query_with_a_refused_readonly_login_is_unavailable(ariel_registry):
+    """A store whose data volume predates the role refuses the read-only login.
+    The tool says so with the recorded reason and never queries through the
+    ingestion pool."""
+    ariel_registry(database=_DATABASE)
 
     mock_service = AsyncMock()
     mock_service.pool = AsyncMock()
     mock_service.readonly_pool = None
+    mock_service.readonly_pool_error = 'OSError: password authentication failed for user "ariel_ro"'
 
     mock_sql = AsyncMock(return_value=[])
 
@@ -247,9 +282,13 @@ async def test_sql_query_falls_back_to_the_ingestion_pool(ariel_registry):
         ),
     ):
         fn = _get_sql_query()
-        await fn(sql="SELECT entry_id FROM enhanced_entries")
+        with assert_raises_error(error_type="service_unavailable") as _exc_ctx:
+            await fn(sql="SELECT entry_id FROM enhanced_entries")
 
-    assert mock_sql.call_args.args[0] is mock_service.pool
+    envelope = _exc_ctx["envelope"]
+    assert mock_service.readonly_pool_error in envelope["error_message"]
+    assert any("Read-only role for the SQL tool" in hint for hint in envelope["suggestions"])
+    mock_sql.assert_not_awaited()
 
 
 async def test_sql_query_binary_table_refusal_hints_at_text_columns():
@@ -272,4 +311,5 @@ def test_sql_query_docstring_lists_attachment_text_columns():
     doc = get_tool_fn(sql_query).__doc__ or ""
     assert "attachment_text (text)" in doc
     assert "attachment_captions (jsonb)" in doc
+    assert "facility_refs (jsonb)" in doc
     assert "attachment_files" in doc

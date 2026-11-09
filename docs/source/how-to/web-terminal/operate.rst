@@ -50,24 +50,24 @@ The window has a sidebar on the left and two panes:
 - **Sidebar** (left) — the list of everything you can open:
   the :ref:`control-target block <web-terminal-session-posture>` (which
   machine this deployment writes to, and whether it may), search, the
-  **Workspace** and **Tools** sections, and a footer with **Docs**,
+  **Sessions** row, the **Apps** and **System** sections, and a footer with **Docs**,
   **Feedback** (see :doc:`send-feedback`), **Sign out** (multi-user
   deployments only) and **☰ More**. See
   :ref:`web-terminal-sidebar`.
 - **Agent** (right) — the operator chat, or a real terminal running the OSPREY
-  agent when you open one from the pane's **⋯** menu. It survives reconnects,
-  and you can keep a few background conversations alive and hop between them.
-  Close the pane with its **×**; the **Agent** row in the sidebar opens it again.
+  agent when you open one from the pane's session switcher (the session title
+  at the left of the Agent bar). It survives reconnects, and you can keep a
+  few background conversations alive and hop between them.
+  Close the pane with its **×**; the **Sessions** row in the sidebar opens it again.
 - **Work pane** (middle) — the artifacts and panels you open from the sidebar,
-  as tabs in tiles you arrange by dragging (`Tiles and tabs`_). New artifacts,
-  plots, and data files appear in
-  the sidebar's **Artifacts** list as the agent creates them, with no refresh.
-  On a fresh deployment the list is not empty: the control-assistant preset
-  ships one interactive example plot (synthetic data). It is there for you,
-  not the agent, which never lists or cites it. Delete it when you no longer
-  want it; it does not come back. It is switched on by
-  ``artifact_server.example_artifact`` in ``config.yml``. Your
-  control-system tools (Channel Finder, ARIEL, the lattice dashboard, and so
+  in tiles you arrange by dragging (`Tiles`_). New artifacts,
+  plots, and data files appear under their session in the sidebar
+  (`Sessions and artifacts`_) as the agent creates them, with no refresh.
+  On a fresh demo deployment the tree is not empty: its first
+  deploy lays down three past sessions from the ``demo-history`` scenario,
+  with their transcripts and artifacts, which you can open and resume (see
+  :ref:`how-to-run-scenarios`). Your
+  control-system tools (Channel Finder, the Logbook, the knowledge panel, and so
   on) open here too. See :doc:`panels`.
 
 The settings drawer (**☰ More** › **Settings**) lets you read and edit the
@@ -86,47 +86,53 @@ back to an older browser mechanism that Safari may refuse.
 
 .. _web-terminal-tiles:
 
-Tiles and tabs
---------------
+Tiles
+-----
 
-The work pane is tiles, and a tile holds one or more tabs. A tile's header
-shows the tab in front — its tabs, once it holds more than one — with that
-tab's controls, **Pop out** and **×** beside them. Click a tab to bring it in
-front; with the header's tab strip focused, the arrow keys do the same and
-Delete closes the tab in front.
+The work pane is tiles, and a tile shows one panel. Its header shows the
+panel's name, up to three of the panel's icons, **⋯**, **Open in new window**
+and **×**.
 
-A panel you open — from its sidebar row, from a link, or one the agent opens
-for you — lands as a new tab, in front, in the service tile you used last;
-nothing resizes, and the tab it covers is one click away. A panel already
-open is brought forward where it is. To open a panel in a tile of its own,
-pick **Open in a new tile** from its row's menu, or drag the row (below).
+**⋯**, or a right-click on the header, opens the tile's menu. **This panel**
+lists the panel's own actions and any icons a narrow tile has no room for.
+**Tile** lists the tile's actions, among them **Open panel** (▸ **Right**,
+**Down**, **Replace here**), **Reload** and, when the panel has a
+documentation page, **Help**. Shift+right-click shows the browser's own menu.
 
-Drag a tab, a whole tile (by its header), or a sidebar row, and drop it on the
-tile under the pointer:
+A panel you open — from its sidebar row, from a link, from the **+** menu,
+or one the agent opens for you — takes the service tile you used last and
+replaces the panel it showed. Nothing resizes,
+and the panel it replaced stays in the sidebar, one click away. A panel
+already open is brought forward where it is. To open a panel in a tile of
+its own, pick **Open in a new tile** from its row's menu, or drag the row
+(below).
 
-- **Header row or centre**: the tab joins that tile, in front. A sidebar row
-  never lands here; it makes a new tile.
+Drag a whole tile (by its header) or a sidebar row, and drop it on a tile's
+edge or on the work pane's edge:
+
 - **Edge**, the outer band of a tile on each side: the tile splits in two, the
   dropped item on that side. No other tile changes size.
 - **Dock edge**, the outermost strip of the work pane: a new tile along that
   whole side.
 
-The highlight during the drag is where the item lands. The agent pane is
-always its own tile: a drop onto it splits it, and it never becomes a tab of
-another tile.
+The highlight during the drag is where the item lands. A drop on a tile's
+header or centre does nothing. The agent pane is always its own tile: a drop
+onto it splits it, and a panel never replaces it.
 
-**×** closes the tab in front, and a tile closes with its last tab; its space
-goes to the tile it was split from. The panel stays in the sidebar, and its
-row opens it again. The arrangement — tiles, tabs, the tab in front of each,
-sizes — is remembered by the browser you set it in.
+**×** closes the tile; its space goes to the tile it was split from. The panel
+stays in the sidebar, and its row opens it again. The arrangement — tiles, the
+panel each shows, sizes — is remembered by the browser you set it in. A layout
+saved by an earlier release with several panels in one tile comes back
+showing the panel that was in front; the others are in the sidebar.
 
 .. _web-terminal-one-session:
 
 The chat and the terminal
 -------------------------
 
-The Agent pane is the operator chat. To reach the agent's terminal, open the
-Agent bar's **⋯** menu and pick **Open terminal**; **Back to chat** returns.
+The Agent pane is the operator chat. To reach the agent's terminal, click the
+session title at the left of the Agent bar and pick **Open terminal**, the last
+row; **Back to chat** returns.
 The choice belongs to the browser tab, and a new tab opens on the chat. The
 chat and the terminal are two windows onto one conversation: they share one
 session, one write state and one transcript, and only the one you are looking
@@ -167,9 +173,9 @@ The chat and the terminal run the same Claude Code version, the one
 is not installed, the server log says which one to install; see
 :doc:`/getting-started/installation`.
 
-While a turn runs in the chat, the composer is disabled and **Send** becomes
-**Stop**. Send the next prompt when the agent finishes, or select **Stop** to
-end the turn.
+While a turn runs in the chat, **Send** becomes **Stop**. A message entered
+meanwhile waits above the composer and is sent when the turn ends; **Interrupt
+and ask now** ends the turn and sends it at once.
 
 Clearing a conversation
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -241,6 +247,13 @@ the next write would get:
   analysis, plots and read-only Python.
 - **writes locked** --- your switch is armed, but something the chip cannot lift
   refuses the write. The popover shows the phrase for it and who lifts it.
+- **· program** after any of these --- for example **writes off · program**:
+  a program's write authorization you approved is in force on this machine
+  (see :ref:`web-terminal-approve-program`). The word before it is still your
+  own switch; the program may write the channels you approved, inside their
+  ranges, until it ends, whatever your switch says. Its dot is a ring around a
+  centre rather than a solid dot. The machine's *off* control revokes it, and
+  the program's next write is refused.
 
 A switch is one login's. Two logins on the same machine each have their own,
 and one login's position never changes the other's writes.
@@ -276,9 +289,56 @@ roles and the age of the last probe stay on the tooltips and in the
 confirmation dialogs, where the decision is actually made.
 
 The foot has **Turn all writes off**: every switch of your login goes off in
-one click, a machine no longer configured included. It stops your login's
-writes only; other logins keep theirs. It is enabled while any of your
-switches is armed.
+one click, a machine no longer configured included, and every program
+authorization you approved is revoked. It stops your login's writes only;
+other logins keep theirs. It is enabled while any of your switches is armed or
+a program authorization of yours is in force.
+
+.. _web-terminal-approve-program:
+
+Approve a program's writes
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A program that writes with nobody at a prompt, such as an optimizer run, asks
+for a **write authorization**: these channels, inside these ranges, this many
+writes, until this time. A request that names your login appears in the
+popover under **Programs**, with **Review**. The card shows:
+
+- every channel with the range asked for, the limits-database bound it sits
+  inside, and its current value;
+- the number of writes (steps), what the run does at the end (nothing, apply
+  the best point found, or restore the values it started from), the expiry, the
+  lease the program renews while it runs, the program (holder) and the run's
+  label;
+- that a write the limits refuse still costs its step.
+
+While the current values are read the request line says *reading values…*; a
+machine that does not answer within a few seconds leaves them *not read*.
+
+**Approve** issues it. It is refused, with the reason on the card, when your
+tier is ``never`` or cannot be read, this terminal runs read-only, a range
+is outside the limits database, a channel has no numeric range there or a
+current value that is not a number, or another program already holds one of
+the channels on this machine. Approving is the confirmation for every write
+the run makes inside it, even when your tier is *asked*: the program's writes
+are not prompted one by one. Once approved, the machine's word reads
+**· program** after it, and the authorization is listed under Programs with
+its steps used of its total, when it ends (the time left; hover for the exact
+time) and **Revoke**.
+
+A program that issued its own authorization while your switch stood at
+*allowed* is listed there too, marked self-issued, and an approval refuses to
+overlap it. It has no **Revoke**: moving the machine's switch off *allowed*
+ends it.
+
+An authorization ends when its steps are used, at its expiry, when the
+program stops renewing its lease, or at a stop. To stop it, use **Revoke**, the
+machine's *off* control, or **Turn all writes off**: the program's next write
+is refused. **Revoke** on one that had already ended says *Already stopped*.
+One whose steps are used or whose lease lapsed leaves the chip at once.
+Nothing renews an ended authorization; the program asks again. The same approval
+is available without a web terminal through
+:ref:`osprey write-authorization <cli-osprey-write-authorization>`.
 
 Turn writes off, or on
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -446,7 +506,7 @@ chip cannot lift it, and a refusal nobody set --- a switch that cannot be read
    address is a **service door, not a terminal**. Log in there directly and the
    deployment has no name to put on what you do, so no switch covers it: a
    plan queued from that page writes nothing (``owner_unknown``). Reaching the
-   same panel from its tab in the terminal is the named path, and the one the
+   same panel from its place in the terminal is the named path, and the one the
    chip governs.
 
 .. _web-terminal-sidebar:
@@ -463,31 +523,76 @@ The sidebar is on the left. From top to bottom, it shows:
   :ref:`control-target popover <web-terminal-session-posture>`.
 - **Search**. It opens the command palette. The shortcut is ⌘K on macOS and
   Ctrl+K on other systems.
-- The groups of panel rows. At first there are two, **Workspace** and
-  **Tools**:
+- The groups of panel rows. At first there are three:
 
-  - **Workspace** starts with these rows:
+  - **Sessions**, the first group, has no heading. It starts with this row:
 
-    - **Agent** opens the agent pane, or moves the focus to it. When the pane
-      is closed, the row shows a hollow dot. When the agent waits for your
-      answer, the row shows the number of open questions. **Agent** is always
-      the first row of the first group.
-    - **Artifacts** opens the work pane and lists the artifacts of the agent.
-      Click a row to show that artifact in the work pane.
-    - **Script runs** lists the run records. It is always below **Artifacts**.
-    - **Events** shows only when the deployment enables the events panel.
+    - **Sessions** opens the agent pane and your session tree below it
+      (`Sessions and artifacts`_); with the pane open, it folds or unfolds
+      the tree. Its **+** starts a new session. When the pane is closed, the
+      row is dimmed. When the agent waits for your answer, the row shows the
+      number of open questions. It is always the first row of the sidebar.
 
-  - **Tools** starts with all other panels that this deployment enables.
+  - **Apps** starts with all other panels that this deployment enables.
+  - **System** starts with **Events** (only when the deployment enables the
+    events panel) and **Health**.
 
   In each group, the rows are in your order. **+ Add panel** is always the
-  last row of the last group. See :doc:`panels`.
+  last row of **Apps**. See :doc:`panels`.
 - The footer: **Docs**, **Feedback**, **Sign out** and **☰ More**. **Sign
   out** shows only on a multi-user deployment. See
   :ref:`web-terminal-sign-out`.
 
-When the window is short, only the group that holds **Artifacts** and
-**Script runs** scrolls. The other groups and the footer always stay on the
-screen.
+When the window is short, only the group that holds the session tree
+scrolls. The other groups and the footer always stay on the screen.
+
+.. _web-terminal-sessions:
+
+Sessions and artifacts
+~~~~~~~~~~~~~~~~~~~~~~
+
+The **Sessions** row lists your sessions, newest first. A session is named
+from your first prompt ("naming…" until the name arrives); ``/clear`` starts a
+new one. Under a session, its artifacts are grouped by day; **Group by Kind**
+sorts them into **Runs**, **Plots**, **Trends**, **Tables**, **Documents**,
+**Dashboards**, **Images**, **Data**, plus any kind the deployment registers.
+A script run is one row with a dot for **succeeded**, **failed** or **not
+run** (none while it runs); its approval preview, code and outputs are its
+parts. A run that was never run
+opens on its proposed code. **More sessions** loads older ones.
+
+- Click a session name to switch to it: its layout comes back as you left it
+  (panels, tiles, sizes, the Agent pane, and each panel's page where the hub
+  can read it), with the artifact last open there (its newest if none). A new
+  or older session keeps the layout on screen. The sidebar stays as it is.
+  Click the current session's name to fold or unfold it. Only the current
+  session shows its artifacts; the others stay folded until you switch to them.
+  ⌥-click (Alt+click) a session or **Sessions** to expand every session, or
+  collapse them all if all are open. The session the agent works in has a
+  breathing accent bar.
+- Hover a folded session to see its artifacts; click one to show it.
+- Click an artifact to show it. This never changes the session.
+- The title in the agent tile's header has its own ▾ switcher: your sessions
+  with state, age and message count, and **+ New session**.
+- While the agent is answering in chat, a switch from any of these asks
+  first: **Cancel**, or **Stop & switch**.
+
+Right-click a session to pin, rename, export or copy its ID, or delete a
+past session with its artifacts; a run, here or its row in chat, to open its
+result, approval preview or code; **Sessions** to start a session or **Group by** **Kind** or
+**Activity**. Runs and artifacts also have **Delete…**.
+
+Pinned sessions (the pin button on a row) also show in the **Pinned** group
+above **Sessions**; right-click its heading to rename or hide it. **Show pinned
+sessions**, on the **Sessions** menu or on empty sidebar space, brings it back.
+
+A reload, a new tab or another device resumes your last session and its
+layout. Its last-open artifact is shown in the Artifacts panel if that panel
+is docked, otherwise revealed in the tree. The tree highlights only the
+artifact the Artifacts panel shows. The command
+palette finds your sessions and artifacts (by name, kind, or session name);
+opening a result enters its session. The Artifacts panel has no sidebar row;
+open it from the palette.
 
 .. _web-terminal-sidebar-groups:
 
@@ -496,28 +601,32 @@ Arrange the groups
 
 You can rename the groups, add your own groups, and move rows between them.
 
-To change a group, put the pointer on its name and click **⋯**. The menu has
-these items:
+To change a group, right-click its heading (or focus its name and press
+Shift+F10). The menu has these items:
 
-- **Rename**. Type the new name and press Enter. Press Escape to keep the old
+- **Rename…**. Type the new name and press Enter. Press Escape to keep the old
   name. A name can have up to 40 characters. An empty name keeps the old one.
 - **New group below**. This adds an empty group below this group and opens
   its name for editing.
 - **Move up** and **Move down**. These move the group in the sidebar.
-- **Delete group**. This item shows only for a group that you added. The
-  rows of the group go back to **Tools**. You cannot delete **Workspace** or
-  **Tools**, but you can rename them.
+- **Collapse group** or **Expand group**.
+- **Delete group**. The rows of the group go back to **Apps**. It is
+  disabled for **Apps** and **System**, but you can rename them.
+
+Double-click a group's name to fold it down to its heading, and double-click
+again to unfold it. **Sessions**, the first group, has no
+heading and always stays first. To make it taller, drag the
+faint line below it; double-click the line to go back to automatic height.
 
 To move a row to a different group, do one of these:
 
-- Right-click the row and pick **Move to** and the name of the group. Pick
-  **Move to new group…** to put the row in a new group below its current
-  group. Then type the name of the new group.
+- Right-click the row and pick **Move to** ▸ and the name of the group, or
+  **New group…** to put the row in a new group below its current group.
+  Then type the name of the new group.
 - Drag the row into the other group. Release it where it must go.
 
-You can move each row except **Agent**. **Script runs** moves with
-**Artifacts**. A group without rows shows "No panels — move one here from a
-row's menu".
+You can move each row except **Sessions**. A group without rows shows "No
+panels — move one here from a row's menu".
 
 Your groups are kept in this browser, for your user only. They do not change
 the sidebar of other users.
@@ -527,8 +636,8 @@ Hide the labels
 
 To hide the labels, click the toggle at the top of the sidebar, or press ⌘\\
 (Ctrl+\\ on other systems). The sidebar then shows only icons. Put the pointer
-on an icon to see its name. In this state, a click on **Artifacts** opens the
-artifact list next to the sidebar. To show the labels again, click the toggle
+on an icon to see its name. In this state, a click on **Sessions** opens the
+session tree next to the sidebar. To show the labels again, click the toggle
 or press the same keys.
 
 .. note::
@@ -537,39 +646,33 @@ or press the same keys.
    to the sidebar. In the terminal, Ctrl+\\ sends SIGQUIT to the running
    program. To hide or show the labels in this state, click the toggle.
 
+You can also press Tab, also after a click inside a panel. Tab does not hide
+or show the labels when the cursor is in a text field, in the message box, in
+the terminal, or in an open menu or dialog. In those places, Tab does its
+usual work. Shift+Tab moves the focus back, as usual. To turn the Tab key off,
+open **More** and clear **Tab shows or hides the sidebar**.
+
 .. _web-terminal-pop-out:
 
-Pop a pane out
-~~~~~~~~~~~~~~
+Open a pane in a new window
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can move a panel out of the workspace into its own browser window. This
-works for each service panel, Artifacts included. The agent pane stays in the
-workspace.
+To move a pane into a window of its own, click **Open in new window** in its
+tile's header, or pick it from the **Tile** section of its **⋯** menu or from
+a right-click on its sidebar row. The command palette has
+**Open <panel> in new window**. This works for the Agent pane and for each
+service panel. The tile leaves the workspace.
 
-To pop a panel out, do one of these:
+The window's bar is the tile's own bar, with **Reattach** at the top right.
+The pane's sidebar row shows the reattach icon: a click on the row brings the
+window to the front, a click on the icon reattaches the pane. Reattach puts
+the pane back where it was. With no room for it, the pane stays in its window
+and the terminal shows *No room to reattach <panel>.*
 
-- Click the **Pop out** button in the header of its tile, left of the close
-  button.
-- Right-click its row in the sidebar and pick **Pop out**.
-- Open the command palette and run **Pop out <panel>**.
-
-The panel opens in a new window the size of its tile. Its tile leaves the
-workspace, and its sidebar row shows a window glyph. The window follows the
-theme, the view and the session of the terminal. The agent can still show you
-the panel: a focus from the agent brings the window to the front.
-
-While the panel is popped out:
-
-- A click on its sidebar row brings the window to the front.
-- Its row menu offers **Bring back** in place of **Pop out**.
-- A layout change in the workspace does not open a tile for it.
-
-To bring the panel back, close the window, or pick **Bring back** from its
-row menu. The tile returns next to the active tile.
-
-When you reload the terminal, the open windows stay open and connect to the
-reloaded page again. When you close the terminal tab, the windows stay open
-as normal pages, and they no longer follow the terminal.
+Closing the window closes the pane. Reloading the window (Cmd+R) keeps the
+pane in it. After you reload the terminal, the windows are closed and their
+panes are back in place. The terminal's keyboard shortcuts do not work in the
+window.
 
 .. note::
 
@@ -577,13 +680,14 @@ as normal pages, and they no longer follow the terminal.
    *Pop-ups are blocked for this site.* and the tile stays. Allow pop-ups for
    the site in the browser, then try again.
 
-   A panel that runs at an opaque origin (a page the agent wrote) cannot be
-   popped out. Its **Pop out** button and row are disabled.
+   A panel that runs at an opaque origin (a page the agent wrote) cannot open
+   in a new window. Its **Open in new window** button and row are disabled.
 
 The More menu
 ~~~~~~~~~~~~~
 
-**☰ More** shows your user name and role at the top. It holds the theme
+**☰ More**, or a right-click on the sidebar footer, shows your user name and
+role at the top. It holds the theme
 (see :doc:`theming`), **Settings** and the tour.
 
 .. _web-terminal-sign-out:

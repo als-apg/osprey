@@ -33,9 +33,8 @@ Preset → Profile → Build
    :file: ../_diagrams/build-profiles.html
 
 - **Preset** — a bundled starting point, shipped inside OSPREY
-  (``src/osprey/profiles/presets/``). The two presets are ``hello-world`` and
-  ``control-assistant``.
-  Run ``osprey profile presets`` to list them.
+  (``src/osprey/profiles/presets/``). Run ``osprey profile presets`` to list
+  the presets that ship.
 - **Profile** — the ``profile.yml`` at the root of your deployment repository,
   with the material it names beside it. Created once from a preset, then edited
   and kept in version control. Everything the preset configured is written out
@@ -49,7 +48,7 @@ scratch directory and diff it:
 
 .. code-block:: bash
 
-   osprey init /tmp/fresh --preset control-assistant
+   osprey init /tmp/fresh --preset demo
    diff -u /tmp/fresh/profile.yml my-facility/profile.yml
 
 
@@ -60,7 +59,7 @@ One command creates a deployment repository from a preset:
 
 .. code-block:: bash
 
-   osprey init my-facility --preset control-assistant
+   osprey init my-facility --preset demo
 
 That writes the repository and stops. Look at the profile, edit it, then render
 and start it from inside:
@@ -118,7 +117,9 @@ The facility tree
 -----------------
 
 ``data/facility/`` holds every source of the facility file: the authored files
-and the ``imported/<layer>/`` directories the importers write.
+and the ``imported/<layer>/`` directories the importers write. With
+``machine:``, the machine facts come from a
+:doc:`machine repository </how-to/control-systems/machine-repository>` instead.
 :doc:`describe-your-facility` walks the tree file by file.
 
 ``osprey build`` reads the tree and writes the facility file and its views into
@@ -135,6 +136,7 @@ the render, never back into ``data/facility/``:
      data/graph/facility.ttl          the graph view
      data/channel_finder/<mode>.json  the channel-finder view the profile selects
      data/bluesky_devices.yml         the device view, when Bluesky is configured
+     data/benchmarks/queries.json     the benchmarks view, when a benchmark dataset is configured
 
 ``osprey facility show`` prints the facility the tree builds and each view's
 path. What a scenario file holds is in :doc:`/how-to/run-scenarios`.
@@ -378,23 +380,18 @@ report success and then break every later build.
 .. note::
 
    The check catches the mistake, not an adversary: copies dereference
-   symlinks, and the scan does not descend into a symlinked directory. Read it
-   as the rule the build holds you to, not as a boundary it enforces.
-
-The ``data:`` tree is the exception
------------------------------------
+   symlinks, and the check follows directory links the way the copy does; a
+   target can still change between the check and the copy. Read it as the rule
+   the build holds you to, not as a boundary it enforces.
 
 ``data:`` is a path the profile *names*, not material the build finds by
-convention, and it is checked differently. The path resolves against the
-profile directory, and only its existence and shape are checked — that it is
-there, and that it is a directory. Containment is never checked, so a tree may
-sit above the profile directory (``data: ../shared-data``): a tree more than
-one profile builds from can live beside them rather than inside either.
-
-Staleness is unaffected. The resolved tree is folded into the profile hash
-wherever it sits, so editing it still reports the built project as out of date.
-The exception is about where the tree may live, not about the build losing
-sight of it.
+convention. It resolves against the profile directory and must resolve inside
+the repository, as must every file the profile ``extends``. ``osprey validate``
+and ``osprey build`` refuse a profile that reads anything outside the
+repository, before anything is installed, naming the path. The resolved tree is
+folded into the profile hash, so editing it reports the built project as out of
+date. ``machine:``, the facility directory of a mounted machine repository,
+resolves and is folded the same way.
 
 
 .. _profile-claim:
@@ -460,6 +457,30 @@ Before reaching for a claim, check whether a config key or an environment
 variable already covers your need — most service knobs (ports, images,
 credentials, retention) are configurable without owning the template.
 
+
+.. _profile-artifact-viewer:
+
+A facility artifact kind and its viewer
+---------------------------------------
+
+The sidebar and gallery group artifacts by base form (``plots``, ``trends``,
+``tables``, ``documents``, ``dashboards``, ``images``, ``data``). A kind of
+your own is an extension type that conforms to one of them; a writer tags an
+entry with it (``kind="beam_study"`` on the store's save). Declare it in the
+profile:
+
+.. code-block:: yaml
+
+   config:
+     artifact_server.extension_types.beam_study:
+       {label: Beam study, base_form: plots, viewer: viewers/beam_study.mjs}
+
+and ship the viewer through ``project/`` (here
+``project/viewers/beam_study.mjs``). The viewer is an ES module exporting
+``render(container, artifact, ctx)``, with ``ctx = {fileUrl, theme, tokens}``;
+it draws only into ``container``. A viewer that fails to load, lacks
+``render`` or throws falls back to the base form's viewer. What ``osprey
+build`` refuses is listed under :ref:`config-artifact-server`.
 
 .. _profile-custom-hooks:
 
@@ -579,7 +600,7 @@ Some presets give each operator their own web terminal. Each operator's
 terminal runs the deployment's agent at a **tier** — an access level such as
 read-only, write-capable or admin. Cards everyone on the roster can open run an
 **app** — a second, complete agent, such as the logbook research assistant.
-For those presets (``control-assistant``), ``osprey init`` writes one file per
+For those presets (``demo``), ``osprey init`` writes one file per
 tier and per app:
 
 .. code-block:: text
@@ -601,7 +622,7 @@ chiefly ``control_system.writes: never``; for ``admin``, the
 privileges the profile deliberately withholds. The build lays it over the
 profile: lists are added by name, ``config:`` keys win. A tier never subtracts
 and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
-``data:`` or ``services:``.
+``data:``, ``machine:`` or ``services:``.
 
 An app is a whole agent definition — its own skills, rules, brief and tool
 servers — composed over the deployment's services, data and provider. Every app
@@ -684,7 +705,7 @@ other than a list is refused.
 
 An excluded ``web_panels`` entry renders no tab, whatever the render still
 inherits about that panel under ``config:``. ``exclude:`` takes entries out of
-lists, never scalars — a ``web.panels.lattice.label`` or a custom panel's
+lists, never scalars — a ``web.panels.okf.label`` or a custom panel's
 ``web.panels.<id>.url`` the base profile set is still in the render —
 but ``web_panels`` is what shows a tab: the build writes ``enabled`` onto every
 ``web.panels.<id>`` block a render carries, ``true`` for a selected panel and
@@ -1006,7 +1027,7 @@ It never touches the source zone — only ``osprey init --force`` replaces that.
    osprey init --list-presets
 
    # Create the deployment, then render it
-   osprey init my-assistant --preset control-assistant
+   osprey init my-assistant --preset demo
    cd my-assistant
    osprey build
 
@@ -1074,7 +1095,7 @@ What the build does
     ``osprey up`` compares the profile against before it starts anything.
 13. Re-render the agent artifacts against the complete config, and validate that
     every tool an agent declares is backed by a permission.
-14. Initialize git, then run ``post_build`` and ``validate`` commands.
+14. Run ``post_build`` and ``validate`` commands on the project venv.
 
 The venv is created before rendering so templates can reference the resolved
 Python path. The generated project runs standalone — nothing reaches back to the
@@ -1117,10 +1138,12 @@ directory beside this project came from a different preset. Build ``Y`` under a
 different project name so it gets a profile of its own.
 
 **"Profile convention directories are invalid"** — a convention directory has
-the wrong shape: a ``.md`` directory holding something else, a skill that is a
-file rather than a directory, or a symlink pointing outside the profile. Every
-problem is listed at once. The symlink case is the self-containment rule; copy
-the target in (see :ref:`profile-self-contained`).
+the wrong shape: a ``.md`` directory holding something else, or a skill that is
+a file rather than a directory. Every problem is listed at once.
+
+**"… outside the repository. Move it into the repository."** — an input, or a
+link inside one through any number of hops, resolves outside the repository;
+copy the target in (see :ref:`profile-self-contained`).
 
 **"web-terminal-context/<name> is a file"** — that directory holds one
 directory per operator, plus the shared ``base.md``. Move the file into the

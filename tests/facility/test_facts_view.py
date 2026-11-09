@@ -23,6 +23,7 @@ from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 from osprey.facility import TEXTURE
 from osprey.facility.build import build_facility
+from osprey.facility.records import FacilityRecords
 from osprey.facility.render import render_facility_outputs
 from osprey.facility.validate import FACILITY_HEADER, vocabulary
 from osprey.facility.views.facts import (
@@ -36,6 +37,7 @@ from osprey.facility.views.facts import (
     render_facts_page,
     zero_source_facts,
 )
+from tests._builds import init_machineless, run_build
 from tests.facility._pyaml_trees import measured_tree
 from tests.facility._synthetic_trees import BPM, QUAD, plain_tree, write_tree
 
@@ -46,6 +48,7 @@ pytestmark = [pytest.mark.slow]
 
 FACTS = f"data/{FACTS_FILE}"
 PAGE = f"data/{FACTS_PAGE}"
+NO_CHANNELS = "The facility file holds no channels yet."
 
 ZERO_MODELS = [{"name": TEXTURE, "engine": TEXTURE, "served": True, "solve": None}]
 
@@ -73,10 +76,10 @@ def _rendered_config(built: BuiltProject) -> dict[str, Any]:
 
 
 def test_every_render_writes_the_facts_and_their_page(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    assert built_control_assistant.outputs
-    for outputs in built_control_assistant.outputs:
+    assert built_demo.outputs
+    for outputs in built_demo.outputs:
         facts = json.loads(outputs.files[FACTS])
         assert sorted(facts) == [
             "channel_count",
@@ -99,15 +102,16 @@ def test_every_render_writes_the_facts_and_their_page(
         assert page.endswith("\n") and not page.endswith("\n\n")
 
 
-def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject) -> None:
-    facility = built_control_assistant.facility
-    facts = _built_facts(built_control_assistant)
+def test_the_facts_are_the_facility_files(built_demo: BuiltProject) -> None:
+    facility = built_demo.facility
+    facts = _built_facts(built_demo)
 
     assert facts["identity"] == {
         "code": facility["identity"]["code"],
-        "name": "Example Research Facility",
-        "description": None,
+        "name": facility["identity"]["name"],
+        "description": facility["identity"]["description"],
     }
+    assert facts["identity"]["description"]
     assert facts["place_levels"] == ["machine", "sector"]
     assert facts["channel_count"] == len(facility["channels"])
     assert list(facts["measurement_models"]) == ["BTS", "LINE", "LTB", "SR"]
@@ -123,11 +127,25 @@ def test_the_facts_are_the_facility_files(built_control_assistant: BuiltProject)
     ]
 
 
-def test_each_device_class_carries_its_count_aliases_and_groups(
-    built_control_assistant: BuiltProject,
+def test_only_a_file_with_no_channel_says_it_holds_none(
+    tmp_path: Path, built_demo: BuiltProject
 ) -> None:
-    facility = built_control_assistant.facility
-    classes = _built_facts(built_control_assistant)["device_classes"]
+    repo = init_machineless(tmp_path, "machineless")
+    result = run_build(repo)
+    assert result.exit_code == 0, result.output
+
+    page = (repo / "build" / PAGE).read_text(encoding="utf-8")
+    assert NO_CHANNELS in page
+    assert "# machineless\n" in page
+    built_page = (built_demo.repo / "build" / PAGE).read_text(encoding="utf-8")
+    assert NO_CHANNELS not in built_page
+
+
+def test_each_device_class_carries_its_count_aliases_and_groups(
+    built_demo: BuiltProject,
+) -> None:
+    facility = built_demo.facility
+    classes = _built_facts(built_demo)["device_classes"]
 
     class_of = {device["id"]: device["class"] for device in facility["devices"]}
     assert list(classes) == sorted(set(class_of.values()))
@@ -152,9 +170,9 @@ def test_each_device_class_carries_its_count_aliases_and_groups(
 
 
 def test_the_booster_and_ring_septa_are_a_septum_class(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    facts = _built_facts(built_control_assistant)
+    facts = _built_facts(built_demo)
 
     septum = facts["device_classes"]["Septum"]
     assert septum["count"] == 4
@@ -163,9 +181,9 @@ def test_the_booster_and_ring_septa_are_a_septum_class(
 
 
 def test_the_septum_waveform_signal_is_in_the_vocabulary(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    signal = _built_facts(built_control_assistant)["vocabulary"]["signals"]["pulse_waveform"]
+    signal = _built_facts(built_demo)["vocabulary"]["signals"]["pulse_waveform"]
 
     assert signal["count"] == 1
     assert signal["roles"] == {"readback": 1}
@@ -181,10 +199,10 @@ def _class_count(devices: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def test_the_place_tree_counts_each_class_at_or_under_each_place(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    facility = built_control_assistant.facility
-    facts = _built_facts(built_control_assistant)
+    facility = built_demo.facility
+    facts = _built_facts(built_demo)
     devices = facility["devices"]
 
     assert [place["id"] for place in facts["places"]] == sorted(
@@ -208,9 +226,9 @@ def test_the_place_tree_counts_each_class_at_or_under_each_place(
     )
 
 
-def test_the_vocabulary_counts_every_channel(built_control_assistant: BuiltProject) -> None:
-    facility = built_control_assistant.facility
-    facts = _built_facts(built_control_assistant)
+def test_the_vocabulary_counts_every_channel(built_demo: BuiltProject) -> None:
+    facility = built_demo.facility
+    facts = _built_facts(built_demo)
     used = facts["vocabulary"]
     channels = facility["channels"]
 
@@ -247,9 +265,9 @@ def _keys(value: Any) -> list[str]:
 
 
 def test_no_key_of_the_facts_is_a_middle_layer_word(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    facts = _built_facts(built_control_assistant)
+    facts = _built_facts(built_demo)
     pattern = re.compile(r"(?i)famil|field|subfield|devicelist|elementlist")
 
     assert [key for key in _keys(facts) if pattern.search(key)] == []
@@ -275,7 +293,7 @@ def test_places_classes_and_roles_read_off_a_hand_built_document() -> None:
         ],
     }
 
-    facts = facts_document(document, [TEXTURE], "lab")
+    facts = facts_document(FacilityRecords(document), [TEXTURE], "lab")
 
     assert facts["places"] == [
         {"id": "A", "level": "area", "names": ["Alpha", "Zed"], "devices": {"-": 1, QUAD: 1}},
@@ -293,7 +311,7 @@ def test_places_classes_and_roles_read_off_a_hand_built_document() -> None:
 
 
 def test_two_renders_differing_in_served_models_write_different_facts(
-    tmp_path: Path, built_control_assistant: BuiltProject
+    tmp_path: Path, built_demo: BuiltProject
 ) -> None:
     served = {}
     for name, models in (("all", None), ("none", [TEXTURE])):
@@ -302,9 +320,9 @@ def test_two_renders_differing_in_served_models_write_different_facts(
         config = {"project_name": "demo", "simulation": {"models": models}}
         render_facility_outputs(
             render_dir,
-            built_control_assistant.facility,
+            built_demo.facility,
             config,
-            built_control_assistant.facility_dir,
+            built_demo.facility_dir,
         )
         facts = json.loads((render_dir / FACTS).read_bytes())
         served[name] = {model["name"]: model["served"] for model in facts["models"]}
@@ -331,7 +349,7 @@ def test_a_facility_added_class_reaches_the_facts_with_its_aliases(tmp_path: Pat
     quad["class"] = "SkewQuad"
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
-    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+    classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert declared in document["classes"]
     assert list(classes) == sorted([BPM, "SkewQuad", "Spare"])
@@ -349,7 +367,7 @@ def test_both_groups_over_the_same_device_are_listed(tmp_path: Path) -> None:
     ]
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
-    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+    classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert classes[QUAD]["groups"] == ["SR/MAG", "SR/QF"]
     assert classes[BPM]["groups"] == []
@@ -360,7 +378,7 @@ def test_every_group_holding_a_device_is_listed(tmp_path: Path) -> None:
     tree["records/groups.yaml"] = [{"id": "SR/MAG", "members": ["SR/Q1"]}]
 
     document = build_facility(write_tree(tmp_path / "facility", tree), project_name="p")
-    classes = facts_document(document, [TEXTURE], "p")["device_classes"]
+    classes = facts_document(FacilityRecords(document), [TEXTURE], "p")["device_classes"]
 
     assert classes[QUAD]["groups"] == ["SR/MAG"]
 
@@ -371,7 +389,7 @@ def test_every_group_holding_a_device_is_listed(tmp_path: Path) -> None:
 def test_a_facility_with_no_sources_has_the_zero_source_facts(tmp_path: Path) -> None:
     document = build_facility(tmp_path / "absent", project_name="my proj")
 
-    facts = facts_document(document, [TEXTURE], "my proj")
+    facts = facts_document(FacilityRecords(document), [TEXTURE], "my proj")
 
     assert facts == zero_source_facts({"code": "my_proj", "name": "my proj", "description": None})
     assert facts["device_classes"] == {}
@@ -444,46 +462,46 @@ def test_an_unbuilt_project_context_carries_the_zero_source_facts(tmp_path: Path
     assert ctx["measurement"] == {}
 
 
-def test_the_built_context_reads_the_written_facts(built_control_assistant: BuiltProject) -> None:
-    facts = _built_facts(built_control_assistant)
+def test_the_built_context_reads_the_written_facts(built_demo: BuiltProject) -> None:
+    facts = _built_facts(built_demo)
 
-    ctx = _context(built_control_assistant.build_dir, _rendered_config(built_control_assistant))
+    ctx = _context(built_demo.build_dir, _rendered_config(built_demo))
 
     assert ctx["facility_facts"] == facts
     assert ctx["facility_name"] == facts["identity"]["name"]
     assert ctx["pyaml_view_present"] is True
     records = facts["measurement_models"]
-    assert ctx["measurement"] == hook_measurement(facts, built_control_assistant.build_dir)
+    assert ctx["measurement"] == hook_measurement(facts, built_demo.build_dir)
     assert list(ctx["measurement"]) == ["BTS", "LINE", "LTB", "SR"]
     for model, record in records.items():
         assert ctx["measurement"][model]["view_sha256"] == record["sha256"]
 
 
 def test_the_context_renders_the_builds_page_byte_for_byte(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     manager = TemplateManager()
     ctx = claude_code.build_claude_code_context(
         manager.template_root,
         manager.jinja_env,
-        built_control_assistant.build_dir,
-        _rendered_config(built_control_assistant),
+        built_demo.build_dir,
+        _rendered_config(built_demo),
     )
 
     rendered = manager.jinja_env.get_template(FACTS_TEMPLATE).render(**ctx)
 
-    assert rendered.encode("utf-8") == (built_control_assistant.build_dir / PAGE).read_bytes()
+    assert rendered.encode("utf-8") == (built_demo.build_dir / PAGE).read_bytes()
 
 
 def test_a_dry_run_regeneration_after_the_build_changes_no_file(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     from osprey.deployment.status_display import _artifact_drift
 
     drift = _artifact_drift(
-        built_control_assistant.repo,
-        built_control_assistant.build_dir,
-        _rendered_config(built_control_assistant),
+        built_demo.repo,
+        built_demo.build_dir,
+        _rendered_config(built_demo),
     )
 
     assert drift is not None
@@ -505,13 +523,13 @@ def test_the_measurement_block_reads_each_view_the_facts_record(tmp_path: Path) 
     assert block == {
         "LINE": {
             "kinds": {"orm": {"hcor": "LINE_HCM", "vcor": "LINE_VCM"}},
-            "groups": measurement_groups(document, "LINE"),
+            "groups": measurement_groups(FacilityRecords(document), "LINE"),
             "rf": [],
             "view_sha256": facts["measurement_models"]["LINE"]["sha256"],
         },
         "SR": {
             "kinds": {"trm": {"quad": "SR_Q"}},
-            "groups": measurement_groups(document, "SR"),
+            "groups": measurement_groups(FacilityRecords(document), "SR"),
             "rf": [],
             "view_sha256": facts["measurement_models"]["SR"]["sha256"],
         },

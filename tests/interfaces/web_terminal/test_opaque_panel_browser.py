@@ -136,7 +136,9 @@ class _QuietHandler(SimpleHTTPRequestHandler):
 def _runtime_backend(directory: Path) -> Iterator[str]:
     """Serve ``directory`` over real HTTP on loopback; yield its base URL."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(_QuietHandler, directory=str(directory)))
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -370,8 +372,13 @@ def test_an_osprey_catalog_panel_keeps_todays_sandbox(chromium_browser, tmp_path
         page = chromium_browser.new_page()
         try:
             page.goto(base_url, wait_until="domcontentloaded")
-            page.wait_for_selector('.panel-rail-button[data-panel-id="artifacts"]', timeout=15_000)
-            page.locator('.panel-rail-button[data-panel-id="artifacts"]').click()
+            page.wait_for_selector(
+                '.panel-rail-button[data-panel-id="terminal"]:not(.disabled)', timeout=15_000
+            )
+            # Artifacts has no rail entry; the boot layout docks it in the service tile.
+            expect(page.locator('#dock-root .tile-tab[data-panel-key="artifacts"]')).to_have_count(
+                1, timeout=15_000
+            )
             frame = page.locator('iframe[data-panel-id="artifacts"]')
             frame.wait_for(state="attached", timeout=15_000)
             assert frame.get_attribute("sandbox") == _FIRST_PARTY_SANDBOX

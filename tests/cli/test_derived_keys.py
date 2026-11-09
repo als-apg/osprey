@@ -63,7 +63,7 @@ def test_the_message_names_the_field_that_supplies_the_key() -> None:
     """The refusal is actionable: it says what to set instead."""
     provider = derived_key_errors({"claude_code.provider": "anthropic"})[0]
     mode = derived_key_errors({"channel_finder.pipeline_mode": "in_context"})[0]
-    presets = derived_key_errors({"web.presets": {"ops": ["chat"]}})[0]
+    presets = derived_key_errors({"web.presets": {"ops": {"tabs": ["chat"]}}})[0]
 
     assert "`provider:`" in provider
     assert "`channel_finder_mode:`" in mode

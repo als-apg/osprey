@@ -5,6 +5,7 @@ import json
 import pytest
 import yaml
 
+from osprey.facility.records import FacilityRecords
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     DEFAULT_QUERY_MAX_ROWS,
     QUERY_MAX_ROWS_CONFIG_KEY,
@@ -138,7 +139,9 @@ def test_registry_loads_the_index_and_database_the_build_writes(tmp_path, monkey
         "groups": [{"id": "SR/BPM", "members": ["SR/BPM1"], "signals": {"X": "horizontal"}}],
         "channels": [{"id": "SR:BPM1:X", "on": {"device": "SR/BPM1"}}],
     }
-    inputs = ViewInputs(doc=doc, rendered_config={}, facility_dir=Path("."), served=[])
+    inputs = ViewInputs(
+        records=FacilityRecords(doc), rendered_config={}, facility_dir=Path("."), served=[]
+    )
     write_middle_layer(tmp_path / "data" / "channel_finder", inputs)
     config = {
         "channel_finder": {

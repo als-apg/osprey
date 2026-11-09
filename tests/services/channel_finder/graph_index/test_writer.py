@@ -503,9 +503,9 @@ class TestImportIsolation:
 
 class TestDemoCorpus:
     @pytest.fixture(scope="class")
-    def demo(self, built_control_assistant: BuiltProject) -> ParsedCorpus:
-        """The graph view the control-assistant build writes, parsed."""
-        view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+    def demo(self, built_demo: BuiltProject) -> ParsedCorpus:
+        """The graph view the demo build writes, parsed."""
+        view = built_demo.build_dir / "data" / "graph" / "facility.ttl"
         return parse_corpus(view.read_text(encoding="utf-8"))
 
     def test_the_shipped_corpus_writes_every_row(self, demo: ParsedCorpus, tmp_path: Path):
@@ -517,10 +517,10 @@ class TestDemoCorpus:
         path = tmp_path / "graph.duckdb"
         report = _build(demo, path, corpus_filename="facility.ttl")
 
-        assert report.binding_count == 3339
-        assert report.class_count == 30
-        assert read_rows(path, "SELECT count(*) FROM bindings") == [(3339,)]
-        assert read_rows(path, "SELECT count(*) FROM classes") == [(30,)]
+        assert report.binding_count == 4731
+        assert report.class_count == 36
+        assert read_rows(path, "SELECT count(*) FROM bindings") == [(4731,)]
+        assert read_rows(path, "SELECT count(*) FROM classes") == [(36,)]
 
     def test_every_binding_row_survives_with_its_lists(self, demo: ParsedCorpus, tmp_path: Path):
         path = tmp_path / "graph.duckdb"

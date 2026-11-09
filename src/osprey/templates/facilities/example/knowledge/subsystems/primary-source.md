@@ -1,4 +1,5 @@
 ---
+# Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 type: Subsystem
 title: Primary Source (PS)
 description: Main particle/photon source system including power supplies, vacuum, RF, and diagnostics subsystems.

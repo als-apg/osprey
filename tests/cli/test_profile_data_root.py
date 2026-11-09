@@ -25,6 +25,7 @@ from osprey.cli.build_profile_emit import emit_layer_delta_yaml
 from osprey.cli.build_profile_presets import list_apps, list_tiers
 from osprey.cli.templates.scaffolding import copy_template_data
 from osprey.facility.build import build_facility
+from osprey.facility.records import FacilityRecords
 from osprey.facility.views.limits import limits_document
 from tests._preset_data import copy_bundle_data
 
@@ -32,7 +33,7 @@ from tests._preset_data import copy_bundle_data
 def _write_profile(profile_dir: Path, **extra) -> Path:
     """Materialize a profile directory carrying its own copy of the bundle data.
 
-    The copy starts byte-identical to the control-assistant preset's packaged
+    The copy starts byte-identical to the demo preset's packaged
     data (app template ``data/`` plus its facility) so the
     benchmark query sources the build copies from are present; individual tests
     then mutate it to make the replacement observable.
@@ -43,7 +44,7 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
     profile: dict = {
         "name": "Data Root Test",
         "project_name": "data-root-test",
-        "extends": "control-assistant",
+        "extends": "demo",
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
@@ -115,7 +116,7 @@ def _build(profile_path: Path) -> Path:
 
 #: Where the build reads the in_context mode's benchmark queries from, and the
 #: flat channel database the project/ mirror overrides.
-QUERIES_SOURCE = Path("data/benchmarks/cross_paradigm/queries/in_context_queries.json")
+QUERIES_SOURCE = Path("data/facility/benchmarks/cross_paradigm/queries/in_context_queries.json")
 FLAT_DB = Path("data/channel_databases/in_context.json")
 
 STRAY_J2 = b"{{ facility_name }} raw braces\n{% if channel_finder_mode %}kept{% endif %}\n"
@@ -174,7 +175,7 @@ class TestFullReplacement:
         limits = json.loads((project_dir / "data" / "channel_limits.json").read_text())
         facility_dir = profile_dir / "data" / "facility"
         assert limits == limits_document(
-            build_facility(facility_dir, project_name=project_dir.name)
+            FacilityRecords(build_facility(facility_dir, project_name=project_dir.name))
         ), "the limits database is not the view of the profile tree's limits.yaml"
 
     @pytest.mark.parametrize("bundle_data_at_top", [True, False])
@@ -273,7 +274,7 @@ class TestBuildPipelineOrderingHolds:
         assert queries.read_text() == PROFILE_QUERIES, (
             "benchmark queries were not copied from the profile's tree"
         )
-        assert not (project_dir / "data" / "benchmarks" / "cross_paradigm").exists(), (
+        assert not (project_dir / "data" / "facility" / "benchmarks" / "cross_paradigm").exists(), (
             "cross_paradigm/ subtree reached the render from the profile-sourced tree"
         )
         assert queries_src.exists(), "the profile's own tree was pruned"

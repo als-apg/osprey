@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
+
 if TYPE_CHECKING:
     from tests.facility.conftest import BuiltProject
 
@@ -36,7 +38,7 @@ def _inputs(
     from osprey.facility.views import ViewInputs
 
     return ViewInputs(
-        doc=doc,
+        records=FacilityRecords(doc),
         rendered_config=rendered_config or {},
         facility_dir=Path("."),
         served=[],
@@ -48,7 +50,7 @@ def _inputs(
 def _document(doc: dict[str, Any]) -> tuple[dict[str, Any], int, int]:
     from osprey.facility.views.channel_finder import middle_layer_document
 
-    return middle_layer_document(doc)
+    return middle_layer_document(FacilityRecords(doc))
 
 
 def _fields(family: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -121,11 +123,11 @@ def test_each_class_lists_the_families_the_index_files_its_members_under() -> No
 
     document, _left_out, _by_address = _document(SYNTHETIC)
 
-    assert middle_layer_families(SYNTHETIC) == {
+    assert middle_layer_families(FacilityRecords(SYNTHETIC)) == {
         "Gauge": [("M", "ALL"), ("M", "Gauge")],
         "Quadrupole": [("M", "ALL"), ("M", "QUAD"), ("N", "M/QUAD")],
     }
-    for pairs in middle_layer_families(SYNTHETIC).values():
+    for pairs in middle_layer_families(FacilityRecords(SYNTHETIC)).values():
         assert all(family in document[system] for system, family in pairs)
 
 
@@ -983,8 +985,8 @@ DEMO_GROUPS = {
     ],
     "LTB": ["BPM", "DIPOLE", "HCM", "ICT", "QD", "QF", "TV", "VCM"],
     "SR": [
-        *("BPM", "DIAG", "DIPOLE", "HCM", "MAG", "QD", "QF", "QFA"),
-        *("RF", "SD", "SEPTUM", "SF", "SHD", "SHF", "VAC", "VCM"),
+        *("BPM", "DIAG", "DIPOLE", "ENV", "FE", "HC", "HCM", "ID", "MAG", "QD", "QF"),
+        *("QFA", "RF", "SCRAPER", "SD", "SEPTUM", "SF", "SHD", "SHF", "TC", "VAC", "VCM"),
     ],
 }
 
@@ -997,24 +999,24 @@ DEMO_DERIVED = {
     "LN": [],
     "LTB": [],
     "SR": [
-        *("AcceleratingCavity", "BeamCurrentMonitor", "BeamLossMonitor", "Gauge"),
-        *("Modulator", "Pump", "Valve"),
+        *("AcceleratingCavity", "AirHandler", "BeamCurrentMonitor", "BeamLossMonitor"),
+        *("Gauge", "Modulator", "Pump", "TemperatureSensor", "Valve"),
     ],
 }
 
 
 @pytest.mark.slow
 def test_every_demo_group_and_ungrouped_class_is_a_family(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     from osprey.services.channel_finder.databases.middle_layer import DOCUMENT_KEYS
 
-    document, left_out, by_address = _document(built_control_assistant.facility)
+    document, left_out, by_address = _document(built_demo.facility)
 
     assert _families(document) == {
         system: sorted([*DEMO_GROUPS[system], *DEMO_DERIVED[system]]) for system in DEMO_GROUPS
     }
-    assert sum(len(families) for families in _families(document).values()) == 81
+    assert sum(len(families) for families in _families(document).values()) == 89
     fields = [
         field
         for system, families in document.items()
@@ -1023,21 +1025,19 @@ def test_every_demo_group_and_ungrouped_class_is_a_family(
         if not key.startswith("_")
         for field in _fields(family)
     ]
-    assert len(fields) == 1699
-    assert by_address == 1417
-    assert left_out == 5
-    assert document["count"] == len(built_control_assistant.facility["channels"]) - left_out
+    assert len(fields) == 2453
+    assert by_address == 2143
+    assert left_out == 6
+    assert document["count"] == len(built_demo.facility["channels"]) - left_out
     assert left_out == sum(
         1
-        for channel in built_control_assistant.facility["channels"]
+        for channel in built_demo.facility["channels"]
         if "device" not in (channel.get("on") or {})
     )
 
 
 @pytest.mark.slow
-def test_every_demo_row_names_its_place_index(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
+def test_every_demo_row_names_its_place_index(built_demo: BuiltProject, tmp_path: Path) -> None:
     from osprey.facility.views.channel_finder import (
         _families_by_system,
         _place_indices,
@@ -1045,14 +1045,14 @@ def test_every_demo_row_names_its_place_index(
     )
     from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     devices = {str(device["id"]): device for device in facility["devices"]}
     on = {str(c["id"]): (c.get("on") or {}).get("device") for c in facility["channels"]}
-    indices = _place_indices(facility)
-    document, _left_out, _by_address = middle_layer_document(facility)
+    indices = _place_indices(FacilityRecords(facility))
+    document, _left_out, _by_address = middle_layer_document(FacilityRecords(facility))
 
     indexed = unindexed = 0
-    for system, families in _families_by_system(facility).items():
+    for system, families in _families_by_system(FacilityRecords(facility)).items():
         for family in families:
             setup = document[system][family.name]["_setup"]
             rows = [tuple(row) for row in setup["DeviceList"]]
@@ -1089,7 +1089,11 @@ def test_every_demo_row_names_its_place_index(
     }
     assert database.list_channel_names("SR", "BPM", field, place="SR") == bpm[field]["ChannelNames"]
 
-    rf = next(family for family in _families_by_system(facility)["SR"] if family.name == "RF")
+    rf = next(
+        family
+        for family in _families_by_system(FacilityRecords(facility))["SR"]
+        if family.name == "RF"
+    )
     held = [member.get("place") for member in rf.members]
     below = sorted(place for place in set(held) if place != "SR")
     assert "SR" in held and len(below) == 1
@@ -1107,9 +1111,9 @@ def test_every_demo_row_names_its_place_index(
 
 @pytest.mark.slow
 def test_the_demo_bpm_family_keys_each_once_held_signal_as_one_field(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     document, _left_out, _by_address = _document(facility)
     bpm = document["SR"]["BPM"]
     members = _group(facility, "SR/BPM")["members"]
@@ -1136,9 +1140,9 @@ def test_the_demo_bpm_family_keys_each_once_held_signal_as_one_field(
 
 @pytest.mark.slow
 def test_a_demo_field_takes_its_signal_s_vocabulary_sentence(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    document, _left_out, _by_address = _document(built_control_assistant.facility)
+    document, _left_out, _by_address = _document(built_demo.facility)
 
     for system, family in (("SR", "SF"), ("BR", "DIPOLE")):
         field = _fields(document[system][family])["current_setpoint"]
@@ -1148,11 +1152,11 @@ def test_a_demo_field_takes_its_signal_s_vocabulary_sentence(
 
 @pytest.mark.slow
 def test_the_demo_database_holds_a_row_per_channel_and_family(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
     import duckdb
 
-    (_index, database) = _write(tmp_path, built_control_assistant.facility)
+    (_index, database) = _write(tmp_path, built_demo.facility)
 
     con = duckdb.connect(str(database), read_only=True)
     try:
@@ -1172,7 +1176,7 @@ def test_the_demo_database_holds_a_row_per_channel_and_family(
     finally:
         con.close()
 
-    assert counts == (6266, 3334)
+    assert counts == (8297, 4725)
     assert bpm and bpm < diag
     assert quads and quads < magnets
 
@@ -1197,7 +1201,7 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(
         [
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             "--set",
             "channel_finder_mode=middle_layer",
@@ -1216,7 +1220,7 @@ def test_a_middle_layer_build_writes_the_index_and_notes_its_counts_once(
     index = repo / "build" / "data" / "channel_finder" / MIDDLE_LAYER_FILE
     assert json.loads(index.read_bytes())["schema"] == CHANNEL_FINDER_SCHEMA
     assert "view middle_layer not written" not in built.output
-    assert built.output.count("view middle_layer: 5 channels in no family left out") == 1
+    assert built.output.count("view middle_layer: 6 channels in no family left out") == 1
 
 
 def test_an_imported_field_keyed_by_its_signal_carries_the_vocabulary_sentence(

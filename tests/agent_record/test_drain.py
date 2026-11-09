@@ -160,7 +160,12 @@ async def test_an_otlp_batch_received_just_before_a_read_is_in_the_answer(tmp_pa
     config = _cfg(tmp_path)
     app = service.create_app(config=config, backend=backend, env=_env(tmp_path, config))
     async with _serving(app) as client:
-        payload = _request(_decision("toolu_drain"), _usage())
+        # the builders' default stamp is fixed; the receiver drops events past the
+        # retention window of the wall clock, so stamp these from the wall clock
+        payload = _request(
+            _decision("toolu_drain", when=NOW - timedelta(minutes=5)),
+            _usage(when=NOW - timedelta(minutes=4)),
+        )
         response = await client.post(
             "/v1/logs",
             content=json.dumps(payload).encode(),

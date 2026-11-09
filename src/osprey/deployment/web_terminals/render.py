@@ -44,6 +44,8 @@ from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     FIXED_SERVICE_AUDIT_IDENTITIES,
     WEB_TERMINAL_CHANNEL_SNAPSHOT,
+    WRITE_LEDGER_VIEW_CONTAINER_DIR,
+    WRITE_REQUESTS_CONTAINER_DIR,
     configured_ariel_mirror_path,
     guarded_run_relpath,
     repo_identity,
@@ -51,6 +53,8 @@ from osprey.deployment.compose_generator import (
     resolve_project_name,
     resolve_repo_root,
     simulated_target_configured,
+    write_ledger_relpath,
+    write_requests_relpath,
 )
 from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
@@ -90,6 +94,7 @@ from osprey.integrations.canopy import CHANNELS_FILE as CANOPY_CHANNELS_FILE
 
 # The one definition of the session-lifetime default lives in web_auth, which is
 # stdlib-only, so importing it here cannot cycle.
+from osprey.interfaces.design_system.favicon import favicon_data_uri
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.services.auth_sidecar.roster_env import (
@@ -113,6 +118,10 @@ from osprey_connectors.workspace import (
     BUILD_DIR_NAME,
     SIMULATOR_LOG_DIR_RELPATH,
     agent_data_base_dir,
+)
+from osprey_connectors.write_authorization import (
+    LEDGER_VIEW_DIR_ENV_VAR,
+    REQUESTS_DIR_ENV_VAR,
 )
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
@@ -989,7 +998,7 @@ def render_web_terminals(
             block names under ``auth:`` (``auth.token_env``, or
             ``auth.password_env``), and each becomes one line in the user's
             ``environment:`` block carrying exactly that name (the
-            control-assistant preset spells it ``MONGO_ROOT_PASSWORD``, which
+            demo preset spells it ``MONGO_ROOT_PASSWORD``, which
             ``osprey up`` mints). Without it the agent's every archiver read
             fails with "Environment variable '…' is not set" while the same
             project works on the single-user host path, which reads the whole
@@ -1694,6 +1703,17 @@ def render_web_terminals(
         # mounted into every terminal: each runs the agent, and a run in any
         # of them has to contend for the same lock.
         "guarded_run_source": repo_relative_mount_source(guarded_run_relpath()),
+        # The holders' requests for a program's write authorization, bound
+        # READ-ONLY into every terminal.
+        "write_requests_source": repo_relative_mount_source(write_requests_relpath()),
+        "write_requests_container_dir": WRITE_REQUESTS_CONTAINER_DIR,
+        "write_requests_env": REQUESTS_DIR_ENV_VAR,
+        # The holders' whole ledger directory, READ-ONLY: their self-issued
+        # grants, which an approval here must not overlap and the chip lists,
+        # and the ledgers that count every grant's steps and lease.
+        "write_ledger_view_source": repo_relative_mount_source(write_ledger_relpath()),
+        "write_ledger_view_container_dir": WRITE_LEDGER_VIEW_CONTAINER_DIR,
+        "write_ledger_view_env": LEDGER_VIEW_DIR_ENV_VAR,
         **auth_tls_ctx,
         # After the spread: the sidecar's image depends on registry.url and the
         # project name, which the auth stanza alone does not carry.
@@ -1744,6 +1764,7 @@ def render_web_terminals(
             landing_cfg, resolved_users, token_login_names, sign_in_url=ENTRY_PATH
         ),
         "theme_blocks": _landing_theme_blocks(root),
+        "favicon": favicon_data_uri(),
         "notices": _build_notices(landing_cfg, root),
         "footer": _landing_footer(landing_cfg),
     }

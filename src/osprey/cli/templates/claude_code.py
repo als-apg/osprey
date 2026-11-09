@@ -403,6 +403,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     facility_facts = read_facts(project_dir, config.get("project_name", project_dir.name))
     facility = _read_facility(project_dir)
     ariel_attachment_view = _ariel_attachment_view(config)
+    ariel_sql_tool = _ariel_sql_tool(config)
     return {
         # User-owned files: regen skips these, users edit in-place
         "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
@@ -489,10 +490,17 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # attachment_view, and the logbook templates read it to leave the tool
         # and its viewing rules out of the rendered guidance.
         "ariel_attachment_view": ariel_attachment_view,
-        # The ARIEL read tools the control-assistant CLAUDE.md tells the main
+        # Whether the ARIEL server serves sql_query: false where the profile
+        # authors `ariel.database.uri` without `ariel.database.readonly_uri`.
+        # resolve_servers reads it to withhold the tool, and the logbook
+        # templates read it to leave the tool and its SQL guidance out.
+        "ariel_sql_tool": ariel_sql_tool,
+        # The ARIEL read tools the demo CLAUDE.md tells the main
         # agent never to call itself, from the static registry entry (never
         # create_server(), which has start-up side effects).
-        "ariel_read_tools": _ariel_read_tools(ariel_attachment_view),
+        "ariel_read_tools": _ariel_read_tools(
+            {"ariel_attachment_view": ariel_attachment_view, "ariel_sql_tool": ariel_sql_tool}
+        ),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -522,6 +530,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # absent key renders as nothing at all — the same way hook_config.json
         # once shipped with an empty write-tool list and no error to say so.
         "mixed_read_write_tools": [],
+        # Every tool plan mode refuses, fully qualified. Derived from resolved
+        # servers by build_claude_code_context below; this empty default only
+        # guarantees the key is never absent, for the reason given above.
+        "plan_mode_denied_tools": [],
         # The render's facility (custom-server) write set, fully qualified: one
         # exact name per tool a declaring server gates, the whole-server
         # matcher for a server with no list. Like mixed_read_write_tools it
@@ -656,10 +668,11 @@ def _middle_layer_families(facility: dict[str, Any]) -> dict[str, list[dict[str,
         Class name -> ``[{"name", "system"}]``, ``system`` ``None`` where the
         cell does not name it; a class no family holds is absent.
     """
+    from osprey.facility.records import FacilityRecords
     from osprey.facility.views.channel_finder import middle_layer_families
 
     out: dict[str, list[dict[str, str | None]]] = {}
-    for name, pairs in middle_layer_families(facility).items():
+    for name, pairs in middle_layer_families(FacilityRecords(facility)).items():
         qualified = len({system for system, _family in pairs}) > 1
         out[name] = [
             {"name": family, "system": system if qualified else None} for system, family in pairs
@@ -699,6 +712,21 @@ def _ariel_attachment_view(config: dict) -> bool:
         raise BuildProfileError(str(exc)) from exc
 
 
+def _ariel_sql_tool(config: dict) -> bool:
+    """Whether the ARIEL server serves ``sql_query``; ``True`` with no ``ariel`` mapping.
+
+    The tool is served only through a SELECT-only login, so a profile that
+    authors ``ariel.database.uri`` without ``ariel.database.readonly_uri`` gets
+    no SQL tool.
+    """
+    ariel = config.get("ariel") or {}
+    if not isinstance(ariel, Mapping):
+        return True
+    from osprey.services.ariel_search.config import sql_tool_offered
+
+    return sql_tool_offered(ariel)
+
+
 #: The ARIEL tools the main agent calls itself rather than through a logbook
 #: subagent: the two introspection tools, and the two verbs that put an entry or
 #: picture the subagent found in front of the operator.
@@ -707,20 +735,18 @@ _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset(
 )
 
 
-def _ariel_read_tools(view_enabled: bool) -> list[str]:
+def _ariel_read_tools(ctx: Mapping) -> list[str]:
     """The ARIEL read tools only the logbook subagents call, in registry order.
 
     Every ``permissions_allow`` tool of the ``ariel`` registry entry except
-    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL``, and except
-    ``attachment_view`` while the view is off (the server then does not offer
-    it).
+    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL`` and the optional tools
+    ``ctx`` withholds (the server then does not offer them).
     """
     from osprey.registry.mcp import FRAMEWORK_SERVERS
 
-    excluded = set(_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL)
-    if not view_enabled:
-        excluded.add("attachment_view")
-    return [t for t in FRAMEWORK_SERVERS["ariel"].permissions_allow if t not in excluded]
+    ariel = FRAMEWORK_SERVERS["ariel"]
+    excluded = _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL | ariel.withheld_optional_tools(ctx)
+    return [t for t in ariel.permissions_allow if t not in excluded]
 
 
 _CLAUDE_CODE_MIN_CLEANUP_DAYS = 30
@@ -1023,6 +1049,7 @@ def build_claude_code_context(
         facility_write_tools,
         governed_write_tools,
         mixed_read_write_tools,
+        plan_mode_denied_tools,
         resolve_agents,
         resolve_servers,
     )
@@ -1043,6 +1070,11 @@ def build_claude_code_context(
     # classification is a property of the tool, not of the current posture,
     # and its consumers are read at run time under either one.
     ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
+    # The tools plan mode refuses, from the same resolved servers and for the
+    # same reason; unconditional as well, since plan mode is not a posture.
+    ctx["plan_mode_denied_tools"] = plan_mode_denied_tools(
+        ctx["servers"], ctx.get("control_system_write_tools") or []
+    )
     # The facility write set, from its one producer, unconditionally for the
     # same reason: hook_config.json renders it verbatim, and both write-target
     # twins send exactly those tools to `live` under either posture.
@@ -1460,6 +1492,33 @@ def auto_register_user_owned(project_dir: Path, canonical_name: str):
     if not config_path.exists():
         return
     config_add_to_list(config_path, ["scaffold", "user_owned"], canonical_name)
+
+
+def _installed_hooks(selected: list[str]) -> list[str]:
+    """The hooks a render installs: the selection, then what its closure ships.
+
+    A selected hook ships with every ``hooks/`` row it requires, transitively
+    (the build catalog's closure). The short names of the rows that closure adds
+    follow the selection, sorted. Invariant: a hook that ships is wired, and one
+    that does not ship is not. A hook the configuration selects rather than the
+    profile (the watchdog trigger, in the selection exactly when a watchdog is
+    enabled — :func:`watchdog_hook_selection`) is part of ``selected`` and so of
+    the closure: it ships and is wired by the same rule.
+
+    Args:
+        selected: The render's hook selection, in short-name form: the profile's
+            ``hooks:`` list after :func:`watchdog_hook_selection`.
+    """
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+
+    prefix = "hooks/"
+    closure = BuildArtifactCatalog.default().closure(prefix + name for name in selected)
+    added = sorted(
+        name[len(prefix) :]
+        for name in closure
+        if name.startswith(prefix) and name[len(prefix) :] not in selected
+    )
+    return [*selected, *added]
 
 
 def _build_framework_hook_rules(
@@ -2584,9 +2643,10 @@ def create_claude_code_integration(
     # root is guaranteed present regardless of which one called.
     apply_agent_data_root(ctx, project_dir)
 
-    # Build framework hook rules from selected hooks' frontmatter
+    # Build framework hook rules from the frontmatter of every hook the render
+    # installs: the selection and the hooks its closure ships with it.
     fw_pre, fw_post = _build_framework_hook_rules(
-        ctx.get("selected_hooks", []), ctx.get("code_review_deadline_s")
+        _installed_hooks(ctx.get("selected_hooks", [])), ctx.get("code_review_deadline_s")
     )
     ctx["framework_pre_hooks"] = fw_pre
     ctx["framework_post_hooks"] = fw_post

@@ -384,7 +384,10 @@ async def test_every_module_combination_runs(
                 assert ("image" in matched_via) is (picture_search and copies)
                 if embedding:
                     assert len(stub.embeddings) > picture_embeds
-            assert qmd_client.queries == (1 if hybrid else 0)
+            # Page 1 with rerank on fetches the unreranked base page and the
+            # reranked list, and orders the base members by the reranked list
+            # (C-MODOUT rerank confinement): two sidecar calls.
+            assert qmd_client.queries == (2 if hybrid else 0)
 
             listings["browse"] = json.loads(await get_tool_fn(browse)())
             listings["entries_by_ids"] = json.loads(

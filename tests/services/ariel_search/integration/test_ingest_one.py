@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from osprey.facility.records import FacilityRecords
 from osprey.services.ariel_search.attachments import attachment_id_for
 from osprey.services.ariel_search.attachments import copy as copy_mod
 from osprey.services.ariel_search.attachments.compose import (
@@ -232,6 +233,21 @@ class TestIngestOneStore:
         assert ok.seen[0]["attachment_text"] == stored["text"]
         assert "ok_module" in stored["status"]
         assert "broken_module" in stored["status"]
+
+    async def test_ingest_one_stores_facility_references(self, repository, monkeypatch):
+        records = FacilityRecords({"devices": [{"id": "DEV-7"}]})
+        monkeypatch.setattr(repository, "facility_records", records)
+        entry_id = f"{PREFIX}facility-refs"
+        text = "Swapped DEV-7 today."
+
+        await _ingest(repository, _entry(entry_id, [], text=text), _config("none"))
+
+        stored = await repository.get_entry(entry_id)
+        assert stored is not None
+        assert stored["raw_text"] == text
+        assert stored["facility_refs"] == [
+            {"start": 8, "end": 13, "target": "DEV-7", "kinds": ["device"]}
+        ]
 
     async def test_ingest_one_upsert_raising_propagates(self, repository, monkeypatch):
         cfg = _config("none")

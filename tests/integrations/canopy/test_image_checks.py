@@ -20,11 +20,19 @@ here: a virtual environment that sees OSPREY's sources but cannot see
 ``canopy_mcp`` whatever the test environment has installed, and one that also
 holds a stand-in for it. So those cases do not depend on CANOPY being installed
 or absent where the tests run.
+
+Two cases do need CANOPY: they run the rendered lines against the real
+``canopy_mcp.report`` (a library whose report went stale) and the real
+``canopy_mcp.collections_cli`` (a collection it refuses). Their ``python`` is the
+interpreter running these tests.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 import venv
@@ -35,7 +43,7 @@ import pytest
 import osprey
 from osprey.cli.build_cmd import _profile_image_checks_context
 from osprey.cli.templates.manager import TemplateManager
-from osprey.integrations.canopy import image_check
+from osprey.integrations.canopy import LIBRARY_SUBPATH, image_check
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 
@@ -311,6 +319,50 @@ class TestAProbeThatCouldNotAnswer:
 # -- the real report check, on a stale report --------------------------------------
 
 
+@pytest.fixture
+def test_interpreter_bin(tmp_path: Path) -> Path:
+    """A ``bin`` whose ``python`` is the interpreter running these tests.
+
+    A launcher, not a link: a linked interpreter would look for its environment
+    beside the link and lose every installed package.
+    """
+    bin_dir = tmp_path / "test-interpreter-bin"
+    bin_dir.mkdir()
+    python = bin_dir / "python"
+    python.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n', encoding="utf-8")
+    python.chmod(0o755)
+    return bin_dir
+
+
+class TestAStaleReport:
+    @pytest.mark.canopy
+    def test_a_stale_report_fails_the_build(self, rendered_check, test_interpreter_bin, tmp_path):
+        """The template's library passes as shipped and fails once a screen is edited."""
+        deployment = tmp_path / "deployment"
+        library = deployment / LIBRARY_SUBPATH
+        shipped = Path(TemplateManager().template_root) / "apps" / "demo"
+        shutil.copytree(shipped / LIBRARY_SUBPATH, library)
+
+        current = _run(rendered_check, test_interpreter_bin, deployment)
+        assert current.returncode == 0, current.stdout + current.stderr
+        assert current.stdout == "report is current (48 files, --served-at library)\n"
+
+        screen_file = library / "screens" / "sr" / "orbit-feedback.screen.json"
+        screen = json.loads(screen_file.read_bytes())
+        screen["metadata"]["title"] = "edited after the report was written"
+        screen_file.write_text(json.dumps(screen), encoding="utf-8")
+
+        stale = _run(rendered_check, test_interpreter_bin, deployment)
+        assert stale.returncode == 1, stale.stdout + stale.stderr
+        assert NOT_INSTALLED not in stale.stdout
+        assert "report is current" not in stale.stdout
+        assert "canopy_mcp.report: stale: LIBRARY-REPORT.json differs in: " in stale.stderr
+        assert "canopy_mcp.report: stale: LIBRARY-REPORT.md differs" in stale.stderr
+
+
+# -- the collections check ---------------------------------------------------------
+
+
 def _with_collections(deployment: Path) -> Path:
     directory = deployment / "data" / "canopy" / "collections"
     directory.mkdir(parents=True)
@@ -406,3 +458,39 @@ class TestTheCollectionsCheckWhenTheProbeCannotAnswer:
         result = _run(collections_check, empty, tmp_path)
         assert result.returncode != 0
         assert COLLECTIONS_NOT_INSTALLED not in result.stdout
+
+
+#: The facility collection the template ships, over the template library.
+_COLLECTION = json.loads(
+    (
+        Path(TemplateManager().template_root) / "apps/demo/data/canopy/collections/demo.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+class TestTheRealCollectionsCheck:
+    @pytest.mark.canopy
+    def test_a_valid_collection_passes_and_a_refused_one_fails_the_build(
+        self, collections_check, test_interpreter_bin, tmp_path
+    ):
+        """Judged against the template's library: a screen it lacks is refused."""
+        deployment = tmp_path / "deployment"
+        shipped = Path(TemplateManager().template_root) / "apps" / "demo"
+        shutil.copytree(shipped / LIBRARY_SUBPATH, deployment / LIBRARY_SUBPATH)
+        directory = _with_collections(deployment)
+        (directory / "demo.json").write_text(json.dumps(_COLLECTION), encoding="utf-8")
+
+        passing = _run(collections_check, test_interpreter_bin, deployment)
+        assert passing.returncode == 0, passing.stdout + passing.stderr
+        assert passing.stdout == "collections: 1 checked, 0 refused\n"
+        assert passing.stderr == ""
+
+        missing = dict(_COLLECTION, members=[{"screen": "library/sr/not-in-the-library"}])
+        (directory / "elsewhere.json").write_text(json.dumps(missing), encoding="utf-8")
+
+        refused = _run(collections_check, test_interpreter_bin, deployment)
+        assert refused.returncode == 3, refused.stdout + refused.stderr
+        assert refused.stdout == "collections: 2 checked, 1 refused\n"
+        assert "canopy_mcp.collections: refused: " in refused.stderr
+        assert "elsewhere.json" in refused.stderr
+        assert COLLECTIONS_NOT_INSTALLED not in refused.stdout

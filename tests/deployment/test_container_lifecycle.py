@@ -4976,7 +4976,7 @@ def _start_until_the_host(monkeypatch, tmp_path, *, web_terminals: bool = True):
         container_lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"]
     )
     monkeypatch.setattr(
-        container_lifecycle, "_preflight_bluesky_network_backend", lambda config: None
+        container_lifecycle, "_preflight_internal_network_backend", lambda config: None
     )
     monkeypatch.setattr(
         container_lifecycle,

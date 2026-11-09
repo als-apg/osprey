@@ -8,9 +8,11 @@ A deployment describes its facility once, as source files under
 ``data/facility/``. ``osprey build`` combines them into one facility file,
 ``build/facility.json``, and writes every file a service reads from it: the
 channel finder's index, the limits database, the simulator's channel list, the
-knowledge graph. Nothing else in the deployment lists a channel.
+knowledge graph. Nothing else in the deployment lists a channel. The machine
+facts can instead live in a
+:doc:`machine repository </how-to/control-systems/machine-repository>`.
 
-This page walks the tree a fresh ``osprey init --preset control-assistant``
+This page walks the tree a fresh ``osprey init --preset demo``
 writes, file by file, then the three ways records get into it: by hand, from
 an importer, and through a fix. What the build writes from the result is in
 :doc:`/architecture/facility-file`.
@@ -40,8 +42,8 @@ The tree
 
 Every file is optional. A deployment with no ``data/facility/`` at all builds
 a facility with no channel, and each file added states more. The
-control-assistant preset ships all of them except ``classes.yaml``,
-``fixes.yaml`` and ``imported/``; the hello-world preset ships
+demo preset ships all of them except ``fixes.yaml`` and
+``imported/``; the hello-world preset ships
 ``identity.yaml``, ``records/channels.yaml``, ``limits.yaml`` and
 ``seeds.yaml``.
 
@@ -254,10 +256,8 @@ rewritten by every run; ``mapping.yaml`` is yours and is only drafted when
 absent. The import also creates ``limits.yaml``, ``seeds.yaml``,
 ``identity.yaml``, ``classes.yaml``, ``measurement/<model>.yaml`` and
 ``scenarios/readout.yaml`` when they do not exist, and never rewrites them
-afterwards. It refuses to run while
-authored record sources are present: every file of ``records/`` and
-``decks/``, ``models.yaml``, and a ``limits.yaml``, ``seeds.yaml``,
-``identity.yaml`` or measurement file it did not create itself.
+afterwards. It replaces a bundled facility, saying so in one line, and refuses
+only hand-written records of the kinds it writes, naming each file.
 
 A channel list
 --------------
@@ -277,9 +277,9 @@ address per line.
 The files under ``imported/list/`` belong to the import and are replaced by
 each run, so they are never edited by hand: a correction goes into the CSV or
 into ``fixes.yaml``. A run whose list states no ``s`` leaves no
-``devices.yaml``. The list import runs beside authored records and merges with
-them field by field, where the mml import refuses while authored record
-sources are present.
+``devices.yaml``. The list import runs the same step as every format: it
+replaces a bundled facility and refuses only hand-written channel and device
+lists, so it still positions a list against your own deck, models and places.
 
 Fixes
 =====
@@ -346,7 +346,7 @@ channel with no record is the deployment's choice,
 ``control_system.limits_checking.mode``: under ``exclusive`` the limits file
 is the complete list of writable channels and a channel without a record is
 refused; under ``optional`` a channel without a record is written with no
-limits. The hello-world and control-assistant presets ship ``optional``.
+limits. The hello-world and demo presets ship ``optional``.
 
 Seeds
 =====
@@ -550,7 +550,9 @@ Scenarios
 
 Each file under ``scenarios/`` is one way the simulated machine departs from
 its baseline: value overrides, model and channel faults, its own motion
-(drivers, couplings, noise), archive history and logbook entries.
+(drivers, couplings, noise), archive history and logbook entries. The
+simulator activates the scenarios marked ``start: true`` when it first comes
+up; with such marks the profile states no ``simulation.default_scenarios``.
 Writing and applying them is in :doc:`/how-to/run-scenarios`.
 
 Knowledge

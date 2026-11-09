@@ -287,6 +287,26 @@ _PENDING_PROBE = """
 # ---------------------------------------------------------------------------
 
 
+#: Answers the page-load ``GET /api/sessions/last-active`` with no key, the
+#: branch in which the page mints a session instead of resuming one.
+_NO_LAST_ACTIVE_JS = """
+(() => {
+  const real = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const url = typeof input === 'string' ? input : input.url;
+    const method = (init && init.method) || 'GET';
+    if (method === 'GET' && new URL(url, location.href).pathname.endsWith('/api/sessions/last-active')) {
+      return Promise.resolve(new Response(
+        JSON.stringify({ session_key: null, at: null }),
+        { headers: { 'Content-Type': 'application/json' } },
+      ));
+    }
+    return real(input, init);
+  };
+})();
+"""
+
+
 def test_a_switch_in_one_tab_reaches_the_other_before_its_next_poll(
     tmp_path, monkeypatch, chromium_browser
 ):
@@ -312,7 +332,12 @@ def test_a_switch_in_one_tab_reaches_the_other_before_its_next_poll(
     with chip_hub(tmp_path, monkeypatch) as (base_url, _app, root):
         publish_report(root)
         switcher, switcher_session = settled_chip(chromium_browser, base_url)
-        watcher, watcher_session = settled_chip(chromium_browser, base_url)
+        # A fresh tab resumes the operator's last-active session, which is the
+        # first tab's; the second one is served no last-active key, so it mints
+        # a session of its own.
+        watcher, watcher_session = settled_chip(
+            chromium_browser, base_url, init_script=_NO_LAST_ACTIVE_JS
+        )
         try:
             # Two tabs, two sessions — the terminal route mints one per socket.
             assert switcher_session and watcher_session, (
