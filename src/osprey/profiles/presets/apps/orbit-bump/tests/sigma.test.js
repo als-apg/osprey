@@ -209,6 +209,14 @@ describe('the singular-value spectrum', () => {
     expect(root.querySelector('[data-field="sigma-k"]')?.textContent).toBe('');
   });
 
+  it('sits in its own row under the Correctors head, not in the head', () => {
+    mount(backend(() => plan()).fetcher, state());
+    const row = root.querySelector('[data-field="spectrum-row"]');
+    expect(row?.contains(control(root))).toBe(true);
+    expect(row?.previousElementSibling?.tagName).toBe('H3');
+    expect(root.querySelector('[data-field="cor-card"] > h3')?.contains(control(root))).toBe(false);
+  });
+
   it('draws one bar per singular value of the plan, the kept ones filled, with the count', () => {
     mount(backend(() => plan()).fetcher, state({ plan: plan() }));
     const slider = control(root);

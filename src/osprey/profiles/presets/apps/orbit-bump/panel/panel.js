@@ -2305,7 +2305,7 @@ function commitSigma(root) {
 }
 
 /**
- * The singular-value spectrum of the shown plan in the Correctors head: one bar
+ * The singular-value spectrum of the shown plan in its row under the Correctors head: one bar
  * per value on a log scale, kept bars filled, and a cutoff to drag or key.
  * @param {Element} root
  * @returns {HTMLElement}
@@ -2322,6 +2322,7 @@ function sigmaControl(root) {
   const plot = svgNode('svg', {
     class: 'ob-sigma-plot',
     viewBox: `0 0 ${SIGMA_W} ${SIGMA_H}`,
+    preserveAspectRatio: 'none',
     'aria-hidden': 'true',
   });
   const readout = htmlNode('span', {
@@ -2784,7 +2785,6 @@ function controls(root) {
     htmlNode('span', { class: 'ob-spacer' }),
     priorityChip,
     allChip,
-    sigmaControl(root),
     rule,
     ruleMenu(root)
   );
@@ -2795,7 +2795,9 @@ function controls(root) {
     { class: 'osprey-list-empty', 'data-field': 'cor-empty' },
     'Compute to see the corrector plan.'
   );
-  cors.append(corsHead, plan, corEmpty);
+  const spectrum = htmlNode('div', { class: 'ob-shape ob-spectrum', 'data-field': 'spectrum-row' });
+  spectrum.append(sigmaControl(root));
+  cors.append(corsHead, spectrum, plan, corEmpty);
 
   const actions = htmlNode('div', { class: 'ob-actions', 'data-field': 'actions' });
   const status = htmlNode('span', { class: 'osprey-chip', 'data-field': 'plan-status' });

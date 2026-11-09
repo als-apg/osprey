@@ -210,6 +210,7 @@
   stroke: var(--color-warning);
   stroke-opacity: 0.5;
   stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
@@ -265,6 +266,7 @@
   fill: none;
   stroke: var(--color-error);
   stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
@@ -275,6 +277,7 @@
 .ob-strip .ob-tline {
   stroke: var(--color-warning);
   stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
@@ -372,6 +375,7 @@
 
 .ob-box > h3 {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   font-family: var(--font-display);
   gap: var(--space-2, 8px);
@@ -556,6 +560,10 @@
   white-space: normal;
 }
 
+.ob-table [data-cell='verdict'] {
+  white-space: nowrap;
+}
+
 .ob-table td.ob-meta {
   margin: 0;
   text-align: left;
@@ -650,12 +658,14 @@ p.ob-refused {
   cursor: col-resize;
 }
 
-/* The singular-value spectrum in the Correctors head: log-scale bars, kept ones
+/* The singular-value spectrum in its row under the Correctors head: log-scale bars, kept ones
    filled, and the cutoff the operator drags or keys. */
 .ob-sigma {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1, 4px);
+  flex: 1;
+  min-width: 160px;
+  gap: var(--space-2, 8px);
   padding: 0 var(--space-1, 4px);
   border-radius: var(--radius-md);
   outline: none;
@@ -666,8 +676,9 @@ p.ob-refused {
 }
 
 .ob-sigma-plot {
-  width: 96px;
-  height: 18px;
+  flex: 1;
+  min-width: 0;
+  height: 24px;
   border-bottom: 1px solid var(--surface-hairline);
   touch-action: none;
 }
@@ -680,6 +691,7 @@ p.ob-refused {
   fill: none;
   stroke: var(--text-muted);
   stroke-width: 0.75;
+  vector-effect: non-scaling-stroke;
 }
 
 .ob-sigma-bar.kept {
@@ -691,17 +703,20 @@ p.ob-refused {
   stroke: var(--text-muted);
   stroke-width: 0.75;
   stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
 .ob-sigma-cut {
   stroke: var(--text-primary);
   stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
 .ob-sigma-k {
   min-width: 6ch;
+  text-align: right;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--text-secondary);
