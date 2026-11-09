@@ -1135,10 +1135,30 @@ def test_a_run_stops_on_a_marked_test__the_excluded_trees_are_left_to_their_chec
     root_conftest: Any,
 ) -> None:
     sidecar = REPO_ROOT / "tests/integration/test_suite_exit_bound.py"
-    elsewhere = REPO_ROOT / "packages/osprey-connectors/tests/conftest.py"
+    elsewhere = REPO_ROOT / "scripts/check.py"
     root_conftest.pytest_collection_modifyitems_wallclock_guard(
         [_item(sidecar, True), _item(elsewhere, True)]
     )
+
+
+def test_a_run_stops_on_a_marked_test__every_sweep_root_is_held(root_conftest: Any) -> None:
+    """The connectors suite is a sweep root, so a marker applied there out of
+    the scan's sight stops the run as one under ``tests/`` does."""
+    unscanned = REPO_ROOT / "packages/osprey-connectors/tests/conftest.py"
+    with pytest.raises(pytest.UsageError, match=r"osprey-connectors/tests/conftest\.py holds"):
+        root_conftest.pytest_collection_modifyitems_wallclock_guard([_item(unscanned, True)])
+
+
+def test_the_wallclock_scan_covers_every_root_the_sweep_collects() -> None:
+    """One statement of the sweep's roots: a budget marked under any of them is
+    timed alone, and a change under any of them chooses the check that times it."""
+    roots = {root.rstrip("/") for root in fw.UNIT_SELECTION.roots}
+    assert set(wallclock_files.sweep_roots()) == roots
+    marked = fw.wallclock_unit_files()
+    assert {root for root in roots if any(f.startswith(f"{root}/") for f in marked)} == roots
+    scope = BY_ID["pytest-wallclock-unit"].scope
+    for root in roots:
+        assert kit.touches([f"{root}/x/test_new.py"], scope), (root, scope)
 
 
 def test_the_wallclock_guard_is_a_collection_hook_pytest_calls(
