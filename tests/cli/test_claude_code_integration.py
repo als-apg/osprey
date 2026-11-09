@@ -268,7 +268,37 @@ class TestClaudeCodeFileContents:
 
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = settings["permissions"]["allow"]
-        assert f"Read({root}/**)" in allow
+        assert f"Edit({root}/artifacts/**)" in allow
+
+    def test_agent_output_is_readable_by_absolute_path_and_nothing_wider(self, project_dir):
+        """The agent reads what it wrote: artifacts and data, named absolutely.
+
+        The agent runs in the render (``build/``) and the agent-data root sits beside
+        it, so a rule relative to the working directory matches nothing. The rules
+        name only the output subdirectories: the root itself holds the
+        control-context store (approval stamps, the writes switch) and the dispatch
+        worker's Claude config, which a read must still raise a card for.
+        """
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        allow = settings["permissions"]["allow"]
+        root = resolve_shared_data_root(config)
+        assert root.is_absolute()
+
+        reads = [e for e in allow if e.startswith("Read(")]
+        assert f"Read(/{root}/artifacts/**)" in reads
+        assert f"Read(/{root}/data/**)" in reads
+        assert f"Read(/{root}/sessions/*/data/**)" in reads
+        # No relative agent-data rule survives: it would match nothing.
+        relative = agent_data_base_dir(config)
+        assert not any(e.startswith(f"Read({relative}") for e in reads), reads
+        # Nothing covers the root as a whole, nor the control store or the worker's config.
+        for entry in reads:
+            assert entry != f"Read(/{root}/**)"
+            assert "control_target" not in entry, entry
+            assert "claude-config" not in entry, entry
+            assert "dispatch" not in entry, entry
+        assert not any(e.startswith(("Glob(", "Grep(")) for e in allow)
 
     def test_the_chat_uploads_directory_is_readable_by_absolute_path(self, project_dir):
         """The agent reads an attached file by the absolute path the chat hands it.

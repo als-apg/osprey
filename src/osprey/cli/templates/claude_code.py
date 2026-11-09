@@ -91,6 +91,20 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     return _spellable(str(_resolved_agent_data_root(config, project_dir) / CHAT_UPLOADS_SUBDIR))
 
 
+def agent_output_read_globs(config: dict, project_dir: Path) -> list[str]:
+    """The absolute globs over the agent's own output that settings.json lets it Read.
+
+    The artifact store (``artifacts/``) and the executors' working folders
+    (``data/``, or ``sessions/<id>/data/`` for a session-scoped run), under the
+    agent-data root as the runtime resolves it. Absolute for the reason
+    :func:`chat_uploads_dir` is: the agent runs in ``build/``, the root sits beside
+    it. Never the root itself, which also holds the control-context store and the
+    dispatch worker's Claude config; a read there still raises a card.
+    """
+    root = _spellable(str(_resolved_agent_data_root(config, project_dir)))
+    return [f"{root}/artifacts/**", f"{root}/data/**", f"{root}/sessions/*/data/**"]
+
+
 def _resolved_agent_data_root(config: dict, project_dir: Path) -> Path:
     """The render's agent-data root as an absolute path, as the runtime resolves it.
 
@@ -426,6 +440,9 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # path the agent reads them by; settings.json allows exactly that
         # directory (see chat_uploads_dir).
         "chat_uploads_dir": chat_uploads_dir(config, project_dir),
+        # The agent's own output it may Read, as absolute globs (see
+        # agent_output_read_globs).
+        "agent_output_read_globs": agent_output_read_globs(config, project_dir),
         # Write tools blocked by the writes kill switch (for hook_config.json)
         "control_system_write_tools": control_system.get("write_tools", []),
         # Write tools the kill switch stops short of gating on the session's
