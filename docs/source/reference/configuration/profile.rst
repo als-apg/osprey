@@ -237,7 +237,10 @@ Profile YAML reference
      - ``{}``
      - The applications the deployment runs, by name; each one's files live in
        ``apps/<name>/`` beside the profile (see :doc:`/how-to/apps/index`). In
-       a login file, which of them the login's card shows.
+       a login file, which of them the login's card shows, and with
+       ``apps.<name>.access`` who on that login sees and opens the panel, in a
+       shared roster card's words; absent, every user of the login. The tier
+       alone decides writes.
    * - ``lists``
      - string
      - ``add``

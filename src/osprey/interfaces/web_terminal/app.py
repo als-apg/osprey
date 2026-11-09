@@ -730,6 +730,11 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
             # only when the block writes it.
             if "read_timeout_s" in spec:
                 panel["readTimeoutS"] = _panel_read_timeout(panel_id, spec["read_timeout_s"])
+            # Who on this login sees and opens the panel (routes/proxy.py
+            # `caller_opens_panel`). Never sent to the browser: GET /api/panels
+            # drops it from each row. Absent: every user of the login.
+            if "access" in spec:
+                panel["access"] = _panel_access(panel_id, spec["access"])
             custom.append(panel)
 
     return enabled, custom, default_panel
@@ -821,6 +826,30 @@ def _panel_read_timeout(panel_id: str, value: object) -> float | None:
             f"or null (unbounded), got {value!r}"
         )
     return value
+
+
+def _panel_access(panel_id: str, value: object) -> tuple[str, ...]:
+    """Read a panel's ``access``: the build's wire value of ``user:``/``domain:`` members.
+
+    Args:
+        panel_id: The panel id, for the refusal message.
+        value: The raw ``web.panels.<id>.access`` value.
+
+    Raises:
+        ValueError: When the value is not a JSON list of ``user:``/``domain:`` members.
+    """
+    try:
+        members = json.loads(value) if isinstance(value, str) else None
+    except ValueError:
+        members = None
+    if not isinstance(members, list) or not all(
+        isinstance(m, str) and m.startswith(("user:", "domain:")) for m in members
+    ):
+        raise ValueError(
+            f"web.panels.{panel_id}.access must be the build's list of 'user:' and "
+            f"'domain:' members, got {value!r}; rebuild the deployment"
+        )
+    return tuple(members)
 
 
 class _PanelRuntimeConfig(NamedTuple):

@@ -53,7 +53,11 @@ from osprey.interfaces.web_terminal.presets import (
     crowded_tile,
 )
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
-from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
+from osprey.interfaces.web_terminal.routes.proxy import (
+    _backend_is_loopback,
+    _resolve_panel_url,
+    caller_opens_panel,
+)
 from osprey.profiles.web_panels import (
     BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
@@ -450,10 +454,21 @@ async def get_panels(request: Request):
     """
     enabled = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
-    custom = [{**cp, "url": _browser_panel_url(cp)} for cp in custom_raw]
+    # A panel whose `access` does not admit this caller is left out as if it
+    # were not published; the set itself never reaches the browser.
+    withheld = {cp["id"] for cp in custom_raw if not caller_opens_panel(request, cp)}
+    custom = [
+        {**{k: v for k, v in cp.items() if k != "access"}, "url": _browser_panel_url(cp)}
+        for cp in custom_raw
+        if cp["id"] not in withheld
+    ]
     default = getattr(request.app.state, "default_panel", None)
-    visible = list(getattr(request.app.state, "visible_panels", enabled))
+    visible = [
+        pid for pid in getattr(request.app.state, "visible_panels", enabled) if pid not in withheld
+    ]
     active = getattr(request.app.state, "active_panel", None)
+    default = None if default in withheld else default
+    active = None if active in withheld else active
     labels = {pid: BUILTIN_PANEL_LABELS[pid] for pid in enabled if pid in BUILTIN_PANEL_LABELS}
     # Whether the Config panel's SERVER surface is live (web.config_panel.enabled).
     # `false` means /api/config and /api/claude-setup refuse every verb with 403,

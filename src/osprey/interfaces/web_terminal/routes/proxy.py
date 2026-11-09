@@ -82,7 +82,9 @@ from osprey.interfaces.common_middleware import (
     PANEL_ASSET_SUBPATHS,
     PANEL_CAP_SEGMENT,
     STORAGE_SCOPE_ATTRIBUTE,
+    UNSAFE_FORWARDED_VALUE,
     compute_url_prefix,
+    forwarded_identity,
     resolve_storage_scope,
 )
 from osprey.interfaces.common_middleware import (
@@ -98,6 +100,7 @@ from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys, se
 from osprey.interfaces.web_terminal.routes.workspace_activity import observe_set_workspace
 from osprey.profiles.web_panels import SIDECAR_PANELS, ApplicationPanel
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
+from osprey.services.auth_sidecar.identity_headers import same_domain, same_value
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
 from osprey.utils.owner_header import OWNER_HEADER, SESSION_HEADER, owner_from_header
@@ -273,6 +276,54 @@ def _panel_is_config_defined(scope: Request | WebSocket, panel_id: str) -> bool:
     for cp in getattr(scope.app.state, "custom_panels", []):
         if cp.get("id") == panel_id:
             return bool(cp.get("configDefined"))
+    return False
+
+
+def caller_opens_panel(scope: Request | WebSocket, panel: dict) -> bool:
+    """Whether the caller of this connection may see and open *panel*.
+
+    A panel without ``access`` is every user of the login. One with it admits
+    the identity the sidecar forwarded (``X-Osprey-Auth-Subject``) when a
+    ``user:`` member names it or a ``domain:`` member holds it. The sidecar
+    forwards and the build spells members in one canonical spelling
+    (:func:`~osprey.services.auth_sidecar.identity_headers.canonical_identity`)
+    and the build already spelled every roster-relative member out, so the
+    values compare byte for byte and nothing here knows a roster, a tier or a
+    claim. The agent, admitted on the panel
+    token, is judged by the login alone. Every member is evaluated, so the time
+    taken does not say which one matched.
+
+    Args:
+        scope: The request or websocket.
+        panel: A custom-panel dict as :func:`_load_panel_config` forwards it.
+    """
+    access = panel.get("access")
+    if access is None:
+        return True
+    if (scope.scope.get("state") or {}).get(PANEL_ADMISSION_STATE_KEY) is True:
+        return True
+    subject = forwarded_identity(scope.headers).subject
+    if not subject or subject == UNSAFE_FORWARDED_VALUE:
+        return False
+    matches = [
+        same_value(subject, member[len("user:") :])
+        if member.startswith("user:")
+        else same_domain(subject, member[len("domain:") :])
+        for member in access
+    ]
+    return any(matches)
+
+
+def _panel_unavailable(panel_id: str) -> Response:
+    """The answer for a panel id this terminal does not serve to the caller."""
+    return Response(content=f"Panel '{panel_id}' is not available", status_code=404)
+
+
+def _panel_withheld(scope: Request | WebSocket, panel_id: str) -> bool:
+    """Whether ``panel_id`` is a custom panel this caller may not open."""
+    for cp in getattr(scope.app.state, "custom_panels", []):
+        if cp.get("id") == panel_id:
+            return not caller_opens_panel(scope, cp)
     return False
 
 
@@ -2131,10 +2182,7 @@ async def _forward_to_panel(
     """
     backend_url = _resolve_panel_url(request, panel_id)
     if not backend_url:
-        return Response(
-            content=f"Panel '{panel_id}' is not available",
-            status_code=404,
-        )
+        return _panel_unavailable(panel_id)
 
     # An application panel on a login that does not arm it is read-only here:
     # a write method is refused before anything leaves the terminal.
@@ -2159,6 +2207,11 @@ async def _forward_to_panel(
         if held is not None:
             logger.warning("Refused a write to application panel %s while held", panel_id)
             return Response(content=held, status_code=403)
+
+    # A panel whose `access` does not admit this caller is answered as an
+    # unpublished one.
+    if _panel_withheld(request, panel_id):
+        return _panel_unavailable(panel_id)
 
     outer_prefix = compute_url_prefix()
     panel_prefix = panel_base or f"{outer_prefix}/panel/{panel_id}"
@@ -2581,7 +2634,7 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     treats the handshake as failed.
     """
     backend_url = _resolve_panel_url(websocket, panel_id)
-    if not backend_url:
+    if not backend_url or _panel_withheld(websocket, panel_id):
         await websocket.close(code=4004, reason=f"Panel '{panel_id}' not available")
         return
 
