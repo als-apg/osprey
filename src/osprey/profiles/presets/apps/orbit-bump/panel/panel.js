@@ -2,6 +2,14 @@
 // a state loop that polls the backend and renders from state plus selection.
 // Every address is relative: the page is served under the terminal's /panel/<id>/.
 
+import {
+  declinesToBrowser,
+  isContextMenuKey,
+  openContextMenu,
+} from '/design-system/js/context-menu.js';
+import { togglePopover } from '/design-system/js/popover.js';
+import { initTooltips } from '/design-system/js/tooltip.js';
+
 const STATE_URL = 'api/state';
 const RECOMPUTE_URL = 'api/recompute';
 const DISCARD_URL = 'api/discard';
@@ -13,6 +21,7 @@ const REFRESH_MS = 2000;
  * @typedef {'x' | 'y'} Plane
  * @typedef {'auto' | 'mml:[-1 1]' | 'mml:[-2 -1 1 2]' | 'mml:[-3 -1 1 3]' | 'manual'} Rule
  * @typedef {'idle' | 'building' | 'ready' | 'failed'} OrmStatus
+ * @typedef {'flat' | 'peak' | 'cos'} Shape
  */
 
 /**
@@ -133,6 +142,12 @@ const REFRESH_MS = 2000;
  * @property {boolean} applying whether this panel's own apply is in flight
  * @property {boolean} readOnly set by a 403 on Compute: Compute and Apply are hidden
  * @property {{s0: number, s1: number} | null} view the strip's s-window in metres; null is the whole ring
+ * @property {number} step the nudge step, in the BPM unit
+ * @property {Shape} shape how the amplitude spreads over the bump
+ * @property {number} amp the bump amplitude: the signed target of largest magnitude
+ * @property {string | null} anchor the BPM picked last on the strip, where ⇧-click extends from
+ * @property {{id: string, key: string} | null} computed the plan id this panel computed or took
+ *   in last, with the selection it was computed for
  * @property {typeof fetch} fetcher what the panel's own controls send through
  */
 
@@ -162,6 +177,11 @@ export function panelOf(root) {
       applying: false,
       readOnly: false,
       view: null,
+      step: 0.01,
+      shape: 'flat',
+      amp: 0,
+      anchor: null,
+      computed: null,
       fetcher: (input, init) => fetch(input, init),
     };
     panels.set(root, panel);
@@ -238,13 +258,47 @@ function hydrate(root, plan) {
     confirm.replaceChildren();
     showNotice(root, 'A new plan arrived from the agent; the confirm card was closed.');
   }
-  setSelection(root, {
+  panel.amp = amplitudeOf(plan.targets);
+  panel.selection = {
+    ...panel.selection,
     plane: plan.plane,
     model: plan.model,
     targets: { ...plan.targets },
     rule: 'manual',
     correctors: plan.correctors.map((row) => row.element),
-  });
+  };
+  panel.computed = { id: plan.id, key: selectionKey(panel.selection) };
+}
+
+/**
+ * What a plan is computed from, as one comparable string.
+ * @param {Selection} selection
+ * @returns {string}
+ */
+function selectionKey(selection) {
+  const targets = Object.entries(selection.targets)
+    .map(([element, value]) => [element, tidy(value)])
+    .sort(([a], [b]) => String(a).localeCompare(String(b)));
+  const correctors = selection.rule === 'manual' ? [...selection.correctors].sort() : [];
+  return JSON.stringify([selection.plane, selection.model, selection.rule, targets, correctors]);
+}
+
+/**
+ * Whether the selection was edited since the plan was computed: compared with
+ * the selection the plan was computed for when this panel knows it, else with
+ * the plan's own targets.
+ * @param {Panel} panel
+ * @param {Plan} plan
+ * @returns {boolean}
+ */
+function edited(panel, plan) {
+  if (panel.computed?.id === plan.id) return panel.computed.key !== selectionKey(panel.selection);
+  const ours = Object.entries(panel.selection.targets);
+  const theirs = plan.targets ?? {};
+  if (ours.length !== Object.keys(theirs).length) return true;
+  return ours.some(
+    ([element, value]) => !(element in theirs) || tidy(theirs[element]) !== tidy(value)
+  );
 }
 
 /**
@@ -335,21 +389,27 @@ function renderHeader(root, panel) {
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// Strip geometry in SVG user units, after the mockup's draw(): a plot band over
-// a corrector row, a left margin for the vertical labels. A plan's Δ bars stand
-// on the corrector row, up for a positive step and down for a negative one.
+// Strip geometry in SVG user units: a plot band; under it the bump's grip; then
+// a plan's Δ bars around their own zero axis; then the corrector ticks; the
+// s-axis at the foot. A left margin holds the vertical labels.
 const STRIP_W = 1000;
-const STRIP_H = 222;
+const STRIP_H = 242;
 const STRIP_LEFT = 34;
 const STRIP_RIGHT = 12;
 const STRIP_TOP = 10;
-const PLOT_BOTTOM = 150;
-const DELTA_H = 20;
-const COR_Y = PLOT_BOTTOM + DELTA_H + 4;
+const PLOT_BOTTOM = 148;
+const LABEL_Y = 158;
+const GRIP_Y = 163;
+const GRIP_H = 14;
+const DELTA_AXIS = 193;
+const DELTA_HALF = 10;
+const COR_Y = 207;
 const COR_H = 8;
 const STRIP_MID = (STRIP_TOP + PLOT_BOTTOM) / 2;
 const HEADROOM = 1.15;
 const S_TICKS = 4;
+const HANDLE_HIT = 11;
+const BAND_PAD = 10;
 
 /**
  * @param {string} tag
@@ -383,24 +443,44 @@ function axisNumber(value) {
   return String(Number(value.toPrecision(2)));
 }
 
-// Zoom, after the mockup's gestures but in metres: the narrowest window as a
-// fraction of the ring, the wheel's zoom step, the shortest drag (user units)
-// that counts as a range.
+/**
+ * A target value with the float noise of repeated steps taken off.
+ * @param {number} value
+ * @returns {number}
+ */
+function tidy(value) {
+  const rounded = Math.round(value * 1e6) / 1e6;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+// Zoom, in metres: the narrowest window as a fraction of the ring, the wheel's
+// zoom step, the shortest drag (user units) that counts as a range.
 const MIN_SPAN_FRACTION = 0.01;
 const WHEEL_STEP = 1.25;
 const MIN_DRAG = 4;
 
 /**
- * A zoom drag in flight on one strip: a range being selected, or a pan.
+ * A drag in flight on one strip. On the empty plot: a marquee that picks the
+ * BPMs it spans, a ⇧-drag that zooms to its range, or a pan. On a target
+ * handle or the bump's grip: the targets move with the pointer, on the
+ * vertical scale frozen when the drag started.
  * @typedef {object} Drag
- * @property {'select' | 'pan'} mode
+ * @property {'marquee' | 'zoom' | 'pan' | 'handle' | 'grip'} mode
  * @property {number} x0 where the drag started, in user units
  * @property {number} x1 where the pointer is now, in user units
+ * @property {number} y0 where the drag started, vertically, in user units
  * @property {{s0: number, s1: number}} view0 the window when the drag started
+ * @property {number} yMax the vertical scale when the drag started
+ * @property {string} [element] the handle's BPM
+ * @property {Record<string, number>} [targets0] the targets when the drag started
+ * @property {boolean} moved
  */
 
 /** @type {WeakMap<Element, Drag>} */
 const drags = new WeakMap();
+
+/** @type {WeakMap<Element, number>} the vertical scale of each strip's last render */
+const scales = new WeakMap();
 
 /**
  * A view clamped inside a ring of the given length: at least the minimum span,
@@ -451,17 +531,20 @@ function resetView(root) {
 }
 
 /**
- * The pointer's x in the strip's user units, or null when the strip has no
- * laid-out width (a hidden tile) and no position can be read.
+ * The pointer's position in the strip's user units, or null when the strip has
+ * no laid-out width (a hidden tile) and no position can be read.
  * @param {SVGElement} svg
  * @param {MouseEvent} event
- * @returns {number | null}
+ * @returns {{x: number, y: number} | null}
  */
-function svgX(svg, event) {
+function svgPoint(svg, event) {
   const box = svg.getBoundingClientRect();
   if (!(box.width > 0)) return null;
   const x = ((event.clientX - box.left) * STRIP_W) / box.width;
-  return Number.isFinite(x) ? x : null;
+  const y = box.height > 0 ? ((event.clientY - box.top) * STRIP_H) / box.height : NaN;
+  if (!Number.isFinite(x)) return null;
+  // The wheel needs only x; a reading without a usable y counts as the top.
+  return { x, y: Number.isFinite(y) ? y : 0 };
 }
 
 /**
@@ -472,87 +555,6 @@ function svgX(svg, event) {
  */
 function sAt(x, view) {
   return view.s0 + ((x - STRIP_LEFT) * (view.s1 - view.s0)) / (STRIP_W - STRIP_LEFT - STRIP_RIGHT);
-}
-
-/**
- * Wire the zoom gestures on the strip: the wheel zooms around the cursor; a
- * drag from the empty plot selects a range (or pans, when zoomed and no Shift);
- * a double-click returns to the whole ring.
- * @param {Element} root
- * @param {SVGElement} svg
- */
-function bindZoom(root, svg) {
-  const current = () => {
-    const panel = panelOf(root);
-    const model = selectedModel(panel);
-    return model ? shownView(panel, model) : null;
-  };
-  svg.addEventListener(
-    'wheel',
-    (event) => {
-      const view = current();
-      const x = svgX(svg, event);
-      if (!view || x == null || event.deltaY === 0) return;
-      event.preventDefault();
-      const factor = event.deltaY > 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
-      const anchor = sAt(x, view);
-      const span = (view.s1 - view.s0) * factor;
-      const s0 = anchor - (anchor - view.s0) * factor;
-      setView(root, { s0, s1: s0 + span });
-    },
-    { passive: false }
-  );
-  svg.addEventListener('pointerdown', (event) => {
-    if (!(event.target instanceof Element) || !event.target.classList.contains('ob-bg')) return;
-    const view = current();
-    const x = svgX(svg, event);
-    if (!view || x == null) return;
-    try {
-      svg.setPointerCapture(event.pointerId);
-    } catch {
-      // No active pointer to capture (a synthetic event): the drag works without it.
-    }
-    const zoomed = panelOf(root).view != null;
-    drags.set(root, {
-      mode: zoomed && !event.shiftKey ? 'pan' : 'select',
-      x0: x,
-      x1: x,
-      view0: view,
-    });
-  });
-  svg.addEventListener('pointermove', (event) => {
-    const drag = drags.get(root);
-    const x = svgX(svg, event);
-    if (!drag || x == null) return;
-    drag.x1 = x;
-    if (drag.mode === 'select') {
-      renderStrip(root, panelOf(root));
-      return;
-    }
-    const shift = sAt(x, drag.view0) - sAt(drag.x0, drag.view0);
-    setView(root, { s0: drag.view0.s0 - shift, s1: drag.view0.s1 - shift });
-  });
-  const finish = (/** @type {PointerEvent} */ event) => {
-    const drag = drags.get(root);
-    if (!drag) return;
-    drags.delete(root);
-    const x = event.type === 'pointerup' ? svgX(svg, event) : null;
-    if (x != null) drag.x1 = x;
-    if (
-      drag.mode === 'select' &&
-      event.type === 'pointerup' &&
-      Math.abs(drag.x1 - drag.x0) >= MIN_DRAG
-    ) {
-      const a = sAt(Math.min(drag.x0, drag.x1), drag.view0);
-      const b = sAt(Math.max(drag.x0, drag.x1), drag.view0);
-      setView(root, { s0: a, s1: b });
-      return;
-    }
-    renderStrip(root, panelOf(root));
-  };
-  svg.addEventListener('pointerup', finish);
-  svg.addEventListener('pointercancel', finish);
-  svg.addEventListener('dblclick', () => resetView(root));
 }
 
 /**
@@ -617,7 +619,7 @@ function renderRangeChip(root, view, names) {
 }
 
 /**
- * The strip's svg inside the body field, made (with its click and zoom
+ * The strip's svg inside the body field, made (with its pointer, key and menu
  * handlers) on first use.
  * @param {Element} root
  * @returns {SVGElement}
@@ -631,33 +633,23 @@ function stripSvg(root) {
     class: 'ob-strip',
     viewBox: `0 0 ${STRIP_W} ${STRIP_H}`,
     width: '100%',
+    'aria-label': 'orbit strip',
   });
   svg.addEventListener('click', (event) => pickOnStrip(root, event));
-  bindZoom(root, svg);
+  bindStrip(root, svg);
   body.prepend(svg);
   return svg;
 }
 
 /**
- * A click on the strip: a BPM dot joins the bump with a zero offset; a
- * corrector tick toggles under the manual rule. Hollow dots are never picked.
- * @param {Element} root
- * @param {Event} event
+ * The plane's BPMs in ring order: by s, then by index for elements sharing one s.
+ * @param {Panel} panel
+ * @returns {Member[]}
  */
-function pickOnStrip(root, event) {
-  const hit = event.target instanceof Element ? event.target.closest('[data-element]') : null;
-  const element = hit?.getAttribute('data-element');
-  if (!hit || !element || hit.classList.contains('hollow')) return;
-  const { selection } = panelOf(root);
-  if (hit.classList.contains('ob-bpm')) {
-    if (element in selection.targets) return;
-    setSelection(root, { targets: { ...selection.targets, [element]: 0 } });
-  } else if (hit.classList.contains('ob-cor') && selection.rule === 'manual') {
-    const correctors = selection.correctors.includes(element)
-      ? selection.correctors.filter((name) => name !== element)
-      : [...selection.correctors, element];
-    setSelection(root, { correctors });
-  }
+function planeBpms(panel) {
+  const model = selectedModel(panel);
+  const bpms = model ? model.members.bpms.filter((m) => m.plane === panel.selection.plane) : [];
+  return [...bpms].sort((a, b) => a.s_m - b.s_m || a.index - b.index);
 }
 
 /**
@@ -670,6 +662,609 @@ function offset(value, reference) {
   if (value == null || reference == null) return null;
   const difference = value - reference;
   return Number.isFinite(difference) ? difference : null;
+}
+
+/**
+ * A BPM's reading relative to golden, or null when either is missing.
+ * @param {Panel} panel
+ * @param {Member | undefined} member
+ * @returns {number | null}
+ */
+function orbitOf(panel, member) {
+  if (!member) return null;
+  const position = panel.state?.orbit?.position ?? {};
+  const golden = panel.state?.orbit?.golden ?? {};
+  return offset(
+    member.position_addr ? position[member.position_addr] : null,
+    member.golden_addr ? golden[member.golden_addr] : null
+  );
+}
+
+/**
+ * The BPMs that can join a bump, in ring order: those with a reading and a golden.
+ * @param {Panel} panel
+ * @returns {string[]}
+ */
+function pickable(panel) {
+  return planeBpms(panel)
+    .filter((member) => orbitOf(panel, member) != null)
+    .map((member) => member.element);
+}
+
+/**
+ * The bump BPMs in ring order.
+ * @param {Panel} panel
+ * @returns {string[]}
+ */
+function bumpOrder(panel) {
+  const order = new Map(planeBpms(panel).map((member, at) => [member.element, at]));
+  return Object.keys(panel.selection.targets).sort(
+    (a, b) => (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity)
+  );
+}
+
+/**
+ * Replace the targets, keeping the amplitude readout in step with them.
+ * @param {Element} root
+ * @param {Record<string, number>} targets
+ */
+function setTargets(root, targets) {
+  const panel = panelOf(root);
+  panel.amp = amplitudeOf(targets);
+  setSelection(root, { targets });
+}
+
+/**
+ * The signed target with the largest magnitude; zero for no targets.
+ * @param {Record<string, number>} targets
+ * @returns {number}
+ */
+function amplitudeOf(targets) {
+  let amp = 0;
+  for (const value of Object.values(targets)) if (Math.abs(value) > Math.abs(amp)) amp = value;
+  return tidy(amp);
+}
+
+/**
+ * Add BPMs to the bump at `value`; BPMs already in it keep their target, and
+ * BPMs without a reading are left out.
+ * @param {Element} root
+ * @param {string[]} elements
+ * @param {number} [value]
+ */
+export function addBpms(root, elements, value = 0) {
+  const panel = panelOf(root);
+  const allowed = new Set(pickable(panel));
+  const targets = { ...panel.selection.targets };
+  let changed = false;
+  for (const element of elements) {
+    if (element in targets || !allowed.has(element)) continue;
+    targets[element] = value;
+    changed = true;
+  }
+  if (changed) setTargets(root, targets);
+}
+
+/**
+ * @param {Element} root
+ * @param {string[]} elements
+ */
+export function removeBpms(root, elements) {
+  const targets = { ...panelOf(root).selection.targets };
+  for (const element of elements) delete targets[element];
+  setTargets(root, targets);
+}
+
+/**
+ * @param {Element} root
+ * @param {string} element
+ */
+function toggleBpm(root, element) {
+  if (element in panelOf(root).selection.targets) removeBpms(root, [element]);
+  else addBpms(root, [element]);
+}
+
+/**
+ * Add every pickable BPM from the last picked one to `element`, both included.
+ * @param {Element} root
+ * @param {string} element
+ */
+function extendTo(root, element) {
+  const panel = panelOf(root);
+  const order = planeBpms(panel).map((member) => member.element);
+  const from = panel.anchor == null ? -1 : order.indexOf(panel.anchor);
+  const to = order.indexOf(element);
+  if (from < 0 || to < 0) {
+    addBpms(root, [element]);
+  } else {
+    addBpms(root, order.slice(Math.min(from, to), Math.max(from, to) + 1));
+  }
+  panel.anchor = element;
+}
+
+/**
+ * Move the targets of `elements` by `steps` nudge steps.
+ * @param {Element} root
+ * @param {string[]} elements
+ * @param {number} steps
+ */
+export function nudge(root, elements, steps) {
+  const panel = panelOf(root);
+  const targets = { ...panel.selection.targets };
+  for (const element of elements) {
+    if (element in targets) targets[element] = tidy(targets[element] + steps * panel.step);
+  }
+  setTargets(root, targets);
+}
+
+/**
+ * Set one BPM's target.
+ * @param {Element} root
+ * @param {string} element
+ * @param {number} value
+ */
+function setTarget(root, element, value) {
+  const { targets } = panelOf(root).selection;
+  if (!(element in targets) || !Number.isFinite(value)) return;
+  setTargets(root, { ...targets, [element]: tidy(value) });
+}
+
+/** @type {Shape[]} */
+const SHAPES = ['flat', 'peak', 'cos'];
+
+/**
+ * The weight of each of `count` BPMs under a shape, in ring order: flat is 1
+ * everywhere; peak a triangle and cos a raised cosine, both 1 at the centre and
+ * 0 at the two ends. Under three BPMs every shape is flat.
+ * @param {number} count
+ * @param {Shape} shape
+ * @returns {number[]}
+ */
+export function shapeWeights(count, shape) {
+  return Array.from({ length: count }, (_, at) => {
+    if (count < 3 || shape === 'flat') return 1;
+    const t = at / (count - 1);
+    return shape === 'peak' ? 1 - Math.abs(2 * t - 1) : 0.5 - 0.5 * Math.cos(2 * Math.PI * t);
+  });
+}
+
+/**
+ * Spread the amplitude over the bump BPMs in the chosen shape.
+ * @param {Element} root
+ */
+function applyShape(root) {
+  const panel = panelOf(root);
+  const elements = bumpOrder(panel);
+  if (elements.length === 0) {
+    render(root);
+    return;
+  }
+  const weights = shapeWeights(elements.length, panel.shape);
+  /** @type {Record<string, number>} */
+  const targets = {};
+  elements.forEach((element, at) => {
+    targets[element] = tidy(panel.amp * weights[at]);
+  });
+  setSelection(root, { targets });
+}
+
+/**
+ * Set the amplitude and spread it over the bump.
+ * @param {Element} root
+ * @param {number} amp
+ */
+export function setAmplitude(root, amp) {
+  if (!Number.isFinite(amp)) return;
+  panelOf(root).amp = tidy(amp);
+  applyShape(root);
+}
+
+/**
+ * Choose the shape and spread the amplitude over the bump in it.
+ * @param {Element} root
+ * @param {Shape} shape
+ */
+export function setShape(root, shape) {
+  panelOf(root).shape = shape;
+  applyShape(root);
+}
+
+/**
+ * Widen the bump by one pickable BPM on each side. Under flat the new BPMs take
+ * the amplitude; under the other shapes the bump is spread again.
+ * @param {Element} root
+ */
+export function widen(root) {
+  const panel = panelOf(root);
+  const order = pickable(panel);
+  const bump = bumpOrder(panel).filter((element) => order.includes(element));
+  if (bump.length === 0) return;
+  const first = order.indexOf(bump[0]);
+  const last = order.indexOf(bump[bump.length - 1]);
+  const added = [order[first - 1], order[last + 1]].filter((element) => element != null);
+  const targets = { ...panel.selection.targets };
+  for (const element of added) targets[element] = panel.shape === 'flat' ? panel.amp : 0;
+  panel.selection = { ...panel.selection, targets };
+  applyShape(root);
+}
+
+/** The nudge steps offered, in the BPM unit. */
+const STEPS = [0.001, 0.01, 0.1];
+
+/**
+ * A nudge step for a label: micrometres when the unit is mm.
+ * @param {number} step
+ * @param {string} unit
+ * @returns {string}
+ */
+function stepLabel(step, unit) {
+  if (unit === 'mm') return `${Math.round(step * 1000)} µm`;
+  return `${step}${unit ? ` ${unit}` : ''}`;
+}
+
+/**
+ * Choose the nudge step.
+ * @param {Element} root
+ * @param {number} step
+ */
+export function setStep(root, step) {
+  if (!(step > 0)) return;
+  panelOf(root).step = step;
+  render(root);
+}
+
+/**
+ * A click on the strip: a BPM dot toggles in the bump (⇧ extends from the last
+ * one picked); a corrector tick toggles under the manual rule. Hollow dots and
+ * unsolved ticks are never picked.
+ * @param {Element} root
+ * @param {MouseEvent} event
+ */
+function pickOnStrip(root, event) {
+  const hit = event.target instanceof Element ? event.target.closest('[data-element]') : null;
+  const element = hit?.getAttribute('data-element');
+  if (!hit || !element || hit.classList.contains('hollow')) return;
+  const panel = panelOf(root);
+  const { selection } = panel;
+  if (hit.classList.contains('ob-bpm')) {
+    if (event.shiftKey && panel.anchor != null) {
+      extendTo(root, element);
+      return;
+    }
+    toggleBpm(root, element);
+    panel.anchor = element;
+  } else if (hit.classList.contains('ob-cor') && selection.rule === 'manual') {
+    const correctors = selection.correctors.includes(element)
+      ? selection.correctors.filter((name) => name !== element)
+      : [...selection.correctors, element];
+    setSelection(root, { correctors });
+  }
+}
+
+/**
+ * Wire the strip's gestures. On the empty plot a drag picks the BPMs it spans,
+ * a ⇧-drag zooms to its range, and an Alt- or middle-button drag pans when
+ * zoomed; the wheel zooms around the cursor and a double-click returns to the
+ * whole ring. A target handle drags vertically and takes ↑/↓ (⇧ ×10),
+ * ⌫/Delete and ←/→; the grip under the plot moves every target together.
+ * A right-click opens the strip's context menu.
+ * @param {Element} root
+ * @param {SVGElement} svg
+ */
+function bindStrip(root, svg) {
+  const current = () => {
+    const panel = panelOf(root);
+    const model = selectedModel(panel);
+    return model ? shownView(panel, model) : null;
+  };
+  svg.addEventListener(
+    'wheel',
+    (event) => {
+      const view = current();
+      const point = svgPoint(svg, event);
+      if (!view || point == null || event.deltaY === 0) return;
+      event.preventDefault();
+      const factor = event.deltaY > 0 ? WHEEL_STEP : 1 / WHEEL_STEP;
+      const anchor = sAt(point.x, view);
+      const span = (view.s1 - view.s0) * factor;
+      const s0 = anchor - (anchor - view.s0) * factor;
+      setView(root, { s0, s1: s0 + span });
+    },
+    { passive: false }
+  );
+  svg.addEventListener('pointerdown', (event) => {
+    if (event.button === 2 || !(event.target instanceof Element)) return;
+    const view = current();
+    const point = svgPoint(svg, event);
+    if (!view || point == null) return;
+    const panel = panelOf(root);
+    const handle = event.target.closest('.ob-target');
+    const grip = event.target.closest('[data-grip]');
+    /** @type {Drag['mode'] | null} */
+    let mode = null;
+    if (handle) mode = 'handle';
+    else if (grip) mode = 'grip';
+    else if (event.target.classList.contains('ob-bg')) {
+      const panning = event.altKey || event.button === 1;
+      if (event.shiftKey) mode = 'zoom';
+      else if (panning) mode = panel.view != null ? 'pan' : null;
+      else mode = 'marquee';
+    }
+    if (!mode) return;
+    try {
+      svg.setPointerCapture(event.pointerId);
+    } catch {
+      // No active pointer to capture (a synthetic event): the drag works without it.
+    }
+    drags.set(root, {
+      mode,
+      x0: point.x,
+      x1: point.x,
+      y0: point.y,
+      view0: view,
+      yMax: scales.get(root) ?? 1,
+      element: handle?.getAttribute('data-element') ?? undefined,
+      targets0: { ...panel.selection.targets },
+      moved: false,
+    });
+    if (mode === 'handle' || mode === 'grip') {
+      event.preventDefault();
+      if (handle instanceof SVGElement) handle.focus({ preventScroll: true });
+    }
+  });
+  svg.addEventListener('pointermove', (event) => {
+    const drag = drags.get(root);
+    const point = svgPoint(svg, event);
+    if (!drag || point == null) return;
+    drag.x1 = point.x;
+    drag.moved = drag.moved || Math.abs(point.x - drag.x0) >= 1 || Math.abs(point.y - drag.y0) >= 1;
+    if (drag.mode === 'marquee' || drag.mode === 'zoom') {
+      renderStrip(root, panelOf(root));
+    } else if (drag.mode === 'pan') {
+      const shift = sAt(point.x, drag.view0) - sAt(drag.x0, drag.view0);
+      setView(root, { s0: drag.view0.s0 - shift, s1: drag.view0.s1 - shift });
+    } else {
+      const panel = panelOf(root);
+      const raw = ((drag.y0 - point.y) * drag.yMax) / (STRIP_MID - STRIP_TOP);
+      const delta = Math.round(raw / panel.step) * panel.step;
+      const targets0 = drag.targets0 ?? {};
+      /** @type {Record<string, number>} */
+      const targets = { ...panel.selection.targets };
+      if (drag.mode === 'handle' && drag.element && drag.element in targets0) {
+        targets[drag.element] = tidy(targets0[drag.element] + delta);
+      } else if (drag.mode === 'grip') {
+        for (const [element, value] of Object.entries(targets0)) {
+          if (element in targets) targets[element] = tidy(value + delta);
+        }
+      }
+      setTargets(root, targets);
+    }
+  });
+  const finish = (/** @type {PointerEvent} */ event) => {
+    const drag = drags.get(root);
+    if (!drag) return;
+    drags.delete(root);
+    const point = event.type === 'pointerup' ? svgPoint(svg, event) : null;
+    if (point != null) drag.x1 = point.x;
+    const wide = event.type === 'pointerup' && Math.abs(drag.x1 - drag.x0) >= MIN_DRAG;
+    if (wide && (drag.mode === 'marquee' || drag.mode === 'zoom')) {
+      const a = sAt(Math.min(drag.x0, drag.x1), drag.view0);
+      const b = sAt(Math.max(drag.x0, drag.x1), drag.view0);
+      if (drag.mode === 'zoom') {
+        setView(root, { s0: a, s1: b });
+        return;
+      }
+      const panel = panelOf(root);
+      const allowed = new Set(pickable(panel));
+      const hits = planeBpms(panel)
+        .filter((member) => member.s_m >= a && member.s_m <= b && allowed.has(member.element))
+        .map((member) => member.element);
+      if (hits.length > 0) {
+        panel.anchor = hits[hits.length - 1];
+        addBpms(root, hits);
+        return;
+      }
+    }
+    render(root);
+  };
+  svg.addEventListener('pointerup', finish);
+  svg.addEventListener('pointercancel', finish);
+  svg.addEventListener('dblclick', (event) => {
+    if (event.target instanceof Element && event.target.closest('.ob-target, [data-grip]')) return;
+    resetView(root);
+  });
+  svg.addEventListener('keydown', (event) => {
+    const handle = event.target instanceof Element ? event.target.closest('.ob-target') : null;
+    const element = handle?.getAttribute('data-element');
+    if (!handle || !element) return;
+    if (isContextMenuKey(event)) {
+      event.preventDefault();
+      openStripMenu(root, svg, {
+        x: handle.getBoundingClientRect().left,
+        y: handle.getBoundingClientRect().bottom,
+        element,
+        grip: false,
+      });
+      return;
+    }
+    const big = event.shiftKey ? 10 : 1;
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+      nudge(root, [element], event.key === 'ArrowUp' ? big : -big);
+    } else if (event.key === 'Backspace' || event.key === 'Delete') {
+      event.preventDefault();
+      const order = bumpOrder(panelOf(root));
+      const next = order[order.indexOf(element) + 1] ?? order[order.indexOf(element) - 1];
+      removeBpms(root, [element]);
+      if (next) focusHandle(root, next);
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      event.preventDefault();
+      const order = bumpOrder(panelOf(root));
+      const next = order[order.indexOf(element) + (event.key === 'ArrowRight' ? 1 : -1)];
+      if (next) focusHandle(root, next);
+    }
+  });
+  svg.addEventListener('contextmenu', (event) => {
+    if (declinesToBrowser(event)) return;
+    event.preventDefault();
+    const target = event.target instanceof Element ? event.target : null;
+    const hit = target?.closest('.ob-bpm, .ob-target');
+    const point = svgPoint(svg, event);
+    const view = current();
+    openStripMenu(root, svg, {
+      x: event.clientX,
+      y: event.clientY,
+      element: hit?.getAttribute('data-element') ?? null,
+      grip: !!target?.closest('[data-grip]'),
+      s: point && view ? sAt(point.x, view) : undefined,
+    });
+  });
+}
+
+/**
+ * Focus the target handle of a BPM, if it is drawn.
+ * @param {Element} root
+ * @param {string} element
+ */
+function focusHandle(root, element) {
+  const handle = stripSvg(root).querySelector(`.ob-target[data-element="${element}"]`);
+  if (handle instanceof SVGElement) handle.focus({ preventScroll: true });
+}
+
+/**
+ * Focus and select a bump row's target input.
+ * @param {Element} root
+ * @param {string} element
+ */
+function focusTargetInput(root, element) {
+  const input = field(root, 'bump').querySelector(`input[data-target="${element}"]`);
+  if (input instanceof HTMLInputElement) {
+    input.focus();
+    input.select();
+  }
+}
+
+/**
+ * Open the strip's context menu: verbs for the BPM or grip under the pointer,
+ * then the zoom verbs and the nudge step.
+ * @param {Element} root
+ * @param {SVGElement} svg
+ * @param {{x: number, y: number, element: string | null, grip: boolean, s?: number}} at
+ */
+function openStripMenu(root, svg, at) {
+  const panel = panelOf(root);
+  const model = selectedModel(panel);
+  if (!model) return;
+  const { targets } = panel.selection;
+  const bump = bumpOrder(panel);
+  const allowed = new Set(pickable(panel));
+  /** @type {import('/design-system/js/context-menu.js').MenuItem[]} */
+  const items = [];
+  const { element } = at;
+  if (element) {
+    const on = element in targets;
+    items.push({ heading: element });
+    items.push(
+      on
+        ? { label: 'Remove from bump', hint: '⌫', run: () => removeBpms(root, [element]) }
+        : {
+            label: 'Add to bump',
+            hint: 'click',
+            disabled: !allowed.has(element),
+            run: () => {
+              addBpms(root, [element]);
+              panel.anchor = element;
+            },
+          }
+    );
+    if (on) {
+      items.push(
+        { label: 'Set target…', run: () => focusTargetInput(root, element) },
+        { label: 'Zero target', run: () => setTarget(root, element, 0) }
+      );
+    }
+    items.push(
+      {
+        label: 'Extend bump to here',
+        hint: '⇧click',
+        disabled: panel.anchor == null || on || !allowed.has(element),
+        run: () => extendTo(root, element),
+      },
+      { divider: true }
+    );
+  } else if (at.grip) {
+    items.push(
+      {
+        label: 'Zero the bump',
+        run: () => setTargets(root, Object.fromEntries(bump.map((name) => [name, 0]))),
+      },
+      {
+        label: 'Invert the bump',
+        run: () =>
+          setTargets(
+            root,
+            Object.fromEntries(bump.map((name) => [name, tidy(-(targets[name] ?? 0))]))
+          ),
+      },
+      {
+        label: 'Remove all',
+        danger: true,
+        disabled: bump.length === 0,
+        run: () => setTargets(root, {}),
+      },
+      { divider: true }
+    );
+  }
+  const byElement = new Map(planeBpms(panel).map((member) => [member.element, member]));
+  const sOf = (/** @type {string | undefined} */ name) => byElement.get(name ?? '')?.s_m;
+  const first = sOf(bump[0]);
+  const last = sOf(bump[bump.length - 1]);
+  const s = at.s;
+  items.push(
+    {
+      label: 'Zoom to bump',
+      disabled: first == null || last == null,
+      run: () => {
+        if (first == null || last == null) return;
+        const pad = Math.max(model.length_m * 0.02, (last - first) * 0.4);
+        setView(root, { s0: first - pad, s1: last + pad });
+      },
+    },
+    {
+      label: 'Zoom in here',
+      hint: 'wheel',
+      disabled: s == null,
+      run: () => {
+        if (s == null) return;
+        const view = shownView(panel, model);
+        const half = (view.s1 - view.s0) / 4;
+        setView(root, { s0: s - half, s1: s + half });
+      },
+    },
+    {
+      label: 'Whole ring',
+      hint: 'dbl-click',
+      disabled: panel.view == null,
+      run: () => resetView(root),
+    },
+    { divider: true },
+    { heading: 'Nudge step' }
+  );
+  const unit = bpmUnit(panel);
+  for (const step of STEPS) {
+    items.push({
+      label: stepLabel(step, unit),
+      checked: panel.step === step,
+      run: () => setStep(root, step),
+    });
+  }
+  openContextMenu({
+    x: at.x,
+    y: at.y,
+    anchorEl: /** @type {HTMLElement} */ (/** @type {unknown} */ (svg)),
+    ariaLabel: 'orbit strip',
+    items,
+  });
 }
 
 /**
@@ -695,8 +1290,9 @@ function brokenPath(points) {
 /**
  * Draw the strip for the selected model and plane from the state and the
  * selection: the orbit as position − golden (golden is the zero line), the
- * targets, the plan's predicted orbit, BPM dots and corrector ticks at their
- * s-positions. Values are in the BPM members' own unit.
+ * bump's band, grip and target handles, the plan's predicted orbit and Δ bars,
+ * BPM dots and corrector ticks at their s-positions. Values are in the BPM
+ * members' own unit.
  * @param {Element} root
  * @param {Panel} panel
  */
@@ -710,30 +1306,29 @@ function renderStrip(root, panel) {
   }
   const { selection, state } = panel;
   const { plane } = selection;
-  const bpms = model.members.bpms.filter((member) => member.plane === plane);
+  const bpms = planeBpms(panel);
   const correctors = model.members.correctors.filter((member) => member.plane === plane);
   panel.view = clampView(panel.view, model.length_m);
   const zoomed = panel.view != null;
   const { s0, s1 } = shownView(panel, model);
   const span = s1 - s0 > 0 ? s1 - s0 : 1;
-  const position = state?.orbit?.position ?? {};
   const golden = state?.orbit?.golden ?? {};
-  const plan = state?.plan;
-  const planHere = plan && plan.model === model.name && plan.plane === plane ? plan : null;
+  const planHere = shownPlan(panel);
   const predicted = planHere?.predicted ?? null;
   /** @type {Map<string, number>} */
   const steps = new Map();
   for (const row of planHere?.correctors ?? []) {
     if (row.delta != null && Number.isFinite(row.delta)) steps.set(row.element, row.delta);
   }
+  const planned = new Set((planHere?.correctors ?? []).map((row) => row.element));
   const largestStep = Math.max(0, ...[...steps.values()].map(Math.abs));
+  const drag = drags.get(root);
 
   const rows = bpms.map((member) => {
     const gold = member.golden_addr ? golden[member.golden_addr] : null;
-    const pos = member.position_addr ? position[member.position_addr] : null;
     return {
       member,
-      orbit: offset(pos, gold),
+      orbit: orbitOf(panel, member),
       target: member.element in selection.targets ? selection.targets[member.element] : null,
       predicted: predicted ? offset(predicted[member.element], gold) : null,
     };
@@ -747,14 +1342,18 @@ function renderStrip(root, panel) {
       if (value != null && Number.isFinite(value)) largest = Math.max(largest, Math.abs(value));
     }
   }
-  const yMax = largest > 0 ? largest * HEADROOM : 1;
+  const frozen = drag && (drag.mode === 'handle' || drag.mode === 'grip') ? drag.yMax : null;
+  const yMax = frozen ?? (largest > 0 ? largest * HEADROOM : 1);
+  scales.set(root, yMax);
   const px = (/** @type {number} */ s) =>
     STRIP_LEFT + ((s - s0) * (STRIP_W - STRIP_LEFT - STRIP_RIGHT)) / span;
   const py = (/** @type {number} */ v) => STRIP_MID - (v * (STRIP_MID - STRIP_TOP)) / yMax;
   const right = STRIP_W - STRIP_RIGHT;
+  const clampX = (/** @type {number} */ x) => Math.min(right, Math.max(STRIP_LEFT, x));
 
   svg.setAttribute('data-s0', String(s0));
   svg.setAttribute('data-s1', String(s1));
+  svg.classList.toggle('dragging', drag?.mode === 'handle' || drag?.mode === 'grip');
   /** @type {SVGElement[]} */
   const nodes = [];
 
@@ -770,17 +1369,16 @@ function renderStrip(root, panel) {
   const defs = svgNode('defs');
   defs.append(clip);
   nodes.push(defs);
-  // The empty plot, under everything: a drag that starts here zooms or pans,
-  // while dots and ticks drawn on top keep their clicks.
+  // The empty plot, under everything: a drag that starts here picks, zooms or
+  // pans, while dots, handles and ticks drawn on top keep their own gestures.
   nodes.push(
     svgNode('rect', {
       class: 'ob-bg',
       x: STRIP_LEFT,
       y: 0,
       width: STRIP_W - STRIP_LEFT - STRIP_RIGHT,
-      height: COR_Y - 4,
+      height: DELTA_AXIS - DELTA_HALF,
       fill: 'transparent',
-      style: `cursor:${zoomed ? 'grab' : 'crosshair'}`,
     })
   );
 
@@ -794,7 +1392,6 @@ function renderStrip(root, panel) {
         y1: py(value),
         x2: right,
         y2: py(value),
-        stroke: 'var(--border-default)',
       }),
       svgNode('text', { x: 2, y: py(value) + 3 }, `${value > 0 ? '+' : '−'}${axisNumber(tick)}`)
     );
@@ -825,6 +1422,65 @@ function renderStrip(root, panel) {
   }
 
   const plot = svgNode('g', { 'clip-path': 'url(#ob-strip-plot)' });
+
+  // The bump's band, from its first to its last BPM, and the grip under the plot.
+  const bump = bumpOrder(panel);
+  const byElement = new Map(bpms.map((member) => [member.element, member]));
+  const firstS = byElement.get(bump[0])?.s_m;
+  const lastS = byElement.get(bump[bump.length - 1])?.s_m;
+  if (firstS != null && lastS != null && lastS >= s0 && firstS <= s1) {
+    const x0 = clampX(px(firstS) - BAND_PAD);
+    const x1 = clampX(px(lastS) + BAND_PAD);
+    plot.append(
+      svgNode('rect', {
+        class: 'ob-band',
+        x: x0,
+        y: STRIP_TOP - 4,
+        width: Math.max(0, x1 - x0),
+        height: PLOT_BOTTOM - STRIP_TOP + 8,
+      }),
+      svgNode('line', {
+        class: 'ob-band-edge',
+        x1: x0,
+        x2: x0,
+        y1: STRIP_TOP - 4,
+        y2: PLOT_BOTTOM + 4,
+      }),
+      svgNode('line', {
+        class: 'ob-band-edge',
+        x1: x1,
+        x2: x1,
+        y1: STRIP_TOP - 4,
+        y2: PLOT_BOTTOM + 4,
+      })
+    );
+    const label =
+      bump.length === 1
+        ? `${bump[0]}  ⇕`
+        : `${bump[0]}–${bump[bump.length - 1]} · ${bump.length} BPM  ⇕`;
+    const width = Math.max(x1 - x0, label.length * 6.2 + 16);
+    const centre = (x0 + x1) / 2;
+    const gx = Math.min(right - width, Math.max(STRIP_LEFT, centre - width / 2));
+    const grip = svgNode('rect', {
+      class: 'ob-grip',
+      'data-grip': '1',
+      x: gx,
+      y: GRIP_Y,
+      width,
+      height: GRIP_H,
+      rx: 3,
+    });
+    grip.setAttribute('data-tip', 'drag to move every target');
+    nodes.push(
+      grip,
+      svgNode(
+        'text',
+        { class: 'ob-grip-text', x: gx + width / 2, y: GRIP_Y + 10.5, 'text-anchor': 'middle' },
+        label
+      )
+    );
+  }
+
   const pointsOf = (/** @type {'orbit' | 'predicted'} */ key) =>
     rows.map((row) => ({
       x: px(row.member.s_m),
@@ -859,6 +1515,7 @@ function renderStrip(root, panel) {
     const on = row.target != null;
     const classes = ['ob-bpm', on ? 'on' : '', hollow ? 'hollow' : ''].filter(Boolean);
     const colour = on ? 'var(--color-warning)' : 'var(--color-accent)';
+    const reading = row.orbit == null ? '' : ` · ${cellNumber(row.orbit)}${unit ? ` ${unit}` : ''}`;
     plot.append(
       titled(
         svgNode('circle', {
@@ -866,12 +1523,11 @@ function renderStrip(root, panel) {
           'data-element': member.element,
           cx: px(member.s_m),
           cy: py(row.orbit ?? 0),
-          r: on ? 4.5 : 3,
+          r: on ? 4.5 : 3.5,
           fill: hollow ? 'none' : colour,
           stroke: colour,
-          style: `cursor:${hollow ? 'not-allowed' : 'pointer'}`,
         }),
-        hollow ? `${member.element}: no reading or no golden` : member.element
+        hollow ? `${member.element}: no reading or no golden` : `${member.element}${reading}`
       )
     );
   }
@@ -889,34 +1545,32 @@ function renderStrip(root, panel) {
       })
     );
   }
+  // Handles last in the plot, so they sit over the dots and lines.
   for (const row of targets) {
     const x = px(row.member.s_m);
     const y = py(row.target ?? 0);
-    const marker = svgNode('g', {
+    const value = row.target ?? 0;
+    const handle = svgNode('g', {
       class: 'ob-target',
       'data-element': row.member.element,
       'data-y': y,
+      tabindex: 0,
+      role: 'slider',
+      'aria-label': `${row.member.element} target`,
+      'aria-valuenow': value,
+      'aria-valuetext': `${cellNumber(value)}${unit ? ` ${unit}` : ''}`,
     });
-    marker.append(
-      svgNode('line', {
-        x1: x,
-        y1: py(row.orbit ?? 0),
-        x2: x,
-        y2: y,
-        stroke: 'var(--color-warning)',
-        'stroke-dasharray': '2 2',
-      }),
-      svgNode('path', {
-        d: `M${x} ${y - 6}l6 6-6 6-6-6z`,
-        fill: 'var(--color-warning)',
-      }),
+    handle.append(
+      svgNode('line', { class: 'ob-tline', x1: x, y1: py(row.orbit ?? 0), x2: x, y2: y }),
+      svgNode('circle', { class: 'ob-hit', cx: x, cy: y, r: HANDLE_HIT }),
+      svgNode('path', { class: 'ob-diamond', d: `M${x} ${y - 6}l6 6-6 6-6-6z` }),
       svgNode(
         'text',
-        { x: x + 9, y: y - 5, fill: 'var(--color-warning)' },
-        `${(row.target ?? 0) >= 0 ? '+' : '−'}${Math.abs(row.target ?? 0)}`
+        { class: 'ob-handle-label', x, y: y - 9, 'text-anchor': 'middle' },
+        cellNumber(value)
       )
     );
-    plot.append(marker);
+    plot.append(handle);
   }
 
   const visibleCorrectors = correctors.filter((member) => onView(member.s_m));
@@ -929,46 +1583,64 @@ function renderStrip(root, panel) {
   );
   const manual = selection.rule === 'manual';
   const unsolved = new Set(model.orm.unsolved ?? []);
+  const corUnit = correctors.find((member) => member.unit)?.unit ?? '';
+  if (largestStep > 0) {
+    nodes.push(
+      svgNode('line', {
+        class: 'ob-grid',
+        'data-field': 'delta-axis',
+        x1: STRIP_LEFT,
+        y1: DELTA_AXIS,
+        x2: right,
+        y2: DELTA_AXIS,
+      }),
+      svgNode('text', { x: 2, y: DELTA_AXIS + 3 }, `Δ${corUnit}`)
+    );
+  }
   for (const member of visibleCorrectors) {
     const on = selection.correctors.includes(member.element);
     const blocked = unsolved.has(member.element);
-    const classes = ['ob-cor', on ? 'on' : '', blocked ? 'unsolved hollow' : ''].filter(Boolean);
-    const cursor = blocked ? 'not-allowed' : manual ? 'pointer' : 'default';
-    plot.append(
-      titled(
-        svgNode('rect', {
-          class: classes.join(' '),
-          'data-element': member.element,
-          x: px(member.s_m) - width / 2,
-          y: COR_Y,
-          width,
-          height: COR_H,
-          fill: blocked ? 'none' : on ? 'var(--color-warning)' : 'var(--text-muted)',
-          stroke: blocked ? 'var(--text-muted)' : 'none',
-          style: `cursor:${cursor}`,
-        }),
-        blocked ? `${member.element}: the ORM could not solve it` : member.element
-      )
-    );
     const step = steps.get(member.element);
+    const classes = [
+      'ob-cor',
+      on ? 'on' : '',
+      planned.has(member.element) ? 'picked' : '',
+      blocked ? 'unsolved hollow' : '',
+      manual && !blocked ? 'pickable' : '',
+    ].filter(Boolean);
+    const tick = svgNode('rect', {
+      class: classes.join(' '),
+      'data-element': member.element,
+      x: px(member.s_m) - width / 2,
+      y: COR_Y,
+      width,
+      height: COR_H,
+    });
+    tick.setAttribute(
+      'data-tip',
+      blocked
+        ? `${member.element}: the ORM could not solve it`
+        : step != null
+          ? `${member.element} · Δ ${cellNumber(step)}${corUnit ? ` ${corUnit}` : ''}`
+          : member.element
+    );
+    plot.append(tick);
     if (step && largestStep > 0) {
-      const height = (Math.abs(step) * DELTA_H) / largestStep;
+      const height = (Math.abs(step) * DELTA_HALF) / largestStep;
       plot.append(
         svgNode('rect', {
           class: 'ob-delta',
           'data-element': member.element,
           x: px(member.s_m) - width / 2,
-          y: step > 0 ? COR_Y - height : COR_Y,
+          y: step > 0 ? DELTA_AXIS - height : DELTA_AXIS,
           width,
           height,
-          fill: 'var(--art-violet-light)',
-          style: 'pointer-events:none',
         })
       );
     }
   }
-  // Zoomed in, every BPM and corrector in view is named: BPMs between the plot
-  // and the corrector row, correctors under their ticks.
+  // Zoomed in, every BPM and corrector in view is named: BPMs under the plot,
+  // correctors under their ticks.
   if (zoomed) {
     const label = (/** @type {Member} */ member, /** @type {number} */ y) =>
       svgNode(
@@ -979,53 +1651,58 @@ function renderStrip(root, panel) {
           x: px(member.s_m),
           y,
           'text-anchor': 'middle',
-          style: 'pointer-events:none',
         },
         member.element
       );
     for (const row of rows) {
-      if (onView(row.member.s_m)) plot.append(label(row.member, COR_Y - 8));
+      if (onView(row.member.s_m)) plot.append(label(row.member, LABEL_Y));
     }
-    for (const member of visibleCorrectors) plot.append(label(member, COR_Y + DELTA_H + 10));
+    for (const member of visibleCorrectors) plot.append(label(member, COR_Y + COR_H + 10));
   }
   nodes.push(plot);
 
-  const drag = drags.get(root);
-  if (drag?.mode === 'select') {
-    const a = Math.max(STRIP_LEFT, Math.min(drag.x0, drag.x1));
-    const b = Math.min(right, Math.max(drag.x0, drag.x1));
+  if (drag?.mode === 'marquee' || drag?.mode === 'zoom') {
+    const a = clampX(Math.min(drag.x0, drag.x1));
+    const b = clampX(Math.max(drag.x0, drag.x1));
     nodes.push(
       svgNode('rect', {
-        class: 'ob-zoom-select',
+        class: drag.mode === 'zoom' ? 'ob-zoom-select' : 'ob-marquee',
         x: a,
-        y: 0,
+        y: STRIP_TOP - 4,
         width: Math.max(0, b - a),
-        height: COR_Y - 4,
-        fill: 'var(--color-accent)',
-        'fill-opacity': 0.15,
-        stroke: 'var(--color-accent)',
-        'stroke-dasharray': '3 2',
-        style: 'pointer-events:none',
+        height: PLOT_BOTTOM - STRIP_TOP + 8,
       })
     );
   }
+
+  // Redrawing replaces the handles: keep the keyboard on the one that had it.
+  const active = svg.ownerDocument.activeElement;
+  const focused =
+    active && svg.contains(active)
+      ? active.closest('.ob-target')?.getAttribute('data-element')
+      : null;
   svg.replaceChildren(...nodes);
+  if (focused) {
+    const again = svg.querySelector(`.ob-target[data-element="${focused}"]`);
+    if (again instanceof SVGElement) again.focus({ preventScroll: true });
+  }
 
   const inView = rows
     .map((row) => row.member)
     .filter((member) => onView(member.s_m))
-    .sort((a, b) => a.s_m - b.s_m)
     .map((member) => member.element);
   renderRangeChip(root, panel.view, inView);
 }
 
-/** @type {[Rule, string][]} */
+/**
+ * The rules the Correctors box offers: auto (one upstream, every corrector
+ * between, two downstream), tight (MML [-1 1]), manual (the clicked ticks).
+ * @type {[Rule, string, string][]}
+ */
 const RULES = [
-  ['auto', 'auto · N+2'],
-  ['mml:[-1 1]', '[-1 1]'],
-  ['mml:[-2 -1 1 2]', '[-2 -1 1 2]'],
-  ['mml:[-3 -1 1 3]', '[-3 -1 1 3]'],
-  ['manual', 'manual (click ticks)'],
+  ['auto', 'auto', 'one corrector upstream, every corrector between, two downstream'],
+  ['mml:[-1 1]', 'tight', 'MML [-1 1]: the nearest corrector on each side of the bump'],
+  ['manual', 'manual', 'the corrector ticks you click on the strip'],
 ];
 
 /**
@@ -1053,8 +1730,404 @@ function htmlNode(tag, attrs = {}, text) {
 }
 
 /**
- * The controls under the strip (bump table, corrector rule, actions), made with
- * their handlers on first use inside the body field.
+ * A Lucide-style stroke icon.
+ * @param {string} d the path data
+ * @returns {SVGElement}
+ */
+function icon(d) {
+  const svg = svgNode('svg', { class: 'osprey-ic', viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+  svg.append(svgNode('path', { d }));
+  return svg;
+}
+
+/**
+ * A −/input/+ stepper.
+ * @param {Record<string, string>} input the input's attributes
+ * @param {string} name what the buttons step, for their labels
+ * @param {string} [unitField] the data-field of a unit label after the input
+ * @returns {HTMLElement}
+ */
+function stepper(input, name, unitField) {
+  const box = htmlNode('span', { class: 'ob-stepper' });
+  const less = htmlNode(
+    'button',
+    {
+      type: 'button',
+      class: 'osprey-icon-btn',
+      'data-step-dir': '-1',
+      'aria-label': `lower ${name}`,
+    },
+    '−'
+  );
+  const more = htmlNode(
+    'button',
+    {
+      type: 'button',
+      class: 'osprey-icon-btn',
+      'data-step-dir': '1',
+      'aria-label': `raise ${name}`,
+    },
+    '+'
+  );
+  box.append(less, htmlNode('input', { type: 'number', ...input }));
+  if (unitField) box.append(htmlNode('span', { class: 'ob-unit', 'data-field': unitField }));
+  box.append(more);
+  return box;
+}
+
+/** Ids for the picker's listbox and options, unique per page. */
+let pickerSeq = 0;
+
+/**
+ * The BPMs a picker query names, in ring order: `22` the 22nd BPM, `21-23`
+ * the 21st to the 23rd, `2*` the BPMs whose name (with any leading "BPM" taken
+ * off) starts with 2, anything else the BPMs whose name contains it. A leading
+ * "BPM" in the query is ignored; an empty query names every BPM.
+ * @param {string} query
+ * @param {string[]} names the BPMs in ring order
+ * @returns {string[]}
+ */
+export function matchBpms(query, names) {
+  const raw = query.trim().toLowerCase();
+  const q = raw.replace(/^bpm\s*/, '');
+  if (!q) return [...names];
+  const bare = (/** @type {string} */ name) => name.toLowerCase().replace(/^bpm[\s_:-]*/, '');
+  const range = q.match(/^(\d+)\s*[-–]\s*(\d+)$/);
+  if (range) {
+    const [a, b] = [Number(range[1]), Number(range[2])].sort((x, y) => x - y);
+    return names.slice(Math.max(0, a - 1), b);
+  }
+  if (q.endsWith('*')) {
+    const prefix = q.slice(0, -1);
+    return names.filter((n) => bare(n).startsWith(prefix) || n.toLowerCase().startsWith(prefix));
+  }
+  if (/^\d+$/.test(q)) {
+    const exact = names.filter((n) => bare(n) === q || bare(n) === String(Number(q)));
+    if (exact.length > 0) return exact;
+    const nth = names[Number(q) - 1];
+    return nth ? [nth] : [];
+  }
+  return names.filter((n) => n.toLowerCase().includes(q) || n.toLowerCase().includes(raw));
+}
+
+/**
+ * The BPM picker in the Bump card's head: a combobox input over a listbox of
+ * the BPMs its query names. A row toggles its BPM without closing; ↑/↓ arm a
+ * row and Enter picks it, or with none armed toggles a single match or adds
+ * every match; Escape and a press outside close the list.
+ * @param {Element} root
+ * @returns {HTMLElement}
+ */
+function picker(root) {
+  const seq = ++pickerSeq;
+  const listId = `ob-pick-list-${seq}`;
+  const wrap = htmlNode('span', { class: 'ob-picker' });
+  const label = htmlNode('label', { class: 'osprey-search-field' });
+  const input = /** @type {HTMLInputElement} */ (
+    htmlNode('input', {
+      'data-field': 'pick',
+      placeholder: 'add BPM… 22, 21-23, 2*',
+      autocomplete: 'off',
+      spellcheck: 'false',
+      role: 'combobox',
+      'aria-label': 'add BPMs',
+      'aria-autocomplete': 'list',
+      'aria-expanded': 'false',
+      'aria-controls': listId,
+      title: 'BPM by number, a range 21-23, or a prefix 2*',
+    })
+  );
+  label.append(icon('M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-3.5-3.5'), input);
+  label.append(htmlNode('span', { class: 'osprey-kbd' }, '↵'));
+  const list = htmlNode('div', {
+    class: 'osprey-popover',
+    id: listId,
+    role: 'listbox',
+    'aria-label': 'BPMs',
+    'aria-multiselectable': 'true',
+    'data-field': 'pick-list',
+  });
+  list.hidden = true;
+  wrap.append(label, list);
+
+  let armed = -1;
+  /** @type {string[]} */
+  let matches = [];
+
+  const rows = () => /** @type {HTMLElement[]} */ ([...list.querySelectorAll('[role="option"]')]);
+  const arm = (/** @type {number} */ next) => {
+    const all = rows();
+    armed = all.length === 0 ? -1 : next;
+    all.forEach((row, at) => row.classList.toggle('armed', at === armed));
+    const row = all[armed];
+    if (row) {
+      input.setAttribute('aria-activedescendant', row.id);
+      if (typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
+    } else {
+      input.removeAttribute('aria-activedescendant');
+    }
+  };
+  const onOutside = (/** @type {Event} */ event) => {
+    if (!(event.target instanceof Node) || !wrap.contains(event.target)) close();
+  };
+  const close = () => {
+    list.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    armed = -1;
+    input.ownerDocument.removeEventListener('pointerdown', onOutside, true);
+  };
+  const fill = () => {
+    const panel = panelOf(root);
+    const keep = rows()[armed]?.getAttribute('data-name') ?? null;
+    const names = pickable(panel);
+    matches = matchBpms(input.value, names);
+    const byElement = new Map(planeBpms(panel).map((member) => [member.element, member]));
+    const unit = bpmUnit(panel);
+    /** @type {HTMLElement[]} */
+    const children = [];
+    const query = input.value.trim();
+    if (query && matches.length > 1) {
+      const all = htmlNode('button', {
+        type: 'button',
+        class: 'osprey-popover-item',
+        role: 'option',
+        id: `${listId}-all`,
+        'aria-selected': 'false',
+        'data-all': '1',
+      });
+      all.append(
+        htmlNode('span', { class: 'ob-check' }, '+'),
+        htmlNode('span', {}, `add all ${matches.length} shown`)
+      );
+      children.push(all);
+    }
+    if (matches.length === 0) {
+      children.push(htmlNode('div', { class: 'osprey-list-empty' }, `no BPM matches "${query}"`));
+    }
+    const { targets } = panel.selection;
+    matches.slice(0, 60).forEach((name, at) => {
+      const on = name in targets;
+      const member = byElement.get(name);
+      const row = htmlNode('button', {
+        type: 'button',
+        class: 'osprey-popover-item',
+        role: 'option',
+        id: `${listId}-${at}`,
+        'aria-selected': String(on),
+        'data-name': name,
+      });
+      const value = on ? targets[name] : orbitOf(panel, member);
+      const where = member ? `${member.s_m.toFixed(1)} m · ` : '';
+      row.append(
+        htmlNode('span', { class: 'ob-check' }, on ? '✓' : ''),
+        htmlNode('span', {}, name),
+        htmlNode(
+          'span',
+          { class: 'osprey-popover-aside' },
+          `${where}${cellNumber(value)}${unit ? ` ${unit}` : ''}`
+        )
+      );
+      children.push(row);
+    });
+    list.replaceChildren(...children);
+    const again = keep ? rows().findIndex((row) => row.getAttribute('data-name') === keep) : -1;
+    arm(again);
+  };
+  const open = () => {
+    fill();
+    if (list.hidden) {
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+      input.ownerDocument.addEventListener('pointerdown', onOutside, true);
+    }
+  };
+  const activate = (/** @type {HTMLElement} */ row) => {
+    if (row.hasAttribute('data-all')) {
+      addBpms(root, matches);
+      input.value = '';
+    } else {
+      const name = row.getAttribute('data-name');
+      if (name) toggleBpm(root, name);
+    }
+    open();
+  };
+
+  input.addEventListener('focus', open);
+  input.addEventListener('input', () => {
+    armed = -1;
+    open();
+  });
+  input.addEventListener('keydown', (event) => {
+    const all = rows();
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (list.hidden) open();
+      if (all.length === 0) return;
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      arm(armed < 0 ? (step > 0 ? 0 : all.length - 1) : (armed + step + all.length) % all.length);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const row = all[armed];
+      if (row) {
+        activate(row);
+        return;
+      }
+      if (matches.length === 1) toggleBpm(root, matches[0]);
+      else if (matches.length > 1 && input.value.trim()) addBpms(root, matches);
+      input.value = '';
+      open();
+    } else if (event.key === 'Escape') {
+      if (!list.hidden) {
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }
+    }
+  });
+  // Rows keep the input's focus: the press would otherwise blur it.
+  list.addEventListener('mousedown', (event) => event.preventDefault());
+  list.addEventListener('pointerdown', (event) => event.preventDefault());
+  list.addEventListener('click', (event) => {
+    const row = event.target instanceof Element ? event.target.closest('[role="option"]') : null;
+    if (row instanceof HTMLElement) activate(row);
+  });
+  wrap.addEventListener('ob-refresh', () => {
+    if (!list.hidden) fill();
+  });
+  return wrap;
+}
+
+/**
+ * A segmented control.
+ * @param {string} name its data-field
+ * @param {string} attr the data attribute each button carries its value in
+ * @param {[string, string, string?][]} options value, label and tooltip
+ * @param {string} label its accessible name
+ * @returns {HTMLElement}
+ */
+function segmented(name, attr, options, label) {
+  const seg = htmlNode('span', {
+    class: 'osprey-seg',
+    'data-field': name,
+    role: 'group',
+    'aria-label': label,
+  });
+  for (const [value, text, tip] of options) {
+    const button = htmlNode(
+      'button',
+      { type: 'button', [attr]: value, 'aria-pressed': 'false' },
+      text
+    );
+    if (tip) button.title = tip;
+    seg.append(button);
+  }
+  return seg;
+}
+
+/**
+ * Press the button of a segmented control whose `attr` equals `value`.
+ * @param {HTMLElement} seg
+ * @param {string} attr
+ * @param {string} value
+ */
+function pressSeg(seg, attr, value) {
+  for (const button of seg.querySelectorAll(`[${attr}]`)) {
+    button.setAttribute('aria-pressed', String(button.getAttribute(attr) === value));
+  }
+}
+
+/**
+ * The header's options menu: a hamburger that opens a popover with the nudge
+ * step, the legend and the gestures. Made on first use at the end of the bar.
+ * @param {Element} root
+ * @returns {HTMLElement}
+ */
+function optionsMenu(root) {
+  const found = root.querySelector('[data-field="menu"]');
+  if (found instanceof HTMLElement) return found;
+  const holder = htmlNode('span', { class: 'ob-menu' });
+  const button = htmlNode('button', {
+    type: 'button',
+    class: 'osprey-icon-btn',
+    'data-field': 'menu-button',
+    'aria-haspopup': 'true',
+    'aria-expanded': 'false',
+    'aria-label': 'options',
+    title: 'Options',
+  });
+  button.append(icon('M4 7h16M4 12h16M4 17h16'));
+  const menu = htmlNode('div', {
+    class: 'osprey-popover ob-options',
+    id: `ob-options-${++pickerSeq}`,
+    role: 'dialog',
+    'aria-label': 'options',
+    'data-field': 'menu',
+  });
+  menu.hidden = true;
+  const step = segmented(
+    'step',
+    'data-step',
+    STEPS.map((value) => [String(value), String(value)]),
+    'nudge step'
+  );
+  step.classList.add('ob-menu-seg');
+  const legend = htmlNode('div', { class: 'ob-legend' });
+  for (const [key, text] of [
+    ['ob-key-orbit', 'orbit'],
+    ['ob-key-golden', 'golden'],
+    ['ob-key-target', 'target'],
+    ['ob-key-predicted', 'predicted'],
+  ]) {
+    const entry = htmlNode('span');
+    entry.append(htmlNode('i', { class: key }), text);
+    legend.append(entry);
+  }
+  const gestures = htmlNode('div', { class: 'ob-gestures' });
+  /** @type {[string[], string][]} */
+  const rows = [
+    [['drag across dots'], 'add BPMs'],
+    [['click', ' · ', '⇧', 'click'], 'toggle · extend'],
+    [['drag ◆', ' · ', 'drag grip'], 'set target · move bump'],
+    [['↑↓', ' · ', '⇧', ' · ', '⌫'], 'nudge · ×10 · remove'],
+    [['⇧', 'drag', ' · wheel'], 'zoom'],
+    [['⌥', 'drag'], 'pan'],
+    [['dbl-click'], 'whole ring'],
+    [['right-click'], 'menu'],
+  ];
+  const keys = new Set(['⇧', '↑↓', '⌫', '⌥']);
+  for (const [parts, what] of rows) {
+    const gesture = htmlNode('span', { class: 'ob-gesture' });
+    for (const part of parts) {
+      gesture.append(keys.has(part) ? htmlNode('span', { class: 'osprey-kbd' }, part) : part);
+    }
+    gestures.append(gesture, htmlNode('span', {}, what));
+  }
+  menu.append(
+    htmlNode('div', { class: 'osprey-popover-title' }, 'Nudge step'),
+    step,
+    htmlNode('div', { class: 'osprey-popover-sep' }),
+    htmlNode('div', { class: 'osprey-popover-title' }, 'Legend'),
+    legend,
+    htmlNode('div', { class: 'osprey-popover-sep' }),
+    htmlNode('div', { class: 'osprey-popover-title' }, 'Gestures'),
+    gestures
+  );
+  holder.append(button, menu);
+  button.addEventListener('click', () => togglePopover(button, menu));
+  step.addEventListener('click', (event) => {
+    const hit = event.target instanceof Element ? event.target.closest('[data-step]') : null;
+    const value = Number(hit?.getAttribute('data-step'));
+    if (value > 0) setStep(root, value);
+  });
+  const bar = root.querySelector('.ob-bar') ?? root;
+  bar.append(holder);
+  return menu;
+}
+
+/**
+ * The controls under the strip (Bump card, Correctors card, actions), made
+ * with their handlers on first use inside the body field.
  * @param {Element} root
  * @returns {HTMLElement}
  */
@@ -1065,18 +2138,47 @@ function controls(root) {
 
   const box = htmlNode('div', { class: 'ob-cols', 'data-field': 'controls' });
 
-  const bump = htmlNode('div', { class: 'osprey-card ob-box' });
+  const bump = htmlNode('section', { class: 'osprey-card ob-box', 'data-field': 'bump-card' });
   const bumpHead = htmlNode('h3', { class: 'osprey-section-label' });
   const title = htmlNode('span', {}, 'Bump · ');
   title.append(htmlNode('span', { 'data-field': 'bump-count' }, '0'), ' BPM');
-  const add = htmlNode('label', { class: 'ob-add' }, 'add: click a BPM, or ');
-  const addSelect = htmlNode('select', { 'data-field': 'add-bpm', 'aria-label': 'add BPM' });
-  add.append(addSelect);
-  bumpHead.append(title, add);
+  bumpHead.append(title, htmlNode('span', { class: 'ob-spacer' }), picker(root));
+
+  const shape = htmlNode('div', { class: 'ob-shape', 'data-field': 'shape-row' });
+  const amp = stepper(
+    { 'data-field': 'amp', 'aria-label': 'bump amplitude', step: '0.01', value: '0.000' },
+    'amplitude',
+    'amp-unit'
+  );
+  amp.title = 'bump amplitude, applied over the selected BPMs';
+  const shapes = segmented(
+    'shape',
+    'data-shape',
+    [
+      ['flat', 'flat', 'every bump BPM at the amplitude'],
+      ['peak', 'peak', 'a triangle: the amplitude at the centre, zero at the ends'],
+      ['cos', 'cosine', 'a raised cosine: the amplitude at the centre, zero at the ends'],
+    ],
+    'bump shape'
+  );
+  shapes.title = 'bump shape over the selected BPMs';
+  const widenButton = htmlNode(
+    'button',
+    {
+      type: 'button',
+      class: 'osprey-btn',
+      'data-field': 'widen',
+      title: 'widen the bump by one BPM on each side',
+    },
+    '± 1 BPM'
+  );
+  shape.append(amp, shapes, htmlNode('span', { class: 'ob-spacer' }), widenButton);
+
   const table = htmlNode('table', { class: 'ob-table', 'data-field': 'bump' });
   const headRow = htmlNode('tr');
   for (const [name, text] of [
     ['bpm', 'BPM'],
+    ['s', 's'],
     ['now', 'now'],
     ['target', 'target'],
     ['predicted', 'predicted'],
@@ -1090,22 +2192,36 @@ function controls(root) {
   const empty = htmlNode(
     'p',
     { class: 'osprey-list-empty', 'data-field': 'bump-empty' },
-    'No BPM in the bump yet — click one on the strip.'
+    'No BPM in the bump yet — drag across the dots on the strip, or type in the picker.'
   );
-  bump.append(bumpHead, table, empty);
+  bump.append(bumpHead, shape, table, empty);
 
-  const cors = htmlNode('div', { class: 'osprey-card ob-box' });
+  const cors = htmlNode('section', { class: 'osprey-card ob-box', 'data-field': 'cor-card' });
   const corsHead = htmlNode('h3', { class: 'osprey-section-label' });
-  const rule = htmlNode('select', { 'data-field': 'rule', 'aria-label': 'corrector rule' });
-  for (const [value, text] of RULES) rule.append(htmlNode('option', { value }, text));
-  corsHead.append(htmlNode('span', {}, 'Correctors'), rule);
-  const unsolved = htmlNode('p', { class: 'ob-meta', 'data-field': 'unsolved' });
-  unsolved.hidden = true;
+  const rule = segmented(
+    'rule',
+    'data-rule',
+    RULES.map(([value, text, tip]) => [value, text, tip]),
+    'corrector rule'
+  );
+  corsHead.append(
+    htmlNode('span', { 'data-field': 'cor-title' }, 'Correctors'),
+    htmlNode('span', { class: 'ob-spacer' }),
+    rule
+  );
   const plan = htmlNode('div', { 'data-field': 'card' });
   plan.hidden = true;
-  cors.append(corsHead, unsolved, plan);
+  const corEmpty = htmlNode(
+    'p',
+    { class: 'osprey-list-empty', 'data-field': 'cor-empty' },
+    'Compute to see the corrector plan.'
+  );
+  cors.append(corsHead, plan, corEmpty);
 
   const actions = htmlNode('div', { class: 'ob-actions', 'data-field': 'actions' });
+  const status = htmlNode('span', { class: 'osprey-chip', 'data-field': 'plan-status' });
+  status.append(htmlNode('span', { class: 'osprey-chip-label', 'data-field': 'plan-status-text' }));
+  status.hidden = true;
   actions.append(
     htmlNode(
       'button',
@@ -1118,54 +2234,114 @@ function controls(root) {
       'Apply…'
     ),
     htmlNode('button', { type: 'button', class: 'osprey-btn', 'data-field': 'clear' }, 'Clear'),
-    htmlNode('span', { class: 'ob-meta', 'data-field': 'apply-note' }),
-    htmlNode('span', { class: 'ob-meta ob-status', 'data-field': 'plan-status' })
+    htmlNode('span', { class: 'ob-spacer' }),
+    status
   );
 
   box.append(bump, cors, actions);
 
-  box.addEventListener('input', (event) => {
+  // Bump table: typed targets, ↑/↓ nudges, −/+ and × buttons, the focused row.
+  table.addEventListener('change', (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
     const element = target.getAttribute('data-target');
     if (!element || target.value.trim() === '') return;
-    const value = Number(target.value);
-    if (!Number.isFinite(value)) return;
-    const { targets } = panelOf(root).selection;
-    if (!(element in targets)) return;
-    setSelection(root, { targets: { ...targets, [element]: value } });
+    setTarget(root, element, Number(target.value));
   });
-  box.addEventListener('click', (event) => {
+  table.addEventListener('input', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    const element = target.getAttribute('data-target');
+    if (!element || target.value.trim() === '') return;
+    setTarget(root, element, Number(target.value));
+  });
+  table.addEventListener('keydown', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    const element = target.getAttribute('data-target');
+    if (!element || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+    event.preventDefault();
+    const big = event.shiftKey ? 10 : 1;
+    nudge(root, [element], event.key === 'ArrowUp' ? big : -big);
+    target.value = String(panelOf(root).selection.targets[element] ?? target.value);
+  });
+  table.addEventListener('focusin', (event) => {
+    const row = event.target instanceof Element ? event.target.closest('tr') : null;
+    for (const each of table.querySelectorAll('tbody tr'))
+      each.classList.toggle('ob-focus', each === row);
+  });
+  table.addEventListener('focusout', (event) => {
+    const next = /** @type {FocusEvent} */ (event).relatedTarget;
+    if (next instanceof Node && table.contains(next)) return;
+    for (const each of table.querySelectorAll('tbody tr')) each.classList.remove('ob-focus');
+  });
+  table.addEventListener('click', (event) => {
     const hit = event.target instanceof Element ? event.target.closest('button') : null;
-    if (!hit) return;
-    const removed = hit.getAttribute('data-remove');
-    if (removed) {
-      const targets = { ...panelOf(root).selection.targets };
-      delete targets[removed];
-      setSelection(root, { targets });
-    } else if (hit.getAttribute('data-field') === 'clear') {
-      void clearBump(root);
-    } else if (hit.getAttribute('data-field') === 'compute') {
-      void compute(root);
-    } else if (hit.getAttribute('data-field') === 'apply') {
-      openConfirm(root);
+    const row = hit?.closest('tr');
+    const element = row?.getAttribute('data-element');
+    if (!hit || !element) return;
+    if (hit.hasAttribute('data-remove')) {
+      removeBpms(root, [element]);
+      return;
+    }
+    const dir = Number(hit.getAttribute('data-step-dir'));
+    if (dir) {
+      const big = /** @type {MouseEvent} */ (event).shiftKey ? 10 : 1;
+      nudge(root, [element], dir * big);
+      const input = row?.querySelector('input');
+      if (input) input.value = String(panelOf(root).selection.targets[element]);
     }
   });
-  addSelect.addEventListener('change', () => {
-    const select = /** @type {HTMLSelectElement} */ (addSelect);
-    const element = select.value;
-    select.value = '';
-    if (!element) return;
-    const { targets } = panelOf(root).selection;
-    if (element in targets) return;
-    setSelection(root, { targets: { ...targets, [element]: 0 } });
+
+  // Shape row: amplitude stepper, shape, widen.
+  const ampInput = /** @type {HTMLInputElement} */ (amp.querySelector('input'));
+  ampInput.addEventListener('change', () => {
+    if (ampInput.value.trim() !== '') setAmplitude(root, Number(ampInput.value));
   });
-  rule.addEventListener('change', () => {
-    const value = /** @type {Rule} */ (/** @type {HTMLSelectElement} */ (rule).value);
+  ampInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    const panel = panelOf(root);
+    const steps = (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 10 : 1);
+    setAmplitude(root, panel.amp + steps * panel.step);
+    ampInput.value = panel.amp.toFixed(3);
+  });
+  amp.addEventListener('click', (event) => {
+    const hit = event.target instanceof Element ? event.target.closest('[data-step-dir]') : null;
+    if (!hit) return;
+    const panel = panelOf(root);
+    const steps = Number(hit.getAttribute('data-step-dir')) * (event.shiftKey ? 10 : 1);
+    setAmplitude(root, panel.amp + steps * panel.step);
+  });
+  shapes.addEventListener('click', (event) => {
+    const hit = event.target instanceof Element ? event.target.closest('[data-shape]') : null;
+    const value = hit?.getAttribute('data-shape');
+    if (value && SHAPES.includes(/** @type {Shape} */ (value)))
+      setShape(root, /** @type {Shape} */ (value));
+  });
+  widenButton.addEventListener('click', () => widen(root));
+
+  rule.addEventListener('click', (event) => {
+    const hit = event.target instanceof Element ? event.target.closest('[data-rule]') : null;
+    const value = /** @type {Rule | null} */ (hit?.getAttribute('data-rule') ?? null);
+    if (!value) return;
     /** @type {Partial<Selection>} */
     const changes = { rule: value };
     if (value !== 'manual') changes.correctors = [];
     setSelection(root, changes);
+  });
+
+  actions.addEventListener('click', (event) => {
+    const hit = event.target instanceof Element ? event.target.closest('button') : null;
+    const name = hit?.getAttribute('data-field');
+    if (name === 'clear') {
+      panelOf(root).amp = 0;
+      void clearBump(root);
+    } else if (name === 'compute') {
+      void compute(root);
+    } else if (name === 'apply') {
+      openConfirm(root);
+    }
   });
 
   body.append(box);
@@ -1179,42 +2355,42 @@ function controls(root) {
  */
 function bumpRow(element) {
   const row = /** @type {HTMLTableRowElement} */ (htmlNode('tr', { 'data-element': element }));
-  const target = htmlNode('td');
-  target.append(
-    htmlNode('input', {
-      type: 'number',
-      step: 'any',
-      'data-target': element,
-      'aria-label': `target offset of ${element}`,
-    })
+  const target = htmlNode('td', { 'data-cell': 'target' });
+  const box = stepper(
+    { step: 'any', 'data-target': element, 'aria-label': `target offset of ${element}` },
+    `the target of ${element}`
   );
+  box.classList.add('ob-stepper-sm');
+  target.append(box);
   const remove = htmlNode('td');
   remove.append(
     htmlNode(
       'button',
       {
         type: 'button',
-        class: 'ob-link',
+        class: 'osprey-icon-btn',
         'data-remove': element,
         'aria-label': `remove ${element}`,
+        title: 'remove from the bump',
       },
-      '✕'
+      '×'
     )
   );
   row.append(
     htmlNode('td', { 'data-cell': 'bpm' }, element),
-    htmlNode('td', { 'data-cell': 'now' }),
+    htmlNode('td', { 'data-cell': 's', class: 'ob-num' }),
+    htmlNode('td', { 'data-cell': 'now', class: 'ob-num' }),
     target,
-    htmlNode('td', { 'data-cell': 'predicted' }),
+    htmlNode('td', { 'data-cell': 'predicted', class: 'ob-num' }),
     remove
   );
   return row;
 }
 
 /**
- * Bring the bump table, add dropdown, rule and unsolved note in line with the
- * state and the selection. Rows are keyed by element: a row and its input
- * survive every poll, and an input is never written while it has focus.
+ * Bring the Bump card (table, picker, shape row) and the corrector rule in
+ * line with the state and the selection. Rows are keyed by element: a row and
+ * its input survive every poll, and an input is never written while it has focus.
  * @param {Element} root
  * @param {Panel} panel
  */
@@ -1222,30 +2398,22 @@ function renderTable(root, panel) {
   const box = controls(root);
   const { selection, state } = panel;
   const model = selectedModel(panel);
-  const bpms = model ? model.members.bpms.filter((member) => member.plane === selection.plane) : [];
+  const bpms = planeBpms(panel);
   const byElement = new Map(bpms.map((member) => [member.element, member]));
-  const position = state?.orbit?.position ?? {};
   const golden = state?.orbit?.golden ?? {};
-  const plan = state?.plan;
-  const predicted =
-    plan && model && plan.model === model.name && plan.plane === selection.plane
-      ? (plan.predicted ?? null)
-      : null;
+  const plan = shownPlan(panel);
+  const predicted = plan?.predicted ?? null;
 
   /** @param {Member | undefined} member */
   const goldOf = (member) => (member?.golden_addr ? golden[member.golden_addr] : null);
-  /** @param {Member | undefined} member */
-  const nowOf = (member) =>
-    offset(member?.position_addr ? position[member.position_addr] : null, goldOf(member));
 
-  const unit = bpms.find((member) => member.unit)?.unit ?? '';
+  const unit = bpmUnit(panel);
   for (const name of ['now', 'target', 'predicted']) {
     const th = box.querySelector(`th[data-head="${name}"]`);
     if (th) th.textContent = unit ? `${name} ${unit}` : name;
   }
 
-  const order = (/** @type {string} */ element) => byElement.get(element)?.s_m ?? Infinity;
-  const elements = Object.keys(selection.targets).sort((a, b) => order(a) - order(b));
+  const elements = bumpOrder(panel);
   const tbody = /** @type {HTMLTableSectionElement} */ (field(root, 'bump').querySelector('tbody'));
   /** @type {Map<string, HTMLTableRowElement>} */
   const existing = new Map();
@@ -1263,55 +2431,56 @@ function renderTable(root, panel) {
     const here = tbody.children[place] ?? null;
     if (here !== row) tbody.insertBefore(row, here);
     const member = byElement.get(element);
+    const s = row.querySelector('[data-cell="s"]');
+    if (s) s.textContent = member ? `${member.s_m.toFixed(1)} m` : '—';
     const now = row.querySelector('[data-cell="now"]');
-    if (now) now.textContent = cellNumber(nowOf(member));
+    if (now) now.textContent = cellNumber(orbitOf(panel, member));
     const pred = row.querySelector('[data-cell="predicted"]');
     if (pred)
       pred.textContent = predicted ? cellNumber(offset(predicted[element], goldOf(member))) : '—';
     const input = row.querySelector('input');
     const target = selection.targets[element];
-    if (input && input !== document.activeElement) {
-      if (input.value === '' || Number(input.value) !== target) input.value = String(target);
+    if (input) {
+      input.step = String(panel.step);
+      if (input !== input.ownerDocument.activeElement) {
+        if (input.value === '' || Number(input.value) !== target) input.value = String(target);
+      }
     }
   });
   field(root, 'bump-count').textContent = String(elements.length);
   field(root, 'bump-empty').hidden = elements.length > 0;
+  field(root, 'bump').hidden = elements.length === 0;
 
-  const add = /** @type {HTMLSelectElement} */ (field(root, 'add-bpm'));
-  const offered = bpms
-    .filter((member) => !(member.element in selection.targets) && nowOf(member) != null)
-    .map((member) => member.element);
-  const listed = [...add.options].map((option) => option.value);
-  if (listed.join('\n') !== ['', ...offered].join('\n')) {
-    add.replaceChildren(
-      htmlNode('option', { value: '' }, 'BPM…'),
-      ...offered.map((element) => htmlNode('option', { value: element }, element))
-    );
+  const amp = /** @type {HTMLInputElement} */ (field(root, 'amp'));
+  amp.step = String(panel.step);
+  if (amp !== amp.ownerDocument.activeElement) amp.value = panel.amp.toFixed(3);
+  field(root, 'amp-unit').textContent = unit;
+  pressSeg(field(root, 'shape'), 'data-shape', panel.shape);
+  /** @type {HTMLButtonElement} */ (field(root, 'widen')).disabled = elements.length === 0;
+  field(root, 'pick-list').parentElement?.dispatchEvent(new Event('ob-refresh'));
+
+  const step = field(root, 'step');
+  for (const button of step.querySelectorAll('[data-step]')) {
+    button.textContent = stepLabel(Number(button.getAttribute('data-step')), unit);
   }
-  add.value = '';
+  pressSeg(step, 'data-step', String(panel.step));
 
-  const rule = /** @type {HTMLSelectElement} */ (field(root, 'rule'));
-  if (rule !== document.activeElement || rule.value !== selection.rule) rule.value = selection.rule;
+  pressSeg(field(root, 'rule'), 'data-rule', selection.rule);
 
-  const note = field(root, 'unsolved');
+  const title = field(root, 'cor-title');
   const planeCorrectors = new Set(
     (model?.members.correctors ?? [])
       .filter((member) => member.plane === selection.plane)
       .map((member) => member.element)
   );
-  const skipped =
-    plan && model && plan.model === model.name && plan.plane === selection.plane
-      ? (plan.skipped_unsolved ?? [])
-      : [];
   const unsolved = (model?.orm.unsolved ?? []).filter((element) => planeCorrectors.has(element));
-  if (skipped.length > 0) {
-    note.textContent = `skipped, the ORM could not solve them: ${skipped.join(', ')}`;
-  } else if (unsolved.length > 0) {
-    note.textContent = `not selectable, the ORM could not solve them: ${unsolved.join(', ')}`;
-  } else {
-    note.textContent = '';
-  }
-  note.hidden = note.textContent === '';
+  const tip = plan
+    ? planSummary(plan, unit)
+    : unsolved.length > 0
+      ? `not selectable, the ORM could not solve them: ${unsolved.join(', ')}`
+      : '';
+  if (tip) title.title = tip;
+  else title.removeAttribute('title');
 }
 
 /**
@@ -1342,6 +2511,8 @@ async function discardThenClear(root, changes, fetcher) {
     panel.shownGeneration = panel.generation;
     if (panel.state) panel.state = { ...panel.state, plan: null };
   }
+  panel.anchor = null;
+  panel.amp = 0;
   setSelection(root, { ...changes, targets: {}, rule: 'auto', correctors: [] });
   return true;
 }
@@ -1397,6 +2568,7 @@ export function bindControls(root, fetcher) {
   const select = /** @type {HTMLSelectElement} */ (field(root, 'model'));
   select.addEventListener('change', () => void chooseModel(root, select.value));
   field(root, 'recompute').addEventListener('click', () => void recompute(root, panel.fetcher));
+  optionsMenu(root);
   controls(root);
 }
 
@@ -1406,6 +2578,7 @@ export function bindControls(root, fetcher) {
  */
 export function render(root) {
   const panel = panelOf(root);
+  optionsMenu(root);
   renderHeader(root, panel);
   renderStrip(root, panel);
   renderTable(root, panel);
@@ -1664,7 +2837,9 @@ function rowsTable(plan, inBox) {
         ),
     ],
   ];
-  const shown = columns.filter(([name]) => (inBox ? name !== 'channel' : name !== 'outcome'));
+  const shown = columns.filter(([name]) =>
+    inBox ? name !== 'channel' && name !== 'note' : name !== 'outcome'
+  );
   const headRow = htmlNode('tr');
   for (const [name, text] of shown) headRow.append(htmlNode('th', { 'data-head': name }, text));
   const head = htmlNode('thead');
@@ -1673,6 +2848,8 @@ function rowsTable(plan, inBox) {
   for (const row of plan.correctors) {
     const tr = htmlNode('tr', { 'data-element': row.element });
     tr.append(...shown.map(([, , make]) => make(row)));
+    const note = rowNote(row);
+    if (inBox && note) tr.title = note;
     body.append(tr);
   }
   table.append(head, body);
@@ -1696,11 +2873,7 @@ function card(root) {
  * @returns {string}
  */
 function statusText(plan) {
-  if (plan.status === 'ready') {
-    const targets = Object.keys(plan.targets ?? {}).length;
-    const correctors = plan.correctors.length;
-    return `plan #${plan.id} · ${targets} target${targets === 1 ? '' : 's'}, ${correctors} corrector${correctors === 1 ? '' : 's'}`;
-  }
+  if (plan.status === 'ready') return `plan #${plan.id}`;
   if (plan.status === 'applying' && plan.phase) return `applying · ${plan.phase}`;
   return plan.status;
 }
@@ -1732,21 +2905,30 @@ function renderCard(root, panel) {
     panel.computesInFlight > 0 ||
     panel.applying;
 
+  const stale = plan != null && plan.status === 'ready' && edited(panel, plan);
+  const phrase = plan && !panel.readOnly && !allowed ? (panel.state?.posture?.phrase ?? '') : '';
   const applyButton = /** @type {HTMLButtonElement} */ (field(root, 'apply'));
   applyButton.hidden = panel.readOnly || !plan;
   applyButton.textContent = plan ? `Apply ${setpoints(plan.correctors.length)}…` : 'Apply…';
-  applyButton.disabled = !plan || plan.status !== 'ready' || !allowed || panel.applying;
-  const note = field(root, 'apply-note');
-  note.textContent =
-    plan && !panel.readOnly && !allowed ? (panel.state?.posture?.phrase ?? '') : '';
-  note.hidden = note.textContent === '';
-  if (note.textContent) applyButton.title = note.textContent;
+  applyButton.disabled = !plan || plan.status !== 'ready' || !allowed || stale || panel.applying;
+  const why = phrase || (stale && plan ? `edited since plan #${plan.id}: Compute again` : '');
+  if (why) applyButton.title = why;
   else applyButton.removeAttribute('title');
 
+  // The one status indicator: hidden with nothing to say.
   const status = field(root, 'plan-status');
-  status.textContent = plan ? statusText(plan) : '';
-  status.hidden = !plan;
+  const hasTargets = Object.keys(panel.selection.targets).length > 0;
+  let text = '';
+  if (panel.computesInFlight > 0) text = 'computing…';
+  else if (panel.applying) text = 'applying…';
+  else if (plan && plan.status !== 'ready') text = statusText(plan);
+  else if (stale || (!plan && hasTargets)) text = 'edited · not computed';
+  else if (plan) text = statusText(plan);
+  field(root, 'plan-status-text').textContent = text;
+  status.hidden = text === '';
+  status.classList.toggle('osprey-chip--connecting', text === 'edited · not computed');
 
+  field(root, 'cor-empty').hidden = plan != null;
   const node = card(root);
   if (!plan) {
     node.hidden = true;
@@ -1754,24 +2936,31 @@ function renderCard(root, panel) {
     return;
   }
   node.hidden = false;
-  const unit = bpmUnit(panel);
   const children = [];
   if (plan.status === 'not_applicable' && plan.reason) {
     children.push(htmlNode('p', { class: 'ob-refused', 'data-field': 'plan-reason' }, plan.reason));
   }
   children.push(rowsTable(plan, true));
-  children.push(
-    htmlNode('p', { class: 'ob-meta', 'data-field': 'closure' }, closureText(plan, unit))
-  );
+  node.replaceChildren(...children);
+}
+
+/**
+ * The Correctors title's tooltip for a plan: its id, the closure line and the
+ * residual after an apply.
+ * @param {Plan} plan
+ * @param {string} unit
+ * @returns {string}
+ */
+function planSummary(plan, unit) {
+  const parts = [`plan #${plan.id}`];
+  const closure = closureText(plan, unit);
+  if (closure) parts.push(closure);
   const residual = Object.entries(plan.residual_after ?? {});
   if (residual.length > 0) {
     const label = unit ? `residual after (${unit})` : 'residual after';
-    const text = residual.map(([element, value]) => `${element} ${cellNumber(value)}`).join(' · ');
-    children.push(
-      htmlNode('p', { class: 'ob-meta', 'data-field': 'residual' }, `${label}: ${text}`)
-    );
+    parts.push(`${label}: ${residual.map(([e, v]) => `${e} ${cellNumber(v)}`).join(', ')}`);
   }
-  node.replaceChildren(...children);
+  return parts.join(' · ');
 }
 
 /**
@@ -1819,6 +3008,7 @@ export async function compute(root) {
     rule: selection.rule,
   };
   if (selection.rule === 'manual') body.correctors = [...selection.correctors];
+  const key = selectionKey(selection);
   const send = async () => {
     render(root);
     try {
@@ -1839,6 +3029,7 @@ export async function compute(root) {
       // A poll sent before the Compute still carries the old plan: drop it.
       panel.shownGeneration = panel.generation;
       if (panel.state) panel.state = { ...panel.state, plan };
+      if (plan.id != null) panel.computed = { id: plan.id, key };
       closeConfirm(root);
       field(root, 'error').hidden = true;
       return plan;
@@ -1861,6 +3052,7 @@ export function openConfirm(root) {
   const plan = shownPlan(panel);
   if (!plan || plan.status !== 'ready' || panel.readOnly || panel.applying) return;
   if (!(panel.state?.posture?.allowed ?? false)) return;
+  if (edited(panel, plan)) return;
   const confirm = field(root, 'confirm');
   const box = htmlNode('div', {
     class: 'osprey-card ob-box',
@@ -1929,6 +3121,7 @@ export async function applyPlan(root) {
 
 const root = document.getElementById('orbit-bump');
 if (root) {
+  initTooltips(document.body);
   bindControls(root);
   void refresh(root);
   setInterval(() => void refresh(root), REFRESH_MS);

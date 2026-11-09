@@ -184,26 +184,37 @@ function wheel(target, clientX, deltaY) {
  * @param {Element} target
  * @param {string} type
  * @param {number} clientX
- * @param {boolean} [shiftKey]
+ * @param {{shiftKey?: boolean, altKey?: boolean}} [keys]
  */
-function pointer(target, type, clientX, shiftKey = false) {
+function pointer(target, type, clientX, keys = {}) {
   target.dispatchEvent(
-    new PointerEvent(type, { clientX, clientY: 50, pointerId: 1, bubbles: true, shiftKey })
+    new PointerEvent(type, { clientX, clientY: 50, pointerId: 1, bubbles: true, ...keys })
   );
 }
 
 /**
- * A drag from x0 to x1 that starts on the empty plot.
+ * A drag from x0 to x1 that starts on the empty plot: with ⇧ it zooms, with
+ * ⌥ it pans, and plain it picks the BPMs it spans.
  * @param {Element} root
  * @param {number} x0
  * @param {number} x1
- * @param {boolean} [shiftKey]
+ * @param {{shiftKey?: boolean, altKey?: boolean}} [keys]
  */
-function drag(root, x0, x1, shiftKey = false) {
-  pointer(background(root), 'pointerdown', x0, shiftKey);
-  pointer(svg(root), 'pointermove', (x0 + x1) / 2, shiftKey);
-  pointer(svg(root), 'pointermove', x1, shiftKey);
-  pointer(svg(root), 'pointerup', x1, shiftKey);
+function drag(root, x0, x1, keys = {}) {
+  pointer(background(root), 'pointerdown', x0, keys);
+  pointer(svg(root), 'pointermove', (x0 + x1) / 2, keys);
+  pointer(svg(root), 'pointermove', x1, keys);
+  pointer(svg(root), 'pointerup', x1, keys);
+}
+
+/**
+ * A ⇧-drag: zoom to the range.
+ * @param {Element} root
+ * @param {number} x0
+ * @param {number} x1
+ */
+function zoomDrag(root, x0, x1) {
+  drag(root, x0, x1, { shiftKey: true });
 }
 
 /** @param {Element} root */
@@ -314,29 +325,33 @@ describe('zoom on the orbit-bump strip', () => {
     expect(zoomed?.s1 ?? 1e9).toBeLessThanOrEqual(LENGTH);
   });
 
-  it('zooms to a range dragged across the empty plot', () => {
-    pointer(background(root), 'pointerdown', xAt(20));
-    pointer(svg(root), 'pointermove', xAt(60));
+  it('zooms to a range shift-dragged across the empty plot', () => {
+    const shift = { shiftKey: true };
+    pointer(background(root), 'pointerdown', xAt(20), shift);
+    pointer(svg(root), 'pointermove', xAt(60), shift);
     // The selection is drawn while the drag is in flight.
     expect(svg(root).querySelector('.ob-zoom-select')).not.toBeNull();
     expect(view(root)).toBeNull();
-    pointer(svg(root), 'pointerup', xAt(60));
+    pointer(svg(root), 'pointerup', xAt(60), shift);
     expectView(view(root), 20, 60);
     expect(svg(root).querySelector('.ob-zoom-select')).toBeNull();
   });
 
   it('zooms to a range dragged right to left as well', () => {
-    drag(root, xAt(60), xAt(20));
+    zoomDrag(root, xAt(60), xAt(20));
     expectView(view(root), 20, 60);
   });
 
   it('ignores a drag too short to be a range', () => {
-    drag(root, xAt(40), xAt(40) + 2);
+    zoomDrag(root, xAt(40), xAt(40) + 2);
+    expect(view(root)).toBeNull();
+    drag(root, xAt(30) - 1, xAt(30) + 1);
+    expect(panelOf(root).selection.targets).toEqual({});
     expect(view(root)).toBeNull();
   });
 
   it('names the visible range in the header chip and offers the reset link', () => {
-    drag(root, xAt(25), xAt(60));
+    zoomDrag(root, xAt(25), xAt(60));
     const text = chipText(root) ?? '';
     expect(text).toContain('B2–B3');
     expect(text).toContain('25');
@@ -346,31 +361,34 @@ describe('zoom on the orbit-bump strip', () => {
   });
 
   it('labels every BPM and corrector in range when zoomed', () => {
-    drag(root, xAt(25), xAt(60));
+    zoomDrag(root, xAt(25), xAt(60));
     const shown = members(root);
     expect(shown.sort()).toEqual(['B2', 'B3', 'H2']);
     expect(labels(root).sort()).toEqual(shown.sort());
   });
 
-  it('pans when zoomed and the drag starts on the empty plot', () => {
-    drag(root, xAt(20), xAt(60));
+  it('pans on an alt-drag when zoomed', () => {
+    zoomDrag(root, xAt(20), xAt(60));
     // Dragging right by 10 m worth of strip moves the window 10 m left.
     const x0 = xAt(40, 20, 60);
-    drag(root, x0, x0 + (10 * PLOT_W) / 40);
+    drag(root, x0, x0 + (10 * PLOT_W) / 40, { altKey: true });
     expectView(view(root), 10, 50);
     expect(svg(root).querySelector('.ob-zoom-select')).toBeNull();
   });
 
   it('stops a pan at the ring edge, keeping the span', () => {
-    drag(root, xAt(20), xAt(60));
+    zoomDrag(root, xAt(20), xAt(60));
     const x0 = xAt(40, 20, 60);
-    drag(root, x0, x0 + (50 * PLOT_W) / 40);
+    drag(root, x0, x0 + (50 * PLOT_W) / 40, { altKey: true });
     expectView(view(root), 0, 40);
   });
 
-  it('selects again on a shift-drag when zoomed', () => {
-    drag(root, xAt(20), xAt(60));
-    drag(root, xAt(30, 20, 60), xAt(50, 20, 60), true);
+  it('zooms further on a shift-drag when zoomed, where a plain drag picks', () => {
+    zoomDrag(root, xAt(20), xAt(60));
+    drag(root, xAt(26, 20, 60), xAt(38, 20, 60));
+    expectView(view(root), 20, 60);
+    expect(panelOf(root).selection.targets).toEqual({ B2: 0 });
+    zoomDrag(root, xAt(30, 20, 60), xAt(50, 20, 60));
     expectView(view(root), 30, 50);
   });
 
@@ -385,7 +403,7 @@ describe('zoom on the orbit-bump strip', () => {
   });
 
   it('returns to the whole ring on a double-click', () => {
-    drag(root, xAt(25), xAt(60));
+    zoomDrag(root, xAt(25), xAt(60));
     svg(root).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
     expect(view(root)).toBeNull();
     expect(svg(root).getAttribute('data-s0')).toBe('0');
@@ -396,14 +414,14 @@ describe('zoom on the orbit-bump strip', () => {
   });
 
   it('returns to the whole ring from the chip link', () => {
-    drag(root, xAt(25), xAt(60));
+    zoomDrag(root, xAt(25), xAt(60));
     resetLink(root).dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(view(root)).toBeNull();
     expect(chipText(root)).toBe('whole ring');
   });
 
   it('keeps the view through a poll', () => {
-    drag(root, xAt(25), xAt(60));
+    zoomDrag(root, xAt(25), xAt(60));
     showState(root, state());
     expectView(view(root), 25, 60);
     expect(labels(root).length).toBeGreaterThan(0);
@@ -413,19 +431,19 @@ describe('zoom on the orbit-bump strip', () => {
     layout(root, 0);
     wheel(svg(root), 500, -100);
     expect(view(root)).toBeNull();
-    drag(root, 200, 600);
+    zoomDrag(root, 200, 600);
     expect(view(root)).toBeNull();
 
     layout(root);
-    drag(root, xAt(20), xAt(60));
+    zoomDrag(root, xAt(20), xAt(60));
     layout(root, 0);
     wheel(svg(root), 500, -100);
-    drag(root, 200, 600);
+    zoomDrag(root, 200, 600);
     expectView(view(root), 20, 60);
   });
 
   it('pulls a view back inside a shorter ring', () => {
-    drag(root, xAt(60), xAt(95));
+    zoomDrag(root, xAt(60), xAt(95));
     showState(root, state({ models: [model(70)] }));
     const kept = view(root);
     expect(kept?.s1 ?? 1e9).toBeLessThanOrEqual(70);

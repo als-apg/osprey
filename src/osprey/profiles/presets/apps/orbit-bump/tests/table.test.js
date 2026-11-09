@@ -4,9 +4,11 @@ import {
   chooseModel,
   choosePlane,
   clearBump,
+  matchBpms,
   panelOf,
   refresh,
   setSelection,
+  shapeWeights,
   showState,
 } from '../panel/panel.js';
 
@@ -226,6 +228,62 @@ function choose(select, value) {
   select.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+/**
+ * Press the button of a segmented control.
+ * @param {Element} root
+ * @param {string} name the control's data-field
+ * @param {string} attr the attribute its buttons carry their value in
+ * @param {string} value
+ */
+function pressSeg(root, name, attr, value) {
+  const button = field(root, name).querySelector(`[${attr}="${value}"]`);
+  if (!button) throw new Error(`no ${value} in ${name}`);
+  click(button);
+}
+
+/**
+ * The value of the pressed button of a segmented control.
+ * @param {Element} root
+ * @param {string} name
+ * @param {string} attr
+ */
+function pressed(root, name, attr) {
+  return field(root, name).querySelector('[aria-pressed="true"]')?.getAttribute(attr) ?? null;
+}
+
+/**
+ * @param {Element} target
+ * @param {string} key
+ * @param {boolean} [shiftKey]
+ */
+function press(target, key, shiftKey = false) {
+  target.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true }));
+}
+
+/**
+ * Type into the picker, as an input event.
+ * @param {Element} root
+ * @param {string} text
+ */
+function typePick(root, text) {
+  const pick = /** @type {HTMLInputElement} */ (field(root, 'pick'));
+  pick.focus();
+  pick.value = text;
+  pick.dispatchEvent(new Event('input', { bubbles: true }));
+  return pick;
+}
+
+/**
+ * The picker's option rows: name and whether it shows as in the bump.
+ * @param {Element} root
+ */
+function options(root) {
+  return [...field(root, 'pick-list').querySelectorAll('[role="option"][data-name]')].map(
+    (row) =>
+      `${row.getAttribute('data-name')}${row.getAttribute('aria-selected') === 'true' ? '✓' : ''}`
+  );
+}
+
 /** @param {Element} target */
 function click(target) {
   target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -277,24 +335,34 @@ describe('the orbit-bump table and controls', () => {
       expect(field(root, 'bump-empty').hidden).toBe(true);
     });
 
-    it('adds a BPM from the dropdown, which then no longer offers it', () => {
-      showState(root, state());
-      const add = /** @type {HTMLSelectElement} */ (field(root, 'add-bpm'));
-      const offered = () => [...add.options].map((option) => option.value).filter(Boolean);
-      expect(offered()).toEqual(['B1', 'B2', 'B3']);
-      choose(add, 'B3');
-      expect(panelOf(root).selection.targets).toEqual({ B3: 0 });
-      expect(rowElements(root)).toEqual(['B3']);
-      expect(add.value).toBe('');
-      expect(offered()).toEqual(['B1', 'B2']);
-    });
-
-    it('does not offer a BPM without a reading', () => {
+    it('does not offer a BPM without a reading in the picker', () => {
       const readings = orbit();
       readings.position['B1:POS:x'] = null;
       showState(root, state({ orbit: readings }));
-      const add = /** @type {HTMLSelectElement} */ (field(root, 'add-bpm'));
-      expect([...add.options].map((option) => option.value).filter(Boolean)).toEqual(['B2', 'B3']);
+      typePick(root, '');
+      expect(options(root)).toEqual(['B2', 'B3']);
+    });
+
+    it('nudges a row by the step with its buttons and the arrow keys', () => {
+      showState(root, state());
+      setSelection(root, { targets: { B2: 0 } });
+      const more = row(root, 'B2').querySelector('[data-step-dir="1"]');
+      if (!more) throw new Error('no + button');
+      click(more);
+      expect(panelOf(root).selection.targets.B2).toBeCloseTo(0.01, 9);
+      press(input(root, 'B2'), 'ArrowDown', true);
+      expect(panelOf(root).selection.targets.B2).toBeCloseTo(-0.09, 9);
+      expect(input(root, 'B2').value).toBe('-0.09');
+      expect(input(root, 'B2').step).toBe('0.01');
+      expect(cell(root, 'B2', 's')).toBe('30.0 m');
+    });
+
+    it('highlights the row whose input has focus', () => {
+      showState(root, state());
+      setSelection(root, { targets: { B1: 0, B2: 0 } });
+      input(root, 'B2').focus();
+      expect(row(root, 'B2').classList.contains('ob-focus')).toBe(true);
+      expect(row(root, 'B1').classList.contains('ob-focus')).toBe(false);
     });
 
     it('lists rows in ring order and removes one with its remove button', () => {
@@ -359,64 +427,221 @@ describe('the orbit-bump table and controls', () => {
   });
 
   describe('the corrector rule', () => {
-    it('defaults to auto and offers the MML lists and manual', () => {
+    it('defaults to auto and offers auto, tight and manual as a segmented control', () => {
       showState(root, state());
-      const rule = /** @type {HTMLSelectElement} */ (field(root, 'rule'));
-      expect(rule.value).toBe('auto');
-      expect([...rule.options].map((option) => option.value)).toEqual([
-        'auto',
-        'mml:[-1 1]',
-        'mml:[-2 -1 1 2]',
-        'mml:[-3 -1 1 3]',
-        'manual',
+      expect(pressed(root, 'rule', 'data-rule')).toBe('auto');
+      const offered = [...field(root, 'rule').querySelectorAll('[data-rule]')].map((button) => [
+        button.getAttribute('data-rule'),
+        button.textContent,
       ]);
+      expect(offered).toEqual([
+        ['auto', 'auto'],
+        ['mml:[-1 1]', 'tight'],
+        ['manual', 'manual'],
+      ]);
+      expect(root.querySelector('select:not([data-field="model"])')).toBeNull();
     });
 
     it('changes the selection rule, without discarding a plan', () => {
       const { fetcher, log } = backend(() => state());
       bindControls(root, fetcher);
       showState(root, state({ plan: plan() }));
-      const rule = /** @type {HTMLSelectElement} */ (field(root, 'rule'));
-      choose(rule, 'mml:[-2 -1 1 2]');
-      expect(panelOf(root).selection.rule).toBe('mml:[-2 -1 1 2]');
+      pressSeg(root, 'rule', 'data-rule', 'mml:[-1 1]');
+      expect(panelOf(root).selection.rule).toBe('mml:[-1 1]');
+      expect(pressed(root, 'rule', 'data-rule')).toBe('mml:[-1 1]');
       expect(log).toEqual([]);
     });
 
     it('drops manual correctors when the rule leaves manual', () => {
       showState(root, state());
       setSelection(root, { rule: 'manual', correctors: ['H2'] });
-      choose(/** @type {HTMLSelectElement} */ (field(root, 'rule')), 'auto');
+      pressSeg(root, 'rule', 'data-rule', 'auto');
       expect(panelOf(root).selection.correctors).toEqual([]);
     });
 
-    it('makes an unsolved corrector unselectable and lists it', () => {
+    it('makes an unsolved corrector unselectable and names it in the title tooltip', () => {
       showState(root, state({ models: [model('RING', ['H2', 'V1'])] }));
       setSelection(root, { rule: 'manual' });
       click(stripTick(root, 'H2'));
       expect(panelOf(root).selection.correctors).toEqual([]);
       click(stripTick(root, 'H1'));
       expect(panelOf(root).selection.correctors).toEqual(['H1']);
-      const note = field(root, 'unsolved');
-      expect(note.hidden).toBe(false);
-      // Only the selected plane's unsolved correctors are listed.
-      expect(note.textContent).toContain('H2');
-      expect(note.textContent).not.toContain('V1');
+      const title = field(root, 'cor-title').title;
+      // Only the selected plane's unsolved correctors are named.
+      expect(title).toContain('H2');
+      expect(title).not.toContain('V1');
     });
 
-    it("lists the plan's skipped unsolved correctors", () => {
+    it("names the plan's skipped unsolved correctors in the title tooltip", () => {
       showState(
         root,
         state({ models: [model('RING', ['H3'])], plan: plan({ skipped_unsolved: ['H3'] }) })
       );
-      const note = field(root, 'unsolved');
-      expect(note.hidden).toBe(false);
-      expect(note.textContent).toContain('skipped');
-      expect(note.textContent).toContain('H3');
+      const title = field(root, 'cor-title').title;
+      expect(title).toContain('plan #p1');
+      expect(title).toContain('skipped');
+      expect(title).toContain('H3');
     });
 
-    it('hides the unsolved note when every corrector solved', () => {
+    it('has no title tooltip when every corrector solved and there is no plan', () => {
       showState(root, state());
-      expect(field(root, 'unsolved').hidden).toBe(true);
+      expect(field(root, 'cor-title').hasAttribute('title')).toBe(false);
+    });
+  });
+
+  describe('the BPM picker', () => {
+    it('reads a number, a range, a prefix and a name', () => {
+      const names = ['BPM1', 'BPM2', 'BPM3', 'BPM12', 'BPM21', 'BPM22', 'BPM23'];
+      expect(matchBpms('22', names)).toEqual(['BPM22']);
+      expect(matchBpms('BPM22', names)).toEqual(['BPM22']);
+      expect(matchBpms('bpm 3', names)).toEqual(['BPM3']);
+      expect(matchBpms('5-6', names)).toEqual(['BPM21', 'BPM22']);
+      expect(matchBpms('6–5', names)).toEqual(['BPM21', 'BPM22']);
+      expect(matchBpms('2*', names)).toEqual(['BPM2', 'BPM21', 'BPM22', 'BPM23']);
+      expect(matchBpms('', names)).toEqual(names);
+      expect(matchBpms('99', names)).toEqual([]);
+      // A number no name carries is the n-th BPM in ring order.
+      expect(matchBpms('2', ['SR01:BPM_A', 'SR01:BPM_B'])).toEqual(['SR01:BPM_B']);
+      expect(matchBpms('bpm_b', ['SR01:BPM_A', 'SR01:BPM_B'])).toEqual(['SR01:BPM_B']);
+    });
+
+    it('opens a listbox on focus that marks the BPMs already in the bump', () => {
+      showState(root, state());
+      setSelection(root, { targets: { B2: 0.2 } });
+      const pick = typePick(root, '');
+      expect(pick.getAttribute('role')).toBe('combobox');
+      expect(pick.getAttribute('aria-expanded')).toBe('true');
+      expect(field(root, 'pick-list').hidden).toBe(false);
+      expect(field(root, 'pick-list').getAttribute('role')).toBe('listbox');
+      expect(options(root)).toEqual(['B1', 'B2✓', 'B3']);
+      // Each row carries s and the offset (the target for a bump BPM).
+      const b2 = field(root, 'pick-list').querySelector('[data-name="B2"]');
+      expect(b2?.textContent).toContain('30.0 m');
+      expect(b2?.textContent).toContain('+0.200');
+    });
+
+    it('toggles a clicked row without closing the list', () => {
+      showState(root, state());
+      typePick(root, '');
+      const rowOf = (/** @type {string} */ name) => {
+        const found = field(root, 'pick-list').querySelector(`[data-name="${name}"]`);
+        if (!found) throw new Error(`no option ${name}`);
+        return found;
+      };
+      click(rowOf('B3'));
+      expect(panelOf(root).selection.targets).toEqual({ B3: 0 });
+      expect(field(root, 'pick-list').hidden).toBe(false);
+      expect(options(root)).toEqual(['B1', 'B2', 'B3✓']);
+      click(rowOf('B3'));
+      expect(panelOf(root).selection.targets).toEqual({});
+    });
+
+    it('arms rows with the arrows and picks the armed row on Enter', () => {
+      showState(root, state());
+      const pick = typePick(root, '');
+      press(pick, 'ArrowDown');
+      press(pick, 'ArrowDown');
+      const armed = field(root, 'pick-list').querySelector('.armed');
+      expect(armed?.getAttribute('data-name')).toBe('B2');
+      expect(pick.getAttribute('aria-activedescendant')).toBe(armed?.id);
+      press(pick, 'Enter');
+      expect(panelOf(root).selection.targets).toEqual({ B2: 0 });
+    });
+
+    it('toggles a single match, or adds every match, on an unarmed Enter', () => {
+      showState(root, state());
+      const pick = typePick(root, '3');
+      press(pick, 'Enter');
+      expect(panelOf(root).selection.targets).toEqual({ B3: 0 });
+      expect(pick.value).toBe('');
+      typePick(root, '1-2');
+      // Several matches: the first row offers to add them all.
+      const all = field(root, 'pick-list').querySelector('[data-all]');
+      expect(all?.textContent).toContain('add all 2 shown');
+      press(pick, 'Enter');
+      expect(Object.keys(panelOf(root).selection.targets).sort()).toEqual(['B1', 'B2', 'B3']);
+    });
+
+    it('closes on Escape and on a press outside', () => {
+      showState(root, state());
+      const pick = typePick(root, '');
+      press(pick, 'Escape');
+      expect(field(root, 'pick-list').hidden).toBe(true);
+      expect(pick.getAttribute('aria-expanded')).toBe('false');
+      typePick(root, '');
+      expect(field(root, 'pick-list').hidden).toBe(false);
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      expect(field(root, 'pick-list').hidden).toBe(true);
+    });
+  });
+
+  describe('the shape row and the nudge step', () => {
+    it('spreads the amplitude flat, as a peak or as a cosine', () => {
+      expect(shapeWeights(3, 'flat')).toEqual([1, 1, 1]);
+      expect(shapeWeights(5, 'peak')).toEqual([0, 0.5, 1, 0.5, 0]);
+      const cos = shapeWeights(5, 'cos');
+      expect(cos[0]).toBeCloseTo(0, 9);
+      expect(cos[1]).toBeCloseTo(0.5, 9);
+      expect(cos[2]).toBeCloseTo(1, 9);
+      // Under three BPMs every shape is flat.
+      expect(shapeWeights(2, 'peak')).toEqual([1, 1]);
+    });
+
+    it('redistributes the targets when the amplitude or the shape changes', () => {
+      showState(root, state());
+      setSelection(root, { targets: { B1: 0, B2: 0, B3: 0 } });
+      const amp = /** @type {HTMLInputElement} */ (field(root, 'amp'));
+      amp.value = '0.4';
+      amp.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(panelOf(root).selection.targets).toEqual({ B1: 0.4, B2: 0.4, B3: 0.4 });
+      pressSeg(root, 'shape', 'data-shape', 'peak');
+      expect(panelOf(root).selection.targets).toEqual({ B1: 0, B2: 0.4, B3: 0 });
+      expect(pressed(root, 'shape', 'data-shape')).toBe('peak');
+      // The amplitude steps by the nudge step.
+      const more = field(root, 'shape-row').querySelector('[data-step-dir="1"]');
+      if (!more) throw new Error('no + button');
+      click(more);
+      expect(panelOf(root).selection.targets.B2).toBeCloseTo(0.41, 9);
+    });
+
+    it('follows a typed row in the amplitude readout', () => {
+      showState(root, state());
+      setSelection(root, { targets: { B1: 0, B2: 0 } });
+      const box = input(root, 'B2');
+      box.value = '-0.3';
+      box.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(panelOf(root).amp).toBeCloseTo(-0.3, 9);
+      expect(/** @type {HTMLInputElement} */ (field(root, 'amp')).value).toBe('-0.300');
+    });
+
+    it('widens the bump by one BPM on each side', () => {
+      showState(root, state());
+      setSelection(root, { targets: { B2: 0 } });
+      const amp = /** @type {HTMLInputElement} */ (field(root, 'amp'));
+      amp.value = '0.2';
+      amp.dispatchEvent(new Event('change', { bubbles: true }));
+      click(field(root, 'widen'));
+      expect(panelOf(root).selection.targets).toEqual({ B1: 0.2, B2: 0.2, B3: 0.2 });
+    });
+
+    it('sets the nudge step from the options menu', () => {
+      bindControls(root, backend(() => state()).fetcher);
+      showState(root, state());
+      const step = field(root, 'step');
+      expect(pressed(root, 'step', 'data-step')).toBe('0.01');
+      expect([...step.querySelectorAll('button')].map((b) => b.textContent)).toEqual([
+        '1 µm',
+        '10 µm',
+        '100 µm',
+      ]);
+      pressSeg(root, 'step', 'data-step', '0.001');
+      expect(panelOf(root).step).toBe(0.001);
+      setSelection(root, { targets: { B2: 0 } });
+      expect(input(root, 'B2').step).toBe('0.001');
+      // The menu opens from its hamburger and holds the legend.
+      click(field(root, 'menu-button'));
+      expect(field(root, 'menu').hidden).toBe(false);
+      expect(field(root, 'menu').textContent).toContain('predicted');
     });
   });
 

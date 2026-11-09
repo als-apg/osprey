@@ -396,7 +396,6 @@ describe('the compute and apply card', () => {
       'delta',
       'new',
       'verdict',
-      'note',
       'outcome',
     ]);
     expect(cell(root, 'H1', 'now')).toBe('+1.000');
@@ -478,13 +477,15 @@ describe('the compute and apply card', () => {
     expect(cell(root, 'H1', 'verdict')).toContain('over by 2.000');
   });
 
-  it('notes a row without a tolerance', () => {
+  it('notes a row without a tolerance in its tooltip and on the confirm card', () => {
     const { fetcher } = backend({});
     mount(fetcher, state({ plan: plan({ correctors: [row({ tolerance: null })] }) }));
-    expect(planRow(root, 'H1').textContent).toContain('no tolerance: not staleness-checked');
+    expect(planRow(root, 'H1').title).toBe('no tolerance: not staleness-checked');
+    openConfirm(root);
+    expect(field(root, 'confirm').textContent).toContain('no tolerance: not staleness-checked');
   });
 
-  it('writes the closure line with sigma, leakage, dropped BPMs and skipped correctors', () => {
+  it('puts the closure line with sigma, leakage, dropped BPMs and skipped correctors in the title tooltip', () => {
     const { fetcher } = backend({});
     mount(
       fetcher,
@@ -497,7 +498,8 @@ describe('the compute and apply card', () => {
         }),
       })
     );
-    const closure = field(root, 'closure').textContent ?? '';
+    const closure = field(root, 'cor-title').title;
+    expect(closure).toContain('plan #p1');
     expect(closure).toContain('σ kept 1/2');
     expect(closure).toContain('max predicted leakage +0.004 mm');
     expect(closure).toContain('dropped BPMs: B3');
@@ -520,7 +522,37 @@ describe('the compute and apply card', () => {
     const { fetcher } = backend({});
     mount(fetcher, state({ plan: plan() }));
     expect(button(root, 'apply').textContent).toBe('Apply 2 setpoints…');
-    expect(field(root, 'plan-status').textContent).toBe('plan #p1 · 1 target, 2 correctors');
+    expect(field(root, 'plan-status').textContent).toBe('plan #p1');
+    expect(field(root, 'plan-status').hidden).toBe(false);
+  });
+
+  it('says nothing in the status chip without targets or a plan', () => {
+    const { fetcher } = backend({});
+    mount(fetcher);
+    expect(field(root, 'plan-status').hidden).toBe(true);
+    setSelection(root, { targets: { B2: 0.5 } });
+    expect(field(root, 'plan-status').textContent).toBe('edited · not computed');
+    expect(field(root, 'cor-empty').hidden).toBe(false);
+  });
+
+  it('gates Apply once the targets are edited after Compute, until Compute runs again', async () => {
+    const { fetcher } = backend({ compute: () => json(plan({ id: 'p2', targets: { B2: 0.6 } })) });
+    mount(fetcher, state({ plan: plan() }));
+    expect(button(root, 'apply').disabled).toBe(false);
+    setSelection(root, { targets: { B2: 0.6 } });
+    expect(field(root, 'plan-status').textContent).toBe('edited · not computed');
+    expect(button(root, 'apply').disabled).toBe(true);
+    expect(button(root, 'apply').title).toBe('edited since plan #p1: Compute again');
+    openConfirm(root);
+    expect(field(root, 'confirm').hidden).toBe(true);
+    // A rule change is an edit too.
+    setSelection(root, { targets: { B2: 0.5 }, rule: 'auto', correctors: [] });
+    expect(field(root, 'plan-status').textContent).toBe('edited · not computed');
+    setSelection(root, { targets: { B2: 0.6 } });
+    await compute(root);
+    expect(field(root, 'plan-status').textContent).toBe('plan #p2');
+    expect(button(root, 'apply').disabled).toBe(false);
+    expect(button(root, 'apply').hasAttribute('title')).toBe(false);
   });
 
   it('keeps Compute enabled with writes off and gates only Apply', () => {
@@ -536,7 +568,7 @@ describe('the compute and apply card', () => {
     expect(button(root, 'compute').hidden).toBe(false);
     expect(button(root, 'compute').disabled).toBe(false);
     expect(button(root, 'apply').disabled).toBe(true);
-    expect(field(root, 'apply-note').textContent).toBe('Writes are off');
+    expect(button(root, 'apply').title).toBe('Writes are off');
   });
 
   it('shows the posture phrase on a disabled Apply', () => {
@@ -549,7 +581,7 @@ describe('the compute and apply card', () => {
       })
     );
     expect(button(root, 'apply').disabled).toBe(true);
-    expect(field(root, 'apply-note').textContent).toBe('Writes are off: read-only session');
+    expect(button(root, 'apply').title).toBe('Writes are off: read-only session');
   });
 
   it('shows no card and no Apply without a plan', () => {
@@ -597,7 +629,8 @@ describe('the compute and apply card', () => {
     expect(field(root, 'confirm').hidden).toBe(true);
     expect(cell(root, 'H1', 'outcome')).toBe('confirmed');
     expect(cell(root, 'H2', 'outcome')).toBe('not attempted');
-    const after = field(root, 'residual').textContent ?? '';
+    const after = field(root, 'cor-title').title;
+    expect(after).toContain('residual after (mm)');
     expect(after).toContain('B2 +0.010');
     expect(after).toContain('B1 −0.002');
   });

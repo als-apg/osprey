@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { closeContextMenu } from '/design-system/js/context-menu.js';
 import { panelOf, setSelection, showState } from '../panel/panel.js';
 
 // The strip: drawn from the selection and the state only, into the body field.
@@ -232,11 +233,22 @@ describe('the orbit-bump strip', () => {
     expect(dot(root, 'B2').classList.contains('on')).toBe(true);
   });
 
-  it('keeps an existing offset when a BPM already in the bump is clicked', () => {
+  it('takes a BPM already in the bump out of it on a click', () => {
     showState(root, state());
-    setSelection(root, { targets: { B2: 0.3 } });
+    setSelection(root, { targets: { B2: 0.3, B3: 0.1 } });
     click(dot(root, 'B2'));
-    expect(panelOf(root).selection.targets).toEqual({ B2: 0.3 });
+    expect(panelOf(root).selection.targets).toEqual({ B3: 0.1 });
+    expect(dot(root, 'B2').classList.contains('on')).toBe(false);
+  });
+
+  it('extends the bump from the last picked BPM on a shift-click', () => {
+    showState(root, state());
+    click(dot(root, 'B1'));
+    dot(root, 'B3').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    expect(Object.keys(panelOf(root).selection.targets).sort()).toEqual(['B1', 'B2', 'B3']);
+    // Extending again from B3 leaves B1–B3 as they are.
+    dot(root, 'B4').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+    expect(Object.keys(panelOf(root).selection.targets).sort()).toEqual(['B1', 'B2', 'B3', 'B4']);
   });
 
   it("marks the targets and predicted orbit of a hydrated agent's plan", () => {
@@ -263,7 +275,7 @@ describe('the orbit-bump strip', () => {
     expect(tick(root, 'H2').classList.contains('on')).toBe(false);
   });
 
-  it("draws each plan corrector's step as a bar on the corrector row, signed", () => {
+  it("draws each plan corrector's step as a signed bar about a zero axis above the ticks", () => {
     /** @type {Plan} */
     const plan = {
       id: 'p2',
@@ -282,12 +294,26 @@ describe('the orbit-bump strip', () => {
       if (!found) throw new Error(`no bar for ${element}`);
       return found;
     };
-    const row = Number(tick(root, 'H1').getAttribute('y'));
+    const axis = svg(root).querySelector('[data-field="delta-axis"]');
+    expect(axis).not.toBeNull();
+    const zero = Number(axis?.getAttribute('y1'));
+    expect(zero).toBeLessThan(Number(tick(root, 'H1').getAttribute('y')));
+    expect(svg(root).textContent).toContain('ΔA');
     const up = bar('H1');
     const down = bar('H2');
-    expect(Number(up.getAttribute('y')) + Number(up.getAttribute('height'))).toBeCloseTo(row);
-    expect(Number(down.getAttribute('y'))).toBeCloseTo(row);
+    expect(Number(up.getAttribute('y')) + Number(up.getAttribute('height'))).toBeCloseTo(zero);
+    expect(Number(down.getAttribute('y'))).toBeCloseTo(zero);
     expect(Number(down.getAttribute('height'))).toBeCloseTo(Number(up.getAttribute('height')) / 2);
+    // The plan's correctors are marked picked, and each tick names its step.
+    expect(tick(root, 'H1').classList.contains('picked')).toBe(true);
+    expect(tick(root, 'H3').classList.contains('picked')).toBe(false);
+    expect(tick(root, 'H2').getAttribute('data-tip')).toBe('H2 · Δ −0.500 A');
+  });
+
+  it('draws no Δ axis without a plan', () => {
+    showState(root, state());
+    expect(svg(root).querySelector('[data-field="delta-axis"]')).toBeNull();
+    expect(svg(root).querySelector('.ob-delta')).toBeNull();
   });
 
   it('draws no predicted orbit without a plan', () => {
@@ -347,5 +373,179 @@ describe('the orbit-bump strip', () => {
   it('draws nothing when no model is offered', () => {
     showState(root, state({ models: [] }));
     expect(root.querySelector('svg[data-field="strip"]')?.childElementCount ?? 0).toBe(0);
+  });
+});
+
+/**
+ * Give the strip a layout box (happy-dom does none) where client pixels are
+ * the strip's user units.
+ * @param {Element} root
+ */
+function layout(root) {
+  const strip = svg(root);
+  const box = { left: 0, top: 0, width: 1000, height: 242, right: 1000, bottom: 242, x: 0, y: 0 };
+  strip.getBoundingClientRect = () => /** @type {DOMRect} */ ({ ...box, toJSON: () => ({}) });
+}
+
+/**
+ * @param {Element} target
+ * @param {string} type
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+function pointer(target, type, clientX, clientY) {
+  target.dispatchEvent(new PointerEvent(type, { clientX, clientY, pointerId: 1, bubbles: true }));
+}
+
+/**
+ * @param {Element} root
+ * @param {string} element
+ */
+function handle(root, element) {
+  const found = svg(root).querySelector(`.ob-target[data-element="${element}"]`);
+  if (!(found instanceof SVGElement)) throw new Error(`no handle for ${element}`);
+  return found;
+}
+
+/**
+ * @param {Element} target
+ * @param {string} key
+ * @param {boolean} [shiftKey]
+ */
+function press(target, key, shiftKey = false) {
+  target.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey, bubbles: true }));
+}
+
+/** @param {Element} target */
+function rightClick(target) {
+  target.dispatchEvent(
+    new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 60 })
+  );
+}
+
+/** The rows of the open context menu. */
+function menuRows() {
+  return /** @type {HTMLElement[]} */ ([
+    ...document.querySelectorAll('.osprey-context-menu [role^="menuitem"]'),
+  ]);
+}
+
+/** @param {string} label */
+function menuRow(label) {
+  const found = menuRows().find((row) => row.textContent?.startsWith(label));
+  if (!found) throw new Error(`no menu row ${label}`);
+  return found;
+}
+
+describe('picking and shaping on the strip', () => {
+  /** @type {HTMLElement} */
+  let root;
+
+  beforeEach(() => {
+    root = document.createElement('main');
+    root.innerHTML = MARKUP;
+    document.body.append(root);
+    showState(root, state());
+    layout(root);
+  });
+
+  afterEach(() => {
+    closeContextMenu();
+    root.remove();
+  });
+
+  it('adds every BPM a drag across the empty plot spans, at a zero offset', () => {
+    const bg = svg(root).querySelector('.ob-bg');
+    if (!bg) throw new Error('no background');
+    // From H1 (20 m) to H3 (70 m): B2 (30 m) and B3 (50 m).
+    pointer(bg, 'pointerdown', xOf(tick(root, 'H1')), 60);
+    pointer(svg(root), 'pointermove', 500, 60);
+    expect(svg(root).querySelector('.ob-marquee')).not.toBeNull();
+    pointer(svg(root), 'pointerup', xOf(tick(root, 'H3')), 60);
+    expect(panelOf(root).selection.targets).toEqual({ B2: 0, B3: 0 });
+    expect(svg(root).querySelector('.ob-marquee')).toBeNull();
+    expect(panelOf(root).view).toBeNull();
+    // The bump's band and its grip, named by its ends.
+    expect(svg(root).querySelector('.ob-band')).not.toBeNull();
+    expect(svg(root).querySelector('.ob-grip-text')?.textContent).toBe('B2–B3 · 2 BPM  ⇕');
+  });
+
+  it('leaves out a BPM without a reading from a drag', () => {
+    const readings = orbit();
+    readings.position['B2:POS:x'] = null;
+    showState(root, state({ orbit: readings }));
+    layout(root);
+    const bg = svg(root).querySelector('.ob-bg');
+    if (!bg) throw new Error('no background');
+    pointer(bg, 'pointerdown', 40, 60);
+    pointer(svg(root), 'pointerup', 990, 60);
+    expect(Object.keys(panelOf(root).selection.targets).sort()).toEqual(['B1', 'B3', 'B4']);
+  });
+
+  it('drags a target handle vertically in nudge steps, on the scale it started on', () => {
+    setSelection(root, { targets: { B2: 0 } });
+    const y0 = Number(handle(root, 'B2').getAttribute('data-y'));
+    // The plot's half-height (69 units) is the scale: 0.1 × 1.15 = 0.115 mm.
+    pointer(handle(root, 'B2'), 'pointerdown', 300, y0);
+    pointer(svg(root), 'pointermove', 300, y0 - 34.5);
+    // 0.0575 mm, snapped to the 0.01 mm step.
+    expect(panelOf(root).selection.targets.B2).toBeCloseTo(0.06, 9);
+    expect(svg(root).classList.contains('dragging')).toBe(true);
+    pointer(svg(root), 'pointermove', 300, y0 + 72);
+    expect(panelOf(root).selection.targets.B2).toBeCloseTo(-0.12, 9);
+    pointer(svg(root), 'pointerup', 300, y0 + 72);
+    expect(svg(root).classList.contains('dragging')).toBe(false);
+    expect(panelOf(root).amp).toBeCloseTo(-0.12, 9);
+    expect(handle(root, 'B2').querySelector('.ob-handle-label')?.textContent).toBe('−0.120');
+  });
+
+  it('moves every target by the same amount when the grip is dragged', () => {
+    setSelection(root, { targets: { B2: 0.1, B3: -0.05 } });
+    const grip = svg(root).querySelector('[data-grip]');
+    if (!grip) throw new Error('no grip');
+    pointer(grip, 'pointerdown', 400, 170);
+    pointer(svg(root), 'pointermove', 400, 140);
+    pointer(svg(root), 'pointerup', 400, 140);
+    const { B2, B3 } = panelOf(root).selection.targets;
+    expect(B2 - 0.1).toBeGreaterThan(0);
+    expect(B2 - 0.1).toBeCloseTo(B3 + 0.05, 9);
+  });
+
+  it('nudges a focused handle with the arrow keys, ×10 with shift, and removes it', () => {
+    setSelection(root, { targets: { B2: 0, B3: 0 } });
+    handle(root, 'B2').focus();
+    press(handle(root, 'B2'), 'ArrowUp');
+    expect(panelOf(root).selection.targets.B2).toBeCloseTo(0.01, 9);
+    press(handle(root, 'B2'), 'ArrowDown', true);
+    expect(panelOf(root).selection.targets.B2).toBeCloseTo(-0.09, 9);
+    // The redrawn handle keeps the focus.
+    expect(document.activeElement).toBe(handle(root, 'B2'));
+    press(handle(root, 'B2'), 'ArrowRight');
+    expect(document.activeElement).toBe(handle(root, 'B3'));
+    press(handle(root, 'B3'), 'Delete');
+    expect(panelOf(root).selection.targets).toEqual({ B2: -0.09 });
+    expect(handle(root, 'B2').getAttribute('role')).toBe('slider');
+    expect(handle(root, 'B2').getAttribute('tabindex')).toBe('0');
+  });
+
+  it('opens a context menu on a dot that adds it to the bump', () => {
+    rightClick(dot(root, 'B2'));
+    expect(document.querySelector('.osprey-context-menu')).not.toBeNull();
+    expect(menuRows().some((row) => row.textContent?.startsWith('Whole ring'))).toBe(true);
+    expect(menuRow('Whole ring').getAttribute('aria-disabled')).toBe('true');
+    menuRow('Add to bump').click();
+    expect(panelOf(root).selection.targets).toEqual({ B2: 0 });
+  });
+
+  it('inverts the bump from the grip menu, and sets the nudge step from any menu', () => {
+    setSelection(root, { targets: { B2: 0.1, B3: -0.05 } });
+    const grip = svg(root).querySelector('[data-grip]');
+    if (!grip) throw new Error('no grip');
+    rightClick(grip);
+    menuRow('Invert the bump').click();
+    expect(panelOf(root).selection.targets).toEqual({ B2: -0.1, B3: 0.05 });
+    rightClick(svg(root).querySelector('[data-grip]') ?? grip);
+    menuRow('100 µm').click();
+    expect(panelOf(root).step).toBe(0.1);
   });
 });
