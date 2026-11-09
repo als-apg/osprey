@@ -374,6 +374,10 @@ class TestDockerfileContent:
         browser = bodies[0]
         assert "--with-deps" in browser
         assert "chromium" in browser
+        # The driver itself links libatomic, which the slim base lacks: it is
+        # installed in the same RUN, before the driver first starts.
+        assert "libatomic1" in browser
+        assert browser.index("libatomic1") < browser.index("playwright install")
 
         env = re.search(r"^ENV PLAYWRIGHT_BROWSERS_PATH=(\S+)$", text, re.MULTILINE)
         assert env, "the browser path must be shared, not root's home cache"

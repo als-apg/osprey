@@ -304,12 +304,17 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # launches, so the full browser is not installed. It sits after the deps layer
 # because the playwright package it runs comes from there, and before the dev
 # wheel so that rebuilding with a local wheel does not fetch it again. The
-# CANOPY panel's sidecar drives the same headless shell.
+# CANOPY panel's sidecar drives the same headless shell. Playwright's own
+# driver is a node binary that links libatomic, which the slim base lacks and
+# the deps layer's toolchain purge takes away, so the layer installs it first:
+# without it the driver cannot start to install anything.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
-    python -m playwright install --with-deps --only-shell chromium
+    apt-get update \
+    && apt-get install -y --no-install-recommends libatomic1 \
+    && python -m playwright install --with-deps --only-shell chromium
 
 # Wheel drop (wheel layer). `osprey up --dev` stages a locally-built wheel in
 # the build context; when one is present, install it with its dependencies under
