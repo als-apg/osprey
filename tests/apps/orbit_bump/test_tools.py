@@ -179,11 +179,12 @@ async def test_plan_bump_posts_the_compute_through_the_panel_door(door: Door) ->
         "targets": {"m5": 0.1},
         "rule": "auto",
         "priority": "closure",
-        "outside": "hold",
+        "others": "hold",
+        "all_correctors": False,
     }
 
 
-async def test_plan_bump_carries_the_priority_and_the_outside_aim(door: Door) -> None:
+async def test_plan_bump_carries_the_priority_others_and_all_correctors(door: Door) -> None:
     await _call(
         "plan_bump",
         model="RING",
@@ -191,11 +192,12 @@ async def test_plan_bump_carries_the_priority_and_the_outside_aim(door: Door) ->
         targets={"m5": 0.1},
         rule="auto",
         priority="targets",
-        outside="golden",
+        others="zero",
+        all_correctors=True,
     )
     [request] = door.requests
     sent = json.loads(request.content)
-    assert (sent["priority"], sent["outside"]) == ("targets", "golden")
+    assert (sent["priority"], sent["others"], sent["all_correctors"]) == ("targets", "zero", True)
 
 
 @pytest.mark.usefixtures("stamps")
@@ -406,7 +408,8 @@ def _ready_plan(**over: Any) -> dict[str, Any]:
         "reason": None,
         "rule": "auto",
         "priority": "closure",
-        "outside": "hold",
+        "others": "hold",
+        "all_correctors": False,
         "targets": {"m1": 0.25},
         "predicted": {"m1": 0.34, "m3": 0.0},
         "orbit_at_compute": {"m1": 0.35},
@@ -466,6 +469,7 @@ def test_the_plans_per_bpm_fields_land_in_the_rows_of_its_own_view() -> None:
         0.002,
     )
     assert answer["plan"]["id"] == PLAN
+    assert (answer["plan"]["others"], answer["plan"]["all_correctors"]) == ("hold", False)
     for key in ("predicted", "orbit_at_compute", "miss", "residual_after"):
         assert key not in answer["plan"]
     # Another plane's view shows the orbit, never this plan's targets.
@@ -540,7 +544,8 @@ def test_the_draft_is_shown_with_whether_the_plan_was_computed_from_it() -> None
         "rule": "auto",
         "correctors": [],
         "priority": "closure",
-        "outside": "hold",
+        "others": "hold",
+        "all_correctors": False,
         "shape": "flat",
         "amplitude": 0.25,
     }
@@ -550,6 +555,8 @@ def test_the_draft_is_shown_with_whether_the_plan_was_computed_from_it() -> None
     edited = {**draft, "targets": {"m1": 0.3}}
     assert tools.draft_matches_plan(edited, _ready_plan()) is False
     assert tools.draft_matches_plan({**draft, "priority": "targets"}, _ready_plan()) is False
+    assert tools.draft_matches_plan({**draft, "others": "free"}, _ready_plan()) is False
+    assert tools.draft_matches_plan({**draft, "all_correctors": True}, _ready_plan()) is False
     assert tools.draft_matches_plan(draft, None) is None
     assert tools.draft_matches_plan(None, _ready_plan()) is None
 

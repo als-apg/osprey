@@ -51,7 +51,6 @@ from orbit_bump.solver import (
     SelectResult,
     select_correctors,
     solve_bump,
-    split_rows,
 )
 from osprey.apps.sdk import (
     LAUNCH_TOKEN_HEADER,
@@ -94,10 +93,12 @@ COMPUTE_ROUTE = "/api/compute"
 APPLY_ROUTE = "/api/apply"
 #: The prefix the panel's MML signed-index rules carry; the solver takes the list bare.
 MML_RULE_PREFIX = "mml:"
-#: Outside BPMs aim at their orbit at compute: a local bump.
+#: The other BPMs (every BPM of the plane not in the bump) are left out of the solve.
+FREE = "free"
+#: The other BPMs aim at their orbit at compute: a local bump.
 HOLD = "hold"
-#: Outside BPMs aim at golden and every solved corrector of the plane is used.
-GOLDEN = "golden"
+#: The other BPMs aim at their golden orbit.
+ZERO = "zero"
 #: A bump BPM is missed when its predicted position is off its aim by more than this
 #: (in the BPM unit) or by ``MISS_FRACTION`` of the largest target offset, the larger.
 MISS_FLOOR = 0.001
@@ -382,7 +383,8 @@ class ComputeRequest(BaseModel):
     rule: str
     correctors: list[str] | None = None
     priority: Literal["closure", "targets"] = CLOSURE
-    outside: Literal["hold", "golden"] = HOLD
+    others: Literal["free", "hold", "zero"] = HOLD
+    all_correctors: bool = False
 
 
 class DraftRequest(BaseModel):
@@ -396,7 +398,8 @@ class DraftRequest(BaseModel):
     rule: str = "auto"
     correctors: list[str] = []
     priority: Literal["closure", "targets"] = CLOSURE
-    outside: Literal["hold", "golden"] = HOLD
+    others: Literal["free", "hold", "zero"] = HOLD
+    all_correctors: bool = False
     shape: Literal["flat", "peak", "cos"] = "flat"
     amplitude: float = 0.0
 
@@ -519,9 +522,9 @@ def solve_plan(
                 409, f"the setpoint of corrector {cor.element} ({cor.setpoint_addr}) is unreadable"
             )
     orbit = {bpm.element: values.get(bpm.position_addr) for bpm in plane.bpms}
-    # The orbit each outside BPM aims at: its orbit at compute, or its golden orbit.
+    # The orbit each other BPM aims at: its orbit at compute, or its golden orbit.
     aim: dict[str, float | None] = dict(orbit)
-    if body.outside == GOLDEN:
+    if body.others == ZERO:
         aim = {
             bpm.element: values.get(bpm.golden_addr) if bpm.golden_addr else None
             for bpm in plane.bpms
@@ -533,14 +536,13 @@ def solve_plan(
     ]
     used = [b for b in range(len(plane.bpms)) if b not in dropped]
     row_of = {b: r for r, b in enumerate(used)}
-    try:
-        split = split_rows(
-            plane.bpm_idx, [plane.cor_idx[c] for c in picked.selected], plane.n_index
-        )
-    except ValueError as exc:
-        raise ComputeRefused(409, f"no solved corrector is left to make the bump: {exc}") from None
-    outside = used if body.outside == GOLDEN else split.leak_rows
-    leak = [b for b in outside if b in row_of and b not in bump]
+    if not picked.selected:
+        raise ComputeRefused(409, "no solved corrector is left to make the bump")
+    # The held rows: every other BPM, inside the corrector span and outside it.
+    leak = [] if body.others == FREE else [b for b in used if b not in bump]
+    if body.others != FREE and not leak:
+        verb = "hold" if body.others == HOLD else "steer to golden"
+        raise ComputeRefused(409, f"no other BPM is readable to {verb}; set other BPMs free")
     try:
         matrix = snapshot.slice(
             [plane.bpms[b].position_addr for b in used],
@@ -607,7 +609,8 @@ def solve_plan(
         "plane": body.plane,
         "rule": body.rule,
         "priority": body.priority,
-        "outside": body.outside,
+        "others": body.others,
+        "all_correctors": body.all_correctors,
         "orm_version": snapshot.version,
         "created_at": created_at,
         "status": READY,
@@ -662,8 +665,8 @@ def compute_pick(
         if not math.isfinite(offset):
             raise ComputeRefused(422, f"the offset of {element} is not finite")
     bump = _positions_of(plane.bpms, body.targets, "BPM")
-    if body.outside == GOLDEN:
-        # A global correction with the bump on top: every solved corrector, rule aside.
+    if body.all_correctors:
+        # Every solved corrector of the plane, rule aside.
         unsolved = view.unsolved_positions(snapshot.unsolved, body.plane)
         every = range(len(plane.correctors))
         return bump, SelectResult(
@@ -691,12 +694,12 @@ def compute_pick(
 
 def compute_reads(body: ComputeRequest, view: RingView, snapshot: OrmSnapshot) -> list[str]:
     """Every address one Compute reads: the plane's BPM positions, the bump BPMs'
-    golden (every BPM's when outside BPMs aim at golden), and the picked correctors'
+    golden (every BPM's when the other BPMs aim at golden), and the picked correctors'
     setpoints and readbacks."""
     plane = view.plane(body.plane)
     bump, picked = compute_pick(body, view, snapshot)
     addrs = [bpm.position_addr for bpm in plane.bpms]
-    gold_of = range(len(plane.bpms)) if body.outside == GOLDEN else bump
+    gold_of = range(len(plane.bpms)) if body.others == ZERO else bump
     addrs += [plane.bpms[b].golden_addr for b in gold_of]
     for c in picked.selected:
         addrs += [plane.correctors[c].setpoint_addr, plane.correctors[c].readback_addr]
@@ -796,8 +799,8 @@ async def _settle(
 def residual_after(
     plan: Mapping[str, Any], plane: PlaneView, values: Mapping[str, float | None]
 ) -> dict[str, float]:
-    """Each bump BPM's position less its aim, each leakage BPM's less its orbit at compute
-    (its golden orbit when the plan aims outside BPMs at golden).
+    """Each bump BPM's position less its aim, each held BPM's less its orbit at compute
+    (its golden orbit when the plan aims the other BPMs at golden).
 
     An unreadable BPM is left out.
     """
@@ -818,7 +821,7 @@ def residual_after(
         if bpm is None:
             continue
         position = values.get(bpm.position_addr)
-        if plan.get("outside") == GOLDEN:
+        if plan.get("others") == ZERO:
             aim = values.get(bpm.golden_addr) if bpm.golden_addr else None
         else:
             aim = orbit.get(element)

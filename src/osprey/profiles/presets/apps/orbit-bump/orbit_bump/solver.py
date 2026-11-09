@@ -207,7 +207,8 @@ def solve_bump(
 
     ``orm`` is the response of every BPM of the plane (rows) to each selected corrector
     (columns); ``now`` and ``goal`` are orbits at every BPM. A caller holds the leakage
-    rows by aiming them at ``now``; span rows that are neither stay free.
+    rows by aiming them at ``now``; rows that are neither stay free. With no leakage row
+    the bump rows are fitted alone, the smallest delta among equal fits.
 
     ``closure``: bump rows weigh ``0.5 · n_leak / n_bump``, leakage rows 1, and
     ``delta = V Σ⁻¹ Uᵀ W (goal − now)`` from the SVD of ``W·R``, keeping the singular
@@ -221,8 +222,8 @@ def solve_bump(
     columns left at a limit. ``predicted = now + orm · delta``.
 
     Raises:
-        ValueError: on no bump row, no leakage row, mismatched shapes, an unknown
-            priority, or a delta that is not finite.
+        ValueError: on no bump row, mismatched shapes, an unknown priority, or a delta
+            that is not finite.
     """
     orm = np.asarray(orm, dtype=float)
     now = np.asarray(now, dtype=float)
@@ -239,13 +240,11 @@ def solve_bump(
         raise ValueError(f"unknown priority {priority!r}; one of {', '.join(PRIORITIES)}")
     if not bump_rows:
         raise ValueError("a bump needs at least one bump row")
-    if not leak_rows:
-        raise ValueError("no leakage BPM is left outside the bump to hold the orbit closed")
     lo, hi = _limits(lower, upper, n_cor)
     rows = list(bump_rows) + list(leak_rows)
     target = goal[rows] - now[rows]
     if priority == CLOSURE:
-        bump_weight = 0.5 * len(leak_rows) / len(bump_rows)
+        bump_weight = 0.5 * len(leak_rows) / len(bump_rows) if leak_rows else 1.0
         delta, kept, total = _svd_solve(
             np.concatenate([np.full(len(bump_rows), bump_weight), np.ones(len(leak_rows))]),
             orm[rows],
@@ -318,7 +317,7 @@ def _exact_then_closed(
     delta = vt[:rank].T @ ((u[:, :rank].T @ bump_target) / s[:rank])
     free = vt[rank:].T
     kept = rank
-    if free.shape[1]:
+    if free.shape[1] and leak.shape[0]:
         reduced = leak @ free
         z, _res, leak_rank, _s = np.linalg.lstsq(
             reduced, leak_target - leak @ delta, rcond=sigma_cut

@@ -832,7 +832,8 @@ DRAFT = {
     "rule": "manual",
     "correctors": ["C2"],
     "priority": "targets",
-    "outside": "hold",
+    "others": "zero",
+    "all_correctors": True,
     "shape": "peak",
     "amplitude": 0.1,
 }
@@ -862,7 +863,8 @@ def test_a_draft_defaults_what_the_panel_leaves_out(client) -> None:
     client.post(DRAFT_ROUTE, json={"plane": "x"})
     draft = client.get(STATE_ROUTE).json()["draft"]
     assert draft["rule"] == "auto"
-    assert (draft["priority"], draft["outside"], draft["shape"]) == ("closure", "hold", "flat")
+    assert (draft["priority"], draft["others"], draft["shape"]) == ("closure", "hold", "flat")
+    assert draft["all_correctors"] is False
 
 
 def test_a_draft_with_an_unknown_field_is_refused(client) -> None:
@@ -991,9 +993,10 @@ def test_compute_stores_a_ready_plan_solved_on_the_ready_orm(client, app, sdk) -
     assert plan["orm_version"] == 1
     assert plan["created_at"] == NOW
     assert plan["targets"] == {"B3": 0.5}
-    # auto: one corrector upstream of B3, two downstream; span B3..B4, the rest leak.
+    # auto: one corrector upstream of B3, two downstream; every other BPM is held,
+    # B4 inside the span as well.
     assert _elements(plan["correctors"]) == ["C2", "C3", "C4"]
-    assert _elements(plan["leakage"]) == ["B0", "B1", "B2", "B5", "B6", "B7"]
+    assert _elements(plan["leakage"]) == ["B0", "B1", "B2", "B4", "B5", "B6", "B7"]
     first = plan["correctors"][0]
     assert first["setpoint_addr"] == "C2:x:SP" and first["readback_addr"] == "C2:x:RB"
     assert first["now"] == pytest.approx(1.2)
@@ -1163,13 +1166,25 @@ def test_compute_records_an_unreadable_readback_as_null(client, app, sdk, machin
     assert plan["correctors"][1]["readback_at_compute"] is None
 
 
-def test_compute_with_no_leakage_bpm_left_is_refused(client, app, sdk, machine) -> None:
+@pytest.mark.parametrize(("others", "verb"), [("hold", "hold"), ("zero", "steer to golden")])
+def test_compute_with_no_other_bpm_left_to_hold_is_refused(
+    client, app, sdk, machine, others, verb
+) -> None:
     _built(app, sdk, "RING")
-    for k in (0, 1, 2, 5, 6, 7):
+    for k in (0, 1, 2, 4, 5, 6, 7):
         machine.values[f"B{k}:x:POS"] = float("nan")
-    answer = client.post(COMPUTE_ROUTE, json=_ask())
+    answer = client.post(COMPUTE_ROUTE, json=_ask(others=others))
     assert answer.status_code == 409
-    assert "no leakage BPM" in answer.json()["detail"]
+    assert f"no other BPM is readable to {verb}" in answer.json()["detail"]
+
+
+def test_compute_with_free_others_needs_no_other_bpm(client, app, sdk, machine) -> None:
+    _built(app, sdk, "RING")
+    for k in (0, 1, 2, 4, 5, 6, 7):
+        machine.values[f"B{k}:x:POS"] = float("nan")
+    answer = client.post(COMPUTE_ROUTE, json=_ask(others="free"))
+    assert answer.status_code == 201, answer.text
+    assert answer.json()["leakage"] == []
 
 
 @pytest.mark.usefixtures("machine")
@@ -1204,7 +1219,7 @@ def test_compute_drops_an_unreadable_leakage_bpm_from_the_fit(client, app, sdk, 
     del machine.values["B6:x:POS"]
     plan = client.post(COMPUTE_ROUTE, json=_ask()).json()
     assert plan["dropped_bpms"] == ["B6"]
-    assert _elements(plan["leakage"]) == ["B0", "B1", "B2", "B5", "B7"]
+    assert _elements(plan["leakage"]) == ["B0", "B1", "B2", "B4", "B5", "B7"]
 
 
 @pytest.mark.usefixtures("machine")
@@ -1228,7 +1243,7 @@ def test_compute_wraps_a_span_round_the_ring_start(client, app, sdk) -> None:
     assert plan["status"] == READY
     # Upstream of B0 is the last corrector of the ring; the span B7's corrector..C1.
     assert _elements(plan["correctors"]) == ["C7", "C0", "C1"]
-    assert _elements(plan["leakage"]) == ["B2", "B3", "B4", "B5", "B6", "B7"]
+    assert _elements(plan["leakage"]) == [f"B{k}" for k in range(1, CELLS)]
 
 
 @pytest.mark.usefixtures("machine")
@@ -1240,7 +1255,7 @@ def test_compute_takes_a_wide_mml_pick(client, app, sdk) -> None:
     assert answer.status_code == 201, answer.text
     plan = answer.json()
     assert _elements(plan["correctors"]) == ["C0", "C2", "C3", "C4", "C6"]
-    assert _elements(plan["leakage"]) == ["B0", "B7"]
+    assert _elements(plan["leakage"]) == ["B0", "B1", "B2", "B5", "B6", "B7"]
 
 
 @pytest.mark.usefixtures("machine")
@@ -1263,7 +1278,9 @@ def test_compute_takes_the_ticked_correctors_under_the_manual_rule(client, app, 
         {"plane": "z"},
         {"extra": 1},
         {"priority": "both"},
-        {"outside": "global"},
+        {"others": "golden"},
+        {"outside": "hold"},
+        {"all_correctors": "every"},
     ],
 )
 @pytest.mark.usefixtures("machine")
@@ -1312,7 +1329,7 @@ def test_compute_whose_closure_overflows_the_display_is_not_applicable(
     assert "21 display lines" in plan["reason"]
 
 
-# -- unreachable bumps: misses, limits, priority, outside BPMs ---------------------
+# -- unreachable bumps: misses, limits, priority, other BPMs ---------------------
 
 #: A periodic ring of 72 cells, corrector ``Cc`` half a cell before BPM ``Bc``.
 PERIODIC = 72
@@ -1361,13 +1378,15 @@ FLAT = {f"B{k}": 0.1 for k in range(25, 41)}
 
 
 @pytest.mark.usefixtures("machine")
-def test_compute_records_rule_priority_outside_and_defaults(client, app, sdk) -> None:
+def test_compute_records_rule_priority_others_and_defaults(client, app, sdk) -> None:
     _built(app, sdk, "RING")
     plan = client.post(COMPUTE_ROUTE, json=_ask(rule="mml:[-1 1]")).json()
-    assert (plan["rule"], plan["priority"], plan["outside"]) == ("mml:[-1 1]", "closure", "hold")
-    asked = _ask(priority="targets", outside="golden")
+    assert (plan["rule"], plan["priority"], plan["others"]) == ("mml:[-1 1]", "closure", "hold")
+    assert plan["all_correctors"] is False
+    asked = _ask(priority="targets", others="zero", all_correctors=True)
     plan = client.post(COMPUTE_ROUTE, json=asked).json()
-    assert (plan["rule"], plan["priority"], plan["outside"]) == ("auto", "targets", "golden")
+    assert (plan["rule"], plan["priority"], plan["others"]) == ("auto", "targets", "zero")
+    assert plan["all_correctors"] is True
 
 
 @pytest.mark.usefixtures("machine")
@@ -1404,7 +1423,12 @@ def test_the_targets_priority_meets_that_bump_and_shows_the_leakage(client, app,
     plan = client.post(COMPUTE_ROUTE, json=_ask(targets=FLAT, priority="targets")).json()
     assert plan["missed"] == [] and plan["target_miss_max"] < 1e-9
     assert all(plan["predicted"][e] == pytest.approx(0.1) for e in FLAT)
-    assert plan["predicted_closure_max"] > closure["predicted_closure_max"]
+
+    # The closure priority minimises the held BPMs' residual; the targets priority pays in it.
+    def leaked(p):
+        return sum(e["predicted_residual"] ** 2 for e in p["leakage"])
+
+    assert leaked(plan) > leaked(closure)
     lines = client.get(APPROVAL_ROUTE).json()["display_lines"]
     assert not any(line.startswith("targets missed") for line in lines)
 
@@ -1441,52 +1465,129 @@ def test_unbounded_limits_leave_the_plan_unbounded(client, app, sdk, prewrites) 
     assert plan["bounded"] == []
 
 
+@pytest.mark.parametrize("others", ["free", "hold", "zero"])
+@pytest.mark.parametrize("every", [False, True])
 @pytest.mark.usefixtures("machine")
-def test_golden_outside_takes_every_solved_corrector_whatever_the_rule(client, app, sdk) -> None:
+def test_others_and_all_correctors_combine(client, app, sdk, prewrites, others, every) -> None:
+    _built(app, sdk, "RING")
+    prewrites.limits = None
+    plan = client.post(
+        COMPUTE_ROUTE, json=_ask(rule="mml:[-1 1]", others=others, all_correctors=every)
+    ).json()
+    assert plan["status"] == READY
+    assert (plan["others"], plan["all_correctors"]) == (others, every)
+    picked = [f"C{k}" for k in range(CELLS)] if every else ["C2", "C3"]
+    assert _elements(plan["correctors"]) == picked
+    held = [] if others == "free" else [f"B{k}" for k in range(CELLS) if k != 3]
+    assert _elements(plan["leakage"]) == held
+    aim = {"free": None, "hold": lambda e: 0.1 * int(e[1:]), "zero": lambda e: 0.05}[others]
+    for entry in plan["leakage"]:
+        element = entry["element"]
+        assert entry["predicted_residual"] == pytest.approx(
+            plan["predicted"][element] - aim(element)
+        )
+    if every and others != "free":
+        # More correctors fit the closure priority's weighted aim (the bump row weighs
+        # 0.5 · 7 held / 1 bump) at least as well as the rule's two.
+        ruled = client.post(COMPUTE_ROUTE, json=_ask(rule="mml:[-1 1]", others=others)).json()
+
+        def cost(p):
+            held = sum(e["predicted_residual"] ** 2 for e in p["leakage"])
+            return 3.5 * p["miss"]["B3"] ** 2 + held
+
+        assert cost(plan) <= cost(ruled) + 1e-12
+    if others == "free":
+        assert plan["missed"] == [] and plan["predicted"]["B3"] == pytest.approx(0.55)
+
+
+@pytest.mark.usefixtures("machine")
+def test_hold_holds_the_bpms_inside_the_corrector_span(client, app, sdk, prewrites) -> None:
+    _built(app, sdk, "RING")
+    prewrites.limits = None
+    free = client.post(COMPUTE_ROUTE, json=_ask(others="free")).json()
+    hold = client.post(COMPUTE_ROUTE, json=_ask()).json()
+    # C2..C4 span B3 and B4: free lets B4 swing, hold keeps it at its orbit at compute.
+    assert "B4" in _elements(hold["leakage"])
+    swing = abs(free["predicted"]["B4"] - 0.4)
+    assert abs(hold["predicted"]["B4"] - 0.4) < swing
+
+
+@pytest.mark.usefixtures("machine")
+def test_hold_with_few_correctors_reports_its_misses_honestly(client, app, sdk, prewrites) -> None:
+    _built(app, sdk, "RING")
+    prewrites.limits = None
+    plan = client.post(COMPUTE_ROUTE, json=_ask(rule="mml:[-1 1]")).json()
+    # Two correctors cannot both move B3 and hold seven other BPMs.
+    assert plan["status"] == READY
+    assert plan["missed"] == ["B3"] and plan["target_miss_max"] > 0.025
+    assert plan["predicted_closure_max"] > 0
+    lines = client.get(APPROVAL_ROUTE).json()["display_lines"]
+    assert any(line.startswith("targets missed") and "B3" in line for line in lines)
+    targets = client.post(COMPUTE_ROUTE, json=_ask(rule="mml:[-1 1]", priority="targets")).json()
+    assert targets["missed"] == [] and targets["predicted"]["B3"] == pytest.approx(0.55)
+
+
+@pytest.mark.usefixtures("machine")
+def test_a_bounded_hold_names_the_correctors_at_their_limit(client, app, sdk, prewrites) -> None:
+    _built(app, sdk, "RING")
+    prewrites.limits = {"min": None, "max": None, "max_step": 0.01}
+    plan = client.post(COMPUTE_ROUTE, json=_ask(priority="targets")).json()
+    assert plan["bounded"] and plan["missed"] == ["B3"]
+    assert all(abs(row["delta"]) <= 0.01 + 1e-12 for row in plan["correctors"])
+
+
+@pytest.mark.usefixtures("machine")
+def test_all_correctors_takes_every_solved_corrector_whatever_the_rule(client, app, sdk) -> None:
     sdk.rings["RING"] = _compute_ring("RING", unsolved={"C3"})
     _built(app, sdk, "RING")
-    plan = client.post(COMPUTE_ROUTE, json=_ask(rule="mml:[-1 1]", outside="golden")).json()
+    asked = _ask(rule="mml:[-1 1]", all_correctors=True)
+    plan = client.post(COMPUTE_ROUTE, json=asked).json()
     assert _elements(plan["correctors"]) == [f"C{k}" for k in range(CELLS) if k != 3]
     assert plan["skipped_unsolved"] == ["C3"]
-    assert _elements(plan["leakage"]) == [f"B{k}" for k in range(CELLS) if k != 3]
 
 
 @pytest.mark.usefixtures("machine")
-def test_golden_outside_reads_and_aims_every_outside_bpm_at_golden(
+def test_zero_keeps_the_rules_correctors(client, app, sdk) -> None:
+    _built(app, sdk, "RING")
+    plan = client.post(COMPUTE_ROUTE, json=_ask(rule="mml:[-1 1]", others="zero")).json()
+    assert _elements(plan["correctors"]) == ["C2", "C3"]
+
+
+@pytest.mark.usefixtures("machine")
+def test_zero_reads_and_aims_every_other_bpm_at_golden(
     client, app, sdk, machine, prewrites
 ) -> None:
     _built(app, sdk, "RING")
     prewrites.limits = None
     machine.reads.clear()
-    plan = client.post(COMPUTE_ROUTE, json=_ask(outside="golden")).json()
+    plan = client.post(COMPUTE_ROUTE, json=_ask(others="zero")).json()
     [(addrs, _timeout)] = machine.reads
     assert {f"B{k}:x:GOLD" for k in range(CELLS)} <= set(addrs)
     for entry in plan["leakage"]:
         element = entry["element"]
         golden = machine.values[f"{element}:x:GOLD"]
         assert entry["predicted_residual"] == pytest.approx(plan["predicted"][element] - golden)
-    # The orbit 0.1·k is off golden 0.05: aiming at golden moves the outside BPMs towards it
-    # (this response has rank 4, so not all the way), where holding them would keep them off.
+    # The orbit 0.1·k is off golden 0.05: aiming at golden moves the other BPMs towards it
+    # (three correctors, so not all the way), where holding them would keep them off.
     off_golden = sum(e["predicted_residual"] ** 2 for e in plan["leakage"])
     at_compute = sum((0.1 * int(e["element"][1:]) - 0.05) ** 2 for e in plan["leakage"])
-    assert off_golden < 0.75 * at_compute
+    assert off_golden < at_compute
 
 
 @pytest.mark.usefixtures("machine")
-def test_golden_outside_drops_an_outside_bpm_without_a_readable_golden(
-    client, app, sdk, machine
-) -> None:
+def test_zero_drops_an_other_bpm_without_a_readable_golden(client, app, sdk, machine) -> None:
     _built(app, sdk, "RING")
     machine.values["B6:x:GOLD"] = float("nan")
-    plan = client.post(COMPUTE_ROUTE, json=_ask(outside="golden")).json()
+    plan = client.post(COMPUTE_ROUTE, json=_ask(others="zero")).json()
     assert plan["dropped_bpms"] == ["B6"]
     assert "B6" not in _elements(plan["leakage"])
 
 
 @pytest.mark.usefixtures("periodic")
-def test_a_golden_plan_over_72_correctors_is_ready_with_a_summary(client, app, sdk) -> None:
+def test_a_plan_over_72_correctors_is_ready_with_a_summary(client, app, sdk) -> None:
     _built(app, sdk, "RING")
-    plan = client.post(COMPUTE_ROUTE, json=_ask(targets=FLAT, outside="golden")).json()
+    asked = _ask(targets=FLAT, others="zero", all_correctors=True)
+    plan = client.post(COMPUTE_ROUTE, json=asked).json()
     assert len(plan["correctors"]) == PERIODIC
     assert plan["status"] == READY and plan["reason"] is None
     approval = client.get(APPROVAL_ROUTE).json()
@@ -1521,15 +1622,15 @@ def test_the_miss_line_counts_against_the_line_cap() -> None:
     assert summed[-2].startswith("targets missed")
 
 
-def test_residual_after_measures_outside_bpms_from_golden_on_a_golden_plan() -> None:
+def test_residual_after_measures_held_bpms_from_golden_on_a_zero_plan() -> None:
     members, _matrix = _compute_ring("RING")
     plane = build_ring(members).plane("x")
     values = {"B0:x:POS": 0.3, "B0:x:GOLD": 0.1, "B1:x:POS": 0.0, "B1:x:GOLD": 0.0}
     leakage = [{"element": "B0", "predicted_residual": 0.0}]
     hold = _plan(targets={}, leakage=leakage, orbit_at_compute={"B0": 0.25})
-    golden = {**hold, "outside": "golden"}
+    zero = {**hold, "others": "zero"}
     assert residual_after(hold, plane, values) == {"B0": pytest.approx(0.05)}
-    assert residual_after(golden, plane, values) == {"B0": pytest.approx(0.2)}
+    assert residual_after(zero, plane, values) == {"B0": pytest.approx(0.2)}
 
 
 # -- apply ------------------------------------------------------------------------

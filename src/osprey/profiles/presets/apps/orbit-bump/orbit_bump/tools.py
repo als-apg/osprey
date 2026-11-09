@@ -182,7 +182,8 @@ def draft_matches_plan(
         ("model", None),
         ("rule", "auto"),
         ("priority", "closure"),
-        ("outside", "hold"),
+        ("others", "hold"),
+        ("all_correctors", False),
     ):
         if draft.get(key, default) != plan.get(key, default):
             return False
@@ -325,7 +326,8 @@ def register(server: FastMCP) -> None:
         rule: str = "auto",
         correctors: list[str] | None = None,
         priority: Literal["closure", "targets"] = "closure",
-        outside: Literal["hold", "golden"] = "hold",
+        others: Literal["free", "hold", "zero"] = "hold",
+        all_correctors: bool = False,
         bpms: list[str] | None = None,
         amplitude: float | None = None,
         shape: Literal["flat", "peak", "cos"] = "flat",
@@ -344,10 +346,12 @@ def register(server: FastMCP) -> None:
             rule: How the correctors are picked: ``auto``, an MML signed-index rule
                 (``mml:[-1 1]``, ``mml:[-2 -1 1 2]``, ``mml:[-3 -1 1 3]``), or ``manual``.
             correctors: The corrector elements to use, for the ``manual`` rule only.
-            priority: ``closure`` keeps the orbit outside the bump; ``targets`` meets the
-                targets first and lets the orbit outside leak.
-            outside: ``hold`` keeps the monitors outside the bump where they are; ``golden``
-                steers them to golden with every corrector of the plane (rule ignored).
+            priority: ``closure`` holds the other BPMs first; ``targets`` meets the
+                targets first and lets the other BPMs leak.
+            others: Every BPM of the plane not in the bump, inside and outside the
+                corrector span: ``free`` leaves them out of the solve, ``hold`` aims each
+                at its orbit now, ``zero`` at its golden orbit.
+            all_correctors: Use every solved corrector of the plane (rule ignored).
             bpms: The bump BPMs, for an amplitude spread in ring order.
             amplitude: The offset from golden at the bump's peak, in the facility's unit.
             shape: ``flat`` (every BPM at the amplitude), ``peak`` (a triangle) or ``cos``
@@ -364,7 +368,8 @@ def register(server: FastMCP) -> None:
             "targets": targets,
             "rule": rule,
             "priority": priority,
-            "outside": outside,
+            "others": others,
+            "all_correctors": all_correctors,
         }
         if correctors is not None:
             body["correctors"] = correctors

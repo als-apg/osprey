@@ -25,7 +25,7 @@ see or press, so you can always tell the operator where to look.
 | Tool | Panel equivalent | Writes to the machine |
 |---|---|---|
 | `bump_state(model?, plane?, bpms?)` | everything on screen | no |
-| `plan_bump(model, plane, targets \| bpms+amplitude+shape, rule, correctors?, priority?, outside?)` | the bump and corrector controls, then Compute | no |
+| `plan_bump(model, plane, targets \| bpms+amplitude+shape, rule, correctors?, priority?, others?, all_correctors?)` | the bump and corrector controls, then Compute | no |
 | `discard_bump()` | Clear | no |
 | `recompute_orm(model)` | *recompute* on the response-matrix chip | no |
 | `apply_bump(plan_id)` | Apply… then Confirm | yes, behind approval |
@@ -46,8 +46,8 @@ current plan's, else the first model and `x`):
   cannot be used.
 - `plan`: the current plan whole (see *Reading a plan*).
 - `draft`: what the operator has set in the panel, computed or not: plane,
-  model, targets, rule, manual correctors, priority, outside, shape and
-  amplitude. `draft_matches_plan` says whether the current plan was computed
+  model, targets, rule, manual correctors, priority, others, all_correctors,
+  shape and amplitude. `draft_matches_plan` says whether the current plan was computed
   from it. When the operator says "this bump" or "what I have", the draft is
   what they mean: compute it with its own arguments rather than asking for
   them. When it differs from the plan, say so; the operator may want Compute
@@ -73,17 +73,22 @@ replaces your current plan; the answer is the plan with its `id`.
   two downstream), the MML signed-index lists `mml:[-1 1]` (the panel's
   *tight*), `mml:[-2 -1 1 2]`, `mml:[-3 -1 1 3]`, or `manual` with
   `correctors` named from `bump_state`.
-- `priority`: `closure` (default; close the bump, trading target accuracy) or
-  `targets` (hit the bump BPMs exactly when the correctors can, then minimise
-  leakage).
-- `outside`: `hold` (default; the other BPMs keep their current orbit) or
-  `golden` (the other BPMs aim at golden and every solved corrector of the
-  plane is used; `rule` and `correctors` are ignored). On a ring with many
-  correctors a `golden` plan has more rows than the approval card shows; the
-  card then shows a summary line (corrector count, largest |delta|, bounded
-  count, not-staleness-checked count, setpoint digest), the rows without a
-  tolerance and the largest-|delta| rows in full, and "also writes:" lines
-  naming every other corrector. Tell the operator the card gives the rest by
+- `others`: the panel's *Other BPMs*, every BPM of the plane not in the bump,
+  inside the corrector span and outside it. `hold` (default; each aims at its
+  orbit now), `zero` (each aims at golden), or `free` (left out of the solve;
+  only the targets count). Holding the BPMs inside the span with few
+  correctors may miss the targets; see `missed`.
+- `all_correctors`: `true` uses every solved corrector of the plane; `rule`
+  and `correctors` are ignored. Works with any `others`.
+- `priority`: `closure` (default; hold the other BPMs first, trading target
+  accuracy) or `targets` (hit the bump BPMs exactly when the correctors can,
+  then minimise leakage). Has no effect with `others: free`.
+- On a ring with many correctors, an `all_correctors` plan has
+  more rows than the approval card shows; the card then shows a summary line
+  (corrector count, largest |delta|, bounded count, not-staleness-checked
+  count, setpoint digest), the rows without a tolerance and the
+  largest-|delta| rows in full, and "also writes:" lines naming every other
+  corrector. Tell the operator the card gives the rest by
   name only and that the panel lists every row.
 
 Switching model or plane in the panel clears the bump; for you, computing on
@@ -103,9 +108,10 @@ another model or plane simply replaces the current plan.
 - `bounded`: correctors the solve held at a limit.
 - Per corrector row: `now`, `delta`, `new`, `unit`, the limit `verdict`, and
   `tolerance` (none means "no tolerance: not staleness-checked").
-- Closure: `leakage` per leakage BPM, `predicted_closure_max`,
-  `sigma_kept`/`sigma_total`, `dropped_bpms` (unreadable leakage BPMs),
-  `skipped_unsolved`.
+- Closure: `leakage` per held BPM (its predicted residual from its aim; empty
+  with `others: free`), `predicted_closure_max`, `sigma_kept`/`sigma_total`,
+  `dropped_bpms` (unreadable other BPMs), `skipped_unsolved`; `others` and
+  `all_correctors` as computed.
 - A bump BPM that is unreadable or non-finite blocks compute, naming it.
 - `superseded` / `discarded`: replaced by a newer plan, or dropped (a new
   orbit response matrix discards plans solved on the old one). Compute again.

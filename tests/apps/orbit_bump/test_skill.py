@@ -55,6 +55,11 @@ def test_the_skill_covers_the_tools_and_every_outcome():
         "Stale",
         "Writes off",
         "Unarmed login",
+        "`others`",
+        "`all_correctors`",
+        "`free`",
+        "`hold`",
+        "`zero`",
     ):
         assert word in body, word
 
@@ -73,7 +78,7 @@ def test_the_skill_names_every_tool_the_server_registers():
         assert f"`{tool.name}" in body, tool.name
 
 
-def test_the_skill_says_what_recompute_and_a_golden_plan_cost():
+def test_the_skill_says_what_recompute_and_an_all_correctors_plan_cost():
     body = SKILL.read_text(encoding="utf-8")
     assert "every owner's plan" in body
     assert "more rows than the approval card shows" in body

@@ -240,10 +240,17 @@ def test_solve_sigma_cut_is_relative_to_the_largest_singular_value():
     assert kept_two.sigma_kept == 2
 
 
-def test_solve_refuses_empty_leakage_rows():
+@pytest.mark.parametrize("priority", ["closure", "targets"])
+def test_solve_without_leakage_rows_fits_the_bump_rows_alone(priority):
     orm = _closable_orm()
-    with pytest.raises(ValueError, match="leakage"):
-        solve_bump(orm, np.zeros(8), np.ones(8), [0], [])
+    goal = np.zeros(8)
+    goal[[0, 1]] = [0.3, -0.2]
+    result = solve_bump(orm, np.zeros(8), goal, [0, 1], [], priority=priority)
+    assert result.predicted[[0, 1]] == pytest.approx([0.3, -0.2])
+    # The smallest delta among the exact fits: no part of it leaves the bump rows unmoved.
+    assert np.linalg.norm(result.delta) == pytest.approx(
+        np.linalg.norm(np.linalg.pinv(orm[[0, 1]]) @ goal[[0, 1]])
+    )
 
 
 def test_solve_refuses_a_non_finite_delta():
