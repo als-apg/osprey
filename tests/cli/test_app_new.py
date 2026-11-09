@@ -90,6 +90,21 @@ def test_the_copy_pins_no_port_and_states_no_write_policy(
     assert "writes_enabled" not in text and "arm_writes" not in text
 
 
+def test_the_copy_carries_its_own_skill_under_the_new_name(
+    runner: CliRunner, lifecycle_repo: Path
+) -> None:
+    assert _new(runner, lifecycle_repo, "demo-x").exit_code == 0
+
+    app_dir = lifecycle_repo / "apps" / "demo-x"
+    assert yaml.safe_load((app_dir / "app.yml").read_text(encoding="utf-8"))["skills"] == ["demo-x"]
+    skill = (app_dir / "skills" / "demo-x" / "SKILL.md").read_text(encoding="utf-8")
+    head = yaml.safe_load(skill.split("---\n")[1])
+    assert head["name"] == "demo-x"
+    # The skill names every tool the scaffold registers, with its panel equivalent.
+    for tool in ("read_channel", "set_channel"):
+        assert f"`{tool}" in skill
+
+
 def test_byte_code_of_the_scaffold_is_never_copied(
     runner: CliRunner, lifecycle_repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

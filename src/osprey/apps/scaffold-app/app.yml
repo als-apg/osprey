@@ -32,3 +32,4 @@ tools:
   errors:
     unreachable: The panel's backend is not answering; check its container with osprey health.
     refused: The value was not written. Read the channel again and ask for a new approval.
+skills: [scaffold-app]

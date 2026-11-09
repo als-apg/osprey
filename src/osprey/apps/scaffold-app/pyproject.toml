@@ -13,6 +13,7 @@ dependencies = []
 [tool.hatch.build.targets.wheel]
 packages = ["scaffold_app"]
 
-# The panel sits beside the package in the source tree and inside it in the wheel.
+# The panel and the skill sit beside the package in the source tree and inside it in the wheel.
 [tool.hatch.build.targets.wheel.force-include]
 panel = "scaffold_app/panel"
+skills = "scaffold_app/skills"
