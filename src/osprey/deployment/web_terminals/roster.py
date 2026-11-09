@@ -3172,8 +3172,9 @@ def resolve_image_tag(web_terminals: dict[str, Any]) -> str:
     compose-side ``${...}`` the runtime would re-interpolate at ``up`` time. A
     referenced variable that is unset expands to the empty string (unlike
     :func:`os.path.expandvars`, which would leave the reference in place and leak
-    a ``${...}`` into the output); an image_tag that resolves entirely empty is a
-    lint warning (``_check_image_tag_empty``), never a silent bad tag.
+    a ``${...}`` into the output). In registry mode a reference that expands to
+    empty is refused by :func:`image_tag_problem`, which lint, render and the
+    ``up`` preflight all call.
 
     This is the single source of that resolution — :func:`resolve_cards` and
     lint both route through it so the tag is read and expanded identically.
@@ -3182,6 +3183,41 @@ def resolve_image_tag(web_terminals: dict[str, Any]) -> str:
     if not isinstance(raw, str):
         raw = "latest"
     return _ENV_REF_RE.sub(lambda m: os.environ.get(m.group(1) or m.group(2), ""), raw)
+
+
+def image_tag_problem(web_terminals: dict[str, Any]) -> str | None:
+    """The refusal for a registry-mode ``image_tag`` that expands to an empty
+    tag or tag part, else ``None``.
+
+    Registry mode bakes the resolved tag into every pulled image ref, so each
+    referenced variable that is unset or empty in the process environment is
+    named, in order of first reference. Local mode never reads ``image_tag``,
+    and an absent or non-string value resolves to ``latest``.
+    """
+    if effective_image_source(web_terminals) != "registry":
+        return None
+    raw = web_terminals.get("image_tag")
+    if not isinstance(raw, str):
+        return None
+    empty: list[str] = []
+    for match in _ENV_REF_RE.finditer(raw):
+        name = match.group(1) or match.group(2)
+        if not os.environ.get(name, "") and name not in empty:
+            empty.append(name)
+    if empty:
+        resolved = resolve_image_tag(web_terminals)
+        shown = f"'{resolved}'" if resolved else "an empty string"
+        verb, pronoun = ("is", "it") if len(empty) == 1 else ("are", "them")
+        return (
+            f"modules.web_terminals.image_tag '{raw}' resolved to {shown}: "
+            f"{', '.join(empty)} {verb} not set; export {pronoun} in the shell that runs "
+            "osprey build and osprey up"
+        )
+    if raw == "":
+        return (
+            "modules.web_terminals.image_tag is empty; set a tag, or remove the key to use latest"
+        )
+    return None
 
 
 def _render_ref_by_name(
