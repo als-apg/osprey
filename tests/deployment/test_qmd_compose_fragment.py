@@ -651,6 +651,67 @@ def test_ariel_embed_switch_reads_the_nested_spelling_first():
         configured_ariel_embed(_export(settings={"embed": "no"}))
 
 
+def _ariel(*, embed: bool, strategy: str | None = None, hybrid: bool = True) -> dict:
+    """An ARIEL block whose export names its mirror and *embed*, with hybrid search."""
+    block: dict = {
+        "enhancement_modules": {
+            "qmd_export": {
+                "enabled": True,
+                "mirror_path": "data/ariel_mirror",
+                "settings": {"embed": embed},
+            }
+        },
+        "search_modules": {"hybrid": {"enabled": hybrid}},
+    }
+    if strategy is not None:
+        block["search_modules"]["hybrid"]["settings"] = {"strategy": strategy}
+    return block
+
+
+def _embed_env(service: dict) -> str:
+    return service["environment"]["OSPREY_QMD_EMBED"]
+
+
+def test_embed_switch_renders_per_sidecar():
+    corpora = [
+        {"name": "papers", "source": "data/papers", "embed": False},
+        {"name": "manuals", "source": "data/manuals"},
+    ]
+    rendered = sidecars(
+        facility_knowledge=OKF_BUNDLE,
+        ariel=_ariel(embed=False, strategy="rrf"),
+        qmd={"corpora": corpora},
+    )
+
+    assert {name: _embed_env(service) for name, service in rendered.items()} == {
+        "qmd-okf": "1",
+        "qmd-ariel": "0",
+        "qmd-papers": "0",
+        "qmd-manuals": "1",
+    }
+
+
+def test_ariel_embed_off_with_the_qmd_strategy_is_refused():
+    """The ``qmd`` strategy queries qmd's vectors; with embedding off its vector
+    lane would return nothing, silently."""
+    from osprey.services.ariel_search.search.qmd import DEFAULT_STRATEGY
+
+    for strategy in ("qmd", None):
+        with pytest.raises(ValueError) as refused:
+            sidecars(ariel=_ariel(embed=False, strategy=strategy))
+        assert str(refused.value) == (
+            "ariel.enhancement_modules.qmd_export.settings.embed is false, but "
+            f"ariel.search_modules.hybrid.settings.strategy is {strategy or DEFAULT_STRATEGY!r}, "
+            "which queries qmd's vectors; set strategy: rrf or remove embed: false"
+        )
+
+
+def test_ariel_embed_off_with_the_rrf_strategy_renders():
+    assert _embed_env(sidecars(ariel=_ariel(embed=False, strategy="rrf"))["qmd-ariel"]) == "0"
+    # Without hybrid search nothing queries the ariel sidecar's vectors.
+    assert _embed_env(sidecars(ariel=_ariel(embed=False, hybrid=False))["qmd-ariel"]) == "0"
+
+
 # ---------------------------------------------------------------------------
 # The rest of the fragment
 # ---------------------------------------------------------------------------
