@@ -580,7 +580,7 @@ class TestBusyMigrationRetry:
         from osprey.services.ariel_search.database.repository import ARIELRepository
 
         probe = "information_schema.columns"
-        fake_pool.recorder.rows_for[probe] = [(False, False)]
+        fake_pool.recorder.rows_for[probe] = [(False, False, False)]
         repo = ARIELRepository(fake_pool, ARIELConfig.from_dict(_config()))
         repo._clock = lambda: 1000.0
         assert (await repo.schema_facts()).has_copy_state is False
@@ -598,7 +598,7 @@ class TestBusyMigrationRetry:
         async def _migrate(pool, config, **kwargs):  # noqa: ARG001 - the run_migrations_detailed signature
             result = results.pop(0)
             if result.applied:  # the migration adds the column.
-                fake_pool.recorder.rows_for[probe] = [(False, True)]
+                fake_pool.recorder.rows_for[probe] = [(False, True, False)]
             return result
 
         monkeypatch.setattr(mig_mod, "run_migrations_detailed", _migrate)

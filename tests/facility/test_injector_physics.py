@@ -1,6 +1,6 @@
 """The injector's physics and beam gating, served in-process from the built example facility.
 
-One composite is built from the control-assistant view with a clock the tests
+One composite is built from the demo view with a clock the tests
 step one simulator tick at a time. Every noise level is measured from that same
 composite over a quiet window, never taken from the seeds, so a threshold of
 "three sigma" means three sigma of what an operator would see.
@@ -110,7 +110,7 @@ def before(address: str, addresses: list[str]) -> list[str]:
 
 
 class Served:
-    """The in-process composite of the control-assistant view, on a clock the test steps."""
+    """The in-process composite of the demo view, on a clock the test steps."""
 
     def __init__(self, build_dir: Path) -> None:
         from osprey_connectors.simulation import DEFAULT_TICK_S
@@ -175,9 +175,9 @@ class Served:
 
 
 @pytest.fixture(scope="module")
-def served(built_control_assistant: BuiltProject) -> Served:
+def served(built_demo: BuiltProject) -> Served:
     pytest.importorskip("at")
-    return Served(built_control_assistant.build_dir)
+    return Served(built_demo.build_dir)
 
 
 def _moved(

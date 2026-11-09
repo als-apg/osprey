@@ -14,26 +14,34 @@
  *     width (sidebar-resize.js). The rows' tips come from the page's one
  *     tooltip layer (`data-tip`, `data-tip-detail`, tooltip.js; started in
  *     app.js).
- *   - DISCLOSURE. The Artifacts and Script runs rows open and close their
- *     lists (`aria-expanded` on the row, `hidden` on the list). Which lists are
- *     open is kept per user under `scopedStorageKey('osprey-sidebar-open')`, a
- *     JSON array of row ids, `["artifacts"]` by default. A click on the
- *     Artifacts row opens its list (the row's other half, activating the
- *     panel, is panel-rail.js's); a click on its chevron (`[data-disc]`)
- *     toggles the list only; ArrowRight / ArrowLeft open and close it from the
- *     keyboard. While the sidebar is collapsed the Artifacts row opens the
- *     same list as a flyout beside the sidebar (`#sidebar-artifacts-flyout`),
- *     and Script runs, which has no flyout, does nothing.
- *   - THE AGENT ROW. Its open/closed look comes from `html[data-agent]`
+ *   - DISCLOSURE. The Sessions row (the `terminal` entry, `#sidebar-agent-row`;
+ *     the Agent pane's row, named for what it lists) wraps the session tree (sidebar-artifacts.js
+ *     draws it) and opens and closes it (`aria-expanded` on the row, `hidden`
+ *     on the tree). Whether it is open is kept per user under
+ *     `scopedStorageKey('osprey-sidebar-open')`, a JSON array of row ids,
+ *     `["agent"]` by default. A click on the Agent row is the row's activation
+ *     (panel-menu-policy.js): with the Agent pane closed it opens the pane and
+ *     the tree, with the pane open it folds or unfolds the tree and leaves the
+ *     pane alone. The row has no chevron of its own; ArrowRight / ArrowLeft
+ *     open and close the tree from the keyboard. While
+ *     the sidebar is collapsed the Agent row opens the same tree as a flyout
+ *     beside the sidebar (`#sidebar-sessions-flyout`) instead.
+ *   - THE SESSIONS ROW. Its open/closed look comes from `html[data-agent]`
  *     (dock-workspace.js); this module keeps its tooltip and description in
  *     step and shows how many cards wait on the operator (the chat bus's
  *     `attention` count) on its badge while the pane is closed — the one time
  *     the operator cannot see them.
- *   - FADES. Each list, and the group that holds the lists (the one section
+ *   - FADES. The tree, and the group that holds it (the one section
  *     of the sidebar that gives up height), fade at an edge that has more to
  *     scroll to (`.fade`, `.fade-top`), so a cut-off row reads as scrolled
  *     rather than clipped. A group made later is watched from the render
  *     that adds it.
+ *
+ *   - GROUPS. A double-click folds a group to its heading (sidebar-fold.js);
+ *     a divider below the Sessions group sets its height (sidebar-divider.js).
+ *   - HEADER MENU. A right-click on the header (the brand link keeps the
+ *     browser's), or Shift+F10 / the menu key in it: Collapse sidebar, New
+ *     group…, then Reset layout; collapsed, Expand sidebar only.
  *
  * Changing the width closes every sidebar popover and the tooltip, since each
  * is placed against a sidebar edge that is about to move.
@@ -44,10 +52,24 @@ import { initCollapsible } from '/design-system/js/collapsible.js';
 import { closeAllPopovers, togglePopover } from '/design-system/js/popover.js';
 import { hideTooltip } from '/design-system/js/tooltip.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
+import { declinesToBrowser, isContextMenuKey } from '/design-system/js/context-menu.js';
+import { hintFor, keyFor } from './key-bindings.js';
+import { openContextMenu } from './panel-context-menu.js';
+import {
+  NEW_GROUP_LABEL,
+  addGroup,
+  isSidebarRenaming,
+  startGroupRename,
+} from './sidebar-groups.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { onChat } from './chat-events.js';
-import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
+import { DETACHED_DETAIL, SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
+import { TERMINAL_RAIL_LABEL } from './panel-catalog.js';
 import { initSidebarResize } from './sidebar-resize.js';
+import { initSidebarTabKey } from './sidebar-tab-key.js';
+import { initSidebarFold } from './sidebar-fold.js';
+import { initSidebarDivider } from './sidebar-divider.js';
+import { allSessionsClick } from './sidebar-artifact-rows.js';
 
 /** The width's storage key, shared with sidebar-boot.js (pre-paint). */
 export const SIDEBAR_STORAGE_KEY = 'osprey-sidebar';
@@ -56,22 +78,24 @@ export const SIDEBAR_STORAGE_KEY = 'osprey-sidebar';
 export const OPEN_LISTS_STORAGE_KEY = 'osprey-sidebar-open';
 
 /** The lists open on a first visit. */
-const DEFAULT_OPEN = Object.freeze(['artifacts']);
+const DEFAULT_OPEN = Object.freeze(['agent']);
 
 /**
  * The rows that disclose a list: the row's button and the list it controls.
  * @type {Readonly<Record<string, {toggle: string, kids: string}>>}
  */
 const DISCLOSURES = Object.freeze({
-  artifacts: { toggle: '#sidebar-artifacts-row > .osprey-nav-row', kids: 'sidebar-artifacts-kids' },
-  runs: { toggle: '#sidebar-runs-toggle', kids: 'sidebar-runs-kids' },
+  agent: { toggle: '#sidebar-agent-row', kids: 'sidebar-session-tree' },
 });
 
-/** The collapsed sidebar's Artifacts flyout. */
-const FLYOUT_ID = 'sidebar-artifacts-flyout';
+/** The collapsed sidebar's sessions flyout. */
+const FLYOUT_ID = 'sidebar-sessions-flyout';
 
-/** The Agent row (panel-rail.js's `terminal` entry, shipped by index.html). */
+/** The Sessions row (panel-rail.js's `terminal` entry, shipped by index.html). */
 const AGENT_ROW_ID = 'sidebar-agent-row';
+
+/** The Sessions row's name, as the sidebar shows it (panel-catalog.js). */
+const ROW_LABEL = TERMINAL_RAIL_LABEL;
 
 /**
  * Fill every empty `svg[data-icon]` placeholder under `root` with its icons.js
@@ -107,6 +131,91 @@ export function paintChords(root = document) {
 /** @returns {boolean} whether the sidebar shows icons only */
 function isCollapsed() {
   return document.documentElement.getAttribute('data-sidebar') === 'collapsed';
+}
+
+/**
+ * The labels toggle's collapsible handle, set by {@link initSidebar}.
+ * @type {ReturnType<typeof initCollapsible> | null}
+ */
+let collapsible = null;
+
+/**
+ * Whether the sidebar shows icons only.
+ * @returns {boolean}
+ */
+export function isSidebarCollapsed() {
+  return isCollapsed();
+}
+
+/**
+ * Collapse the sidebar to icons (true) or show its labels (false), exactly as
+ * the labels toggle does: stored, and announced only on a change. No-op
+ * before {@link initSidebar}.
+ * @param {boolean} collapsed
+ * @returns {void}
+ */
+export function setSidebarCollapsed(collapsed) {
+  collapsible?.set(collapsed ? 'collapsed' : 'expanded');
+}
+
+// ---- Header menu ----
+
+/** @typedef {import('./panel-context-menu.js').MenuItem} MenuItem */
+
+/**
+ * The sidebar header's menu items: Collapse sidebar, New group… and, behind a
+ * divider, Reset layout (dock-workspace.js's, loaded when chosen); while the
+ * sidebar is collapsed, Expand sidebar only.
+ * @returns {MenuItem[]}
+ */
+export function headerMenuItems() {
+  const hint = hintFor('sidebar-toggle');
+  if (isCollapsed()) {
+    return [{ label: 'Expand sidebar', hint, run: () => setSidebarCollapsed(false) }];
+  }
+  return [
+    { label: 'Collapse sidebar', hint, run: () => setSidebarCollapsed(true) },
+    {
+      label: 'New group…',
+      run: () => {
+        const rail = document.getElementById('panel-rail');
+        const id = addGroup(NEW_GROUP_LABEL);
+        if (rail) startGroupRename(rail, id);
+      },
+    },
+    { divider: true },
+    {
+      label: 'Reset layout',
+      danger: true,
+      run: () => {
+        import('./dock-workspace.js').then((dock) => dock.resetDockLayout());
+      },
+    },
+  ];
+}
+
+/**
+ * Wire the header's menu: a right-click anywhere on it but a link, and
+ * Shift+F10 / the menu key while focus is in it.
+ * @param {HTMLElement} head - `.sidebar-head`
+ */
+function initHeaderMenu(head) {
+  /** @param {Event} event @param {number} x @param {number} y */
+  const open = (event, x, y) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('a[href]') || isSidebarRenaming()) return;
+    event.preventDefault();
+    openContextMenu({ x, y, anchorEl: head, ariaLabel: 'Sidebar', items: headerMenuItems() });
+  };
+  head.addEventListener('contextmenu', (event) => {
+    if (!declinesToBrowser(event)) open(event, event.clientX, event.clientY);
+  });
+  head.addEventListener('keydown', (event) => {
+    if (!isContextMenuKey(event)) return;
+    const el = event.target instanceof Element ? event.target : head;
+    const rect = el.getBoundingClientRect();
+    open(event, rect.left + 8, rect.bottom);
+  });
 }
 
 // ---- Open lists ----
@@ -152,9 +261,8 @@ function disclosure(id) {
 
 /**
  * Paint one row's list open or closed: `hidden` on the list, and on the row
- * `aria-expanded` with `aria-controls` naming the list (the collapsed
- * Artifacts row points both at its flyout while that is open; this puts them
- * back).
+ * `aria-expanded` with `aria-controls` naming the list (the collapsed Agent
+ * row points both at its flyout while that is open; this puts them back).
  * @param {string} id
  * @param {boolean} open
  */
@@ -171,15 +279,35 @@ function paintDisclosure(id, open) {
 let openLists = new Set(DEFAULT_OPEN);
 
 /**
+ * Whether a row's list is open.
+ * @param {string} id
+ * @returns {boolean}
+ */
+export function isListOpen(id) {
+  return openLists.has(id);
+}
+
+/**
  * Open or close a row's list and remember it.
  * @param {string} id
  * @param {boolean} open
  */
-function setListOpen(id, open) {
+export function setListOpen(id, open) {
   if (open) openLists.add(id);
   else openLists.delete(id);
   paintDisclosure(id, open);
   writeOpenLists(openLists);
+}
+
+/**
+ * Expand or collapse every session in the open tree: what a ⌥-click on the
+ * Agent row does, and what its menu's Expand all / Collapse all do. The list
+ * is opened first; the sessions are sidebar-artifacts.js's, imported lazily.
+ * @param {boolean} [force]  expand (true) or collapse (false) instead of toggling
+ */
+export function toggleEverySession(force) {
+  setListOpen('agent', true);
+  void import('./sidebar-artifacts.js').then((m) => m.toggleAllSessions(force));
 }
 
 /** Paint every row's list from {@link openLists}. */
@@ -188,9 +316,10 @@ function paintAllDisclosures() {
 }
 
 /**
- * Wire a disclosing row: `primary` runs on a click on the row itself, a click
- * on its chevron toggles the list only, and ArrowRight / ArrowLeft open and
- * close the list from the keyboard.
+ * Wire a disclosing row: `primary` runs on a click on the row itself, and
+ * ArrowRight / ArrowLeft open and close the list from the keyboard. The
+ * expanded row's click is the row's own activation (panel-menu-policy.js),
+ * which decides whether it folds the list.
  * @param {string} id
  * @param {(event: MouseEvent) => void} primary
  */
@@ -198,13 +327,6 @@ function wireDisclosure(id, primary) {
   const { toggle } = disclosure(id);
   if (!toggle) return;
   toggle.addEventListener('click', primary);
-  const disc = toggle.querySelector('[data-disc]');
-  disc?.addEventListener('click', (event) => {
-    // The chevron is the list's own control: the row's activation (and its
-    // flyout) never ride along.
-    event.stopPropagation();
-    if (!isCollapsed()) setListOpen(id, !openLists.has(id));
-  });
   toggle.addEventListener('keydown', (event) => {
     if (isCollapsed() || (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft')) return;
     event.preventDefault();
@@ -217,43 +339,52 @@ function initDisclosures(sidebar) {
   openLists = readOpenLists();
   paintAllDisclosures();
 
-  wireDisclosure('artifacts', (event) => {
+  wireDisclosure('agent', (event) => {
+    // Expanded, the row's click is its activation alone (panel-menu-policy.js).
+    if (!isCollapsed()) return;
     const row = /** @type {HTMLElement} */ (event.currentTarget);
-    if (isCollapsed()) {
-      const flyout = document.getElementById(FLYOUT_ID);
-      if (flyout) togglePopover(row, flyout, { place: 'beside-right', edge: sidebar });
-      return;
-    }
-    setListOpen('artifacts', true);
-  });
-  wireDisclosure('runs', () => {
-    if (!isCollapsed()) setListOpen('runs', !openLists.has('runs'));
+    const flyout = document.getElementById(FLYOUT_ID);
+    if (!flyout) return;
+    // The collapsed rail button opens the flyout; the Agent pane opens from
+    // a session name in it, so the row's pane half does not ride along.
+    event.stopImmediatePropagation();
+    togglePopover(row, flyout, { place: 'beside-right', edge: sidebar });
   });
 }
 
-// ---- The Agent row ----
+// ---- The Sessions row ----
 
 /** Cards waiting on the operator, as the chat bus last reported. */
 let waiting = 0;
 
-/** Paint the Agent row from `html[data-agent]` and the waiting count. */
-function paintAgentRow() {
+/** Paint the Sessions row from `html[data-agent]` and the waiting count. */
+export function paintAgentRow() {
   const row = document.getElementById(AGENT_ROW_ID);
   if (!row) return;
-  const closed = document.documentElement.getAttribute('data-agent') === 'closed';
+  const pane = document.documentElement.getAttribute('data-agent');
+  const closed = pane === 'closed';
   const badge = /** @type {HTMLElement | null} */ (row.querySelector('[data-agent-badge]'));
   const showBadge = closed && waiting > 0;
   if (badge) {
     badge.hidden = !showBadge;
     badge.textContent = showBadge ? String(waiting) : '';
   }
+  const all = `${allSessionsClick()} to expand or collapse every session`;
+  if (pane === 'detached') {
+    row.dataset.tip = `${ROW_LABEL} · Agent pane in its own window — click to bring it to the front`;
+    row.dataset.tipDetail = `${DETACHED_DETAIL} · ${all}`;
+    row.setAttribute('aria-description', DETACHED_DETAIL);
+    return;
+  }
   if (!closed) {
-    row.dataset.tip = 'Agent';
+    row.dataset.tip = ROW_LABEL;
+    row.dataset.tipDetail = `Click to fold the session list · ${all}`;
     row.removeAttribute('aria-description');
     return;
   }
-  const state = showBadge ? `${waiting} waiting` : 'closed';
-  row.dataset.tip = `Agent · ${state} — click to open`;
+  const state = showBadge ? `${waiting} waiting` : 'Agent pane closed';
+  row.dataset.tip = `${ROW_LABEL} · ${state} — click to open`;
+  row.dataset.tipDetail = `Click to open the Agent pane · ${all}`;
   row.setAttribute(
     'aria-description',
     showBadge
@@ -269,6 +400,25 @@ function initAgentRow() {
     waiting = Number.isFinite(detail?.waiting) ? Math.max(0, detail.waiting) : 0;
     paintAgentRow();
   });
+}
+
+// ---- The session tree's keys ----
+
+/**
+ * Up and Down move between the session tree's artifact rows (its buttons, so
+ * Enter and Space pick); sidebar-artifacts.js draws the rows.
+ * @param {KeyboardEvent} event
+ */
+function onTreeKeydown(event) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  const row = event.target instanceof HTMLElement ? event.target.closest('.osprey-list-row') : null;
+  const tree = row?.closest('[data-session-tree]');
+  if (!row || !tree) return;
+  const rows = [...tree.querySelectorAll('.osprey-list-row')];
+  const next = rows[rows.indexOf(row) + (event.key === 'ArrowDown' ? 1 : -1)];
+  if (!(next instanceof HTMLElement)) return;
+  event.preventDefault();
+  next.focus();
 }
 
 // ---- Fades ----
@@ -308,9 +458,9 @@ const fadingGroups = new WeakSet();
 
 /**
  * Watch the fades of every sidebar group not watched yet. Only the group
- * that holds the lists scrolls (terminal.css), and which group that is
- * changes when the operator moves the Artifacts row, so every group is
- * watched; a group that does not scroll never shows a fade.
+ * that holds the tree scrolls (terminal.css), and which group that is
+ * changes when the groups are reordered, so every group is watched; a group
+ * that does not scroll never shows a fade.
  */
 function watchGroupFades() {
   for (const group of document.querySelectorAll('#panel-rail > .sidebar-group')) {
@@ -324,8 +474,8 @@ function watchGroupFades() {
 function initFades(sidebar) {
   watchGroupFades();
   const lists = new Set([
-    ...sidebar.querySelectorAll('.sidebar-kids-list'),
-    ...(document.getElementById(FLYOUT_ID)?.querySelectorAll('.sidebar-kids-list') ?? []),
+    ...sidebar.querySelectorAll('[data-session-tree]'),
+    ...(document.getElementById(FLYOUT_ID)?.querySelectorAll('[data-session-tree]') ?? []),
   ]);
   for (const list of lists) watchFade(/** @type {HTMLElement} */ (list), false);
 }
@@ -343,14 +493,21 @@ export function initSidebar() {
 
   hydrateIcons(document);
   paintChords(document);
-  const collapsible = initCollapsible({
+  collapsible = initCollapsible({
     storageKey: SIDEBAR_STORAGE_KEY,
     toggle: document.getElementById('sidebar-toggle'),
+    shortcut: keyFor('sidebar-toggle'),
   });
   initSidebarResize({ handle: document.getElementById('sidebar-resize'), collapsible });
+  initSidebarTabKey(collapsible.toggle);
   initDisclosures(sidebar);
   initAgentRow();
   initFades(sidebar);
+  initSidebarFold(document.getElementById('panel-rail'));
+  initSidebarDivider(document.getElementById('panel-rail'));
+  const head = /** @type {HTMLElement | null} */ (sidebar.querySelector('.sidebar-head'));
+  if (head) initHeaderMenu(head);
+  document.addEventListener('keydown', onTreeKeydown);
 
   document.addEventListener('osprey-collapsible-change', (event) => {
     if (/** @type {CustomEvent} */ (event).detail?.attribute !== 'data-sidebar') return;

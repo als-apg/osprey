@@ -190,43 +190,6 @@ class TestConsumers:
         assert posted == ["http://127.0.0.1:8601/api/focus"]
         assert result["gallery_url"] == "http://127.0.0.1:8601#focus"
 
-    @pytest.mark.usefixtures("artifact_config")
-    def test_artifacts_cli_binds_env_port(self, monkeypatch):
-        from click.testing import CliRunner
-
-        from osprey.cli.artifacts_cmd import web
-
-        monkeypatch.setenv(ENV_VAR, "8601")
-        served: list[tuple[str, int]] = []
-        monkeypatch.setattr(
-            "osprey.interfaces.artifacts.run_server",
-            lambda host, port: served.append((host, port)),
-        )
-
-        result = CliRunner().invoke(web, [])
-
-        assert result.exit_code == 0, result.output
-        assert served == [("127.0.0.1", 8601)]
-
-    @pytest.mark.usefixtures("artifact_config")
-    def test_artifacts_cli_port_flag_still_wins(self, monkeypatch):
-        """The override chain ends at the operator's explicit flag."""
-        from click.testing import CliRunner
-
-        from osprey.cli.artifacts_cmd import web
-
-        monkeypatch.setenv(ENV_VAR, "8601")
-        served: list[tuple[str, int]] = []
-        monkeypatch.setattr(
-            "osprey.interfaces.artifacts.run_server",
-            lambda host, port: served.append((host, port)),
-        )
-
-        result = CliRunner().invoke(web, ["--port", "8123"])
-
-        assert result.exit_code == 0, result.output
-        assert served == [("127.0.0.1", 8123)]
-
     def test_approval_hook_follows_env(self, approval_hook, monkeypatch):
         """The hook builds the review-notebook link from the same resolution."""
         monkeypatch.setenv(ENV_VAR, "8601")

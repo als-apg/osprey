@@ -254,15 +254,15 @@ def test_no_shipped_prompt_names_a_reference_facility_lattice_symbol() -> None:
     )
 
 
-def test_the_pyat_prompt_names_the_bindings_file(built_control_assistant: BuiltProject) -> None:
+def test_the_pyat_prompt_names_the_bindings_file(built_demo: BuiltProject) -> None:
     """The lattice agent is told where the channel-to-element coupling lives.
 
     The negative guard above forbids the reference facility's symbols; this is
     the positive half: the rendered prompt says what a channel drives, and says
     it by the path of the simulator view's variables file.
     """
-    agent = built_control_assistant.build_dir / PYAT_AGENT
-    assert agent.is_file(), f"the control-assistant render holds no {PYAT_AGENT}"
+    agent = built_demo.build_dir / PYAT_AGENT
+    assert agent.is_file(), f"the demo render holds no {PYAT_AGENT}"
     text = agent.read_text(encoding="utf-8")
     assert _BINDINGS_PATH in text, (
         f"the rendered {PYAT_AGENT} never names {_BINDINGS_PATH}, so the agent is not "

@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 from tests.cli.test_dockerfile_template import _instructions, _render_template
-from tests.deployment._pip_probe import deps_pip_calls
+from tests.deployment._pip_probe import deps_pip_calls, wheel_pip_calls
 
 CONSTRAINTS = "/opt/osprey/constraints.txt"
 PIP_CONSTRAINTS = "/tmp/deps-ctx/pip-constraints.txt"
@@ -83,11 +83,16 @@ class TestDepsLayerOrder:
             f"pip freeze --exclude uv --exclude pip --exclude setuptools --exclude wheel > {CONSTRAINTS}",
             f"uv pip install -c {PIP_CONSTRAINTS} -c {CONSTRAINTS} {PROFILE_DEPS}",
             "pip uninstall -y uv",
-            '{ [ "$OSPREY_DEV" = "1" ] || pip check ; }',
+            'if [ "$OSPREY_DEV" != "1" ] || [ -f /opt/osprey/lock-constraints.txt ]; then pip check; fi',
             "apt-get purge -y build-essential python3-dev",
             "rm -rf /tmp/deps-ctx",
         ]
-        positions = [deps.find(step) for step in steps]
+        # The delta is installed on both paths; the release path's copy, after
+        # the primer, is the later of the two.
+        positions = [
+            deps.rfind(step) if "osprey-local-requirements" in step else deps.find(step)
+            for step in steps
+        ]
         assert -1 not in positions, [s for s, at in zip(steps, positions, strict=True) if at < 0]
         assert positions == sorted(positions), list(zip(steps, positions, strict=True))
 
@@ -97,7 +102,7 @@ class TestDepsLayerOrder:
             f"pip freeze --exclude uv --exclude pip --exclude setuptools --exclude wheel > {CONSTRAINTS}",
             f"uv pip install -c {PIP_CONSTRAINTS} -c {CONSTRAINTS} {PROFILE_DEPS}",
             "pip uninstall -y uv",
-            '{ [ "$OSPREY_DEV" = "1" ] || pip check ; }',
+            'if [ "$OSPREY_DEV" != "1" ] || [ -f /opt/osprey/lock-constraints.txt ]; then pip check; fi',
         ):
             before = deps[: deps.index(step)].rstrip()
             assert before.endswith("&&"), f"{step!r} is not &&-chained:\n{deps}"
@@ -172,12 +177,40 @@ class TestDepsLayerOrder:
         ]
 
 
+class TestDepsLayerOnTheLockPath:
+    """With the lock constraints staged, nothing is primed and the check always runs."""
+
+    LOCK = "fwdep==1.0\n"
+
+    def _calls(self, tmp_path, **env):
+        deps = _deps_body(_render_template(pip_dependency_args=PROFILE_DEPS))
+        return deps_pip_calls(
+            deps,
+            tmp_path,
+            {"OSPREY_PIP_SPEC": "osprey-framework==1.0", **env},
+            staged={
+                "osprey-local-requirements.txt": "fwdep\n",
+                "osprey-lock-constraints.txt": self.LOCK,
+            },
+        )
+
+    def test_the_delta_is_installed_alone_and_the_profile_under_the_lock(self, tmp_path):
+        calls = self._calls(tmp_path, OSPREY_DEV="1")
+        deps_ctx = tmp_path / "deps-ctx"
+        assert calls[1] == ["install", "-r", str(deps_ctx / "osprey-local-requirements.txt")]
+        assert not [c for c in calls if "osprey-framework==1.0" in c or "osprey-framework" in c]
+        assert (tmp_path / "opt-osprey/lock-constraints.txt").read_text() == self.LOCK
+
+    def test_a_dev_build_on_the_lock_path_still_checks(self, tmp_path):
+        assert ["check"] in self._calls(tmp_path, OSPREY_DEV="1")
+
+
 class TestWheelLayerOrder:
     def test_the_wheel_installs_under_the_filtered_set_then_checks(self):
         wheel = _wheel_body(_render_template())
         steps = [
             f"{CONSTRAINTS} /tmp/ctx/*.whl > /tmp/ctx/constraints.txt",
-            "pip install -c /tmp/ctx/constraints.txt /tmp/ctx/*.whl",
+            "pip install -c /tmp/ctx/constraints.txt $lock /tmp/ctx/*.whl",
             "pip install --no-deps --force-reinstall /tmp/ctx/*.whl",
             "pip check;",
             "rm -rf /tmp/ctx",
@@ -188,6 +221,16 @@ class TestWheelLayerOrder:
 
     def test_the_check_is_not_dev_guarded(self):
         assert "OSPREY_DEV" not in _wheel_body(_render_template())
+
+    def test_the_lock_path_adds_the_lock_to_the_frozen_set(self, tmp_path):
+        first = wheel_pip_calls(_wheel_body(_render_template()), tmp_path, lock=True)[0]
+        assert first[:5] == [
+            "install",
+            "-c",
+            str(tmp_path / "ctx/constraints.txt"),
+            "-c",
+            str(tmp_path / "opt-osprey/lock-constraints.txt"),
+        ]
 
 
 # ── Real installers ──────────────────────────────────────────────────────────
@@ -264,6 +307,13 @@ def wheelhouse(tmp_path_factory) -> Path:
     _make_wheel(house, "fwdep", "2.0")
     _make_wheel(house, "site-extra", "1.0", ("fwdep",))
     _make_wheel(house, "pin-mover", "1.0", ("fwdep>=2",))
+    # The lock-driven path's own cases: a dependency only a dropped wheel adds,
+    # and a build-tool pin the setuptools constraint has to refuse.
+    _make_wheel(house, "newdep", "1.0")
+    _make_wheel(house, "newdep", "2.0")
+    _make_wheel(house, "setuptools", "83.0")
+    _make_wheel(house, "setuptools", "84.0")
+    _make_wheel(house, "needs-setuptools", "1.0", ("setuptools",))
     return house
 
 
@@ -502,3 +552,62 @@ class TestWheelLayerUnderRealPip:
         assert result.returncode == 0, _output(result)
         assert primed.installed() == before
         assert not primed.wheel_ctx.exists()
+
+
+class TestLockPathUnderRealInstallers:
+    """A source build's deps layer, profile install and wheel layer, under the lock.
+
+    The wheelhouse offers ``fwdep`` 1.0 and 2.0; the manifest asks for it
+    unpinned, which an unconstrained installer answers with 2.0.
+    """
+
+    @staticmethod
+    def _stage(image, lock: str, manifest: str = "fwdep\n") -> None:
+        (image.deps_ctx / "osprey-local-requirements.txt").write_text(manifest)
+        (image.deps_ctx / "osprey-lock-constraints.txt").write_text(lock)
+
+    def test_the_manifest_installs_at_the_locks_versions(self, image):
+        self._stage(image, "fwdep==1.0\n")
+        result = image.run(_deps_body(_render_template()), OSPREY_DEV="1")
+        assert result.returncode == 0, _output(result)
+        assert image.installed() == {"fwdep": "1.0"}
+        assert (image.opt / "lock-constraints.txt").read_text() == "fwdep==1.0\n"
+
+    def test_without_the_lock_the_same_manifest_takes_the_newest(self, image):
+        """The control: the manifest alone, unconstrained, moves to 2.0."""
+        (image.deps_ctx / "osprey-local-requirements.txt").write_text("fwdep\n")
+        assert (
+            image.run("uv pip install -r /tmp/deps-ctx/osprey-local-requirements.txt").returncode
+            == 0
+        )
+        assert image.installed() == {"fwdep": "2.0"}
+
+    def test_a_profile_dependency_is_held_to_the_lock(self, image):
+        """``fwdep`` is the profile's here, not the framework's: only the lock pins it."""
+        self._stage(image, "fwdep==1.0\n", manifest="")
+        result = image.run(_deps_body(_render_template(pip_dependency_args="fwdep")))
+        assert result.returncode == 0, _output(result)
+        assert image.installed() == {"fwdep": "1.0"}
+
+    def test_a_lock_that_pins_setuptools_84_fails_the_layer(self, image):
+        self._stage(image, "setuptools==84.0\n", manifest="needs-setuptools\n")
+        result = image.run(_deps_body(_render_template()), OSPREY_DEV="1")
+        assert result.returncode != 0, _output(result)
+        assert "setuptools" in _output(result)
+
+    def test_a_lock_below_84_satisfies_the_setuptools_constraint(self, image):
+        self._stage(image, "setuptools==83.0\n", manifest="needs-setuptools\n")
+        result = image.run(_deps_body(_render_template()), OSPREY_DEV="1")
+        assert result.returncode == 0, _output(result)
+        assert image.installed()["needs-setuptools"] == "1.0"
+
+    def test_a_dropped_wheels_new_dependency_is_held_to_the_lock(self, image, tmp_path):
+        self._stage(image, "fwdep==1.0\nnewdep==1.0\n")
+        result = image.run(_deps_body(_render_template()), OSPREY_DEV="1")
+        assert result.returncode == 0, _output(result)
+        build = tmp_path / "build"
+        build.mkdir()
+        image.drop(_make_wheel(build, "osprey-framework", "1.1", ("fwdep", "newdep")))
+        result = image.run(_wheel_body(_render_template()))
+        assert result.returncode == 0, _output(result)
+        assert image.installed() == {"osprey-framework": "1.1", "fwdep": "1.0", "newdep": "1.0"}

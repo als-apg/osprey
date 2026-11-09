@@ -790,7 +790,6 @@ async def archiver_read(
             ),
             summary=summary,
             access_details=access_details,
-            category="archiver_data",
             metadata={"data_type": "timeseries", **provenance},
         )
 

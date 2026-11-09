@@ -238,7 +238,7 @@ def test_unrelated_dotted_config_keys_are_left_alone(tmp_path: Path) -> None:
     _profile(
         config={
             "services.gchat_bridge.port": 8080,
-            "env": "not-a-list",
+            "env.optional": "not-a-list",
             "services.gchat_bridge.env.extra": "not-a-list",
             "env.required": ["fine-here"],
         }

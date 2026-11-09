@@ -5,7 +5,7 @@ Health and Monitoring
 Two questions, two tools. *Is it up?* is answered by the health suite: a run of
 diagnostics over configuration, the Python environment, container
 infrastructure, the framework services you enabled, and any probes a facility
-declares, read in the browser's SYSTEM panel or parsed from ``osprey health
+declares, read in the browser's Health panel or parsed from ``osprey health
 --json`` by a CI job. *What is it doing?* is answered by the agent record:
 what the agent was asked, what it answered and what it did, kept by the
 ``agent-record`` service every deployment runs.

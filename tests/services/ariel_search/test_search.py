@@ -480,42 +480,43 @@ class TestSemanticSearchFunction:
         assert call_args.kwargs["similarity_threshold"] == 0.5
 
     @pytest.mark.asyncio
-    async def test_embedding_failure_returns_empty(
+    async def test_embedding_failure_raises_naming_the_cause(
         self, mock_repository, mock_config, mock_embedder, search_calls
     ):
-        """Returns empty on embedding failure."""
+        """A failed embedding is an error naming its cause, never an empty answer."""
+        from osprey.services.ariel_search.exceptions import EmbeddingGenerationError
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         mock_embedder.execute_embedding.side_effect = Exception("Ollama unavailable")
 
-        result = await semantic_search(
-            "test query",
-            mock_repository,
-            mock_config,
-            mock_embedder,
-            search_calls=search_calls,
-        )
-
-        assert result == []
+        with pytest.raises(EmbeddingGenerationError, match="Ollama unavailable"):
+            await semantic_search(
+                "test query",
+                mock_repository,
+                mock_config,
+                mock_embedder,
+                search_calls=search_calls,
+            )
+        mock_repository.semantic_search.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_empty_embedding_returns_empty(
+    async def test_empty_embedding_raises(
         self, mock_repository, mock_config, mock_embedder, search_calls
     ):
-        """Returns empty when embedding is empty."""
+        """A provider that answers without a vector has failed the embedding."""
+        from osprey.services.ariel_search.exceptions import EmbeddingGenerationError
         from osprey.services.ariel_search.search.semantic import semantic_search
 
         mock_embedder.execute_embedding.return_value = [[]]
 
-        result = await semantic_search(
-            "test query",
-            mock_repository,
-            mock_config,
-            mock_embedder,
-            search_calls=search_calls,
-        )
-
-        assert result == []
+        with pytest.raises(EmbeddingGenerationError, match="returned no vector"):
+            await semantic_search(
+                "test query",
+                mock_repository,
+                mock_config,
+                mock_embedder,
+                search_calls=search_calls,
+            )
 
 
 class TestKeywordSearchWithResults:
@@ -1154,8 +1155,8 @@ class TestEmbeddingGenerationFailure:
     """Tests for embedding generation failure handling (EDGE-012)."""
 
     @pytest.mark.asyncio
-    async def test_semantic_search_embedding_failure_returns_empty(self, search_calls):
-        """Semantic search returns empty on embedding failure."""
+    async def test_semantic_search_embedding_failure_raises(self, search_calls):
+        """Semantic search reports an embedding failure with the provider it dialled."""
         from unittest.mock import AsyncMock, MagicMock
 
         from osprey.services.ariel_search.config import ARIELConfig
@@ -1179,11 +1180,16 @@ class TestEmbeddingGenerationFailure:
             side_effect=Exception("Embedding service unavailable")
         )
 
-        result = await semantic_search(
-            "test", mock_repo, config, mock_embedder, search_calls=search_calls
-        )
+        from osprey.services.ariel_search.exceptions import EmbeddingGenerationError
 
-        assert result == []
+        with pytest.raises(EmbeddingGenerationError) as raised:
+            await semantic_search(
+                "test", mock_repo, config, mock_embedder, search_calls=search_calls
+            )
+
+        assert "Embedding service unavailable" in str(raised.value)
+        assert raised.value.model_name == "test-model"
+        mock_repo.semantic_search.assert_not_called()
 
 
 # ==============================================================================

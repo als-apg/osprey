@@ -16,7 +16,7 @@ from osprey.services.ariel_search.vocabulary import (
 from osprey.services.ariel_search.vocabulary.expand import Token, match_tokens
 from osprey.services.ariel_search.vocabulary.model import _EDGE_TEXT
 
-CONTROL_ASSISTANT_VOCABULARY = """
+DEMO_VOCABULARY = """
 concepts:
   - canonical: troubleshoot
     kind: shorthand
@@ -113,9 +113,9 @@ def load(tmp_path: Path, text: str, **gates: bool) -> Vocabulary:
 
 
 @pytest.fixture
-def control_assistant(tmp_path: Path) -> Vocabulary:
-    """The control-assistant-style example vocabulary, loaded from YAML."""
-    return load(tmp_path, CONTROL_ASSISTANT_VOCABULARY)
+def demo(tmp_path: Path) -> Vocabulary:
+    """The demo-style example vocabulary, loaded from YAML."""
+    return load(tmp_path, DEMO_VOCABULARY)
 
 
 @pytest.fixture
@@ -164,8 +164,8 @@ def pairs(expansion: QueryExpansion) -> list[tuple[str, tuple[str, ...]]]:
 class TestFormToCanonical:
     """The always-on direction: a typed form expands to its canonical."""
 
-    def test_two_forms_yield_two_groups(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("ts bpm", control_assistant)
+    def test_two_forms_yield_two_groups(self, demo: Vocabulary) -> None:
+        expansion = expand("ts bpm", demo)
 
         assert pairs(expansion) == [
             ("ts", ("troubleshoot",)),
@@ -173,8 +173,8 @@ class TestFormToCanonical:
         ]
         assert expansion.flattened_text == "ts bpm troubleshoot beam position monitor"
 
-    def test_groups_are_expansion_group_instances(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("ts", control_assistant)
+    def test_groups_are_expansion_group_instances(self, demo: Vocabulary) -> None:
+        expansion = expand("ts", demo)
 
         assert isinstance(expansion, QueryExpansion)
         assert isinstance(expansion.groups[0], ExpansionGroup)
@@ -183,28 +183,28 @@ class TestFormToCanonical:
             "alternatives": ["troubleshoot"],
         }
 
-    def test_slash_form_survives_normalization(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("t/s bpm", control_assistant)
+    def test_slash_form_survives_normalization(self, demo: Vocabulary) -> None:
+        expansion = expand("t/s bpm", demo)
 
         assert pairs(expansion) == [
             ("t/s", ("troubleshoot",)),
             ("bpm", ("beam position monitor",)),
         ]
 
-    def test_unmatched_tokens_are_left_alone(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("check the ts on shift", control_assistant)
+    def test_unmatched_tokens_are_left_alone(self, demo: Vocabulary) -> None:
+        expansion = expand("check the ts on shift", demo)
 
         assert pairs(expansion) == [("ts", ("troubleshoot",))]
         assert expansion.flattened_text == "check the ts on shift troubleshoot"
 
-    def test_no_match_leaves_query_untouched(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("undulator gap", control_assistant)
+    def test_no_match_leaves_query_untouched(self, demo: Vocabulary) -> None:
+        expansion = expand("undulator gap", demo)
 
         assert expansion.groups == ()
         assert expansion.flattened_text == "undulator gap"
 
-    def test_empty_text(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("", control_assistant)
+    def test_empty_text(self, demo: Vocabulary) -> None:
+        expansion = expand("", demo)
 
         assert expansion.groups == ()
         assert expansion.flattened_text == ""
@@ -245,36 +245,34 @@ concepts:
 class TestDirectionGates:
     """Canonical-to-form expansion is gated per concept kind."""
 
-    def test_canonical_to_acronym_on(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("beam position monitor", control_assistant, canonical_to_acronym=True)
+    def test_canonical_to_acronym_on(self, demo: Vocabulary) -> None:
+        expansion = expand("beam position monitor", demo, canonical_to_acronym=True)
 
         assert pairs(expansion) == [("beam position monitor", ("bpm",))]
         assert expansion.flattened_text == "beam position monitor bpm"
 
-    def test_canonical_to_acronym_off(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("beam position monitor", control_assistant, canonical_to_acronym=False)
+    def test_canonical_to_acronym_off(self, demo: Vocabulary) -> None:
+        expansion = expand("beam position monitor", demo, canonical_to_acronym=False)
 
         assert expansion.groups == ()
         assert expansion.flattened_text == "beam position monitor"
 
-    def test_shorthand_canonical_gated_off_by_default(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("troubleshoot the offset", control_assistant)
+    def test_shorthand_canonical_gated_off_by_default(self, demo: Vocabulary) -> None:
+        expansion = expand("troubleshoot the offset", demo)
 
         assert expansion.groups == ()
         assert expansion.flattened_text == "troubleshoot the offset"
 
-    def test_shorthand_canonical_gated_on(self, control_assistant: Vocabulary) -> None:
-        expansion = expand(
-            "troubleshoot the offset", control_assistant, canonical_to_shorthand=True
-        )
+    def test_shorthand_canonical_gated_on(self, demo: Vocabulary) -> None:
+        expansion = expand("troubleshoot the offset", demo, canonical_to_shorthand=True)
 
         assert pairs(expansion) == [("troubleshoot", ("t/s", "ts"))]
         assert expansion.flattened_text == "troubleshoot the offset t/s ts"
 
-    def test_acronym_gate_does_not_leak_to_shorthand(self, control_assistant: Vocabulary) -> None:
+    def test_acronym_gate_does_not_leak_to_shorthand(self, demo: Vocabulary) -> None:
         expansion = expand(
             "troubleshoot beam position monitor",
-            control_assistant,
+            demo,
             canonical_to_acronym=True,
             canonical_to_shorthand=False,
         )
@@ -345,42 +343,34 @@ class TestSpanSelection:
 class TestDeduplication:
     """New terms are added once; query terms are never repeated."""
 
-    def test_repeated_form_yields_two_groups_but_one_new_term(
-        self, control_assistant: Vocabulary
-    ) -> None:
-        expansion = expand("ts ts", control_assistant)
+    def test_repeated_form_yields_two_groups_but_one_new_term(self, demo: Vocabulary) -> None:
+        expansion = expand("ts ts", demo)
 
         assert pairs(expansion) == [("ts", ("troubleshoot",)), ("ts", ("troubleshoot",))]
         assert expansion.flattened_text == "ts ts troubleshoot"
 
-    def test_canonical_already_in_query_is_not_appended(
-        self, control_assistant: Vocabulary
-    ) -> None:
-        expansion = expand("ts troubleshoot", control_assistant)
+    def test_canonical_already_in_query_is_not_appended(self, demo: Vocabulary) -> None:
+        expansion = expand("ts troubleshoot", demo)
 
         assert pairs(expansion) == [("ts", ("troubleshoot",))]
         assert expansion.flattened_text == "ts troubleshoot"
 
-    def test_multiword_canonical_already_in_query_is_not_appended(
-        self, control_assistant: Vocabulary
-    ) -> None:
-        expansion = expand("bpm beam position monitor", control_assistant)
+    def test_multiword_canonical_already_in_query_is_not_appended(self, demo: Vocabulary) -> None:
+        expansion = expand("bpm beam position monitor", demo)
 
         assert pairs(expansion)[0] == ("bpm", ("beam position monitor",))
         assert expansion.flattened_text == "bpm beam position monitor"
 
-    def test_partial_token_overlap_is_not_a_containment(
-        self, control_assistant: Vocabulary
-    ) -> None:
-        expansion = expand("bpm beam position", control_assistant)
+    def test_partial_token_overlap_is_not_a_containment(self, demo: Vocabulary) -> None:
+        expansion = expand("bpm beam position", demo)
 
         assert expansion.flattened_text == "bpm beam position beam position monitor"
 
     def test_trailing_punctuation_keeps_the_surface_and_appends_the_canonical(
-        self, control_assistant: Vocabulary
+        self, demo: Vocabulary
     ) -> None:
         """The group's `original` is the stripped token; the surface `?` stays put."""
-        expansion = expand("bpm?", control_assistant)
+        expansion = expand("bpm?", demo)
 
         assert pairs(expansion) == [("bpm", ("beam position monitor",))]
         assert expansion.flattened_text == "bpm? beam position monitor"
@@ -403,13 +393,13 @@ class TestDeduplication:
         ]
         assert expansion.flattened_text == "bpm, beam position monitor. bpms"
 
-    def test_bracketed_query_term_counts_as_present(self, control_assistant: Vocabulary) -> None:
+    def test_bracketed_query_term_counts_as_present(self, demo: Vocabulary) -> None:
         """Behaviour change: `(troubleshoot)` already contains `troubleshoot`.
 
         Before, the raw word `(troubleshoot)` hid the canonical from the
         containment check and `troubleshoot` was appended a second time.
         """
-        expansion = expand("ts (troubleshoot)", control_assistant)
+        expansion = expand("ts (troubleshoot)", demo)
 
         assert expansion.flattened_text == "ts (troubleshoot)"
 
@@ -441,20 +431,18 @@ class TestDeduplication:
 class TestNormalization:
     """`original` is the matched span as it appears in the NORMALIZED text."""
 
-    def test_hyphen_and_case_are_normalized_in_the_group(
-        self, control_assistant: Vocabulary
-    ) -> None:
-        expansion = expand("Beam-Position   Monitor", control_assistant)
+    def test_hyphen_and_case_are_normalized_in_the_group(self, demo: Vocabulary) -> None:
+        expansion = expand("Beam-Position   Monitor", demo)
 
         assert pairs(expansion) == [("beam position monitor", ("bpm",))]
 
-    def test_flattened_text_keeps_the_original_surface(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("Beam-Position   Monitor", control_assistant)
+    def test_flattened_text_keeps_the_original_surface(self, demo: Vocabulary) -> None:
+        expansion = expand("Beam-Position   Monitor", demo)
 
         assert expansion.flattened_text == "Beam-Position   Monitor bpm"
 
-    def test_uppercase_form_matches(self, control_assistant: Vocabulary) -> None:
-        expansion = expand("BPM offset", control_assistant)
+    def test_uppercase_form_matches(self, demo: Vocabulary) -> None:
+        expansion = expand("BPM offset", demo)
 
         assert pairs(expansion) == [("bpm", ("beam position monitor",))]
 
@@ -562,26 +550,22 @@ class TestMatchTokens:
 class TestTextAgnostic:
     """The function expands whatever string it is given — nothing more."""
 
-    def test_field_filter_prefix_is_the_callers_problem(
-        self, control_assistant: Vocabulary
-    ) -> None:
+    def test_field_filter_prefix_is_the_callers_problem(self, demo: Vocabulary) -> None:
         # `author:ts` is one whitespace token, so it does not match the form
         # `ts`. The keyword caller strips field filters before calling; this
         # function never parses search syntax.
-        expansion = expand("author:ts bpm", control_assistant)
+        expansion = expand("author:ts bpm", demo)
 
         assert pairs(expansion) == [("bpm", ("beam position monitor",))]
 
-    def test_pattern_body_is_not_stripped_here(self, control_assistant: Vocabulary) -> None:
+    def test_pattern_body_is_not_stripped_here(self, demo: Vocabulary) -> None:
         # A caller that wants pattern bodies excluded must not pass them in.
-        expansion = expand("ts /SR01C___BPM[0-9]+/", control_assistant)
+        expansion = expand("ts /SR01C___BPM[0-9]+/", demo)
 
         assert pairs(expansion) == [("ts", ("troubleshoot",))]
 
-    def test_a_form_inside_a_pattern_body_would_match_if_passed(
-        self, control_assistant: Vocabulary
-    ) -> None:
-        expansion = expand("/ ts /", control_assistant)
+    def test_a_form_inside_a_pattern_body_would_match_if_passed(self, demo: Vocabulary) -> None:
+        expansion = expand("/ ts /", demo)
 
         assert pairs(expansion) == [("ts", ("troubleshoot",))]
 
@@ -634,12 +618,10 @@ class TestSynonymConcepts:
         assert pairs(expansion) == [("lost beam", ("beam loss", "beam dump"))]
         assert expansion.flattened_text == "lost beam today beam loss beam dump"
 
-    def test_shorthand_form_query_still_yields_only_its_canonical(
-        self, control_assistant: Vocabulary
-    ) -> None:
+    def test_shorthand_form_query_still_yields_only_its_canonical(self, demo: Vocabulary) -> None:
         # `troubleshoot` also has the sibling form `t/s`; sibling forms are a
         # synonym-only direction and must not leak to the other kinds.
-        expansion = expand("ts", control_assistant, canonical_to_shorthand=True)
+        expansion = expand("ts", demo, canonical_to_shorthand=True)
 
         assert pairs(expansion) == [("ts", ("troubleshoot",))]
 
@@ -716,10 +698,8 @@ def scan(
 class TestScan:
     """The one shared scan: spans, bound concepts, interior patterns, limit."""
 
-    def test_scan_yields_token_range_alternatives_and_concepts(
-        self, control_assistant: Vocabulary
-    ) -> None:
-        assert scan("check the BPM now", control_assistant) == [
+    def test_scan_yields_token_range_alternatives_and_concepts(self, demo: Vocabulary) -> None:
+        assert scan("check the BPM now", demo) == [
             ("bpm", 2, 3, ("beam position monitor",), ("beam position monitor",)),
         ]
 
@@ -730,14 +710,14 @@ class TestScan:
             ("ts", 0, 1, ("troubleshoot", "timing system"), ("troubleshoot", "timing system")),
         ]
 
-    def test_scan_matched_canonical_binds_itself(self, control_assistant: Vocabulary) -> None:
-        assert scan("Beam-Position Monitor", control_assistant) == [
+    def test_scan_matched_canonical_binds_itself(self, demo: Vocabulary) -> None:
+        assert scan("Beam-Position Monitor", demo) == [
             ("beam position monitor", 0, 3, ("bpm",), ("beam position monitor",)),
         ]
 
-    def test_scan_gated_off_canonical_is_not_a_span(self, control_assistant: Vocabulary) -> None:
-        assert scan("troubleshoot", control_assistant, canonical_to_shorthand=False) == []
-        assert scan("troubleshoot", control_assistant, canonical_to_shorthand=True) == [
+    def test_scan_gated_off_canonical_is_not_a_span(self, demo: Vocabulary) -> None:
+        assert scan("troubleshoot", demo, canonical_to_shorthand=False) == []
+        assert scan("troubleshoot", demo, canonical_to_shorthand=True) == [
             ("troubleshoot", 0, 1, ("t/s", "ts"), ("troubleshoot",)),
         ]
 
@@ -778,26 +758,22 @@ class TestScan:
             ("beam", 3, 4),
         ]
 
-    def test_interior_period_after_first_token_matches_nothing(
-        self, control_assistant: Vocabulary
-    ) -> None:
-        assert scan("beam. position monitor", control_assistant) == []
-        assert pairs(expand("beam. position monitor", control_assistant)) == []
+    def test_interior_period_after_first_token_matches_nothing(self, demo: Vocabulary) -> None:
+        assert scan("beam. position monitor", demo) == []
+        assert pairs(expand("beam. position monitor", demo)) == []
 
-    def test_interior_spaced_period_matches_nothing(self, control_assistant: Vocabulary) -> None:
-        assert scan("beam . position monitor", control_assistant) == []
-        assert pairs(expand("beam . position monitor", control_assistant)) == []
+    def test_interior_spaced_period_matches_nothing(self, demo: Vocabulary) -> None:
+        assert scan("beam . position monitor", demo) == []
+        assert pairs(expand("beam . position monitor", demo)) == []
 
-    def test_interior_comma_inside_canonical_matches_nothing(
-        self, control_assistant: Vocabulary
-    ) -> None:
-        assert scan("beam position, monitor", control_assistant) == []
+    def test_interior_comma_inside_canonical_matches_nothing(self, demo: Vocabulary) -> None:
+        assert scan("beam position, monitor", demo) == []
 
-    def test_interior_outer_edges_do_not_block_a_span(self, control_assistant: Vocabulary) -> None:
-        assert [span[:3] for span in scan("(beam position monitor).", control_assistant)] == [
+    def test_interior_outer_edges_do_not_block_a_span(self, demo: Vocabulary) -> None:
+        assert [span[:3] for span in scan("(beam position monitor).", demo)] == [
             ("beam position monitor", 0, 3),
         ]
-        assert pairs(expand("(BPM), ts.", control_assistant)) == [
+        assert pairs(expand("(BPM), ts.", demo)) == [
             ("bpm", ("beam position monitor",)),
             ("ts", ("troubleshoot",)),
         ]
@@ -842,20 +818,20 @@ class TestScan:
             ("monitor", 2, 3),
         ]
 
-    def test_limit_none_scans_the_whole_text(self, control_assistant: Vocabulary) -> None:
-        assert [span[0] for span in scan("ts then bpm", control_assistant)] == ["ts", "bpm"]
+    def test_limit_none_scans_the_whole_text(self, demo: Vocabulary) -> None:
+        assert [span[0] for span in scan("ts then bpm", demo)] == ["ts", "bpm"]
 
-    def test_limit_admits_span_ending_exactly_at_limit(self, control_assistant: Vocabulary) -> None:
+    def test_limit_admits_span_ending_exactly_at_limit(self, demo: Vocabulary) -> None:
         text = "ts then bpm"
         end = text.index("bpm") + len("bpm")
 
-        assert [span[0] for span in scan(text, control_assistant, limit=end)] == ["ts", "bpm"]
-        assert [span[0] for span in scan(text, control_assistant, limit=end - 1)] == ["ts"]
+        assert [span[0] for span in scan(text, demo, limit=end)] == ["ts", "bpm"]
+        assert [span[0] for span in scan(text, demo, limit=end - 1)] == ["ts"]
 
-    def test_limit_counts_the_core_not_trailing_edges(self, control_assistant: Vocabulary) -> None:
+    def test_limit_counts_the_core_not_trailing_edges(self, demo: Vocabulary) -> None:
         text = "bpm. more"
 
-        assert [span[0] for span in scan(text, control_assistant, limit=3)] == ["bpm"]
+        assert [span[0] for span in scan(text, demo, limit=3)] == ["bpm"]
 
     def test_limit_crossing_span_falls_back_to_narrower_width(self) -> None:
         vocabulary = build_vocabulary(
@@ -871,5 +847,5 @@ class TestScan:
             ("beam position", 0, 2),
         ]
 
-    def test_limit_zero_yields_nothing(self, control_assistant: Vocabulary) -> None:
-        assert scan("bpm", control_assistant, limit=0) == []
+    def test_limit_zero_yields_nothing(self, demo: Vocabulary) -> None:
+        assert scan("bpm", demo, limit=0) == []

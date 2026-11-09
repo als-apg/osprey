@@ -43,9 +43,9 @@ see :doc:`add-mcp-server`.
       :link-type: doc
       :shadow: md
 
-      Let a team ask questions from Nextcloud Talk, Google Chat or Microsoft
-      Teams and get the answer -- plots and files included -- back in the same
-      conversation.
+      Let a team ask questions from Nextcloud Talk, Google Chat, Microsoft
+      Teams or Slack and get the answer -- plots and files included -- back in
+      the same conversation.
 
 .. toctree::
    :hidden:

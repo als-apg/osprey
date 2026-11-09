@@ -1,0 +1,1 @@
+The gallery no longer seeds a shipped example artifact, and `artifact_server.example_artifact` is removed. A profile that still states it builds with a warning naming the line, and the key is dropped.

@@ -1,0 +1,1 @@
+Web terminal: the sidebar's Agent row is now **Sessions**, with a new-session button. The session the agent works in has a breathing accent bar, a clicked session takes the accent at once, and hovering a folded session shows its artifacts, which open on click.

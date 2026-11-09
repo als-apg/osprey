@@ -327,6 +327,127 @@ describe('insertPrompt({ append: true })', () => {
   });
 });
 
+describe('insertPrompt({ append: true }) while a turn streams', () => {
+  const EVENTS = '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
+
+  /** The bus first-contact.js subscribed to: same module instance after resetModules. */
+  const events = async () =>
+    /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js')} */ (
+      await import(EVENTS)
+    );
+
+  /** The host notices currently on the page. */
+  const notices = () => [...document.querySelectorAll('.undo-notice')];
+
+  test('is held, and lands appended once the turn is over', async () => {
+    const { emitChat } = await events();
+    const input = mountChatInput({ disabled: true });
+    input.value = 'set these to nominal:';
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+    expect(input.value).toBe('set these to nominal:');
+
+    // busy repeats with the same value while the turn runs: nothing lands.
+    emitChat('busy', { busy: true });
+    expect(input.value).toBe('set these to nominal:');
+
+    // The chat enables its input, then reports the turn over.
+    input.disabled = false;
+    emitChat('busy', { busy: false });
+
+    expect(input.value).toBe('set these to nominal:\nSR:BPM1:X');
+    expect(document.activeElement).toBe(input);
+  });
+
+  test('two contributions join on their own lines, in arrival order', async () => {
+    const { emitChat } = await events();
+    const input = mountChatInput({ disabled: true });
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+    fc.insertPrompt('SR:BPM2:X', { append: true });
+    input.disabled = false;
+    emitChat('busy', { busy: false });
+
+    expect(input.value).toBe('SR:BPM1:X\nSR:BPM2:X');
+  });
+
+  test('shows one host notice per waiting batch', async () => {
+    const { emitChat } = await events();
+    const input = mountChatInput({ disabled: true });
+    /** @type {HTMLElement[]} */
+    const shown = [];
+    new MutationObserver((records) => {
+      for (const r of records) {
+        for (const n of r.addedNodes) {
+          if (n instanceof HTMLElement && n.classList.contains('undo-notice')) shown.push(n);
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+    fc.insertPrompt('SR:BPM2:X', { append: true });
+    await Promise.resolve();
+
+    expect(shown).toHaveLength(1);
+    expect(notices()).toHaveLength(1);
+    expect(notices()[0].textContent).toContain(fc.PENDING_NOTICE);
+
+    // The batch flushed: nothing waits, so a repeated busy:false is a no-op.
+    input.disabled = false;
+    emitChat('busy', { busy: false });
+    const after = input.value;
+    emitChat('busy', { busy: false });
+    expect(input.value).toBe(after);
+  });
+
+  test('nothing is sent: the transport is never called and no Enter is raised', async () => {
+    const { emitChat } = await events();
+    const input = mountChatInput({ disabled: true });
+    /** @type {string[]} */
+    const keys = [];
+    input.addEventListener('keydown', (e) => keys.push(e.key));
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+    input.disabled = false;
+    emitChat('busy', { busy: false });
+
+    expect(input.value).toBe('SR:BPM1:X');
+    expect(transport.sendPrompt).not.toHaveBeenCalled();
+    expect(keys).toEqual([]);
+    expect(input.value).not.toContain('\n');
+  });
+
+  test('a chip click while the turn streams is dropped, as before, and never lands later', async () => {
+    const { emitChat } = await events();
+    const input = mountChatInput({ disabled: true });
+    const row = fc.chipRow(['What can you read right now?']);
+    document.body.append(row);
+
+    /** @type {HTMLButtonElement} */ (row.querySelector('.tour-chip')).click();
+
+    expect(input.value).toBe('');
+    expect(notices()).toHaveLength(0);
+    input.disabled = false;
+    emitChat('busy', { busy: false });
+    expect(input.value).toBe('');
+  });
+
+  test('the terminal surface pastes immediately and holds nothing', async () => {
+    const { emitChat } = await events();
+    document.documentElement.setAttribute('data-agent-surface', 'terminal');
+    const input = mountChatInput({ disabled: true });
+
+    fc.insertPrompt('SR:BPM1:X', { append: true });
+
+    expect(term.paste).toHaveBeenCalledWith('SR:BPM1:X');
+    expect(notices()).toHaveLength(0);
+    input.disabled = false;
+    document.documentElement.removeAttribute('data-agent-surface');
+    emitChat('busy', { busy: false });
+    expect(input.value).toBe('');
+  });
+});
+
 /* ---- the settled moment ------------------------------------------------- */
 
 /** Announce a session id, the way terminal.js's onSessionChange does. */
@@ -615,5 +736,77 @@ describe('the console', () => {
     chip.kind = 'simulator';
     chip.listeners.forEach((fn) => fn({}));
     expect(messages.querySelector('.op-empty')).toBeNull();
+  });
+
+  /** The suggestion buttons anywhere in the console's log. */
+  const suggestions = (/** @type {HTMLElement} */ messages) =>
+    messages.querySelectorAll('.tour-chip');
+
+  test('sending with Enter takes the suggestions away', async () => {
+    const messages = await mountChat();
+    settleOn('real');
+    expect(suggestions(messages).length).toBeGreaterThan(0);
+
+    const input = /** @type {HTMLTextAreaElement} */ (
+      document.querySelector('#operator-container .op-input-area textarea')
+    );
+    input.value = 'hello';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+    expect(suggestions(messages)).toHaveLength(0);
+  });
+
+  test('clicking a suggestion takes the suggestions away and keeps the sentence', async () => {
+    const messages = await mountChat();
+    settleOn('real');
+    const first = /** @type {HTMLButtonElement} */ (suggestions(messages)[0]);
+    const text = first.textContent;
+
+    first.click();
+
+    const input = /** @type {HTMLTextAreaElement} */ (
+      document.querySelector('#operator-container .op-input-area textarea')
+    );
+    expect(input.value).toBe(text);
+    expect(transport.sendPrompt).not.toHaveBeenCalled();
+    expect(suggestions(messages)).toHaveLength(0);
+    expect(messages.querySelector('.op-empty-intro')?.textContent).toContain(
+      'read values from the live machine'
+    );
+
+    // A machine switch rewrites the sentence but does not bring the chips back.
+    chip.kind = 'simulator';
+    chip.listeners.forEach((fn) => fn({}));
+    expect(suggestions(messages)).toHaveLength(0);
+    expect(messages.querySelector('.op-empty-intro')?.textContent).toContain(
+      'read values from the simulator'
+    );
+  });
+
+  test('a session restored with messages shows no suggestions, even when it settles mid-replay', async () => {
+    localStorage.setItem('osprey-pty-session', 'restored-key');
+    /** @type {(turns: unknown[]) => void} */
+    let deliver = () => {};
+    transport.fetchHistory.mockImplementationOnce(
+      () => new Promise((resolve) => (deliver = /** @type {any} */ (resolve)))
+    );
+    try {
+      const messages = await mountChat();
+      // First contact settles while the transcript is still on its way.
+      settleOn('real');
+      deliver([
+        { role: 'user', content: 'earlier question' },
+        { role: 'assistant', content: 'earlier answer' },
+      ]);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(messages.textContent).toContain('earlier answer');
+      expect(suggestions(messages)).toHaveLength(0);
+      expect(messages.querySelector('.op-empty')).toBeNull();
+    } finally {
+      localStorage.clear();
+    }
   });
 });

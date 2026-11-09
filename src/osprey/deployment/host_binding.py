@@ -108,6 +108,10 @@ BUNDLED_HOST_BINDINGS: Mapping[str, BundledHostBinding] = {
         HostBinding(listens=False),
         "a chat bridge that dials the dispatcher; nothing in a container dials it",
     ),
+    "slack_bridge": BundledHostBinding(
+        HostBinding(listens=False),
+        "a chat bridge that dials the dispatcher; nothing in a container dials it",
+    ),
     "ariel_sync": BundledHostBinding(
         HostBinding(listens=False),
         "a logbook poller that dials the store and the facility logbook; "

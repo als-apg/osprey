@@ -224,7 +224,7 @@ NESTED_BLOCK = """\
          alt="The web terminal.">
   </video>
   <p class="osprey-demo-note" id="osprey-second-note">
-    One unedited session on the control-assistant demo, played in real time.
+    One unedited session on the demo, played in real time.
   </p>
   <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
     <span>Speed</span>

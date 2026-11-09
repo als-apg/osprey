@@ -1,13 +1,10 @@
 """The env chain as an MCP server sees it at startup.
 
 :func:`osprey.mcp_env.load_dotenv_from_project` is the one loader in OSPREY
-that reads the chain with ``override=False`` — first file to supply a key wins,
-and anything the shell already exports outranks both files. The chain contract
-is the same as everywhere else (``.env.shared`` defaults below the host-local
-``.env``), so realizing it here means loading the files in the *opposite* order
-from a compose ``env_file:`` list. These tests pin the contract rather than the
-order, so the day someone "corrects" the file order to match compose, the
-conflict-key test is what fails.
+that reads the chain with ``override=False`` — anything the shell already
+exports outranks both files. The chain contract is the same as everywhere else
+(``.env.shared`` defaults below the host-local ``.env``), and these tests pin
+that contract.
 
 The other half of this loader — which directory the chain is read from, across
 the repo/render split — is pinned in ``tests/registry/test_mcp_env_rendering.py``

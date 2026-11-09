@@ -30,9 +30,9 @@ T0 = 1_760_000_000.0
 
 @pytest.mark.slow
 def test_bpm_polarity_flips_the_reading_on_the_next_operation(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
-    repo, view = stage_built_simulator_view(built_control_assistant, tmp_path)
+    repo, view = stage_built_simulator_view(built_demo, tmp_path)
     mock = Composite(view, state_dir=simulation_state_dir(view), clock=lambda: T0, model_log=False)
     before = mock.get(BPM_Y)
 

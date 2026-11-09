@@ -210,26 +210,60 @@ class TestProfileServiceTemplateResolution:
         config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
         assert config["services"]["typesense"]["port"] == 8108
 
-    def test_missing_bundled_template_warns_and_skips(self, tmp_path: Path) -> None:
-        """An unknown ``osprey.<name>`` is skipped, not raised — as in _copy_service_templates."""
+    def test_unknown_bundled_template_raises(self, tmp_path: Path) -> None:
+        """An unknown ``osprey.<name>`` stops the build; no service is half-injected."""
         from osprey.cli.build_injectors import _inject_profile_services
         from osprey.cli.build_profile import ServiceDef
+        from osprey_connectors.errors import BuildProfileError
 
         project_path = self._project(tmp_path)
         profile_dir = tmp_path / "profile"
         profile_dir.mkdir()
 
-        count = _inject_profile_services(
-            profile_dir,
-            project_path,
-            {"nope": ServiceDef(template="osprey.no_such_service")},
-        )
+        with pytest.raises(BuildProfileError, match=r"'nope'.*'osprey\.no_such_service'"):
+            _inject_profile_services(
+                profile_dir,
+                project_path,
+                {"nope": ServiceDef(template="osprey.no_such_service")},
+            )
 
-        assert count == 0
         assert not (project_path / "services" / "nope").exists()
         config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
         assert "nope" not in (config.get("services") or {})
         assert "nope" not in (config.get("deployed_services") or [])
+
+    @pytest.mark.parametrize(
+        ("make_dir", "message"),
+        [
+            (False, r"'nope' template dir not found: .*svc[/\\]nope"),
+            (True, r"'nope' template dir missing docker-compose\.yml\.j2"),
+        ],
+        ids=["dir-not-found", "compose-template-missing"],
+    )
+    def test_unresolvable_profile_template_raises(
+        self, tmp_path: Path, make_dir: bool, message: str
+    ) -> None:
+        """A profile-local template with no compose template stops the build."""
+        from osprey.cli.build_injectors import _inject_profile_services
+        from osprey.cli.build_profile import ServiceDef
+        from osprey_connectors.errors import BuildProfileError
+
+        project_path = self._project(tmp_path)
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+        if make_dir:
+            (profile_dir / "svc" / "nope").mkdir(parents=True)
+
+        with pytest.raises(BuildProfileError, match=message):
+            _inject_profile_services(
+                profile_dir,
+                project_path,
+                {"nope": ServiceDef(template="svc/nope")},
+            )
+
+        assert not (project_path / "services" / "nope").exists()
+        config = yaml.safe_load((project_path / "config.yml").read_text(encoding="utf-8"))
+        assert "nope" not in (config.get("services") or {})
 
     def test_claimed_bundled_service_is_left_untouched(self, tmp_path: Path) -> None:
         from osprey.cli.build_injectors import _inject_profile_services
@@ -305,11 +339,11 @@ class TestScaffoldCliDirectoryArtifacts:
         """Copy the packaged service template into the project, as a build does."""
         import shutil
 
-        from osprey.cli.build_injectors import _locate_pkg_services
+        from osprey.cli.build_profile_presets import bundled_services_dir
 
         destination = project_path / "services" / name
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(_locate_pkg_services() / name, destination)
+        shutil.copytree(bundled_services_dir() / name, destination)
         return destination
 
     def test_claim_moves_the_directory_into_the_profile(self, tmp_path: Path):

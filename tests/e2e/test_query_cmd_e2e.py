@@ -5,7 +5,7 @@ Exercises the *shipped* command path end-to-end.
 Template: ``hello_world`` — the minimal preset with one ``controls`` server
 serving the hello-world facility's channels.  It is self-contained (no ARIEL
 Postgres, no real EPICS hardware) and resolves exit 0 in this environment.  The
-``control_assistant`` preset was considered but skipped: it declares additional
+``demo`` preset was considered but skipped: it declares additional
 MCP servers (channel-finder, ARIEL) that require running infrastructure absent
 here.
 
@@ -47,7 +47,6 @@ from tests.e2e._facility_select import repo_view, seeded_readback
 from tests.e2e.sdk_helpers import HAS_SDK, init_project, is_claude_code_available
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.harness_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),

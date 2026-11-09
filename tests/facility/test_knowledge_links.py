@@ -176,17 +176,14 @@ def test_the_knowledge_stage_runs_after_every_stop() -> None:
 
 
 def test_the_build_names_a_dangling_page_and_still_writes_the_facility_file(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
-    repo = tmp_path / built_control_assistant.repo.name
-    shutil.copytree(built_control_assistant.repo, repo, symlinks=True)
-    facility_file = (
-        built_control_assistant.build_dir.relative_to(built_control_assistant.repo)
-        / "facility.json"
-    )
+    repo = tmp_path / built_demo.repo.name
+    shutil.copytree(built_demo.repo, repo, symlinks=True)
+    facility_file = built_demo.build_dir.relative_to(built_demo.repo) / "facility.json"
     (repo / facility_file).unlink()
     knowledge = repo / "data" / "facility" / "knowledge"
-    held = built_control_assistant.facility["devices"][0]["id"]
+    held = built_demo.facility["devices"][0]["id"]
     (knowledge / "linked.md").write_text(
         f"---\ntype: device\ntitle: Linked\ndescription: Held.\ndevice_id: {held}\n---\n",
         encoding="utf-8",
@@ -207,14 +204,14 @@ def test_the_build_names_a_dangling_page_and_still_writes_the_facility_file(
 
 
 def test_validate_and_show_name_a_dangling_page_on_one_stderr_line(
-    built_control_assistant: BuiltProject, tmp_path: Path, capfd: pytest.CaptureFixture[str]
+    built_demo: BuiltProject, tmp_path: Path, capfd: pytest.CaptureFixture[str]
 ) -> None:
     from click.testing import CliRunner
 
     from osprey.cli.main import cli
 
-    repo = tmp_path / built_control_assistant.repo.name
-    shutil.copytree(built_control_assistant.repo, repo, symlinks=True)
+    repo = tmp_path / built_demo.repo.name
+    shutil.copytree(built_demo.repo, repo, symlinks=True)
     knowledge = repo / "data" / "facility" / "knowledge"
     (knowledge / "gone.md").write_text(
         "---\ntype: device\ntitle: Gone\ndescription: Missing.\ndevice_id: NO/SUCH9\n---\n",
@@ -237,20 +234,20 @@ def test_validate_and_show_name_a_dangling_page_on_one_stderr_line(
 
 
 def test_stubs_seeded_from_the_graph_view_link_held_devices(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
     from click.testing import CliRunner
 
     from osprey.cli.knowledge_cmd import knowledge
 
-    graph_view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+    graph_view = built_demo.build_dir / "data" / "graph" / "facility.ttl"
     bundle = tmp_path / "knowledge"
     bundle.mkdir()
 
     result = CliRunner().invoke(knowledge, ["seed-from-ttl", str(bundle), "--ttl", str(graph_view)])
 
     assert result.exit_code == 0, result.output
-    held = {device["id"] for device in built_control_assistant.facility["devices"]}
+    held = {device["id"] for device in built_demo.facility["devices"]}
     linked = {
         line.removeprefix("device_id: ").strip("'\"")
         for page in bundle.rglob("*.md")
@@ -258,7 +255,7 @@ def test_stubs_seeded_from_the_graph_view_link_held_devices(
         if line.startswith("device_id: ")
     }
     assert linked and linked <= held
-    assert dangling_links(tmp_path, built_control_assistant.facility) == []
+    assert dangling_links(tmp_path, built_demo.facility) == []
 
 
 #: The example pages that name facility things, listed so the check below cannot
@@ -284,24 +281,24 @@ LINKING_PAGES: tuple[str, ...] = (
 )
 
 
-def test_the_example_pages_link_only_held_records(built_control_assistant: BuiltProject) -> None:
-    validated = Validated(built_control_assistant.facility_dir, "demo")
-    validated.document = built_control_assistant.facility
+def test_the_example_pages_link_only_held_records(built_demo: BuiltProject) -> None:
+    validated = Validated(built_demo.facility_dir, "demo")
+    validated.document = built_demo.facility
 
-    assert dangling_links(built_control_assistant.facility_dir, validated.document) == []
+    assert dangling_links(built_demo.facility_dir, validated.document) == []
     assert check_knowledge_links(validated) == []
     assert [w for w in validated.warnings if w.kind == "link-dangling"] == []
 
 
 def test_every_linking_example_page_links_a_held_record(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     from osprey.facility.records import FacilityRecords
     from osprey.facility.references import find_facility_links
     from osprey.services.facility_knowledge.okf.document import OKFDocument
 
-    records = FacilityRecords(built_control_assistant.facility)
-    knowledge = built_control_assistant.facility_dir / "knowledge"
+    records = FacilityRecords(built_demo.facility)
+    knowledge = built_demo.facility_dir / "knowledge"
     unlinked = []
     for page in LINKING_PAGES:
         body = OKFDocument.parse((knowledge / page).read_text(encoding="utf-8")).body

@@ -31,6 +31,7 @@ namespace instead. That is ``host``:
    # in profile.yml — the event dispatcher and its workers
    dispatch:
      network: host
+     triggers: tutorial_triggers.yml   # required: a bundled name or your own file
 
    # a facility-owned service
    services:
@@ -53,7 +54,7 @@ with — and on a deployment that runs those beside it, those addresses are this
 machine's own ``localhost``. Inside a container on the compose network that
 name means the container, so writes and queue calls are refused on connect
 while every health check still passes. Put the pair on the host network and
-the addresses mean what they say. The bundled ``control-assistant`` preset does
+the addresses mean what they say. The bundled ``demo`` preset does
 exactly that, and any profile that keeps a control system or a co-deployed
 bridge at a loopback address should too.
 A container on the host network reaches whatever the host reaches;
@@ -81,8 +82,8 @@ Under ``network: host`` the render changes in four ways:
   ``services.event_dispatcher.bind``.
 * Addresses OSPREY writes between services become ``localhost:<port>`` instead
   of compose service names — the dispatcher's target for its workers, and the
-  Nextcloud Talk, Google Chat and Microsoft Teams bridges' URLs for the dispatch
-  pair.
+  Nextcloud Talk, Google Chat, Microsoft Teams and Slack bridges' URLs for the
+  dispatch pair.
 
 ``osprey up`` reads each host-mode service's bind address from the variable it
 declares with ``bind_env:``. A service that declares ``listens: false`` opens no
