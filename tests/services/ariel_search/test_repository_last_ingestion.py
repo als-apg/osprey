@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from osprey.services.ariel_search.config import ARIELConfig
-from osprey.services.ariel_search.database.repository import ARIELRepository
+from osprey.services.ariel_search.database.repository import ARIELRepository, SchemaFacts
 from osprey.services.ariel_search.exceptions import DatabaseQueryError
 from osprey.services.ariel_search.service import ARIELSearchService
 
@@ -131,6 +131,8 @@ class TestServiceStatusUsesTheRepository:
         repository = MagicMock()
         repository.get_embedding_tables = AsyncMock(return_value=[])
         repository.get_last_ingestion = AsyncMock(return_value=completed)
+        repository.schema_facts = AsyncMock(return_value=SchemaFacts(False, False))
+        repository.get_enhancement_coverage = AsyncMock(return_value={})
 
         result = await self._service(pool, repository).get_status()
 
@@ -149,6 +151,8 @@ class TestServiceStatusUsesTheRepository:
         repository = MagicMock()
         repository.get_embedding_tables = AsyncMock(return_value=[])
         repository.get_last_ingestion = AsyncMock(return_value=None)
+        repository.schema_facts = AsyncMock(return_value=SchemaFacts(False, False))
+        repository.get_enhancement_coverage = AsyncMock(return_value={})
 
         result = await self._service(pool, repository).get_status()
 

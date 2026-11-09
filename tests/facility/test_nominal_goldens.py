@@ -3,7 +3,7 @@
 ``tests/facility/golden/nominal_in_process.json`` holds, for every demo
 address but the deck's tune and chromaticity instruments, the transfer
 line's channels and the waveforms, the nominal the simulator served in process serves with no
-scenario active. It serves the control-assistant build's simulator view through a composite, so these tests
+scenario active. It serves the demo build's simulator view through a composite, so these tests
 build that composite from the shared build and hold it to the golden to 1e-12
 on every address, except the declared re-baselines:
 
@@ -115,7 +115,7 @@ def close(actual: float, expected: float) -> bool:
 
 
 class Served:
-    """The composite the in-process simulator builds from the control-assistant simulator view."""
+    """The composite the in-process simulator builds from the demo simulator view."""
 
     def __init__(self, view: Path) -> None:
         from osprey_connectors.simulation.composite import Composite
@@ -142,9 +142,9 @@ class Served:
 
 
 @pytest.fixture(scope="module")
-def served(built_control_assistant: BuiltProject) -> Served:
+def served(built_demo: BuiltProject) -> Served:
     pytest.importorskip("at")
-    return Served(built_control_assistant.build_dir / "data" / "simulator")
+    return Served(built_demo.build_dir / "data" / "simulator")
 
 
 def rebaselined() -> set[str]:

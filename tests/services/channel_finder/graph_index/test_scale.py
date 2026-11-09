@@ -12,29 +12,24 @@ it asserts anything. What the printed lines are for is the *trend* -- a build
 that goes from forty seconds to ninety has regressed even though it never
 failed, and the run history is where that is visible.
 
-The two search guards are ratios, not wall clocks. What moves between hosts is
-the whole scale and not the shape of it: a search over the hundred-thousand-row
-index takes 42 ms on a workstation and 298 ms in the shared lane, and the whole
-parity matrix over the demo corpus 5.5 ms here and 34 ms there -- the same ~7x
-on a corpus of a hundred thousand rows and on one of three thousand. A factor
-that does not move with the data is the box, not the code: four xdist workers
-on a four-vCPU runner, with DuckDB asking for cores none of them can spare
-(coverage instrumentation was measured too, and is not the cause, at +6%). So
-each search guard measures its own baseline in the same process seconds before
-the number it bounds -- the big index against the demo matrix, and the median
-matrix shape against the unfiltered scan the matrix opens with -- and host load
-divides out. The build budgets and the cold-search budget stay absolute: they
-are coarse enough that contention does not reach them, and there is no cheaper
-thing in the same process to measure them against. Those four carry the
-``wallclock`` marker, so the benchmark job times them in a serial invocation of
-their own, apart from the rest of the module.
+The two search guards are ratios, not absolute budgets. What moves between hosts of
+different speed is the whole scale and not the shape of it: a search over the
+hundred-thousand-row index takes 42 ms on a workstation and 298 ms in the
+shared lane, and the whole parity matrix over the demo corpus 5.5 ms here and
+34 ms there -- the same ~7x on a corpus of a hundred thousand rows and on one
+of three thousand. So each search guard measures its own baseline in the same
+process -- the big index against the demo matrix, and the median matrix shape
+against the unfiltered scan the matrix opens with -- and a faster or slower
+host moves both sides together. The build budgets and the cold-search budget
+stay absolute: there is no cheaper thing in the same process to measure them
+against.
 
-The whole module is therefore marked ``channel_finder_benchmark`` as well as
-``slow``: it is deselected from CI's unit lane and runs on demand, in the
-benchmark job (``gh workflow run ci.yml -f run_benchmarks=true``) or locally
-with ``pytest tests/services/channel_finder/graph_index/test_scale.py``. The
-cost of that is real and worth naming: nothing runs these automatically, so a
-latency regression lands unnoticed until someone asks for a benchmark run.
+A ratio does not survive *load*: its two sides are timed at different moments,
+and a neighbour that loads one and not the other moves the quotient. So all six
+timing tests carry the ``wallclock`` marker, CI times them alone in a serial
+step of a job with no parallel sweep in it, and the parallel sweep carries no
+timing assertion from this module.
+The module is ``slow``, so the quick tier of ``scripts/check.py`` deselects it.
 
 :data:`PARITY_MATRIX` is exported for the parity lane, which replays the same
 filter shapes against the store and against the index and compares the answers.
@@ -70,10 +65,7 @@ from osprey.services.channel_finder.graph_index.reader import (
 )
 from osprey.services.channel_finder.graph_index.taxonomy import class_name
 
-pytestmark = [
-    pytest.mark.slow,
-    pytest.mark.channel_finder_benchmark,
-]
+pytestmark = [pytest.mark.slow]
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +104,10 @@ DEMO_BUILD_SECONDS = 5.0
 #: second. It is measured separately from the build so a regression in the
 #: parser and one in the writer show up as different lines in the history; a
 #: build that slows while the parse does not is the columnar path, and the
-#: other way round is the corpus walk. Held below the build budget because it
-#: is a strict part of it.
-DEMO_PARSE_SECONDS = 3.0
+#: other way round is the corpus walk. The serial step on a four-vCPU Linux
+#: runner measured 3.02-3.27 s. Held below the build budget because it is a
+#: strict part of it.
+DEMO_PARSE_SECONDS = 4.0
 
 #: How many statements one :meth:`GraphIndex.search` issues, whatever the
 #: corpus: the totals, the page, and one per facet. Derived from
@@ -131,11 +124,10 @@ DEMO_FIRST_SEARCH_SECONDS = 0.100
 
 #: How much slower the median search over the hundred-thousand-row index may be
 #: than the median shape over the demo one, measured in the same process
-#: seconds apart. The ratio is the stable quantity: 42 ms against 5.5 ms on a
-#: workstation and 298 ms against 34 ms in the shared lane is the same factor
-#: on both, so a ceiling twice above the loaded measurement still sees a
-#: threefold regression while a contended box cancels out. Measured 6.1x-7.0x
-#: over four runs on a workstation.
+#: seconds apart. The ratio holds across hosts of different speed: 42 ms
+#: against 5.5 ms on a workstation and 298 ms against 34 ms in the shared lane
+#: is the same factor on both. Measured 6.1x-7.0x over four runs on a
+#: workstation.
 SCALE_OVER_DEMO_CEILING = 20.0
 
 #: How much slower the median shape in the parity matrix may be than the
@@ -674,6 +666,7 @@ class TestHundredThousandBindings:
 
         assert len(statements) == STATEMENTS_PER_SEARCH, statements
 
+    @pytest.mark.wallclock
     def test_a_search_over_a_hundred_thousand_rows_stays_interactive(
         self, built, demo_matrix_timings: list[float]
     ):
@@ -681,8 +674,8 @@ class TestHundredThousandBindings:
 
         The finder redraws its page on every filter click, so this is the number
         the interaction is made of -- but it is a number the box owns, not the
-        code. Held against a demo-corpus median measured moments earlier in the
-        same process, host load divides out of both sides.
+        code. Held against a demo-corpus median measured in the same process, a
+        host's speed moves both sides together.
         """
         index_path, _, _ = built
 
@@ -801,6 +794,7 @@ class TestDemoCorpusOverTheParityMatrix:
             f"budget {DEMO_FIRST_SEARCH_SECONDS * 1000:.0f} ms"
         )
 
+    @pytest.mark.wallclock
     def test_the_whole_parity_matrix_stays_inside_the_warm_budget(
         self, demo_matrix_timings: list[float]
     ):

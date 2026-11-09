@@ -244,8 +244,14 @@ def _tracked_texts() -> tuple[tuple[str, str], ...]:
 
 def files_naming(group: WordGroup) -> set[str]:
     """The searched files whose text matches the group's pattern."""
-    pattern = re.compile(group.pattern, re.IGNORECASE)
-    return {name for name, text in _tracked_texts() if pattern.search(text)}
+    return set(_files_matching(group.pattern))
+
+
+@cache
+def _files_matching(pattern: str) -> frozenset[str]:
+    """One scan of the searched texts per pattern: both of a group's tests read it."""
+    compiled = re.compile(pattern, re.IGNORECASE)
+    return frozenset(name for name, text in _tracked_texts() if compiled.search(text))
 
 
 _BY_NAME = pytest.mark.parametrize("group", GROUPS, ids=lambda group: group.name)

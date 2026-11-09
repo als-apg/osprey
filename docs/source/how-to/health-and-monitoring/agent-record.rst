@@ -97,7 +97,7 @@ in the archive.
 Turn the archive on and off
 ===========================
 
-The control-assistant preset deploys the archive service. In any other profile,
+The demo preset deploys the archive service. In any other profile,
 add it under ``services:``:
 
 .. code-block:: yaml

@@ -5,7 +5,7 @@ ACROSS PROCESSES with a real Claude Agent SDK run, using the provider the run
 named in ``OSPREY_E2E_PROVIDER``; the lane skips when that provider's
 credential is absent. For each token trigger this:
 
-  1. Builds a real control-assistant deployment repo once (module-scoped fixture).
+  1. Builds a real demo deployment repo once (module-scoped fixture).
   2. Loads the REAL shipped ``tutorial_triggers.yml`` and overrides ONLY
      ``dispatcher.dispatch_target`` to the local worker (the shipped value is a
      compose service name that does not resolve outside the deploy network).
@@ -55,7 +55,6 @@ RUN_TIMEOUT_SEC = 150.0
 HEALTH_TIMEOUT_SEC = 45.0
 
 pytestmark = [
-    pytest.mark.e2e,
     # The provider comes from the run, so the credential gate has to follow it
     # rather than name one gateway: see tests/e2e/provider.py.
     pytest.mark.requires_e2e_provider,
@@ -84,7 +83,7 @@ def _http_get_json(
 
 @pytest.fixture(scope="module")
 def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Init + build a real control-assistant deployment repo once per module."""
+    """Init + build a real demo deployment repo once per module."""
     return build_repo(
         tmp_path_factory.mktemp("dispatch_tutorial_build"),
         provider=e2e_provider(),

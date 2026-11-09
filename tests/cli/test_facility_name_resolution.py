@@ -97,7 +97,7 @@ def channel_finder_project(tmp_path_factory) -> Path:
         TemplateManager(),
         project_name="cf-facility",
         output_dir=out_dir,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "in_context", "default_provider": "anthropic"},
     )
 
@@ -118,7 +118,7 @@ def test_regenerated_prompts_pick_up_the_facility_file_name(tmp_path_factory):
         manager,
         project_name="regen-facility",
         output_dir=out_dir,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical", "default_provider": "anthropic"},
     )
     assert _PROMPT_SENTENCE.format("regen-facility") in _channel_finder_prompt(project_dir)
@@ -141,8 +141,8 @@ def _first_render(tmp_path_factory, name: str, context: dict) -> Path:
     return TemplateManager().create_project(
         project_name=name,
         output_dir=tmp_path_factory.mktemp(name),
-        data_bundle="control_assistant",
-        data_root=bundle_data_root("control_assistant"),
+        data_bundle="demo",
+        data_root=bundle_data_root("demo"),
         context={"channel_finder_mode": "in_context", "default_provider": "anthropic", **context},
     )
 

@@ -18,7 +18,7 @@ By following this comprehensive learning path, you'll have:
 
 * A fully functional development environment
 * Your first working agent (hello world)
-* Production-grade control system patterns (control assistant)
+* Production-grade control system patterns (the demo)
 * Framework mastery through essential development patterns
 * Complete API reference for daily development
 
@@ -83,8 +83,8 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       A tailored project for your facility
 
-   .. grid-item-card:: 🎛️ 4. Control Systems
-      :link: control-assistant
+   .. grid-item-card:: 🎛️ 4. The Demo
+      :link: demo
       :link-type: doc
       :class-header: bg-info text-white
 
@@ -124,4 +124,4 @@ By following this comprehensive learning path, you'll have:
    conceptual-tutorial
    hello-world-tutorial
    osprey-install
-   control-assistant
+   demo

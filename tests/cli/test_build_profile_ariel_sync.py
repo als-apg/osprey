@@ -17,7 +17,7 @@ Three cases, one build each:
    ingests the source it names.
 2. The same remote source with no service — exactly one advisory, naming the
    source and the entry to add. Advisory only: the build still succeeds.
-3. The control-assistant preset as shipped — its logbook is seeded from the
+3. The demo preset as shipped — its logbook is seeded from the
    build, which needs no mirroring service, so nothing is said.
 
 Builds run ``--skip-deps --skip-lifecycle``: the virtualenv install and the
@@ -40,7 +40,7 @@ from tests.cli._lifecycle_build import invoke_build, rendered_config
 REMOTE_SOURCE = "https://logbook.example.org/api/entries"
 
 #: The bundled preset that deploys ARIEL; every case starts from its init.
-_PRESET = "control-assistant"
+_PRESET = "demo"
 
 #: The profile's selection of the framework's own bundled service template —
 #: the spelling the build advisory tells an operator to add.

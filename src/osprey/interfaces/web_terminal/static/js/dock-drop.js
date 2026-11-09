@@ -8,9 +8,9 @@
  *     on onDidAddGroup and unwired on onDidRemoveGroup) and every group model's
  *     own drop, so dockview never moves anything by itself;
  *   - reads a drag's source from the drag sources' own state (dock-tab.js's
- *     dockDragSource: a strip item's `{tab}`, a rail row's `{new}` or `{tab}`
- *     from rail-drag.js) and maps dockview's own tab and header drags — the
- *     bar is the drag handle — to `{tile}` when no source was recorded first;
+ *     dockDragSource: a rail row's `{new}` or `{tab}` from rail-drag.js) and
+ *     maps dockview's own header drag — the bar is the drag handle — to
+ *     `{tile}` when no source was recorded first;
  *   - raises the drag shield (the `.dock-dragging` class on .main-container and
  *     the overlay iframes' inline pointer-events, registered by dock-iframe.js
  *     through setDragShield) from the same start, and lowers it at the end;
@@ -20,25 +20,19 @@
  *     through the layout holder, which holds the apply while the drag is live
  *     and runs it once the drag has ended.
  *
- * Two refusals sit on top of the engine's zones, before a target is shown:
- * the Agent pane is always its own tile (a drop onto its header or centre, and
- * a drag of it onto another tile's, has no target — its edges still split), and
- * a sidebar row makes a new tile (its header and centre targets have no
- * target either; the row's edge and dock-edge drops split).
+ * One refusal sits on top of the engine's zones, before a target is shown:
+ * every tile holds one panel (dock-policy.js), so a tile's header and centre —
+ * the engine's zones that would add a panel to the tile — have no target for
+ * any source. A drop lands on a tile's edge, which splits it, or on a dock
+ * edge, which makes a new tile along that side; the Agent pane's tile splits
+ * like any other and never takes a panel.
  *
  * A drag with no recognised source (a file, text, another page's payload) gets
  * nothing: no preventDefault, no preview, no shield, no drop.
  */
 
-import {
-  findTile,
-  hitTest,
-  keysOf,
-  planDrop,
-  resultRect,
-  tileIdsOf,
-} from '/static/vendor/dock-engine.mjs';
-import { TERMINAL_KEY, getLayoutHolder } from './dock-apply.js';
+import { hitTest, keysOf, planDrop, resultRect, tileIdsOf } from '/static/vendor/dock-engine.mjs';
+import { getLayoutHolder } from './dock-apply.js';
 import {
   clearDockDrag,
   dockDragSource,
@@ -87,42 +81,24 @@ function shield(on) {
 /**
  * The preview style of a target, as in the runtime's drop preview: an edge
  * paints the half the item lands in, a dock-edge strip (an outer target) the
- * new strip it lands in, the centre or a tab gap the whole tile. A border
- * target has no pointer zone (only the agent's drop names it), so it paints
- * nothing.
+ * new strip it lands in. A border target has no pointer zone (only the
+ * agent's drop names it), and a zone target is never admitted, so neither
+ * paints anything.
  * @param {Target} target
- * @returns {'split' | 'tab' | null}
+ * @returns {'split' | null}
  */
 export function previewKind(target) {
-  if ('zone' in target) return 'tab';
-  if ('edge' in target || 'outer' in target) return 'split';
-  return null;
+  return 'edge' in target || 'outer' in target ? 'split' : null;
 }
 
 /**
- * Whether tile `id` of `layout` is the Agent pane's.
- * @param {Layout} layout
- * @param {string} id
- */
-function isAgentTile(layout, id) {
-  return findTile(layout, id)?.tabs.includes(TERMINAL_KEY) ?? false;
-}
-
-/**
- * Whether `source` may land on `target`: every edge and dock-edge target; a tab
- * or centre target only for a tab or a tile that is not the Agent pane's,
- * onto a tile that is not the Agent pane's.
- * @param {Layout} layout
- * @param {Source} source
+ * Whether a drag may land on `target`: every edge and dock-edge target, never
+ * a zone target — a tile holds one panel, so nothing drops into one.
  * @param {Target} target
  * @returns {boolean}
  */
-export function admitted(layout, source, target) {
-  if (!('zone' in target)) return true;
-  if ('new' in source) return false;
-  if (isAgentTile(layout, target.tile)) return false;
-  if ('tab' in source) return source.tab !== TERMINAL_KEY;
-  return !isAgentTile(layout, source.tile);
+export function admitted(target) {
+  return !('zone' in target);
 }
 
 /**
@@ -215,7 +191,7 @@ export function initDockDrop(api, root, options = {}) {
       box.appendChild(placeholder);
     }
     box.className = `${PREVIEW_CLASS}__rect ${PREVIEW_CLASS}__rect--${kind}`;
-    const { rect, marker } = result;
+    const { rect } = result;
     const inset = Math.min(cardInset(root), rect.width / 2, rect.height / 2);
     Object.assign(box.style, {
       left: `${rect.x + inset - origin.left}px`,
@@ -224,16 +200,6 @@ export function initDockDrop(api, root, options = {}) {
       height: `${rect.height - 2 * inset}px`,
     });
     layer.replaceChildren(box);
-    if (marker) {
-      const line = document.createElement('div');
-      line.className = `${PREVIEW_CLASS}__marker`;
-      Object.assign(line.style, {
-        left: `${marker.x - origin.left}px`,
-        top: `${marker.y - origin.top}px`,
-        height: `${marker.height}px`,
-      });
-      layer.appendChild(line);
-    }
   };
 
   // --- the live drag ------------------------------------------------------------------
@@ -302,7 +268,7 @@ export function initDockDrop(api, root, options = {}) {
     const tabRects = measureTabRects(root);
     const point = { x: event.clientX, y: event.clientY };
     const target = hitTest(layout, dockRect, tabRects, point, source);
-    if (target === null || !admitted(layout, source, target)) return { target: null, result: null };
+    if (target === null || !admitted(target)) return { target: null, result: null };
     return { target, result: resultRect(layout, dockRect, tabRects, source, target) };
   };
 
@@ -362,11 +328,8 @@ export function initDockDrop(api, root, options = {}) {
     };
     on('onWillShowOverlay', prevent);
     on('onWillDrop', prevent);
-    // The bar is the drag handle: dockview's own tab or header drag is the
-    // tile. A strip item's dragstart has already recorded its tab by the time
-    // dockview's listener on the tab element runs, so the first source wins.
+    // The bar is the drag handle: dockview's own header drag is the tile.
     const tileStart = (/** @type {any} */ e) => {
-      if (dockDragSource()) return;
       const id = e?.group?.id ?? e?.panel?.group?.id ?? group.id;
       dockDragStart({ tile: String(id) }, null);
     };

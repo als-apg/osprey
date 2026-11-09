@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
     from osprey.services.ariel_search.database.migrations import BaseMigration
+    from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
 
 logger = get_logger("ariel")
@@ -292,6 +293,26 @@ class SemanticProcessorModule(BaseEnhancementModule):
             """,
             [keywords, summary, entry_id],
         )
+
+    async def inspect(self, entry_id: str, repository: "ARIELRepository") -> dict[str, Any] | None:
+        """Return the entry's stored summary and keywords.
+
+        Args:
+            entry_id: The entry to describe.
+            repository: Repository the entry is read through.
+
+        Returns:
+            ``{"summary", "keywords"}``, or None when the entry is unknown or has
+            neither yet.
+        """
+        entry = await repository.get_entry(entry_id)
+        if entry is None:
+            return None
+        summary = entry.get("summary") or None
+        keywords = list(entry.get("keywords") or [])
+        if summary is None and not keywords:
+            return None
+        return {"summary": summary, "keywords": keywords}
 
     async def health_check(self) -> HealthResult:
         """Check whether the module's LLM can be reached, off the event loop.

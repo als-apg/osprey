@@ -44,8 +44,8 @@ from osprey.registry.mcp import (
 
 #: Tools registered by a framework server but named nowhere in its registry
 #: entry. Empty: the nine workspace tools this baseline used to carry are now
-#: classified — the rail verbs and ``register_panel`` ask, ``artifact_pin`` and
-#: the five lattice tools are allowed. Keep it empty; a tool belongs in a
+#: classified — the rail verbs and ``register_panel`` ask, and the five
+#: lattice tools are allowed. Keep it empty; a tool belongs in a
 #: permission list, not in a list nobody reads.
 _UNCLASSIFIED_BASELINE: dict[str, set[str]] = {}
 
@@ -328,7 +328,7 @@ _DECLARING_SERVER = {
 
 @pytest.fixture(scope="module")
 def declaring_render(tmp_path_factory):
-    """A control-assistant project regenerated with :data:`_DECLARING_SERVER`.
+    """A demo project regenerated with :data:`_DECLARING_SERVER`.
 
     The regeneration is the render that ships, so its ``hook_config.json`` is
     what the writes-check hook and the audit middleware actually read.
@@ -342,11 +342,11 @@ def declaring_render(tmp_path_factory):
 
     tmp_path = tmp_path_factory.mktemp("declaring-render")
     manager = TemplateManager()
-    profile, _ = resolve_build_profile(None, preset="control-assistant")
+    profile, _ = resolve_build_profile(None, preset="demo")
     project = manager.create_project(
         project_name="declaring-render",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         data_root=bundle_data_root(),
         context={"channel_finder_mode": "hierarchical"},
         force=True,
@@ -355,9 +355,9 @@ def declaring_render(tmp_path_factory):
     manager.generate_manifest(
         project,
         "declaring-render",
-        "control-assistant",
+        "demo",
         {},
-        artifacts=manager._effective_artifacts("control_assistant", None),
+        artifacts=manager._effective_artifacts("demo", None),
     )
     config_file = project / "config.yml"
     config = yaml.safe_load(config_file.read_text())

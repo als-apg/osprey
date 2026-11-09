@@ -96,3 +96,13 @@ class TestWithhold:
         withhold_provider_env(env, tmp_path)
         assert env["EPICS_CA_ADDR_LIST"] == "10.0.0.1"
         assert "ANTHROPIC_API_KEY" not in env, "a key in .env is scrubbed like a shell export"
+
+    def test_the_env_chain_never_sets_a_shell_only_launch_variable(self, tmp_path: Path):
+        """The overlay goes through apply_env_chain, as inject_provider_env's does."""
+        (tmp_path / ".env").write_text(
+            "PATH=/from-dotenv\nEPICS_CA_ADDR_LIST=10.0.0.1\n", encoding="utf-8"
+        )
+        env = {"PATH": "/from-shell"}
+        withhold_provider_env(env, tmp_path)
+        assert env["PATH"] == "/from-shell"
+        assert env["EPICS_CA_ADDR_LIST"] == "10.0.0.1"

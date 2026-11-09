@@ -2,11 +2,14 @@
 
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
 from osprey.mcp_server.python_executor.server import mcp
 from osprey.mcp_server.python_executor.tools._execution_gates import run_gated_execution
 from osprey.mcp_server.python_executor.tools._package_inventory import with_live_packages
+from osprey.mcp_server.python_executor.tools._response_builder import save_refusal_head
 
 logger = logging.getLogger("osprey.mcp_server.tools.execute")
 
@@ -76,24 +79,44 @@ async def execute(
     Returns:
         JSON with a compact summary (truncated stdout/stderr) and a data file path.
     """
-    if not code or not code.strip():
-        return make_error(
-            "validation_error",
-            "No code provided.",
-            ["Provide Python code to execute."],
-        )
+    # A refusal from any check or gate leaves the run's head — ``not_run``
+    # before the launch, ``failed`` after it — and still reaches the caller.
+    launched = False
 
-    # Every gate, the launch and the run's reporting, in the one order both
-    # executor tools share — see :func:`run_gated_execution`. The notify is
-    # passed in so the write-activity report goes through this module's seam.
-    exec_result, patterns = await run_gated_execution(
-        tool="execute",
-        code=code,
-        description=description,
-        execution_mode=execution_mode,
-        notify=notify_agent_activity_async,
-        approved_target=approved_target,
-    )
+    def _launched() -> None:
+        nonlocal launched
+        launched = True
+
+    try:
+        if not code or not code.strip():
+            make_error(
+                "validation_error",
+                "No code provided.",
+                ["Provide Python code to execute."],
+            )
+
+        # Every gate, the launch and the run's reporting, in the one order both
+        # executor tools share — see :func:`run_gated_execution`. The notify is
+        # passed in so the write-activity report goes through this module's seam.
+        exec_result, patterns = await run_gated_execution(
+            tool="execute",
+            code=code,
+            description=description,
+            execution_mode=execution_mode,
+            notify=notify_agent_activity_async,
+            approved_target=approved_target,
+            on_launch=_launched,
+        )
+    except ToolError as error:
+        save_refusal_head(
+            tool_source="execute",
+            code=code or "",
+            description=description,
+            execution_mode=execution_mode,
+            error=error,
+            launched=launched,
+        )
+        raise
 
     from osprey.mcp_server.python_executor.tools._response_builder import build_execution_response
 

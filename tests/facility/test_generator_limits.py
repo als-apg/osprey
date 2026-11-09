@@ -183,12 +183,12 @@ def test_measurement_allows_the_five_kinds() -> None:
 
 
 def test_each_measurement_group_is_a_deck_machine_family_with_a_wired_member(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     groups = records_by_id("group")
     wired = wired_devices(
-        built_control_assistant.build_dir / "data" / "graph" / "facility.ttl",
-        built_control_assistant.facility,
+        built_demo.build_dir / "data" / "graph" / "facility.ttl",
+        built_demo.facility,
     )
     named = measurement()["groups"]
     assert sorted(named) == ["bpm", "hcor", "quad", "sext", "vcor"]

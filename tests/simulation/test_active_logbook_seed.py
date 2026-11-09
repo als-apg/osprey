@@ -149,13 +149,13 @@ def test_a_persisted_set_that_does_not_compose_narrates_only_nominal(tmp_path):
     the narrative says what is served."""
     # Arrange
     project = _make_project(tmp_path)
-    burst = {"channel": "SR:VAC:PRESSURE", "events": []}
+    pressure = {"SR:VAC:PRESSURE": 1e-7}
     write_scenarios_view(
         project,
         {
             "nominal": {"logbook": [_entry("NOMINAL-1")]},
-            "burst": {"archiver": [burst], "logbook": [_entry("BURST-1")]},
-            "leak": {"archiver": [burst], "logbook": [_entry("LEAK-1")]},
+            "burst": {"overrides": pressure, "logbook": [_entry("BURST-1")]},
+            "leak": {"overrides": pressure, "logbook": [_entry("LEAK-1")]},
         },
     )
     _state_file(project).parent.mkdir(parents=True, exist_ok=True)

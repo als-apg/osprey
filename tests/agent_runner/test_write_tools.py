@@ -499,15 +499,12 @@ def test_registry_walk_matches_shared_classifier() -> None:
     """Drift guard: for every framework server the registry walk emits exactly
     the shared per-server classifier's output — pins that the framework path
     and the extends path share one implementation."""
-    from osprey.agent_runner.write_tools import (
-        _registry_side_effect_tools,
-        _server_side_effect_tools,
-    )
-    from osprey.registry.mcp import FRAMEWORK_SERVERS
+    from osprey.agent_runner.write_tools import _registry_side_effect_tools
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, server_side_effect_tools
 
     expected: list[str] = []
     for server in FRAMEWORK_SERVERS.values():
-        for name in _server_side_effect_tools(server):
+        for name in server_side_effect_tools(server):
             if name not in expected:
                 expected.append(name)
 
@@ -520,8 +517,11 @@ def test_extends_clone_classifies_like_template(tmp_path: Path) -> None:
     its template with the mcp__<template>__ prefix rewritten. Compares the full
     production output (read_only_disallowed_tools), not the classifier
     internals, so a blind spot in either path fails here."""
-    from osprey.agent_runner.write_tools import _server_side_effect_tools
-    from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
+    from osprey.registry.mcp import (
+        FRAMEWORK_SERVERS,
+        build_extended_server,
+        server_side_effect_tools,
+    )
 
     for template_name, template in FRAMEWORK_SERVERS.items():
         if template.condition:
@@ -531,7 +531,7 @@ def test_extends_clone_classifies_like_template(tmp_path: Path) -> None:
         assert clone is not None, f"extends of {template_name!r} unexpectedly rejected"
 
         old, new = f"mcp__{template_name}__", f"mcp__{clone_name}__"
-        template_surface = _server_side_effect_tools(template)
+        template_surface = server_side_effect_tools(template)
         expected = {new + t[len(old) :] if t.startswith(old) else t for t in template_surface}
 
         (tmp_path / "config.yml").write_text(
@@ -581,13 +581,26 @@ def test_no_destructive_permissions_allow_tool_is_reachable(tmp_path: Path) -> N
 
 
 def test_read_only_disallowed_tools_allows_audited_reads(tmp_path: Path) -> None:
-    """Approval-gated *reads* must stay callable — the read-only run still needs
-    to read PVs/archiver. Only writes/side-effects are blocked, not all
-    approval-gated tools."""
-    result = read_only_disallowed_tools(tmp_path)
+    """Every tool the registry declares an audited read, on every framework
+    server and on an ``extends`` clone of one, stays callable in the read-only
+    run: the floor blocks side effects, never an approval-gated read."""
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
 
-    assert "mcp__controls__channel_read" not in result
-    assert "mcp__controls__archiver_read" not in result
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n  servers:\n    controls2:\n      extends: controls\n"
+    )
+    clone = build_extended_server("controls2", {"extends": "controls"})
+    assert clone is not None
+
+    audited = {
+        f"mcp__{server.name}__{tool}"
+        for server in (*FRAMEWORK_SERVERS.values(), clone)
+        for tool in server.audited_reads
+    }
+    assert audited
+
+    blocked = audited & set(read_only_disallowed_tools(tmp_path))
+    assert not blocked, f"audited reads blocked in the read-only run: {sorted(blocked)}"
 
 
 def test_read_only_disallowed_covers_registry_side_effect_tools(tmp_path: Path) -> None:
@@ -597,14 +610,10 @@ def test_read_only_disallowed_covers_registry_side_effect_tools(tmp_path: Path) 
     auto-extends the read-only floor (or fails this test).
 
     The rail verbs and ``register_panel`` arrive through the walk below, since
-    they are ``permissions_ask``. ``lattice_clear_baseline`` does not — it is
-    auto-allowed and reaches the floor only through the destructive-name rule
-    ("clear"), so it is pinned by name."""
+    they are ``permissions_ask``."""
     from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
 
     result = set(read_only_disallowed_tools(tmp_path))
-
-    assert "mcp__osprey_workspace__lattice_clear_baseline" in result
 
     for server in FRAMEWORK_SERVERS.values():
         # Both ask lists render into the interactive approval list → side-effecting.
@@ -745,7 +754,7 @@ def test_caller_context_cannot_soften_the_deny_floor(tmp_path: Path) -> None:
         TemplateManager(),
         project_name="deny-floor-override",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical", "deny_defaults": []},
     )
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())

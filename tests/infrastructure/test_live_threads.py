@@ -303,9 +303,18 @@ def test_register_keeps_its_decorator_return():
 
 
 def test_a_fast_final_collection_writes_nothing_and_a_slow_one_is_named(monkeypatch):
-    """The clock is injected: a real collection over a large heap can itself pass any limit."""
+    """The clock is injected: a real collection over a large heap can itself pass any limit.
+
+    So is the collector: with the durations fake, a real collection over this
+    worker's whole heap proves nothing a nested run does not. The stand-in has
+    no ``freeze``, so a collection that touched it would fail into the
+    ``except`` and return 0.0.
+    """
     ticks = iter([0.0, 60.0, 100.0, 160.5])
     monkeypatch.setattr(_live_threads, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
+    monkeypatch.setattr(
+        _live_threads, "gc", SimpleNamespace(collect=lambda: 0, get_objects=lambda: [])
+    )
     buf = io.StringIO()
     frozen = gc.get_freeze_count()
     assert final_collection(buf, slow=60.0) == 60.0
@@ -401,7 +410,7 @@ _SLOW_EXIT_MODULE = textwrap.dedent(
 
 
     def _slow_exit():
-        time.sleep(3)
+        time.sleep(1.5)  # three times the 0.5 s bound
 
 
     atexit.register(_slow_exit)
@@ -448,7 +457,7 @@ _UNEVEN_TAIL_MODULE = textwrap.dedent(
 
 
     def test_slow():
-        time.sleep(3)
+        time.sleep(1.5)  # three times the 0.5 s bound
     """
 )
 

@@ -113,8 +113,17 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
             "shared_parameters": [...],
             "vocabulary": {"enabled": ..., "concepts": ..., "expand_by_default": ...},
             "attachments": {...},  # see attachments_capability()
+            "filter_dimensions": [{"name", "label", "kind"}, ...],
+            "enhancement_modules": [{"name", "label"}, ...],
         }
+
+        ``filter_dimensions`` lists ``filters.filter_dimensions(config)``
+        in rail order; ``enhancement_modules`` lists the enabled enhancement
+        modules in registry order, each labelled with its humanized name.
     """
+    from osprey.services.ariel_search.enhancement.status import enabled_modules
+    from osprey.services.ariel_search.filters import filter_dimensions
+
     categories: dict[str, dict[str, Any]] = {
         "direct": {"label": "Direct", "modes": []},
     }
@@ -132,7 +141,19 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
             "expand_by_default": config.vocabulary.expand_by_default if enabled else False,
         },
         "attachments": attachments_capability(config),
+        "filter_dimensions": [
+            {"name": dim.name, "label": dim.label, "kind": dim.kind}
+            for dim in filter_dimensions(config)
+        ],
+        "enhancement_modules": [
+            {"name": name, "label": _humanize(name)} for name in enabled_modules(config)
+        ],
     }
+
+
+def _humanize(name: str) -> str:
+    """``image_caption`` -> ``Image caption``."""
+    return name.replace("_", " ").capitalize()
 
 
 def attachments_capability(config: ARIELConfig) -> dict[str, Any]:

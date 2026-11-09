@@ -2,12 +2,13 @@
 
 Cross-cutting storage layer used by MCP servers, interfaces, and hooks.
 Provides file-backed artifact storage with JSON indexing and a type registry
-for artifact/category/tool metadata.
+for artifact/tool metadata, extension types, and the legacy
+category labels old entries' badges still render.
 
 Modules:
     base_store — Generic file-backed indexed store
     artifact_store — Artifact storage singleton
-    type_registry — Canonical type definitions (artifact, category, tool)
+    type_registry — Canonical type definitions (artifact, tool, extension types)
     notebook_renderer — Jupyter notebook creation and HTML rendering
 """
 
@@ -27,34 +28,36 @@ from osprey.stores.notebook_renderer import (
     render_notebook_to_html,
 )
 from osprey.stores.type_registry import (
+    ExtensionType,
     TypeDef,
     get_artifact_types,
     get_categories,
+    get_extension_types,
     get_tool_types,
-    load_categories_from_config,
-    register_category,
+    load_extension_types,
     registry_to_api_dict,
-    valid_category_keys,
+    viewer_path,
 )
 
 __all__ = [
     "ArtifactEntry",
     "ArtifactStore",
     "BaseStore",
+    "ExtensionType",
     "TypeDef",
     "create_notebook_from_code",
     "get_artifact_store",
     "get_artifact_types",
     "get_categories",
+    "get_extension_types",
     "get_or_render_html",
     "get_tool_types",
     "initialize_artifact_store",
-    "load_categories_from_config",
+    "load_extension_types",
     "register_artifact_listener",
-    "register_category",
     "registry_to_api_dict",
     "render_notebook_to_html",
     "reset_artifact_store",
     "unregister_artifact_listener",
-    "valid_category_keys",
+    "viewer_path",
 ]

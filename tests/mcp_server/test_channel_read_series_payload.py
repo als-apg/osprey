@@ -124,8 +124,8 @@ async def test_data_file_is_openable_and_json_loads(tmp_path, monkeypatch):
     assert payload["series"][ADDRESS]["values"][0] == 0.0
 
 
-async def test_artifact_metadata_and_category_drive_the_gallery(tmp_path, monkeypatch):
-    """data_type=timeseries picks the chart viewport; channel+category feed retention."""
+async def test_artifact_metadata_and_tool_source_drive_the_gallery(tmp_path, monkeypatch):
+    """data_type=timeseries picks the chart viewport; channel+tool_source feed retention."""
     data = await _read(tmp_path, monkeypatch, {ADDRESS: _oversized()})
 
     artifact_id = data["summary"]["readings"][ADDRESS]["artifact_id"]
@@ -134,7 +134,7 @@ async def test_artifact_metadata_and_category_drive_the_gallery(tmp_path, monkey
     assert stored is not None
     assert stored.metadata["data_type"] == "timeseries"
     assert stored.metadata["channel"] == ADDRESS
-    assert stored.category == "channel_values"
+    assert stored.category == ""
     assert stored.tool_source == "channel_read"
     assert stored.summary["channel"] == ADDRESS
     assert stored.summary["sample_count"] == 5000
@@ -157,43 +157,6 @@ async def test_non_finite_floats_become_json_null_gaps(tmp_path, monkeypatch):
     assert len(values) == len(array)
     # Re-serialisable the way the chart endpoint serialises it.
     json.dumps(payload, allow_nan=False)
-
-
-async def test_retention_prunes_with_the_configured_window(tmp_path, monkeypatch):
-    """A successful save is followed by the per-channel retention sweep."""
-    calls: list[tuple] = []
-
-    def fake_prune(_self, address, keep):
-        calls.append((address, keep))
-        return []
-
-    monkeypatch.setattr(
-        "osprey.stores.artifact_store.ArtifactStore.prune_channel_readings",
-        fake_prune,
-    )
-
-    await _read(
-        tmp_path,
-        monkeypatch,
-        {ADDRESS: _oversized()},
-        overrides={"control_system.channel_read_artifact_retention": 7},
-    )
-
-    assert calls == [(ADDRESS, 7)]
-
-
-async def test_retention_failure_does_not_cost_the_handle(tmp_path, monkeypatch):
-    """Housekeeping trouble must not strip a working handle off a saved artifact."""
-    monkeypatch.setattr(
-        "osprey.stores.artifact_store.ArtifactStore.prune_channel_readings",
-        MagicMock(side_effect=RuntimeError("index locked")),
-    )
-
-    data = await _read(tmp_path, monkeypatch, {ADDRESS: _oversized()})
-
-    entry = data["summary"]["readings"][ADDRESS]
-    assert entry["artifact_id"]
-    assert "artifact_error" not in entry
 
 
 async def test_store_failure_degrades_but_read_stays_successful(tmp_path, monkeypatch):

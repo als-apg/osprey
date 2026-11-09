@@ -116,13 +116,13 @@ def test_cypher_passes_the_client_side_gate(query: ExampleQuery) -> None:
 
 
 @pytest.fixture(scope="module")
-def view_graph(built_control_assistant: BuiltProject) -> Graph:
-    """The graph view the control-assistant build writes, parsed."""
+def view_graph(built_demo: BuiltProject) -> Graph:
+    """The graph view the demo build writes, parsed."""
     from rdflib import Graph
 
     from osprey.facility.views.graph import GRAPH_FILE
 
-    path = built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
+    path = built_demo.build_dir / "data" / "graph" / GRAPH_FILE
     return Graph().parse(path, format="turtle")
 
 

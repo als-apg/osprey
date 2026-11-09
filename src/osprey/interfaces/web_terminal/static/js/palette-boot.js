@@ -12,6 +12,11 @@
  * new tile", the Layouts group, popping a panel out to its own window, the
  * drawer tabs, the safety reference and opening the activity log in a new tab.
  * It has no terminal entries: the terminal is reached from the Agent tile alone.
+ *
+ * After CANOPY come the Sessions and Artifacts groups: a session enters
+ * through the session model's guarded `switchTo`; an artifact owned by a
+ * loaded session enters that session with the artifact shown, and one with no
+ * session is shown while the session stays.
  */
 
 import { getCurrentSessionId } from './terminal.js';
@@ -26,7 +31,9 @@ import {
   applyMenuPreset,
   navigateAndActivatePanel,
 } from './panel-manager.js';
-import { popOutPanel } from './popout.js';
+import { detach, reattach } from './pane-window.js';
+import { isDetached } from './dock-apply.js';
+import { PANELS } from './panel-catalog.js';
 import { CANOPY_PANEL_ID, createCanopyProvider } from './canopy-provider.js';
 import { openPanelBeside } from './panel-placement.js';
 import { resetDockLayout } from './dock-workspace.js';
@@ -39,6 +46,19 @@ import { openPalette, closePalette, isOpen } from './palette.js';
 import { confirmSignOut } from './sign-out.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
 import { isFeedbackModalOpen } from './feedback-modal.js';
+import {
+  ARTIFACTS_BASE,
+  SESSION_LIST_PATH,
+  postJSON,
+  requestJSON,
+} from './sidebar-artifact-listing.js';
+import { rows as sessionRows, sessionOfArtifact, setPick, switchTo } from './session-model.js';
+import { recordArtifactOpened } from './sidebar-artifacts.js';
+import {
+  ARTIFACT_HIT_CAP,
+  createArtifactsProvider,
+  createSessionsProvider,
+} from './palette-registry.js';
 
 /**
  * The one CANOPY provider, shared across opens so its newest-read-wins
@@ -47,10 +67,85 @@ import { isFeedbackModalOpen } from './feedback-modal.js';
  */
 let canopyProvider = null;
 
+/** The artifacts panel's id and its mount on the hub. */
+const ARTIFACTS_PANEL_ID = 'artifacts';
+
+/**
+ * The Sessions and Artifacts providers, shared across opens. Created on first use.
+ * @type {{ sessions: import('./palette-registry.js').AsyncProvider,
+ *   artifacts: import('./palette-registry.js').AsyncProvider } | null}
+ */
+let sessionProviders = null;
+
+/**
+ * The panel's search: one page, a run once at its head. It does not hide
+ * dispatch or watchdog artifacts.
+ * @param {string} q
+ */
+async function searchArtifacts(q) {
+  const params = new URLSearchParams({
+    search: q,
+    runs: 'grouped',
+    limit: String(ARTIFACT_HIT_CAP),
+  });
+  const body = await requestJSON(`${ARTIFACTS_BASE}/api/artifacts?${params}`);
+  return Array.isArray(body?.artifacts) ? body.artifacts : [];
+}
+
+/**
+ * The first page of each named session's artifacts, in one batched request.
+ * @param {string[]} sessions
+ */
+async function listSessions(sessions) {
+  const body = await postJSON(SESSION_LIST_PATH, {
+    sessions,
+    runs: 'grouped',
+    limit: ARTIFACT_HIT_CAP,
+  });
+  const pages = body?.pages && typeof body.pages === 'object' ? body.pages : {};
+  return sessions.flatMap((id) => (Array.isArray(pages[id]?.artifacts) ? pages[id].artifacts : []));
+}
+
+/**
+ * Show an artifact without changing the session: it becomes the pick and the
+ * artifacts panel opens on it.
+ * @param {{ id: string }} artifact
+ */
+async function showArtifact(artifact) {
+  await recordArtifactOpened(artifact.id);
+  setPick(artifact.id);
+  navigateAndActivatePanel(ARTIFACTS_PANEL_ID, '');
+}
+
+/** @returns {NonNullable<typeof sessionProviders>} */
+function getSessionProviders() {
+  if (!sessionProviders) {
+    sessionProviders = {
+      sessions: createSessionsProvider({ rows: sessionRows, switchTo }),
+      artifacts: createArtifactsProvider({
+        rows: sessionRows,
+        searchArtifacts,
+        listSessions,
+        sessionOfArtifact,
+        switchTo,
+        showArtifact,
+      }),
+    };
+  }
+  return sessionProviders;
+}
+
+/** Whether this deployment serves the artifacts panel. */
+function artifactsPanelPresent() {
+  return [...getHiddenPanels(), ...getVisiblePanels(), ...getPopoutPanels()].some(
+    (p) => p.id === ARTIFACTS_PANEL_ID
+  );
+}
+
 /**
  * Whether this deployment carries the CANOPY panel. Without it there is nothing
  * to search and nowhere to open a row. Hidden and visible panels exclude the
- * active one; the pop-out list includes it once its URL has resolved, which is
+ * active one; the new-window list includes it once its URL has resolved, which is
  * also the earliest the panel could show a row's target.
  * @returns {boolean}
  */
@@ -85,7 +180,7 @@ function configTabPresent() {
  * the declaration site for the panel-verb deps. openPalette accepts it as-is.
  * The CANOPY search seam (`searchCanopy` / `startCanopy`) is palette.js's own,
  * not the registry's, so it is typed from OpenDeps.
- * @returns {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy'>}
+ * @returns {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy' | 'asyncProviders'>}
  */
 function buildPaletteDeps() {
   /** @type {Array<{ label: string, detail?: string, run: () => void }>} */
@@ -138,7 +233,7 @@ function buildPaletteDeps() {
     });
   }
 
-  /** @type {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy'>} */
+  /** @type {import('./palette-registry.js').PaletteDeps & Pick<import('./palette.js').OpenDeps, 'searchCanopy' | 'startCanopy' | 'asyncProviders'>} */
   const deps = {
     // Panel show/focus is exactly what a rail click does, and the rail is
     // present in both modes.
@@ -147,11 +242,15 @@ function buildPaletteDeps() {
     showPanel,
     // "Focus" reports as a user-initiated activation so the server sees it.
     focusPanel: (id) => activateTab(id, { userInitiated: true }),
-    // getPopoutPanels is already narrowed to rail members whose standalone URL
-    // resolved and whose window is not already open — the context menu's
-    // "Pop out" row reads the same way.
+    // getPopoutPanels is already narrowed to rail members that can leave for a
+    // window and are not in one — the context menu's row reads the same way.
     getPopoutPanels,
-    popoutPanel: popOutPanel,
+    popoutPanel: detach,
+    getDetachedPanels: () =>
+      PANELS.filter((p) => isDetached(p.id)).map((p) => ({ id: p.id, label: p.label })),
+    reattachPanel: (id) => {
+      reattach(id);
+    },
     actions,
   };
 
@@ -199,6 +298,11 @@ function buildPaletteDeps() {
     deps.searchCanopy = canopyProvider.search;
     deps.startCanopy = canopyProvider.start;
   }
+
+  // Sessions, then Artifacts (only where the artifacts panel is served).
+  const providers = getSessionProviders();
+  deps.asyncProviders = [providers.sessions];
+  if (artifactsPanelPresent()) deps.asyncProviders.push(providers.artifacts);
 
   return deps;
 }

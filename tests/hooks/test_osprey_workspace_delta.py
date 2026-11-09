@@ -2,8 +2,9 @@
 
 ``osprey_workspace_delta.py`` diffs the live web workspace against the snapshot
 seeded by the SessionStart panels-context hook and injects one line naming what
-moved — tiles opened and closed, tabs opened, moved and closed, the tab a tile
-shows, the active tab and launcher-rail membership. Its defining property is silence: an unchanged workspace, an unreadable
+moved — tiles opened and closed, a panel replacing another in its tile, panels
+moved to a new tile, the active panel and launcher-rail membership. Its
+defining property is silence: an unchanged workspace, an unreadable
 session id, a missing or corrupt snapshot and a down web terminal must each exit
 0 with *byte-empty* stdout, because anything else spends tokens on every turn
 for no information.
@@ -59,15 +60,12 @@ def _stub_stdin(monkeypatch, payload):
 def _tile(spec, index):
     """One snapshot tile from a test spec.
 
-    A str is a one-tab tile; a list is a tile of several tabs, the one ending in
-    ``*`` showing (else the first); a dict is taken as written. Ids are
+    A str is a tile showing that panel; a dict is taken as written. Ids are
     positional (``t1``, ``t2``, ...) unless the dict names one.
     """
     if isinstance(spec, dict):
         return spec
-    tabs = [spec] if isinstance(spec, str) else list(spec)
-    showing = next((t for t in tabs if t.endswith("*")), tabs[0]).rstrip("*")
-    return {"tile": f"t{index + 1}", "tabs": [t.rstrip("*") for t in tabs], "showing": showing}
+    return {"tile": f"t{index + 1}", "panel": spec}
 
 
 def _tiles(specs):
@@ -83,7 +81,10 @@ def _state(tiles=None, active=None, visible=(), popouts=None):
 
 def _layout(tiles):
     """The dock layout the server publishes for snapshot ``tiles`` (a row of them)."""
-    nodes = [dict(tile, size=1 / len(tiles)) for tile in tiles]
+    nodes = [
+        {"tile": t["tile"], "tabs": [t["panel"]], "showing": t["panel"], "size": 1 / len(tiles)}
+        for t in tiles
+    ]
     return nodes[0] if len(nodes) == 1 else {"split": "row", "items": nodes}
 
 
@@ -162,9 +163,9 @@ def test_snapshot_path_matches_sibling_hook(temp_snapshot_dir):
 
 
 def test_load_snapshot_reads_the_three_facets(snapshot_file):
-    snapshot_file.write(_state(["terminal", ["a", "b*"]], "a", ["a", "b"]))
+    snapshot_file.write(_state(["terminal", "a"], "a", ["a", "b"]))
     assert delta._load_snapshot(str(snapshot_file.path)) == _state(
-        ["terminal", ["a", "b*"]], "a", ["a", "b"]
+        ["terminal", "a"], "a", ["a", "b"]
     )
 
 
@@ -180,6 +181,22 @@ def test_load_snapshot_rejects_untrustworthy_content(snapshot_file, raw):
 
 def test_load_snapshot_missing_file_is_none(temp_snapshot_dir):
     assert delta._load_snapshot(str(temp_snapshot_dir / "nope.json")) is None
+
+
+def test_a_snapshot_of_tiles_with_tabs_reads_as_unknown_tiles(snapshot_file):
+    """A snapshot from the release whose tiles held tabs: its tiles are not trusted."""
+    snapshot_file.write(
+        {
+            "tiles": [{"tile": "t1", "tabs": ["a", "b"], "showing": "b"}],
+            "active": "b",
+            "visible": ["a", "b"],
+        }
+    )
+    previous = delta._load_snapshot(str(snapshot_file.path))
+    assert previous["tiles"] is None
+    assert delta._build_delta_line(previous, _state(["b"], "b", ["a", "b"])) == (
+        "Workspace changed: tiles now [b]."
+    )
 
 
 def test_write_snapshot_leaves_no_temp_file(temp_snapshot_dir):
@@ -225,19 +242,27 @@ def test_workspace_state_trusts_layout_unless_dock_is_explicitly_false(dock):
     assert delta._workspace_state(data)["tiles"] == _tiles(["a"])
 
 
-def test_workspace_state_reads_tabs_showing_and_terminal():
-    payload = _panels_payload(["terminal", ["a", "b*"]], "b", ["a", "b"])
-    assert delta._workspace_state(payload) == _state(["terminal", ["a", "b*"]], "b", ["a", "b"])
+def test_workspace_state_reads_each_tiles_panel_and_the_terminal():
+    payload = _panels_payload(["terminal", "a"], "a", ["a", "b"])
+    assert delta._workspace_state(payload) == _state(["terminal", "a"], "a", ["a", "b"])
 
 
 def test_workspace_state_older_terminal_without_layout_is_unknown():
-    """A payload without the layout field carries no tabs, so it cannot be diffed."""
+    """A payload without the layout field names no tile, so it cannot be diffed."""
     data = {"layout_age_s": 0.3, "active": "a", "visible": ["a"]}
     assert delta._workspace_state(data) == _state(None, "a", ["a"])
 
 
-def test_workspace_state_malformed_layout_is_unknown():
-    data = {"layout": {"split": "row", "items": ["junk"]}, "layout_dock": True}
+@pytest.mark.parametrize(
+    "layout",
+    [
+        {"split": "row", "items": ["junk"]},
+        {"tile": "t1", "tabs": ["a", "b"], "showing": "b"},
+    ],
+    ids=["junk-item", "two-panels-in-a-tile"],
+)
+def test_workspace_state_malformed_layout_is_unknown(layout):
+    data = {"layout": layout, "layout_dock": True}
     assert delta._workspace_state(data)["tiles"] is None
 
 
@@ -252,7 +277,7 @@ def test_layout_reader_matches_sibling_hook():
             {
                 "split": "column",
                 "items": [
-                    {"tile": "t2", "tabs": ["a", "b"], "showing": "b"},
+                    {"tile": "t2", "tabs": ["b"], "showing": "b"},
                     {"tile": "t3", "tabs": ["c"]},
                 ],
             },
@@ -301,11 +326,86 @@ def test_main_dockless_client_still_reports_rail_changes(
 
 @pytest.mark.parametrize(
     "tiles",
-    [[], [{"tabs": []}], [{"tabs": ["a", 1]}], [{"tile": "t1"}], ["a", {"tabs": ["b"]}]],
-    ids=["empty", "empty-tabs", "non-string-tab", "no-tabs", "mixed"],
+    [
+        [{"panel": ""}],
+        [{"panel": 1}],
+        [{"tile": "t1"}],
+        ["a", {"panel": "b"}],
+        [{"tile": "t1", "tabs": ["a"], "showing": "a"}],
+    ],
+    ids=["blank-panel", "non-string-panel", "no-panel", "mixed", "tabs-form"],
 )
 def test_normalize_tiles_wrong_shapes_are_unknown(tiles):
     assert delta._normalize_tiles(tiles) is None
+
+
+def test_normalize_tiles_empty_is_an_empty_dock():
+    """Every pane in a window of its own: nothing docked, which is known."""
+    assert delta._normalize_tiles([]) == []
+
+
+def test_workspace_state_null_layout_with_pop_outs_from_a_dock_is_empty():
+    data = {"layout": None, "layout_dock": True, "popouts": ["terminal"], "visible": []}
+    assert delta._occupancy_is_known(data) is True
+    state = delta._workspace_state(data)
+    assert state["tiles"] == []
+    assert state["popouts"] == ["terminal"]
+
+
+def test_workspace_state_null_layout_and_no_pop_outs_from_a_dock_is_empty():
+    import osprey.templates.claude_code.claude.hooks.osprey_panels_context as panels
+
+    data = {"layout": None, "layout_dock": True, "popouts": [], "visible": []}
+    assert delta._occupancy_is_known(data) is True
+    assert panels._occupancy_is_known(data) is True
+    state = delta._workspace_state(data)
+    assert state["tiles"] == []
+    assert state["popouts"] == []
+
+
+def test_the_last_detached_pane_going_is_reported_as_back_from_its_window():
+    out = _state([], None, [], popouts=["terminal"])
+    gone = _state([], None, [], popouts=[])
+    assert "terminal back from its window" in (delta._build_delta_line(out, gone) or "")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"layout": None, "layout_dock": False, "popouts": ["terminal"]},
+        {"layout": None, "layout_dock": None, "popouts": ["terminal"]},
+    ],
+    ids=["dockless", "never-reported"],
+)
+def test_occupancy_of_a_null_layout_matches_sibling_hook(payload):
+    import osprey.templates.claude_code.claude.hooks.osprey_panels_context as panels
+
+    assert delta._occupancy_is_known(payload) is False
+    assert panels._occupancy_is_known(payload) is False
+
+
+def test_the_agent_pane_leaving_the_dock_empty_is_one_line_per_facet():
+    before = _state(["terminal"], None, [])
+    out = _state([], None, [], popouts=["terminal"])
+    line = delta._build_delta_line(before, out) or ""
+    assert "terminal tile closed" in line
+    assert "terminal moved to a window" in line
+    assert "tiles now none" in (delta._build_delta_line(_state(None, None, []), out) or "")
+
+
+def test_main_reports_the_agent_pane_detached_from_the_default_layout(
+    monkeypatch, capsys, snapshot_file
+):
+    snapshot_file.write(_state(["terminal"], None, []))
+    live = {"layout": None, "layout_dock": True, "popouts": ["terminal"], "visible": []}
+    _stub_urlopen(monkeypatch, payload=live)
+    _stub_stdin(monkeypatch, {"session_id": "s1"})
+
+    assert delta.main() == 0
+
+    out = capsys.readouterr().out
+    assert "terminal moved to a window" in out
+    assert snapshot_file.read()["tiles"] == []
 
 
 # ---------------------------------------------------------------------------
@@ -314,14 +414,14 @@ def test_normalize_tiles_wrong_shapes_are_unknown(tiles):
 
 
 def test_no_change_produces_no_line():
-    before = _state(["terminal", ["a", "b*"]], "b", ["a", "b"])
+    before = _state(["terminal", "a"], "a", ["a", "b"])
     assert delta._build_delta_line(before, dict(before)) is None
 
 
 def test_tile_closed():
     line = _line(
         (["terminal", "lattice", "artifacts"], "artifacts"),
-        (["terminal", "artifacts"], "artifacts"),
+        ([{"tile": "t1", "panel": "terminal"}, {"tile": "t3", "panel": "artifacts"}], "artifacts"),
     )
     assert line == "Workspace changed: lattice tile closed."
 
@@ -339,108 +439,82 @@ def test_several_tiles_closed_share_one_clause():
     assert line == "Workspace changed: b, c tiles closed."
 
 
-def test_multi_tab_tile_closed_names_its_tabs():
-    line = _line((["terminal", ["a", "b*"]], "terminal"), (["terminal"], "terminal"))
-    assert line == "Workspace changed: [a, b (showing)] tile closed."
-
-
-def test_multi_tab_tile_opened_names_its_tabs():
-    line = _line((["terminal"], "terminal"), (["terminal", ["a*", "b"]], "terminal"))
-    assert line == "Workspace changed: [a (showing), b] tile opened."
-
-
-def test_tab_closed_out_of_a_tile_that_remains():
-    line = _line((["terminal", ["a", "b*"]], "b"), (["terminal", "a"], "b"))
-    assert line == "Workspace changed: b tab closed."
-
-
-def test_tab_opened_into_an_existing_tile():
-    line = _line((["terminal", "a"], "a"), (["terminal", ["a", "b*"]], "a"))
-    assert line == "Workspace changed: b tab opened in [a, b (showing)]."
-
-
-def test_tab_moved_into_another_tile():
-    """Dragging a one-tab tile onto another: a move, not a close and an open."""
+def test_a_panel_opened_in_a_tile_reads_as_a_replacement():
+    """The open rule: the tile keeps its id and shows the new panel; the old one left."""
     line = _line(
+        (["terminal", "lattice"], "lattice", ["lattice", "ariel"]),
+        (["terminal", "ariel"], "ariel", ["lattice", "ariel"]),
+    )
+    assert line == "Workspace changed: ariel replaced lattice in its tile; active now ariel."
+
+
+def test_each_replacement_is_its_own_clause_beside_a_new_tile():
+    line = _line(
+        (["terminal", "a", "b"], "a"),
+        (["terminal", "c", "d", "e"], "a"),
+    )
+    assert line == (
+        "Workspace changed: e tile opened; c replaced a in its tile; d replaced b in its tile."
+    )
+
+
+def test_a_panel_in_a_tile_with_another_id_moved_to_a_new_tile():
+    """Dragging a panel to an edge: its old tile goes, a tile with a new id takes it."""
+    line = _line(
+        (["terminal", "a", "b"], "a"),
         (
             [
-                {"tile": "t1", "tabs": ["a"], "showing": "a"},
-                {"tile": "t2", "tabs": ["b"], "showing": "b"},
+                {"tile": "t1", "panel": "terminal"},
+                {"tile": "t4", "panel": "b"},
+                {"tile": "t2", "panel": "a"},
             ],
             "a",
         ),
-        ([{"tile": "t2", "tabs": ["b", "a"], "showing": "a"}], "a"),
     )
-    assert line == "Workspace changed: a tab moved to [b, a (showing)]."
-
-
-def test_tab_moved_out_to_a_new_tile():
-    """The source tile keeps its id, which settles which side moved."""
-    line = _line(
-        ([{"tile": "t2", "tabs": ["a", "b"], "showing": "b"}], "b"),
-        (
-            [
-                {"tile": "t3", "tabs": ["b"], "showing": "b"},
-                {"tile": "t2", "tabs": ["a"], "showing": "a"},
-            ],
-            "b",
-        ),
-    )
-    assert line == "Workspace changed: b tab moved to a new tile."
-
-
-def test_tab_moved_between_two_multi_tab_tiles():
-    line = _line(
-        (["terminal", ["a", "b"], ["c", "d"]], "a"),
-        (["terminal", ["a"], ["c", "d", "b*"]], "a"),
-    )
-    assert line == "Workspace changed: b tab moved to [c, d, b (showing)]."
+    assert line == "Workspace changed: b moved to a new tile."
 
 
 def test_terminal_moves_are_reported_too():
-    """The terminal is a tab like any other in the report."""
+    """The terminal's tile is a tile like any other in the report."""
     line = _line(
         (["terminal", "a"], "a"),
-        ([{"tile": "t2", "tabs": ["a", "terminal"], "showing": "terminal"}], "terminal"),
+        ([{"tile": "t2", "panel": "a"}, {"tile": "t3", "panel": "terminal"}], "terminal"),
     )
-    assert (
-        line
-        == "Workspace changed: terminal tab moved to [a, terminal (showing)]; active now terminal."
+    assert line == "Workspace changed: terminal moved to a new tile; active now terminal."
+
+
+def test_tiles_without_ids_are_never_read_as_replaced_or_moved():
+    line = _line(
+        ([{"tile": None, "panel": "a"}, {"tile": None, "panel": "b"}], "a"),
+        ([{"tile": None, "panel": "c"}, {"tile": None, "panel": "b"}], "a"),
     )
-
-
-def test_showing_tab_switched():
-    line = _line((["terminal", ["a*", "b"]], "a"), (["terminal", ["a", "b*"]], "b"))
-    assert line == "Workspace changed: b tab now showing; active now b."
-
-
-def test_closing_the_showing_tab_reports_close_and_new_showing():
-    line = _line((["terminal", ["a", "b", "c*"]], "c"), (["terminal", ["a*", "b"]], "a"))
-    assert line == "Workspace changed: c tab closed; a tab now showing; active now a."
-
-
-def test_tab_opened_showing_is_not_a_separate_showing_change():
-    line = _line((["terminal", ["a"]], "a"), (["terminal", ["a", "b*"]], "a"))
-    assert line == "Workspace changed: b tab opened in [a, b (showing)]."
+    assert line == "Workspace changed: c tile opened; a tile closed."
 
 
 def test_tiles_rearranged_without_membership_change():
-    line = _line((["a", "b"], "a"), (["b", "a"], "a"))
+    """A whole tile dragged elsewhere keeps its id: only the order changed."""
+    line = _line(
+        (["a", "b"], "a"),
+        ([{"tile": "t2", "panel": "b"}, {"tile": "t1", "panel": "a"}], "a"),
+    )
     assert line == "Workspace changed: tiles rearranged to [b], [a]."
 
 
-def test_tabs_reordered_within_a_tile():
-    line = _line(([["a", "b"]], "a"), ([["b", "a*"]], "a"))
-    assert line == "Workspace changed: tiles rearranged to [b, a (showing)]."
-
-
-def test_open_move_and_close_in_one_turn_each_get_a_clause():
+def test_open_replace_move_and_close_in_one_turn_each_get_a_clause():
     line = _line(
-        (["terminal", ["a", "b"], "c"], "a"),
-        (["terminal", ["a", "d*"], ["b"]], "d"),
+        (["terminal", "a", "b", "c"], "a"),
+        (
+            [
+                {"tile": "t1", "panel": "terminal"},
+                {"tile": "t2", "panel": "d"},
+                {"tile": "t5", "panel": "b"},
+                {"tile": "t6", "panel": "e"},
+            ],
+            "d",
+        ),
     )
     assert line == (
-        "Workspace changed: d tab opened in [a, d (showing)]; b tab moved to a new tile; "
+        "Workspace changed: e tile opened; d replaced a in its tile; b moved to a new tile; "
         "c tile closed; active now d."
     )
 
@@ -457,7 +531,7 @@ def test_active_change():
 
 def test_active_cleared():
     line = _line((["a"], "a", ["a"]), (["a"], None, ["a"]))
-    assert line == "Workspace changed: no tab active now."
+    assert line == "Workspace changed: no panel active now."
 
 
 def test_visible_added_and_removed():
@@ -475,7 +549,7 @@ def test_rail_reorder_is_not_a_change():
 def test_combined_delta_names_each_facet_once():
     line = _line(
         (["lattice", "artifacts"], "lattice", ["lattice", "artifacts"]),
-        (["artifacts"], "artifacts", ["lattice", "artifacts", "bluesky"]),
+        ([{"tile": "t2", "panel": "artifacts"}], "artifacts", ["lattice", "artifacts", "bluesky"]),
     )
     assert line == (
         "Workspace changed: lattice tile closed; active now artifacts; "
@@ -485,8 +559,8 @@ def test_combined_delta_names_each_facet_once():
 
 def test_first_tile_report_states_rather_than_claims_a_transition():
     """Unknown -> known is new information, but nothing "opened"."""
-    line = _line((None, "a", ["a"]), (["terminal", ["a", "b"]], "a", ["a"]))
-    assert line == "Workspace changed: tiles now [terminal], [a (showing), b]."
+    line = _line((None, "a", ["a"]), (["terminal", "a", "b"], "a", ["a"]))
+    assert line == "Workspace changed: tiles now [terminal], [a], [b]."
 
 
 def test_tiles_going_unknown_says_nothing_about_tiles():
@@ -502,7 +576,7 @@ def test_merge_state_carries_forward_last_known_tiles():
 def test_a_pop_out_and_its_return_are_each_one_clause():
     before = _state(["a", "b"], "a", ["a", "b"])
     out = _state(["a"], "a", ["a", "b"], popouts=["b"])
-    assert "b tile closed; b popped out to a window" in (delta._build_delta_line(before, out) or "")
+    assert "b tile closed; b moved to a window" in (delta._build_delta_line(before, out) or "")
     back = _state(["a", "b"], "a", ["a", "b"])
     assert "b back from its window" in (delta._build_delta_line(out, back) or "")
 
@@ -587,11 +661,11 @@ def test_main_reseeds_corrupt_snapshot_without_emitting(monkeypatch, capsys, sna
     "live,expected",
     [
         (_panels_payload(["a"], "a", ["a", "b"]), "b tile closed"),
-        (_panels_payload([["a", "b*"]], "a", ["a", "b"]), "b tab moved to [a, b (showing)]"),
+        (_panels_payload(["a", "c"], "a", ["a", "b"]), "c replaced b in its tile"),
         (_panels_payload(["a", "b"], "b", ["a", "b"]), "active now b"),
         (_panels_payload(["a", "b"], "a", ["a", "b", "c"]), "c added to the launcher rail"),
     ],
-    ids=["tiles", "tabs", "active", "visible"],
+    ids=["tiles", "replaced", "active", "visible"],
 )
 def test_main_emits_one_line_per_delta_type(monkeypatch, capsys, snapshot_file, live, expected):
     snapshot_file.write(_state(["a", "b"], "a", ["a", "b"]))

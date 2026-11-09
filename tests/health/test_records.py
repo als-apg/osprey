@@ -66,11 +66,17 @@ class TestPolicySets:
                 "reach",
                 "archive",
                 "simulator",
+                "safety_chain",
+                "rendered",
+                "versions",
+                "dispatch",
+                "service_capabilities",
+                "ariel_modules",
             }
         )
 
     def test_on_demand_core_names(self):
-        assert ON_DEMAND_CORE == frozenset({"claude_cli_pinned", "model_chat"})
+        assert ON_DEMAND_CORE == frozenset({"claude_cli_pinned", "model_chat", "ariel_modules"})
 
     def test_on_demand_core_is_subset_of_config_dependent(self):
         # Both on_demand core categories also read config, so they must degrade.
