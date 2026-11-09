@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PAGE = REPO_ROOT / "docs/source/how-to/build-profiles.rst"
 SRC = REPO_ROOT / "src/osprey"
 
-PRESETS = ("control-assistant", "hello-world")
+PRESETS = ("demo", "hello-world")
 
 #: Tree entries a fresh ``osprey init`` need not write, each with the reason.
 PAGE_ONLY_ENTRIES = {
@@ -39,7 +39,7 @@ PAGE_ONLY_ENTRIES = {
 #: Entries whose own tree line states when init writes them, so the
 #: preset-specific paragraph does not name them. With no provider key in the
 #: environment, ``.env`` (and its lock) comes only from a profile's
-#: ``env.defaults``, which ``control-assistant`` declares and ``hello-world`` not.
+#: ``env.defaults``, which ``demo`` declares and ``hello-world`` not.
 SELF_DESCRIBED_ENTRIES = {".env", ".env.lock"}
 
 #: Each message quoted under "Troubleshooting", whitespace-normalized, mapped
@@ -56,6 +56,10 @@ QUOTED_MESSAGES = {
     ],
     "Profile convention directories are invalid": [
         "Profile convention directories are invalid ({} problem(s)):",
+    ],
+    "… outside the repository. Move it into the repository.": [
+        "{} resolves to {}, outside the repository. {}",
+        "Move it into the repository.",
     ],
     "web-terminal-context/<name> is a file": ["{}/{} is a file: {}/ holds one "],
     "project/ mirror writes N build-owned path(s)": ["{}/ mirror writes {} build-owned path(s)"],
@@ -168,14 +172,10 @@ def test_conditional_entries_paragraph_names_the_preset_specific_ones(
     named = paragraph.split("appear only when")[0]
     assert set(_literals(named)) == conditional
 
-    every_but = re.search(
-        r"``control-assistant`` deployment has all of them except (.+?);", paragraph
-    )
+    every_but = re.search(r"``demo`` deployment has all of them except (.+?);", paragraph)
     only = re.search(r"``hello-world`` deployment has only (.+?)\.$", paragraph)
     assert every_but and only, paragraph
-    assert conditional - set(_literals(every_but.group(1))) == (
-        init_listings["control-assistant"] & conditional
-    )
+    assert conditional - set(_literals(every_but.group(1))) == (init_listings["demo"] & conditional)
     assert set(_literals(only.group(1))) == init_listings["hello-world"] & conditional
 
 
