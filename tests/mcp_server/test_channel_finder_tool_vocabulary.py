@@ -61,6 +61,7 @@ MCP_SERVERS: tuple[str, ...] = (
     "health",
     "optimizer",
     "phoebus",
+    "pv_directory",
     "python_executor",
     "workspace",
 )
