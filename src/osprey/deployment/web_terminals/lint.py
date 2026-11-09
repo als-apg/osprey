@@ -85,6 +85,7 @@ from osprey.deployment.web_terminals.roster import (
     USERNAME_CHARSET_RE,
     _is_shared_entry,
     _roster_entry_name,
+    app_access_refusal,
     as_dict,
     auth_is_enforced,
     authored_people,
@@ -96,6 +97,7 @@ from osprey.deployment.web_terminals.roster import (
     effective_image_source,
     effective_tier,
     entry_is_shared,
+    expand_login_principals,
     expand_tier_principals,
     is_app_entry,
     privilege_phrase,
@@ -245,6 +247,11 @@ def lint_web_terminals(
         )
     )
     findings.extend(_check_shared_app_access(web_terminals))
+    findings.extend(
+        _check_app_entry_access(
+            web_terminals, rendered_project=rendered_project, profile_root=profile_root
+        )
+    )
     findings.extend(_check_render_charset(web_terminals))
     findings.extend(_check_render_seed_base(web_terminals))
     findings.extend(_check_default_tier_exists(web_terminals))
@@ -1137,6 +1144,86 @@ def _check_shared_app_access(web_terminals: dict[str, Any]) -> list[Finding]:
                         ),
                     )
                 )
+    return findings
+
+
+def _authored_app_access(profile_root: Path | None) -> list[tuple[str, str, Any]]:
+    """Every ``apps.<name>.access`` the profile and its login files spell, as written.
+
+    Read raw rather than through the profile loader, which refuses an unreadable
+    value before lint could name it. The files are the build's own listing
+    (:func:`~osprey.cli.profile_root.layer_files`), each login named as the
+    build names it: the deployment's file by its filename, a layer by its stem.
+
+    Returns:
+        ``(login, application, authored access)`` in file order; a file that
+        does not read as a mapping contributes nothing.
+    """
+    from osprey.cli.profile_root import layer_files
+    from osprey.utils.workspace import PROFILE_FILENAME
+
+    base = profile_root or Path(".")
+    files = [(PROFILE_FILENAME, base / PROFILE_FILENAME)]
+    files.extend((path.stem, path) for _kind, path in layer_files(base))
+    found: list[tuple[str, str, Any]] = []
+    for login, path in files:
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None
+        except (OSError, UnicodeDecodeError, yaml.YAMLError):
+            continue
+        apps = data.get("apps") if isinstance(data, dict) else None
+        for name, entry in (apps if isinstance(apps, dict) else {}).items():
+            if isinstance(entry, dict) and "access" in entry:
+                found.append((login, str(name), entry["access"]))
+    return found
+
+
+def _check_app_entry_access(
+    web_terminals: dict[str, Any], *, rendered_project: bool, profile_root: Path | None
+) -> list[Finding]:
+    """A login's ``apps.<name>.access`` must parse and must admit a browser caller. ERROR.
+
+    The twin of :func:`_check_shared_app_access` over every login file's
+    ``apps:`` block. ``invalid_app_access`` is the roster parser's refusal;
+    ``access_principal_without_idp`` and ``tier_principal_admits_nobody`` are
+    :func:`~osprey.deployment.web_terminals.roster.app_access_refusal`, the
+    predicate the build refuses on, asked of the set the build resolves. Profile
+    altitude only: a rendered config carries the resolved set, not the authored
+    one. An unknown ``auth.method`` skips the predicate, as every method-keyed
+    check does (:func:`_auth_context`).
+    """
+    if rendered_project:
+        return []
+    context = _auth_context(web_terminals)
+    method = context["auth_method"] if context is not None else None
+    claim = context["auth_oidc_claim"] if context is not None else None
+    cards = resolve_cards(web_terminals, {}, strict=False)
+    findings: list[Finding] = []
+    for login, name, access in _authored_app_access(profile_root):
+        try:
+            principals = resolve_access_principals(
+                {"kind": APP_ENTRY_KIND, "name": name, "login": login, "access": access}
+            )
+        except ValueError as exc:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_app_access",
+                    message=str(exc),
+                )
+            )
+            continue
+        if context is None:
+            continue  # _check_auth_method names the unknown method on its own
+        resolved = expand_login_principals(
+            principals, cards, login=login, method=method, claim=claim
+        )
+        refusal = app_access_refusal(resolved, login=login, app=name, method=method)
+        if refusal is not None:
+            code, message = refusal
+            findings.append(
+                Finding(severity="error", code=f"web_terminals.{code}", message=message)
+            )
     return findings
 
 

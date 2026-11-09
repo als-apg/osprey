@@ -51,7 +51,10 @@ from osprey.deployment.web_terminals.render_naming import RENDER_KIND_SHARED, RE
 from osprey.profiles.sidecar_panels import SIDECAR_PANELS
 from osprey.profiles.web_panels import panel_spec_enabled
 from osprey.registry.mcp import FRAMEWORK_SERVERS
-from osprey.services.auth_sidecar.identity_headers import CASE_INSENSITIVE_CLAIMS
+from osprey.services.auth_sidecar.identity_headers import (
+    CASE_INSENSITIVE_CLAIMS,
+    canonical_identity,
+)
 from osprey_connectors import yaml_loader
 from osprey_connectors.connection import ENV_NAME_RE, read_ca_bundle, read_credential_env_names
 from osprey_connectors.types import (
@@ -2289,6 +2292,122 @@ def expand_tier_principals(
     }
     kept = {member for member in principals if not member.startswith(TIER_PRINCIPAL_PREFIX)}
     return frozenset(kept | members)
+
+
+def expand_login_principals(
+    principals: frozenset[str],
+    cards: Iterable[Mapping[str, Any]],
+    *,
+    login: str,
+    method: str | None,
+    claim: str | None = None,
+) -> frozenset[str]:
+    """Spell a login's ``apps.<name>.access`` set out to the identities it admits.
+
+    The terminal compares the identity the sidecar forwards and knows no roster,
+    no tier and no claim, so every member that names people by their place in
+    the roster is spelled out here, at build, as one ``user:<identity>`` per
+    person: ``self`` is each person whose card runs *login*, ``roster`` every
+    person, ``tier:`` as :func:`expand_tier_principals` spells it. A person's
+    identity is what the sidecar forwards for them: under ``oidc`` the
+    ``oidc_subject`` in its
+    :func:`~osprey.services.auth_sidecar.identity_headers.canonical_identity`
+    spelling (authored ``user:`` members take the same spelling), under
+    ``password`` the roster name; under any other method nobody is forwarded,
+    so those members admit nobody. ``domain:`` members pass through.
+
+    Args:
+        principals: A resolved principal set.
+        cards: :func:`resolve_cards`' output.
+        login: The login whose ``apps:`` entry carries the set.
+        method: The deployment's parsed ``auth.method``.
+        claim: The ID-token claim the deployment maps on (``None``: ``sub``).
+
+    Returns:
+        A set of ``user:`` and ``domain:`` members only.
+    """
+    cards = list(cards)
+    people = [card for card in cards if not is_app_entry(card)]
+    tiers = frozenset(m for m in principals if m.startswith(TIER_PRINCIPAL_PREFIX))
+
+    def spelled(member: str) -> str:
+        if method != "oidc" or not member.startswith("user:"):
+            return member
+        return "user:" + canonical_identity(member[len("user:") :], claim=claim)
+
+    def identities(selected: Iterable[Mapping[str, Any]]) -> set[str]:
+        key = {"oidc": "oidc_subject", "password": "name"}.get(method or "")
+        if key is None:
+            return set()
+        return {
+            spelled(f"user:{card[key]}")
+            for card in selected
+            if isinstance(card.get(key), str) and card[key]
+        }
+
+    out = {spelled(m) for m in principals if m.startswith(("user:", "domain:"))}
+    if "self" in principals:
+        out |= identities(card for card in people if card.get("render") == login)
+    if "roster" in principals:
+        out |= identities(people)
+    if method == "oidc":
+        out |= {spelled(m) for m in expand_tier_principals(tiers, cards)}
+    elif tiers:
+        tier_names = {m[len(TIER_PRINCIPAL_PREFIX) :] for m in tiers}
+        out |= identities(card for card in people if card.get("render") in tier_names)
+    return frozenset(out)
+
+
+def app_access_refusal(
+    resolved: frozenset[str], *, login: str, app: str, method: str | None
+) -> tuple[str, str] | None:
+    """Why a login's resolved ``apps.<name>.access`` set admits no browser caller.
+
+    The one predicate the build refuses on and lint reports: a set no forwarded
+    identity can match would hide the panel from every person while the build
+    looked fine. Under a method other than ``oidc`` or ``password`` the sidecar
+    forwards no identity at all; under ``password`` a forwarded identity is a
+    roster name, which never carries a domain; otherwise a set that spelled out
+    to no member names nobody.
+
+    Args:
+        resolved: :func:`expand_login_principals`' output.
+        login: The login whose entry carries the set.
+        app: The application.
+        method: The deployment's parsed ``auth.method`` (``None``: web
+            terminals are off or name no method).
+
+    Returns:
+        ``(code, message)`` — ``access_principal_without_idp`` when the method
+        forwards no identity the set could match, ``tier_principal_admits_nobody``
+        when the set names nobody — or ``None`` when somebody can match.
+    """
+    where = f"login {login!r} apps.{app}.access"
+    if method not in ("oidc", "password"):
+        return (
+            "access_principal_without_idp",
+            f"{where} admits no browser caller: auth.method is {method!r}, which forwards "
+            "no identity to compare it with. Set auth.method to oidc or password, or drop "
+            "the key so every user of the login opens the panel",
+        )
+    kinds = ("user:", "domain:") if method == "oidc" else ("user:",)
+    matchable = {m for m in resolved if m.startswith(kinds)}
+    if not matchable:
+        if method == "password" and resolved:
+            return (
+                "access_principal_without_idp",
+                f"{where} admits no browser caller: under auth.method 'password' the "
+                "forwarded identity is a roster name, which no domain: member holds. Name "
+                "the people (self, roster, tier:, user:), or set auth.method: oidc",
+            )
+        return (
+            "tier_principal_admits_nobody",
+            f"{where} admits no browser caller: it names no person the sidecar forwards "
+            f"under auth.method {method!r} (a tier nobody runs, or nobody with "
+            f"{'an oidc_subject' if method == 'oidc' else 'a roster card'}). Name somebody, "
+            "or drop the key so every user of the login opens the panel",
+        )
+    return None
 
 
 def app_card_refusal(name: str) -> str:
