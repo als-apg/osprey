@@ -990,9 +990,10 @@ def test_the_arming_helpers_spell_no_retired_posture_key():
 
 def test_a_run_named_port_base_is_that_cells_block(monkeypatch):
     """A benchmark cell names its block; without it the worker's block applies."""
-    monkeypatch.setenv("OSPREY_E2E_PORT_BASE", "26000")
+    cell_block = sdk_helpers.E2E_PORT_BASE + 4000
+    monkeypatch.setenv("OSPREY_E2E_PORT_BASE", str(cell_block))
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
-    assert sdk_helpers.e2e_port_base() == 26000
+    assert sdk_helpers.e2e_port_base() == cell_block
     monkeypatch.delenv("OSPREY_E2E_PORT_BASE")
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw1")
     assert sdk_helpers.e2e_port_base() == sdk_helpers.E2E_PORT_BASE + 1000
@@ -1000,7 +1001,7 @@ def test_a_run_named_port_base_is_that_cells_block(monkeypatch):
 
 def test_a_named_block_refuses_a_second_xdist_worker(monkeypatch):
     """gw1 would take the next cell's block, so the run must be single-worker."""
-    monkeypatch.setenv("OSPREY_E2E_PORT_BASE", "26000")
+    monkeypatch.setenv("OSPREY_E2E_PORT_BASE", str(sdk_helpers.E2E_PORT_BASE + 4000))
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw1")
     with pytest.raises(RuntimeError, match="single-worker"):
         sdk_helpers.e2e_port_base()

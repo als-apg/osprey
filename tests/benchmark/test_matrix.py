@@ -585,11 +585,28 @@ def test_concurrent_cells_build_in_port_blocks_of_their_own(tmp_path, monkeypatc
     monkeypatch.setattr(matrix, "run_cell", fake_run_cell)
     matrix.drive(cfg, results_dir=results, parallel=2, only=None, providers={"cborg"}, extra_env={})
     assert any(len(blocks) == 2 for blocks in seen), "both cells ran at once on distinct blocks"
-    assert all(int(b) in (25000, 26000) for blocks in seen for b in blocks)
+    assert all(int(b) in matrix.CELL_PORT_BLOCKS[:2] for blocks in seen for b in blocks)
+
+
+def test_every_cell_block_is_booked_against_port_reservations():
+    """A reservation (the machine-switch tests reserve their IOC ports) must never
+    land inside another running cell's block."""
+    from osprey_connectors_tests._harness import _ports
+
+    for block in matrix.CELL_PORT_BLOCKS:
+        assert all(
+            any(port in booked for booked in _ports.BOOKED_BLOCKS)
+            for port in range(block, block + 1000)
+        ), f"cell block {block} is not booked"
 
 
 def test_more_parallel_cells_than_port_blocks_is_refused(tmp_path):
     with pytest.raises(SystemExit, match="port block"):
         matrix.drive(
-            _cfg(), results_dir=tmp_path, parallel=8, only=None, providers=None, extra_env={}
+            _cfg(),
+            results_dir=tmp_path,
+            parallel=matrix.MAX_PARALLEL + 1,
+            only=None,
+            providers=None,
+            extra_env={},
         )

@@ -244,10 +244,13 @@ def expand_grid(
 # ---------------------------------------------------------------------------
 
 
-#: First port block of a cell's projects; slot ``n`` takes ``CELL_PORT_BASE + 1000 * n``.
-#: Seven slots stay below the 32768 the kernel hands out ephemeral ports from.
-CELL_PORT_BASE = 25000
-MAX_PARALLEL = 7
+#: The port blocks running cells build their projects in, one per cell at a time.
+#: Each lies inside the test harness's booked ranges
+#: (``osprey_connectors_tests._harness._ports.BOOKED_BLOCKS``), so a port reservation
+#: in one cell (the machine-switch tests' IOCs) never lands in another cell's
+#: block, and none is a block a board test pins (21800, 22800).
+CELL_PORT_BLOCKS = (24000, 25000, 29000, 30000, 31000)
+MAX_PARALLEL = len(CELL_PORT_BLOCKS)
 
 
 def cell_is_done(summary: Path) -> bool:
@@ -463,8 +466,8 @@ def drive(
     if parallel > MAX_PARALLEL:
         raise SystemExit(f"--parallel {parallel}: at most {MAX_PARALLEL} cells have a port block")
     free_blocks: queue.SimpleQueue[int] = queue.SimpleQueue()
-    for slot in range(max(1, parallel)):
-        free_blocks.put(CELL_PORT_BASE + 1000 * slot)
+    for block in CELL_PORT_BLOCKS[: max(1, parallel)]:
+        free_blocks.put(block)
 
     def _work(cell: Cell) -> None:
         block = free_blocks.get()
