@@ -1221,6 +1221,10 @@ def purge_auth_credentials(username: str, project_root: str | Path) -> bool:
     return True
 
 
+#: Read only under the deploying account (the CLI and its compose run): it holds password hashes.
+_ENV_AUTH_FILE_MODE = 0o600
+
+
 def _atomic_rewrite(env_auth_path: Path, lines: list[str]) -> None:
     """Replace ``.env.auth``'s whole content with ``lines``, at mode 0600.
 
@@ -1237,7 +1241,9 @@ def _atomic_rewrite(env_auth_path: Path, lines: list[str]) -> None:
         OSError: If the file cannot be written.
     """
     text = "".join(f"{line}\n" for line in lines)
-    atomic_replace(env_auth_path, text.encode("utf-8"), mode=0o600, sync="best_effort")
+    atomic_replace(
+        env_auth_path, text.encode("utf-8"), mode=_ENV_AUTH_FILE_MODE, sync="best_effort"
+    )
 
 
 def set_auth_password(username: str, password: str, project_root: str | Path) -> Path:
