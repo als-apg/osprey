@@ -240,6 +240,7 @@ COMPONENTS: dict[str, Component] = {
     "mcp-servers": Component("mcp", "MCP servers", None),
     "graph-store": Component("data", "graph store", _graph_store),
     "channel-db": Component("data", "channel database", _value_of("channel_finder_pipeline")),
+    "pv-directory": Component("data", "PV directory", _ok_of),
     "ariel-db": Component("data", "ARIEL database", _value_of("ariel_entries")),
     "knowledge-index": Component("data", "knowledge index", _knowledge),
     "agent-record": Component(
@@ -613,6 +614,22 @@ RULES: tuple[Rule, ...] = (
         "config parse channel_finder.pipeline_mode",
     ),
     Rule("channel_finder", "*", "channel-db", "{tail}", "file stat"),
+    Rule(
+        "pv_directory",
+        "*",
+        "pv-directory",
+        _msg_prefix,
+        "service probe",
+        display=_after_colon,
+    ),
+    Rule(
+        "pv_directory_alarm_feed",
+        "*",
+        "pv-directory",
+        "alarm feed",
+        "alarm snapshot, read after catch-up",
+        display=_after_colon,
+    ),
     Rule(
         "ariel", "ariel_status", "ariel-db", "service", "http GET /health", display=_ok_word("200")
     ),
