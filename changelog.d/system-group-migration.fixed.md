@@ -1,0 +1,1 @@
+Sidebar: a layout saved by an earlier build now shows Events and Health under System, whichever group it held them in. The framework health panel is labelled Health, and the control-assistant preset shows it in System from the first load.

@@ -45,6 +45,9 @@ from osprey.agent_record.contract import (
     KIND_TOOL_CALL,
 )
 from osprey.mcp_server import session as session_record
+from osprey.stores.artifact_inventory import listed_rows
+from osprey.stores.artifact_scope import SessionScope, owned_by, scope_for
+from osprey.stores.artifact_store import EXAMPLE_ORIGIN, operator_visible, owner_of, untagged
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.agent_record.client import RecordClient
@@ -65,14 +68,14 @@ CONTEXT_NO_SESSION = "no_session"
 BUNDLE_TRIM_MARKER = "[…older content trimmed]"
 """Left in a section where older content was dropped to fit the budget."""
 
-TAGGED_ARTIFACTS_HEADER = "artifacts tagged to this session (titles and ids only)"
-"""Header of the artifact block whose entries carry this session's tag."""
+OWNED_ARTIFACTS_HEADER = "artifacts this session owns (titles and ids only)"
+"""Header of the owned block: the session's sidebar row in the gallery."""
 
-UNTAGGED_ARTIFACTS_HEADER = (
-    "artifacts created on this deployment during this session's time window "
-    "(not session-tagged; may include other terminal tabs or the chat panel)"
+NEARBY_ARTIFACTS_HEADER = (
+    "artifacts no session owns, from the same time window "
+    "(not this session's; may come from the chat panel or a CLI conversation)"
 )
-"""Header of the weaker, time-windowed artifact block.
+"""Header of the weaker, time-windowed block of artifacts no session owns.
 
 The wording is a claim made to whoever reads the report: this block is *not*
 "this session's artifacts" and must not be read as such. It is spelled here in
@@ -83,9 +86,9 @@ the two surfaces are deliberately independent, so neither imports the other's
 string.
 """
 
-NO_WINDOW_ARTIFACTS_HEADER = "session-tagged artifacts only (no usable session window)"
+NO_WINDOW_ARTIFACTS_HEADER = "artifacts this session owns (no usable session window)"
 """Header used instead when no time window could be derived (see
-:func:`select_artifacts`) — the untagged block is omitted rather than guessed at."""
+:func:`select_artifacts`) — the unowned block is omitted rather than guessed at."""
 
 PAYLOAD_CAP_BYTES = 60_000
 """Whole clipboard payload ceiling, in UTF-8 bytes.
@@ -136,6 +139,10 @@ class Material:
     the artifact index (``artifact_entries``, unfiltered — the window is
     applied by :func:`select_artifacts`, which the render tier calls).
 
+    ``scope`` is the session scope the route built for the transcript the
+    timeline was read from, and ``owned`` the artifacts it owns as the gallery
+    sidebar lists them (one row per run). ``None`` scope owns nothing.
+
     ``context_status`` is one of :data:`CONTEXT_OK`,
     :data:`CONTEXT_TRANSCRIPT_NOT_FOUND` or :data:`CONTEXT_NO_SESSION`, and is
     reported back to the operator so a report that carries only the typed text
@@ -154,6 +161,8 @@ class Material:
     artifact_entries: list[ArtifactEntry] = field(default_factory=list)
     session_id: str | None = None
     refs: list[str] = field(default_factory=list)
+    scope: SessionScope | None = None
+    owned: list[ArtifactEntry] = field(default_factory=list)
 
 
 def validate_session_id(session_id: Any) -> str:
@@ -210,7 +219,7 @@ def collect_material(
     scrollback: str,
     metadata: dict[str, Any],
     *,
-    transcript_id: str | None = None,
+    scope: SessionScope | None = None,
 ) -> Material:
     """Read every source once and return the material to render from.
 
@@ -222,9 +231,11 @@ def collect_material(
     * **A live session** — the session's timeline, read page by page through
       ``client.timeline`` (the first page waiting on a drain of the session,
       so the latest step is in it), and one ``list_entries`` on the artifact
-      store. ``list_entries`` is called with no ``session_filter``: the store's
-      filter matches "this session or untagged" and so ignores the time
-      window, which is the whole point of :func:`select_artifacts`.
+      store. ``list_entries`` is called unfiltered by session: ownership
+      is :func:`owned_by` over ``scope``, and the unowned neighbours are
+      windowed by :func:`select_artifacts`. The owned rows are computed here,
+      since this is where the store is: :func:`listed_rows` classifies runs
+      over the whole index, so they equal the transcript's sidebar row.
 
     * **A session the record holds nothing of** — status
       :data:`CONTEXT_TRANSCRIPT_NOT_FOUND` and no artifact read.
@@ -239,18 +250,24 @@ def collect_material(
       there is neither a tag to match nor a set of events to derive a window
       from.
 
-    ``session_id`` is the session key: it tags the artifacts and names the
-    session in the report. ``transcript_id`` is the session the record read
-    opens, for a key whose conversation moved (a ``/clear``); omitted, the key
-    names its own.
+    ``session_id`` is the session key: it names the session in the report.
+    ``scope`` is the route's ``scope_for`` of the transcript the key points at
+    (a ``/clear`` moves it off the key); its transcript is what the record
+    read opens, so the owned section and the timeline describe one
+    conversation. Omitted, the key names its own transcript and no ledger is
+    consulted (only entries stamped with that transcript are owned).
     """
-    material = Material(metadata=dict(metadata), scrollback=scrollback, session_id=session_id)
+    material = Material(
+        metadata=dict(metadata), scrollback=scrollback, session_id=session_id, scope=scope
+    )
 
     if session_id is None:
         material.context_status = CONTEXT_NO_SESSION
         return material
+    if scope is None:
+        scope = material.scope = scope_for(session_id, None, False)
 
-    read = session_record.read_timeline(transcript_id or session_id, client=client)
+    read = session_record.read_timeline(scope.transcript or session_id, client=client)
     nodes = read.nodes
     if not read.available:
         material.context_status = CONTEXT_RECORD_UNAVAILABLE
@@ -263,6 +280,8 @@ def collect_material(
     material.events, material.chat, material.refs = timeline_material(nodes)
     # Session material only; the shipped example is not evidence of anything.
     material.artifact_entries = store.list_entries(exclude_examples=True)
+    owned = [e for e in material.artifact_entries if owned_by(e, scope)]
+    material.owned = [entry for entry, _form, _label in listed_rows(store, owned)]
     return material
 
 
@@ -353,46 +372,56 @@ def timeline_material(
 
 def select_artifacts(
     entries: list[ArtifactEntry],
-    session_id: str | None,
+    scope: SessionScope | None,
     event_timestamps: list[Any],
-) -> tuple[list[ArtifactEntry], list[ArtifactEntry], bool]:
-    """Split the artifact index into this session's artifacts and its neighbours.
+) -> tuple[list[ArtifactEntry], bool]:
+    """The artifacts no session owns in the session's time window.
 
-    Returns ``(tagged, windowed, window_ok)``:
+    Returns ``(nearby, window_ok)``:
 
-    * ``tagged`` — entries whose ``session_id`` matches, i.e. artifacts this
-      session demonstrably produced.
-    * ``windowed`` — *untagged* entries (``session_id == ""``) stamped inside
-      the session's time window. Untagged is the normal case, not the odd one:
-      a terminal session started without ``OSPREY_SESSION_ID`` tags nothing, so
-      matching on the tag alone finds nothing for it. These entries are a
-      weaker claim than ``tagged`` — they may belong to another terminal tab or
-      to the chat panel — and callers must present them as such.
+    * ``nearby`` — operator-visible entries no session owns (``owner_of`` is
+      ``None``: in no session's row of the gallery), the shipped example left
+      out, stamped inside the session's time window. CLI-conversation
+      artifacts qualify: the hub ledger has no row for their tag. These are a
+      weaker claim than the owned section and callers must present them as
+      such. While the ledger is unavailable (``scope.ledger_ok`` false, or no
+      ledger) an entry tagged to a key may belong to any transcript, so only an
+      untagged entry (``session_id == ""``) with no stamped ``transcript_id``
+      qualifies.
     * ``window_ok`` — whether a window could be derived at all. ``False`` means
-      ``windowed`` is empty because nothing was datable, not because nothing
-      matched, and the rendered section should say so.
+      ``nearby`` is empty because nothing was datable, not because nothing
+      matched, and the rendered section is omitted.
 
-    The window is ``min()``/``max()`` over the ``event_timestamps`` that parse.
-    It is deliberately not ``events[0]``/``events[-1]``: ``read_session`` sorts
-    by raw timestamp *string* and synthesizes ``""`` for empty subagent files,
-    so the first event is routinely an undated one that would collapse the
-    window to nothing.
+    Pure: the owned section is computed by :func:`collect_material`, which has
+    the store. The window is ``min()``/``max()`` over the ``event_timestamps``
+    that parse. It is deliberately not ``events[0]``/``events[-1]``:
+    ``read_session`` sorts by raw timestamp *string* and synthesizes ``""`` for
+    empty subagent files, so the first event is routinely an undated one that
+    would collapse the window to nothing.
     """
-    tagged = [e for e in entries if session_id and e.session_id == session_id]
-
     parsed_events = [ts for ts in (parse_timestamp(t) for t in event_timestamps) if ts is not None]
     if not parsed_events:
-        return tagged, [], False
+        return [], False
+
+    ledger = scope.ledger if scope is not None else None
+    trusted = scope is not None and scope.ledger_ok and ledger is not None
+
+    def unowned(entry: ArtifactEntry) -> bool:
+        if not operator_visible(entry) or entry.origin == EXAMPLE_ORIGIN:
+            return False
+        if not trusted:
+            return untagged(entry)
+        return owner_of(entry, ledger) is None
 
     start, end = min(parsed_events), max(parsed_events)
-    windowed = []
+    nearby = []
     for entry in entries:
-        if entry.session_id != "":
+        if not unowned(entry):
             continue
         stamp = parse_timestamp(entry.timestamp)
         if stamp is not None and start <= stamp <= end:
-            windowed.append(entry)
-    return tagged, windowed, True
+            nearby.append(entry)
+    return nearby, True
 
 
 def _utf8_len(text: str) -> int:
@@ -661,16 +690,16 @@ def render_bundle(
         )
         writer.add_text_section("terminal scrollback (tail)", material.scrollback)
 
-    tagged, windowed, window_ok = select_artifacts(
+    nearby, window_ok = select_artifacts(
         material.artifact_entries,
-        material.session_id,
+        material.scope,
         [event.get("timestamp", "") for event in material.events],
     )
     if window_ok:
-        writer.add_section(TAGGED_ARTIFACTS_HEADER, _format_artifacts(tagged))
-        writer.add_section(UNTAGGED_ARTIFACTS_HEADER, _format_artifacts(windowed))
+        writer.add_section(OWNED_ARTIFACTS_HEADER, _format_artifacts(material.owned))
+        writer.add_section(NEARBY_ARTIFACTS_HEADER, _format_artifacts(nearby))
     else:
-        writer.add_section(NO_WINDOW_ARTIFACTS_HEADER, _format_artifacts(tagged))
+        writer.add_section(NO_WINDOW_ARTIFACTS_HEADER, _format_artifacts(material.owned))
 
     return writer.result(), writer.truncated
 

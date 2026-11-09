@@ -126,7 +126,10 @@ descriptions, and do not give them a magnitude ceiling of your own: what a
 device tolerates is the records of `data/facility/limits.yaml`, which
 `osprey build` renders into `build/data/channel_limits.json`, the file the
 connector's reference monitor and the runtime's limits check enforce on every
-write.
+write. Many channels have no record, which is normal: the deployment's limits
+mode decides whether such a write runs, so a plan's default excursion stays
+small around the working point it reads, and the operator's span is what
+widens it.
 
 `grid_scan` is the deliberate exception: a grid's whole purpose is to visit
 declared absolute coordinates, so it neither reads nor restores. If your
@@ -264,11 +267,11 @@ naming the devices that *were* built. If a plan cannot find its channels, the
 missing annotation is the first thing to check.
 
 **The channels a plan can name are the queue worker's devices**, which
-`list_devices` reads — not every address the channel finder knows. The dry run
-builds a mock for whatever `sample_args` name, so validation says nothing about
-whether those channels exist in the worker; the pre-enqueue check does, and it
-refuses a plan that names a device the worker never built. Choose the channels
-a plan moves and reads from `list_devices` before you validate with them.
+`list_devices` reads — not every address the channel finder knows. When a
+worker is running, validation checks the channels `sample_args` name against it
+and refuses one it never built with `unknown_device`; the pre-enqueue check
+holds the draft's own arguments to the same rule. Choose the channels a plan
+moves and reads from `list_devices` before you validate with them.
 
 ---
 
@@ -456,12 +459,22 @@ rows the figure is being built from, and how much of the run they are:
 | `window.columns` | the column names those rows use |
 | `window.rows_complete` | whether those rows are all the run has produced so far, or only a prefix of them |
 | `window.total_seen` | how many rows the source has actually seen — never fewer than `len(window.rows)` |
+| `window.units` | the unit the run declared for each column; a column it does not name declared none |
+
+Each axis names the columns it plots, never a unit. A `Panel` takes
+`x_columns` and `y_columns`, a `HeatmapMark` takes `value_columns`: each is a
+`Columns([...])` of names from `window.columns` — `Columns(bpms, per=correctors)`
+for a slope — or `None` when the axis plots no column (a row index, a
+category). All three are required. The bridge states each axis's unit from what
+those columns declare in `window.units`; never set `x_units`, `y_units` or
+`value_units` — a render that does is served as `render_failed`.
 
 `params` are the parameters the run was launched with, and the return value is
 a `Figure` from
 `osprey.services.bluesky_bridge.figure` — a list of `Panel`s, each carrying a
-title, axis labels and units, `annotations` (short sentences saying what the
-panel does *not* show), and exactly **one** mark: `LinesMark` (named x/y
+title, axis labels, the columns each axis plots (`x_columns`/`y_columns`),
+`annotations` (short sentences saying what the panel does *not* show), and
+exactly **one** mark: `LinesMark` (named x/y
 series), `BarsMark` (one value per named category), or `HeatmapMark` (a
 labelled 2-D grid). A panel showing two things is two panels. The bridge serves
 that figure from `GET /runs/{id}/figure`, the operator's BLUESKY panel draws
@@ -473,6 +486,7 @@ load time and takes the plan out of the catalog with it.
 
 ```python
 from osprey.services.bluesky_bridge.figure import (
+    Columns,
     Figure,
     LinesMark,
     Panel,
@@ -504,7 +518,8 @@ Six rules govern one:
   `window.rows_complete` is true. Fall back to something position-free
   otherwise, and say so in an annotation.
 - **`render()` must never raise.** A figure is a view, not a result. If it
-  raises — or returns anything other than a `Figure` — the run's data is
+  raises — or returns anything other than a `Figure`, or a figure that sets a
+  unit or binds a column the rows do not hold — the run's data is
   untouched and the bridge quietly serves the default view with the reason
   `render_failed`, but the plan's own view is gone for everyone watching until
   the code is fixed. Write it to degrade instead: guard the parts that can
@@ -545,8 +560,9 @@ failure downgrades the figure instead of losing it.
 2. **Validate** — `validate_plan(name, sample_args=None,
    dry_run_timeout=30.0)`. Validates the file's CURRENT on-disk content
    (never a body you pass directly) through the three stages above.
-   `sample_args` should supply realistic `PARAMS` field values so the dry
-   run's mock devices match what your plan expects. A pass is what makes the
+   `sample_args` should supply realistic `PARAMS` field values, naming
+   channels the worker has, so the dry run's mock devices match what your
+   plan expects. A pass is what makes the
    plan usable at all — an unvalidated session plan is never listed, loaded,
    or queueable.
 

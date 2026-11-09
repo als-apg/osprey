@@ -97,6 +97,9 @@ describe('openContextMenu — DOM contract', () => {
     const glyph = rows()[1].querySelector('.rail-context-glyph');
     expect(glyph?.textContent).toBe('⊞');
     expect(glyph?.getAttribute('aria-hidden')).toBe('true');
+    // The glyph leads the row; the label follows it.
+    expect(rows()[1].firstElementChild).toBe(glyph);
+    expect(glyph?.nextElementSibling?.className).toBe('rail-context-label');
 
     const divider = el.querySelector('.rail-context-divider');
     expect(divider?.getAttribute('role')).toBe('separator');
@@ -120,7 +123,7 @@ describe('openContextMenu — DOM contract', () => {
       x: 0,
       y: 0,
       ariaLabel: 'ARIEL actions',
-      items: [{ label: 'Pop out', glyph: '↗', disabled: true, run }],
+      items: [{ label: 'Open in new window', glyph: '↗', disabled: true, run }],
     });
 
     expect(rows()[0].getAttribute('aria-disabled')).toBe('true');
@@ -185,7 +188,7 @@ describe('keyboard behavior', () => {
       y: 0,
       ariaLabel: 'ARIEL actions',
       items: [
-        { label: 'Pop out', disabled: true },
+        { label: 'Open in new window', disabled: true },
         { label: 'Focus ARIEL', run: () => {} },
       ],
     });
@@ -200,7 +203,7 @@ describe('keyboard behavior', () => {
       ariaLabel: 'ARIEL actions',
       items: [
         { label: 'Focus ARIEL', run: () => {} },
-        { label: 'Pop out', disabled: true },
+        { label: 'Open in new window', disabled: true },
         { label: 'Remove from rail', danger: true, run: () => {} },
       ],
     });

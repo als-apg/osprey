@@ -609,7 +609,6 @@ def _preflight_vendor_check() -> None:
 def _companion_roster_failure(
     key: str,
     name: str,
-    family: str,
     port: int,
     base: int,
     section_key: str,
@@ -624,10 +623,9 @@ def _companion_roster_failure(
     operator to ``lsof`` to rediscover their own deployment.
 
     Args:
-        key: Registry key of the companion server, e.g. ``"artifact"``.
+        key: Registry key of the companion server, e.g. ``"artifact"`` — also
+            the port family the clash sits in.
         name: The server's display name.
-        family: Port family the clash sits in — the registry key, or the
-            definition's ``port_family`` when it names a different one.
         port: The port a listener was found on.
         base: The port base this deployment resolved.
         section_key: Dotted config key that overrides this server's port.
@@ -641,7 +639,7 @@ def _companion_roster_failure(
         f"Companion panel '{key}' ({name}) port {port} is already in use: "
         "this deployment's multi-user roster (user 0) owns this port.\n"
         f"  modules.web_terminals.enabled is true in this repo, and {port} is the "
-        f"'{family}' family's index-0 slot at port base {base} — single-user "
+        f"'{key}' family's index-0 slot at port base {base} — single-user "
         "`osprey web` and roster user 0 share index 0, so the two cannot run "
         "side by side at one base.\n"
         f"  Move this panel:    set {section_key} in config.yml\n"
@@ -743,7 +741,6 @@ def _probe_companion_ports() -> list[str]:
                 _companion_roster_failure(
                     key,
                     defn.name,
-                    defn.port_family or key,
                     port,
                     base,
                     ".".join(

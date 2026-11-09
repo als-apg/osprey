@@ -30,6 +30,18 @@ What OSPREY holds
 a copy no longer matches its blob, when a copy is missing or extra, or when the
 manifest's sha256 names other bytes than the vendored engine.
 
+OSPREY's policy
+===============
+
+The engine's layout grammar lets a tile hold several panels (a tile's ``tabs``
+field is a list). OSPREY holds one panel per tile, as a policy of its own
+above the engine. It lives in three places: the browser's ``dock-policy.js``
+and ``dock-open.js``, the layout holder ``dock-apply.js``, and the server's
+``presets.crowded_tile``, which the agent operation routes, the layout report
+and the profile build all use. Each refuses a layout with a crowded tile for
+the one reason ``one_panel_per_tile``. The vendored engine and its pinned
+cases are unchanged: a tile's ``tabs`` is always one entry.
+
 Changing the engine
 ===================
 

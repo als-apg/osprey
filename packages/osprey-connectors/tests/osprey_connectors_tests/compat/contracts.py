@@ -68,7 +68,7 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "control_context"
 #: The preset the view check renders. Bundled by every framework release that
 #: depends on this distribution, and it serves physics models besides the
 #: texture, so every document of the view carries entries.
-PRESET = "control-assistant"
+PRESET = "demo"
 
 #: Where the framework ships the simulator view's writer, when it ships one.
 VIEW_WRITER_RELPATH = Path("facility/views/simulator.py")

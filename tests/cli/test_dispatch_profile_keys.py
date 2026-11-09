@@ -170,7 +170,7 @@ def test_unknown_key_survives_a_file_load(tmp_path: Path) -> None:
 def test_unknown_key_from_a_set_pair_is_rejected() -> None:
     """``--set`` cannot inject a key the block does not define either."""
     with pytest.raises(BuildProfileError, match="'netwrok'"):
-        resolve_build_profile(None, "control-assistant", set_pairs=("dispatch.netwrok=host",))
+        resolve_build_profile(None, "demo", set_pairs=("dispatch.netwrok=host",))
 
 
 # ── the shipped presets survive the promotion ────────────────────────────────
@@ -178,7 +178,7 @@ def test_unknown_key_from_a_set_pair_is_rejected() -> None:
 
 def test_the_bundled_dispatch_preset_still_resolves() -> None:
     """The one shipped profile carrying a ``dispatch:`` block parses intact."""
-    profile, _dir = resolve_build_profile(None, "control-assistant")
+    profile, _dir = resolve_build_profile(None, "demo")
 
     assert profile.dispatch is not None
     assert profile.dispatch.triggers == "tutorial_triggers.yml"

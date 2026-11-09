@@ -1,0 +1,62 @@
+name: Build the bench IOC image
+description: >-
+  Build `bench-ioc:latest` from docker/bench-ioc into the calling job's local
+  image store, through a layer cache every lane that needs the image shares.
+  Sets up no builder of its own: it builds on the Buildx builder that
+  build-virtual-accelerator-image leaves as the job's default, so the caller
+  calls that action first.
+
+runs:
+  using: composite
+  steps:
+    - name: Cache the bench IOC image layers
+      uses: actions/cache@v6
+      with:
+        path: /tmp/bench-ioc-buildx-cache
+        # One key for every lane, because it is the same image from the same
+        # inputs: whichever lane runs first saves it, the others restore it,
+        # and a concurrent second save is a non-fatal "cache already exists"
+        # warning.
+        #
+        # Keyed on all four files the context contains — the Containerfile and
+        # the three text files it copies — because here the whole image IS the
+        # cache: nothing in it depends on osprey's source, so an unchanged
+        # record set restores every layer including the two pulled EPICS bases.
+        key: bench-ioc-buildx-${{ runner.os }}-${{ hashFiles('docker/bench-ioc/Containerfile', 'docker/bench-ioc/bench.db', 'docker/bench-ioc/bench.acf', 'docker/bench-ioc/st.cmd') }}
+        restore-keys: |
+          bench-ioc-buildx-${{ runner.os }}-
+
+    - name: Build the bench IOC image
+      shell: bash
+      # `-f` is load-bearing, not stylistic: BuildKit only auto-detects a file
+      # literally named `Dockerfile`, so dropping it fails with "open
+      # Dockerfile: no such file or directory" (podman finds `Containerfile`
+      # unaided, docker does not). The Containerfile's header says this, and
+      # tests/fixtures/bench_ioc.py prints the same build when the image is
+      # absent — the fixture never builds implicitly, so this step IS the only
+      # thing in CI that produces `bench-ioc:latest`, and that tag is
+      # hardcoded there with no environment override.
+      #
+      # No staging step, unlike the virtual accelerator image: this context is
+      # three small text files and the Containerfile, so the directory holding
+      # them is already the smallest possible context.
+      run: |
+        set -euo pipefail
+        docker buildx build \
+          --tag bench-ioc:latest \
+          --load \
+          --cache-from type=local,src=/tmp/bench-ioc-buildx-cache \
+          --cache-to type=local,dest=/tmp/bench-ioc-buildx-cache-new,mode=max \
+          -f docker/bench-ioc/Containerfile docker/bench-ioc
+
+    - name: Rotate the bench IOC layer cache
+      shell: bash
+      # buildx cannot safely export to the directory it imported from in the
+      # same build, so the export goes to the `-new` sibling and is swapped in
+      # here, under `/tmp/bench-ioc-buildx-cache` — the path actions/cache
+      # saves at the end of the job. A run that skips the swap saves the layers
+      # it restored and throws away the ones it just built.
+      run: |
+        set -euo pipefail
+        rm -rf /tmp/bench-ioc-buildx-cache
+        mv /tmp/bench-ioc-buildx-cache-new /tmp/bench-ioc-buildx-cache

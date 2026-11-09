@@ -1,4 +1,4 @@
-"""The control-assistant template's storage-ring sector screens, ``sr/sector-NN``.
+"""The demo template's storage-ring sector screens, ``sr/sector-NN``.
 
 ``scripts/facility_demo/facility_overview.py`` generates one screen per storage-ring
 sector from the example facility's records, beside ``facility/overview`` whose sector
@@ -34,17 +34,7 @@ from canopy_mcp.check.semantic import check_semantic
 from canopy_mcp.store import DraftStore
 
 ROOT = Path(__file__).resolve().parents[3]
-LIBRARY = (
-    ROOT
-    / "src"
-    / "osprey"
-    / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
-    / "canopy"
-    / "library"
-)
+LIBRARY = ROOT / "src" / "osprey" / "templates" / "apps" / "demo" / "data" / "canopy" / "library"
 RECORDS = ROOT / "src" / "osprey" / "templates" / "facilities" / "example" / "records"
 EXAMPLE_CHANNELS = RECORDS / "channels.yaml"
 SECTORS = range(1, 13)

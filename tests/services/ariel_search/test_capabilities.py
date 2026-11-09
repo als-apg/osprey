@@ -649,6 +649,8 @@ class TestVocabularyCapabilities:
             "shared_parameters",
             "vocabulary",
             "attachments",
+            "filter_dimensions",
+            "enhancement_modules",
         ]
 
 
@@ -745,3 +747,71 @@ class TestAttachmentsCapability:
 
         config = self._config(attachments={"copy_on_ingest": "all"})
         assert attachments_capability(config) == self._caps(config)
+
+
+class TestFilterDimensionsAndEnhancementModules:
+    """C-DIM / C-ENH: the rail's dimensions and the badge strip's modules."""
+
+    @staticmethod
+    def _config(enhancement_modules: dict | None = None) -> ARIELConfig:
+        config_dict: dict = {"database": {"uri": "postgresql://localhost:5432/test"}}
+        if enhancement_modules:
+            config_dict["enhancement_modules"] = enhancement_modules
+        return ARIELConfig.from_dict(config_dict)
+
+    def test_filter_dimensions_list_name_label_kind_in_order(self):
+        caps = get_capabilities(self._config())
+
+        assert caps["filter_dimensions"] == [
+            {"name": "author", "label": "Author", "kind": "builtin"},
+            {"name": "source_system", "label": "Source System", "kind": "builtin"},
+            {"name": "tags", "label": "Tags", "kind": "builtin"},
+            {"name": "enhancement", "label": "Enhancements", "kind": "enhancement"},
+        ]
+
+    def test_filter_dimensions_include_declared_facets(self):
+        from osprey.services.ariel_search.filters import FilterDimension
+
+        dims = [
+            FilterDimension("author", "Author", "builtin", "author", multi=False),
+            FilterDimension("logbook", "Logbook", "declared", "metadata->>'logbook'", False),
+            FilterDimension("enhancement", "Enhancements", "enhancement", "x", False, ("a",)),
+        ]
+        with patch("osprey.services.ariel_search.filters.filter_dimensions", return_value=dims):
+            caps = get_capabilities(self._config())
+
+        assert [d["name"] for d in caps["filter_dimensions"]] == [
+            "author",
+            "logbook",
+            "enhancement",
+        ]
+        assert caps["filter_dimensions"][1] == {
+            "name": "logbook",
+            "label": "Logbook",
+            "kind": "declared",
+        }
+
+    def test_time_is_never_a_dimension(self):
+        caps = get_capabilities(self._config())
+        assert "time" not in [d["name"] for d in caps["filter_dimensions"]]
+
+    def test_enhancement_modules_are_enabled_only_in_registry_order_humanized(self):
+        caps = get_capabilities(
+            self._config(
+                {
+                    "qmd_export": {"enabled": True},
+                    "image_caption": {"enabled": True},
+                    "semantic_processor": {"enabled": False},
+                    "text_embedding": {"enabled": True},
+                }
+            )
+        )
+
+        assert caps["enhancement_modules"] == [
+            {"name": "image_caption", "label": "Image caption"},
+            {"name": "text_embedding", "label": "Text embedding"},
+            {"name": "qmd_export", "label": "Qmd export"},
+        ]
+
+    def test_no_enabled_modules_gives_empty_list(self):
+        assert get_capabilities(self._config())["enhancement_modules"] == []

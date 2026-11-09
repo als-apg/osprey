@@ -757,7 +757,7 @@ def derive_web_terminal_bindings(config):
     Every terminal container runs on the host network (``docker-compose.web.yml``
     has no ``ports:`` block to parse), and each one binds a port in every panel
     family at its roster index: ``<family base> + index`` for the terminal
-    itself and for each companion server (artifact gallery, ARIEL, lattice, …).
+    itself and for each companion server (artifact gallery, ARIEL, OKF, …).
     The index band is allocated whole — a user holds a slot in every family
     whether or not the render starts that panel — so the whole band is checked,
     the same way the allocator reserves it.

@@ -2,11 +2,20 @@
 /**
  * ARIEL Entry Creation & Draft Module
  *
- * Entry creation form: submission, tags, file preview, and draft loading.
+ * Entry creation form: submission, tags, file preview, and the draft and
+ * follow-up fillers. A follow-up submits its parent as `metadata.follows_up`.
+ *
+ * A successful create finishes the sheet (its snapshot is cleared), hands
+ * the new entry to the reader through the store (writes `compose:null`, `sel`,
+ * `narrowView:'reader'`), remembers the author for the Mine mailbox and
+ * deletes a draft whose load succeeded (Decision 9). Failures keep the form
+ * open and populated and say why in a toast (C-TOAST).
  */
 
 import { entriesApi, draftsApi, ApiError } from './api.js';
-import { escapeHtml } from './components.js';
+import { escapeHtml, sourceName } from './components.js';
+import { getState, setState } from './store.js';
+import { rememberAuthor } from './rail.js';
 import {
   clearEntryFieldErrors,
   collectEntryFieldValues,
@@ -15,23 +24,116 @@ import {
 } from './entry-fields.js';
 import { formatFileSize } from './entries-helpers.js';
 import { messageOf } from './utils.js';
+import { loadCompose } from './compose-autosave.js';
+import { showToast } from '/design-system/js/toast.js';
+import { ENTRY_CREATED_EVENT } from './list-activity.js';
 
 // Draft metadata (populated when loading a draft)
 /** @type {any} */
 let draftMetadata = null;
+
+/** A loaded draft's staged attachments, fetched into memory at open (Decision 8). */
+/** @type {File[]} */
+let draftFiles = [];
+
+/** The id of the draft whose load succeeded, or null (nothing to delete after submit). */
+/** @type {string|null} */
+let loadedDraft = null;
+
+/**
+ * The draft whose load succeeded into the open sheet, or null when none did.
+ * @returns {string|null}
+ */
+export function loadedDraftId() {
+  return loadedDraft;
+}
+
+/** Finishes the open sheet (C-SHEET-LIFECYCLE `finish()`); set by the compose host. */
+let finishCompose = () => {};
+
+/**
+ * Register the sheet's `finish()`, called on submit success before closing.
+ * @param {() => void} finish
+ */
+export function onComposeFinish(finish) {
+  finishCompose = finish;
+}
+
+/** Toast options for a warning (C-TOAST). */
+const WARN = /** @type {const} */ ({ kind: 'warning' });
+
+/**
+ * Delete a draft after a successful submit or on Discard (Decisions 9, 10).
+ * A 404 means it is already gone; any other failure warns that it is still
+ * listed. `draftsRev` is bumped once the DELETE settles, whatever its outcome.
+ * @param {string} draftId
+ * @param {string|null} [doneMessage] - success toast once deleted (Discard)
+ * @returns {Promise<void>}
+ */
+export async function deleteDraft(draftId, doneMessage = null) {
+  let gone = true;
+  try {
+    await draftsApi.delete(draftId);
+  } catch (error) {
+    gone = error instanceof ApiError && error.status === 404;
+    if (!gone) console.error('Failed to delete draft:', error);
+  }
+  if (!gone) showToast('Could not delete the draft; it is still listed in Drafts.', WARN);
+  else if (doneMessage) showToast(doneMessage, { kind: 'success' });
+  setState({ draftsRev: getState().draftsRev + 1 });
+}
+
+/** The parent entry id of an open follow-up, submitted as `metadata.follows_up`. */
+/** @type {string|null} */
+let followsUp = null;
+
+const FOLLOW_UP_PREFIX = 'Follow-up: ';
 
 /** Error codes that name one declared entry field the operator must correct. */
 const ENTRY_FIELD_ERROR_CODES = ['invalid_entry_field', 'entry_field_options_unavailable'];
 
 /**
  * The metadata to submit: the draft's metadata with the declared entry-field
- * values on top, or null when there is neither.
+ * values on top, plus `follows_up` for a follow-up, or null when there is none.
  * @returns {Record<string, any>|null}
  */
 function submissionMetadata() {
   const declared = collectEntryFieldValues();
-  if (!draftMetadata && Object.keys(declared).length === 0) return null;
-  return { ...(draftMetadata || {}), ...declared };
+  if (!draftMetadata && !followsUp && Object.keys(declared).length === 0) return null;
+  const metadata = { ...(draftMetadata || {}), ...declared };
+  if (followsUp) metadata.follows_up = followsUp;
+  return metadata;
+}
+
+/**
+ * Show the "Follows up" row naming `label`, or hide and empty it.
+ * @param {string|null} label
+ */
+function setParentRow(label) {
+  const row = document.getElementById('ariel-compose-parent');
+  const ref = document.getElementById('ariel-compose-parent-ref');
+  if (ref) ref.textContent = label ?? '';
+  if (row) row.hidden = label === null;
+}
+
+/**
+ * Empty the create form: its inputs, tags, file previews (including staged
+ * draft attachments), everything a loaded draft added, and any entry-field
+ * error marks.
+ */
+export function resetCreateForm() {
+  /** @type {HTMLFormElement|null} */ (document.getElementById('create-entry-form'))?.reset();
+  setTags([]);
+  const preview = document.getElementById('file-preview');
+  if (preview) preview.innerHTML = '';
+  draftFiles = [];
+  loadedDraft = null;
+  draftMetadata = null;
+  followsUp = null;
+  setParentRow(null);
+  document.getElementById('session-info-panel')?.remove();
+  hideProvenance();
+  clearEntryFieldErrors();
 }
 
 /**
@@ -54,43 +156,20 @@ export async function handleCreateEntry(e) {
 
   try {
     const formData = new FormData(form);
-    const tagEls = /** @type {NodeListOf<HTMLElement>} */ (
-      document.querySelectorAll('#entry-tags .tag')
-    );
-    const tags = Array.from(tagEls).map((t) => t.dataset.value);
-
     const entryData = {
       subject: formData.get('subject'),
       details: formData.get('details'),
       author: formData.get('author'),
       logbook: formData.get('logbook'),
       shift: formData.get('shift'),
-      tags,
+      tags: readTags(),
       metadata: submissionMetadata(),
       auth_user: formData.get('auth_user') || null,
       auth_password: formData.get('auth_password') || null,
     };
 
-    const fileInput = /** @type {HTMLInputElement|null} */ (document.getElementById('entry-files'));
-    const files = Array.from(fileInput?.files || []);
-
-    // Check for draft attachments (staged by the agent via artifact_ids)
-    const preview = document.getElementById('file-preview');
-    const draftAttachmentsJson = preview?.dataset?.draftAttachments;
-    if (draftAttachmentsJson) {
-      try {
-        const draftAttachments = JSON.parse(draftAttachmentsJson);
-        for (const att of draftAttachments) {
-          const resp = await fetch(att.url);
-          if (resp.ok) {
-            const blob = await resp.blob();
-            files.push(new File([blob], att.filename, { type: blob.type }));
-          }
-        }
-      } catch (err) {
-        console.warn('Failed to fetch draft attachments:', err);
-      }
-    }
+    // Picked files plus the draft's staged files, already in memory.
+    const files = previewFiles();
 
     let result;
     if (files.length > 0) {
@@ -99,24 +178,31 @@ export async function handleCreateEntry(e) {
       result = await entriesApi.create(entryData);
     }
 
-    // Show success message
-    const attachMsg = result.attachment_count
-      ? ` with ${result.attachment_count} attachment(s)`
-      : '';
-    alert(`Entry created: ${result.entry_id}${attachMsg}`);
-
+    // Finish the sheet (no snapshot survives), close it and show the new
+    // entry in the reader; then delete the draft it came from, if it loaded.
+    const draftId = loadedDraft;
+    finishCompose();
     resetCreateForm();
-
-    // Open the new entry over Browse, which lists it now; closing the card
-    // lands there rather than on an empty create form.
-    window.location.hash = `entry?id=${encodeURIComponent(result.entry_id)}`;
+    rememberAuthor(String(entryData.author ?? ''));
+    setState({ compose: null, sel: result.entry_id, narrowView: 'reader' });
+    // The list picks the new row up the way it does an agent's create
+    // (list-activity.js): refresh and flash at the top, else the "n new" pill.
+    window.dispatchEvent(
+      new CustomEvent(ENTRY_CREATED_EVENT, { detail: { entryId: result.entry_id } })
+    );
+    if (result.attachments_published === false) {
+      showToast('Entry saved, but its attachments stayed local: they were not published.', WARN);
+    }
+    if (draftId) await deleteDraft(draftId);
   } catch (error) {
     console.error('Failed to create entry:', error);
     if (error instanceof ApiError && error.code === 'auth_required') {
       // The logbook needs credentials to publish. Keep the form populated (it is
       // only reset on success) and focus the username field so the operator can
       // type and resubmit.
-      alert('Logbook credentials required to publish. Please enter your username and password.');
+      showToast('Logbook credentials required to publish. Enter your username and password.', {
+        kind: 'error',
+      });
       document.getElementById('entry-auth-user')?.focus();
     } else if (
       error instanceof ApiError &&
@@ -127,7 +213,7 @@ export async function handleCreateEntry(e) {
       // The named entry field was rejected: it is marked and focused, and the
       // form stays populated so the operator can correct it and resubmit.
     } else {
-      alert(`Failed to create entry: ${messageOf(error)}`);
+      showToast(`Failed to create entry: ${messageOf(error)}`, { kind: 'error' });
     }
   } finally {
     if (submitBtn) {
@@ -135,29 +221,6 @@ export async function handleCreateEntry(e) {
       submitBtn.textContent = originalText;
     }
   }
-}
-
-/**
- * Empty the create form and everything a loaded draft or the last entry left
- * on it: field values, tag chips, file previews and the draft attachments
- * recorded on the preview (which the next submit would otherwise attach
- * again), the draft's metadata, banner and session panel, and any entry-field
- * error marks.
- * @returns {void}
- */
-export function resetCreateForm() {
-  /** @type {HTMLFormElement|null} */ (document.getElementById('create-entry-form'))?.reset();
-  document.getElementById('entry-tags')?.replaceChildren();
-  const preview = document.getElementById('file-preview');
-  if (preview) {
-    preview.replaceChildren();
-    delete preview.dataset.draftAttachments;
-    delete preview.dataset.draftId;
-  }
-  draftMetadata = null;
-  document.getElementById('session-info-panel')?.remove();
-  document.getElementById('draft-banner')?.remove();
-  clearEntryFieldErrors();
 }
 
 /**
@@ -173,8 +236,18 @@ export function handleTagInput(e) {
     if (value) {
       addTag(value);
       input.value = '';
+      tagsChanged();
     }
   }
+}
+
+/**
+ * Tell the sheet that the operator added or removed a tag: a bubbling
+ * `change` from `#entry-tags`, which the compose lifecycle saves on.
+ * Programmatic tag fills (a draft, a snapshot) do not signal.
+ */
+function tagsChanged() {
+  document.getElementById('entry-tags')?.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 /**
@@ -185,9 +258,10 @@ function addTag(value) {
   const container = document.getElementById('entry-tags');
   if (!container) return;
 
-  // Check for duplicates
-  const existing = container.querySelector(`[data-value="${value}"]`);
-  if (existing) return;
+  // Check for duplicates by comparing values, not by building a selector:
+  // a tag may hold `"`, `\` or `]`, which would break `[data-value="…"]`.
+  const tags = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.tag'));
+  if (Array.from(tags).some((t) => t.dataset.value === value)) return;
 
   const tag = document.createElement('span');
   tag.className = 'tag tag-accent';
@@ -197,6 +271,27 @@ function addTag(value) {
     <button type="button" data-tag-remove style="background: none; border: none; cursor: pointer; color: inherit; margin-left: 4px;">&times;</button>
   `;
   container.appendChild(tag);
+}
+
+/**
+ * Replace the tag list with `values` (a programmatic fill: no `change`).
+ * @param {unknown[]} values
+ */
+function setTags(values) {
+  const container = document.getElementById('entry-tags');
+  if (container) container.innerHTML = '';
+  for (const value of values) if (typeof value === 'string' && value) addTag(value);
+}
+
+/**
+ * The tag list's values, in order.
+ * @returns {string[]}
+ */
+function readTags() {
+  const tagEls = /** @type {NodeListOf<HTMLElement>} */ (
+    document.querySelectorAll('#entry-tags .tag')
+  );
+  return Array.from(tagEls, (t) => t.dataset.value || '').filter(Boolean);
 }
 
 /**
@@ -211,7 +306,10 @@ export function initEntryTags() {
   const container = document.getElementById('entry-tags');
   container?.addEventListener('click', (e) => {
     const btn = /** @type {HTMLElement} */ (e.target).closest('[data-tag-remove]');
-    btn?.closest('.tag')?.remove();
+    const tag = btn?.closest('.tag');
+    if (!tag) return;
+    tag.remove();
+    tagsChanged();
   });
 }
 
@@ -228,13 +326,10 @@ function createAttachmentIcon() {
 }
 
 /**
- * Build a preview card shell (thumbnail + filename, optionally a size line)
- * shared by the file-input preview and the draft-attachment preview — the
- * two only differ in how they obtain the thumbnail and whether a size is
- * known.
+ * Build a preview card: thumbnail, filename and size.
  * @param {string} filename - Display filename
  * @param {Node} mediaEl - Thumbnail element (an <img> or createAttachmentIcon())
- * @param {string} [sizeText] - Human-readable size, omitted when unknown
+ * @param {string} sizeText - Human-readable size
  * @returns {HTMLDivElement}
  */
 function createPreviewCard(filename, mediaEl, sizeText) {
@@ -248,29 +343,35 @@ function createPreviewCard(filename, mediaEl, sizeText) {
   name.textContent = filename;
   card.appendChild(name);
 
-  if (sizeText !== undefined) {
-    const size = document.createElement('div');
-    size.className = 'text-xs text-muted';
-    size.textContent = sizeText;
-    card.appendChild(size);
-  }
+  const size = document.createElement('div');
+  size.className = 'text-xs text-muted';
+  size.textContent = sizeText;
+  card.appendChild(size);
 
   return card;
 }
 
 /**
- * Handle file input change to show preview thumbnails.
- * @param {Event} e - Change event
+ * The files the next submit sends: the picked files, then the in-memory draft files.
+ * @returns {File[]}
  */
-export function handleFilePreview(e) {
+function previewFiles() {
+  const input = /** @type {HTMLInputElement|null} */ (document.getElementById('entry-files'));
+  return [...Array.from(input?.files || []), ...draftFiles];
+}
+
+/** Handle file input change: preview the picked files and the draft's files together. */
+export function handleFilePreview() {
+  renderFilePreview();
+}
+
+/** Render a preview card for every file the next submit sends. */
+function renderFilePreview() {
   const container = document.getElementById('file-preview');
   if (!container) return;
   container.innerHTML = '';
 
-  const files = /** @type {HTMLInputElement} */ (e.target).files;
-  if (!files || files.length === 0) return;
-
-  for (const file of files) {
+  for (const file of previewFiles()) {
     let media;
     if (file.type.startsWith('image/')) {
       const img = document.createElement('img');
@@ -300,7 +401,7 @@ function renderSessionInfoPanel(meta) {
     ['Branch', meta.git_branch],
     ['Session', meta.session_id],
     ['Model', meta.model],
-    ['Source', meta.created_via],
+    ['Source', meta.created_via && sourceName(String(meta.created_via))],
   ].filter(([, v]) => v);
 
   if (fields.length === 0) return;
@@ -320,10 +421,24 @@ function renderSessionInfoPanel(meta) {
     </div>
   `;
 
-  const banner = document.getElementById('draft-banner');
-  if (banner) {
-    banner.after(panel);
-  }
+  document.getElementById('ariel-compose-banner')?.after(panel);
+}
+
+/**
+ * The create form's control named `name`, or null.
+ * @param {string} name
+ * @returns {HTMLInputElement|HTMLSelectElement|null}
+ */
+function formControl(name) {
+  return document.querySelector(`#create-entry-form [name="${name}"]`);
+}
+
+/**
+ * The create form's declared entry-field controls, in document order.
+ * @returns {(HTMLInputElement|HTMLSelectElement)[]}
+ */
+function entryFieldControls() {
+  return Array.from(document.querySelectorAll('#create-entry-form [data-entry-field]'));
 }
 
 /**
@@ -339,15 +454,11 @@ function applyDraftFields(draft) {
   // A declared logbook/shift override replaces the built-in input, possibly
   // after the built-in one was filled, so fill it again.
   for (const name of ['logbook', 'shift']) {
-    const input = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (
-      form.querySelector(`[name="${name}"]`)
-    );
+    const input = formControl(name);
     if (input && draft[name]) input.value = draft[name];
   }
 
-  const controls = /** @type {(HTMLInputElement|HTMLSelectElement)[]} */ (
-    Array.from(form.querySelectorAll('[data-entry-field]'))
-  );
+  const controls = entryFieldControls();
   const values = draft.fields && typeof draft.fields === 'object' ? draft.fields : {};
   // Document order puts a parent before the inputs whose choices depend on it.
   for (const control of controls) {
@@ -370,103 +481,218 @@ function applyDraftFields(draft) {
 }
 
 /**
- * Load a draft into the entry creation form.
- * @param {string} draftId - Draft ID to load
+ * The form as a compose snapshot (C-AUTOSAVE): the built-in fields, the tags,
+ * and every declared entry field, blank ones included, so a cleared field
+ * stays cleared on restore. Credentials and attachments are never read.
+ * @returns {import('./compose-autosave.js').ComposeSnapshot}
  */
-export async function loadDraft(draftId) {
-  try {
-    const draft = await draftsApi.get(draftId);
-
-    // Populate form fields
-    const subjectInput = /** @type {HTMLInputElement|null} */ (
-      document.querySelector('#create-entry-form [name="subject"]')
-    );
-    const detailsInput = /** @type {HTMLTextAreaElement|null} */ (
-      document.querySelector('#create-entry-form [name="details"]')
-    );
-    const authorInput = /** @type {HTMLInputElement|null} */ (
-      document.querySelector('#create-entry-form [name="author"]')
-    );
-    const logbookSelect = /** @type {HTMLSelectElement|null} */ (
-      document.querySelector('#create-entry-form [name="logbook"]')
-    );
-    const shiftSelect = /** @type {HTMLSelectElement|null} */ (
-      document.querySelector('#create-entry-form [name="shift"]')
-    );
-
-    if (subjectInput) subjectInput.value = draft.subject || '';
-    if (detailsInput) detailsInput.value = draft.details || '';
-    if (authorInput) authorInput.value = draft.author || '';
-    if (logbookSelect && draft.logbook) logbookSelect.value = draft.logbook;
-    if (shiftSelect && draft.shift) shiftSelect.value = draft.shift;
-
-    // Store draft metadata for forwarding on submit
-    draftMetadata = draft.metadata || null;
-
-    // Clear existing tags and add draft tags
-    const tagsContainer = document.getElementById('entry-tags');
-    if (tagsContainer) tagsContainer.innerHTML = '';
-    if (draft.tags && draft.tags.length > 0) {
-      draft.tags.forEach((/** @type {string} */ tag) => addTag(tag));
-    }
-
-    // Show draft attachments if present
-    if (draft.attachment_paths && draft.attachment_paths.length > 0) {
-      const preview = document.getElementById('file-preview');
-      if (preview) {
-        preview.innerHTML = '';
-        const attachmentData = [];
-
-        for (const fullPath of draft.attachment_paths) {
-          const filename = fullPath.split('/').pop();
-          const url = `/api/drafts/${draftId}/attachments/${encodeURIComponent(filename)}`;
-          attachmentData.push({ filename, url });
-
-          let media;
-          const isImage = /\.(png|jpe?g|gif|webp|svg)$/i.test(filename);
-          if (isImage) {
-            const img = document.createElement('img');
-            img.style.cssText =
-              'width: 100px; height: 80px; object-fit: cover; border-radius: var(--radius-md);';
-            img.src = url;
-            img.alt = filename;
-            media = img;
-          } else {
-            media = createAttachmentIcon();
-          }
-
-          preview.appendChild(createPreviewCard(filename, media));
-        }
-
-        preview.dataset.draftAttachments = JSON.stringify(attachmentData);
-        preview.dataset.draftId = draftId;
-      }
-    }
-
-    // Show banner
-    const form = document.getElementById('create-entry-form');
-    if (form) {
-      const existing = document.getElementById('draft-banner');
-      if (existing) existing.remove();
-      const banner = document.createElement('div');
-      banner.id = 'draft-banner';
-      banner.className = 'text-muted';
-      banner.dataset.draftId = draftId;
-      banner.style.cssText =
-        'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--color-accent-secondary); font-size: var(--text-xl);';
-      banner.textContent = 'Draft loaded from the OSPREY agent — review and submit';
-      form.prepend(banner);
-    }
-
-    // Show session info panel if metadata includes session context
-    if (draftMetadata?.session_metadata) {
-      renderSessionInfoPanel(draftMetadata.session_metadata);
-    }
-
-    // The declared inputs exist only once publish-info has been rendered.
-    await entryFieldsRendered();
-    applyDraftFields(draft);
-  } catch (error) {
-    console.error('Failed to load draft:', error);
+export function readSnapshot() {
+  const value = (/** @type {string} */ name) => formControl(name)?.value ?? '';
+  /** @type {Record<string, string|boolean>} */
+  const fields = {};
+  for (const control of entryFieldControls()) {
+    const name = control.dataset.entryField || '';
+    if (!name) continue;
+    fields[name] =
+      control instanceof HTMLInputElement && control.type === 'checkbox'
+        ? control.checked
+        : control.value;
   }
+  return {
+    subject: value('subject'),
+    details: value('details'),
+    author: value('author'),
+    fields,
+    tags: readTags(),
+    logbook: value('logbook'),
+    shift: value('shift'),
+    savedAt: Date.now(),
+  };
+}
+
+/**
+ * Restore a compose snapshot into the form. Declared fields, logbook and
+ * shift go through the draft-fields apply path, so dependent selects reload
+ * their choices.
+ * @param {import('./compose-autosave.js').ComposeSnapshot} snapshot
+ */
+export function applySnapshot(snapshot) {
+  if (!document.getElementById('create-entry-form')) return;
+  for (const name of ['subject', 'details', 'author', 'logbook', 'shift']) {
+    const input = formControl(name);
+    const stored = /** @type {any} */ (snapshot)[name];
+    if (input && typeof stored === 'string') input.value = stored;
+  }
+  setTags(snapshot.tags || []);
+  applyDraftFields(snapshot);
+}
+
+/**
+ * Fetch a draft's staged attachments into memory (Decision 8). Each file that
+ * cannot be fetched gets an error toast naming it, unless the open is stale.
+ * @param {string} draftId
+ * @param {unknown} paths - The draft's `attachment_paths`
+ * @param {() => boolean} isCurrent
+ * @returns {Promise<File[]>}
+ */
+async function fetchDraftFiles(draftId, paths, isCurrent) {
+  /** @type {File[]} */
+  const files = [];
+  for (const fullPath of Array.isArray(paths) ? paths : []) {
+    const filename = String(fullPath).split('/').pop() || '';
+    const url = `/api/drafts/${draftId}/attachments/${encodeURIComponent(filename)}`;
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      files.push(new File([blob], filename, { type: blob.type }));
+    } catch (error) {
+      console.error(`Failed to fetch draft attachment ${filename}:`, error);
+      if (isCurrent()) showToast(`Could not attach ${filename} from the draft`, { kind: 'error' });
+    }
+  }
+  return files;
+}
+
+/**
+ * A draft that would not load (Decision 8): toast, and leave the draft marked
+ * not loaded. A gone draft (404/422) with no `draft:<id>` snapshot turns the
+ * sheet into a new entry; with one, the lifecycle restores that snapshot.
+ * @param {string} draftId
+ * @param {unknown} error
+ */
+function draftLoadFailed(draftId, error) {
+  console.error('Failed to load draft:', error);
+  const gone = error instanceof ApiError && (error.status === 404 || error.status === 422);
+  showToast(
+    gone
+      ? 'This draft is gone: it was submitted, discarded or has expired.'
+      : `Could not load the draft: ${messageOf(error)}`,
+    { kind: 'error' }
+  );
+  if (gone && !loadCompose(`draft:${draftId}`)) setState({ compose: { draft: null } });
+}
+
+/**
+ * Show the provenance banner and session panel of a draft that records
+ * `session_metadata`. The banner is the sheet's one `#ariel-compose-banner`.
+ * @param {string} draftId
+ * @param {any} meta - The draft's `session_metadata`
+ */
+function showProvenance(draftId, meta) {
+  const banner = document.getElementById('ariel-compose-banner');
+  if (!banner) return;
+  banner.dataset.draftId = draftId;
+  banner.textContent = 'Draft loaded from the OSPREY agent — review and submit';
+  banner.hidden = false;
+  renderSessionInfoPanel(meta);
+}
+
+/** Hide and empty the provenance banner. */
+function hideProvenance() {
+  const banner = document.getElementById('ariel-compose-banner');
+  if (!banner) return;
+  banner.hidden = true;
+  banner.textContent = '';
+  delete banner.dataset.draftId;
+}
+
+/**
+ * The lifecycle's draft filler (C-SHEET-LIFECYCLE step 3): fill the form from
+ * the draft and hold its staged attachments in memory. Nothing (field, banner,
+ * metadata, attachment) is written once `isCurrent()` turns false; only a
+ * draft that filled completely counts as loaded.
+ * @param {string} draftId - Draft ID to load
+ * @param {() => boolean} [isCurrent]
+ */
+export async function loadDraft(draftId, isCurrent = () => true) {
+  /** @type {any} */
+  let draft;
+  try {
+    draft = await draftsApi.get(draftId);
+  } catch (error) {
+    if (isCurrent()) draftLoadFailed(draftId, error);
+    return;
+  }
+  if (!isCurrent()) return;
+  const files = await fetchDraftFiles(draftId, draft?.attachment_paths, isCurrent);
+  // The declared inputs exist only once publish-info has been rendered.
+  await entryFieldsRendered();
+  if (!isCurrent()) return;
+
+  for (const name of ['subject', 'details', 'author']) {
+    const input = formControl(name);
+    if (input) input.value = draft[name] || '';
+  }
+  // Forwarded on submit; applyDraftFields prunes the declared names.
+  draftMetadata = draft.metadata || null;
+  setTags(Array.isArray(draft.tags) ? draft.tags : []);
+  draftFiles = files;
+  renderFilePreview();
+  if (draftMetadata?.session_metadata) showProvenance(draftId, draftMetadata.session_metadata);
+  applyDraftFields(draft);
+  loadedDraft = draftId;
+  // A draft the agent staged as a follow-up carries `metadata.follows_up`,
+  // which the submit forwards with the rest of the draft's metadata; the row
+  // names the parent as the sheet's own Follow up does.
+  const parentId = draftMetadata?.follows_up;
+  if (typeof parentId === 'string' && parentId) await showDraftParent(parentId, isCurrent);
+}
+
+/**
+ * Name a draft's parent in the "Follows up" row: its id at once, its subject
+ * once it loads. An unloadable parent stays named by id.
+ * @param {string} parentId
+ * @param {() => boolean} isCurrent
+ */
+async function showDraftParent(parentId, isCurrent) {
+  setParentRow(parentId);
+  try {
+    const parent = await entriesApi.get(parentId);
+    if (isCurrent() && typeof parent?.subject === 'string' && parent.subject) {
+      setParentRow(parent.subject);
+    }
+  } catch (error) {
+    console.error('Failed to load the parent entry:', error);
+  }
+}
+
+/**
+ * The lifecycle's follow filler (Decision 12): link the sheet to `parentId`
+ * and prefill `Follow-up: <subject>` and the parent's logbook and tags. The
+ * row names the parent by id until (and unless) the parent loads; nothing is
+ * written once `isCurrent()` turns false, and nothing submits.
+ * @param {string} parentId
+ * @param {() => boolean} isCurrent
+ */
+export async function loadFollowUp(parentId, isCurrent) {
+  if (!isCurrent()) return;
+  followsUp = parentId;
+  setParentRow(parentId);
+
+  /** @type {any} */
+  let parent;
+  try {
+    parent = await entriesApi.get(parentId);
+  } catch (error) {
+    console.error('Failed to load the parent entry:', error);
+    return;
+  }
+  if (!isCurrent()) return;
+
+  const subject = typeof parent?.subject === 'string' ? parent.subject : '';
+  const subjectInput = formControl('subject');
+  if (subjectInput && subject) {
+    subjectInput.value = subject.startsWith(FOLLOW_UP_PREFIX)
+      ? subject
+      : `${FOLLOW_UP_PREFIX}${subject}`;
+  }
+  if (subject) setParentRow(subject);
+
+  const metadata = parent?.metadata || {};
+  const logbookSelect = formControl('logbook');
+  if (logbookSelect && typeof metadata.logbook === 'string' && metadata.logbook) {
+    logbookSelect.value = metadata.logbook;
+  }
+  if (Array.isArray(metadata.tags)) setTags(metadata.tags);
 }

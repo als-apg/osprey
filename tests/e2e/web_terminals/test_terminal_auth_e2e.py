@@ -77,7 +77,7 @@ from osprey.cli.web_cmd import _STARTUP_LINE
 from tests.e2e._server_port import bound_port
 from tests.e2e.web_terminals._minimal_repo import stop_host_record, write_minimal_repo
 
-pytestmark = [pytest.mark.e2e, pytest.mark.e2e_smoke, pytest.mark.model_free]
+pytestmark = [pytest.mark.e2e_smoke, pytest.mark.model_free]
 
 _READY_TIMEOUT = 20.0
 _LOGIN_URL_TIMEOUT = 20.0

@@ -1,7 +1,7 @@
 """A session key resolves to the conversation its live chat child is on (#1483).
 
-``/clear`` sent as a message in the Simple view moves the chat child to a new
-transcript without a restart. The expert view's child reports such a move
+``/clear`` sent as a message in the chat moves the chat child to a new
+transcript without a restart. The terminal's child reports such a move
 through the agent-turn hook; the chat child runs with none, so until now the
 key kept pointing at the old transcript: a replay served the old turns and
 the next child resumed them. The chat route now records the id the child

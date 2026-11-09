@@ -865,12 +865,81 @@ def test_the_skill_on_token_refusals_names_no_config_file():
 
 async def test_queue_start_environment_unavailable_is_relayed_as_retryable(tmp_path, monkeypatch):
     _armed(tmp_path, monkeypatch)
-    body = _refusal("environment_unavailable", "the worker environment could not be opened")
+    body = _refusal(
+        "environment_unavailable", "the worker environment could not be opened", retryable=True
+    )
     with patch(f"{_MOD}._http_post_json", return_value=(503, body)):
         with assert_raises_error(error_type="environment_unavailable") as ctx:
             await _start_fn()()
 
-    assert any("Retry" in s for s in ctx["envelope"]["suggestions"])
+    assert queue._RETRY_HINT in ctx["envelope"]["suggestions"]
+
+
+@pytest.mark.parametrize("extras", [{"retryable": False}, {}], ids=["false", "absent"])
+async def test_a_refusal_that_does_not_say_retryable_gets_no_retry_advice(
+    tmp_path, monkeypatch, extras
+):
+    """No queue server is an operator problem: nothing in the answer says retry."""
+    _armed(tmp_path, monkeypatch)
+    body = _refusal("manager_not_configured", "No queue server is configured.", **extras)
+    with patch(f"{_MOD}._http_post_json", return_value=(409, body)):
+        with assert_raises_error(error_type="manager_not_configured") as ctx:
+            await _start_fn()()
+
+    suggestions = ctx["envelope"]["suggestions"]
+    assert queue._RETRY_HINT not in suggestions
+    assert not any("retry" in s.lower() for s in suggestions)
+
+
+def test_the_hint_rows_of_table_reasons_leave_retry_advice_to_the_field():
+    """Retry advice comes only from the refusal's ``retryable``, never from a row."""
+    from osprey.services.bluesky_bridge import queue_backend as qb
+
+    shared = set(qb.REFUSAL_REASONS) & set(queue._REFUSAL_HINTS)
+    assert shared
+    for code in sorted(shared):
+        for hint in queue._REFUSAL_HINTS[code]:
+            assert "retry" not in hint.lower(), code
+
+
+def test_every_hint_row_is_a_declared_refusal_code():
+    """A hint keyed on a code the bridge never declares is advice nobody receives."""
+    from osprey.services.bluesky_bridge import queue_backend as qb
+
+    assert set(queue._REFUSAL_HINTS) <= set(qb.REFUSAL_REASONS)
+
+
+# The bold lead that opens queue.py's paragraph on the refusal vocabulary.
+_VOCABULARY_LEAD = "**The refusal vocabulary is declared once, in the bridge.**"
+
+# A backticked token spelled like a refusal code: lower snake_case, one
+# underscore at least, so field names such as `retryable` stay out.
+_CODE_TOKEN = re.compile(r"``?([a-z][a-z0-9]*(?:_[a-z0-9]+)+)``?")
+
+
+def test_refusal_docstrings_name_only_declared_codes():
+    """Every refusal code a vocabulary docstring backticks is a declared code."""
+    import ast
+
+    from osprey.services.bluesky_bridge import queue_backend as qb
+    from tests.hooks.conftest import HOOKS_DIR
+
+    module_doc = ast.get_docstring(ast.parse(Path(queue.__file__).read_text()))
+    assert module_doc and _VOCABULARY_LEAD in module_doc
+    vocabulary = module_doc[module_doc.index(_VOCABULARY_LEAD) :].split("\n\n", 1)[0]
+
+    hook_path = HOOKS_DIR / "osprey_approval.py"
+    preview = next(
+        ast.get_docstring(node)
+        for node in ast.walk(ast.parse(hook_path.read_text()))
+        if isinstance(node, ast.FunctionDef) and node.name == "_budgeted_preview_lines"
+    )
+
+    for path, passage in ((queue.__file__, vocabulary), (hook_path, preview)):
+        tokens = _CODE_TOKEN.findall(passage or "")
+        assert tokens, f"{path}: the passage names no refusal code"
+        for token in tokens:
+            assert token in qb.REFUSAL_REASONS, f"{path}: `{token}` is not a declared code"
 
 
 # =========================================================================

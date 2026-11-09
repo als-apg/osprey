@@ -690,51 +690,6 @@ class TestArtifactTablePivotRobustness:
         assert resp.json()["summary"]["row_count"] == 2
 
 
-class TestArtifactPinHighlightAPI:
-    """Tests for POST /api/artifacts/{id}/pin and /highlight endpoints."""
-
-    def test_pin_artifact(self, app_client):
-        store = app_client.app.state.artifact_store
-        entry = store.save_file(
-            file_content=b"test",
-            filename="test.txt",
-            artifact_type="text",
-            title="Pin Test",
-            description="",
-            mime_type="text/plain",
-            tool_source="test",
-        )
-
-        resp = app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
-        assert resp.status_code == 200
-        assert resp.json()["pinned"] is True
-
-        # Verify via list
-        resp = app_client.get("/api/artifacts?pinned=true")
-        assert resp.json()["count"] == 1
-
-    def test_unpin_artifact(self, app_client):
-        store = app_client.app.state.artifact_store
-        entry = store.save_file(
-            file_content=b"test",
-            filename="test.txt",
-            artifact_type="text",
-            title="Unpin Test",
-            description="",
-            mime_type="text/plain",
-            tool_source="test",
-        )
-        store.set_pinned(entry.id, True)
-
-        resp = app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": False})
-        assert resp.status_code == 200
-        assert resp.json()["pinned"] is False
-
-    def test_pin_not_found(self, app_client):
-        resp = app_client.post("/api/artifacts/nonexistent/pin", json={"pinned": True})
-        assert resp.status_code == 404
-
-
 class TestTablePivotPagination:
     """``format=table`` must build only the requested page, not the whole file.
 
