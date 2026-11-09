@@ -45,7 +45,14 @@ from orbit_bump.plans import (
     PlanStore,
 )
 from orbit_bump.ring import PlaneView, RingView, build_ring
-from orbit_bump.solver import MANUAL, select_correctors, solve_bump, split_rows
+from orbit_bump.solver import (
+    CLOSURE,
+    MANUAL,
+    SelectResult,
+    select_correctors,
+    solve_bump,
+    split_rows,
+)
 from osprey.apps.sdk import (
     LAUNCH_TOKEN_HEADER,
     OWNER_STATE_KEY,
@@ -85,6 +92,14 @@ COMPUTE_ROUTE = "/api/compute"
 APPLY_ROUTE = "/api/apply"
 #: The prefix the panel's MML signed-index rules carry; the solver takes the list bare.
 MML_RULE_PREFIX = "mml:"
+#: Outside BPMs aim at their orbit at compute: a local bump.
+HOLD = "hold"
+#: Outside BPMs aim at golden and every solved corrector of the plane is used.
+GOLDEN = "golden"
+#: A bump BPM is missed when its predicted position is off its aim by more than this
+#: (in the BPM unit) or by ``MISS_FRACTION`` of the largest target offset, the larger.
+MISS_FLOOR = 0.001
+MISS_FRACTION = 0.05
 
 #: Seconds an apply waits for the written correctors' readbacks to settle.
 SETTLE_TIMEOUT_S = 5.0
@@ -202,8 +217,19 @@ def _pack(pieces: Iterable[str], separator: str) -> list[str]:
     return lines
 
 
+def miss_text(plan: Mapping[str, Any]) -> str | None:
+    """The line naming the bump BPMs the plan misses; ``None`` when it misses none."""
+    missed = list(plan.get("missed") or [])
+    if not missed:
+        return None
+    unit = f" {plan['bpm_unit']}" if plan.get("bpm_unit") else ""
+    worst = plan.get("target_miss_max") or 0.0
+    return f"targets missed: up to {worst:.3f}{unit} at {', '.join(missed)}"
+
+
 def display_lines(plan: Mapping[str, Any]) -> list[str]:
-    """The approval card's lines for *plan*: its corrector rows, then the closure.
+    """The approval card's lines for *plan*: its corrector rows, the targets it misses,
+    then the closure.
 
     Each line is at most ``MAX_DISPLAY_LINE_CHARS`` once HTML-escaped, and there are at
     most ``MAX_DISPLAY_LINES`` in all.
@@ -216,7 +242,8 @@ def display_lines(plan: Mapping[str, Any]) -> list[str]:
     skipped = list(plan.get("skipped_unsolved") or []) or ["none"]
     closure_text = f"dropped_bpms: {', '.join(dropped)}; skipped_unsolved: {', '.join(skipped)}"
     closure = _pack(closure_text.split(" "), " ")
-    lines = rows + closure
+    missed = miss_text(plan)
+    lines = rows + (_pack(missed.split(" "), " ") if missed else []) + closure
     if len(lines) > MAX_DISPLAY_LINES:
         raise DisplayOverflow(
             f"the plan needs {len(lines)} display lines; the approval card shows "
@@ -251,6 +278,8 @@ class ComputeRequest(BaseModel):
     targets: dict[str, float]
     rule: str
     correctors: list[str] | None = None
+    priority: Literal["closure", "targets"] = CLOSURE
+    outside: Literal["hold", "golden"] = HOLD
 
 
 class ApplyRequest(BaseModel):
@@ -313,6 +342,36 @@ def _bump_reads(
     return golden
 
 
+def _delta_bounds(
+    plane: PlaneView, selected: list[int], values: Mapping[str, float | None], target: str
+) -> tuple[np.ndarray, np.ndarray]:
+    """Each picked corrector's delta bounds, from the limits its pre-write verdict judges by.
+
+    ``[min − now, max − now]``, narrowed to ``±max_step``; open where the record says
+    nothing, limits are off, or the record cannot be met from ``now`` (its verdict refuses).
+    """
+    lower = np.full(len(selected), -np.inf)
+    upper = np.full(len(selected), np.inf)
+    for i, c in enumerate(selected):
+        cor = plane.correctors[c]
+        now = values[cor.setpoint_addr]
+        if now is None:
+            continue
+        limits = prewrite_verdict(cor.setpoint_addr, now, target=target, current=now).limits
+        if not limits:
+            continue
+        lo, hi = -np.inf, np.inf
+        if limits.get("min") is not None:
+            lo = limits["min"] - now
+        if limits.get("max") is not None:
+            hi = limits["max"] - now
+        if limits.get("max_step") is not None:
+            lo, hi = max(lo, -limits["max_step"]), min(hi, limits["max_step"])
+        if lo <= hi:
+            lower[i], upper[i] = lo, hi
+    return lower, upper
+
+
 def solve_plan(
     body: ComputeRequest,
     *,
@@ -341,18 +400,28 @@ def solve_plan(
                 409, f"the setpoint of corrector {cor.element} ({cor.setpoint_addr}) is unreadable"
             )
     orbit = {bpm.element: values.get(bpm.position_addr) for bpm in plane.bpms}
+    # The orbit each outside BPM aims at: its orbit at compute, or its golden orbit.
+    aim: dict[str, float | None] = dict(orbit)
+    if body.outside == GOLDEN:
+        aim = {
+            bpm.element: values.get(bpm.golden_addr) if bpm.golden_addr else None
+            for bpm in plane.bpms
+        }
     dropped = [
-        b for b, bpm in enumerate(plane.bpms) if b not in bump and orbit[bpm.element] is None
+        b
+        for b, bpm in enumerate(plane.bpms)
+        if b not in bump and (orbit[bpm.element] is None or aim[bpm.element] is None)
     ]
+    used = [b for b in range(len(plane.bpms)) if b not in dropped]
+    row_of = {b: r for r, b in enumerate(used)}
     try:
         split = split_rows(
             plane.bpm_idx, [plane.cor_idx[c] for c in picked.selected], plane.n_index
         )
     except ValueError as exc:
         raise ComputeRefused(409, f"no solved corrector is left to make the bump: {exc}") from None
-    used = [b for b in range(len(plane.bpms)) if b not in dropped]
-    row_of = {b: r for r, b in enumerate(used)}
-    leak = [b for b in split.leak_rows if b in row_of and b not in bump]
+    outside = used if body.outside == GOLDEN else split.leak_rows
+    leak = [b for b in outside if b in row_of and b not in bump]
     try:
         matrix = snapshot.slice(
             [plane.bpms[b].position_addr for b in used],
@@ -362,11 +431,21 @@ def solve_plan(
         raise ComputeRefused(409, str(exc.args[0])) from None
     now_orbit = np.array([orbit[plane.bpms[b].element] for b in used], dtype=float)
     goal = now_orbit.copy()
+    for b in leak:
+        goal[row_of[b]] = aim[plane.bpms[b].element]
     for b, gold in zip(bump, golden, strict=True):
         goal[row_of[b]] = gold + body.targets[plane.bpms[b].element]
+    lower, upper = _delta_bounds(plane, picked.selected, values, target)
     try:
         solved = solve_bump(
-            matrix, now_orbit, goal, [row_of[b] for b in bump], [row_of[b] for b in leak]
+            matrix,
+            now_orbit,
+            goal,
+            [row_of[b] for b in bump],
+            [row_of[b] for b in leak],
+            lower=lower,
+            upper=upper,
+            priority=body.priority,
         )
     except ValueError as exc:
         raise ComputeRefused(409, str(exc)) from None
@@ -397,17 +476,28 @@ def solve_plan(
     leakage = []
     for b in leak:
         element = plane.bpms[b].element
-        residual = predicted[element] - orbit[element]  # type: ignore[operator]
+        residual = predicted[element] - aim[element]  # type: ignore[operator]
         leakage.append({"element": element, "predicted_residual": residual})
+    miss = {
+        plane.bpms[b].element: float(solved.predicted[row_of[b]] - goal[row_of[b]]) for b in bump
+    }
+    allowed_miss = max(MISS_FLOOR, MISS_FRACTION * max(abs(v) for v in body.targets.values()))
     plan: dict[str, Any] = {
         "target": target,
         "model": view.model,
         "plane": body.plane,
+        "rule": body.rule,
+        "priority": body.priority,
+        "outside": body.outside,
         "orm_version": snapshot.version,
         "created_at": created_at,
         "status": READY,
         "reason": None,
         "targets": dict(body.targets),
+        "bpm_unit": next((bpm.unit for bpm in plane.bpms if bpm.unit), None),
+        "miss": miss,
+        "target_miss_max": max(abs(v) for v in miss.values()),
+        "missed": [element for element, v in miss.items() if abs(v) > allowed_miss],
         "setpoint_digest": setpoint_digest(rows),
         "correctors": rows,
         "orbit_at_compute": orbit,
@@ -418,6 +508,7 @@ def solve_plan(
         ),
         "sigma_kept": solved.sigma_kept,
         "sigma_total": solved.sigma_total,
+        "bounded": [plane.correctors[picked.selected[c]].element for c in solved.bounded],
         "skipped_unsolved": [plane.correctors[c].element for c in picked.skipped_unsolved],
         "dropped_bpms": [plane.bpms[b].element for b in dropped],
     }
@@ -452,6 +543,14 @@ def compute_pick(
         if not math.isfinite(offset):
             raise ComputeRefused(422, f"the offset of {element} is not finite")
     bump = _positions_of(plane.bpms, body.targets, "BPM")
+    if body.outside == GOLDEN:
+        # A global correction with the bump on top: every solved corrector, rule aside.
+        unsolved = view.unsolved_positions(snapshot.unsolved, body.plane)
+        every = range(len(plane.correctors))
+        return bump, SelectResult(
+            selected=[c for c in every if c not in unsolved],
+            skipped_unsolved=[c for c in every if c in unsolved],
+        )
     manual = None
     if body.rule == MANUAL:
         if not body.correctors:
@@ -473,11 +572,13 @@ def compute_pick(
 
 def compute_reads(body: ComputeRequest, view: RingView, snapshot: OrmSnapshot) -> list[str]:
     """Every address one Compute reads: the plane's BPM positions, the bump BPMs'
-    golden, and the picked correctors' setpoints and readbacks."""
+    golden (every BPM's when outside BPMs aim at golden), and the picked correctors'
+    setpoints and readbacks."""
     plane = view.plane(body.plane)
     bump, picked = compute_pick(body, view, snapshot)
     addrs = [bpm.position_addr for bpm in plane.bpms]
-    addrs += [plane.bpms[b].golden_addr for b in bump]
+    gold_of = range(len(plane.bpms)) if body.outside == GOLDEN else bump
+    addrs += [plane.bpms[b].golden_addr for b in gold_of]
     for c in picked.selected:
         addrs += [plane.correctors[c].setpoint_addr, plane.correctors[c].readback_addr]
     return list(dict.fromkeys(a for a in addrs if a))
@@ -576,7 +677,8 @@ async def _settle(
 def residual_after(
     plan: Mapping[str, Any], plane: PlaneView, values: Mapping[str, float | None]
 ) -> dict[str, float]:
-    """Each bump BPM's position less its aim, each leakage BPM's less its orbit at compute.
+    """Each bump BPM's position less its aim, each leakage BPM's less its orbit at compute
+    (its golden orbit when the plan aims outside BPMs at golden).
 
     An unreadable BPM is left out.
     """
@@ -594,9 +696,15 @@ def residual_after(
     for entry in plan.get("leakage") or []:
         element = entry["element"]
         bpm = bpms.get(element)
-        position = values.get(bpm.position_addr) if bpm is not None else None
-        if position is not None and orbit.get(element) is not None:
-            residual[element] = position - orbit[element]
+        if bpm is None:
+            continue
+        position = values.get(bpm.position_addr)
+        if plan.get("outside") == GOLDEN:
+            aim = values.get(bpm.golden_addr) if bpm.golden_addr else None
+        else:
+            aim = orbit.get(element)
+        if position is not None and aim is not None:
+            residual[element] = position - aim
     return residual
 
 

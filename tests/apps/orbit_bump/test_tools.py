@@ -171,7 +171,24 @@ async def test_plan_bump_posts_the_compute_through_the_panel_door(door: Door) ->
         "plane": "x",
         "targets": {"m5": 0.1},
         "rule": "auto",
+        "priority": "closure",
+        "outside": "hold",
     }
+
+
+async def test_plan_bump_carries_the_priority_and_the_outside_aim(door: Door) -> None:
+    await _call(
+        "plan_bump",
+        model="RING",
+        plane="x",
+        targets={"m5": 0.1},
+        rule="auto",
+        priority="targets",
+        outside="golden",
+    )
+    [request] = door.requests
+    sent = json.loads(request.content)
+    assert (sent["priority"], sent["outside"]) == ("targets", "golden")
 
 
 @pytest.mark.usefixtures("stamps")

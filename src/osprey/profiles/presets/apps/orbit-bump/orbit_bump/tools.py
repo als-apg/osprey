@@ -8,7 +8,7 @@ approval hook bound from the approval route, and the backend applies only the cu
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 
@@ -121,10 +121,14 @@ def register(server: FastMCP) -> None:
         targets: dict[str, float],
         rule: str,
         correctors: list[str] | None = None,
+        priority: Literal["closure", "targets"] = "closure",
+        outside: Literal["hold", "golden"] = "hold",
     ) -> dict[str, Any]:
         """Solve a local orbit bump on the session's control target; nothing is written.
 
         The plan replaces the caller's current plan, and its id is what ``apply_bump`` takes.
+        Correctors stay within their limits; ``missed`` lists the monitors the plan does not
+        reach, ``target_miss_max`` the largest miss.
 
         Args:
             model: One of the offered ring models, as the panel's state names them.
@@ -133,8 +137,19 @@ def register(server: FastMCP) -> None:
             rule: How the correctors are picked: ``auto``, an MML signed-index rule such as
                 ``mml:[-1 1]``, or ``manual``.
             correctors: The corrector elements to use, for the ``manual`` rule only.
+            priority: ``closure`` keeps the orbit outside the bump; ``targets`` meets the
+                targets first and lets the orbit outside leak.
+            outside: ``hold`` keeps the monitors outside the bump where they are; ``golden``
+                steers them to golden with every corrector of the plane (rule ignored).
         """
-        body: dict[str, Any] = {"model": model, "plane": plane, "targets": targets, "rule": rule}
+        body: dict[str, Any] = {
+            "model": model,
+            "plane": plane,
+            "targets": targets,
+            "rule": rule,
+            "priority": priority,
+            "outside": outside,
+        }
         if correctors is not None:
             body["correctors"] = correctors
         return await _panel_call("POST", COMPUTE_ROUTE, json=body)
