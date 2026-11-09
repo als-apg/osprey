@@ -115,6 +115,21 @@ def atomic_replace(
     _fsync_directory(path.parent)
 
 
+def _set_shared_mode(level: Path) -> None:
+    """Set :data:`SHARED_DIR_MODE` on *level*, never through a symbolic link.
+
+    The parent is group-writable by parties other than this writer, so the
+    level just made could be swapped for a link before its mode is set; the
+    open refuses a link at the last component (``O_NOFOLLOW``) and anything
+    but a directory (``O_DIRECTORY``), and the mode goes on the descriptor.
+    """
+    fd = os.open(level, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fchmod(fd, SHARED_DIR_MODE)
+    finally:
+        os.close(fd)
+
+
 def ensure_shared_dir(
     directory: Path, *, modes: Literal["required", "best_effort"] = "required"
 ) -> None:
@@ -124,38 +139,34 @@ def ensure_shared_dir(
     leaf — is set to exactly :data:`SHARED_DIR_MODE` rather than merely widened:
     ``mkdir`` honours the umask and drops the setgid bit, so a level left as it
     made it is 0755 (``other`` lists the names inside) or, under umask 077,
-    0700 (the group cannot reach the files inside at all). A directory that
-    already exists is not this writer's: deployment provisioned it, or another
-    uid made it, and it keeps the mode it has. When *directory* exists by the
-    time this call creates it, another writer got there first and no level is
-    this writer's to set.
+    0700 (the group cannot reach the files inside at all). A level that already
+    exists is not this writer's: deployment provisioned it, or another uid made
+    it, and it keeps the mode it has. The levels are made one at a time from
+    the top, so a level another writer makes first, between the look and the
+    make, is left to that writer while the levels this call does make still
+    get their mode. A mode is never set through a symbolic link.
 
     ``modes="required"`` raises when a mode cannot be set;
     ``modes="best_effort"`` keeps the directory as made, for a writer whose
     record is worth more in a narrower directory than not written at all.
 
     Raises:
-        OSError: The directory could not be created, or (``modes="required"``)
-            a level's mode could not be set.
+        OSError: A level could not be created, or (``modes="required"``) a
+            level's mode could not be set, a link included (``errno.ELOOP``).
     """
-    # ``mkdir(parents=True)`` reports the leaf and says nothing about the levels
-    # it creates on the way, so they are named before the call: the location's
-    # root is one of them whenever this writer is the first to reach it, and a
-    # root left at the umask defeats the mode set below it.
-    created = []
+    missing = []
     probe = directory
     while probe != probe.parent and not probe.exists():
-        created.append(probe)
+        missing.append(probe)
         probe = probe.parent
-    try:
-        directory.mkdir(parents=True)
-    except FileExistsError:
-        # Another writer got there first, so none of these levels are this
-        # writer's to set a mode on.
-        created = []
-    for level in created:
+    for level in reversed(missing):
+        try:
+            os.mkdir(level)
+        except FileExistsError:
+            # Another writer got there first: that level is not this writer's.
+            continue
         if modes == "required":
-            os.chmod(level, SHARED_DIR_MODE)
+            _set_shared_mode(level)
         else:
             with contextlib.suppress(OSError):
-                os.chmod(level, SHARED_DIR_MODE)
+                _set_shared_mode(level)

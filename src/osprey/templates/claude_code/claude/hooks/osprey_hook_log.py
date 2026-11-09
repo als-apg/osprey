@@ -896,10 +896,12 @@ def _spool_host():
 
 
 def _spool_ensure_dir(directory):
-    """Create *directory*; the mode is best-effort, exactly as the writer's.
+    """Create *directory* as a group-shared location; the mode is best-effort.
 
-    A narrower directory still beats a dropped record, so a hook rendered
-    without its ``osprey_safety_file`` sibling creates it at the umask.
+    Each level this creates gets the sibling's ``SHARED_DIR_MODE``, and a level
+    that already exists keeps its own. A narrower directory still beats a
+    dropped record, so a hook rendered without its ``osprey_safety_file``
+    sibling creates it at the umask.
     """
     if _safety_file is None:
         directory.mkdir(parents=True, exist_ok=True)

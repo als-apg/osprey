@@ -165,12 +165,80 @@ def test_a_refused_mode_raises_unless_best_effort(
     def refuse(*_args: Any) -> None:
         raise PermissionError("chmod refused")
 
-    monkeypatch.setattr(os, "chmod", refuse)
+    monkeypatch.setattr(os, "fchmod", refuse)
     with pytest.raises(PermissionError, match="chmod refused"):
         safety_file.ensure_shared_dir(tmp_path / "a")
 
     safety_file.ensure_shared_dir(tmp_path / "b", modes="best_effort")
     assert (tmp_path / "b").is_dir()
+
+
+def _another_writer_makes_first(
+    monkeypatch: pytest.MonkeyPatch, contested: Path, mode: int = 0o750
+) -> None:
+    """Have *contested* appear, made by someone else, just before this call makes it."""
+    real_mkdir = os.mkdir
+
+    def racing_mkdir(path: Any, *args: Any, **kwargs: Any) -> None:
+        if Path(path) == contested:
+            real_mkdir(path)
+            os.chmod(path, mode)
+        real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "mkdir", racing_mkdir)
+
+
+@pytest.mark.usefixtures("owner_only_umask")
+def test_a_leaf_another_writer_made_first_still_leaves_the_levels_above_shared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    leaf = tmp_path / "tree" / "alice"
+    _another_writer_makes_first(monkeypatch, leaf)
+
+    safety_file.ensure_shared_dir(leaf)
+
+    assert stat.S_IMODE(leaf.parent.stat().st_mode) == 0o2770, "this writer made it"
+    assert stat.S_IMODE(leaf.stat().st_mode) == 0o750, "the other writer's, as it made it"
+
+
+@pytest.mark.usefixtures("owner_only_umask")
+def test_an_intermediate_another_writer_made_is_left_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Under another uid a mode set on that level would raise EPERM; it is never tried.
+    middle = tmp_path / "tree"
+    leaf = middle / "alice"
+    _another_writer_makes_first(monkeypatch, middle)
+
+    safety_file.ensure_shared_dir(leaf)
+
+    assert stat.S_IMODE(middle.stat().st_mode) == 0o750
+    assert stat.S_IMODE(leaf.stat().st_mode) == 0o2770
+
+
+@pytest.mark.parametrize("modes", ["required", "best_effort"])
+def test_a_level_swapped_for_a_link_is_never_chmodded_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, modes: str
+) -> None:
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    os.chmod(victim, 0o700)
+    leaf = tmp_path / "alice"
+    real_mkdir = os.mkdir
+
+    def swapping_mkdir(path: Any, *args: Any, **kwargs: Any) -> None:
+        real_mkdir(path, *args, **kwargs)
+        os.rmdir(path)
+        os.symlink(victim, path)
+
+    monkeypatch.setattr(os, "mkdir", swapping_mkdir)
+    if modes == "required":
+        with pytest.raises(OSError):
+            safety_file.ensure_shared_dir(leaf, modes=modes)
+    else:
+        safety_file.ensure_shared_dir(leaf, modes=modes)
+
+    assert stat.S_IMODE(victim.stat().st_mode) == 0o700
 
 
 def test_the_shared_file_modes_are_named() -> None:
