@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import Mapping
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -21,9 +20,6 @@ router = APIRouter()
 
 #: The largest page a search answers.
 MAX_PAGE_SIZE = 50
-#: The largest set the export fetches whole when ``display.filter_cap`` is unset; the
-#: service's default, so the export fetches whole exactly the sets the service facets.
-_DEFAULT_FILTER_CAP = 5000
 #: The CSV columns: the ``DirectoryRow`` fields, in Contracts order.
 _COLUMNS = (
     "name",
@@ -62,15 +58,6 @@ def _filters(
 
 def _service(request: Request) -> Any:
     return request.app.state.directory_service
-
-
-def _filter_cap(config: Any) -> int:
-    section = config.get("pv_directory") if isinstance(config, Mapping) else None
-    display = section.get("display") if isinstance(section, Mapping) else None
-    value = display.get("filter_cap") if isinstance(display, Mapping) else None
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return _DEFAULT_FILTER_CAP
-    return value
 
 
 @router.get("/search")
@@ -118,7 +105,7 @@ async def export_csv(
     filters = _filters(q, name, origin, ioc, record_type)
     counted = await service.count(**filters)
     total = counted.get("total") if counted.get("outcome") != "unavailable" else None
-    cap = _filter_cap(getattr(request.app.state, "config", None))
+    cap = service.filter_cap
     if isinstance(total, int) and 0 < total <= cap:
         pages = [await service.search(**filters, page=0, page_size=total)]
     else:

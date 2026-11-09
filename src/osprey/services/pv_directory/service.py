@@ -111,6 +111,11 @@ class DirectoryService:
         self._sets: OrderedDict[tuple[Any, ...], tuple[float, Any]] = OrderedDict()
         self._lock = asyncio.Lock()
 
+    @property
+    def filter_cap(self) -> int:
+        """The largest set fetched whole to facet and export: ``display.filter_cap``, default 5000."""
+        return _count_setting(self._display.get("filter_cap"), _DEFAULT_FILTER_CAP)
+
     # -- the API ----------------------------------------------------------
 
     async def search(self, **fields: Any) -> dict[str, Any]:
@@ -386,7 +391,7 @@ class DirectoryService:
         total = await count
         if not isinstance(total, int):
             return total
-        cap = _count_setting(self._display.get("filter_cap"), _DEFAULT_FILTER_CAP)
+        cap = self.filter_cap
         if total > cap:
             return _TooMany(total)
         if total == 0:
