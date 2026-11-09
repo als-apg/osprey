@@ -151,7 +151,7 @@ BASELINE_SOURCE_DIRS: tuple[str, ...] = ("src", "packages/osprey-connectors/src"
 #: The presets whose renders are frozen: every preset ``osprey init`` ships.
 PRESETS: tuple[str, ...] = (
     "hello-world",
-    "control-assistant",
+    "demo",
 )
 
 #: Deployment name used for every cell. A constant, because the repo directory

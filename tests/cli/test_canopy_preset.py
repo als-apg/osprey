@@ -1,6 +1,6 @@
-"""CANOPY in the control-assistant preset family, as the presets resolve.
+"""CANOPY in the demo preset family, as the presets resolve.
 
-CANOPY is the control assistant's operator GUI: the root preset shows it as
+CANOPY is the demo's operator GUI: the root preset shows it as
 the landing tab (``web_panels`` plus ``default_panel``; a built-in tab each web
 terminal serves from its own sidecar, so the preset states its settings and no
 url) and stages its payload before a build (``lifecycle.pre_build``). The
@@ -33,7 +33,7 @@ from osprey.registry.mcp import FRAMEWORK_SERVERS
 
 SHIPPED_COLLECTION = (
     Path(__file__).resolve().parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/canopy/collections/control-assistant.json"
+    / "src/osprey/templates/apps/demo/data/canopy/collections/demo.json"
 )
 
 #: Tools run without a prompt: the reads, then the workspace tools.
@@ -86,7 +86,7 @@ def resolve(name: str) -> BuildProfile:
 
 @pytest.fixture(scope="module")
 def root() -> BuildProfile:
-    return resolve("control-assistant")
+    return resolve("demo")
 
 
 class TestRootPreset:

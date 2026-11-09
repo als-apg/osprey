@@ -45,6 +45,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.interfaces._browser import rail_entry
 from tests.interfaces._hub import hub_server
 
 if TYPE_CHECKING:
@@ -100,8 +101,14 @@ def _launch_web_terminal(tmp_path, monkeypatch) -> Iterator[str]:
 
 
 def _goto(page: Page, base_url: str) -> None:
-    """Navigate to the hub."""
+    """Navigate to the hub and wait for its boot to wire the sidebar.
+
+    The More menu is wired after boot's first server read, in the same task
+    that starts the rail render, so an enabled Agent rail entry means the
+    menu's button answers; a click before then is lost.
+    """
     page.goto(base_url, wait_until="domcontentloaded")
+    expect(rail_entry(page, "terminal", enabled_only=True)).to_be_attached(timeout=15_000)
 
 
 def _click_settings_trigger(page: Page) -> None:

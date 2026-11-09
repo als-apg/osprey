@@ -340,7 +340,7 @@ class TestAStaleReport:
         """The template's library passes as shipped and fails once a screen is edited."""
         deployment = tmp_path / "deployment"
         library = deployment / LIBRARY_SUBPATH
-        shipped = Path(TemplateManager().template_root) / "apps" / "control_assistant"
+        shipped = Path(TemplateManager().template_root) / "apps" / "demo"
         shutil.copytree(shipped / LIBRARY_SUBPATH, library)
 
         current = _run(rendered_check, test_interpreter_bin, deployment)
@@ -463,8 +463,7 @@ class TestTheCollectionsCheckWhenTheProbeCannotAnswer:
 #: The facility collection the template ships, over the template library.
 _COLLECTION = json.loads(
     (
-        Path(TemplateManager().template_root)
-        / "apps/control_assistant/data/canopy/collections/control-assistant.json"
+        Path(TemplateManager().template_root) / "apps/demo/data/canopy/collections/demo.json"
     ).read_text(encoding="utf-8")
 )
 
@@ -476,10 +475,10 @@ class TestTheRealCollectionsCheck:
     ):
         """Judged against the template's library: a screen it lacks is refused."""
         deployment = tmp_path / "deployment"
-        shipped = Path(TemplateManager().template_root) / "apps" / "control_assistant"
+        shipped = Path(TemplateManager().template_root) / "apps" / "demo"
         shutil.copytree(shipped / LIBRARY_SUBPATH, deployment / LIBRARY_SUBPATH)
         directory = _with_collections(deployment)
-        (directory / "control-assistant.json").write_text(json.dumps(_COLLECTION), encoding="utf-8")
+        (directory / "demo.json").write_text(json.dumps(_COLLECTION), encoding="utf-8")
 
         passing = _run(collections_check, test_interpreter_bin, deployment)
         assert passing.returncode == 0, passing.stdout + passing.stderr

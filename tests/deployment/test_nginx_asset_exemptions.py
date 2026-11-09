@@ -32,6 +32,7 @@ import pytest
 from osprey.deployment.web_terminals.render import TERMINAL_SECRET_HEADER, render_web_terminals
 from osprey.interfaces.common_middleware import (
     FIRST_PARTY_PANEL_STATIC,
+    FIRST_PARTY_PANEL_VIEWERS,
     PANEL_ASSET_SUBPATHS,
     PANEL_CAP_SEGMENT,
     URL_MOUNT_ROOT,
@@ -135,6 +136,7 @@ def _c_assets_paths(user: str) -> list[str]:
         paths += [f"{root}/panel/{panel_id}/{sub}/x.js" for sub in PANEL_ASSET_SUBPATHS]
     for panel_id, subs in FIRST_PARTY_PANEL_STATIC.items():
         paths += [f"{root}/panel/{panel_id}/{sub}/vendor/x.min.js" for sub in subs]
+    paths += [f"{root}{FIRST_PARTY_PANEL_VIEWERS}{key}.js" for key in ("beam_log", "x")]
     return paths
 
 
@@ -157,6 +159,15 @@ def _gated_paths(user: str) -> list[str]:
         f"{root}/panel/.x/design-system/x.js",
         f"{root}/panel/jupyter/terminal-static/js/api.js",
         f"{root}/ws/terminal",
+        # A viewer is one ``<key>.js`` segment under the artifacts panel only.
+        f"{root}/panel/artifacts/viewers/",
+        f"{root}/panel/artifacts/viewers/a/b.js",
+        f"{root}/panel/artifacts/viewers/x.css",
+        f"{root}/panel/artifacts/viewers/x.mjs",
+        f"{root}/panel/artifacts/viewers/x.js/y",
+        f"{root}/panel/artifacts/viewersx/x.js",
+        f"{root}/panel/my-dash/viewers/x.js",
+        f"{root}/viewers/x.js",
     ]
 
 

@@ -69,6 +69,7 @@ from osprey.services.bluesky_bridge.bump_analysis import (
     solve_offsets,
 )
 from osprey.services.bluesky_bridge.figure import (
+    Columns,
     Figure,
     LinesMark,
     Panel,
@@ -1174,7 +1175,17 @@ def _drawn(series: list[Series]) -> bool:
     return any(point.y is not None for item in series for point in item.points)
 
 
-def _orbit_shift_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
+def _bound(window: RowWindow, names: Iterable[str]) -> Columns | None:
+    """An axis over the columns *names* resolve to, or ``None`` when none resolves."""
+    columns = list(
+        dict.fromkeys(
+            column for name in names if (column := resolve_column(name, window.columns)) is not None
+        )
+    )
+    return Columns(columns) if columns else None
+
+
+def _orbit_shift_panel(sweep: _Sweep, params: PARAMS, window: RowWindow) -> Panel | None:
     """The bump itself: each drawn step's orbit shift across the requested BPMs.
 
     This is the panel that shows whether the bump is a *bump* — a displacement
@@ -1249,7 +1260,8 @@ def _orbit_shift_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         title="Orbit shift across BPMs",
         x_label="BPM index",
         y_label="Orbit shift",
-        y_units="BPM units",
+        x_columns=None,
+        y_columns=_bound(window, sweep.bpm_order),
         annotations=annotations,
         series_picker=True,
         mark=_lines(series),
@@ -1292,7 +1304,7 @@ def _misses(sweep: _Sweep, params: PARAMS) -> list[tuple[int, str, float, float]
     return misses
 
 
-def _band_residual_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
+def _band_residual_panel(sweep: _Sweep, params: PARAMS, window: RowWindow) -> Panel | None:
     """How far each constrained BPM sat from what its step asked for.
 
     The residual, not the orbit: a target asked for ``scale * value`` and a
@@ -1377,14 +1389,15 @@ def _band_residual_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         title="Band residual at constrained BPMs",
         x_label="Amplitude step",
         y_label="Residual (reached minus requested)",
-        y_units="BPM units",
+        x_columns=None,
+        y_columns=_bound(window, shown),
         annotations=[note for note in annotations if note],
         series_picker=True,
         mark=_lines(series),
     )
 
 
-def _corrector_offset_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
+def _corrector_offset_panel(sweep: _Sweep, params: PARAMS, window: RowWindow) -> Panel | None:
     """Where each corrector sat, relative to the working point it started on.
 
     Not the raw current: a machine running a corrected orbit idles every corrector
@@ -1414,7 +1427,8 @@ def _corrector_offset_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         title="Corrector offsets",
         x_label="Amplitude step",
         y_label="Offset from working point",
-        y_units="corrector units",
+        x_columns=None,
+        y_columns=_bound(window, params.correctors),
         annotations=[
             "Each corrector's readback measured against its own pre-scan "
             "working point — the mean of the baseline rows, before anything "
@@ -1427,7 +1441,7 @@ def _corrector_offset_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
     )
 
 
-def _monitor_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
+def _monitor_panel(sweep: _Sweep, params: PARAMS, window: RowWindow) -> Panel | None:
     """Monitor readings against bump amplitude, one line per leg.
 
     Amplitude rather than step number, because what a monitor has to say about
@@ -1474,6 +1488,8 @@ def _monitor_panel(sweep: _Sweep, params: PARAMS) -> Panel | None:
         title="Monitor response",
         x_label="Bump amplitude (fraction of requested)",
         y_label="Monitor reading",
+        x_columns=None,
+        y_columns=_bound(window, shown),
         annotations=annotations,
         series_picker=True,
         mark=_lines(series),
@@ -1502,10 +1518,12 @@ def _build(window: RowWindow, params: PARAMS) -> Figure:
     panels = [
         panel
         for panel in (
-            _panel_or_none(lambda: _orbit_shift_panel(sweep, params), "orbit shift"),
-            _panel_or_none(lambda: _band_residual_panel(sweep, params), "band residual"),
-            _panel_or_none(lambda: _corrector_offset_panel(sweep, params), "corrector offset"),
-            _panel_or_none(lambda: _monitor_panel(sweep, params), "monitor response"),
+            _panel_or_none(lambda: _orbit_shift_panel(sweep, params, window), "orbit shift"),
+            _panel_or_none(lambda: _band_residual_panel(sweep, params, window), "band residual"),
+            _panel_or_none(
+                lambda: _corrector_offset_panel(sweep, params, window), "corrector offset"
+            ),
+            _panel_or_none(lambda: _monitor_panel(sweep, params, window), "monitor response"),
         )
         if panel is not None
     ]

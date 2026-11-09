@@ -214,31 +214,93 @@ describe('session-views renderers', () => {
 
   describe('renderArtifacts', () => {
     const FIXTURE = {
-      totals: { entry_count: 2, total_bytes: 2048, categories: { plot: 1, table: 1 } },
+      totals: {
+        entry_count: 3,
+        total_bytes: 3072,
+        forms: [
+          { key: 'plots', label: 'Plots', count: 2 },
+          { key: 'data', label: 'Data', count: 1 },
+        ],
+      },
       entries: [
         {
-          category: 'plot',
-          artifact_type: 'plot',
+          form: 'plots',
+          form_label: 'Plots',
+          category: 'visualization',
+          artifact_type: 'image',
           title: 'Orbit response',
           size_bytes: 1024,
           channels: ['SR:C01'],
         },
-        { category: 'table', artifact_type: 'table', name: 'Results', size_bytes: 1024 },
+        {
+          form: 'plots',
+          form_label: 'Plots',
+          category: 'code_output',
+          artifact_type: 'image',
+          title: 'Tune scan',
+          size_bytes: 1024,
+        },
+        {
+          form: 'data',
+          form_label: 'Data',
+          artifact_type: 'table',
+          name: 'Results',
+          size_bytes: 1024,
+        },
       ],
     };
 
-    test('renders grouped artifact entries with totals', async () => {
+    test('groups entries by form, never by a stored category', async () => {
       await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue(FIXTURE) }));
       const el = byId('view-artifacts');
-      expect(el.querySelectorAll('.artifact-group').length).toBe(2);
+      const groups = [...el.querySelectorAll('.artifact-group')];
+      expect(groups.length).toBe(2);
+      expect(groups.map((g) => g.querySelector('summary')?.textContent)).toEqual([
+        'Plots (2)',
+        'Data (1)',
+      ]);
       expect(el.textContent).toContain('Orbit response');
-      expect(el.textContent).toContain('2.0 KB');
+      expect(el.textContent).toContain('3.0 KB');
       expect(el.querySelectorAll('.channel-tag').length).toBe(1);
+      expect(el.textContent).not.toContain('visualization');
+      expect(el.textContent).not.toContain('code_output');
+    });
+
+    test('totals pills count by form label', async () => {
+      await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue(FIXTURE) }));
+      const pills = [...byId('view-artifacts').querySelectorAll('.cat-pill')].map(
+        (p) => p.textContent
+      );
+      expect(pills).toEqual(['Plots: 2', 'Data: 1']);
+    });
+
+    test('an entry with no form falls back to the data form label', async () => {
+      const data = {
+        totals: { entry_count: 1, total_bytes: 1, forms: [] },
+        entries: [{ category: 'legacy_thing', artifact_type: 'json', title: 'Old', size_bytes: 1 }],
+      };
+      await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue(data) }));
+      const summary = byId('view-artifacts').querySelector('.artifact-group summary');
+      expect(summary?.textContent).toBe('Data (1)');
     });
 
     test('shows an empty state when there are no entries', async () => {
       await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue({ entries: [] }) }));
       expect(byId('view-artifacts').textContent).toContain('NO ARTIFACTS');
+    });
+
+    test('says why it is empty when the server gives a reason', async () => {
+      const data = { entries: [], reason: 'this session has no transcript recorded yet' };
+      await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue(data) }));
+      const text = byId('view-artifacts').textContent;
+      expect(text).toContain('NO ARTIFACTS');
+      expect(text).toContain('this session has no transcript recorded yet');
+    });
+
+    test('escapes the server reason', async () => {
+      const data = { entries: [], reason: '<img src=x onerror=alert(1)>' };
+      await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue(data) }));
+      expect(byId('view-artifacts').querySelector('img')).toBeNull();
     });
   });
 
@@ -289,7 +351,7 @@ describe('session.js refresh-loop view dispatch', () => {
       ],
     },
     '/api/session-summary': {
-      totals: { entry_count: 0, total_bytes: 0, categories: {} },
+      totals: { entry_count: 0, total_bytes: 0, forms: [] },
       entries: [],
     },
     '/api/session-chat': { turns: [{ role: 'user', content: 'hi' }] },

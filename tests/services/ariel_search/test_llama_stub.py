@@ -152,6 +152,7 @@ def _status_repository() -> MagicMock:
     repo.get_embedding_tables = AsyncMock(return_value=[])
     repo.get_image_embedding_tables = AsyncMock(return_value=[])
     repo.get_last_ingestion = AsyncMock(return_value=None)
+    repo.get_enhancement_coverage = AsyncMock(return_value={})
     repo.schema_facts = AsyncMock(return_value=SchemaFacts(has_v2_fts=True, has_copy_state=True))
     repo.get_attachment_bytes = AsyncMock(return_value=0)
     repo.get_attachment_copy_counts = AsyncMock(return_value=(0, {}))

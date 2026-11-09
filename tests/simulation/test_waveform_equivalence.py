@@ -41,12 +41,14 @@ from osprey_connectors.simulation.archive import (
 from osprey_connectors.simulation.texture import TextureModel
 from osprey_connectors.simulation.view import SEEDS_FILE, VARIABLES_FILE
 
-# The session-scoped MongoDB container, shared with the connector and recorder
-# tests rather than re-declared.
-from tests.connectors.conftest import mongodb_container  # noqa: F401
-
 if TYPE_CHECKING:
     from tests._builds import BuiltProject
+
+# xdist_group("docker"): the store-backed tests use the session's
+# ``mongodb_container`` (tests/conftest.py), and the docker group puts them on
+# the worker that already runs it for the connector tests, so they share its
+# container instead of starting one of their own.
+pytestmark = pytest.mark.xdist_group("docker")
 
 #: The injection septum's trace, and the two channels it is a function of.
 SEK = "SR:MAG:SEPTUM:01:CURRENT:WAVEFORM"
@@ -72,11 +74,11 @@ SAMPLED_MINUTES = 8
 
 
 @pytest.fixture(scope="module")
-def demo_view(built_control_assistant: BuiltProject, tmp_path_factory) -> Path:
+def demo_view(built_demo: BuiltProject, tmp_path_factory) -> Path:
     """The example facility's simulator view, as the build renders it."""
     root = tmp_path_factory.mktemp("equivalence") / "simulator"
     prefix = "data/simulator/"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith(prefix):
             target = root / name[len(prefix) :]
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -185,7 +187,7 @@ def _client(container):
 
 
 @pytest.fixture
-def store(mongodb_container):  # noqa: F811
+def store(mongodb_container):
     """A fresh sample collection and its waveform sibling, dropped afterwards."""
     client = _client(mongodb_container)
     database = client[mongodb_container["db_name"]]
@@ -203,7 +205,7 @@ def store(mongodb_container):  # noqa: F811
 
 
 @pytest.fixture
-def connector_config(mongodb_container, store, monkeypatch):  # noqa: F811
+def connector_config(mongodb_container, store, monkeypatch):
     """The connector config of the store, password by environment name."""
     from osprey_connectors.archiver._mongo_client import HOST_OVERRIDE_ENV, PORT_OVERRIDE_ENV
 
@@ -296,45 +298,71 @@ async def _read_traces(read_tool, tmp_path: Path, start: datetime, end: datetime
     return stamps, [np.asarray(values, dtype=np.float64) for values in saved["values"]]
 
 
-async def test_archiver_read_returns_one_seeded_trace_per_minute_equal_to_the_pulse(
-    seeded, store, read_tool, tmp_path
-):
-    """Seed a window holding T; each sampled minute reads back as exactly ``trace(t)``."""
-    collection, waveforms = store
-    seed_base(collection, seeded, SMALL, t0=T, chunk_size=256, waveforms=waveforms)
+@pytest.fixture(scope="module")
+def seeded_store(mongodb_container, seeded):
+    """The :data:`SMALL` archive anchored at T, seeded once for the tests that only read it.
 
-    minutes = [T - timedelta(minutes=k * 97) for k in range(SAMPLED_MINUTES)]
-    for minute in minutes:
-        stamps, traces = await _read_traces(
-            read_tool, tmp_path, minute - timedelta(seconds=30), minute + timedelta(seconds=29)
+    Its own collection, so the recorder test's empty ``store`` never meets it.
+    """
+    client = _client(mongodb_container)
+    database = client[mongodb_container["db_name"]]
+    name = "waveform_equivalence_seeded"
+    collection = database[name]
+    waveforms = database[waveform_collection(name)]
+    collection.drop()
+    waveforms.drop()
+    seed_base(collection, seeded, SMALL, t0=T, chunk_size=256, waveforms=waveforms)
+    try:
+        yield collection, waveforms
+    finally:
+        collection.drop()
+        waveforms.drop()
+        client.close()
+
+
+class TestTheSeededArchive:
+    """Reads of the seeded archive. Neither test writes, so both read one seed."""
+
+    @pytest.fixture
+    def store(self, seeded_store):
+        """The seeded archive in place of the module's empty ``store``.
+
+        ``connector_config`` points the connector, and so ``read_tool``, at
+        whichever ``store`` the test gets.
+        """
+        return seeded_store
+
+    async def test_archiver_read_returns_one_seeded_trace_per_minute_equal_to_the_pulse(
+        self, read_tool, tmp_path
+    ):
+        """Seeded around T, each sampled minute reads back as exactly ``trace(t)``."""
+        minutes = [T - timedelta(minutes=k * 97) for k in range(SAMPLED_MINUTES)]
+        for minute in minutes:
+            stamps, traces = await _read_traces(
+                read_tool, tmp_path, minute - timedelta(seconds=30), minute + timedelta(seconds=29)
+            )
+
+            assert stamps == [minute]
+            (trace,) = traces
+            assert np.array_equal(trace, pulse.trace(SEK, minute.timestamp(), NOMINAL_DRIVE, True))
+
+    async def test_the_seeded_trace_at_t_reads_back_as_the_live_trace(self, demo_view, connector):
+        """The connector's trace at T is the texture's trace at clock T."""
+        texture = live_texture(demo_view, clock=lambda: T.timestamp())
+
+        frame = await connector.get_data(
+            channels=[SEK],
+            start_date=T - timedelta(seconds=30),
+            end_date=T + timedelta(seconds=30),
+            precision_ms=0,
         )
 
-        assert stamps == [minute]
-        (trace,) = traces
-        assert np.array_equal(trace, pulse.trace(SEK, minute.timestamp(), NOMINAL_DRIVE, True))
-
-
-async def test_the_seeded_trace_at_t_reads_back_as_the_live_trace(
-    demo_view, seeded, store, connector
-):
-    """The connector's trace at T is the texture's trace at clock T."""
-    collection, waveforms = store
-    seed_base(collection, seeded, SMALL, t0=T, chunk_size=256, waveforms=waveforms)
-    texture = live_texture(demo_view, clock=lambda: T.timestamp())
-
-    frame = await connector.get_data(
-        channels=[SEK],
-        start_date=T - timedelta(seconds=30),
-        end_date=T + timedelta(seconds=30),
-        precision_ms=0,
-    )
-
-    (value,) = frame.loc[frame["channel"] == SEK, "value"].tolist()
-    assert np.array_equal(np.asarray(value, dtype=np.float64), live_trace(texture))
+        (value,) = frame.loc[frame["channel"] == SEK, "value"].tolist()
+        assert np.array_equal(np.asarray(value, dtype=np.float64), live_trace(texture))
 
 
 @pytest.fixture
-def mongo_login(mongodb_container):  # noqa: F811
+def mongo_login(mongodb_container):
     """The shared container's connection parameters."""
     return mongodb_container
 

@@ -238,7 +238,7 @@ def _claude_state_of_the_test(
 
 @pytest.fixture(scope="module")
 def deployment(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo with two watchdogs on and writes armed."""
+    """A demo repo with two watchdogs on and writes armed."""
     root = tmp_path_factory.mktemp("watchdog-browser")
     repo = init_project(root, "watchdog-browser", provider="als-apg")
     profile_path = repo / "profile.yml"

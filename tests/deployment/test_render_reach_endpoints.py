@@ -1,6 +1,6 @@
 """Render containers must reach host-network endpoints where they actually live.
 
-Web-terminal render projects (the ``control-assistant-{readonly,readwrite,
+Web-terminal render projects (the ``demo-{readonly,readwrite,
 ariel}`` presets) render as *attached* projects and run as per-user containers
 with ``network_mode: host``. Inside such a container ``localhost`` IS the
 deployment host, and compose service DNS names (``agent_record``) resolve to
@@ -74,10 +74,10 @@ def _service_env(service: dict) -> dict[str, str | None]:
 
 @pytest.fixture(scope="module")
 def built_render_stack(tmp_path_factory) -> Path:
-    """The control-assistant hosting preset built once, renders included.
+    """The demo hosting preset built once, renders included.
 
     Same pattern as ``tests/cli/test_tier_app_presets.py::_build_render_stack``:
-    one real ``osprey init --preset control-assistant`` + ``osprey build``
+    one real ``osprey init --preset demo`` + ``osprey build``
     renders the host project at ``build/`` and one attached project per catalog
     render beside it at ``build/<repo>-<render>``.
     """
@@ -86,7 +86,7 @@ def built_render_stack(tmp_path_factory) -> Path:
 
     repo = tmp_path_factory.mktemp("render-reach") / "my-facility"
     runner = CliRunner()
-    created = runner.invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    created = runner.invoke(init, [str(repo), "--preset", "demo", "--no-git"])
     assert created.exit_code == 0, created.output
     built = runner.invoke(build, ["--repo", str(repo), "--skip-deps", "--skip-lifecycle"])
     assert built.exit_code == 0, built.output
@@ -144,7 +144,7 @@ def test_host_networked_render_telemetry_targets_loopback(built_render_stack: Pa
                 wrong.append(f"web-{entry['name']} (render {tier}): {endpoint!r}")
 
     assert checked, (
-        "Precondition failed: the built control-assistant stack exposed no "
+        "Precondition failed: the built demo stack exposed no "
         "host-networked render — the defect surface this test exists for was "
         "never reached."
     )

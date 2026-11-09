@@ -46,6 +46,14 @@
  * `.osprey-popover` shown statically (a specimen, a popover another module
  * drives) is left alone.
  *
+ * Documents: a popover lives in its opener's document, which may be a window of
+ * its own (the web terminal's detached panes): it moves there when it opens,
+ * placement reads that window's viewport, focus goes through that document, and
+ * the dismissal listeners sit on that document and its window for as long as a
+ * popover is open there. Such a window's `resize` and `blur` close only its own
+ * popovers. Targets may belong to another realm, so nothing here tests them with
+ * `instanceof Element`.
+ *
  * @module popover
  */
 
@@ -77,7 +85,8 @@ const ignores = new WeakMap();
 /** @type {Set<HTMLElement>} popovers opened here and not yet closed */
 const opened = new Set();
 
-let listening = false;
+/** @type {Map<Document, () => void>} each listening document's way to stop */
+const listening = new Map();
 
 /** @returns {HTMLElement[]} the open popovers, in the order they opened */
 function openPopovers() {
@@ -112,24 +121,25 @@ function withAncestors(pop) {
  * @param {PopoverOptions} options
  */
 function position(pop, anchor, { place = 'below-end', edge } = {}) {
+  const view = pop.ownerDocument.defaultView ?? window;
   const rect = anchor.getBoundingClientRect();
   const style = pop.style;
   style.top = style.bottom = style.left = style.right = '';
   if (place === 'below-end') {
     style.top = `${rect.bottom + GAP_BELOW}px`;
-    style.right = `${window.innerWidth - rect.right}px`;
+    style.right = `${view.innerWidth - rect.right}px`;
     return;
   }
   const right = (edge ?? anchor).getBoundingClientRect().right;
   style.left = `${right + GAP_BESIDE}px`;
   if (place === 'beside-right-bottom') {
-    const maxBottom = window.innerHeight - VIEWPORT_MARGIN;
+    const maxBottom = view.innerHeight - VIEWPORT_MARGIN;
     const minBottom = VIEWPORT_MARGIN + pop.offsetHeight;
     const bottom = Math.max(minBottom, Math.min(rect.bottom, maxBottom));
-    style.bottom = `${window.innerHeight - bottom}px`;
+    style.bottom = `${view.innerHeight - bottom}px`;
     return;
   }
-  const maxTop = window.innerHeight - pop.offsetHeight - VIEWPORT_MARGIN;
+  const maxTop = view.innerHeight - pop.offsetHeight - VIEWPORT_MARGIN;
   style.top = `${Math.max(VIEWPORT_MARGIN, Math.min(rect.top, maxTop))}px`;
 }
 
@@ -163,7 +173,7 @@ function moveInMenu(event) {
   );
   if (!rows.length) return;
   event.preventDefault();
-  const at = rows.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+  const at = rows.indexOf(/** @type {HTMLElement} */ (menu.ownerDocument.activeElement));
   let next = 0;
   if (event.key === 'End') next = rows.length - 1;
   else if (event.key === 'ArrowDown') next = (at + 1) % rows.length;
@@ -180,10 +190,13 @@ function moveInMenu(event) {
  * @returns {void}
  */
 export function openPopover(pop, anchor, options = {}) {
-  listen();
+  const doc = anchor.ownerDocument;
+  if (pop.ownerDocument !== doc) doc.body.append(pop);
   hideTooltip();
   const parent = /** @type {HTMLElement | null} */ (anchor.closest('.osprey-popover'));
   closeAllPopovers(parent ? withAncestors(parent) : []);
+  // After that close: closing the last popover here stops the document's listeners.
+  listen(doc);
   openers.set(pop, anchor);
   if (options.ignore) ignores.set(pop, options.ignore);
   else ignores.delete(pop);
@@ -207,10 +220,11 @@ export function closePopover(pop) {
     if (other !== pop && withAncestors(other).includes(pop)) closePopover(other);
   }
   // Read before hiding: a hidden subtree drops its focus to <body>.
-  const active = document.activeElement;
+  const active = pop.ownerDocument.activeElement;
   const hadFocus = !!active && pop.contains(active);
   pop.hidden = true;
   opened.delete(pop);
+  stopIdleListeners();
   const opener = openers.get(pop);
   if (!opener) return;
   opener.setAttribute('aria-expanded', 'false');
@@ -242,32 +256,47 @@ export function togglePopover(opener, pop, options = {}) {
   else closePopover(pop);
 }
 
-/** Install the document-level dismissal listeners, once. */
-function listen() {
-  if (listening) return;
-  listening = true;
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      const target = /** @type {Node | null} */ (event.target);
-      const element = target instanceof Element ? target : (target?.parentElement ?? null);
-      /** @type {HTMLElement[]} */
-      const keep = [];
-      for (const pop of openPopovers()) {
-        const opener = openers.get(pop);
-        const ignore = ignores.get(pop);
-        const hit =
-          !!target &&
-          (pop.contains(target) ||
-            (!!opener && opener.contains(target)) ||
-            (!!ignore && !!element?.closest(ignore)));
-        if (hit) keep.push(...withAncestors(pop));
-      }
-      closeAllPopovers(keep);
-    },
-    true
-  );
-  document.addEventListener('keydown', (event) => {
+/** Stop listening on every document with no popover left open in it. */
+function stopIdleListeners() {
+  const open = openPopovers();
+  for (const [doc, stop] of [...listening]) {
+    if (!open.some((pop) => pop.ownerDocument === doc)) {
+      stop();
+      listening.delete(doc);
+    }
+  }
+}
+
+/**
+ * Install the dismissal listeners on `doc` and its window, once while a popover
+ * is open there.
+ * @param {Document} doc
+ */
+function listen(doc) {
+  if (listening.has(doc)) return;
+  const view = doc.defaultView ?? window;
+  /** @param {Event} event */
+  const onPress = (event) => {
+    const target = /** @type {Node | null} */ (event.target);
+    // A text node's parent; the document itself has no `closest`.
+    const element =
+      target?.nodeType === 1 ? /** @type {Element} */ (target) : target?.parentElement;
+    /** @type {HTMLElement[]} */
+    const keep = [];
+    for (const pop of openPopovers()) {
+      const opener = openers.get(pop);
+      const ignore = ignores.get(pop);
+      const hit =
+        !!target &&
+        (pop.contains(target) ||
+          (!!opener && opener.contains(target)) ||
+          (!!ignore && !!element?.closest(ignore)));
+      if (hit) keep.push(...withAncestors(pop));
+    }
+    closeAllPopovers(keep);
+  };
+  /** @param {KeyboardEvent} event */
+  const onKey = (event) => {
     if (MENU_KEYS.includes(event.key)) {
       moveInMenu(event);
       return;
@@ -276,7 +305,21 @@ function listen() {
     // closePopover hands focus back up the chain, so focus inside a nested
     // popover ends on the opener of the outermost one.
     closeAllPopovers();
+  };
+  /** A window that resized or lost focus takes only its own popovers with it. */
+  const closeOwn = () => {
+    for (const pop of openPopovers()) {
+      if (pop.ownerDocument === doc && !pop.hidden) closePopover(pop);
+    }
+  };
+  doc.addEventListener('pointerdown', onPress, true);
+  doc.addEventListener('keydown', onKey);
+  view.addEventListener('resize', closeOwn);
+  view.addEventListener('blur', closeOwn);
+  listening.set(doc, () => {
+    doc.removeEventListener('pointerdown', onPress, true);
+    doc.removeEventListener('keydown', onKey);
+    view.removeEventListener('resize', closeOwn);
+    view.removeEventListener('blur', closeOwn);
   });
-  window.addEventListener('resize', () => closeAllPopovers());
-  window.addEventListener('blur', () => closeAllPopovers());
 }

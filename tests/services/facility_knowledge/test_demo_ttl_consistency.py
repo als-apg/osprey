@@ -1,6 +1,6 @@
 """The demo graph and the demo channel finder must describe the same machine.
 
-The control-assistant preset carries two descriptions of one demo accelerator:
+The demo preset carries two descriptions of one demo accelerator:
 the hierarchical channel database the channel finder searches, and the graph view the
 build writes and the graph store is seeded from. The agent reaches for whichever fits the question,
 and it has no way to notice when the two disagree — a channel it finds in the
@@ -8,7 +8,7 @@ graph but cannot read, or a setpoint the graph calls a readback, looks like a
 control-system fault rather than a stale corpus.
 
 Nothing else in the suite compares them. The sibling guard in
-``tests/templates/test_control_assistant_demo_ttl.py`` pins where the corpus
+``tests/templates/test_demo_ttl.py`` pins where the corpus
 counts what is in the view; counting catches a corpus that shrank, not one
 that drifted sideways. This file pins the *set equalities* across the
 artifacts:
@@ -154,14 +154,12 @@ def channel_map() -> dict[str, dict]:
 
 
 @pytest.fixture(scope="module")
-def committed_graph(built_control_assistant: BuiltProject) -> Any:
-    """The graph view the control-assistant build writes, parsed once."""
+def committed_graph(built_demo: BuiltProject) -> Any:
+    """The graph view the demo build writes, parsed once."""
     from rdflib import Graph
 
     graph = Graph()
-    graph.parse(
-        built_control_assistant.build_dir / "data" / "graph" / "facility.ttl", format="turtle"
-    )
+    graph.parse(built_demo.build_dir / "data" / "graph" / "facility.ttl", format="turtle")
     return graph
 
 
@@ -173,11 +171,11 @@ def additions() -> set[str]:
 
 
 @pytest.fixture(scope="module")
-def place_bound_additions(built_control_assistant: BuiltProject, additions: set[str]) -> set[str]:
+def place_bound_additions(built_demo: BuiltProject, additions: set[str]) -> set[str]:
     """The added addresses whose channel record sits on a place and names no device or signal."""
     return {
         str(channel["id"])
-        for channel in built_control_assistant.facility["channels"]
+        for channel in built_demo.facility["channels"]
         if channel["id"] in additions
         and "device" not in (channel.get("on") or {})
         and not channel.get("signal")
@@ -272,7 +270,7 @@ def test_every_binding_carries_its_prose(committed_graph: Any) -> None:
 
 
 def test_every_device_carries_its_family_and_system_prose(
-    committed_graph: Any, built_control_assistant: BuiltProject
+    committed_graph: Any, built_demo: BuiltProject
 ) -> None:
     """Device prose comes from the device's family and its system.
 
@@ -281,7 +279,7 @@ def test_every_device_carries_its_family_and_system_prose(
     fell back to a single default would still put a text on every device. A
     device no described group names carries its system's text alone.
     """
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     grouped = {
         member
         for group in facility["groups"]

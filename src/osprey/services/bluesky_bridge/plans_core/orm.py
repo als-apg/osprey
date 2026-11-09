@@ -15,7 +15,7 @@ guessing it from a field name.
 
 This plan opens its own run, so it stamps its own run metadata through
 ``scan_metadata()``: the channels it moves and reads, and the total point
-count (one point per corrector per swept current). It adds ``regressor``, the
+count (one point per corrector per kick). It adds ``regressor``, the
 corrector value its response fit regresses on. No dimensionality hint —
 the sweeps are serial and per-corrector, not one continuous traversal, so
 there is no truthful value for one.
@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Callable
-from typing import Any, Literal
+from collections.abc import Callable, Iterable, Mapping
+from typing import Any, Literal, NamedTuple
 
 from bluesky import plan_stubs as bps
 from bluesky import preprocessors as bpp
@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field, model_validator
 # load time and quarantines the plan.
 from osprey.services.bluesky_bridge.figure import (
     BarsMark,
+    Columns,
     Figure,
     HeatmapMark,
     LinesMark,
@@ -58,6 +59,8 @@ from osprey.services.bluesky_bridge.plan_fields import (
     MovableChannels,
     ReadableChannels,
     Regressor,
+    resolve_column,
+    resolve_regressor_column,
     scan_metadata,
 )
 
@@ -81,17 +84,17 @@ class PARAMS(BaseModel):
     evenly-spaced kicks *away from that corrector's own pre-scan working
     point*, reading every channel in ``readbacks`` at each point. ``sweep``
     selects the kick range: ``bidirectional`` spans the symmetric
-    ``[-span_a, +span_a]`` (kicks both ways, so a linear fit rejects a
-    corrector's hysteresis/offset); ``monodirectional`` spans ``[0, span_a]``
+    ``[-span, +span]`` (kicks both ways, so a linear fit rejects a
+    corrector's hysteresis/offset); ``monodirectional`` spans ``[0, span]``
     (one-sided, for a corrector that should never be driven below where it
     already sits).
 
     ``regressor`` chooses what the fitted slopes are per unit of:
     ``setpoint`` (the default) regresses each BPM on the corrector's
-    commanded current, the convention of MML and pySC; ``readback`` regresses
-    on the corrector's measured current instead.
+    setpoint, the convention of MML and pySC; ``readback`` regresses on the
+    corrector's readback instead.
 
-    ``span_a`` carries no upper bound of its own. It is an excursion, not an
+    ``span`` carries no upper bound of its own. It is an excursion, not an
     absolute setpoint, and how large an excursion a corrector tolerates is a
     property of the deployment, not of this schema — the connector's
     reference monitor checks every setpoint against that project's own
@@ -118,36 +121,34 @@ class PARAMS(BaseModel):
         description="BPM channel names to read at every point.",
         json_schema_extra={"x-widget": "channel-list"},
     )
-    span_a: float = Field(
+    span: float = Field(
         ...,
         gt=0,
         allow_inf_nan=False,
-        title="Max kick (A)",
+        title="Max kick",
         description=(
-            "Largest kick, in amps, away from a corrector's own pre-scan "
-            "working point at the far end of the sweep."
+            "Largest kick away from a corrector's own pre-scan working point, "
+            "at the far end of the sweep, in the corrector's own unit."
         ),
     )
     num: int = Field(
         ...,
         ge=3,
         title="Number of steps",
-        description="Number of evenly-spaced current points per corrector.",
+        description="Number of evenly-spaced kicks per corrector.",
     )
     sweep: Literal["bidirectional", "monodirectional"] = Field(
         default="bidirectional",
         title="Sweep direction",
-        description=(
-            "bidirectional sweeps [-span_a, +span_a]; monodirectional sweeps [0, +span_a]."
-        ),
+        description="bidirectional sweeps [-span, +span]; monodirectional sweeps [0, +span].",
         json_schema_extra={"x-widget": "segmented"},
     )
     regressor: Regressor = Field(
         default="setpoint",
         title="Regress on",
         description=(
-            "setpoint: slopes per unit of commanded current (the MML/pySC convention); "
-            "readback: per unit of measured current."
+            "setpoint: slopes per unit of the corrector's setpoint (the MML/pySC convention); "
+            "readback: per unit of the corrector's readback."
         ),
         json_schema_extra={"x-widget": "segmented"},
     )
@@ -168,18 +169,18 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 
     For each corrector in turn: read where it is already sitting, sweep it
     over ``num`` kicks evenly spaced across the range ``sweep`` selects —
-    ``[-span_a, +span_a]`` (bidirectional) or ``[0, +span_a]``
+    ``[-span, +span]`` (bidirectional) or ``[0, +span]``
     (monodirectional) — and put it back. Each kick is applied *relative to
     that corrector's own pre-scan working point*, and at each point the plan
     ``trigger_and_read``-s every corrector together with every BPM channel
     in one bundle, so each point emits exactly one event carrying the driven
-    corrector's current alongside every BPM reading.
+    corrector's value alongside every BPM reading.
 
     **Relative, because a machine with beam in it is not at zero.** A machine
     running corrected orbit holds every corrector at a nonzero
-    orbit-correction working point. Sweeping absolute currents about zero
+    orbit-correction working point. Sweeping absolute values about zero
     would measure the response about a point the machine is not at, and
-    "restoring" to a literal 0 A would drop the entire correction the machine
+    "restoring" to a literal zero would drop the entire correction the machine
     was holding — on a stored beam, that is the orbit gone. Reading each
     corrector's working point costs one extra read per corrector and makes
     the plan mean the same thing on a real machine as on a virtual accelerator
@@ -216,11 +217,11 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
     corrector_devices = [corrector for _, corrector in correctors]
     readback_devices = [devices[name] for name in params.readbacks]
     if params.sweep == "monodirectional":
-        step = params.span_a / (params.num - 1)
+        step = params.span / (params.num - 1)
         kicks = [i * step for i in range(params.num)]
     else:
-        step = (2 * params.span_a) / (params.num - 1)
-        kicks = [-params.span_a + i * step for i in range(params.num)]
+        step = (2 * params.span) / (params.num - 1)
+        kicks = [-params.span + i * step for i in range(params.num)]
 
     all_devices = corrector_devices + readback_devices
 
@@ -290,24 +291,73 @@ _SPECTRUM_SECTION = "Singular values"
 matrix above, consulted rather than scanned."""
 
 
+class _Resolved(NamedTuple):
+    """Each requested channel's data column, as the fit resolves it."""
+
+    bpm: Mapping[str, str]
+    """BPM name to the column `resolve_column` reads it from."""
+
+    regressor: Mapping[str, str]
+    """Corrector name to the column `resolve_regressor_column` regresses on."""
+
+
+def _resolve(window: RowWindow, params: PARAMS) -> _Resolved:
+    """The columns the fit reads, resolved exactly as the fit resolves them.
+
+    An axis names these columns, so the unit the bridge states for it is the
+    one the run declared for the very column a plotted value came from.
+    """
+    return _Resolved(
+        bpm={
+            name: column
+            for name in params.readbacks
+            if (column := resolve_column(name, window.columns)) is not None
+        },
+        regressor={
+            name: column
+            for name in params.correctors
+            if (column := resolve_regressor_column(name, window.columns, params.regressor))
+            is not None
+        },
+    )
+
+
+def _columns(names: Iterable[str], resolved: Mapping[str, str]) -> list[str]:
+    """The resolved columns of *names*, each once, in order; unresolved names are skipped."""
+    return list(dict.fromkeys(resolved[name] for name in names if name in resolved))
+
+
+def _bound(names: Iterable[str], resolved: Mapping[str, str]) -> Columns | None:
+    """An axis over *names*' columns, or ``None`` when none of them resolved."""
+    columns = _columns(names, resolved)
+    return Columns(columns) if columns else None
+
+
+def _slope(fit: SlicedResponseFit, resolved: _Resolved) -> Columns | None:
+    """The response slope's columns: every BPM per every fitted corrector's regressor."""
+    bpms = _columns(fit.readbacks, resolved.bpm)
+    regressors = _columns(fit.fitted_correctors, resolved.regressor)
+    return Columns(bpms, per=regressors) if bpms and regressors else None
+
+
 def _sweep_series(fit: SlicedResponseFit, index: int) -> tuple[list[Series], bool, int, int]:
     """Corrector *index*'s BPM traces: series, decimated, points, samples drawn.
 
-    A sample whose corrector current is non-finite is dropped -- there is no
+    A sample whose corrector value is non-finite is dropped -- there is no
     place on the x axis for a point with no x (and `Point.x` rejects it) --
     while a non-finite BPM reading is kept and becomes a drawn gap. The last
     element is how many samples survived that, which is what tells a caller
-    whether this corrector reported a current at all.
+    whether this corrector reported a value at all.
     """
-    currents = fit.currents[index]
+    values = fit.regressor_values[index]
     readings = fit.readings[index]
-    kept = [k for k, current in enumerate(currents) if math.isfinite(float(current))]
+    kept = [k for k, value in enumerate(values) if math.isfinite(float(value))]
 
     series: list[Series] = []
     decimated = False
     source_points = 0
     for i, readback in enumerate(fit.readbacks[:_MAX_TRACE_SERIES]):
-        points = [Point(x=float(currents[k]), y=float(readings[k, i])) for k in kept]
+        points = [Point(x=float(values[k]), y=float(readings[k, i])) for k in kept]
         thinned = decimate(points)
         series.append(Series(label=readback, **thinned._asdict()))
         decimated = decimated or thinned.decimated
@@ -321,24 +371,26 @@ def _trace_panels(
     lead_annotations: list[str],
     *,
     section: str | None,
+    resolved: _Resolved,
 ) -> list[Panel]:
     """One panel per traced corrector: BPM readings against that corrector's regressor.
 
     The x axis is the column the fit regressed on (``fit.regressor``), and the
-    axis label names it.
+    axis label names it; the y axis plots the BPM columns the panel draws.
 
-    A corrector that has recorded no current yet -- the sweep has not reached
+    A corrector that has recorded no value yet -- the sweep has not reached
     it, or the run's rows never carried that device -- gets no panel at all; an
     empty plot says less than no plot. Past `_MAX_TRACE_PANELS` the *most
     recently swept* correctors are kept, not the first: the plan sweeps in
     order, so the tail is where a live run's in-flight sweep is, and a settled
     run's tail is as arbitrary a choice as its head.
     """
-    traced = [j for j in range(len(fit.correctors)) if fit.currents[j].size]
+    traced = [j for j in range(len(fit.correctors)) if fit.regressor_values[j].size]
     hidden = max(0, len(traced) - _MAX_TRACE_PANELS)
     if hidden:
         traced = traced[-_MAX_TRACE_PANELS:]
     shown_readbacks = min(len(fit.readbacks), _MAX_TRACE_SERIES)
+    bpm_columns = _bound(fit.readbacks[:shown_readbacks], resolved.bpm)
 
     panels: list[Panel] = []
     for j in traced:
@@ -357,7 +409,7 @@ def _trace_panels(
         if shown_readbacks < len(fit.readbacks):
             annotations.append(f"Showing the first {shown_readbacks} of {len(fit.readbacks)} BPMs.")
         if not fit.complete[j]:
-            recorded = int(fit.currents[j].shape[0])
+            recorded = int(fit.regressor_values[j].shape[0])
             if recorded < num:
                 annotations.append(
                     f"This sweep is still in flight: {recorded} of {num} points "
@@ -365,15 +417,16 @@ def _trace_panels(
                 )
             else:
                 annotations.append(
-                    "This corrector's recorded currents never moved, so no "
+                    "This corrector's recorded values never moved, so no "
                     "response could be fitted for it."
                 )
         panels.append(
             Panel(
                 title=f"{fit.correctors[j]} sweep",
                 x_label=f"Corrector {fit.regressor}",
-                x_units="A",
+                x_columns=_bound([fit.correctors[j]], resolved.regressor),
                 y_label="BPM reading",
+                y_columns=bpm_columns,
                 annotations=annotations,
                 section=section,
                 mark=LinesMark(series=series, decimated=decimated, source_points=source_points),
@@ -382,7 +435,7 @@ def _trace_panels(
     return panels
 
 
-def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
+def _response_by_bpm_panel(fit: SlicedResponseFit, resolved: _Resolved) -> Panel:
     """The matrix read column-wise: each corrector's response across the BPMs.
 
     The same numbers as the heatmap in the encoding that makes a *shape*
@@ -414,7 +467,8 @@ def _response_by_bpm_panel(fit: SlicedResponseFit) -> Panel:
         title="Response by BPM",
         x_label="BPM index",
         y_label="Response slope",
-        y_units="BPM units / A",
+        x_columns=None,
+        y_columns=_slope(fit, resolved),
         annotations=[
             "Each line is one corrector's column of the matrix above. The "
             "oscillation in sign is betatron phase advance; a flat line is a "
@@ -457,6 +511,8 @@ def _spectrum_panel(fit: SlicedResponseFit) -> Panel | None:
         title="Singular values",
         x_label="Singular value index",
         y_label="log10 singular value",
+        x_columns=None,
+        y_columns=None,
         annotations=[
             "How many independent correction modes the measured machine "
             "supports: where this curve flattens is the noise floor an orbit "
@@ -482,14 +538,15 @@ def _spectrum_panel(fit: SlicedResponseFit) -> Panel | None:
     )
 
 
-def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
+def _fit_panels(fit: SlicedResponseFit, resolved: _Resolved) -> list[Panel]:
     """The response matrix and its two model-free anomaly views.
 
     Only completed sweeps have columns, so the heatmap's x axis is
     `fitted_correctors` (a subsequence of the requested correctors) and says so
     when the two differ -- an in-flight corrector must not read as a dead one.
     The matrix panel also says what its slopes are per unit of
-    (``fit.regressor``).
+    (``fit.regressor``); its cells and the Response-by-BPM lines are bound to
+    the BPM columns per the fitted correctors' regressor columns.
     """
     incomplete = len(fit.correctors) - len(fit.fitted_correctors)
     matrix_note = (
@@ -501,9 +558,9 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
         else []
     )
     regressor_note = (
-        "Slopes are per ampere of commanded current (the corrector setpoint)."
+        "Slopes are per unit of commanded setpoint (the corrector setpoint)."
         if fit.regressor == "setpoint"
-        else "Slopes are per ampere of measured current (the corrector readback)."
+        else "Slopes are per unit of measured readback (the corrector readback)."
     )
 
     return [
@@ -511,6 +568,8 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             title="Response matrix",
             x_label="Corrector",
             y_label="BPM",
+            x_columns=None,
+            y_columns=None,
             annotations=[
                 *matrix_note,
                 regressor_note,
@@ -523,15 +582,17 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
                 y_labels=list(fit.readbacks),
                 values=[[float(cell) for cell in row] for row in fit.matrix],
                 value_label="Response slope",
-                value_units="BPM units / A",
+                value_columns=_slope(fit, resolved),
                 source_points=int(fit.matrix.size),
             ),
         ),
-        _response_by_bpm_panel(fit),
+        _response_by_bpm_panel(fit, resolved),
         Panel(
             title="Corrector anomaly score",
             x_label="Corrector",
             y_label="Anomaly score",
+            x_columns=None,
+            y_columns=None,
             annotations=[
                 "Each corrector's column scored against the median of its peers "
                 "-- higher is more unlike the rest of the machine."
@@ -547,6 +608,8 @@ def _fit_panels(fit: SlicedResponseFit) -> list[Panel]:
             title="BPM anomaly score",
             x_label="BPM",
             y_label="Anomaly score",
+            x_columns=None,
+            y_columns=None,
             annotations=[
                 "Each BPM's row scored against the median of its peers -- "
                 "higher is more unlike the rest of the machine."
@@ -592,9 +655,10 @@ def _build(window: RowWindow, params: PARAMS, *, with_fit: bool) -> Figure:
     # `lead_annotations` is only ever non-empty when `truncated`, and a
     # truncated run has no fitted panels -- so the warning always lands on an
     # inline sweep panel, never inside a collapsed section.
+    resolved = _resolve(window, params)
     fitted: list[Panel] = []
     if with_fit and not truncated and fit.fitted_correctors:
-        fitted.extend(_fit_panels(fit))
+        fitted.extend(_fit_panels(fit, resolved))
         spectrum = _spectrum_panel(fit)
         if spectrum is not None:
             fitted.append(spectrum)
@@ -604,6 +668,7 @@ def _build(window: RowWindow, params: PARAMS, *, with_fit: bool) -> Figure:
         params.num,
         lead_annotations,
         section=_SWEEPS_SECTION if fitted else None,
+        resolved=resolved,
     )
 
     panels = [*fitted, *sweeps]

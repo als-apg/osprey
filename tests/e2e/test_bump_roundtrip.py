@@ -116,7 +116,6 @@ from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: full VA/bridge/Tiled image build + deploy -- runs in the
     # dedicated orm-roundtrip-e2e CI job alongside test_orm_roundtrip.py and
@@ -913,7 +912,7 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
         "event, which also shifts every step's row out of position"
     )
 
-    columns = data["columns"]
+    columns = [column["name"] for column in data["columns"]]
     rows = rows_from_columnar(columns, data["rows"], data["row_count"]).rows
     assert len(rows) == EXPECTED_ROWS
     measured = _Measured(stack, columns, rows)

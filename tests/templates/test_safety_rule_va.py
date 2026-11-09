@@ -32,7 +32,7 @@ def _render_safety_rule(tmp_path, project_name: str, control_system_type: str | 
         manager,
         project_name=project_name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
 
@@ -143,7 +143,7 @@ def test_test_ioc_rule_without_the_wire_stops():
         _render_test_ioc_rule()
 
 
-def test_control_assistant_preset_selects_test_ioc_rule():
+def test_demo_preset_selects_test_ioc_rule():
     """The DOA regression this pins: the rule existed in the artifact catalog
     but no preset selected it, so it rendered into no built project. The
     preset's rules list must resolve the rule into the allowed output set."""
@@ -151,9 +151,7 @@ def test_control_assistant_preset_selects_test_ioc_rule():
 
     from osprey.cli.templates.manifest import resolve_manifest_outputs
 
-    preset = yaml.safe_load(
-        files("osprey").joinpath("profiles/presets/control-assistant.yml").read_text()
-    )
+    preset = yaml.safe_load(files("osprey").joinpath("profiles/presets/demo.yml").read_text())
     assert "test-ioc-safety" in preset["rules"]
     outputs = resolve_manifest_outputs({"artifacts": {"rules": preset["rules"]}})
     assert ".claude/rules/test-ioc-safety.md" in outputs

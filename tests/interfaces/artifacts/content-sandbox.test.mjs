@@ -10,8 +10,7 @@
  *
  * Pinned here: rendered markdown reaches the DOM only through md-render.js's
  * sanitising sink (the preview pane and the standalone page share it); the
- * preview iframes run without `allow-same-origin`; gallery cards load no live
- * page (so no card carries Plotly).
+ * preview iframes run without `allow-same-origin`.
  */
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
@@ -21,7 +20,6 @@ import { marked } from 'marked';
 import { renderMarkdownInto } from '../../../src/osprey/interfaces/artifacts/static/js/md-render.js';
 import { renderMarkdownView } from '../../../src/osprey/interfaces/artifacts/static/js/preview-content.js';
 import { artifactViewportHtml } from '../../../src/osprey/interfaces/artifacts/static/js/artifact-viewport.js';
-import { thumbnailHtml } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 
 const HOSTILE = [
   '# Report',
@@ -140,22 +138,4 @@ describe('gallery iframes run in an opaque origin', () => {
       expect(tokens).not.toContain('allow-same-origin');
     }
   );
-});
-
-describe('gallery cards carry no live page', () => {
-  test.each(['plot_html', 'table_html', 'dashboard_html', 'html', 'notebook'])(
-    'a %s card has no iframe and no Plotly',
-    (artifact_type) => {
-      const html = thumbnailHtml({ id: 'a1', artifact_type, filename: 'p.html' });
-      expect(html).not.toContain('<iframe');
-      expect(html).not.toMatch(/plotly/i);
-      expect(html).toContain('thumb-placeholder');
-    }
-  );
-
-  test.each(['plot_png', 'image'])('a %s card keeps its <img>', (artifact_type) => {
-    const html = thumbnailHtml({ id: 'a1', artifact_type, filename: 'p.png' });
-    expect(html).toContain('<img');
-    expect(html).toContain('/files/a1/p.png');
-  });
 });

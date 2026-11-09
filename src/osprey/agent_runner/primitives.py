@@ -66,6 +66,8 @@ from osprey.utils.facility import DEFAULT_FACILITY_ZONE, is_zone_name
 
 logger = logging.getLogger(__name__)
 
+#: The Claude Code flag that keeps a run's transcript off disk.
+NO_SESSION_PERSISTENCE_FLAG = "no-session-persistence"
 
 # ---------------------------------------------------------------------------
 # Internal support: provider / spec resolution
@@ -617,6 +619,7 @@ def build_agent_options(
     tools: Sequence[str] | None = None,
     cwd: Path | None = None,
     env_overrides: Mapping[str, str] | None = None,
+    persist_session: bool = True,
 ) -> ClaudeAgentOptions:
     """Build ``ClaudeAgentOptions`` for a run in *project_dir*.
 
@@ -682,6 +685,12 @@ def build_agent_options(
         env_overrides: Variables set over the finished environment, whoever routed
             the run; an empty string is set, not dropped. Unlike *env*, this leaves
             provider routing, the model and the proxy start as they were.
+        persist_session: ``False`` writes no transcript (the CLI's
+            :data:`NO_SESSION_PERSISTENCE_FLAG`). For tooling runs that share the
+            operator's ``CLAUDE_CONFIG_DIR``: the record's transcript tailer reads
+            every transcript under its ``projects/``, whatever the run's
+            environment says, so a written one enters the record as one of the
+            operator's sessions.
 
     Returns:
         Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
@@ -763,6 +772,12 @@ def build_agent_options(
     else:
         run_mcp_servers = dict(mcp_servers)
 
+    extra_args: dict[str, str | None] = {}
+    if thinking.flag_allowed:
+        extra_args["thinking-display"] = thinking.value
+    if not persist_session:
+        extra_args[NO_SESSION_PERSISTENCE_FLAG] = None
+
     options = ClaudeAgentOptions(
         model=resolved_model,
         cwd=str(cwd if cwd is not None else project_dir),
@@ -783,7 +798,7 @@ def build_agent_options(
         stderr=stderr,
         cli_path=cli_path,
         include_partial_messages=include_partial_messages,
-        extra_args={"thinking-display": thinking.value} if thinking.flag_allowed else {},
+        extra_args=extra_args,
     )
     if pre_tool_use_hooks:
         options.hooks = {"PreToolUse": [HookMatcher(matcher=None, hooks=list(pre_tool_use_hooks))]}
