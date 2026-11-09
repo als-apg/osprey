@@ -339,7 +339,7 @@ def test_a_bound_field_is_named_approved() -> None:
     m = _manifest(tools__approval__0__bind__state_fields__0__field="readback")
     m2 = _manifest(
         tools__approval__0__bind__state_fields__0__field="readback",
-        tools__approval__0__require__one_of=[["approved_digest"]],
+        tools__approval__0__require__one_of=[],
     )
     assert "approved_fields" in _rules(_refused([m]))
     err = _refused([m2])
@@ -363,16 +363,38 @@ def test_a_field_is_bound_once() -> None:
 
 
 def test_every_bound_digest_is_required() -> None:
-    m = _manifest(
-        tools__approval__0__require={
-            "all_of": ["approved_target"],
-            "one_of": [["approved_digest", "approved_readback"]],
-        }
-    )
+    m = _manifest(tools__approval__0__require__all_of=["approved_target"])
     err = _refused([m])
     assert _rules(err) == ["digest_required"]
     assert err.field == "tools.approval.0.bind.input_digests.0.field"
     assert "approved_digest" in err.message
+
+
+def test_a_one_of_group_naming_a_digest_is_refused() -> None:
+    m = _manifest(tools__approval__0__require__one_of=[["approved_digest", "approved_readback"]])
+    err = _refused([m])
+    assert _rules(err) == ["one_of_readbacks"]
+    assert err.field == "tools.approval.0.require.one_of.0"
+    assert "approved_digest" in err.message
+    assert "a one_of group holds readback (bind.state_fields) names only" in err.message
+
+
+def test_a_one_of_group_naming_the_target_is_refused() -> None:
+    m = _manifest(tools__approval__0__require__one_of=[["approved_target", "approved_readback"]])
+    err = _refused([m])
+    assert _rules(err) == ["one_of_readbacks"]
+    assert "approved_target" in err.message
+
+
+def test_a_one_of_group_of_readbacks_passes() -> None:
+    m = _manifest(
+        tools__approval__0__bind__state_fields=[
+            {"field": "approved_readback", "key": "readback"},
+            {"field": "approved_plan", "key": "plan"},
+        ],
+        tools__approval__0__require__one_of=[["approved_readback", "approved_plan"]],
+    )
+    validate([m], logins={}, reserved=EMPTY)
 
 
 def test_the_tool_server_declares_no_separate_field_list() -> None:
