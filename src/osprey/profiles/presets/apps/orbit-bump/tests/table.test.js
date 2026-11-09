@@ -532,26 +532,29 @@ describe('the orbit-bump table and controls', () => {
           i.getAttribute('aria-checked'),
         ]);
 
-      it('offers Priority and Outside BPMs as two headed radio groups', () => {
+      it('offers Priority as a headed radio group and all correctors as a checkbox', () => {
         showState(root, state());
         const titles = [...menu().querySelectorAll('.osprey-popover-title')];
-        expect(titles.map((t) => t.textContent)).toEqual(['Priority', 'Outside BPMs']);
+        expect(titles.map((t) => t.textContent)).toEqual(['Priority']);
         expect(marks('data-priority')).toEqual([
           ['closure', 'close bump', 'true'],
           ['targets', 'hit targets', 'false'],
         ]);
-        expect(marks('data-outside')).toEqual([
-          ['hold', 'hold', 'true'],
-          ['golden', 'golden', 'false'],
-        ]);
-        const radios = menu().querySelectorAll('[data-priority], [data-outside]');
+        const radios = menu().querySelectorAll('[data-priority]');
         expect([...radios].every((i) => i.getAttribute('role') === 'menuitemradio')).toBe(true);
         expect([...radios].every((i) => (i.getAttribute('title') ?? '') !== '')).toBe(true);
+        expect(marks('data-all-correctors')).toEqual([
+          ['', 'Use all correctors of the plane', 'false'],
+        ]);
+        const every = choice('data-all-correctors', '');
+        expect(every.getAttribute('role')).toBe('menuitemcheckbox');
+        expect(every.title).not.toBe('');
+        expect(menu().querySelector('[data-outside]')).toBeNull();
         expect(field(root, 'priority-chip').hidden).toBe(true);
-        expect(field(root, 'outside-chip').hidden).toBe(true);
+        expect(field(root, 'all-chip').hidden).toBe(true);
       });
 
-      it('chooses hit targets and golden, naming each in a chip in the Correctors head', () => {
+      it('chooses hit targets and all correctors, naming each in a chip', () => {
         showState(root, state());
         click(more());
         click(choice('data-priority', 'targets'));
@@ -560,36 +563,45 @@ describe('the orbit-bump table and controls', () => {
         expect(field(root, 'priority-chip').textContent).toBe('hit targets');
         expect(field(root, 'priority-chip').title).not.toBe('');
         click(more());
-        click(choice('data-outside', 'golden'));
-        expect(panelOf(root).selection.outside).toBe('golden');
-        expect(field(root, 'outside-chip').hidden).toBe(false);
-        expect(field(root, 'outside-chip').textContent).toBe('outside → golden');
+        click(choice('data-all-correctors', ''));
+        expect(panelOf(root).selection.all_correctors).toBe(true);
+        expect(field(root, 'all-chip').hidden).toBe(false);
+        expect(field(root, 'all-chip').textContent).toBe('all correctors');
+        expect(field(root, 'all-chip').title).not.toBe('');
         expect(marks('data-priority').map(([, , checked]) => checked)).toEqual(['false', 'true']);
-        expect(marks('data-outside').map(([, , checked]) => checked)).toEqual(['false', 'true']);
-        // The rule is untouched, and going back hides the chips.
+        expect(marks('data-all-correctors').map(([, , checked]) => checked)).toEqual(['true']);
+        // The rule and the other BPMs are untouched, and going back hides the chips.
         expect(panelOf(root).selection.rule).toBe('auto');
+        expect(panelOf(root).selection.others).toBe('hold');
         click(choice('data-priority', 'closure'));
-        click(choice('data-outside', 'hold'));
+        click(choice('data-all-correctors', ''));
+        expect(panelOf(root).selection.all_correctors).toBe(false);
         expect(field(root, 'priority-chip').hidden).toBe(true);
-        expect(field(root, 'outside-chip').hidden).toBe(true);
+        expect(field(root, 'all-chip').hidden).toBe(true);
       });
 
       it.each([
         ['data-priority', 'targets'],
-        ['data-outside', 'golden'],
-      ])('marks the plan stale when %s changes to %s', (attr, value) => {
+        ['data-all-correctors', ''],
+      ])('marks the plan stale when %s is chosen', (attr, value) => {
         showState(root, state({ plan: plan() }));
         expect(field(root, 'plan-status').textContent).toBe('plan #p1');
         click(choice(attr, value));
         expect(field(root, 'plan-status').textContent).toBe('edited · not computed');
       });
 
-      it("hydrates the plan's priority and outside aim", () => {
-        showState(root, state({ plan: plan({ priority: 'targets', outside: 'golden' }) }));
+      it("hydrates the plan's priority, other BPMs and all-correctors choice", () => {
+        showState(
+          root,
+          state({ plan: plan({ priority: 'targets', others: 'zero', all_correctors: true }) })
+        );
         expect(panelOf(root).selection.priority).toBe('targets');
-        expect(panelOf(root).selection.outside).toBe('golden');
+        expect(panelOf(root).selection.others).toBe('zero');
+        expect(panelOf(root).selection.all_correctors).toBe(true);
+        expect(pressed(root, 'others', 'data-others')).toBe('zero');
         expect(field(root, 'priority-chip').hidden).toBe(false);
-        expect(field(root, 'outside-chip').hidden).toBe(false);
+        expect(field(root, 'all-chip').hidden).toBe(false);
+        expect(marks('data-all-correctors').map(([, , checked]) => checked)).toEqual(['true']);
         expect(field(root, 'plan-status').textContent).toBe('plan #p1');
       });
 
@@ -751,6 +763,30 @@ describe('the orbit-bump table and controls', () => {
       if (!more) throw new Error('no + button');
       click(more);
       expect(panelOf(root).selection.targets.B2).toBeCloseTo(0.41, 9);
+    });
+
+    it('sets what the other BPMs aim at from a free | hold | zero control, hold first', () => {
+      showState(root, state({ plan: plan() }));
+      const others = field(root, 'others');
+      expect(field(root, 'shape-row').contains(others)).toBe(true);
+      expect(others.getAttribute('aria-label')).toBe('other BPMs');
+      expect(others.title).not.toBe('');
+      const buttons = [...others.querySelectorAll('button')];
+      expect(buttons.map((b) => [b.getAttribute('data-others'), b.textContent])).toEqual([
+        ['free', 'free'],
+        ['hold', 'hold'],
+        ['zero', 'zero'],
+      ]);
+      expect(buttons.every((b) => b.title !== '')).toBe(true);
+      expect(pressed(root, 'others', 'data-others')).toBe('hold');
+      pressSeg(root, 'others', 'data-others', 'zero');
+      expect(panelOf(root).selection.others).toBe('zero');
+      expect(pressed(root, 'others', 'data-others')).toBe('zero');
+      expect(field(root, 'plan-status').textContent).toBe('edited · not computed');
+      pressSeg(root, 'others', 'data-others', 'free');
+      expect(panelOf(root).selection.others).toBe('free');
+      // The all-correctors choice is its own.
+      expect(panelOf(root).selection.all_correctors).toBe(false);
     });
 
     it('follows a typed row in the amplitude readout', () => {

@@ -186,6 +186,50 @@ describe('the orbit-bump strip', () => {
     expect(xOf(tick(root, 'H1'))).toBeCloseTo((x10 + x30) / 2, 5);
   });
 
+  describe('the aims of the other BPMs', () => {
+    /** @param {Element} root */
+    const aims = (root) =>
+      [...svg(root).querySelectorAll('.ob-aim')].map((ring) => [
+        ring.getAttribute('data-element'),
+        Number(ring.getAttribute('cy')),
+      ]);
+
+    it('rings every other BPM at its reading under hold, the default', () => {
+      showState(root, state());
+      expect(aims(root)).toEqual([]);
+      setSelection(root, { targets: { B2: 0.3 } });
+      const found = aims(root);
+      expect(found.map(([element]) => element)).toEqual(['B1', 'B3', 'B4']);
+      for (const [element, cy] of found) {
+        expect(cy).toBeCloseTo(Number(dot(root, String(element)).getAttribute('cy')), 9);
+      }
+      const ring = svg(root).querySelector('.ob-aim');
+      expect(ring?.getAttribute('fill')).toBe('none');
+      // The bump target keeps its filled dot.
+      expect(dot(root, 'B2').getAttribute('fill')).not.toBe('none');
+    });
+
+    it('rings every other BPM on the golden line under zero', () => {
+      showState(root, state());
+      setSelection(root, { targets: { B2: 0.3 }, others: 'zero' });
+      const y0 = Number(svg(root).querySelector('.ob-golden')?.getAttribute('y1'));
+      const found = aims(root);
+      expect(found.map(([element]) => element)).toEqual(['B1', 'B3', 'B4']);
+      for (const [, cy] of found) expect(cy).toBeCloseTo(y0, 9);
+    });
+
+    it('draws no aim under free, nor for a BPM without a reading', () => {
+      showState(root, state());
+      setSelection(root, { targets: { B2: 0.3 }, others: 'free' });
+      expect(aims(root)).toEqual([]);
+      const readings = orbit();
+      readings.position['B3:POS:x'] = null;
+      showState(root, state({ orbit: readings }));
+      setSelection(root, { others: 'hold' });
+      expect(aims(root).map(([element]) => element)).toEqual(['B1', 'B4']);
+    });
+  });
+
   it('switches to the other plane when the selection changes', () => {
     showState(root, state());
     setSelection(root, { plane: 'y' });

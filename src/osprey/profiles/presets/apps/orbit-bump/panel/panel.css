@@ -100,6 +100,13 @@
   background: var(--art-violet-light);
 }
 
+.ob-legend i.ob-key-aim {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--color-warning);
+  border-radius: 50%;
+}
+
 /* The header's options menu: nudge step, legend, gestures. */
 
 .ob-menu {
@@ -169,6 +176,11 @@
 .ob-strip .ob-target-line {
   fill: none;
   pointer-events: none;
+}
+
+.ob-strip .ob-aim {
+  pointer-events: none;
+  opacity: 0.8;
 }
 
 .ob-strip .ob-bpm {

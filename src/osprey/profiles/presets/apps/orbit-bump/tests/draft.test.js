@@ -77,7 +77,8 @@ describe("the panel's draft", () => {
       rule: 'manual',
       correctors: ['C1'],
       priority: 'closure',
-      outside: 'hold',
+      others: 'hold',
+      all_correctors: false,
       shape: 'flat',
       amplitude: 0,
     });

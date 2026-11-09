@@ -42,7 +42,7 @@ function model(name, status = 'ready') {
 
 /**
  * @param {string} id
- * @param {Partial<{model: string, plane: 'x' | 'y', rule: string, priority: string, outside: string}>} [over]
+ * @param {Partial<{model: string, plane: 'x' | 'y', rule: string, priority: string, others: string, all_correctors: boolean}>} [over]
  */
 function plan(id, over = {}) {
   return {
@@ -216,23 +216,33 @@ describe('the orbit-bump panel', () => {
         rule: 'manual',
         correctors: ['VCM04', 'VCM07'],
         priority: 'closure',
-        outside: 'hold',
+        others: 'hold',
+        all_correctors: false,
       });
       // Only the state was read: nothing was posted, so nothing was discarded.
       expect(/** @type {any} */ (fetcher).mock.calls).toHaveLength(1);
       expect(/** @type {any} */ (fetcher).mock.calls[0][0]).toBe('api/state');
     });
 
-    it("takes in the plan's rule, priority and outside aim", () => {
+    it("takes in the plan's rule, priority, other BPMs and all-correctors choice", () => {
       showState(
         root,
         state({
-          plan: plan('p2', { rule: 'mml:[-3 -1 1 3]', priority: 'targets', outside: 'golden' }),
+          plan: plan('p2', {
+            rule: 'mml:[-3 -1 1 3]',
+            priority: 'targets',
+            others: 'zero',
+            all_correctors: true,
+          }),
         })
       );
       const { selection } = panelOf(root);
       expect([selection.rule, selection.correctors]).toEqual(['mml:[-3 -1 1 3]', []]);
-      expect([selection.priority, selection.outside]).toEqual(['targets', 'golden']);
+      expect([selection.priority, selection.others, selection.all_correctors]).toEqual([
+        'targets',
+        'zero',
+        true,
+      ]);
     });
 
     it('takes in an auto or tight plan by its rule, not as manual', () => {

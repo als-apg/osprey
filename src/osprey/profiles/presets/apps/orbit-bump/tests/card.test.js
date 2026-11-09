@@ -299,7 +299,8 @@ describe('the compute and apply card', () => {
       targets: { B2: 0.5 },
       rule: 'auto',
       priority: 'closure',
-      outside: 'hold',
+      others: 'hold',
+      all_correctors: false,
     });
     expect(field(root, 'card').hidden).toBe(false);
   });
@@ -315,7 +316,8 @@ describe('the compute and apply card', () => {
       targets: { B2: 0.5 },
       rule: 'manual',
       priority: 'closure',
-      outside: 'hold',
+      others: 'hold',
+      all_correctors: false,
       correctors: ['H1', 'H2'],
     });
   });

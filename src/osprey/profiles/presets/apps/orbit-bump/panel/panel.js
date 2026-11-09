@@ -26,7 +26,7 @@ const DRAFT_DEBOUNCE_MS = 300;
  * @typedef {'idle' | 'building' | 'ready' | 'failed'} OrmStatus
  * @typedef {'flat' | 'peak' | 'cos'} Shape
  * @typedef {'closure' | 'targets'} Priority
- * @typedef {'hold' | 'golden'} Outside
+ * @typedef {'free' | 'hold' | 'zero'} Others
  */
 
 /**
@@ -116,7 +116,8 @@ const DRAFT_DEBOUNCE_MS = 300;
  * @property {string[]} [dropped_bpms] non-bump BPMs left out as unreadable
  * @property {Record<string, number>} [residual_after]
  * @property {Priority} [priority] close the bump first, or hit the targets first
- * @property {Outside} [outside] what the BPMs outside the bump aim at
+ * @property {Others} [others] what every BPM of the plane not in the bump aims at
+ * @property {boolean} [all_correctors] whether every solved corrector of the plane was used
  * @property {Record<string, number>} [miss] per bump BPM, predicted less its aim
  * @property {string[]} [missed] bump BPMs whose miss is past the threshold
  * @property {number} [target_miss_max] the largest |miss|
@@ -141,7 +142,8 @@ const DRAFT_DEBOUNCE_MS = 300;
  * @property {Rule} rule
  * @property {string[]} correctors manual correctors, by element
  * @property {Priority} priority
- * @property {Outside} outside
+ * @property {Others} others what every BPM not in the bump aims at
+ * @property {boolean} all_correctors every solved corrector of the plane, rule aside
  */
 
 /**
@@ -181,7 +183,8 @@ function emptySelection() {
     rule: 'auto',
     correctors: [],
     priority: 'closure',
-    outside: 'hold',
+    others: 'hold',
+    all_correctors: false,
   };
 }
 
@@ -299,7 +302,8 @@ function hydrate(root, plan) {
     rule,
     correctors: rule === 'manual' ? plan.correctors.map((row) => row.element) : [],
     priority: plan.priority === 'targets' ? 'targets' : 'closure',
-    outside: plan.outside === 'golden' ? 'golden' : 'hold',
+    others: plan.others && OTHERS_MODES.includes(plan.others) ? plan.others : 'hold',
+    all_correctors: plan.all_correctors === true,
   };
   panel.computed = { id: plan.id, key: selectionKey(panel.selection) };
 }
@@ -321,7 +325,8 @@ function selectionKey(selection) {
     targets,
     correctors,
     selection.priority,
-    selection.outside,
+    selection.others,
+    selection.all_correctors,
   ]);
 }
 
@@ -1551,6 +1556,25 @@ function renderStrip(root, panel) {
     })
   );
 
+  // The aim of every held or zeroed BPM: its orbit now under hold, golden under zero.
+  if (bump.length > 0 && selection.others !== 'free') {
+    for (const row of rows) {
+      if (row.target != null || row.orbit == null || !onView(row.member.s_m)) continue;
+      const aim = selection.others === 'zero' ? 0 : row.orbit;
+      plot.append(
+        svgNode('circle', {
+          class: 'ob-aim',
+          'data-element': row.member.element,
+          cx: px(row.member.s_m),
+          cy: py(aim),
+          r: 6,
+          fill: 'none',
+          stroke: 'var(--color-warning)',
+        })
+      );
+    }
+  }
+
   for (const row of rows) {
     const { member } = row;
     if (!onView(member.s_m)) continue;
@@ -1767,22 +1791,26 @@ const MORE_RULES = [
  * @type {[Priority, string, string][]}
  */
 const PRIORITIES = [
-  ['closure', 'close bump', 'hold the orbit outside the bump; targets may be missed'],
+  ['closure', 'close bump', 'hold the other BPMs first; targets may be missed'],
   [
     'targets',
     'hit targets',
-    'meet the targets exactly where the correctors can; the orbit outside may leak',
+    'meet the targets exactly where the correctors can; the other BPMs may leak',
   ],
 ];
 
 /**
- * What the BPMs outside the bump aim at, in the overflow menu.
- * @type {[Outside, string, string][]}
+ * What every BPM of the plane not in the bump aims at, on the Bump card.
+ * @type {[Others, string, string][]}
  */
-const OUTSIDES = [
-  ['hold', 'hold', 'outside BPMs stay at their orbit at Compute'],
-  ['golden', 'golden', 'outside BPMs go to golden, using every corrector of the plane'],
+const OTHERS = [
+  ['free', 'free', 'other BPMs unconstrained: only the targets are solved for'],
+  ['hold', 'hold', 'other BPMs stay at their orbit at Compute'],
+  ['zero', 'zero', 'other BPMs go to golden'],
 ];
+
+/** @type {Others[]} */
+const OTHERS_MODES = OTHERS.map(([value]) => value);
 
 /** @type {Rule[]} */
 const ALL_RULES = [...RULES.map(([value]) => value), ...MORE_RULES.map(([value]) => value)];
@@ -2175,30 +2203,44 @@ function ruleMenu(root) {
     }
     return box;
   };
+  const allCorrectors = htmlNode(
+    'button',
+    {
+      type: 'button',
+      class: 'osprey-popover-item',
+      role: 'menuitemcheckbox',
+      'aria-checked': 'false',
+      'data-all-correctors': '',
+      title: 'every solved corrector of the plane, whatever the rule',
+    },
+    'Use all correctors of the plane'
+  );
+  const allCheck = icon('M5 12.5l4.5 4.5L19 7.5');
+  allCheck.classList.add('osprey-popover-check');
+  allCorrectors.append(allCheck);
   menu.append(
     group('data-rule', MORE_RULES, 'wider corrector lists'),
     htmlNode('div', { class: 'osprey-popover-sep' }),
     htmlNode('div', { class: 'osprey-popover-title' }, 'Priority'),
     group('data-priority', PRIORITIES, 'priority'),
     htmlNode('div', { class: 'osprey-popover-sep' }),
-    htmlNode('div', { class: 'osprey-popover-title' }, 'Outside BPMs'),
-    group('data-outside', OUTSIDES, 'outside BPMs')
+    allCorrectors
   );
   holder.append(button, menu);
   button.addEventListener('click', () => togglePopover(button, menu));
   menu.addEventListener('click', (event) => {
     const hit =
       event.target instanceof Element
-        ? event.target.closest('[data-rule], [data-priority], [data-outside]')
+        ? event.target.closest('[data-rule], [data-priority], [data-all-correctors]')
         : null;
     if (!hit) return;
     const rule = /** @type {Rule | null} */ (hit.getAttribute('data-rule'));
     const priority = hit.getAttribute('data-priority');
-    const outside = hit.getAttribute('data-outside');
     if (rule && ALL_RULES.includes(rule)) setSelection(root, { rule, correctors: [] });
     else if (priority === 'closure' || priority === 'targets') setSelection(root, { priority });
-    else if (outside === 'hold' || outside === 'golden') setSelection(root, { outside });
-    else return;
+    else if (hit.hasAttribute('data-all-correctors')) {
+      setSelection(root, { all_correctors: !panelOf(root).selection.all_correctors });
+    } else return;
     closePopover(menu);
   });
   return holder;
@@ -2206,12 +2248,12 @@ function ruleMenu(root) {
 
 /**
  * Mark the active rule (a toggle button, or the ⋯ button and its checked item),
- * the checked priority and outside items, and the chips naming a non-default one.
+ * the checked priority and all-correctors items, and the chips naming a non-default one.
  * @param {Element} root
  * @param {Selection} selection
  */
 function renderRule(root, selection) {
-  const { rule, priority, outside } = selection;
+  const { rule, priority, all_correctors: every } = selection;
   pressSeg(field(root, 'rule'), 'data-rule', rule);
   const wide = MORE_RULES.some(([value]) => value === rule);
   field(root, 'rule-more').setAttribute('aria-pressed', String(wide));
@@ -2222,15 +2264,15 @@ function renderRule(root, selection) {
   const marks = [
     ['data-rule', rule],
     ['data-priority', priority],
-    ['data-outside', outside],
   ];
   for (const [attr, value] of marks) {
     for (const item of menu?.querySelectorAll(`[${attr}]`) ?? []) {
       item.setAttribute('aria-checked', String(item.getAttribute(attr) === value));
     }
   }
+  menu?.querySelector('[data-all-correctors]')?.setAttribute('aria-checked', String(every));
   field(root, 'priority-chip').hidden = priority === 'closure';
-  field(root, 'outside-chip').hidden = outside === 'hold';
+  field(root, 'all-chip').hidden = !every;
 }
 
 /**
@@ -2273,6 +2315,7 @@ function optionsMenu(root) {
     ['ob-key-orbit', 'orbit'],
     ['ob-key-golden', 'golden'],
     ['ob-key-target', 'target'],
+    ['ob-key-aim', 'aim'],
     ['ob-key-predicted', 'predicted'],
   ]) {
     const entry = htmlNode('span');
@@ -2358,6 +2401,8 @@ function controls(root) {
     'bump shape'
   );
   shapes.title = 'bump shape over the selected BPMs';
+  const others = segmented('others', 'data-others', OTHERS, 'other BPMs');
+  others.title = 'other BPMs: every BPM not in the bump, inside and outside the corrector span';
   const widenButton = htmlNode(
     'button',
     {
@@ -2368,7 +2413,7 @@ function controls(root) {
     },
     '± 1 BPM'
   );
-  shape.append(amp, shapes, htmlNode('span', { class: 'ob-spacer' }), widenButton);
+  shape.append(amp, shapes, htmlNode('span', { class: 'ob-spacer' }), others, widenButton);
 
   const table = htmlNode('table', { class: 'ob-table', 'data-field': 'bump' });
   const headRow = htmlNode('tr');
@@ -2403,22 +2448,22 @@ function controls(root) {
   const priorityChip = htmlNode('span', {
     class: 'osprey-chip',
     'data-field': 'priority-chip',
-    title: 'priority: hit the targets first; the orbit outside the bump may leak',
+    title: 'priority: hit the targets first; the other BPMs may leak',
   });
   priorityChip.append(htmlNode('span', { class: 'osprey-chip-label' }, 'hit targets'));
   priorityChip.hidden = true;
-  const outsideChip = htmlNode('span', {
+  const allChip = htmlNode('span', {
     class: 'osprey-chip',
-    'data-field': 'outside-chip',
-    title: 'outside BPMs aim at golden: every corrector of the plane, the bump on top',
+    'data-field': 'all-chip',
+    title: 'every solved corrector of the plane; the rule is ignored',
   });
-  outsideChip.append(htmlNode('span', { class: 'osprey-chip-label' }, 'outside → golden'));
-  outsideChip.hidden = true;
+  allChip.append(htmlNode('span', { class: 'osprey-chip-label' }, 'all correctors'));
+  allChip.hidden = true;
   corsHead.append(
     htmlNode('span', { 'data-field': 'cor-title' }, 'Correctors'),
     htmlNode('span', { class: 'ob-spacer' }),
     priorityChip,
-    outsideChip,
+    allChip,
     rule,
     ruleMenu(root)
   );
@@ -2537,6 +2582,11 @@ function controls(root) {
       setShape(root, /** @type {Shape} */ (value));
   });
   widenButton.addEventListener('click', () => widen(root));
+  others.addEventListener('click', (event) => {
+    const hit = event.target instanceof Element ? event.target.closest('[data-others]') : null;
+    const value = /** @type {Others | null} */ (hit?.getAttribute('data-others') ?? null);
+    if (value && OTHERS_MODES.includes(value)) setSelection(root, { others: value });
+  });
 
   rule.addEventListener('click', (event) => {
     const hit = event.target instanceof Element ? event.target.closest('[data-rule]') : null;
@@ -2676,6 +2726,7 @@ function renderTable(root, panel) {
   if (amp !== amp.ownerDocument.activeElement) amp.value = panel.amp.toFixed(3);
   field(root, 'amp-unit').textContent = unit;
   pressSeg(field(root, 'shape'), 'data-shape', panel.shape);
+  pressSeg(field(root, 'others'), 'data-others', selection.others);
   /** @type {HTMLButtonElement} */ (field(root, 'widen')).disabled = elements.length === 0;
   field(root, 'pick-list').parentElement?.dispatchEvent(new Event('ob-refresh'));
 
@@ -2820,7 +2871,8 @@ export function draftOf(panel) {
     rule: selection.rule,
     correctors: selection.rule === 'manual' ? [...selection.correctors] : [],
     priority: selection.priority,
-    outside: selection.outside,
+    others: selection.others,
+    all_correctors: selection.all_correctors,
     shape: panel.shape,
     amplitude: panel.amp,
   };
@@ -3298,7 +3350,8 @@ export async function compute(root) {
     targets: { ...selection.targets },
     rule: selection.rule,
     priority: selection.priority,
-    outside: selection.outside,
+    others: selection.others,
+    all_correctors: selection.all_correctors,
   };
   if (selection.rule === 'manual') body.correctors = [...selection.correctors];
   const key = selectionKey(selection);
