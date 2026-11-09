@@ -35,6 +35,7 @@
 
       PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
       PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+      PYTHONPATH=src:. ./.venv/bin/python tests/deployment/test_recorder_compose_target.py
 #}
 
 {#- One read-only bind per path, in the long syntax so any path is carried
