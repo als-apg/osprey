@@ -161,7 +161,6 @@ tools into several functional areas.
   in a single call. The ``scope`` argument is required.
 - ``artifact_export`` -- Export an artifact to a different format (e.g., PNG, SVG, PDF).
 - ``artifact_focus`` -- Select an artifact in the gallery so the user sees it.
-- ``artifact_pin`` -- Pin or unpin an artifact for quick-access filtering.
 
 **Visualization:**
 
@@ -183,9 +182,9 @@ artifact with a form, so the artifact tools above list, read and delete them
 - ``list_panels`` -- List the panels available in the Web Terminal (built-in and
   custom), the dock's layout (every tile with the panel it shows, the
   terminal included) and its ``rev``.
-- ``open_panel`` -- Put a panel on screen: it replaces the panel in the
-  service tile used last (which keeps its rail entry), or is focused where it
-  already is.
+- ``open_panel`` -- Put a panel on screen: in a new tile split off the service
+  tile used last, or, with ``place="replace"``, in that tile (the replaced panel
+  keeps its rail entry); focused where it already is.
 - ``open_panel_set`` -- Open several panels in one call, side by side in tiles
   of their own.
 - ``arrange_workspace`` -- Lay out the service tiles from a configured preset or

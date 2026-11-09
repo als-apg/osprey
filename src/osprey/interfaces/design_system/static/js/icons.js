@@ -7,10 +7,11 @@
  * (`.osprey-ic` in primitives.css: 16 px, stroke width 1.75, `currentColor`),
  * so one icon serves every surface.
  *
- * Every icon except `agent` and `bash` is Lucide (lucide-static, ISC licence),
- * as frozen in the layout F mockup's <symbol> set; the licence text and
- * copyright notice ship in web_terminal/static/js/LUCIDE-LICENSE.txt. `agent`
- * and `bash` are OSPREY's own, the same paths as web_terminal's chat-icons.js.
+ * Every icon except `agent`, `bash` and `bluesky` is Lucide (lucide-static,
+ * ISC licence), as frozen in the layout F mockup's <symbol> set; the licence
+ * text and copyright notice ship in web_terminal/static/js/LUCIDE-LICENSE.txt.
+ * `agent` and `bash` are OSPREY's own, the same paths as web_terminal's
+ * chat-icons.js. `bluesky` is the Bluesky project's own mark, filled.
  *
  * @module icons
  */
@@ -87,6 +88,19 @@ const SHAPES = Object.freeze({
     ['circle', { cx: '17.5', cy: '14.5', r: '.5', fill: 'currentColor' }],
     'M3 3v16a2 2 0 0 0 2 2h16',
   ],
+  // Filled, unlike the stroke icons: the Bluesky project's cloud-and-b mark,
+  // traced from the logo. The b is the cut-out (even-odd fill).
+  bluesky: [
+    [
+      'path',
+      {
+        d: 'M10.92 5.19C9.47 5.41 8.12 6.1 7.08 7.14C6.73 7.49 6.28 8.06 6.06 8.44L5.94 8.64L5.46 8.7C4.42 8.82 3.4 9.29 2.62 10.03C1.8 10.78 1.22 11.86 1.05 12.96C0.96 13.47 1.01 14.51 1.14 15.01C1.63 16.9 3.1 18.33 5.03 18.77C5.38 18.85 5.75 18.86 12.46 18.86L19.53 18.86L19.92 18.75C20.41 18.6 20.73 18.47 21.11 18.22C21.93 17.68 22.48 16.96 22.83 15.98C22.97 15.56 22.98 15.52 22.98 14.78C22.98 14.13 22.96 13.97 22.87 13.66C22.48 12.32 21.55 11.31 20.26 10.84C19.84 10.7 19.31 10.6 18.93 10.6C18.72 10.6 18.72 10.59 18.67 10.4C18.09 8.18 16.63 6.47 14.63 5.64C13.5 5.17 12.13 5 10.92 5.19ZM16.58 9.05L16.81 9.11L16.83 10.84L16.86 12.59L17.1 12.35C17.92 11.59 19.12 11.44 20.28 11.98C20.59 12.12 20.73 12.23 21.02 12.52C21.66 13.16 21.95 13.86 21.96 14.76C21.96 16.29 21.03 17.5 19.58 17.87C18.94 18.03 17.99 17.97 17.37 17.73C16.53 17.39 15.89 16.63 15.66 15.68C15.53 15.15 15.5 14.55 15.5 11.99C15.5 9.39 15.5 9.34 15.71 9.16C15.91 8.99 16.21 8.95 16.58 9.05ZM18.17 12.89C17.71 13.04 17.27 13.41 17.07 13.81C16.85 14.24 16.78 14.8 16.88 15.3C17.01 15.88 17.37 16.35 17.89 16.6C18.17 16.73 18.22 16.74 18.72 16.74C19.23 16.74 19.26 16.73 19.53 16.59C20.29 16.2 20.59 15.65 20.55 14.7C20.54 14.26 20.52 14.17 20.39 13.9C20.2 13.49 19.93 13.21 19.56 13.03C19.28 12.89 19.21 12.87 18.77 12.87C18.5 12.86 18.23 12.87 18.17 12.89Z',
+        fill: 'currentColor',
+        stroke: 'none',
+        'fill-rule': 'evenodd',
+      },
+    ],
+  ],
   plus: ['M5 12h14', 'M12 5v14'],
   help: [
     ['circle', { cx: '12', cy: '12', r: '10' }],
@@ -127,6 +141,11 @@ const SHAPES = Object.freeze({
   popout: [
     'M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4',
     ['rect', { width: '10', height: '7', x: '12', y: '13', rx: '2' }],
+  ],
+  reattach: [
+    ['rect', { width: '18', height: '18', x: '3', y: '3', rx: '2' }],
+    'm16 8-8 8',
+    'M16 16H8V8',
   ],
   save: [
     'M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z',
@@ -214,6 +233,87 @@ const SHAPES = Object.freeze({
     'M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z',
     'M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12',
     'M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17',
+  ],
+  // ---- Panel chrome (2026-11) ----
+  // Lucide, like the rest. `box-zoom` is Lucide's square-dashed, `autoscale`
+  // its expand, `reset-axes` its house (the plot convention for "home") and
+  // `trash` its trash-2. `list-tree` draws the same glyph as `types`.
+  download: ['M12 15V3', 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4', 'm7 10 5 5 5-5'],
+  copy: [
+    ['rect', { width: '14', height: '14', x: '8', y: '8', rx: '2' }],
+    'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2',
+  ],
+  trash: [
+    'M3 6h18',
+    'M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6',
+    'M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2',
+    'M10 11v6',
+    'M14 11v6',
+  ],
+  filter: [
+    'M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z',
+  ],
+  'zoom-in': [['circle', { cx: '11', cy: '11', r: '8' }], 'm21 21-4.35-4.35', 'M11 8v6', 'M8 11h6'],
+  'zoom-out': [['circle', { cx: '11', cy: '11', r: '8' }], 'm21 21-4.35-4.35', 'M8 11h6'],
+  move: ['M12 2v20', 'm15 19-3 3-3-3', 'm19 9 3 3-3 3', 'M2 12h20', 'm5 9-3 3 3 3', 'm9 5 3-3 3 3'],
+  'box-zoom': [
+    'M5 3a2 2 0 0 0-2 2',
+    'M19 3a2 2 0 0 1 2 2',
+    'M21 19a2 2 0 0 1-2 2',
+    'M5 21a2 2 0 0 1-2-2',
+    'M9 3h1',
+    'M9 21h1',
+    'M14 3h1',
+    'M14 21h1',
+    'M3 9v1',
+    'M21 9v1',
+    'M3 14v1',
+    'M21 14v1',
+  ],
+  autoscale: [
+    'm15 15 6 6',
+    'm15 9 6-6',
+    'M21 16v5h-5',
+    'M21 8V3h-5',
+    'M3 16v5h5',
+    'm3 21 6-6',
+    'M3 8V3h5',
+    'M9 9 3 3',
+  ],
+  'reset-axes': [
+    'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8',
+    'M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+  ],
+  'image-down': [
+    'M10.3 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10l-3.1-3.1a2 2 0 0 0-2.814.014L6 21',
+    'm14 19 3 3v-5.5',
+    'm17 22 3-3',
+    ['circle', { cx: '9', cy: '9', r: '2' }],
+  ],
+  'list-tree': [
+    'M21 12h-8',
+    'M21 6H8',
+    'M21 18h-8',
+    'M3 6v4c0 1.1.9 2 2 2h3',
+    'M3 10v6c0 1.1.9 2 2 2h3',
+  ],
+  'text-search': [
+    'M21 6H3',
+    'M10 12H3',
+    'M10 18H3',
+    ['circle', { cx: '17', cy: '15', r: '3' }],
+    'm21 19-1.9-1.9',
+  ],
+  clock: [['circle', { cx: '12', cy: '12', r: '10' }], 'M12 6v6l4 2'],
+  'triangle-alert': [
+    'M21.73 18 13.73 4a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3',
+    'M12 9v4',
+    'M12 17h.01',
+  ],
+  // A session pin (the sidebar's pinned sessions).
+  pin: [
+    'M12 17v5',
+    'M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z',
   ],
 });
 

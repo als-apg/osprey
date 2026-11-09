@@ -1,6 +1,6 @@
 """A default deployment with no llama-server and no caption model runs clean.
 
-The ARIEL config is the ``control-assistant`` preset as the build reads it, so
+The ARIEL config is the ``demo`` preset as the build reads it, so
 ``image_caption``, ``image_embedding``, ``hybrid`` and
 ``ariel.attachments.view.enabled`` are on as shipped. It deviates from the
 preset by one named override, ``ariel.ingestion`` (a ``generic_json`` file
@@ -63,7 +63,7 @@ pytestmark = [
     pytest.mark.real_fetch,
 ]
 
-PRESET = "control-assistant"
+PRESET = "demo"
 CAPTION = "image_caption"
 EMBED = "image_embedding"
 PICTURE_MODULES = (CAPTION, EMBED)
@@ -78,7 +78,7 @@ TEXT_MODEL = "nomic-embed-text"
 TEXT_DIMS = 768
 #: An alias the llama-server stub serves that is not the preset's model.
 OTHER_ALIAS = "some-other-embedding-model"
-#: The vocabulary the control-assistant build ships at ``data/facility/ariel/vocabulary.yml``.
+#: The vocabulary the demo build ships at ``data/facility/ariel/vocabulary.yml``.
 VOCABULARY = (
     Path(osprey.__file__).parent
     / "templates"
@@ -716,6 +716,7 @@ async def test_store_without_pgvector(
     status and every search name the fix. The case then runs with the fix the
     refusal offers applied, semantic search switched off.
     """
+    from osprey.services.ariel_search.database.migrations import MigrationSkippedError
     from osprey.services.ariel_search.enhancement.image_embedding import (
         migration as image_migration,
     )
@@ -726,9 +727,12 @@ async def test_store_without_pgvector(
         migration as text_migration,
     )
 
-    # The preamble both vector migrations share, imported by name into each.
+    async def pgvector_absent(_conn: object, unavailable: str) -> None:
+        raise MigrationSkippedError(unavailable)
+
+    # The preamble every vector migration shares, imported by name into each.
     for module in (text_migration, image_migration, hnsw_migration):
-        monkeypatch.setattr(module, "pgvector_available", AsyncMock(return_value=False))
+        monkeypatch.setattr(module, "require_pgvector_hnsw", pgvector_absent)
     stub = llama_stub()
     monkeypatch.setenv("LLAMA_CPP_HOST", stub.url)
     shipped = _deployment_config(scratch_database, _write_source(tmp_path))

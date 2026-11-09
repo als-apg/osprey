@@ -1831,8 +1831,8 @@ def _local_mode_build_profile_config(tmp_path, build_profile: str) -> dict:
 @pytest.mark.parametrize(
     "build_profile",
     [
-        "control-assistant",  # bundled preset name -- the pre-delta spelling
-        "control_assistant",  # same, underscore spelling
+        "demo",  # bundled preset name -- the pre-delta spelling
+        "demo",  # same, underscore spelling
         f"/abs/{TIERS_DIRNAME}/assistant.yml",  # absolute: could name any profile on the host
         f"../elsewhere/{TIERS_DIRNAME}/assistant.yml",  # climbs out of the profile
         f"{TIERS_DIRNAME}/../assistant.yml",  # climbs back out through the right directory
@@ -1875,7 +1875,7 @@ def test_lint_not_a_delta_names_the_file_of_the_entry_kind(tmp_path, build, expe
         "assistant",
         "als-assistant",
         project_path=str(tmp_path / "als-assistant"),
-        build_profile="control-assistant",
+        build_profile="demo",
     )
 
     # Act
@@ -1895,7 +1895,7 @@ def test_lint_local_mode_build_profile_shape_is_checked_even_when_rendered(tmp_p
     project_dir.mkdir()
     (project_dir / "Dockerfile").write_text("FROM scratch\n")
     (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _local_mode_build_profile_config(tmp_path, "control-assistant")
+    config = _local_mode_build_profile_config(tmp_path, "demo")
 
     # Act
     errors = _errors(lint_web_terminals(config))
@@ -3221,7 +3221,7 @@ def test_lint_auth_without_tls_and_allow_insecure_http_is_a_warning() -> None:
 def test_lint_auth_insecure_http_warning_is_withheld_on_loopback(fqdn: str) -> None:
     """With the origin browsers use naming loopback the deployment is
     same-host-only, so its cookies cross no network path — the exact case the
-    escape hatch exists for (and the control-assistant preset's demo posture).
+    escape hatch exists for (and the demo preset's demo posture).
     A real hostname brings the warning back with the exposure."""
     # Arrange
     config = _auth_config({"method": "password", "allow_insecure_http": True}, tls=False, fqdn=fqdn)
@@ -4418,7 +4418,7 @@ def _profile_config(**web_terminals_overrides: object) -> dict:
                 "readonly",
                 "ca-readonly",
                 project_path="../ca-readonly",
-                build_profile="control-assistant",
+                build_profile="demo",
             ),
         },
     }
@@ -5298,26 +5298,26 @@ def test_lint_open_mode_with_the_shipped_deny_list_reports_nothing(tmp_path) -> 
 
 
 def _shipped_profile_config() -> dict:
-    """The shipped `control-assistant` host preset, resolved and deep-copied.
+    """The shipped `demo` host preset, resolved and deep-copied.
 
     The one roster shape the shared-card guard exists for: a privileged
     `admin` tier (carol) behind a login, unprivileged tiers beside it.
     """
     from osprey.cli.build_profile import resolve_build_profile
 
-    resolved, _profile_dir = resolve_build_profile(None, "control-assistant")
+    resolved, _profile_dir = resolve_build_profile(None, "demo")
     return copy.deepcopy(resolved.config)
 
 
 def _shipped_profile_root() -> Path:
-    """The directory the shipped `control-assistant` preset lives in.
+    """The directory the shipped `demo` preset lives in.
 
     Its `tiers/` and `apps/` files are the renders a profile-altitude lint
     reads, so the shared-card guard sees the `admin` tier's privileges.
     """
     from osprey.cli.build_profile import resolve_build_profile
 
-    _resolved, profile_dir = resolve_build_profile(None, "control-assistant")
+    _resolved, profile_dir = resolve_build_profile(None, "demo")
     return Path(profile_dir)
 
 
@@ -5773,7 +5773,7 @@ def test_lint_control_identity_unknown_auth_method_still_checks_values() -> None
 
 
 def test_lint_control_identity_shipped_preset_reports_nothing() -> None:
-    """The shipped control-assistant preset gains no control-identity finding."""
+    """The shipped demo preset gains no control-identity finding."""
     # Arrange
     config = _shipped_profile_config()
 
@@ -5971,7 +5971,7 @@ def test_lint_live_writer_on_an_unwalled_deployment_reports_nothing(tmp_path, au
 
 
 def test_lint_live_writer_rule_is_silent_on_the_shipped_preset() -> None:
-    """The shipped control-assistant preset produces no live-writer finding."""
+    """The shipped demo preset produces no live-writer finding."""
     # Arrange
     config = _shipped_profile_config()
 

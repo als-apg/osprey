@@ -40,7 +40,6 @@ export const SESSION_SUMMARY_PATH = `${ARTIFACTS_BASE}/api/artifacts/session-sum
  * @property {string} [timestamp]
  * @property {string} [session_id]
  * @property {string} [origin]
- * @property {boolean} [pinned]
  * @property {boolean} [run_record]
  * @property {string|null} [owner]
  * @property {boolean} [operator_visible]
@@ -361,6 +360,73 @@ export function scopeOf(treeId, form = '') {
 
 /** @typedef {{total: number, by_form: Record<string, number>}} FormCounts */
 
+/** The entries held by the page's tree data (the last one made): what a tree
+ * row's menu reads, synchronously, without a network round trip.
+ * @type {Map<string, ArtifactEntry> | null} */
+let treeHeld = null;
+
+/**
+ * An entry the session tree already holds, or null.
+ * @param {string | null | undefined} id
+ * @returns {ArtifactEntry | null}
+ */
+export function heldEntry(id) {
+  return id ? (treeHeld?.get(id) ?? null) : null;
+}
+
+/**
+ * A run as its head lists it: the head entry and its parts.
+ * @typedef {ArtifactEntry & {
+ *   run_part?: string | null,
+ *   run_parts?: {id: string, role: string, title?: string}[],
+ * }} RunEntry
+ */
+
+/**
+ * The run `execId` names among `entries`: its listed head (the entry carrying
+ * `run_parts`), else one read from the members held, the result record as head
+ * (an output's `run_part` is null: it is listed as an output).
+ * @param {Iterable<ArtifactEntry>} entries  @param {string} execId
+ * @returns {RunEntry | null}
+ */
+export function runOf(entries, execId) {
+  if (!execId) return null;
+  const members = /** @type {RunEntry[]} */ ([...entries].filter((e) => e.exec_id === execId));
+  const listed = members.find((e) => Array.isArray(e.run_parts));
+  if (listed) return listed;
+  const head = members.find((e) => e.run_part === 'result') ?? members[0];
+  if (!head) return null;
+  const run_parts = members
+    .filter((e) => e !== head)
+    .map((e) => ({ id: e.id, role: e.run_part || 'output', title: e.title }));
+  return { ...head, run_parts };
+}
+
+/**
+ * A run the session tree already holds, by `exec_id`, or null.
+ * @param {string | null | undefined} execId
+ * @returns {RunEntry | null}
+ */
+export function heldRun(execId) {
+  return execId && treeHeld ? runOf(treeHeld.values(), execId) : null;
+}
+
+/**
+ * A run the tree does not hold, read from the store by `exec_id`; null when
+ * the store has none or cannot be read.
+ * @param {string} execId
+ * @returns {Promise<RunEntry | null>}
+ */
+export async function fetchRun(execId) {
+  try {
+    const q = `exec_id=${encodeURIComponent(execId)}&limit=50`;
+    const body = await requestJSON(`${ARTIFACTS_BASE}/api/artifacts?${q}`);
+    return runOf(body?.artifacts ?? [], execId);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The session tree's data: one listing per session (`${treeId}|`) and per
  * open group (`${treeId}|${form}`), every entry seen by id, the summary
@@ -374,6 +440,7 @@ export function createTreeData({ onChange }) {
   let listings = new Map();
   /** @type {Map<string, ArtifactEntry>} */
   const held = new Map();
+  treeHeld = held;
   /** @type {Set<string>} */
   const counted = new Set();
   /** @type {Set<string>} */

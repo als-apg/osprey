@@ -751,7 +751,7 @@ def test_caller_context_cannot_soften_the_deny_floor(tmp_path: Path) -> None:
         TemplateManager(),
         project_name="deny-floor-override",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical", "deny_defaults": []},
     )
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())

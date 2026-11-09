@@ -4,7 +4,7 @@ The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
 ``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``,
-``watchdogs``) plus the
+``slack_bridge``, ``watchdogs``) plus the
 checkers that hold their environment-variable names to
 :data:`~osprey_connectors.connection.ENV_NAME_RE`. Parsing, inheritance
 merging, and validation live in
@@ -1292,5 +1292,42 @@ class TeamsBridgeProfileConfig:
     mentions: bool = True
     """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
     conversation member, rendered as ``TEAMS_MENTIONS`` in the service's compose
+    template. This default is the one place the build-side default lives.
+    """
+
+
+@dataclass
+class SlackBridgeProfileConfig:
+    """Slack bridge configuration for a build profile (opt-in via the
+    ``slack_bridge:`` key).
+
+    Consumed by the build pipeline's slack-bridge-injection step
+    (``_inject_slack_bridge`` in ``build_cmd.py``) to deploy the single
+    ``slack_bridge`` service — a Socket Mode client that ingests the Slack
+    messages addressed to the bot and dispatches them through the
+    event-dispatch pair, so the block is only meaningful alongside a
+    ``dispatch:`` block.
+
+    The Slack credentials are deliberately *not* profile fields: the bot token
+    ``SLACK_BOT_TOKEN`` (``xoxb-…``) and the app-level Socket Mode token
+    ``SLACK_APP_TOKEN`` (``xapp-…``) are user-supplied runtime env (declared
+    via ``env.required``), never baked into a build. Validated by
+    :meth:`BuildProfile.validate`.
+    """
+
+    trigger: str = "slack-question"
+    """Dispatcher trigger the bridge fires (``POST /webhook/{trigger}``),
+    rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
+
+    This default is the ONLY place the ``slack-question`` name is defaulted:
+    the runtime config's ``from_env`` applies no trigger default, so a
+    hand-rolled (non-build) deployment still fails loudly on a missing trigger
+    rather than silently firing a name nobody declared. The value must name a
+    trigger declared in the ``dispatch.triggers`` file.
+    """
+
+    mentions: bool = True
+    """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
+    channel member, rendered as ``SLACK_MENTIONS`` in the service's compose
     template. This default is the one place the build-side default lives.
     """

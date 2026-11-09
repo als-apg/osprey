@@ -32,7 +32,7 @@ Overview
 ``osprey build`` renders each service's Jinja2 Docker Compose template and
 copies source and configuration into a per-service build directory; ``osprey
 up`` hands the result to Docker or Podman Compose. A deployment created from the
-``control-assistant`` preset deploys a full stack out of the box:
+``demo`` preset deploys a full stack out of the box:
 ``postgresql``, ``event_dispatcher`` and ``dispatch_worker``,
 ``bluesky`` (with its co-deployed Tiled data server), ``virtual_accelerator``,
 ``bluesky_web``, and the multi-user web-terminal stack. Every deployment, the
@@ -45,7 +45,7 @@ Service Configuration
 
 Services are declared under ``services:`` in ``config.yml`` and selected for
 deployment via ``deployed_services:``. A minimal example (one of the services
-the ``control-assistant`` preset ships with):
+the ``demo`` preset ships with):
 
 .. code-block:: yaml
 
@@ -82,7 +82,7 @@ build profiles that ship multiple applications.
 The graph store (``graphdb``)
 -----------------------------
 
-Alongside ``postgresql``, the ``control-assistant`` preset
+Alongside ``postgresql``, the ``demo`` preset
 deploys a ``graphdb`` service: a Neo4j store holding the facility's knowledge
 graph. Its ``services.graphdb`` block names the image, the bolt port the seeder
 and the health checks dial (``port_host``), the HTTP port of the Neo4j Browser an
@@ -516,6 +516,25 @@ that package as ``0.0.postN``, which the framework's requirement on it refuses,
 and ``--dev`` stops before staging and says so. Run ``git fetch --tags``; a
 fork or an internal mirror must sync the ``osprey-connectors-v*`` tags as well
 as the ``v*`` ones.
+
+A dev build installs third-party packages at the versions the checkout's
+``uv.lock`` holds, not the newest the index has that day, so the images run
+your code against the dependency set the repo's own tests ran with. Each build
+context receives ``osprey-lock-constraints.txt``, the lock exported with
+``uv export --locked``, and every install layer in the image is held to it;
+nothing is installed as ``osprey-framework`` from the index. The same applies
+to the project venv ``osprey build`` creates when it installs an editable
+checkout. ``--dev`` therefore needs ``uv`` on the host and a current lock: with
+no ``uv.lock``, or one out of date with ``pyproject.toml``, it stops and tells
+you to run ``uv lock``. A release build stages no such file and resolves from
+the index as before.
+
+The optimizer image takes torch's CPU build from the PyTorch index
+(``OPTIMIZER_TORCH_INDEX_URL``), and the lock pins exactly that build
+(``torch==<version>+cpu``). A site that empties the variable and serves torch
+from its own mirror must mirror the ``+cpu`` build; a mirror carrying only
+PyPI's plain torch has no candidate the lock admits, and the dev build of that
+image fails.
 
 Troubleshooting
 ===============

@@ -53,13 +53,6 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   applyingSessionLayout: () => false,
   onDragGesture: () => [],
 }));
-// The one question the adapter asks the pop-out seam: whether a panel lives
-// in its own window. The seam itself is popout.test.mjs's contract.
-const { isPoppedOut } = vi.hoisted(() => ({
-  isPoppedOut: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
-}));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({ isPoppedOut }));
-
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
@@ -427,16 +420,79 @@ describe('pruning — placeholders of server-closed panels', () => {
 
     expect(api.getPanel('iframe:lattice')).toBeTruthy();
   });
+});
 
-  test('a panel living in its own pop-out window loses its restored tile, visible or not', async () => {
-    const { mod, api } = await freshAdapter(LATTICE);
-    isPoppedOut.mockImplementation((/** @type {string} */ id) => id === 'lattice');
+describe('a pane in a window of its own', () => {
+  /** Whatever makes the adapter run a geometry pass. */
+  const geometryPass = () => window.dispatchEvent(new Event('resize'));
 
+  test('its frame is left alone: no geometry pass moves or hides it', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    const ariel = open(mod, 'ariel');
+    expect(holder.detach('ariel', null)).toBe(true);
+    expect(ariel.style.display).not.toBe('none');
+
+    ariel.style.left = '11px';
+    geometryPass();
+    expect(ariel.style.left).toBe('11px');
+    expect(ariel.style.display).not.toBe('none');
+  });
+
+  test('its not-answering notice does not stay behind over the hub', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    open(mod, 'ariel');
+    mod.setPanelReachable('ariel', false, '10:00');
+    const notice = /** @type {HTMLElement} */ (
+      document.querySelector('.dock-iframe-overlay > :not(iframe)')
+    );
+    expect(notice).not.toBeNull();
+    expect(notice.style.display).not.toBe('none');
+
+    holder.detach('ariel', null);
+    geometryPass();
+
+    expect(notice.style.display).toBe('none');
+  });
+
+  test('neither conceal path reaches it; once forgotten, a conceal does', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    const ariel = open(mod, 'ariel');
+    holder.detach('ariel', null);
+    mod.concealPanel('ariel');
+    mod.hidePanel('ariel');
+    expect(ariel.style.display).not.toBe('none');
+
+    holder.forget('ariel');
+    mod.concealPanel('ariel');
+    expect(ariel.style.display).toBe('none');
+  });
+
+  test('a frame adopted with no tile stays out of the dock and out of sight', async () => {
+    const { mod, holder } = await freshAdapter(TERMINAL);
+    const before = holder.layout;
+    const iframe = makeIframe();
+    mod.adoptIframe('ariel', iframe, { title: 'ARIEL', dock: false });
+    expect(holder.layout).toBe(before);
+    expect(iframe.isConnected).toBe(true);
+    expect(iframe.style.display).toBe('none');
+    expect(mod.managedIframe('ariel')?.iframe).toBe(iframe);
+  });
+
+  test('its frame back in the overlay is drawn in its tile again', async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    const ariel = open(mod, 'ariel');
+    ariel.style.left = '11px';
+    mod.panelReturned('ariel');
+    expect(ariel.style.left).not.toBe('11px');
+    expect(() => mod.panelReturned('ghost')).not.toThrow();
+  });
+
+  test('a panel with a restored tile that is detached has its tile pruned', async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tl', ['lattice']), TERMINAL));
+    holder.detach('lattice', null);
     mod.setServerVisiblePanels(new Set(['lattice']));
     mod.setKnownServicePanels(['lattice']);
-
     expect(api.getPanel('iframe:lattice')).toBeFalsy();
-    isPoppedOut.mockImplementation(() => false);
   });
 });
 
@@ -522,5 +578,123 @@ describe('panelFocusAnchor — where a panel sits in the host tab order', () => 
     const found = mod.panelFocusAnchor(iframe.contentWindow);
     expect(found?.anchor).toBe(iframe);
     expect(found?.skip(iframe)).toBe(false);
+  });
+});
+
+describe('setPanelBodyState — a centred state over a tile body', () => {
+  /** @param {HTMLElement} host */
+  const paint = (host) => {
+    host.textContent = 'Starting…';
+  };
+  const stateEl = () =>
+    /** @type {HTMLElement | null} */ (document.querySelector('.tile-body-state'));
+
+  test("covers the panel's tile body, hides its frame, and gives it back when cleared", async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tj', ['jupyter']), TERMINAL));
+    const iframe = open(mod, 'jupyter');
+    layOut(api, holder);
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const el = /** @type {HTMLElement} */ (stateEl());
+    expect(el.textContent).toBe('Starting…');
+    expect(el.parentElement?.classList.contains('dock-iframe-overlay')).toBe(true);
+    const { display, left, top, width, height } = el.style;
+    expect({ display, left, top, width, height }).toEqual(over(holder, 'tj'));
+    expect(el.style.pointerEvents).toBe('auto');
+    expect(iframe.style.display).toBe('none');
+
+    mod.setPanelBodyState('jupyter', null);
+
+    expect(stateEl()).toBeNull();
+    expect(drawn(iframe)).toEqual(over(holder, 'tj'));
+  });
+
+  test('shows over a restored tile whose panel has no frame yet', async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tj', ['jupyter']), TERMINAL));
+    layOut(api, holder);
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const { display, left, top, width, height } = /** @type {HTMLElement} */ (stateEl()).style;
+    expect({ display, left, top, width, height }).toEqual(over(holder, 'tj'));
+  });
+
+  test('is hidden while the panel has no tile', async () => {
+    const { mod } = await freshAdapter();
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const el = stateEl();
+    expect(el === null || el.style.display === 'none').toBe(true);
+  });
+
+  test('the drag shield covers it as it covers the frames', async () => {
+    const { mod, api, holder } = await freshAdapter(row(tile('tj', ['jupyter']), TERMINAL));
+    layOut(api, holder);
+    mod.setPanelBodyState('jupyter', paint);
+
+    mod.setIframePointerShield(true);
+    expect(/** @type {HTMLElement} */ (stateEl()).style.pointerEvents).toBe('none');
+    mod.setIframePointerShield(false);
+    expect(/** @type {HTMLElement} */ (stateEl()).style.pointerEvents).toBe('auto');
+  });
+
+  test('fallback mount: it covers the host while the host shows that panel', async () => {
+    const mod = await import(ADAPTER);
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    mod.initDockIframeAdapter({ fallbackHost: host });
+    mod.adoptIframe('jupyter', makeIframe(), { title: 'Jupyter' });
+    mod.adoptIframe('okf', makeIframe(), { title: 'OKF' });
+    mod.focusPanel('jupyter');
+
+    mod.setPanelBodyState('jupyter', paint);
+
+    const el = /** @type {HTMLElement} */ (stateEl());
+    expect(el.parentElement).toBe(host);
+    expect(el.style.display).toBe('');
+    mod.focusPanel('okf');
+    expect(el.style.display).toBe('none');
+  });
+});
+
+describe('reloadPanel — the tile ⋯ Reload row', () => {
+  test("reloads the panel's frame in place", async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    const iframe = makeIframe();
+    mod.adoptIframe('ariel', iframe, { title: 'ARIEL', dock: false });
+    const reload = vi.fn();
+    Object.defineProperty(iframe, 'contentWindow', { value: { location: { reload } } });
+    expect(mod.reloadPanel('ariel')).toBe(true);
+    expect(reload).toHaveBeenCalledOnce();
+  });
+
+  test('a frame this page may not read is pointed at its own src', async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    const iframe = makeIframe();
+    iframe.setAttribute('src', '/lab');
+    mod.adoptIframe('jupyter', iframe, { title: 'Jupyter', dock: false });
+    const blocked = {
+      get location() {
+        throw new Error('cross-origin');
+      },
+    };
+    Object.defineProperty(iframe, 'contentWindow', { value: blocked });
+    /** @type {string[]} */
+    const writes = [];
+    Object.defineProperty(iframe, 'src', {
+      set: (v) => {
+        writes.push(v);
+      },
+      get: () => '/lab',
+    });
+    expect(mod.reloadPanel('jupyter')).toBe(true);
+    expect(writes).toEqual(['/lab']);
+  });
+
+  test('a panel with no frame reports false', async () => {
+    const { mod } = await freshAdapter(TERMINAL);
+    expect(mod.reloadPanel('ghost')).toBe(false);
   });
 });

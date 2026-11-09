@@ -4,11 +4,11 @@
  *   npx vitest run tests/interfaces/web_terminal/dock-view.test.mjs
  *
  * The sidebar's highlight is derived from the dock: the panel of the service
- * tile the workspace shows, if the page knows it and it is not popped out.
+ * tile the workspace shows, if the page knows it and it is not detached.
  * `surfacedPanel` is undefined without a layout holder (the fallback host),
  * `deriveSurfaced` marks and announces the answer, and `followDock` wires the
  * dock's change events once and skips the holder's own rebuild. The dock's
- * layout, tile lookup and popout state are replaced by controllable stand-ins.
+ * layout, tile lookup and detached state are replaced by controllable stand-ins.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -25,6 +25,7 @@ const dock = vi.hoisted(() => ({
 
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', () => ({
   getLayoutHolder: () => dock.holder,
+  isDetached: (/** @type {string} */ k) => dock.poppedOut.has(k),
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-open.js', () => ({
   serviceTileTarget: () => dock.target,
@@ -32,18 +33,19 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-open.js', ()
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   getDockApi: () => dock.api,
 }));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
-  isPoppedOut: (/** @type {string} */ k) => dock.poppedOut.has(k),
-  onPopoutChange: (/** @type {() => void} */ cb) => {
-    dock.popoutCb = cb;
-  },
-}));
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/dock-view.js')} */
 let mod;
 
 beforeEach(async () => {
-  dock.holder = { layout: {}, context: () => ({}), applying: false };
+  dock.holder = {
+    layout: {},
+    context: () => ({}),
+    applying: false,
+    onDetachedChange: (/** @type {() => void} */ cb) => {
+      dock.popoutCb = cb;
+    },
+  };
   dock.target = { showing: 'lattice' };
   dock.api = null;
   dock.poppedOut = new Set();
@@ -63,7 +65,7 @@ describe('surfacedPanel', () => {
     expect(mod.surfacedPanel(() => true)).toBeUndefined();
   });
 
-  test('is null with no service tile, with an unknown panel, or one popped out', () => {
+  test('is null with no service tile, with an unknown panel, or one detached', () => {
     dock.target = null;
     expect(mod.surfacedPanel(() => true)).toBeNull();
     dock.target = { showing: 'lattice' };
@@ -129,7 +131,7 @@ describe('followDock', () => {
     expect(dock.api.onDidLayoutChange).toHaveBeenCalledTimes(1);
   });
 
-  test('follows layout, focus and popout changes', () => {
+  test('follows layout, focus and detached-set changes', () => {
     dock.api = api();
     const onChange = vi.fn();
     mod.followDock(onChange);

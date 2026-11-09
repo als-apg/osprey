@@ -109,6 +109,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
+        "slack_bridge",
     }
 )
 
@@ -126,6 +127,7 @@ _BUILD_MECHANICS_KEYS: frozenset[str] = frozenset(
         "environment",  # interpreter + packages: the built Python env
         "dependencies",
         "lifecycle",  # pre/post-build steps
+        "machine",  # a mounted machine repository: the repo's own layout, never a preset's
     }
 )
 
@@ -571,6 +573,19 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   trigger: teams-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """,
+    "slack_bridge": """
+# --- Slack bridge ------------------------------------------------------------
+# Answers questions asked from a Slack channel, thread or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Slack credentials are runtime env, not profile keys: declare
+# SLACK_BOT_TOKEN (the xoxb- bot token) and SLACK_APP_TOKEN (the xapp- Socket
+# Mode app token) under `env.required`.
+#
+# slack_bridge:
+#   trigger: slack-question
+#   mentions: true               # false posts the agent's @mentions as plain text
+""",
     "deploy": """
 # --- Deployment coordinates --------------------------------------------------
 # Where this deployment is built, pushed, and run. Needed only once it leaves
@@ -619,6 +634,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "nextcloud_bridge",
     "gchat_bridge",
     "teams_bridge",
+    "slack_bridge",
 )
 
 # The six artifact-selection lists, in profile spelling. Each gets a generated

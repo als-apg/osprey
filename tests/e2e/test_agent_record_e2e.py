@@ -8,7 +8,7 @@ writes itself, and forwarded to the stack's record the way a host session
 forwards them.
 
 Two cases, one per backend and preset: ``hello-world`` on the embedded record
-and ``control-assistant`` on the ClickHouse record. Each deploys under this
+and ``demo`` on the ClickHouse record. Each deploys under this
 module's own project name and port block with a stated
 ``deployment.host_identity``, and runs the real ``osprey build`` and
 ``osprey up``. Both verbs run with ``CLAUDE_CONFIG_DIR`` and ``HOME`` pointed
@@ -32,7 +32,7 @@ What each case proves, read back through the read API:
   five minutes the record allows a source;
 * an oversized tool result and a large spool body read back byte-identical;
 * every read route, and a scoped reader login, on hello-world; the history
-  page behind its own origin on control-assistant;
+  page behind its own origin on demo;
 * the day's Parquet file and manifest mark on the host once the jobs clock
   closes the day, exported exactly once;
 * ``osprey reset`` keeping the record and its archive, ``--purge-audit``
@@ -40,8 +40,9 @@ What each case proves, read back through the read API:
 * (hello-world) a profile carrying retired keys refused by ``osprey build``
   naming each replacement, then built and brought up once edited as directed.
 
-The two cases run one after the other, never side by side: each tears its
-deployment down before it returns.
+The two cases never run side by side on one host: each holds the module's
+host lock and tears its deployment down before it returns. CI runs them on
+two runners, one matrix cell per case.
 
 CONTAINER SAFETY: every docker invocation names an exact container or volume
 of this project. Teardown is ``osprey down`` followed by the project-scoped
@@ -121,7 +122,7 @@ from osprey.services.archive.manifest import MANIFEST_NAME
 from osprey.utils.workspace import ARCHIVE_DIR_RELPATH, SPOOL_DIR_RELPATH
 from tests.e2e._deploy_support import env_from_example
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
 pytestmark = [
     pytest.mark.model_free,
@@ -142,7 +143,7 @@ STACK_LOCK = Path(tempfile.gettempdir()) / f"osprey-{PROJECT_NAME}.lock"
 HOST_IDENTITY = "e2e-builder"
 #: The person the on-behalf and requested runs name.
 PERSON = "alice"
-#: control-assistant's password roster: the preset's ``env.defaults``.
+#: demo's password roster: the preset's ``env.defaults``.
 PASSWORDS = {"alice": "alice"}
 #: The scoped reader hello-world states, and the one kind it may read.
 READER_NAME = "e2e"
@@ -502,12 +503,12 @@ HELLO_WORLD = Preset(
     seed_env=_hello_world_env,
 )
 
-#: control-assistant as shipped, with a CI-sized archiver store. Its
+#: demo as shipped, with a CI-sized archiver store. Its
 #: ``deployed_services`` stay, since its ARIEL and graph consumers dial them;
 #: its dispatch stack stays, since its web panels name the events page; and
 #: its web terminals stay, since they deploy the history page.
-CONTROL_ASSISTANT = Preset(
-    name="control-assistant",
+DEMO = Preset(
+    name="demo",
     backend=BACKEND_CLICKHOUSE,
     edits={
         "port_base": PORT_BASE,
@@ -679,6 +680,7 @@ def _deploy(
             "--preset",
             preset.name,
             "--no-git",
+            *e2e_scenario_pin(preset.name),
             *set_pairs(preset.edits),
         ],
         cwd=base,
@@ -1444,10 +1446,8 @@ def test_embedded_record_on_hello_world(tmp_path: Path, monkeypatch: pytest.Monk
     assert _real_claude_entries(repo) == before, "the deployment wrote into the real ~/.claude"
 
 
-def test_clickhouse_record_on_control_assistant(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """control-assistant on the ClickHouse record: every fact once with its
+def test_clickhouse_record_on_demo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """demo on the ClickHouse record: every fact once with its
     person, on-behalf and dispatched runs included, through a store outage on health, a restart and a rewrite; the history page; the
     archived day; reset."""
     started_on = datetime.now(UTC).date()
@@ -1455,7 +1455,7 @@ def test_clickhouse_record_on_control_assistant(
     repo = tmp_path / PROJECT_NAME
     before = _real_claude_entries(repo)
 
-    with _deployed(tmp_path, monkeypatch, preset=CONTROL_ASSISTANT, transcript=host) as stack:
+    with _deployed(tmp_path, monkeypatch, preset=DEMO, transcript=host) as stack:
         assert _containers_named(RECORD_STORE_CONTAINER), "no record store container"
         spooled = _write_spool_line(stack, monkeypatch, host.session)
         expected = host.keys(HOST_IDENTITY) | {spooled}

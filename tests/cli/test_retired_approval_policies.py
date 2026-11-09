@@ -66,7 +66,7 @@ def _rendered_approval(overlay: str, scratch: Path) -> dict:
     path = scratch / "profile.yml"
     (scratch / "data").mkdir(exist_ok=True)
     path.write_text(
-        "name: Child\nextends: control-assistant\ndata: data\n" + textwrap.dedent(overlay),
+        "name: Child\nextends: demo\ndata: data\n" + textwrap.dedent(overlay),
         encoding="utf-8",
     )
     loaded = resolve_build_document(path, None, (), ())
@@ -116,7 +116,7 @@ def test_a_governed_policy_builds_with_one_warning_and_renders_no_key(
 
 def test_both_shipped_presets_build_silently(caplog) -> None:
     caplog.set_level(logging.WARNING, logger=_LOGGER_NAME)
-    for preset in ("hello-world", "control-assistant"):
+    for preset in ("hello-world", "demo"):
         resolve_build_document(None, preset, (), ())
     assert _policy_warnings(caplog) == []
 

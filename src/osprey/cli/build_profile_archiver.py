@@ -131,7 +131,7 @@ _KNOWN_VA_ARCHIVER_KEYS: frozenset[str] = frozenset()  # populated below
 class VAArchiverConfig:
     """The parsed ``va_archiver:`` block — one store, one timeline.
 
-    The defaults describe the store a control-assistant deployment wants
+    The defaults describe the store a demo deployment wants
     without being told: two days of dense history behind a month of coarse
     history, sampled every ten seconds, compressed. They are chosen to fit the
     documented storage budget at the shipped channel count; raising

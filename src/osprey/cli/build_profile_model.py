@@ -32,6 +32,8 @@ from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
     resolve_qmd_service_config,
 )
+from osprey.facility.errors import FacilityBuildError
+from osprey.facility.roots import FacilityRoots
 from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.presets import preset_refusal
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
@@ -68,6 +70,7 @@ from .build_profile_schema import (
     OptimizerConfig,
     ProfileProvenance,
     ServiceDef,
+    SlackBridgeProfileConfig,
     TeamsBridgeProfileConfig,
     VAConfig,
     WatchdogsBlock,
@@ -407,6 +410,21 @@ class BuildProfile:
     ``osprey init`` materializes. The resolution point for both the validator
     and the build is :meth:`resolved_data_root`.
     """
+    machine: str | None = None
+    """The deployment's machine root (``machine:``), as a path relative to the
+    profile directory naming a facility directory, typically inside a git
+    submodule holding the facility's own machine repository.
+
+    Set, the build reads every machine fact (identity, classes, records,
+    models, decks, seeds, limits, scenarios) from that directory and only the
+    deployment's own content (``knowledge/``, ``ariel/``, ``benchmarks/``)
+    from ``<data>/facility``. Unset, ``<data>/facility`` plays both roles, as
+    for every deployment before the key existed. Root-only: a tier or app may
+    not restate it, because the machine a deployment drives is deployment-wide.
+    :meth:`validate` checks only that it is a non-empty string; the location
+    itself is checked by :meth:`resolved_facility_roots`, which build,
+    ``osprey facility`` and ``osprey validate`` all go through.
+    """
     deploy: DeployConfig | None = None
     """Where this project is built, pushed, and run (``deploy:``).
 
@@ -494,6 +512,7 @@ class BuildProfile:
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
     gchat_bridge: GChatBridgeProfileConfig | None = None
     teams_bridge: TeamsBridgeProfileConfig | None = None
+    slack_bridge: SlackBridgeProfileConfig | None = None
     va_archiver: VAArchiverConfig | None = None
     """The stored archive a simulated deployment keeps its history in
     (``va_archiver:``).
@@ -574,6 +593,79 @@ class BuildProfile:
         if not isinstance(self.data, str) or not self.data.strip():
             return None
         return (profile_dir / self.data).resolve()
+
+    def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots | None:
+        """Resolve where this deployment reads machine facts and its own content.
+
+        The one resolution point for ``machine:``, shared by the build,
+        ``osprey facility`` and ``osprey validate``. The content root is always
+        ``<data>/facility``; the machine root is the same directory unless
+        ``machine:`` names another one.
+
+        A named machine root must not overlap the ``data:`` tree in either
+        direction, since one tree would then be read in both roles; and it
+        must hold ``identity.yaml``. The identity requirement is what catches
+        an uninitialised submodule (an empty directory), and it keeps the
+        rendered facility the same standalone and mounted, because without an
+        identity file the facility name falls back to the project name.
+
+        Args:
+            profile_dir: Directory holding the profile file.
+
+        Returns:
+            ``None`` when the profile declares no ``data:``; a single-tree
+            :class:`FacilityRoots` when it declares no ``machine:``; otherwise
+            the machine root and ``<data>/facility``.
+
+        Raises:
+            FacilityBuildError: ``profile-invalid`` when the machine root and
+                the data tree overlap, ``machine-missing`` when the machine
+                root holds no ``identity.yaml``.
+        """
+        data_root = self.resolved_data_root(profile_dir)
+        if data_root is None:
+            return None
+        content = data_root / "facility"
+        if not isinstance(self.machine, str) or not self.machine.strip():
+            return FacilityRoots.single(content)
+        machine = (profile_dir / self.machine).resolve()
+        if machine.is_relative_to(data_root) or data_root.is_relative_to(machine):
+            raise FacilityBuildError(
+                "profile-invalid",
+                self.machine,
+                [self.machine, self.data or ""],
+                "point `machine:` at a directory outside the `data:` tree, and "
+                "`data:` at one outside the machine root",
+                record_kind="path",
+                detail=(
+                    f"the machine root {self.machine!r} and the data tree {self.data!r} "
+                    "overlap, so one directory would be read both as machine facts and "
+                    "as the deployment's own data"
+                ),
+            )
+        identity = machine / "identity.yaml"
+        if not identity.is_file():
+            hint = ""
+            if (machine / "data" / "facility").is_dir():
+                hint = (
+                    f"; {self.machine}/data/facility exists, so `machine:` likely names "
+                    f"the repository top instead of its facility directory: state "
+                    f"`machine: {self.machine.rstrip('/')}/data/facility`"
+                )
+            raise FacilityBuildError(
+                "machine-missing",
+                f"{self.machine.rstrip('/')}/identity.yaml",
+                [self.machine],
+                "point `machine:` at the machine repository's facility directory "
+                "(the one holding identity.yaml); for a git submodule, run "
+                "`git submodule update --init`" + hint,
+                record_kind="path",
+                detail=(
+                    f"the machine root {self.machine!r} (resolved: {machine}) holds no "
+                    "identity.yaml, so there is no machine to build"
+                ),
+            )
+        return FacilityRoots(machine=machine, content=content)
 
     def _is_known_panel_id(self, pid: str) -> bool:
         """Return True if ``pid`` names a tab this profile's render shows.
@@ -1732,6 +1824,14 @@ class BuildProfile:
             elif not data_root.is_dir():
                 errors.append(f"data must be a directory: {self.data} (resolved: {data_root})")
 
+        # ``machine:`` is only shape-checked here; whether the location holds a
+        # machine is resolved_facility_roots' job, which raises the facility
+        # stop the build and ``osprey validate`` both report.
+        if self.machine is not None and (
+            not isinstance(self.machine, str) or not self.machine.strip()
+        ):
+            errors.append(f"machine must be a non-empty directory path (got {self.machine!r})")
+
         # Validate the profile's convention directories (shape of each source,
         # plus the reserved paths the project/ mirror may not write). Reported
         # as one entry so its own multi-problem message stays intact.
@@ -2153,6 +2253,15 @@ class BuildProfile:
                     "teams_bridge",
                     self.teams_bridge.trigger,
                     "every Teams message",
+                    profile_dir,
+                )
+            )
+        if self.slack_bridge is not None:
+            errors.extend(
+                self._validate_chat_bridge(
+                    "slack_bridge",
+                    self.slack_bridge.trigger,
+                    "every Slack message",
                     profile_dir,
                 )
             )

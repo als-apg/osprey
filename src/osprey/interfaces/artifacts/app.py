@@ -30,7 +30,6 @@ from osprey.interfaces.artifacts import inline_assets
 from osprey.interfaces.artifacts.content_sandbox import ContentSandboxMiddleware, not_content
 from osprey.interfaces.opaque_origin import document_headers, opaque_headers
 from osprey.interfaces.vendor import html_has_plotly_bundle, is_offline, vendor_url
-from osprey.port_layout import default_port
 from osprey.utils.timeseries import (
     downsample_channel_map,
     extract_channel_series,
@@ -108,7 +107,11 @@ _ARTIFACT_MESSAGE_LISTENER = """<script>
 # overriding CSS, so the script below deletes those fixed dimensions and calls
 # Plotly.Plots.resize() once the library is ready.  Every color comes from the
 # --chart-* tokens via chartRelayout(), so all eight themes work and nothing
-# here needs to know what "light" or "dark" looks like.
+# here needs to know what "light" or "dark" looks like.  In a frame the page
+# also takes the gallery's content-strip commands (zoom, pan, autoscale, reset
+# axes, export PNG) from plot-commands.js, tells the gallery while the pointer
+# is over it (frame-pointer.js: the strip shows then), and hides Plotly's own
+# modebar, which the strip replaces; a plot opened on its own keeps the modebar.
 _RESPONSIVE_PLOTLY = (
     _DESIGN_SYSTEM_HEAD
     + "\n"
@@ -123,12 +126,19 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
 .plotly-graph-div { width: 100% !important; height: 100vh !important; }
 .js-plotly-plot { width: 100% !important; height: 100vh !important; visibility: hidden; }
 table { max-width: 100%; }
+/* OSPREY: framed, the gallery's content strip replaces Plotly's modebar
+   (plot-commands.js marks the page); a plot opened on its own keeps it. */
+html[data-osprey-framed] .modebar-container,
+html[data-osprey-framed] .modebar { display: none !important; }
 /* OSPREY: the browser's own print of the sandboxed page omits plot chrome. */
 @media print { .plotly-notifier, .modebar, .modebar-container { display: none !important; } }
 </style>
 <script type="module">
-/* OSPREY: responsive sizing + live re-theming from the design tokens. */
+/* OSPREY: responsive sizing, live re-theming from the design tokens, and the
+   gallery's content-strip commands. */
 import { initTheme, subscribe, chartRelayout } from '/design-system/js/theme-manager.js';
+import { followPlotCommands, rememberViews } from '/static/js/plot-commands.js';
+import { reportPointer } from '/static/js/frame-pointer.js';
 
 function plots() { return Array.from(document.querySelectorAll('.js-plotly-plot')); }
 function reveal(gd) { gd.style.visibility = 'visible'; }
@@ -155,12 +165,15 @@ let loaded = false;
 function initAll() {
   loaded = true;
   resizeAll();
+  rememberViews(plots());
   applyTheme();
   /* Safety net: if relayout somehow fails to reveal, force-show after 400ms */
   setTimeout(() => plots().forEach(reveal), 400);
 }
 
 initTheme({ role: 'follower' });
+followPlotCommands(window, plots);
+reportPointer(window);
 // Re-theme in place on every later apply (a hub broadcast, or the gallery's
 // re-send when a hidden iframe becomes visible). Before `load` there are no
 // charts to theme, and revealing them then would flash the author's own
@@ -191,7 +204,7 @@ html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: auto; }
 table { max-width: 100%; }
 /* OSPREY: themed defaults -- zero specificity, author styles always win */
 :where(html) { background: var(--bg-primary); }
-:where(body) { color: var(--text-primary); }
+:where(body) { color: var(--text-primary); font-family: var(--font-display); }
 :where(table.artifact-table) { border-collapse: collapse; }
 :where(.artifact-table th, .artifact-table td) {
   border: 1px solid var(--border-default); padding: 4px 8px;
@@ -200,7 +213,10 @@ table { max-width: 100%; }
 </style>
 <script type="module">
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { reportPointer } from '/static/js/frame-pointer.js';
 initTheme({ role: 'follower' });
+// In a frame, the gallery shows a table's content strip while the pointer is over it.
+reportPointer(window);
 </script>"""
 )
 
@@ -480,7 +496,7 @@ def _inject_html_snippet(html_bytes: bytes, snippet: str) -> bytes:
 
 
 class _SetInSession(BaseModel):
-    """The session a focus or pin was set in: at most one of two fields.
+    """The session a focus was set in: at most one of two fields.
 
     Browsers send ``session_key``, which the hub resolves through its ledger;
     processes in a conversation send ``transcript_id``, a canonical session
@@ -508,10 +524,6 @@ class FocusRequest(_SetInSession):
     #: Set by a sender acting on its own (the approval hook), not for a person or
     #: an agent that chose the artifact; broadcast so a layout can tell them apart.
     automatic: bool = False
-
-
-class PinRequest(_SetInSession):
-    pinned: bool = True
 
 
 class BulkDeleteRequest(BaseModel):
@@ -1135,7 +1147,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         return resolve_scope(key=session_key, ledger=ledger, ledger_ok=ledger_ok)
 
     def _set_in(req: _SetInSession) -> str | None:
-        """The transcript a focus or pin was set in; ``None`` for no session."""
+        """The transcript a focus was set in; ``None`` for no session."""
         if req.transcript_id is not None:
             return req.transcript_id
         if req.session_key:
@@ -1157,8 +1169,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         """Write the focus file the CLI hook reads (contract C7).
 
         One ``artifact:`` line per transcript slot, ending in that transcript's
-        ``(session=<id>)`` marker. The unscoped slot writes no line and pins are
-        not in the file (the hook reads them from the index). Always written, so
+        ``(session=<id>)`` marker. The unscoped slot writes no line. Always written, so
         an empty state empties the file rather than leaving a stale one.
         """
         lines: list[str] = []
@@ -1258,13 +1269,13 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     async def list_artifacts(
         type: str | None = None,
         search: str | None = None,
-        pinned: bool | None = Query(None),
         limit: int = Query(page_size, ge=1, le=MAX_PAGE_SIZE),
         cursor: str | None = Query(None),
         form: str | None = None,
         after: str | None = None,
         before: str | None = None,
         runs: Literal["grouped"] | None = Query(None),
+        exec_id: str | None = None,
     ):
         """List one newest-first page of artifacts.
 
@@ -1273,8 +1284,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         before)`` of aware ISO-8601 times; ``runs=grouped`` drops a run's
         preview and notebook, which list under their head, and keeps its
         outputs; ``search`` matches the title, file name, description, type
-        and form label. ``total`` and ``next_cursor`` count and walk the
-        filtered set.
+        and form label; ``exec_id`` keeps one run's entries (the chat's run
+        rows read a run they have not listed this way). ``total`` and
+        ``next_cursor`` count and walk the filtered set.
 
         This is the unscoped listing, the palette's search and the gallery's
         all-sessions view: it takes no session and keeps dispatch and watchdog
@@ -1283,12 +1295,13 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         try:
             entries = store.list_entries(
                 type_filter=type,
-                pinned=pinned,
                 after=after,
                 before=before,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if exec_id:
+            entries = [e for e in entries if e.exec_id == exec_id]
         view = _view()
         entries = _refine(entries, view, form=form, runs=runs, search=search)
         try:
@@ -1389,14 +1402,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         return _entry_payload(entry)
-
-    @app.post("/api/artifacts/{artifact_id}/pin")
-    async def pin_artifact(artifact_id: str, req: PinRequest):
-        entry = store.set_pinned(artifact_id, req.pinned, set_in=_set_in(req))
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        broadcaster.broadcast({"type": "artifact_updated", **_entry_payload(entry)})
-        return {"status": "ok", "artifact_id": artifact_id, "pinned": entry.pinned}
 
     @app.get("/api/artifacts/{artifact_id}/data")
     async def get_artifact_data(
@@ -1723,51 +1728,3 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
-
-
-def run_server(
-    host: str = "127.0.0.1",
-    port: int = default_port("artifact"),
-    workspace_root: Path | None = None,
-) -> None:
-    """Run the artifact gallery server.
-
-    Direct-serve entry point: this same process builds the app and answers
-    requests. It mints this process's operator secret and prints the one-time
-    ``?token=`` login URL — the operator's only way past the auth middleware —
-    before constructing the app. The print is suppressed when the secret was
-    already supplied by an ancestor launcher or a multi-user deployment, so a
-    supplied secret is never re-echoed.
-
-    Args:
-        host: Host to bind to.
-        port: Port to run on. The default is the ``artifact`` slot at the
-            layout's *default* base, which is right only for a programmatic
-            caller with no config to resolve a base from. ``osprey artifacts
-            web`` — the one caller — passes the port it resolved from this
-            deployment's ``deployment.port_base``. A multi-user deployment does
-            not come through here at all: its launcher builds the app from the
-            registry's factory and serves it itself.
-        workspace_root: Agent-data root containing the ``artifacts/`` dir.
-            Omitted, it is the deployment's shared agent-data root.
-    """
-    import os
-
-    import uvicorn
-
-    from osprey.interfaces.common_middleware import WEB_PORT_ENV
-    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
-
-    # Publish the settled port before the app is constructed: cookies ignore
-    # ports, so two OSPREY servers on this host share an origin as far as the
-    # browser is concerned, and the port is the only thing keeping their session
-    # cookies apart. ``session_cookie_name()`` reads it from here.
-    os.environ[WEB_PORT_ENV] = str(port)
-
-    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
-    login_url = mint_and_announce(host, port)
-    if announce:
-        print(f"Open: {login_url}")  # noqa: T201 -- the server announces its login URL on stdout
-
-    app = create_app(workspace_root=workspace_root)
-    uvicorn.run(app, host=host, port=port, log_level="info")

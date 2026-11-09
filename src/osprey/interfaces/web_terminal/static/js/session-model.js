@@ -4,7 +4,7 @@
  *
  * The session pointer (`session-pointer.js`) is the single source of truth for
  * the tab's session. This module subscribes to it, so every key change — the
- * chat's pen button, the terminal's "+ New", a `session_switched`, a
+ * Agent bar's `+` on either surface, a `session_switched`, a
  * {@link switchTo}, page load — does the same three things: PUTs last-active
  * (debounced), clears the pick, and re-derives {@link activeRow}. A key the
  * listing has not caught up with gets a synthesized "New session" row.
@@ -12,6 +12,13 @@
  * Rows come from the hub's `GET /api/sessions`, paged by `next_cursor`. Only a
  * page's first listing waits on the record's drain (`drain=1`); {@link refresh}
  * is throttled and merges page 1 without dropping the later pages.
+ *
+ * Pins: a row's `pinned` is the ISO time the operator pinned it, and the
+ * first page's `pinned_sessions` lists every pinned session wherever it is
+ * in the pages; {@link pinnedRows} is that list, first pinned first, and
+ * {@link setPinned} flips a pin at once and then on the hub. A listing read
+ * before a pin settled (a PUT, or another tab's `session_pinned` frame) is
+ * older than that pin, so the pin overrides it.
  *
  * The pick is the artifact the tab shows for the session it is on: one value,
  * cleared on every key change, set by {@link switchTo} (`artifactId`, else the
@@ -49,6 +56,7 @@ export const NEW_SESSION_TITLE = 'New session';
  * @property {string} [title]
  * @property {string} [naming]
  * @property {string|null} [last_artifact_id]
+ * @property {string|null} [pinned]
  * @property {string} [state]
  * @property {boolean} [truncated]
  * @property {boolean} [synthesized]
@@ -56,12 +64,23 @@ export const NEW_SESSION_TITLE = 'New session';
 
 /** @type {SessionRow[]} */
 let loaded = [];
+/** The first page's `pinned_sessions`. @type {SessionRow[]} */
+let pinnedListed = [];
+/**
+ * The pins a listing must not undo, by transcript: `settled` is null while the
+ * PUT is in flight, then the {@link pinClock} tick it settled on.
+ * @type {Map<string, {value: string|null, settled: number|null}>}
+ */
+const pinOverrides = new Map();
+/** Counts settled pins; a listing read at tick N knows the pins up to N. */
+let pinClock = 0;
 /** @type {string|null} */
 let nextCursor = null;
 let more = false;
 /** @type {string} */
 let record = 'complete';
-let firstLoaded = false;
+/** Whether the first listing has answered, with rows or with a failure. */
+export let firstLoaded = false;
 /** @type {string|null} */
 let pickId = null;
 /** The pick {@link switchTo} chose, applied when the pointer reaches its key. */
@@ -100,6 +119,42 @@ function rowsOf(body) {
 }
 
 /**
+ * Set a session's pin on the rows that hold it; a pinned loaded row joins the
+ * pinned list.
+ * @param {string} transcriptId @param {string|null} value
+ * @returns {boolean} whether any row holds it
+ */
+function paintPin(transcriptId, value) {
+  const held = [...loaded, ...pinnedListed].filter((r) => r.transcript_id === transcriptId);
+  for (const row of held) row.pinned = value;
+  if (value && !pinnedListed.some((r) => r.transcript_id === transcriptId)) {
+    const row = loaded.find((r) => r.transcript_id === transcriptId);
+    if (row) pinnedListed = [...pinnedListed, row];
+  }
+  return held.length > 0;
+}
+
+/**
+ * Take a listing's pins once its rows are in `loaded`: a first page's
+ * `pinned_sessions` decides every loaded row, later pages included, and then
+ * the pins newer than the listing go back on.
+ * @param {any} body @param {number} asOf  the {@link pinClock} when it was read
+ */
+function takePins(body, asOf) {
+  if (Array.isArray(body?.pinned_sessions)) {
+    pinnedListed = body.pinned_sessions;
+    const stamps = new Map(pinnedListed.map((r) => [r.transcript_id, r.pinned ?? null]));
+    for (const row of loaded) {
+      if (row.transcript_id) row.pinned = stamps.get(row.transcript_id) ?? null;
+    }
+  }
+  for (const [id, pin] of pinOverrides) {
+    if (pin.settled !== null && pin.settled <= asOf) pinOverrides.delete(id);
+    else paintPin(id, pin.value);
+  }
+}
+
+/**
  * Start the model: subscribe to the pointer and the hub's session frames, and
  * load the first page. Idempotent.
  * @returns {Promise<void>}
@@ -121,6 +176,8 @@ export function resetSessionModel() {
   lastActiveTimer = refreshTimer = null;
   listeners.clear();
   loaded = [];
+  pinnedListed = [];
+  pinOverrides.clear();
   nextCursor = null;
   more = false;
   record = 'complete';
@@ -177,13 +234,28 @@ function onHubFrame(data) {
     relayToPanels(data.session_key);
   } else if (data?.type === 'session_deleted') {
     forgetSession(data.transcript_id);
+  } else if (data?.type === 'session_pinned') {
+    onPinFrame(data.transcript_id, data.pinned ?? null);
   } else if (data?.type === 'session_named') {
-    const row = loaded.find((r) => r.transcript_id === data.transcript_id);
-    if (!row) return;
-    row.title = data.title;
-    row.naming = data.naming;
+    const named = [...loaded, ...pinnedListed].filter(
+      (r) => r.transcript_id === data.transcript_id
+    );
+    if (!named.length) return;
+    for (const row of named) Object.assign(row, { title: data.title, naming: data.naming });
     notify('named');
   }
+}
+
+/**
+ * A pin from any tab: this tab's own PUT in flight still decides, and a pin on
+ * a row this tab has not loaded comes with the next listing.
+ * @param {string} transcriptId @param {string|null} value
+ */
+function onPinFrame(transcriptId, value) {
+  if (pinPending(transcriptId)) return;
+  pinOverrides.set(transcriptId, { value, settled: ++pinClock });
+  if (paintPin(transcriptId, value)) notify('rows');
+  else if (value) refresh();
 }
 
 /**
@@ -192,9 +264,11 @@ function onHubFrame(data) {
  * @param {string} transcriptId
  */
 export function forgetSession(transcriptId) {
-  const before = loaded.length;
+  const before = loaded.length + pinnedListed.length;
+  pinOverrides.delete(transcriptId);
   loaded = loaded.filter((r) => r.transcript_id !== transcriptId);
-  if (loaded.length !== before) notify('rows');
+  pinnedListed = pinnedListed.filter((r) => r.transcript_id !== transcriptId);
+  if (loaded.length + pinnedListed.length !== before) notify('rows');
 }
 
 /**
@@ -215,7 +289,8 @@ export function rows() {
 export function activeRow() {
   const key = getPointer();
   if (!key) return null;
-  const row = loaded.find((r) => r.session_key === key && r.current_for_key);
+  // A pinned session from a page not loaded yet is a row all the same.
+  const row = [...loaded, ...pinnedListed].find((r) => r.session_key === key && r.current_for_key);
   return (
     row ?? {
       transcript_id: null,
@@ -295,7 +370,77 @@ export function recordLastArtifact(entry) {
 export function sessionOfArtifact(artifact) {
   const owner = artifact?.owner;
   if (!owner) return null;
-  return loaded.find((r) => r.transcript_id === owner) ?? null;
+  return [...loaded, ...pinnedListed].find((r) => r.transcript_id === owner) ?? null;
+}
+
+/** @param {string|null | undefined} at @returns {number} */
+const pinTime = (at) => (at ? Date.parse(at) || 0 : 0);
+
+/**
+ * The pinned sessions, first pinned first: the loaded row where there is one
+ * (the freshest), else the first page's copy.
+ * @returns {SessionRow[]}
+ */
+export function pinnedRows() {
+  /** @type {Map<string, SessionRow>} */
+  const byId = new Map();
+  for (const row of pinnedListed) if (row.transcript_id) byId.set(row.transcript_id, row);
+  for (const row of loaded) {
+    if (row.transcript_id && (row.pinned || byId.has(row.transcript_id)))
+      byId.set(row.transcript_id, row);
+  }
+  return [...byId.values()]
+    .filter((row) => row.pinned)
+    .sort((a, b) => pinTime(a.pinned) - pinTime(b.pinned));
+}
+
+/**
+ * Whether a session's pin PUT is in flight.
+ * @param {string} transcriptId
+ * @returns {boolean}
+ */
+export function pinPending(transcriptId) {
+  return pinOverrides.get(transcriptId)?.settled === null;
+}
+
+/**
+ * Set a session's pin: in the rows at once, then on the hub
+ * (`PUT /api/sessions/{id}/pin`); a refused PUT puts the rows back. Of two
+ * calls in flight the later one decides.
+ * @param {string} transcriptId
+ * @param {boolean} pinned
+ * @returns {Promise<boolean>} whether the hub took it
+ */
+export async function setPinned(transcriptId, pinned) {
+  const before = [...loaded, ...pinnedListed]
+    .filter((r) => r.transcript_id === transcriptId)
+    .map((row) => ({ row, value: row.pinned ?? null }));
+  const value = pinned ? new Date().toISOString() : null;
+  /** @type {{value: string|null, settled: number|null}} */
+  const pin = { value, settled: null };
+  pinOverrides.set(transcriptId, pin);
+  paintPin(transcriptId, value);
+  notify('rows');
+  try {
+    const body = await apiRequest(`${SESSIONS_PATH}/${encodeURIComponent(transcriptId)}/pin`, {
+      method: 'PUT',
+      json: { pinned },
+      errorPrefix: pinned ? 'Pinning the session failed' : 'Unpinning the session failed',
+    });
+    if (pinOverrides.get(transcriptId) !== pin) return true;
+    pin.value = typeof body?.pinned === 'string' ? body.pinned : null;
+    pin.settled = ++pinClock;
+    paintPin(transcriptId, pin.value);
+    notify('rows');
+    return true;
+  } catch (err) {
+    console.warn('[session-model]', err instanceof Error ? err.message : err);
+    if (pinOverrides.get(transcriptId) !== pin) return false;
+    pinOverrides.delete(transcriptId);
+    for (const { row, value: was } of before) row.pinned = was;
+    notify('rows');
+    return false;
+  }
 }
 
 /** @param {string|null} cursor @param {boolean} drain */
@@ -310,10 +455,12 @@ function listUrl(cursor, drain) {
 /** First page, waiting on the drain. */
 function loadFirst() {
   const gen = generation;
+  const asOf = pinClock;
   inFlight = fetchJSON(listUrl(null, true))
     .then((body) => {
       if (gen !== generation) return;
       loaded = rowsOf(body);
+      takePins(body, asOf);
       nextCursor = body?.next_cursor ?? null;
       more = Boolean(body?.more);
       record = body?.record ?? 'complete';
@@ -341,6 +488,7 @@ function loadFirst() {
 export async function loadMore() {
   if (!hasMore() || inFlight) return false;
   const gen = generation;
+  const asOf = pinClock;
   const cursor = nextCursor;
   /** @type {any} */
   let body;
@@ -356,6 +504,7 @@ export async function loadMore() {
   if (gen !== generation) return false;
   const seen = new Set(loaded.map((r) => r.transcript_id));
   loaded = [...loaded, ...rowsOf(body).filter((r) => !seen.has(r.transcript_id))];
+  takePins(body, asOf);
   nextCursor = body?.next_cursor ?? null;
   more = Boolean(body?.more);
   notify('rows');
@@ -379,6 +528,7 @@ export function refresh() {
 async function runRefresh() {
   if (inFlight) await inFlight.catch(() => {});
   const gen = generation;
+  const asOf = pinClock;
   lastRefreshAt = Date.now();
   /** @type {any} */
   let body;
@@ -395,6 +545,7 @@ async function runRefresh() {
   // A row that left page 1 because newer ones pushed it down stays loaded.
   const pushedDown = loaded.slice(0, first.length).filter((r) => !ids.has(r.transcript_id));
   loaded = [...first, ...pushedDown, ...rest];
+  takePins(body, asOf);
   if (!firstLoaded) {
     nextCursor = body?.next_cursor ?? null;
     more = Boolean(body?.more);

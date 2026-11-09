@@ -227,6 +227,30 @@ def deployment(tmp_path, monkeypatch):
     control_context.invalidate_cache()
 
 
+@pytest.fixture
+def started_pids(monkeypatch):
+    """Each stub child's pid by role, recorded at its ``Popen``.
+
+    ``CanopySidecar.front_pid`` / ``data_pid`` answer ``None`` once a child has
+    exited, so a test about a child that ends at once cannot read its pid from
+    the sidecar afterwards without racing that exit.
+    """
+    from osprey.interfaces.web_terminal import supervised_child
+
+    pids: dict[str, list[int]] = {"front": [], "data": []}
+    real_popen = supervised_child.subprocess.Popen
+
+    class _Recording(real_popen):  # type: ignore[misc, valid-type]
+        def __init__(self, args, *rest, **kwargs):
+            super().__init__(args, *rest, **kwargs)
+            for role in pids:
+                if role in [str(arg) for arg in args]:
+                    pids[role].append(self.pid)
+
+    monkeypatch.setattr(supervised_child.subprocess, "Popen", _Recording)
+    return pids
+
+
 # -- pure rendering ----------------------------------------------------------------
 
 
@@ -1343,18 +1367,18 @@ class TestLifecycle:
         assert len(deployment.dumps("front")) == 1
         assert sidecar.exit_status is None
 
-    def test_a_refused_start_ends_the_sidecar_without_a_second_try(self, deployment):
+    def test_a_refused_start_ends_the_sidecar_without_a_second_try(self, deployment, started_pids):
         fired = []
         sidecar = deployment.sidecar(data="78")
         sidecar.spawn()
-        # FRONT may be stopped before it has run a line, so its pid is taken
-        # from the sidecar rather than from what the child wrote.
-        front_pid, url, data_url = sidecar.front_pid, sidecar.url, sidecar.data_url
+        # FRONT may be stopped before it has run a line, so its pid is the one
+        # recorded at its start, not what the child wrote or the sidecar says.
+        url, data_url = sidecar.url, sidecar.data_url
         sidecar.on_exit = lambda: fired.append(True)
         wait_for(lambda: fired, "the exit report")
         assert fired == [True]
         assert sidecar.exit_status == 78
-        assert front_pid is not None and not alive(front_pid)
+        assert len(started_pids["front"]) == 1 and not alive(started_pids["front"][0])
         assert refuses(url) and refuses(data_url)
         time.sleep(1.0)
         assert len(deployment.dumps("data")) == 1
@@ -1376,15 +1400,14 @@ class TestLifecycle:
         sidecar.stop()
         assert fired == [True]
 
-    def test_front_leaving_ends_the_sidecar(self, deployment):
+    def test_front_leaving_ends_the_sidecar(self, deployment, started_pids):
         fired = []
         sidecar = deployment.sidecar(front="3")
         sidecar.spawn()
-        data_pid = sidecar.data_pid
         sidecar.on_exit = lambda: fired.append(True)
         wait_for(lambda: fired, "the exit report")
         assert sidecar.exit_status == 3
-        assert data_pid is not None and not alive(data_pid)
+        assert len(started_pids["data"]) == 1 and not alive(started_pids["data"][0])
         assert refuses(sidecar.data_url)
         assert len(deployment.dumps("front")) == 1
 

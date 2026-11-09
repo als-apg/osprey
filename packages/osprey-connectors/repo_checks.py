@@ -45,21 +45,14 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
-    "osprey_connectors.simulation.sessions.ARTIFACT_FORMS": "a scenario author reads the artifact forms",
-    "osprey_connectors.simulation.sessions.ResolvedArtifact": "a resolved turn carries its artifacts",
-    "osprey_connectors.simulation.sessions.ScenarioSession": "parse_sessions returns it",
-    "osprey_connectors.simulation.sessions.SessionPart": "a parsed session carries its parts",
-    "osprey_connectors.simulation.sessions.AnswerStep": "the framework's transcript author reads a turn's answers",
-    "osprey_connectors.simulation.sessions.ArtifactSpec": "the framework renders the artifacts a turn states",
-    "osprey_connectors.simulation.sessions.ResolvedPart": "the framework's transcript author writes one transcript per part",
-    "osprey_connectors.simulation.sessions.ResolvedSession": "the framework's apply seeds resolved sessions",
-    "osprey_connectors.simulation.sessions.ResolvedTurn": "the framework renders a resolved turn's artifacts",
-    "osprey_connectors.simulation.sessions.SessionTurn": "the framework's scenario validator checks a turn's channels",
-    "osprey_connectors.simulation.sessions.ToolStep": "the framework's scenario validator checks a step's tool",
-    "osprey_connectors.simulation.sessions.from_dict": "the framework's hub reads the sessions seed file",
-    "osprey_connectors.simulation.sessions.parse_sessions": "the framework's scenario validator parses the block",
-    "osprey_connectors.simulation.sessions.resolve": "the framework's apply places sessions at the anchor",
-    "osprey_connectors.simulation.sessions.to_dict": "the framework's apply writes the sessions seed file",
+    "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
+        "the framework's archive rewrite reads the burst window"
+    ),
+    "osprey_connectors.simulation.series.loss_refill_bound": (
+        "the framework's archive rewrite reads the loss refill bound"
+    ),
+    "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
 }
 
 #: Interim: the listed names that had no user when this check was added. Each
@@ -120,7 +113,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.recovery.Supervised",
         "osprey_connectors.session_hold.EXCERPT_LIMIT",
         "osprey_connectors.session_hold.SCHEMA_VERSION",
-        "osprey_connectors.session_hold.UNREADABLE_FLAG_ID",
         "osprey_connectors.settle.POLL_INTERVAL_S",
         "osprey_connectors.simulation.ACTIVE_SCENARIOS_FILENAME",
         "osprey_connectors.simulation.DEFAULT_SCENARIO",
@@ -203,7 +195,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.write_authorization.authorization_verdict",
         "osprey_connectors.write_authorization.grant_in_force",
         "osprey_connectors.write_authorization.issue_grant",
-        "osprey_connectors.write_authorization.list_grants",
         "osprey_connectors.write_authorization.parse_grant",
         "osprey_connectors.write_authorization.parse_ledger",
         "osprey_connectors.write_authorization.parse_request",

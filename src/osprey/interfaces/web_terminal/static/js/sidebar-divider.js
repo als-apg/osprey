@@ -1,19 +1,20 @@
 // @ts-check
-/* OSPREY Web Terminal — the Workspace divider
+/* OSPREY Web Terminal — the Sessions divider
  *
  * A faint horizontal line below the group that holds the Agent row (the
- * Workspace group, unless the operator moved the groups) is a drag handle for
+ * headless Sessions group, always first; sidebar-groups.js) is a drag handle for
  * that group's height, so the session tree can be made taller on demand; the
- * groups after it move down and the rail scrolls when they no longer fit.
+ * groups after it move down, never out of the rail.
  *
  *   - AUTOMATIC. With nothing stored the group is as tall as its content, up
  *     to a cap: the room the rail leaves once every other group is whole,
- *     kept between 240 and 480 px. Past the cap the tree scrolls inside the
- *     group, so a small project keeps the line high and a big one stops it
- *     at the cap. The cap is `--sidebar-group-cap` on the group.
+ *     at most 480 px. Past the cap the tree scrolls inside the group, so a
+ *     small project keeps the line high and a big one stops it at the cap.
+ *     The cap is `--sidebar-group-cap` on the group.
  *   - LIMITS. At least 120 px (heading and about two rows); at most what
- *     leaves 56 px of the rail for the next group. The cap obeys the same
- *     maximum.
+ *     leaves every other group whole in the rail, so a drag, a stored height
+ *     or a shorter window never makes the rail scroll (only when even the
+ *     minimum does not fit). The cap obeys the same maximum.
  *   - DRAG / KEYS. A pointer drag sets the height live; ArrowUp / ArrowDown
  *     step 16 px (64 with Shift). Within 10 px of the automatic height the
  *     drag snaps to it, silently; ending a drag on it, or a double-click, goes
@@ -43,8 +44,6 @@ import { FOLD_EVENT, isGroupFolded } from './sidebar-fold.js';
 export const HEIGHT_STORAGE_KEY = 'osprey-sidebar-workspace-height';
 
 export const MIN_HEIGHT = 120;
-const NEXT_GROUP_ROOM = 56;
-export const CAP_MIN = 240;
 export const CAP_MAX = 480;
 export const SNAP = 10;
 const STEP = 16;
@@ -138,7 +137,7 @@ export function initSidebarDivider(railOrNull) {
   divider.className = 'sidebar-divider';
   divider.setAttribute('role', 'separator');
   divider.setAttribute('aria-orientation', 'horizontal');
-  divider.setAttribute('aria-label', 'Workspace height');
+  divider.setAttribute('aria-label', 'Sessions height');
   divider.setAttribute('tabindex', '0');
 
   /** @returns {HTMLElement | null} the group holding the Agent row */
@@ -149,9 +148,10 @@ export function initSidebarDivider(railOrNull) {
 
   /**
    * The height the rail can have: the sidebar's content box minus its in-flow
-   * siblings. The rail itself is content-sized, so its own clientHeight moves
-   * when a group folds, and a cap taken from it would re-clamp (and shift) the
-   * Workspace group on every fold. Without a laid-out sidebar, the rail's own.
+   * siblings, margins included. The rail itself is content-sized, so its own
+   * clientHeight moves when a group folds, and a cap taken from it would
+   * re-clamp (and shift) the Workspace group on every fold. Without a laid-out
+   * sidebar, the rail's own.
    * @returns {number}
    */
   const railRoom = () => {
@@ -164,31 +164,32 @@ export function initSidebarDivider(railOrNull) {
       if (el === rail || !(el instanceof HTMLElement)) continue;
       const pos = window.getComputedStyle(el).position;
       if (pos === 'absolute' || pos === 'fixed') continue;
-      room -= el.offsetHeight;
+      room -= el.offsetHeight + marginsOf(el);
     }
     return room;
   };
 
-  /** @returns {number} the tallest the group may be, px */
-  const maxHeight = () => Math.max(MIN_HEIGHT, railRoom() - NEXT_GROUP_ROOM);
-  /** @param {number} px */
-  const clamp = (px) => Math.min(maxHeight(), Math.max(MIN_HEIGHT, Math.round(px)));
-
   /**
-   * The automatic height's ceiling: what the rail leaves once every other
-   * group is whole, kept in [CAP_MIN, CAP_MAX] and under the maximum.
-   * @param {HTMLElement} group
+   * The room the rail leaves the group once every other group is whole.
    * @returns {number}
    */
-  const capOf = (group) => {
+  const groupRoom = () => {
+    const group = workspace();
     const cs = window.getComputedStyle(rail);
     let rest = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
     for (const el of Array.from(rail.children)) {
       if (el !== group && el !== divider && el instanceof HTMLElement) rest += el.offsetHeight;
     }
-    const cap = Math.max(CAP_MIN, Math.min(CAP_MAX, Math.round(railRoom() - rest)));
-    return Math.min(maxHeight(), cap);
+    return Math.round(railRoom() - rest);
   };
+
+  /** @returns {number} the tallest the group may be, px */
+  const maxHeight = () => Math.max(MIN_HEIGHT, groupRoom());
+  /** @param {number} px */
+  const clamp = (px) => Math.min(maxHeight(), Math.max(MIN_HEIGHT, Math.round(px)));
+
+  /** @returns {number} the automatic height's ceiling, px */
+  const cap = () => Math.min(CAP_MAX, maxHeight());
 
   /** @returns {number | null} the stored height in px, or null for automatic */
   const storedHeight = () => {
@@ -217,7 +218,7 @@ export function initSidebarDivider(railOrNull) {
   function measure() {
     const group = workspace();
     if (!group) return;
-    group.style.setProperty('--sidebar-group-cap', `${capOf(group)}px`);
+    group.style.setProperty('--sidebar-group-cap', `${cap()}px`);
     const tree = group.querySelector(':scope > .sidebar-row > [data-session-tree]');
     const row = tree?.parentElement;
     if (!(tree instanceof HTMLElement) || !row) return;

@@ -35,8 +35,9 @@ from osprey.interfaces.common_middleware import (
     forwarded_identity,
     resolve_storage_scope,
 )
+from osprey.interfaces.design_system.favicon import FAVICON_PATH
 from osprey.interfaces.vendor import vendor_url
-from osprey.interfaces.web_terminal import session_meta
+from osprey.interfaces.web_terminal import scenario_sessions, session_meta
 from osprey.interfaces.web_terminal.control_context_owner import start_control_context_owner
 from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.feedback_destination import (
@@ -82,6 +83,7 @@ from osprey.profiles.web_panels import (
     BUILTIN_PANELS,
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
+    in_catalog_order,
     panel_id_refusal,
     panel_spec_enabled,
     sidecar_panel_descriptors,
@@ -104,7 +106,7 @@ if TYPE_CHECKING:
 STATIC_DIR = Path(__file__).parent / "static"
 
 #: The tab icon, in the design system's static tree.
-_FAVICON = Path(__file__).parent.parent / "design_system" / "static" / "img" / "osprey-mark.svg"
+_FAVICON = FAVICON_PATH
 
 
 def _favicon_url() -> str:
@@ -907,7 +909,7 @@ def _load_panel_runtime_config(
     except Exception:
         pass
 
-    visible_panels = [p for p in enabled_panels if p not in hidden_builtins] + [
+    visible_panels = [p for p in in_catalog_order(enabled_panels) if p not in hidden_builtins] + [
         cp["id"] for cp in custom_panels if cp["id"] not in hidden_custom_ids
     ]
     return _PanelRuntimeConfig(
@@ -1834,6 +1836,12 @@ def _create_lifespan(
         # ledger file exists yet; it reads the transcript map, the transcripts
         # on disk and the artifact store under this root. Never raises.
         await asyncio.to_thread(session_meta.backfill_ledger, app)
+        # Seeded scenario sessions, laid down after the backfill so a missing
+        # ledger is seeded from real sessions first. Never fatal.
+        try:
+            await asyncio.to_thread(scenario_sessions.lay_down_scenario_sessions, app)
+        except Exception:
+            logger.warning("The scenario-session lay-down failed", exc_info=True)
         app.state.panel_status_dir = shared_data_root / PANEL_STATUS_DIRNAME
         # Workspace-relative form of the store: the *file watcher's* form,
         # used below to drop change events for writes into it. The file
@@ -2209,6 +2217,10 @@ def create_app(
                 "control_target_available": bool(
                     getattr(request.app.state, "control_target_picker_available", True)
                 ),
+                # The documentation root the tile ⋯ Help row opens a panel's
+                # page under (panel-help.js). "" when web.docs_url is blank,
+                # and the template then leaves the attribute out.
+                "docs_url": getattr(request.app.state, "docs_url", "") or "",
                 # The registry's own labels for the built-in panels, stamped so
                 # panel-catalog.js can read them at module load. /api/panels
                 # answers for the ENABLED panels only and resolves after that

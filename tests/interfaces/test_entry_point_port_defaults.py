@@ -1,8 +1,8 @@
 """Every panel entry point lands on its layout slot, at the base the config names.
 
 The acceptance criterion for the panel entry points: launched with no ``--port``
-and no configured port, ``osprey web`` binds the ``web`` slot, ``osprey ariel
-web`` the ``ariel`` slot, and so on — and a project that sets
+and no configured port, ``osprey web`` binds the ``web`` slot, the launcher's
+ARIEL server the ``ariel`` slot, and so on — and a project that sets
 ``deployment.port_base`` moves every one of them by exactly that much. The old
 failure this pins is a default frozen at one deployment's numbers: on a host
 running two, the second deployment's panels would advertise the first one's
@@ -25,12 +25,11 @@ from osprey.registry.web import resolve_web_server_address
 #: cannot pass by coincidence with the layout's own default.
 MOVED_BASE = 20000
 
-#: Registry key → the ``osprey`` verb that launches that panel, for test ids
-#: that name the command an operator would type.
+#: Registry key → the panel's name, for test ids.
 PANEL_ENTRY_POINTS = {
-    "artifact": "osprey artifacts web",
-    "ariel": "osprey ariel web",
-    "channel_finder": "osprey channel-finder web",
+    "artifact": "artifact gallery",
+    "ariel": "ariel",
+    "channel_finder": "channel finder",
 }
 
 
@@ -68,23 +67,12 @@ class TestSignatureDefaults:
 
         assert self._default(run_web) == default_port("web", 0, base=DEFAULT_PORT_BASE)
 
-    def test_ariel_run_web(self):
-        from osprey.interfaces.ariel import run_web
 
-        assert self._default(run_web) == default_port("ariel", 0, base=DEFAULT_PORT_BASE)
+class TestPanelServerDefaults:
+    """What a companion panel server binds with no configured port.
 
-    def test_artifacts_run_server(self):
-        from osprey.interfaces.artifacts import run_server
-
-        assert self._default(run_server) == default_port("artifact", 0, base=DEFAULT_PORT_BASE)
-
-
-class TestPanelCliDefaults:
-    """What ``osprey <panel> web`` binds with no ``--port`` and no configured port.
-
-    Each of these CLI commands defaults ``--port`` to ``None`` and asks
-    :func:`resolve_web_server_address` for the answer, so driving the resolver
-    with the command's own registry key is driving the command's default.
+    The launcher asks :func:`resolve_web_server_address` for the answer, so
+    driving the resolver with the panel's registry key is driving its default.
     """
 
     @pytest.mark.parametrize("key", sorted(PANEL_ENTRY_POINTS), ids=PANEL_ENTRY_POINTS.get)

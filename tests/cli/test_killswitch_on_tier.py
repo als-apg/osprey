@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 import pytest
 import yaml
@@ -26,9 +27,8 @@ from osprey.cli.templates import manifest as manifest_mod
 from osprey.cli.templates.manager import TemplateManager
 from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS, is_mixed_matcher
 from osprey_connectors.errors import BuildProfileError
+from tests._builds import Restorable
 from tests._preset_data import create_project_as_built
-
-_PROJECT_COUNTER = 0
 
 #: The tier words that arm writes; the render does not tell them apart.
 ARMING = ("asked", "allowed")
@@ -64,18 +64,35 @@ _PERMISSION_RULE = re.compile(
 )
 
 
-def _build(tmp_path):
-    """Build a control-assistant project with its facility views, and return its directory."""
+_PROJECT_COUNTER = 0
+
+
+def _build(parent: Path) -> Path:
+    """Build a demo project with its facility views, and return its directory."""
     global _PROJECT_COUNTER
     _PROJECT_COUNTER += 1
     return create_project_as_built(
         TemplateManager(),
         facility_views=True,
         project_name=f"killswitch-tier-{_PROJECT_COUNTER}",
-        output_dir=tmp_path,
-        data_bundle="control_assistant",
+        output_dir=parent,
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
+
+
+@pytest.fixture(scope="module")
+def _pristine_project(tmp_path_factory: pytest.TempPathFactory) -> Restorable:
+    """One project, built for this module."""
+    return Restorable(
+        tmp_path_factory.mktemp("killswitch-tier"), lambda parent: (_build(parent), None)
+    )
+
+
+@pytest.fixture
+def project(_pristine_project: Restorable) -> Path:
+    """The module's project as built, for this test to configure and render."""
+    return _pristine_project.restore()
 
 
 def _configure(project_dir, *, writes, servers=None, write_tools=None, drop_hooks=(), extra=None):
@@ -95,20 +112,15 @@ def _configure(project_dir, *, writes, servers=None, write_tools=None, drop_hook
         manifest = json.loads(manifest_path.read_text())
         # The fixture's manifest records no selection, so the render falls back
         # to the preset's; spell that selection out, minus the dropped hooks.
-        artifacts = dict(manifest_mod.load_template_manifest("control-assistant")["artifacts"])
+        artifacts = dict(manifest_mod.load_template_manifest("demo")["artifacts"])
         artifacts["hooks"] = [h for h in artifacts["hooks"] if h not in drop_hooks]
         manifest["artifacts"] = artifacts
         manifest_path.write_text(json.dumps(manifest))
     return manager, project_dir, config
 
 
-def _project(tmp_path, **kwargs):
-    """Build a project, set its tier and servers, and return ``(manager, dir, config)``."""
-    return _configure(_build(tmp_path), **kwargs)
-
-
-def _ctx(tmp_path, **kwargs) -> dict:
-    manager, project_dir, config = _project(tmp_path, **kwargs)
+def _ctx(project_dir, **kwargs) -> dict:
+    manager, project_dir, config = _configure(project_dir, **kwargs)
     return claude_code.build_claude_code_context(
         manager.template_root, manager.jinja_env, project_dir, config
     )
@@ -138,8 +150,8 @@ def _framework_write_only(ctx: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_never_denies_every_framework_write_only_tool(tmp_path):
-    ctx = _ctx(tmp_path, writes="never", servers={"bluesky": {"enabled": True}})
+def test_never_denies_every_framework_write_only_tool(project):
+    ctx = _ctx(project, writes="never", servers={"bluesky": {"enabled": True}})
     expected = _framework_write_only(ctx)
     assert "mcp__controls__channel_write" in expected
     deny = claude_code._rendered_deny_list(ctx)
@@ -149,8 +161,8 @@ def test_never_denies_every_framework_write_only_tool(tmp_path):
         assert f"mcp__bluesky__{tool}" in ctx["killswitch_deny"]
 
 
-def test_never_keeps_mixed_tools_out_of_the_deny_and_out_of_ask(tmp_path):
-    ctx = _ctx(tmp_path, writes="never")
+def test_never_keeps_mixed_tools_out_of_the_deny_and_out_of_ask(project):
+    ctx = _ctx(project, writes="never")
     perms = ctx["facility_permissions"]
     for tool in ctx["mixed_read_write_tools"]:
         assert tool not in claude_code._rendered_deny_list(ctx)
@@ -159,8 +171,8 @@ def test_never_keeps_mixed_tools_out_of_the_deny_and_out_of_ask(tmp_path):
     assert "mcp__python__execute" in perms["allow"]
 
 
-def test_never_denies_declared_facility_tools_exactly(tmp_path):
-    ctx = _ctx(tmp_path, writes="never", servers=_FACILITY)
+def test_never_denies_declared_facility_tools_exactly(project):
+    ctx = _ctx(project, writes="never", servers=_FACILITY)
     deny = ctx["killswitch_deny"]
     assert "mcp__plc__set_value" in deny
     # The declaring server's reads stay reachable, and it is never denied whole.
@@ -168,8 +180,8 @@ def test_never_denies_declared_facility_tools_exactly(tmp_path):
     assert "mcp__plc" not in deny
 
 
-def test_never_denies_a_list_less_writes_check_server_whole(tmp_path):
-    ctx = _ctx(tmp_path, writes="never", servers=_FACILITY)
+def test_never_denies_a_list_less_writes_check_server_whole(project):
+    ctx = _ctx(project, writes="never", servers=_FACILITY)
     deny = ctx["killswitch_deny"]
     assert "mcp__sitectl" in deny
     assert "mcp__rawctl" in deny
@@ -181,8 +193,8 @@ def test_never_denies_a_list_less_writes_check_server_whole(tmp_path):
 _DUMB = {"command": "node", "args": ["dumb.js"], "permissions": {"ask": ["poke"]}}
 
 
-def _settings(tmp_path, **kwargs) -> dict:
-    manager, project_dir, _config = _project(tmp_path, **kwargs)
+def _settings(project_dir, **kwargs) -> dict:
+    manager, project_dir, _config = _configure(project_dir, **kwargs)
     manager.regenerate_claude_code(project_dir)
     return json.loads((project_dir / ".claude" / "settings.json").read_text())
 
@@ -200,15 +212,15 @@ def _gated_per_call(settings: dict, tool: str) -> bool:
     return any(re.fullmatch(m, tool) for m in _writes_check_matchers(settings))
 
 
-def test_never_keeps_control_system_write_tools_out_of_the_deny(tmp_path):
-    ctx = _ctx(tmp_path, writes="never", write_tools=["mcp__controls__tune_knob"])
+def test_never_keeps_control_system_write_tools_out_of_the_deny(project):
+    ctx = _ctx(project, writes="never", write_tools=["mcp__controls__tune_knob"])
     assert "mcp__controls__tune_knob" not in claude_code._rendered_deny_list(ctx)
 
 
-def test_never_keeps_an_uncovered_write_tools_entry_in_ask(tmp_path):
+def test_never_keeps_an_uncovered_write_tools_entry_in_ask(project):
     """No writes-check rule matches the entry, so its static ask is its only gate."""
     settings = _settings(
-        tmp_path,
+        project,
         writes="never",
         servers={"dumb": _DUMB},
         write_tools=["mcp__dumb__poke"],
@@ -220,16 +232,16 @@ def test_never_keeps_an_uncovered_write_tools_entry_in_ask(tmp_path):
     assert "mcp__dumb__poke" not in perms["deny"]
 
 
-def test_never_keeps_an_uncovered_framework_named_write_tools_entry_in_ask(tmp_path):
-    ctx = _ctx(tmp_path, writes="never", write_tools=["mcp__controls__tune_knob"])
+def test_never_keeps_an_uncovered_framework_named_write_tools_entry_in_ask(project):
+    ctx = _ctx(project, writes="never", write_tools=["mcp__controls__tune_knob"])
     assert "mcp__controls__tune_knob" not in ctx["facility_permissions"]["remove_ask"]
 
 
-def test_never_unasks_a_write_tools_entry_only_when_writes_check_fires_on_it(tmp_path):
+def test_never_unasks_a_write_tools_entry_only_when_writes_check_fires_on_it(project):
     """Every entry pulled from ask is matched by a wired writes-check rule."""
     write_tools = ["mcp__python__execute", "mcp__dumb__poke", "mcp__controls__tune_knob"]
-    manager, project_dir, config = _project(
-        tmp_path, writes="never", servers={"dumb": _DUMB}, write_tools=write_tools
+    manager, project_dir, config = _configure(
+        project, writes="never", servers={"dumb": _DUMB}, write_tools=write_tools
     )
     ctx = claude_code.build_claude_code_context(
         manager.template_root, manager.jinja_env, project_dir, config
@@ -247,17 +259,17 @@ def test_never_unasks_a_write_tools_entry_only_when_writes_check_fires_on_it(tmp
 
 
 @pytest.mark.parametrize("word", ARMING)
-def test_an_arming_tier_keeps_an_uncovered_write_tools_entry_in_ask(tmp_path, word):
+def test_an_arming_tier_keeps_an_uncovered_write_tools_entry_in_ask(project, word):
     settings = _settings(
-        tmp_path, writes=word, servers={"dumb": _DUMB}, write_tools=["mcp__dumb__poke"]
+        project, writes=word, servers={"dumb": _DUMB}, write_tools=["mcp__dumb__poke"]
     )
     assert "mcp__dumb__poke" in settings["permissions"]["ask"]
 
 
-def test_never_deny_cannot_be_lifted_by_remove_deny(tmp_path):
+def test_never_deny_cannot_be_lifted_by_remove_deny(project):
     lifted = ["mcp__controls__channel_write", "mcp__plc__set_value", "mcp__sitectl"]
     ctx = _ctx(
-        tmp_path,
+        project,
         writes="never",
         servers=_FACILITY,
         extra={"permissions": {"deny": list(lifted), "remove_deny": list(lifted)}},
@@ -269,8 +281,8 @@ def test_never_deny_cannot_be_lifted_by_remove_deny(tmp_path):
 
 
 @pytest.mark.parametrize("value", ["Allowed", "Asked", "true", True, 1, None, "yes", "on"])
-def test_only_the_literal_arming_words_arm_writes(tmp_path, value):
-    ctx = _ctx(tmp_path, writes=value)
+def test_only_the_literal_arming_words_arm_writes(project, value):
+    ctx = _ctx(project, writes=value)
     assert "mcp__controls__channel_write" in ctx["killswitch_deny"]
 
 
@@ -280,15 +292,15 @@ def test_only_the_literal_arming_words_arm_writes(tmp_path, value):
 
 
 @pytest.mark.parametrize("word", ARMING)
-def test_an_arming_tier_denies_nothing(tmp_path, word):
-    ctx = _ctx(tmp_path, writes=word, servers=_FACILITY)
+def test_an_arming_tier_denies_nothing(project, word):
+    ctx = _ctx(project, writes=word, servers=_FACILITY)
     assert ctx["killswitch_deny"] == []
     assert ctx["writes_tier"] == word
 
 
 @pytest.mark.parametrize("word", ARMING)
-def test_an_arming_tier_pulls_writes_check_and_approval_tools_from_ask(tmp_path, word):
-    ctx = _ctx(tmp_path, writes=word, servers=_FACILITY)
+def test_an_arming_tier_pulls_writes_check_and_approval_tools_from_ask(project, word):
+    ctx = _ctx(project, writes=word, servers=_FACILITY)
     remove_ask = ctx["facility_permissions"]["remove_ask"]
     assert "mcp__controls__channel_write" in remove_ask
     # The Bluesky arming pair carries the preflight approval variant.
@@ -301,8 +313,8 @@ def test_an_arming_tier_pulls_writes_check_and_approval_tools_from_ask(tmp_path,
 
 
 @pytest.mark.parametrize("word", ARMING)
-def test_an_arming_tier_keeps_tools_missing_either_hook_in_ask(tmp_path, word):
-    ctx = _ctx(tmp_path, writes=word, servers=_FACILITY)
+def test_an_arming_tier_keeps_tools_missing_either_hook_in_ask(project, word):
+    ctx = _ctx(project, writes=word, servers=_FACILITY)
     remove_ask = ctx["facility_permissions"]["remove_ask"]
     allow = ctx["facility_permissions"]["allow"]
     # writes-check alone, no approval.
@@ -320,8 +332,8 @@ def test_an_arming_tier_keeps_tools_missing_either_hook_in_ask(tmp_path, word):
 # ---------------------------------------------------------------------------
 
 
-def test_rendered_deny_is_valid_permission_syntax(tmp_path):
-    manager, project_dir, _config = _project(tmp_path, writes="never", servers=_FACILITY)
+def test_rendered_deny_is_valid_permission_syntax(project):
+    manager, project_dir, _config = _configure(project, writes="never", servers=_FACILITY)
     manager.regenerate_claude_code(project_dir)
     settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
     deny = settings["permissions"]["deny"]
@@ -343,16 +355,16 @@ def test_the_permission_validator_rejects_a_regex():
 # ---------------------------------------------------------------------------
 
 
-def test_never_without_writes_check_refuses_a_mixed_tool(tmp_path):
+def test_never_without_writes_check_refuses_a_mixed_tool(project):
     with pytest.raises(BuildProfileError, match="writes-check"):
-        _ctx(tmp_path, writes="never", drop_hooks=("writes-check",))
+        _ctx(project, writes="never", drop_hooks=("writes-check",))
 
 
-def test_never_without_writes_check_refuses_a_write_tools_entry(tmp_path):
+def test_never_without_writes_check_refuses_a_write_tools_entry(project):
     """A never render cannot leave a write_tools entry callable with no gate."""
     with pytest.raises(BuildProfileError, match="control_system.write_tools"):
         _ctx(
-            tmp_path,
+            project,
             writes="never",
             write_tools=["mcp__controls__tune_knob"],
             servers={"python": {"enabled": False}},
@@ -360,10 +372,10 @@ def test_never_without_writes_check_refuses_a_write_tools_entry(tmp_path):
         )
 
 
-def test_never_without_writes_check_still_builds_for_facility_write_tools(tmp_path):
+def test_never_without_writes_check_still_builds_for_facility_write_tools(project):
     """Facility write tools are denied statically on never; no per-call gate is needed."""
     ctx = _ctx(
-        tmp_path,
+        project,
         writes="never",
         servers={"python": {"enabled": False}, "plc": _PLC},
         drop_hooks=("writes-check",),
@@ -372,15 +384,15 @@ def test_never_without_writes_check_still_builds_for_facility_write_tools(tmp_pa
 
 
 @pytest.mark.parametrize("word", ARMING)
-def test_an_arming_tier_without_approval_is_refused_naming_its_word(tmp_path, word):
+def test_an_arming_tier_without_approval_is_refused_naming_its_word(project, word):
     with pytest.raises(BuildProfileError) as excinfo:
-        _ctx(tmp_path, writes=word, drop_hooks=("approval",))
+        _ctx(project, writes=word, drop_hooks=("approval",))
     message = str(excinfo.value)
     assert f"allows writes (`control_system.writes: {word}`)" in message
     assert "pin writes off (`control_system.writes: never`)" in message
 
 
 @pytest.mark.parametrize("word", ARMING)
-def test_an_arming_tier_without_writes_check_is_refused(tmp_path, word):
+def test_an_arming_tier_without_writes_check_is_refused(project, word):
     with pytest.raises(BuildProfileError, match="writes-check"):
-        _ctx(tmp_path, writes=word, drop_hooks=("writes-check",))
+        _ctx(project, writes=word, drop_hooks=("writes-check",))

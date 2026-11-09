@@ -116,7 +116,7 @@ When a deploy builds an image
 A service is built on the deploy host only when its rendered compose document
 carries a ``build:`` block. Upstream pins never do. The OSPREY-built services
 (the event dispatcher, the Bluesky bridge, the Bluesky web panel, the Google
-Chat, Nextcloud and Teams bridges, the qmd sidecar and the virtual
+Chat, Nextcloud, Teams and Slack bridges, the qmd sidecar and the virtual
 accelerator) each do while they run the image OSPREY builds. A service whose
 ``services.<name>.image`` names any other image renders without ``build:``, and
 that image is pulled and run as named. Where one template renders several

@@ -36,6 +36,7 @@ which devices share a PV.
    :color: primary
    :icon: book
 
+   - What a knowledge graph is, and the questions this one answers
    - Why the server can only read, and what it refuses before dialing
    - What each degraded state means and the remedy it names
    - Where the graph comes from: the graph view the build writes
@@ -44,7 +45,7 @@ which devices share a PV.
    - How to point the tools at a store the facility already runs
 
    **Prerequisites:** a project with a ``services.graphdb`` block — the
-   ``control-assistant`` preset ships one, which ``osprey up`` seeds.
+   ``demo`` preset ships one, which ``osprey up`` seeds.
 
 
 What the graph holds, how its names are spelled, and what each of the four
@@ -59,6 +60,81 @@ tools returns are in :doc:`/reference/contracts/facility-graph`.
    this: a disconnected site brings the store up once on a host that can reach
    GitHub, or copies the jar into the plugins volume by hand, after which the
    volume carries it and later starts need nothing.
+
+
+What a Knowledge Graph Is
+=========================
+
+A **knowledge graph** stores facts as links between things. Each fact is one
+statement of subject, predicate and object, and facts that name the same thing
+join up, so a question can follow the links across many of them. Part of the
+graph describes the machine. The rest, the **ontology**, describes the *kinds*
+of thing the machine is made of and how those kinds relate: a horizontal
+corrector is a corrector, and a corrector is a magnet.
+
+.. raw:: html
+   :file: ../../_diagrams/facility-graph-primer.html
+
+An excerpt of the demo machine's graph. Solid arrows link things, dashed arrows
+tie each device to its class, and teal marks the walk in step 4.
+
+The walk is what a list of addresses cannot do on its own: the question says
+"steerer" and "section 1", and no address spells either. The same shape answers
+the questions that come up around a machine:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 44 56
+
+   * - Question
+     - What the graph follows
+   * - How many magnets does the ring have?
+     - Every class under ``Magnet``, then the devices of those classes.
+   * - What sits in this section, in beam order?
+     - The section and position each device carries.
+   * - Which addresses belong to this device, and which of them write?
+     - The device's bindings, then the signal each one reads or writes.
+   * - Which devices share this address?
+     - Back from the address to every device bound to it. Magnets on a common
+       power supply appear here; the demo machine has no shared addresses.
+
+.. dropdown:: The walk above, as a query
+   :color: secondary
+   :icon: code
+
+   Run against the demo machine, this returns the 12 setpoints in the figure's
+   last step, six horizontal and six vertical. The agent writes queries like
+   this for you.
+
+   .. code-block:: cypher
+
+      MATCH (word:Class) WHERE ANY(l IN word.altLabel WHERE l = "steerer")
+      MATCH (cls:Class)-[:SUBCLASSOF*0..]->(word)
+      MATCH (d:Resource)-[:TYPE]->(cls)
+      WHERE d.sectionCode = "SECT1"
+      MATCH (d)-[:HASBINDING]->(b:ChannelBinding)-[:WRITESSIGNAL]->()
+      RETURN d.deviceId AS device, b.fullPv AS setpoint, d.sPositionM AS s_m
+      ORDER BY s_m, device
+      LIMIT 50
+
+.. dropdown:: If you already work with knowledge graphs
+   :color: secondary
+   :icon: info
+
+   - **RDF in, property graph out.** The corpus is NARAD-convention Turtle,
+     which neosemantics projects into Neo4j; queries are Cypher, not SPARQL.
+   - **Nothing is inferred at load.** A device asserts only its concrete class,
+     and a query walks ``SUBCLASSOF*`` for the rest. The query gate refuses
+     ``n10s`` procedures, so the agent has no reasoner to call.
+   - **Derived, not curated.** Unless a profile names its own corpus, the build
+     writes it from the facility file, so a fix belongs in that file.
+   - **Structure only.** The graph holds no live values and no history. Those
+     stay in the control system and the archiver.
+   - **A wrong name returns zero rows, not an error.** The agent's prompt carries
+     the live schema and the class synonyms for this reason.
+
+   For the wider field, see Hogan et al., `Knowledge Graphs
+   <https://doi.org/10.1145/3447772>`_, *ACM Computing Surveys* 54(4), 2021.
 
 
 Read-Only by Construction
@@ -180,7 +256,7 @@ file reaches the graph with:
 What the Preset Seeds
 =====================
 
-The control-assistant preset seeds the graph view ``osprey build`` writes from
+The demo preset seeds the graph view ``osprey build`` writes from
 its facility file, ``data/graph/facility.ttl`` under the render. No
 hand-written corpus ships. Point ``ttl_path`` at a corpus of your own to seed
 that instead.
@@ -271,7 +347,7 @@ reads the same block and reaches an external store the same way
 One Machine, Several Views
 ==========================
 
-On the ``control-assistant`` preset the graph and the channel finder are
+On the ``demo`` preset the graph and the channel finder are
 generated from the same source, so their address spaces line up exactly — and
 where a view is smaller, it is a strict subset rather than a different machine:
 
@@ -384,8 +460,8 @@ stages, not a copy borrowed from the deployment's.
 Multi-User Operator Terminals
 =============================
 
-The ``control-assistant-readonly``, ``control-assistant-readwrite`` and
-``control-assistant-admin`` tier renders (:doc:`../web-terminal/multi-user/index`)
+The ``demo-readonly``, ``demo-readwrite`` and
+``demo-admin`` tier renders (:doc:`../web-terminal/multi-user/index`)
 get the same facility-knowledge-graph agent and its tools, reading the hosting
 deployment's store, and — the preset runs ``channel_finder_mode: graph`` — a
 channel finder that answers from it too. They are attached renders — they
@@ -415,8 +491,8 @@ Two consequences worth knowing before you move anything:
 The read-only tier receives ``GRAPHDB_PASSWORD`` as well. The store has a
 single write-capable account, so read-only-ness here is enforced by the graph
 server's read transaction rather than by the credential — the same posture the
-ARIEL database credential already takes. ``control-assistant-logbook`` has no
-control surface and no graph tools by design. ``control-assistant-knowledge``
+ARIEL database credential already takes. ``demo-logbook`` has no
+control surface and no graph tools by design. ``demo-knowledge``
 is the app built around the graph: it keeps the facility-knowledge-graph
 agent, the graph-backed channel finder and the KNOWLEDGE panel, and nothing
 that reads or writes the machine — the shared card for "how is the

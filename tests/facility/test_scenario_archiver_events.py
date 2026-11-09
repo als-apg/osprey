@@ -47,8 +47,8 @@ def _line(document: dict[str, Any]) -> str:
             {"shape": "wave", "at": 0.5, "to": 1.0},
             "SR:X",
             "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
-            "of channel SR:X has shape 'wave', not one of `ramp`, `spike`, `step`; fix: write "
-            "`shape` as one of `ramp`, `spike`, `step`",
+            "of channel SR:X has shape 'wave', not one of `burst`, `loss`, `ramp`, `spike`, "
+            "`step`; fix: write `shape` as one of `burst`, `loss`, `ramp`, `spike`, `step`",
         ),
         (
             {"shape": "spike", "at": 0.5, "amplitude": 1.0},
@@ -97,6 +97,54 @@ def _line(document: dict[str, Any]) -> str:
             "of channel SR:ON is a `ramp` on a bool channel; fix: use a `step` event, or "
             "move the event to a float channel",
         ),
+        (
+            {
+                "shape": "burst",
+                "at_offset": -60,
+                "amplitude": 1e-7,
+                "decay_s": 5,
+                "tail_share": 0.1,
+            },
+            "SR:X",
+            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "of channel SR:X states `tail_share` without the rest of its tail; fix: state "
+            "`tail_share`, `tail_decay_s` together, or neither",
+        ),
+        (
+            {"shape": "burst", "at_offset": -60, "amplitude": 1e-7, "decay_s": 0},
+            "SR:X",
+            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "of channel SR:X has `decay_s` 0, not greater than 0; fix: write `decay_s` as a "
+            "number greater than 0",
+        ),
+        (
+            {
+                "shape": "burst",
+                "at_offset": -60,
+                "amplitude": 1e-7,
+                "decay_s": 5,
+                "tail_share": 1.5,
+                "tail_decay_s": 30,
+            },
+            "SR:X",
+            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "of channel SR:X has `tail_share` 1.5, not between 0 and 1; fix: write "
+            "`tail_share` as the slow tail's fraction of the amplitude, above 0 and below 1",
+        ),
+        (
+            {"shape": "loss", "at_offset": -60, "amount": -18.0},
+            "SR:X",
+            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "of channel SR:X has `amount` -18.0, not greater than 0; fix: write `amount` as a "
+            "number greater than 0",
+        ),
+        (
+            {"shape": "loss", "at_offset": -60, "amount": 5.0},
+            "SR:ON",
+            "facility: value-invalid: scenario warm — scenarios/warm.yaml `archiver` event 1 "
+            "of channel SR:ON is a `loss` on a bool channel; fix: use a `step` event, or "
+            "move the event to a float channel",
+        ),
     ],
     ids=[
         "unknown-shape",
@@ -107,6 +155,11 @@ def _line(document: dict[str, Any]) -> str:
         "ramp-at-time",
         "not-a-number",
         "ramp-on-bool",
+        "burst-half-tail",
+        "burst-zero-decay",
+        "burst-tail-share",
+        "loss-negative",
+        "loss-on-bool",
     ],
 )
 def test_a_malformed_event_stops_naming_the_file_and_the_channel(
@@ -252,6 +305,16 @@ def test_well_formed_events_of_every_shape_pass() -> None:
             "amplitude": 1,
             "width": 2,
         },
+        {"shape": "burst", "at_time": "14:32:08", "amplitude": 1.5e-7, "decay_s": 5},
+        {
+            "shape": "burst",
+            "at_when": {"days_ago": 1, "time": "14:32:08"},
+            "amplitude": 1.5e-7,
+            "decay_s": 5,
+            "tail_share": 0.1,
+            "tail_decay_s": 25,
+        },
+        {"shape": "loss", "at_when": {"days_ago": 1, "time": "14:32:08"}, "amount": 18.0},
     ]
     assert check_scenario_events(_document(*events)) == []
 
@@ -282,7 +345,7 @@ def test_the_build_stops_on_a_malformed_event(tmp_path: Path) -> None:
     assert "scenarios/warm.yaml `archiver` event 1 of channel BPM1:X" in caught.value.detail
 
 
-def test_the_shipped_scenarios_build_with_no_stop(built_control_assistant: Any) -> None:
-    facility = built_control_assistant.facility
+def test_the_shipped_scenarios_build_with_no_stop(built_demo: Any) -> None:
+    facility = built_demo.facility
     assert any(s.get("archiver") for s in facility["scenarios"])
     assert check_scenario_events(facility) == []

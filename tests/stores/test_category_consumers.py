@@ -1,11 +1,9 @@
 """Category retired: the consumers that keyed on it read the new fields instead.
 
-Each consumer that used to read ``entry.category`` — the channel-reading prune,
-``archiver_downsample``, the activity bookkeeping filter, the session summary,
+Each consumer that used to read ``entry.category`` — ``archiver_downsample``, the activity bookkeeping filter, the session summary,
 the channel-finder review link, ARIEL picture retention — now reads what the
 writer states (``tool_source``, ``metadata.channel``, ``metadata.run_part``,
-the form). Legacy entries that still carry a stored category keep working where
-the store promised it (the prune). Internal writers no longer pass
+the form). Internal writers no longer pass
 ``category=``, which an AST scan over ``src/osprey`` pins.
 """
 
@@ -40,46 +38,6 @@ def _legacy(store: ArtifactStore, entry, **fields):
     """Give *entry* the stored fields a pre-retirement save would have left."""
     store.update_entry_metadata(entry.id, **fields)
     return store.get_entry(entry.id)
-
-
-# ---- prune -------------------------------------------------------------------
-
-
-class TestPrune:
-    def test_bounds_new_readings_by_tool_source_and_channel(self, store):
-        ids = [_reading(store).id for _ in range(4)]
-        other = _reading(store, channel="SR:C02:BPM1:X")
-
-        removed = store.prune_channel_readings(CHANNEL, keep=2)
-
-        assert {e.id for e in removed} == set(ids[:2])
-        left = {e.id for e in store.list_entries()}
-        assert set(ids[2:]) <= left
-        assert other.id in left
-
-    def test_bounds_legacy_channel_values_readings(self, store):
-        legacy = [
-            _legacy(store, _reading(store), tool_source="legacy_reader", category="channel_values")
-            for _ in range(3)
-        ]
-        newest = _reading(store)
-
-        removed = store.prune_channel_readings(CHANNEL, keep=2)
-
-        assert {e.id for e in removed} == {legacy[0].id, legacy[1].id}
-        left = {e.id for e in store.list_entries()}
-        assert {legacy[2].id, newest.id} <= left
-
-    def test_an_entry_that_is_not_a_reading_is_never_pruned(self, store):
-        unrelated = store.save_data(
-            tool="archiver_read", data={}, title="archive", metadata={"channel": CHANNEL}
-        )
-        for _ in range(2):
-            _reading(store)
-
-        store.prune_channel_readings(CHANNEL, keep=1)
-
-        assert store.get_entry(unrelated.id) is not None
 
 
 # ---- archiver_downsample -----------------------------------------------------

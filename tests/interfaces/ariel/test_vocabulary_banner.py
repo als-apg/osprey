@@ -8,12 +8,14 @@ Three things only a live page can prove, all of them painted by the list pane
   expanded nothing;
 - a vocabulary file that could not be loaded, with no database behind the
   panel, still puts ``ariel.vocabulary.path`` and its remedy on screen inside
-  ``#config-invalid-banner`` and leaves the search box and mode chip disabled;
+  ``#config-invalid-banner``, disables the mode chip and contributes no search
+  field to the tile bar;
 - the warning class (a pre-existing ``validate()`` error, valid vocabulary)
   renders ``#config-warning-banner`` instead and leaves search usable.
 
 The panel is booted the way ``_launchers.py::launch_ariel`` boots it —
-a real ``create_app()`` on a real uvicorn server — with a real ``config.yml``
+a real ``create_app()`` on a real uvicorn server, framed by the host fixture
+page (``_panel_host.py``) — with a real ``config.yml``
 written into ``tmp_path`` and ``create_ariel_service`` patched, so the
 configuration classification, the ``/api/capabilities`` payload and the
 remedy text are all the real ones while no PostgreSQL is required. Only
@@ -38,6 +40,7 @@ import pytest
 import yaml
 
 from osprey.interfaces._serving import run_app_server
+from tests.interfaces._panel_host import PanelHost, open_panel_host
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -132,7 +135,7 @@ def _launch_ariel_with_config(
     *,
     with_service: bool,
 ) -> Iterator[str]:
-    """Boot standalone ARIEL against a real ``config.yml``, with no database.
+    """Boot ARIEL against a real ``config.yml``, with no database.
 
     Mirrors ``_launchers.py::launch_ariel`` (cwd isolation + the real
     ``create_app()`` on a real server); the config file is written first and
@@ -259,13 +262,12 @@ def _route_search(page: Page, state: dict[str, list[dict[str, Any]]]) -> None:
     page.route("**/api/search", handler)
 
 
-def _run_search(page: Page, query: str) -> None:
-    """Type *query* into the list pane's search box and submit it with Enter."""
-    page.fill("#ariel-search-input", query)
-    page.press("#ariel-search-input", "Enter")
+def _run_search(page: PanelHost, query: str) -> None:
+    """Type *query* into the host bar's search field, which reports it to the panel."""
+    page.search_box().fill(query)
 
 
-def _result_row(page: Page, entry_id: str):
+def _result_row(page: PanelHost, entry_id: str):
     """The list row a search response painted for *entry_id*."""
     return page.locator(f'#ariel-list-body [data-entry-id="{entry_id}"]')
 
@@ -315,7 +317,7 @@ def test_missing_vocabulary_blocks_the_search_form(
         tmp_path, monkeypatch, _invalid_section(), with_service=False
     ) as base_url:
         page = chromium_browser.new_page()
-        page.goto(base_url, wait_until="load")
+        page = open_panel_host(page, base_url)
 
         banner = page.locator("#config-invalid-banner")
         expect(banner).to_be_visible(timeout=10_000)
@@ -328,16 +330,16 @@ def test_missing_vocabulary_blocks_the_search_form(
         expect(banner).to_contain_text(VOCABULARY_REMEDY)
 
         # The banner leads the list pane's banner strip, under the pane head, not
-        # in place of it: the controls stay in the DOM so the operator can see
-        # search is blocked.
+        # in place of it: the chip stays in the DOM so the operator can see search
+        # is blocked.
         assert (
             page.evaluate(
                 "document.querySelector('#ariel-list .ariel-list-banners').firstElementChild.id"
             )
             == "config-invalid-banner"
         )
-        expect(page.locator("#ariel-search-input")).to_be_disabled()
         expect(page.locator("#ariel-mode-chip")).to_be_disabled()
+        assert not [item for item in page.items() if item["kind"] == "search"]
 
         expect(page.locator("#config-warning-banner")).to_have_count(0)
 
@@ -353,7 +355,7 @@ def test_configuration_warning_leaves_search_usable(
         tmp_path, monkeypatch, _warning_section(), with_service=True
     ) as base_url:
         page = chromium_browser.new_page()
-        page.goto(base_url, wait_until="load")
+        page = open_panel_host(page, base_url)
 
         banner = page.locator("#config-warning-banner")
         expect(banner).to_be_visible(timeout=10_000)
@@ -364,7 +366,7 @@ def test_configuration_warning_leaves_search_usable(
         expect(banner).not_to_contain_text("ariel.vocabulary.path")
 
         expect(page.locator("#config-invalid-banner")).to_have_count(0)
-        expect(page.locator("#ariel-search-input")).to_be_enabled()
+        expect(page.search_box()).to_be_enabled()
         expect(page.locator("#ariel-mode-chip")).to_be_enabled()
 
         page.close()
@@ -389,7 +391,7 @@ def test_expansion_strip_renders_one_pair_per_group(
             "entries": [_entry("EXPANDED-1", "First search hit")],
         }
         _route_search(page, state)
-        page.goto(base_url, wait_until="load")
+        page = open_panel_host(page, base_url)
 
         expect(page.locator("#config-invalid-banner")).to_have_count(0)
 

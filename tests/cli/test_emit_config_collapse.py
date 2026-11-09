@@ -208,7 +208,7 @@ def test_emit_rejects_a_scalar_parent_introduced_by_an_override() -> None:
     """
     with pytest.raises(BuildProfileError, match="modules.web_terminals.enabled"):
         _emit(
-            "control-assistant",
+            "demo",
             (
                 "config.modules.web_terminals=false",
                 "config.modules.web_terminals.enabled=true",
@@ -223,7 +223,7 @@ def test_an_override_scalar_replaces_the_subtree_it_names() -> None:
     whole subtree at render time, so the emitted profile says that outright
     instead of carrying the inherited leaves it is about to overwrite.
     """
-    text = _emit("control-assistant", ("config.modules.web_terminals=false",))
+    text = _emit("demo", ("config.modules.web_terminals=false",))
     config = yaml.safe_load(text)["config"]
 
     assert config["modules.web_terminals"] is False
@@ -244,7 +244,7 @@ def test_web_tier_off_override_emits_one_web_terminals_key_holding_enabled_false
     ``modules.web_terminals`` subtree with ``enabled: true`` and the override a
     dotted ``enabled: false``. Emitted uncollapsed, a facility reordering those
     two lines would re-enable the web tier."""
-    config = yaml.safe_load(_emit("control-assistant", _WEB_TERMINALS_OFF))["config"]
+    config = yaml.safe_load(_emit("demo", _WEB_TERMINALS_OFF))["config"]
 
     web_terminal_keys = [
         key for key in config if key.split(".")[:2] == ["modules", "web_terminals"]
@@ -264,7 +264,7 @@ def test_the_collapsed_key_keeps_the_section_header_it_was_holding() -> None:
     """ruamel packs the comment block introducing the NEXT section onto the key
     before it, so deleting the folded key would take the following section's
     header with it."""
-    text = _emit("control-assistant", _WEB_TERMINALS_OFF)
+    text = _emit("demo", _WEB_TERMINALS_OFF)
 
     assert "# ── Answering webhooks (optional)" in text
     assert text.index("# ── Answering webhooks (optional)") < text.index("\ndispatch:")

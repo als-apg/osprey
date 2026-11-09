@@ -26,6 +26,8 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+# The approval hook's note for an approved call; the hook keeps a copy, pinned by a test.
+from osprey.agent_runner.transcript_author import APPROVED_CALL_NOTE as _APPROVED_CALL_NOTE
 from osprey.build.claude_code_telemetry import (
     DISPATCH_SESSION_PREFIX,
     HOST_SESSION_PREFIX,
@@ -169,6 +171,7 @@ def _session_row(
         "title_source": title_source,
         "naming": naming,
         "last_artifact_id": meta["last_artifact_id"],
+        "pinned": meta["pinned"],
         "state": "live" if current and key in live else "idle",
         "message_count": message_count if isinstance(message_count, int) else 0,
         "first_ts": record_row.get("first_ts"),
@@ -291,11 +294,49 @@ def _session_listing(
             continue
         placed.append((at, tid, _session_row(app, tid, None, ledger, live)))
     placed.sort(key=lambda p: (p[0], p[1]), reverse=True)
-    return {
+    body: dict[str, Any] = {
         "sessions": [row for _, _, row in placed],
         "more": more,
         "next_cursor": next_cursor,
         **session_record.record_fields(record, reason),
+    }
+    if before is None:
+        body["pinned_sessions"] = _pinned_rows(app, placed, client, ledger, live)
+    return body
+
+
+def _pinned_rows(
+    app,
+    placed: list[tuple[datetime, str, dict[str, Any]]],
+    client: Any,
+    ledger: session_ledger.Ledger,
+    live: set[str],
+) -> list[dict[str, Any]]:
+    """Every pinned session's row, first pinned first, wherever it is in the pages.
+
+    The first page carries them so the sidebar's pinned group is whole before the
+    later pages load. A pinned session not on this page is read from the record by
+    id, so it carries the title, count and prompt its own page would give it; one
+    the record does not answer for is drawn from the ledger and the meta alone.
+    """
+    listed = {tid: row for _, tid, row in placed}
+    pinned = session_meta.pinned_ids(app)
+    missing = [tid for tid in pinned if tid not in listed]
+    records = _record_rows_by_id(missing, client)
+    return [
+        listed.get(tid) or _session_row(app, tid, records.get(tid), ledger, live) for tid in pinned
+    ]
+
+
+def _record_rows_by_id(session_ids: list[str], client: Any) -> dict[str, Mapping[str, Any]]:
+    """The record's rows of *session_ids*, by id; an unavailable read answers none."""
+    if not session_ids:
+        return {}
+    answer = client.list_sessions(session_ids=session_ids, limit=len(session_ids))
+    if not answer.available or not isinstance(answer.data, list):
+        return {}
+    return {
+        r["session_id"]: r for r in answer.data if isinstance(r, Mapping) and r.get("session_id")
     }
 
 
@@ -387,6 +428,39 @@ async def put_title(request: Request, transcript_id: str, body: _TitleBody):
     return {"transcript_id": tid, **entry}
 
 
+class _PinBody(BaseModel):
+    pinned: bool
+
+
+@router.put("/api/sessions/{transcript_id}/pin")
+async def put_pin(request: Request, transcript_id: str, body: _PinBody):
+    """Pin or unpin a session the sidebar lists; 404 for any other, or a deleted one.
+
+    Every tab applies the change on the ``session_pinned`` frame.
+    """
+    tid = _uuid_id(transcript_id, "transcript_id")
+    app = request.app
+    if not await asyncio.to_thread(_is_pinnable, app, tid, _identity(request)):
+        raise HTTPException(status_code=404, detail="No such session.")
+    try:
+        entry = await asyncio.to_thread(session_meta.set_pinned, app, tid, body.pinned)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such session.") from None
+    broadcaster = getattr(app.state, "broadcaster", None)
+    if broadcaster is not None:
+        try:
+            broadcaster.broadcast(
+                {
+                    "type": session_meta.SESSION_PINNED_FRAME,
+                    "transcript_id": tid,
+                    "pinned": entry["pinned"],
+                }
+            )
+        except Exception:  # a frame is a hint; the next listing carries the pin anyway
+            logger.warning("Could not send the session_pinned frame", exc_info=True)
+    return {"transcript_id": tid, **entry}
+
+
 @router.put("/api/sessions/{transcript_id}/last-artifact")
 async def put_last_artifact(request: Request, transcript_id: str, body: _LastArtifactBody):
     tid = _uuid_id(transcript_id, "transcript_id")
@@ -402,6 +476,21 @@ def _is_mine(app, tid: str) -> bool:
         return False
     ledger = session_ledger.load(session_meta.ledger_state_dir())
     return _owned(app, tid, ledger, _sessions_dir(app))
+
+
+def _is_pinnable(app, tid: str, identity: str) -> bool:
+    """Whether the sidebar can list *tid*: it is mine, or the record lists it as my own.
+
+    The listing shows a session the hub holds nothing of when the record names
+    this operator on it, by the same two checks. A record that cannot answer
+    leaves :func:`_is_mine` alone.
+    """
+    if tid in session_meta.deleted_ids(app):
+        return False
+    if _is_mine(app, tid):
+        return True
+    row = _record_rows_by_id([tid], record_client()).get(tid)
+    return row is not None and _operator_row(row) and session_record.took_part(row, identity)
 
 
 @router.get("/api/sessions/{transcript_id}/layout")
@@ -971,11 +1060,6 @@ def _ts(value: Any) -> datetime | None:
     except ValueError:
         return None
 
-
-#: The note the approval hook gives the model when a person approved a call and the call
-#: then ran, or ran and failed. A copy of ``APPROVED_CALL_NOTE`` in the hook at
-#: ``templates/claude_code/claude/hooks/osprey_approval.py``; a test pins the two together.
-_APPROVED_CALL_NOTE = "The operator approved this call at the approval prompt before it ran."
 
 #: The hook events that run once a call has executed. The approval note arrives on one.
 _OUTCOME_HOOK_EVENTS = frozenset({"PostToolUse", "PostToolUseFailure"})

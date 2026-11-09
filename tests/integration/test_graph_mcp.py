@@ -18,7 +18,7 @@ rests on:
   than by a client-side slice.
 
 One store, the session's, wiped and seeded once per module with the graph
-view the control-assistant build writes (``data/graph/facility.ttl``) through
+view the demo build writes (``data/graph/facility.ttl``) through
 the same primitives ``osprey up`` uses.
 
 Skips are loud and only ever about the host.  If Docker is not reachable the
@@ -85,7 +85,7 @@ logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.xdist_group("docker")]
 
 
-# --- Verified counts for the control-assistant build's graph view ----------
+# --- Verified counts for the demo build's graph view ----------
 # Stated here rather than derived, so a change to the demo facility has to be
 # acknowledged in this module.
 
@@ -182,8 +182,8 @@ def _seeded_store(shared: WatchedStore, ttl_text: str, label: str) -> Iterator[W
 
 
 @pytest.fixture(scope="module")
-def demo_corpus(built_control_assistant: BuiltProject) -> Path:
-    """The graph view the control-assistant build writes.
+def demo_corpus(built_demo: BuiltProject) -> Path:
+    """The graph view the demo build writes.
 
     One file for both backends: the store is seeded from its text and the
     search index is built from it, so a parity failure can never be two
@@ -191,7 +191,7 @@ def demo_corpus(built_control_assistant: BuiltProject) -> Path:
     """
     from osprey.facility.views.graph import GRAPH_FILE
 
-    return built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
+    return built_demo.build_dir / "data" / "graph" / GRAPH_FILE
 
 
 @pytest.fixture(scope="module")

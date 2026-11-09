@@ -146,7 +146,7 @@ def test_the_guard_renders_the_injected_shape(guard_module) -> None:
 
     failures = [f for f in doctored.result.failures if f.mode == "unmapped-key"]
     assert [f.detail.split(" ", 1)[0] for f in failures] == [removed]
-    assert "control-assistant+injectors" in failures[0].detail
+    assert "demo+injectors" in failures[0].detail
 
 
 def test_a_lane_instance_key_is_read_against_its_familys_rows(guard_module) -> None:

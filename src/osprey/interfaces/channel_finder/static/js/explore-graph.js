@@ -3,12 +3,13 @@
  * OSPREY Channel Finder — Graph Explore (the facility finder).
  *
  * The graph paradigm has no channel database to browse, so Explore is a
- * search: a toolbar with the query box, a facet rail built from the store's
- * own vocabulary, a page of matching channels, and a device inspector for the
- * row an operator drills into. It is laid out like the fleet's other panels —
- * full height, the rail and the inspector as panes behind the shared splitter,
- * a right-click menu on every surface that has verbs — and the store the
- * answers came from is named in the corpus strip below it (stats-badges.js).
+ * search: the query box in the panel toolbar, a facet sidebar built from the
+ * store's own vocabulary, a page of matching channels, and a device inspector
+ * for the row an operator drills into. It is laid out like the fleet's other
+ * panels — full height under the toolbar, the filters in the shared panel
+ * sidebar and the inspector behind the shared splitter, a right-click menu on
+ * every surface that has verbs — and the store the answers came from is named
+ * in the corpus strip below it (stats-badges.js).
  *
  * Three states, one panel: the finder, an informational pane for a store that
  * is reachable but unseeded, and the same pane carrying the store's own remedy
@@ -20,7 +21,7 @@
  *   graph-finder-state.js   what the operator asks for (query, facets, page, sort, selection)
  *   graph-finder-render.js  every string drawn
  *   graph-finder-menus.js   which verbs each right-click menu offers
- *   graph-finder-verbs.js   the verbs, and the hub tile-bar contribution
+ *   graph-finder-verbs.js   the verbs, and the ⋯ entries' one handler and hub contribution
  *   graph-finder-events.js  which input reaches which verb
  *   graph-finder-prefs.js   the column layout and view preferences kept per render
  *   graph-finder-data.js    reading an endpoint, and the class forest
@@ -34,13 +35,12 @@
  * the panel it was asked for is still mounted, so a slow answer to an abandoned
  * query can never overwrite a faster answer to the current one.
  *
- * Embedded in the web terminal the toolbar's search box and ⋯ menu move into
- * the hub's tile bar (graph-finder-verbs.js contributeHeader →
- * state.setViewHeader → app.js), so the panel body starts at the filters like
- * every other tile; only standalone keeps the in-body toolbar.
+ * While mounted the finder holds the panel toolbar's search field, its result
+ * count and, while the filters are drawn, its sidebar toggle (panel-toolbar.js).
+ * The hub gets only the ⋯ entries, as one v3 `menu` (graph-finder-verbs.js
+ * publishMenu).
  */
 
-import { state } from './state.js';
 import { esc } from './utils.js';
 import { refreshStatsBadges } from './stats-badges.js';
 import { showToast } from './app.js';
@@ -68,13 +68,15 @@ import {
   facetRailHtml,
   fmt,
   footerHtml,
+  resultCountHtml,
   resultsHtml,
   FINDER_IDS,
   skeletonHtml,
 } from './graph-finder-render.js';
 import { buildForest, classNameIn, createFlights, stringList } from './graph-finder-data.js';
-import { contributeHeader, createActions } from './graph-finder-verbs.js';
+import { createActions, publishMenu, withdrawMenu } from './graph-finder-verbs.js';
 import { bindFinderEvents } from './graph-finder-events.js';
+import { attachSidebar, claimToolbar, searchInput, setResultCount } from './panel-toolbar.js';
 import {
   COLUMN_SPECS,
   INSPECTOR_KEY,
@@ -88,20 +90,16 @@ import {
 /** @typedef {import('./graph-finder-data.js').ClassNode} ClassNode */
 /** @typedef {import('./graph-finder-data.js').Reply} Reply */
 /** @typedef {import('./graph-finder-verbs.js').FinderHost} FinderHost */
-/** @typedef {import('/design-system/js/splitter.js').SplitterApi} SplitterApi */
 
 const ONTOLOGY_PATH = '/api/graph/ontology';
 const SEARCH_PATH = '/api/graph/search';
 const DEVICE_PATH = '/api/graph/device';
 
-/** Splitters only drive the side-by-side layout; a narrow viewport stacks. */
-const WIDE_QUERY = '(min-width: 769px)';
-
 const LOADING_HTML =
   '<div class="loading-center"><div class="loading-spinner"></div> Searching the facility graph&hellip;</div>';
 const EMPTY_TITLE = 'The graph store is reachable, but holds no facility corpus yet.';
 const TRUNCATED_TEXT =
-  'The store holds more values than this query returned, so the rail below is a ' +
+  'The store holds more values than this query returned, so the filters are a ' +
   'partial view of its vocabulary.';
 
 /** The element the panel is mounted into, or null when nothing is mounted. */
@@ -134,13 +132,11 @@ let embedded = false;
 let layout = loadColumns();
 let prefs = loadPrefs();
 
-/** The filter rail's splitter, for the verbs that hide and show it. */
-/** @type {SplitterApi|null} */
-let railSplit = null;
-
-/** Teardowns: the listeners of the mount, and what the skeleton wires. */
+/** Teardowns: the listeners of the mount, the toolbar it holds, and what the skeleton wires. */
 /** @type {(() => void)|null} */
 let unbindEvents = null;
+/** @type {(() => void)|null} */
+let releaseToolbar = null;
 /** @type {Array<() => void>} */
 let skeletonTeardown = [];
 
@@ -158,10 +154,9 @@ const host = {
   },
   prefs: () => prefs,
   embedded: () => embedded,
-  railSplit: () => railSplit,
   pane: () => paneEl,
   part,
-  searchInputId: FINDER_IDS.search,
+  searchInput,
   runSearch,
   renderTable,
   renderRail,
@@ -201,8 +196,9 @@ export async function mountGraph(content) {
     <div class="graph-explorer${prefs.density === 'compact' ? ' compact' : ''}" data-pipeline="graph">
       <div class="graph-explorer-body">${LOADING_HTML}</div>
     </div>`;
+  releaseToolbar = claimToolbar();
   unbindEvents = bindFinderEvents(content, host);
-  contributeHeader(host);
+  publishMenu(host);
   await load();
 }
 
@@ -216,9 +212,11 @@ export function unmountGraph() {
   teardownSkeleton();
   unbindEvents?.();
   unbindEvents = null;
+  releaseToolbar?.();
+  releaseToolbar = null;
   if (paneEl) {
     paneEl.innerHTML = '';
-    if (state.viewHeader) state.setViewHeader(null);
+    withdrawMenu();
   }
   paneEl = null;
   results = null;
@@ -320,38 +318,32 @@ function part(id) {
 }
 
 /**
- * Wire what the skeleton carries: the two splitters and the column gestures.
+ * Wire what the skeleton carries: the filter sidebar (which takes over the
+ * toolbar's toggle), the inspector's splitter and the column gestures.
  * Called each time the skeleton is (re)written, after any previous wiring is
  * torn down.
  * @returns {void}
  */
 function wireSkeleton() {
   teardownSkeleton();
-  const wide = () => window.matchMedia?.(WIDE_QUERY).matches ?? true;
-  const rail = initSplitter({
-    handle: part(FINDER_IDS.railSplit),
-    pane: part(FINDER_IDS.rail),
-    storageKey: scopedStorageKey(RAIL_KEY),
-    min: 160,
-    max: 480,
-    collapsedSize: 0,
-    isEnabled: wide,
-    onCommit: () => contributeHeader(host),
-  });
+  const sidebar = attachSidebar(
+    /** @type {HTMLElement} */ (part(FINDER_IDS.rail)),
+    part(FINDER_IDS.railSplit),
+    RAIL_KEY
+  );
+  // The inspector docks under the results, so its handle moves on the y axis
+  // and the size it keeps is a height: at least room for a card head and a
+  // few bindings, at most most of the pane, so the results never vanish.
   const inspector = initSplitter({
     handle: part(FINDER_IDS.cardSplit),
     pane: part(FINDER_IDS.card),
     storageKey: scopedStorageKey(INSPECTOR_KEY),
+    axis: 'y',
     anchor: 'end',
-    min: 260,
-    max: () => Math.max(320, Math.round((paneEl?.clientWidth || 1200) * 0.6)),
-    isEnabled: wide,
+    min: 160,
+    max: () => Math.max(220, Math.round((paneEl?.clientHeight || 800) * 0.7)),
   });
-  if (wide()) {
-    rail.restoreSize();
-    inspector.restoreSize();
-  }
-  railSplit = rail;
+  inspector.restoreSize();
 
   const table = part(FINDER_IDS.table);
   const detach = table
@@ -371,14 +363,13 @@ function wireSkeleton() {
         onAutosize: (key) => createActions(host).autosize(key),
       })
     : () => {};
-  skeletonTeardown = [() => rail.destroy(), () => inspector.destroy(), detach];
+  skeletonTeardown = [() => sidebar.destroy(), () => inspector.destroy(), detach];
 }
 
 /** Undo {@link wireSkeleton}. Safe when nothing is wired. @returns {void} */
 function teardownSkeleton() {
   for (const fn of skeletonTeardown) fn();
   skeletonTeardown = [];
-  railSplit = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -388,8 +379,9 @@ function teardownSkeleton() {
 /**
  * Draw the finder for the current state and the newest search payload.
  *
- * The skeleton is written once and then only its regions are replaced, so the
- * query box keeps its focus and its caret while results stream in behind it.
+ * The skeleton is written once and then only its regions are replaced; the
+ * query box is the toolbar's, so it keeps its focus and its caret while
+ * results stream in.
  * @returns {void}
  */
 function renderFinder() {
@@ -397,9 +389,7 @@ function renderFinder() {
   if (!body || !results) return;
 
   if (!part(FINDER_IDS.table)) {
-    body.innerHTML = skeletonHtml(prefs.density);
-    const input = /** @type {HTMLInputElement|null} */ (part(FINDER_IDS.search));
-    if (input) input.value = finder.q;
+    body.innerHTML = skeletonHtml();
     wireSkeleton();
   }
 
@@ -420,8 +410,7 @@ function renderFinder() {
         : '');
   }
 
-  const count = part(FINDER_IDS.count);
-  if (count) count.innerHTML = `<strong>${fmt(results.total)}</strong> channels`;
+  setResultCount(resultCountHtml(results.total, results.devices));
 
   const caution = part(FINDER_IDS.caution);
   if (caution) {
@@ -433,10 +422,10 @@ function renderFinder() {
 
   renderCard();
   renderTable();
-  contributeHeader(host);
+  publishMenu(host);
 }
 
-/** Redraw the facet rail. @returns {void} */
+/** Redraw the facet sidebar. @returns {void} */
 function renderRail() {
   const rail = part(FINDER_IDS.rail);
   if (rail && results)
@@ -459,14 +448,7 @@ function renderTable() {
     table.querySelector('tbody tr[data-pv][tabindex="0"]')?.getAttribute('data-pv') ?? null;
   table.innerHTML =
     resultsHtml(results.rows || [], finder, visibleColumns(COLUMN_SPECS, layout), stop) +
-    footerHtml(
-      results.total,
-      results.devices,
-      finder.page,
-      results.pages,
-      finder.selected.size,
-      embedded
-    );
+    footerHtml(finder.page, results.pages, finder.selected.size, embedded);
   markOpenRows();
   if (hadFocus) {
     /** @type {HTMLElement|null} */ (
@@ -509,10 +491,9 @@ function markOpenRows() {
 }
 
 /**
- * Redraw the inspector region from `cardHtml`. Opening it takes room from the
- * results (all of it below them in a narrow tile), so the row it was opened
- * from is scrolled back into the results' view; `nearest` leaves a row that is
- * still visible where it is.
+ * Redraw the inspector region from `cardHtml`. Opening it takes height from
+ * the results above it, so the row it was opened from is scrolled back into
+ * the results' view; `nearest` leaves a row that is still visible where it is.
  * @returns {void}
  */
 function renderCard() {
@@ -542,6 +523,7 @@ function renderInfo(detail, suggestions) {
   const body = bodyEl();
   if (!body) return;
   teardownSkeleton();
+  setResultCount('');
   body.innerHTML = '';
   const pane = document.createElement('div');
   pane.className = 'explore-unknown explore-unknown--info';

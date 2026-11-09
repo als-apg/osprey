@@ -9,7 +9,8 @@ sidebar is a transcript, not a key::
     {
       "sessions": {transcript_id: {"title", "title_source": "user"|"auto",
                                    "auto_title", "naming": "done"|"failed",
-                                   "last_artifact_id", "layout", "deleted"}},
+                                   "last_artifact_id", "layout", "pinned",
+                                   "deleted", "scenario"}},
       "last_active": {"session_key", "at"},
       "naming_since": ISO time of the document's first creation
     }
@@ -17,10 +18,15 @@ sidebar is a transcript, not a key::
 ``title`` is what the sidebar shows: the operator's own title when they set one,
 else the auto title. Clearing a user title (``set_title(tid, "")``) reverts to the
 auto title rather than to nothing. ``layout`` is the web layout the session was
-last left in (see :func:`clean_layout`). ``naming_since`` bounds auto-naming to sessions
+last left in (see :func:`clean_layout`). ``scenario`` marks a transcript the
+demo-history lay-down seeded (:func:`mark_seeded`): its auto title is the scenario's
+title and its naming is ``done``, so the naming service never names it.
+``naming_since`` bounds auto-naming to sessions
 that began after the feature existed, so turning it on does not spend a model call
-per historical conversation. ``deleted`` (an ISO time) is a deleted session's
-tombstone: the agent record keeps its rows, so the listing, the namer, ``enter``,
+per historical conversation. ``pinned`` (an ISO time) is when the operator pinned
+the session in the sidebar; the pinned sessions are listed in that order (the
+agent is not told of pins). ``deleted`` (an ISO time) is a deleted session's
+tombstone, which drops its pin too: the agent record keeps its rows, so the listing, the namer, ``enter``,
 the ledger's write point and the backfill all read :func:`deleted_ids` to keep it
 from coming back. A naming that is in flight lives in memory only
 (``app.state.session_naming_pending``): a restart must retry it, not believe it.
@@ -61,6 +67,7 @@ __all__ = [
     "LAYOUT_MAX_BYTES",
     "LayoutTooLarge",
     "SESSION_DELETED_FRAME",
+    "SESSION_PINNED_FRAME",
     "SESSION_TRANSCRIPT_FRAME",
     "STORE_FILENAME",
     "backfill_ledger",
@@ -73,12 +80,15 @@ __all__ = [
     "ledger_state_dir",
     "load",
     "mark_deleted",
+    "mark_seeded",
     "naming_since",
+    "pinned_ids",
     "record_transcript_move",
     "set_auto_title",
     "set_last_active",
     "set_last_artifact",
     "set_layout",
+    "set_pinned",
     "set_title",
     "store_path",
 ]
@@ -91,6 +101,9 @@ SESSION_TRANSCRIPT_FRAME = "session_transcript"
 
 #: The hub page frame sent when the operator deletes a session.
 SESSION_DELETED_FRAME = "session_deleted"
+
+#: The hub frame type that tells every tab a session was pinned or unpinned.
+SESSION_PINNED_FRAME = "session_pinned"
 
 _TITLE_SOURCES = ("user", "auto")
 _NAMING_STATES = ("done", "failed")
@@ -223,7 +236,9 @@ def _clean_session(raw: Any) -> dict[str, Any] | None:
         "naming": naming if naming in _NAMING_STATES else None,
         "last_artifact_id": _str_or_none(raw.get("last_artifact_id")),
         "layout": _layout_or_none(raw.get("layout")),
+        "pinned": _str_or_none(raw.get("pinned")),
         "deleted": _str_or_none(raw.get("deleted")),
+        "scenario": _str_or_none(raw.get("scenario")),
     }
 
 
@@ -235,7 +250,9 @@ def _blank() -> dict[str, Any]:
         "naming": None,
         "last_artifact_id": None,
         "layout": None,
+        "pinned": None,
         "deleted": None,
+        "scenario": None,
     }
 
 
@@ -324,11 +341,12 @@ def get(app, tid: str) -> dict[str, Any]:
 
 def deleted_ids(app) -> set[str]:
     """The transcripts the operator deleted (their tombstones)."""
-    return {tid for tid, entry in _document(app)["sessions"].items() if entry.get("deleted")}
+    sessions = list(_document(app)["sessions"].items())
+    return {tid for tid, entry in sessions if entry.get("deleted")}
 
 
 def mark_deleted(app, tid: str) -> dict[str, Any]:
-    """Replace *tid*'s record with a tombstone: no title, artifact or layout, ``deleted`` now."""
+    """Replace *tid*'s record with a tombstone: no title, artifact, layout or pin, ``deleted`` now."""
     document = _document(app)
     document["sessions"][tid] = {**_blank(), "deleted": _now()}
     _persist(app, document)
@@ -349,6 +367,33 @@ def set_title(app, tid: str, title: str) -> dict[str, Any]:
     return dict(entry)
 
 
+def set_pinned(app, tid: str, pinned: bool) -> dict[str, Any]:
+    """Pin *tid* (``pinned`` now, kept when already pinned) or unpin it.
+
+    Raises:
+        KeyError: *tid* is deleted; a tombstone takes no pin.
+    """
+    document = _document(app)
+    if (document["sessions"].get(tid) or {}).get("deleted"):
+        raise KeyError(tid)
+    entry = _entry(document, tid)
+    value = (entry["pinned"] or _now()) if pinned else None
+    if entry["pinned"] != value:
+        entry["pinned"] = value
+        _persist(app, document)
+    return dict(entry)
+
+
+def pinned_ids(app) -> list[str]:
+    """The pinned transcripts that are not deleted, first pinned first."""
+    pins = [
+        (entry["pinned"], tid)
+        for tid, entry in list(_document(app)["sessions"].items())
+        if entry.get("pinned") and not entry.get("deleted")
+    ]
+    return [tid for _, tid in sorted(pins)]
+
+
 def set_auto_title(app, tid: str, title: str | None, state: str) -> dict[str, Any]:
     """Record a naming outcome for *tid*: its auto title and ``done`` / ``failed``.
 
@@ -367,6 +412,31 @@ def set_auto_title(app, tid: str, title: str | None, state: str) -> dict[str, An
     _persist(app, document)
     pending: set[str] = getattr(app.state, "session_naming_pending", set())
     pending.discard(tid)
+    return dict(entry)
+
+
+def mark_seeded(app, tid: str, scenario: str, title: str) -> dict[str, Any]:
+    """Mark *tid* as a transcript seeded from *scenario*, titled *title*.
+
+    The auto title becomes *title* and the naming ``done``, so the naming service
+    never names it; a user title (set before or after) still wins, and clearing it
+    reverts to *title*. Touches neither the transcript map nor the ledger.
+
+    Raises:
+        ValueError: *scenario* is empty.
+    """
+    scenario = (scenario or "").strip()
+    if not scenario:
+        raise ValueError("a seeded transcript needs a scenario")
+    document = _document(app)
+    entry = _entry(document, tid)
+    entry["scenario"] = scenario
+    entry["auto_title"] = _str_or_none((title or "").strip())
+    entry["naming"] = "done"
+    if entry["title_source"] != "user":
+        entry["title"] = entry["auto_title"]
+        entry["title_source"] = "auto" if entry["auto_title"] else None
+    _persist(app, document)
     return dict(entry)
 
 

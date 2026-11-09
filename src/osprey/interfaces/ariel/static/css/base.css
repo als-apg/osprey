@@ -33,7 +33,6 @@
   --tracking-wide: 0.025em;
 
   --container-max: 1400px;
-  --header-height: 64px;
 }
 
 /* === Reset === */
@@ -51,8 +50,8 @@ html {
 
 /* base.css (design system) sets html,body { overflow: hidden } for the
    hub's fixed-viewport terminal shell. ARIEL's panes scroll inside
-   themselves; auto keeps the page reachable should the standalone header
-   plus the screen ever outgrow a short viewport. */
+   themselves; auto keeps the page reachable should the screen ever outgrow
+   a short viewport. */
 html, body {
   overflow: auto;
 }

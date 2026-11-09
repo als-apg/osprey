@@ -765,7 +765,7 @@ def target_availability(
 # session its client belongs to, the reader names its own, and two equal
 # non-empty keys are one session. A pid walk answered the same question only
 # for clients that happened to descend from the reader, which a notebook kernel
-# and a popped-out window never do.
+# and a pane in its own window never does.
 
 
 #: How much of a session key a refusal prints. Long enough to tell two live

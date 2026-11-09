@@ -1,7 +1,7 @@
 """Browser tests: where the sidebar's footer (Docs, Feedback, ☰ More) lands.
 
 The footer sits at the bottom of the sidebar, below the Tools group, and never
-scrolls off: only the Workspace section gives up height. That is a geometry
+scrolls off: only the Sessions group gives up height. That is a geometry
 fact no unit test can see, because only a real layout engine resolves the flex
 column.
 
@@ -76,7 +76,7 @@ def _open_hub_page(browser: Browser, url: str) -> Page:
     """Open a hub URL at 1280×700 and wait for the panel rows AND the footer.
 
     The footer is static markup, but its position only settles once
-    ``createRail()`` has filled the Workspace and Tools groups above it.
+    ``createRail()`` has filled the Sessions and Tools groups above it.
     """
     page = browser.new_page(viewport=_SMALL_VIEWPORT)
     page.goto(url, wait_until="domcontentloaded")

@@ -79,7 +79,7 @@ JUDGE_MODEL = "claude-haiku-5-5"
 
 #: Channel bindings in the shipped demo corpus — what ``osprey up`` puts in
 #: the store and what the graph lane's census must find. It equals
-#: ``EXPECTED_BINDINGS`` in ``tests/templates/test_control_assistant_demo_ttl.py``,
+#: ``EXPECTED_BINDINGS`` in ``tests/templates/test_demo_ttl.py``,
 #: which owns the corpus-side pin; this is the benchmark-side one.
 GRAPH_CHANNEL_COUNT = 4731
 

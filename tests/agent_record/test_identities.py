@@ -55,6 +55,7 @@ def test_fixed_identities_match_the_deployment_names():
     assert ids.HISTORY_IDENTITY == HISTORY_SERVICE
     assert dict(ids.BRIDGE_IDENTITIES) == {
         "teams_bridge": "teams-bridge",
+        "slack_bridge": "slack-bridge",
         "gchat_bridge": "gchat-bridge",
         "nextcloud_bridge": "nextcloud-bridge",
     }

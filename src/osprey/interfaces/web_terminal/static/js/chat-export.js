@@ -9,8 +9,8 @@
  * rebuilds it from the lifecycle bus (chat-events.js) as the frames arrive. The
  * rendered text is the fallback when no source was captured.
  *
- * The conversation. Export conversation, a row of the Agent tile's menu
- * (panel-menu-policy.js), downloads the whole transcript through
+ * The conversation. Export conversation, a "This panel" row of the Agent tile's
+ * ⋯ (agent-menu.js) in chat, downloads the whole transcript through
  * {@link exportConversation}. It is read from the server with fetchHistory, not taken from the
  * log, so it is complete even when the page joined the conversation part-way.
  * Each tool call is one line with its decision and outcome, and no payloads.
@@ -28,6 +28,8 @@ import { emitChat, onChat } from './chat-events.js';
 import { button, elem } from './chat-dom.js';
 import { chatIcon } from './chat-icons.js';
 import { systemFrame } from './chat-system.js';
+import { setAgentMenuRow } from './agent-menu.js';
+import { isTerminalSurface } from './agent-surface.js';
 import { HIDDEN_TOOL_KEYS, QUESTION_TOOL_KEY, toolKey } from './chat-tool-vocab.js';
 
 /** @typedef {import('./chat-client.js').ChatTurn} ChatTurn */
@@ -113,8 +115,8 @@ export async function exportConversation() {
 }
 
 /**
- * Start the copy control on finished replies and arm
- * {@link exportConversation}. Called once by initChatFeatures.
+ * Start the copy control on finished replies, arm {@link exportConversation}
+ * and put its row in the Agent tile's ⋯. Called once by initChatFeatures.
  * @param {Pick<ChatFeatureContext, 'messages' | 'getKey'>} ctx
  */
 export function initChatExport(ctx) {
@@ -307,6 +309,12 @@ export function initChatExport(ctx) {
       emitChat('notice', { text });
     }
   };
+  // The export reads the chat's conversation, so the terminal offers no row.
+  setAgentMenuRow('export', () =>
+    isTerminalSurface()
+      ? null
+      : { label: 'Export conversation', run: () => void exportConversation() }
+  );
 }
 
 /**

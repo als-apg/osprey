@@ -46,8 +46,8 @@ import {
 import { entryIds, placeEntry } from './panel-rail.js';
 import { runPanelOp } from './panel-placement.js';
 import { postPanelOpResult } from './panel-commands.js';
-import { focusPopout, popoutWindow } from './popout.js';
-import { sendAgentActivityToIframe, sendAgentActivityToWindow } from './panel-iframe-sync.js';
+import { closeDetached, focusWindow } from './pane-window.js';
+import { sendAgentActivityToIframe } from './panel-iframe-sync.js';
 import {
   initWatchdogAlert,
   isWatchdogFrame,
@@ -113,9 +113,9 @@ function mountedIframe(panelId) {
 
 /**
  * Relay a panel-targeted agent_activity frame to the panel itself: its
- * mounted iframe and, when popped out, its window. Neither present — the
- * panel is not mounted — and the frame is dropped; the rail badge (or the
- * strip) is all the hub shows for it.
+ * mounted iframe, in a tile or in a window of its own. With none — the panel
+ * is not mounted — the frame is dropped; the rail badge (or the strip) is all
+ * the hub shows for it.
  * @param {string} panelId
  * @param {AgentActivityEvent} frame
  */
@@ -123,8 +123,6 @@ function relayAgentActivity(panelId, frame) {
   const activity = { tool: frame.tool, detail: frame.target.detail, ts: frame.ts };
   const iframe = mountedIframe(panelId);
   if (iframe) sendAgentActivityToIframe(iframe, activity);
-  const win = popoutWindow(panelId);
-  if (win) sendAgentActivityToWindow(win, activity);
 }
 
 /**
@@ -175,8 +173,8 @@ export function subscribePanelEvents(sseDeps) {
   //                                               for target.kind 'panel', otherwise
   //                                               hand off to the strip seam. A
   //                                               'panel' target is also relayed to
-  //                                               that panel's mounted iframe and
-  //                                               pop-out as `osprey-agent-activity
+  //                                               that panel's mounted iframe as
+  //                                               `osprey-agent-activity
   //                                               {tool, detail, ts}`; an unmounted
   //                                               panel's frame is dropped.
   //   watchdog_*       {type, session_key, ...} — a change notice: handed to
@@ -222,7 +220,7 @@ export function subscribePanelEvents(sseDeps) {
         if (kind === 'panel_op') {
           const frame = /** @type {import('./panel-placement.js').PanelOpFrame} */ (raw);
           // Only the addressed dock client acts on an op.
-          if (frame.target_client === getPageClientId()) void handlePanelOp(frame);
+          if (frame.target_client === getPageClientId()) queuePanelOp(frame);
           return;
         }
         if (kind === 'panel_report_request') {
@@ -325,7 +323,7 @@ function applyPanelVisibility(panel, visible, source, index) {
 }
 
 /**
- * Close `panel`'s tile and, when it held the view, hand the view to a panel
+ * Close `panel`'s tile, or its window, and, when it held the view, hand the view to a panel
  * the operator can still see, without touching rail membership.
  *
  * The removal half of `panel_visibility` (membership is already gone by the
@@ -341,6 +339,7 @@ function applyPanelVisibility(panel, visible, source, index) {
  */
 function closeTile(panel) {
   const c = ctx();
+  closeDetached(panel);
   withEchoSuppressed(() => hidePanel(panel));
   if (panel !== c.getActive()) return;
   const holder = getLayoutHolder();
@@ -447,12 +446,50 @@ function showOutcome(frame, outcome, before, after) {
   const url = frame.op === 'open' && typeof args.url === 'string' ? args.url : null;
   if (outcome.popout !== undefined) {
     if (url !== null) ctx().navigate(args.member, url);
-    focusPopout(outcome.popout);
+    focusWindow(outcome.popout);
     if (frame.source === 'agent') flashAgentTile(outcome.popout);
     return;
   }
   surfaceOp(before, after, outcome.result.focus, frame.source === 'agent');
   if (url !== null) ctx().navigate(args.member, url);
+}
+
+/** The last op this dock started; the next one waits for it while any is open. */
+let opsSettled = Promise.resolve();
+/** How many ops are started or waiting and not yet answered. */
+let opsOpen = 0;
+
+/**
+ * How long an op waits for the one before it: the server's own wait for an
+ * answer (OP_TIMEOUT_S), past which that op is refused anyway, so an answer
+ * that never lands cannot hold every later op.
+ */
+const OP_QUEUE_WAIT_MS = 5000;
+
+/**
+ * Run `frame` once every op that arrived before it has been answered and its
+ * answer taken. The server returns an op's `rev` to the agent as soon as it
+ * records this dock's answer, so the agent's next op (carrying that rev as
+ * `base_rev`) can arrive before this page has read the same answer and acked
+ * the rev. Run at once, it would be checked against the previous ack and
+ * refused `stale_base`; run after, it is checked against the rev it names.
+ * With no op open the frame runs at once, in the frame's own task.
+ * @param {import('./panel-placement.js').PanelOpFrame} frame
+ */
+function queuePanelOp(frame) {
+  const run = () =>
+    handlePanelOp(frame)
+      .catch((err) => console.error('panel-sse: panel op handling failed', err, frame))
+      .finally(() => {
+        opsOpen -= 1;
+      });
+  opsOpen += 1;
+  if (opsOpen === 1) {
+    opsSettled = run();
+    return;
+  }
+  const wait = new Promise((resolve) => setTimeout(resolve, OP_QUEUE_WAIT_MS));
+  opsSettled = Promise.race([opsSettled, wait]).then(run);
 }
 
 /**

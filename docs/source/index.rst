@@ -21,9 +21,9 @@ A short demo of the operator workstation:
             alt="The Osprey operator workstation with a 3D plot the agent made of three BPMs.">
      </video>
      <p class="osprey-demo-source">
-       Recorded on the control-assistant demo, which runs a simulated accelerator
+       Recorded on the OSPREY demo, which runs a simulated accelerator
        rather than a real facility. To reproduce it, follow the
-       <a href="getting-started/control-assistant.html">control-assistant tutorial</a>.
+       <a href="getting-started/demo.html">demo tutorial</a>.
      </p>
      <p class="osprey-demo-note" id="osprey-demo-note">
        One unedited session of several minutes. The agent's working time is sped up
@@ -53,7 +53,7 @@ Documentation Structure
       :link-type: doc
       :class-header: sd-bg-primary sd-text-white
 
-      Install Osprey, create your first project, and deploy a control assistant
+      Install Osprey, create your first project, and deploy the demo
       with a coding agent and MCP servers.
 
    .. grid-item-card:: How-To Guides

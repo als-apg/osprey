@@ -94,6 +94,7 @@ from osprey.integrations.canopy import CHANNELS_FILE as CANOPY_CHANNELS_FILE
 
 # The one definition of the session-lifetime default lives in web_auth, which is
 # stdlib-only, so importing it here cannot cycle.
+from osprey.interfaces.design_system.favicon import favicon_data_uri
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.services.auth_sidecar.roster_env import (
@@ -997,7 +998,7 @@ def render_web_terminals(
             block names under ``auth:`` (``auth.token_env``, or
             ``auth.password_env``), and each becomes one line in the user's
             ``environment:`` block carrying exactly that name (the
-            control-assistant preset spells it ``MONGO_ROOT_PASSWORD``, which
+            demo preset spells it ``MONGO_ROOT_PASSWORD``, which
             ``osprey up`` mints). Without it the agent's every archiver read
             fails with "Environment variable '…' is not set" while the same
             project works on the single-user host path, which reads the whole
@@ -1763,6 +1764,7 @@ def render_web_terminals(
             landing_cfg, resolved_users, token_login_names, sign_in_url=ENTRY_PATH
         ),
         "theme_blocks": _landing_theme_blocks(root),
+        "favicon": favicon_data_uri(),
         "notices": _build_notices(landing_cfg, root),
         "footer": _landing_footer(landing_cfg),
     }

@@ -1,6 +1,6 @@
 # Demo Facility — OSPREY deployment repo
 #
-# Made from the bundled `control-assistant` preset, then trimmed by hand: the
+# Made from the bundled `demo` preset, then trimmed by hand: the
 # artifact lists are shorter than the preset's and the roster names two users
 # at two tiers in tiers/, with no shared apps. So this is not that preset's plain
 # materialization, and it carries no `provenance:` block — there is no emission
@@ -183,7 +183,7 @@ config:
   claude_code.servers.health.enabled: true
   system.timezone: America/Los_Angeles
   # Exactly the services this facility runs. Set explicitly because the
-  # packaged control_assistant skeleton also declares `postgresql` — declared
+  # packaged demo skeleton also declares `postgresql` — declared
   # is not deployed, and this list is what `osprey up` reads.
   #
   # Nothing is named here. Four services are appended by the injectors their
@@ -281,9 +281,6 @@ config:
   # inlines at most 4x this many elements across all the channels it read;
   # past that budget a channel takes the artifact path and says so.
   control_system.read_inline_max_elements: 2000
-  # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
-  # on save. Pinned entries are never pruned. 0 keeps everything.
-  control_system.channel_read_artifact_retention: 20
   # Pattern detection: raw client puts in generated code (epics.caput,
   # PV.put(), and the other client libraries' write calls) are denied by the
   # approval hook and refused at runtime; osprey.runtime.write_channel is the

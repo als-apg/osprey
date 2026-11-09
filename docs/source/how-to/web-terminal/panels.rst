@@ -44,23 +44,23 @@ saying the panel is unavailable.
      - ``facility_knowledge:``
      - ``bundle_path``, the compiled knowledge bundle the KNOWLEDGE tab serves.
 
-The shipped ``control-assistant`` preset ships the sections for KNOWLEDGE and
+The shipped ``demo`` preset ships the sections for KNOWLEDGE and
 CHANNELS, which is why both work out of the box.
 
 Where the panels live
 ---------------------
 
 Panels have a row in the sidebar on the left of the window.
-**Agent** is in the **Workspace** section. **Artifacts** has no row: its
-artifacts are in the Agent row's session tree, and the palette opens the panel.
+**Sessions** is the first row and has no heading. **Artifacts** has no row: its
+artifacts are in the session tree, and the palette opens the panel.
 **Events** (when the deployment enables it) and **Health** are in the
-**System** section. All other panels are in the **Tools** section, which ends
+**System** section. All other panels are in the **Apps** section, which ends
 with **+ Add panel**. See :ref:`web-terminal-sidebar`.
 
 Dragging sidebar rows
 ---------------------
 
-Drag a Tools row up or down to change the order. The order is the same for
+Drag a Apps row up or down to change the order. The order is the same for
 everyone on the same terminal, and it stays after a reload. Drag a row onto
 the work pane instead to open the panel as a new tile where you drop it: on a
 tile's edge, or along an edge of the work pane; a drop on a tile's header or
@@ -103,7 +103,7 @@ Panels backed by a URL
 An entry under ``web.panels`` can also declare a **URL-backed panel** — a tab
 that shows another web service inside the terminal. This is how the EVENTS
 dashboard and the BLUESKY tab ship in the
-``control-assistant`` preset (a build that includes those stacks registers
+``demo`` preset (a build that includes those stacks registers
 the entries for you):
 
 .. code-block:: yaml
@@ -246,13 +246,33 @@ document order relative to the panel's tile — after ``backward``, that is the
 tile's header. It acts only on a message from its own origin and from the
 frame of a panel it shows.
 
+Controls in the tile bar
+------------------------
+
+An embedded panel draws no header of its own. It sends its tile-bar items with
+``contributeHeader(items)`` from the design system's ``header-contrib.js``
+and hears clicks with ``onHeaderAction(callback)``. Each send replaces the
+last. A panel sends two kinds:
+
+- ``{kind: 'icon', id, icon, title}``: an icon button in the bar. ``icon`` is
+  a name from ``icons.js``, and ``title`` is its tooltip. The bar shows at
+  most three. The rest, lowest ``priority`` first, become rows of the tile's
+  **⋯** menu.
+- ``{kind: 'menu', id, items: [{id, label}]}``: rows in the **This panel**
+  section of the tile's **⋯** menu. An entry can set ``checked``,
+  ``disabled``, ``danger`` (listed last) and ``separator`` (a line
+  above it).
+
+Everything else a panel needs goes in its own toolbar, inside the panel.
+
 The Bluesky panel
 -----------------
 
 One tab covers a plan end to end, served by the ``bluesky-web`` sidecar.
-**BLUESKY** (``/bluesky/``) has three views, and the queue's state stays on
-screen across all three as a badge in the status strip — with **Stop** and
-**Abort** beside it whenever a plan is moving or the state is in doubt:
+**BLUESKY** (``/bluesky/``) has three views behind the **Plans** | **Queue** |
+**Results** switch in its toolbar. The queue's state stays on screen in all
+three as a status chip in that toolbar, with **Stop** and **Abort** beside it
+whenever a plan is moving or the state is in doubt:
 
 **Plans** is where a plan is composed. It binds to the same shared draft the
 OSPREY agent edits, so a field the agent sets glows in the form as it lands,
@@ -260,10 +280,12 @@ and a field you change by hand flows back to the agent. **Run** puts the
 exact revision on screen into the plan queue, and on an armed queue that runs
 it at once; on a stopped queue the button reads **Add to queue**.
 
-**Queue** is the control panel: **Start**, **Stop**, **Abort** and **Clear**
-in the strip, the waiting plans with their reorder/remove controls, and the
-runs that have finished, each removable. Picking any run opens it under
-Results. :doc:`/how-to/bluesky/queue` covers what those controls do.
+**Queue** is the control panel: **Start**, **Stop** and **Abort** in the
+toolbar, the waiting plans with their reorder/remove controls, and the runs
+that have finished, each removable. **Clear waiting plans** and **Clear
+history** are in the tile **⋯** menu; each asks you to confirm at the top of
+its card. Picking any run opens it under Results. :doc:`/how-to/bluesky/queue`
+covers what those controls do.
 
 **Results** shows the selected run's record and its live figure, with the raw
 data table collapsed underneath and a one-click CSV export.
@@ -447,12 +469,13 @@ sidebar row, which ask the operator first.
 What is on screen:
 
 - ``list_panels`` — the panels this deployment has, the dock's tiles with
-  the panel each shows (the terminal included), the panels in pop-out
-  windows, and the configured layouts.
-- ``open_panel`` — put a panel on screen by the opening rule: it replaces the
-  panel in the service tile used last, which keeps its sidebar row. A panel
-  already open is brought forward where it is. It gets a sidebar row if it
-  had none.
+  the panel each shows (the terminal included), the panes in windows of
+  their own (the Agent pane included), and the configured layouts.
+- ``open_panel`` — put a panel on screen: by default in a new tile split off
+  the service tile used last; ``place="replace"`` puts it in that tile instead
+  (the replaced panel keeps its sidebar row), and ``tile``/``edge`` choose
+  where. A panel already open is brought forward where it is. It gets a
+  sidebar row if it had none.
 - ``open_panel_set`` — open several panels in one call, side by side in tiles
   of their own.
 - ``arrange_workspace`` — apply a configured layout, or an exact one, in place

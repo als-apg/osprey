@@ -1,7 +1,7 @@
 /**
  * ARIEL Layout Styles
  *
- * Page structure for ARIEL's one screen: header, rail | list | reader,
+ * Page structure for ARIEL's one screen: rail | list | reader,
  * and the reader, status-drawer and compose content inside it.
  *
  * Layout is ARIEL's own, but every control and surface inside it uses the
@@ -17,78 +17,13 @@
 @import url('/design-system/css/highlight.css');
 
 /* === Main Layout === */
-/* The panel is one viewport-high screen: the header (standalone only) over
-   the pane row. Panes scroll inside themselves, never the page. */
+/* The panel is one viewport-high screen: the pane row. Panes scroll inside
+   themselves, never the page. */
 .app-container {
   display: flex;
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
-}
-
-/* === Header === */
-.header {
-  position: sticky;
-  top: 0;
-  height: var(--header-height);
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--neutral-tint-10);
-  z-index: var(--z-sticky);
-}
-
-.header-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 100%;
-  max-width: var(--container-max);
-  margin: 0 auto;
-  padding: 0 var(--space-5);
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-bold);
-  color: var(--text-primary);
-  text-decoration: none;
-}
-
-.logo-icon {
-  width: 32px;
-  height: 32px;
-  color: var(--color-accent);
-}
-
-.logo-text {
-  background: linear-gradient(90deg, var(--color-accent-light), var(--color-accent-secondary));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.header-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-/* Embedded in web terminal: the host tile header bar IS this panel's header —
- * it carries the panel name, the hub's theming, and (via header.js) the items
- * the panel contributes into it. The
- * panel's own header would be a second bar, so it goes away wholesale. The
- * display menu needs no rule here: the component injects its own
- * body.embedded hide rule. */
-body.embedded .header {
-  display: none;
 }
 
 /* === List pane: results header === */
@@ -475,13 +410,6 @@ body.embedded .header {
   gap: var(--space-4);
 }
 
-/* === Responsive Adjustments === */
-@media (max-width: 640px) {
-  .header-inner {
-    padding: 0 var(--space-4);
-  }
-}
-
 /* === Loading overlay === */
 .loading-overlay {
   display: flex;
@@ -709,12 +637,6 @@ body.embedded .header {
   font-size: var(--text-md);
   color: var(--text-muted);
   text-align: center;
-}
-
-/* List pane head: the search box takes what the mode control and compose leave. */
-.ariel-list-search {
-  flex: 1;
-  min-width: 0;
 }
 
 /* A search issue is a dot on the mode chip (list.js paintIssues); the text is
