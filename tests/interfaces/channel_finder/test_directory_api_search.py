@@ -32,6 +32,8 @@ _COLUMNS = [
     "host",
     "last_announced",
 ]
+#: The fixture page's row count: a page of this size comes back full.
+_PAGE_ROWS = len(_FIXTURE["search"]["rows"])
 _UNAVAILABLE = {
     "outcome": "unavailable",
     "total": None,
@@ -196,14 +198,14 @@ class TestExport:
 
     def test_above_the_filter_cap_it_carries_the_fetched_pages(self):
         service = FakeService(total=11, filter_cap=10)
-        params = {"q": "BPM01", "page": "2", "page_size": "25"}
+        params = {"q": "BPM01", "page": "2", "page_size": str(_PAGE_ROWS)}
 
         resp = _client(service).get("/api/directory/export.csv", params=params)
 
         assert [(call["page"], call["page_size"]) for call in service.searches] == [
-            (0, 25),
-            (1, 25),
-            (2, 25),
+            (0, 2),
+            (1, 2),
+            (2, 2),
         ]
         lines = list(csv.reader(io.StringIO(resp.text)))
         assert lines[2:] == _expected_rows() * 3
@@ -211,12 +213,51 @@ class TestExport:
     def test_an_unknown_count_carries_the_fetched_pages(self):
         service = FakeService(count=_UNAVAILABLE)
 
-        _client(service).get("/api/directory/export.csv", params={"page": "1"})
+        params = {"page": "1", "page_size": str(_PAGE_ROWS)}
+        _client(service).get("/api/directory/export.csv", params=params)
 
         assert [(call["page"], call["page_size"]) for call in service.searches] == [
-            (0, 50),
-            (1, 50),
+            (0, 2),
+            (1, 2),
         ]
+
+    def test_a_short_page_ends_the_fetched_pages(self):
+        service = FakeService(count=_UNAVAILABLE)
+
+        params = {"page": "2", "page_size": "25"}
+        _client(service).get("/api/directory/export.csv", params=params)
+
+        assert [(call["page"], call["page_size"]) for call in service.searches] == [(0, 25)]
+
+    def test_an_over_cap_page_is_clamped_to_the_filter_cap(self):
+        service = FakeService(total=11, filter_cap=3)
+
+        params = {"page": "1000000", "page_size": str(_PAGE_ROWS)}
+        resp = _client(service).get("/api/directory/export.csv", params=params)
+
+        assert [(call["page"], call["page_size"]) for call in service.searches] == [
+            (0, 2),
+            (1, 2),
+        ]
+        lines = list(csv.reader(io.StringIO(resp.text)))
+        assert lines[2:] == (_expected_rows() * 2)[:3]
+
+    @pytest.mark.parametrize("trigger", ["=", "+", "-", "@", "\t", "\r"])
+    def test_a_cell_starting_a_formula_is_exported_quoted(self, trigger):
+        text = f"{trigger}HYPERLINK(1)"
+
+        class Formula(FakeService):
+            async def search(self, **fields: Any) -> dict[str, Any]:
+                page = await super().search(**fields)
+                page["searched"] = text
+                page["rows"][0]["description"] = text
+                return page
+
+        resp = _client(Formula()).get("/api/directory/export.csv")
+
+        lines = list(csv.reader(io.StringIO(resp.text)))
+        assert lines[0] == [f"'{text}"]
+        assert lines[2][_COLUMNS.index("description")] == f"'{text}"
 
     def test_an_unavailable_search_answers_its_reason(self):
         class Unavailable(FakeService):
