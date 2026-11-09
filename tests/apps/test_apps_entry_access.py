@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from osprey.apps.manifest import parse_manifest
 from osprey.apps.projection import project_login
@@ -31,8 +34,13 @@ from osprey.deployment.web_terminals.roster import (
     expand_login_principals,
     resolve_cards,
 )
+from osprey.interfaces.web_auth import WebCredentials
+from osprey.interfaces.web_terminal.app import _load_panel_config
+from osprey.services.auth_sidecar.identity_headers import canonical_identity
 from osprey_connectors.errors import BuildProfileError
 from tests._renders import tier_render
+from tests.interfaces._asgi import OPERATOR_SECRET, PANEL_TOKEN
+from tests.interfaces.web_terminal._proxy_fakes import panel_app
 
 SUBJECT_HEADER = "X-Osprey-Auth-Subject"
 
@@ -406,3 +414,204 @@ def test_the_panel_block_carries_the_resolved_set() -> None:
 
 def test_an_entry_without_access_projects_no_key() -> None:
     assert "access" not in _project(None)["web"]["panels"]["dial"]
+
+
+# ---------------------------------------------------------------------------
+# The terminal: who is listed, who is proxied
+# ---------------------------------------------------------------------------
+
+PANEL_ID = "dial"
+ACCESS = ["domain:lab.org", "user:alice@example.org"]
+
+
+def _load(spec: dict[str, Any]) -> list[dict]:
+    from unittest.mock import patch
+
+    with patch(
+        "osprey_connectors.workspace.load_osprey_config",
+        return_value={"web": {"panels": {PANEL_ID: spec}}},
+    ):
+        _enabled, custom, _default = _load_panel_config()
+    return custom
+
+
+def test_the_terminal_reads_the_access_set() -> None:
+    (panel,) = _load({"url": "http://127.0.0.1:9300", "access": json.dumps(ACCESS)})
+
+    assert panel["access"] == tuple(ACCESS)
+
+
+@pytest.mark.parametrize("value", ["any", '["tier:admin"]', '["self"]', "[1]", "not json"])
+def test_an_access_set_the_build_would_not_write_refuses_at_boot(value: str) -> None:
+    with pytest.raises(ValueError, match=rf"web\.panels\.{PANEL_ID}\.access"):
+        _load({"url": "http://127.0.0.1:9300", "access": value})
+
+
+def _panel(access: list[str] | None) -> dict[str, Any]:
+    panel: dict[str, Any] = {
+        "id": PANEL_ID,
+        "label": "Dial",
+        "url": "http://127.0.0.1:9300",
+        "configDefined": True,
+        "app": "dial",
+        "agentRoutes": [{"method": "GET", "path": "/api/state"}],
+    }
+    if access is not None:
+        panel["access"] = tuple(access)
+    return panel
+
+
+@pytest.fixture
+def workspace_dir(tmp_path: Path) -> Path:
+    """An empty watched directory for the terminal."""
+    ws = tmp_path / "_agent_data"
+    ws.mkdir()
+    return ws
+
+
+@pytest.fixture
+def restricted(workspace_dir):
+    yield from panel_app(workspace_dir, [_panel(ACCESS)])
+
+
+@pytest.fixture
+def open_panel(workspace_dir):
+    yield from panel_app(workspace_dir, [_panel(None)])
+
+
+def _listed(client: TestClient, subject: str | None) -> dict[str, Any]:
+    headers = {SUBJECT_HEADER: subject} if subject else {}
+    return client.get("/api/panels", headers=headers).json()
+
+
+@pytest.mark.parametrize("subject", ["alice@example.org", "carol@lab.org"])
+def test_an_admitted_caller_is_listed_the_panel(restricted, subject: str) -> None:
+    _app, client = restricted
+
+    payload = _listed(client, subject)
+
+    (row,) = [cp for cp in payload["custom"] if cp["id"] == PANEL_ID]
+    assert "access" not in row
+
+
+@pytest.mark.parametrize("subject", ["bob@example.org", "x@sub.lab.org", None])
+def test_any_other_caller_is_not_listed_the_panel(restricted, subject: str | None) -> None:
+    _app, client = restricted
+
+    payload = _listed(client, subject)
+
+    assert PANEL_ID not in [cp["id"] for cp in payload["custom"]]
+    assert PANEL_ID not in payload["visible"]
+    assert PANEL_ID not in payload["loopback_ports"]
+
+
+def test_a_panel_without_access_is_listed_to_everyone(open_panel) -> None:
+    _app, client = open_panel
+
+    assert PANEL_ID in [cp["id"] for cp in _listed(client, None)["custom"]]
+
+
+def _stub_upstream(app) -> list[str]:
+    from unittest.mock import AsyncMock
+
+    import httpx
+
+    sent: list[str] = []
+
+    async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
+        sent.append(url)
+        return httpx.Response(200, json={"ok": True}, headers={"content-type": "application/json"})
+
+    app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+    return sent
+
+
+def test_a_withheld_panel_is_answered_as_an_unpublished_one(restricted) -> None:
+    app, client = restricted
+    sent = _stub_upstream(app)
+
+    withheld = client.get(f"/panel/{PANEL_ID}/api/state", headers={SUBJECT_HEADER: "bob@x.org"})
+    unpublished = client.get("/panel/nosuch/api/state", headers={SUBJECT_HEADER: "bob@x.org"})
+
+    assert withheld.status_code == unpublished.status_code == 404
+    assert withheld.text == f"Panel '{PANEL_ID}' is not available"
+    assert sent == []
+
+
+def test_an_admitted_caller_is_proxied(restricted) -> None:
+    app, client = restricted
+    sent = _stub_upstream(app)
+
+    resp = client.get(f"/panel/{PANEL_ID}/api/state", headers={SUBJECT_HEADER: "carol@lab.org"})
+
+    assert resp.status_code == 200
+    assert sent == ["http://127.0.0.1:9300/api/state"]
+
+
+def test_a_withheld_panel_socket_is_closed_as_an_unpublished_one(restricted) -> None:
+    _app, client = restricted
+
+    with pytest.raises(WebSocketDisconnect) as excinfo:
+        with client.websocket_connect(
+            f"/panel/{PANEL_ID}/ws", headers={SUBJECT_HEADER: "bob@x.org"}
+        ) as ws:
+            ws.receive_text()
+
+    assert excinfo.value.code == 4004
+
+
+@pytest.mark.no_auth_seam
+def test_the_agent_on_the_panel_token_is_judged_by_the_login_alone(restricted) -> None:
+    app, _client = restricted
+    app.state.web_credentials = WebCredentials(
+        operator_secret=OPERATOR_SECRET, panel_token=PANEL_TOKEN
+    )
+    sent = _stub_upstream(app)
+    client = TestClient(app, client=("127.0.0.1", 54321))
+
+    resp = client.get(
+        f"/panel/{PANEL_ID}/api/state", headers={"authorization": f"Bearer {PANEL_TOKEN}"}
+    )
+
+    assert resp.status_code == 200
+    assert sent == ["http://127.0.0.1:9300/api/state"]
+
+
+# ---------------------------------------------------------------------------
+# One canonical spelling: what the sidecar forwards is what the build wrote
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("claim", "expected"),
+    [("email", "alice@example.org"), ("sub", "Alice@Example.org"), (None, "Alice@Example.org")],
+)
+def test_the_canonical_spelling_follows_the_claims_rule(claim: str | None, expected: str) -> None:
+    assert canonical_identity("Alice@Example.org", claim=claim) == expected
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        (SimpleNamespace(admitted_identity="Carol@Lab.org"), "carol@lab.org"),
+        (
+            SimpleNamespace(admitted_identity="", oidc_subject="Alice@Example.org"),
+            "alice@example.org",
+        ),
+    ],
+)
+def test_the_sidecar_forwards_the_canonical_spelling(entry: Any, expected: str) -> None:
+    from osprey.services.auth_sidecar.routes.verify import _subject_for
+
+    settings = SimpleNamespace(method="oidc", oidc_claim="email")
+
+    assert _subject_for("alice", entry, settings) == expected  # type: ignore[arg-type]
+
+
+def test_under_password_the_sidecar_forwards_the_roster_name() -> None:
+    from osprey.services.auth_sidecar.routes.verify import _subject_for
+
+    entry = SimpleNamespace(admitted_identity="", opener="")
+    settings = SimpleNamespace(method="password", oidc_claim="email")
+
+    assert _subject_for("alice", entry, settings) == "alice"  # type: ignore[arg-type]

@@ -341,6 +341,16 @@ write with them:
 - a **shared** login (``logbook``, ``knowledge``, ``channel-finder`` in the
   preset) arms nothing, whatever its file says.
 
+A login's ``apps.<name>.access`` says who on that login sees and opens the
+panel, in the words a shared roster card uses (``self``, ``roster``, ``user:``,
+``domain:``, ``tier:``). The build spells it out to ``user:`` and ``domain:``
+members on the panel block, in the spelling the auth sidecar forwards, and
+refuses a set no browser caller can match. The terminal compares the forwarded
+identity with it: a caller it does not admit does not see the panel in the list
+and is answered as for an unpublished one. The agent, on the panel token, is
+judged by the login alone, so the login keeps the app's tools and skill. Without
+the key every user of the login sees it. It never decides a write.
+
 Hide an app from one login in that login's file:
 
 .. code-block:: yaml
