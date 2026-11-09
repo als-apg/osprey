@@ -11,12 +11,12 @@ line number), then handed to the code that owns it:
   passes; the "conventional starting shape" tree names the index file the
   regenerator writes and the example bundle's directories.
 * ``how-to/build-profiles.rst``: every path of the ``build/`` tree is on disk
-  after a real ``osprey build`` of the control-assistant preset, and every
+  after a real ``osprey build`` of the demo preset, and every
   facility output that build's main render writes is on the tree.
 * ``how-to/deploy-project/compose-templates.rst``: the ``services/`` tree names
   the compose templates the build copies into ``build/services/``.
 * ``how-to/describe-your-facility.rst``: the ``data/facility/`` tree is the one
-  ``osprey init --preset control-assistant`` writes, in the names the facility
+  ``osprey init --preset demo`` writes, in the names the facility
   build reads.
 * ``how-to/deploy-project/project-image.rst`` and
   ``reference/configuration/profile.rst``: the ``my-facility/`` trees, built on
@@ -106,7 +106,7 @@ _STALE: dict[tuple[str, str], Gap] = {
         "wrong",
         "#2412",
         "data/channel_finder/<mode>.json the channel-finder view, in every mode but graph",
-        "The control-assistant preset runs the graph pipeline, and no channel-finder view "
+        "The demo preset runs the graph pipeline, and no channel-finder view "
         "is written in graph mode (facility/views/__init__.py VIEWS: only in_context, "
         "hierarchical and middle_layer write channel_finder/).",
     ),
@@ -354,10 +354,10 @@ def test_facility_links_parse_to_the_targets_they_name() -> None:
 
 
 def test_facility_links_resolve_in_the_example_facility(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     """A channel id and a device id resolve; the made-up spaced address is the dangling kind."""
-    records = FacilityRecords(built_control_assistant.facility)
+    records = FacilityRecords(built_demo.facility)
     found = find_facility_links(_facility_links_block(), records)
     assert [link.kinds for link in found] == [("channel",), ("device",), ()]
 
@@ -430,14 +430,14 @@ def _rendered_config(built: BuiltProject) -> dict[str, Any]:
     return document
 
 
-def test_build_tree_paths_are_on_disk(built_control_assistant: BuiltProject) -> None:
+def test_build_tree_paths_are_on_disk(built_demo: BuiltProject) -> None:
     """Each path is in ``build/``; the one absent is the view graph mode does not write."""
-    build_dir = built_control_assistant.build_dir
+    build_dir = built_demo.build_dir
     block = _block(BUILD_PROFILES_PAGE, "text", "facility.json")
     absent = [rel for rel in _build_tree() if not _on_disk(build_dir, rel)]
     assert absent == ["data/channel_finder/<mode>.json"]
 
-    mode = _rendered_config(built_control_assistant)["channel_finder"]["pipeline_mode"]
+    mode = _rendered_config(built_demo)["channel_finder"]["pipeline_mode"]
     assert mode == "graph"
     assert "graph" not in {view.name for view in VIEWS if view.path == "channel_finder"}
     (line,) = [entry for entry in block.splitlines() if "data/channel_finder/" in entry]
@@ -446,11 +446,9 @@ def test_build_tree_paths_are_on_disk(built_control_assistant: BuiltProject) -> 
     assert expected in line
 
 
-def test_every_facility_output_is_on_the_build_tree(built_control_assistant: BuiltProject) -> None:
+def test_every_facility_output_is_on_the_build_tree(built_demo: BuiltProject) -> None:
     paths = _build_tree()
-    unlisted = {
-        rel for rel in _main_render_files(built_control_assistant) if not _listed(rel, paths)
-    }
+    unlisted = {rel for rel in _main_render_files(built_demo) if not _listed(rel, paths)}
     assert unlisted == _stale(BUILD_PROFILES_PAGE, "missing")
     for view in VIEWS:
         if view.path != ".":
@@ -468,13 +466,13 @@ def test_a_planted_build_output_is_caught() -> None:
 
 
 def test_compose_tree_names_the_templates_the_build_copies(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     root, paths = tree_paths(_block(COMPOSE_PAGE, "text", "# Required: shared network"))
     assert root == f"{SERVICES_DIR}/"
     assert paths == ["docker-compose.yml.j2", "postgresql/", "postgresql/docker-compose.yml.j2"]
     assert {Path(rel).name for rel in paths if not rel.endswith("/")} == {TEMPLATE_FILENAME}
-    for base in (_TEMPLATES / SERVICES_DIR, built_control_assistant.build_dir / SERVICES_DIR):
+    for base in (_TEMPLATES / SERVICES_DIR, built_demo.build_dir / SERVICES_DIR):
         assert [rel for rel in paths if not _on_disk(base, rel)] == [], base
     root_template = (_TEMPLATES / SERVICES_DIR / TEMPLATE_FILENAME).read_text(encoding="utf-8")
     assert re.search(r"^networks:\n(?:[ #].*\n)*?  osprey-network:", root_template, re.M)
@@ -489,9 +487,9 @@ def _facility_tree() -> list[str]:
     return paths
 
 
-def test_facility_tree_is_what_init_writes(built_control_assistant: BuiltProject) -> None:
+def test_facility_tree_is_what_init_writes(built_demo: BuiltProject) -> None:
     """Every entry but the two the page says the preset leaves out is written, and nothing else."""
-    facility = built_control_assistant.facility_dir
+    facility = built_demo.facility_dir
     paths = _facility_tree()
     not_shipped = [rel for rel in paths if not _on_disk(facility, rel)]
     assert not_shipped == ["fixes.yaml", "imported/<layer>/"]
