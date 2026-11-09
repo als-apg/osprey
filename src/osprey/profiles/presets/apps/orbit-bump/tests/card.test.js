@@ -496,7 +496,7 @@ describe('the compute and apply card', () => {
     expect(field(root, 'confirm').textContent).toContain('no tolerance: not staleness-checked');
   });
 
-  it('puts the closure line with sigma, leakage, dropped BPMs and skipped correctors in the title tooltip', () => {
+  it('puts the closure line with leakage, dropped BPMs and skipped correctors in the title tooltip', () => {
     const { fetcher } = backend({});
     mount(
       fetcher,
@@ -511,7 +511,7 @@ describe('the compute and apply card', () => {
     );
     const closure = field(root, 'cor-title').title;
     expect(closure).toContain('plan #p1');
-    expect(closure).toContain('σ kept 1/2');
+    expect(closure).not.toContain('σ kept');
     expect(closure).toContain('max predicted leakage +0.004 mm');
     expect(closure).toContain('dropped BPMs: B3');
     expect(closure).toContain('skipped (ORM unsolved): H9');

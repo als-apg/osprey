@@ -644,3 +644,65 @@ p.ob-refused {
   background: var(--surface-press);
   color: var(--text-primary);
 }
+
+/* The corrector row: a drag along it picks the correctors it spans. */
+.ob-strip .ob-cor-row {
+  cursor: col-resize;
+}
+
+/* The singular-value spectrum in the Correctors head: log-scale bars, kept ones
+   filled, and the cutoff the operator drags or keys. */
+.ob-sigma {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1, 4px);
+  padding: 0 var(--space-1, 4px);
+  border-radius: var(--radius-md);
+  outline: none;
+}
+
+.ob-sigma:focus-visible {
+  box-shadow: 0 0 0 3px var(--surface-focus);
+}
+
+.ob-sigma-plot {
+  width: 96px;
+  height: 18px;
+  border-bottom: 1px solid var(--surface-hairline);
+  touch-action: none;
+}
+
+.ob-sigma[aria-disabled='false'] .ob-sigma-plot {
+  cursor: col-resize;
+}
+
+.ob-sigma-bar {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 0.75;
+}
+
+.ob-sigma-bar.kept {
+  fill: var(--color-accent);
+  stroke: none;
+}
+
+.ob-sigma-split {
+  stroke: var(--text-muted);
+  stroke-width: 0.75;
+  stroke-dasharray: 2 2;
+  pointer-events: none;
+}
+
+.ob-sigma-cut {
+  stroke: var(--text-primary);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+.ob-sigma-k {
+  min-width: 6ch;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}

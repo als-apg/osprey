@@ -218,6 +218,7 @@ describe('the orbit-bump panel', () => {
         priority: 'closure',
         others: 'hold',
         all_correctors: false,
+        sigma_keep: null,
       });
       // Only the state was read: nothing was posted, so nothing was discarded.
       expect(/** @type {any} */ (fetcher).mock.calls).toHaveLength(1);

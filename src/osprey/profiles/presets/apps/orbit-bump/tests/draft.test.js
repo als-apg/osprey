@@ -79,6 +79,7 @@ describe("the panel's draft", () => {
       priority: 'closure',
       others: 'hold',
       all_correctors: false,
+      sigma_keep: null,
       shape: 'flat',
       amplitude: 0,
     });

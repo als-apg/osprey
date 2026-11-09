@@ -112,6 +112,9 @@ const DRAFT_DEBOUNCE_MS = 300;
  * @property {number | null} [predicted_closure_max]
  * @property {number} [sigma_kept]
  * @property {number} [sigma_total]
+ * @property {number[]} [sigma_values] the solve's singular values, the kept ones first
+ * @property {number} [sigma_targets] under hit targets, how many of them the target step gave
+ * @property {number | null} [sigma_keep] the count asked for; null kept those above the cut
  * @property {string[]} [skipped_unsolved] correctors the rule skipped because the ORM could not solve them
  * @property {string[]} [dropped_bpms] non-bump BPMs left out as unreadable
  * @property {Record<string, number>} [residual_after]
@@ -144,6 +147,7 @@ const DRAFT_DEBOUNCE_MS = 300;
  * @property {Priority} priority
  * @property {Others} others what every BPM not in the bump aims at
  * @property {boolean} all_correctors every solved corrector of the plane, rule aside
+ * @property {number | null} sigma_keep singular values to keep; null keeps those above the cut
  */
 
 /**
@@ -169,6 +173,8 @@ const DRAFT_DEBOUNCE_MS = 300;
  * @property {string | null} draftSent the draft last published, as sent
  * @property {string | null} draftPending the draft waiting out the debounce
  * @property {ReturnType<typeof setTimeout> | null} draftTimer
+ * @property {number | null} sigmaPreview the count the spectrum shows while its cutoff is
+ *   dragged or keyed, before it is set
  */
 
 /** @type {WeakMap<Element, Panel>} */
@@ -185,6 +191,7 @@ function emptySelection() {
     priority: 'closure',
     others: 'hold',
     all_correctors: false,
+    sigma_keep: null,
   };
 }
 
@@ -216,6 +223,7 @@ export function panelOf(root) {
       draftSent: null,
       draftPending: null,
       draftTimer: null,
+      sigmaPreview: null,
     };
     panels.set(root, panel);
   }
@@ -304,6 +312,8 @@ function hydrate(root, plan) {
     priority: plan.priority === 'targets' ? 'targets' : 'closure',
     others: plan.others && OTHERS_MODES.includes(plan.others) ? plan.others : 'hold',
     all_correctors: plan.all_correctors === true,
+    sigma_keep:
+      typeof plan.sigma_keep === 'number' && plan.sigma_keep >= 1 ? plan.sigma_keep : null,
   };
   panel.computed = { id: plan.id, key: selectionKey(panel.selection) };
 }
@@ -327,6 +337,7 @@ function selectionKey(selection) {
     selection.priority,
     selection.others,
     selection.all_correctors,
+    selection.sigma_keep,
   ]);
 }
 
@@ -508,11 +519,12 @@ const MIN_DRAG = 4;
 
 /**
  * A drag in flight on one strip. On the empty plot: a marquee that picks the
- * BPMs it spans, a ⇧-drag that zooms to its range, or a pan. On a target
+ * BPMs it spans, a ⇧-drag that zooms to its range, or a pan. On the corrector
+ * row: a band that adds or removes the correctors it spans. On a target
  * handle or the bump's grip: the targets move with the pointer, on the
  * vertical scale frozen when the drag started.
  * @typedef {object} Drag
- * @property {'marquee' | 'zoom' | 'pan' | 'handle' | 'grip'} mode
+ * @property {'marquee' | 'zoom' | 'pan' | 'handle' | 'grip' | 'cors'} mode
  * @property {number} x0 where the drag started, in user units
  * @property {number} x1 where the pointer is now, in user units
  * @property {number} y0 where the drag started, vertically, in user units
@@ -525,6 +537,9 @@ const MIN_DRAG = 4;
 
 /** @type {WeakMap<Element, Drag>} */
 const drags = new WeakMap();
+
+/** @type {WeakSet<Element>} strips whose next click ends a corrector-row drag, not a pick */
+const swallowClick = new WeakSet();
 
 /** @type {WeakMap<Element, number>} the vertical scale of each strip's last render */
 const scales = new WeakMap();
@@ -968,6 +983,7 @@ export function setStep(root, step) {
  * @param {MouseEvent} event
  */
 function pickOnStrip(root, event) {
+  if (swallowClick.delete(root)) return;
   const hit = event.target instanceof Element ? event.target.closest('[data-element]') : null;
   const element = hit?.getAttribute('data-element');
   if (!hit || !element || hit.classList.contains('hollow')) return;
@@ -989,10 +1005,48 @@ function pickOnStrip(root, event) {
 }
 
 /**
+ * Pick the correctors between two s-positions: add every one the ORM solved to
+ * the manual selection, or remove them all when every one is in it already.
+ * Under another rule the selection turns manual, starting from the shown
+ * plan's correctors; all-correctors is switched off either way.
+ * @param {Element} root
+ * @param {number} a
+ * @param {number} b
+ */
+export function pickCorrectorRange(root, a, b) {
+  const panel = panelOf(root);
+  const model = selectedModel(panel);
+  const { selection } = panel;
+  const unsolved = new Set(model?.orm.unsolved ?? []);
+  const hits = (model?.members.correctors ?? [])
+    .filter(
+      (member) =>
+        member.plane === selection.plane &&
+        member.s_m >= a &&
+        member.s_m <= b &&
+        !unsolved.has(member.element)
+    )
+    .map((member) => member.element);
+  if (hits.length === 0) {
+    render(root);
+    return;
+  }
+  const start =
+    selection.rule === 'manual'
+      ? selection.correctors
+      : (shownPlan(panel)?.correctors ?? []).map((row) => row.element);
+  const correctors = hits.every((element) => start.includes(element))
+    ? start.filter((element) => !hits.includes(element))
+    : [...start, ...hits.filter((element) => !start.includes(element))];
+  setSelection(root, { rule: 'manual', correctors, all_correctors: false });
+}
+
+/**
  * Wire the strip's gestures. On the empty plot a drag picks the BPMs it spans,
  * a ⇧-drag zooms to its range, and an Alt- or middle-button drag pans when
  * zoomed; the wheel zooms around the cursor and a double-click returns to the
- * whole ring. A target handle drags vertically and takes ↑/↓ (⇧ ×10),
+ * whole ring. A drag along the corrector row adds or removes the correctors it
+ * spans. A target handle drags vertically and takes ↑/↓ (⇧ ×10),
  * ⌫/Delete and ←/→; the grip under the plot moves every target together.
  * A right-click opens the strip's context menu.
  * @param {Element} root
@@ -1029,8 +1083,10 @@ function bindStrip(root, svg) {
     const grip = event.target.closest('[data-grip]');
     /** @type {Drag['mode'] | null} */
     let mode = null;
+    swallowClick.delete(root);
     if (handle) mode = 'handle';
     else if (grip) mode = 'grip';
+    else if (event.target.closest('.ob-cor, .ob-cor-row')) mode = 'cors';
     else if (event.target.classList.contains('ob-bg')) {
       const panning = event.altKey || event.button === 1;
       if (event.shiftKey) mode = 'zoom';
@@ -1065,7 +1121,7 @@ function bindStrip(root, svg) {
     if (!drag || point == null) return;
     drag.x1 = point.x;
     drag.moved = drag.moved || Math.abs(point.x - drag.x0) >= 1 || Math.abs(point.y - drag.y0) >= 1;
-    if (drag.mode === 'marquee' || drag.mode === 'zoom') {
+    if (drag.mode === 'marquee' || drag.mode === 'zoom' || drag.mode === 'cors') {
       renderStrip(root, panelOf(root));
     } else if (drag.mode === 'pan') {
       const shift = sAt(point.x, drag.view0) - sAt(drag.x0, drag.view0);
@@ -1094,6 +1150,15 @@ function bindStrip(root, svg) {
     const point = event.type === 'pointerup' ? svgPoint(svg, event) : null;
     if (point != null) drag.x1 = point.x;
     const wide = event.type === 'pointerup' && Math.abs(drag.x1 - drag.x0) >= MIN_DRAG;
+    if (wide && drag.mode === 'cors') {
+      swallowClick.add(root);
+      pickCorrectorRange(
+        root,
+        sAt(Math.min(drag.x0, drag.x1), drag.view0),
+        sAt(Math.max(drag.x0, drag.x1), drag.view0)
+      );
+      return;
+    }
     if (wide && (drag.mode === 'marquee' || drag.mode === 'zoom')) {
       const a = sAt(Math.min(drag.x0, drag.x1), drag.view0);
       const b = sAt(Math.max(drag.x0, drag.x1), drag.view0);
@@ -1427,6 +1492,15 @@ function renderStrip(root, panel) {
       width: STRIP_W - STRIP_LEFT - STRIP_RIGHT,
       height: DELTA_AXIS - DELTA_HALF,
       fill: 'transparent',
+    }),
+    // The corrector row, under its ticks: a drag along it picks correctors.
+    svgNode('rect', {
+      class: 'ob-cor-row',
+      x: STRIP_LEFT,
+      y: COR_Y - 3,
+      width: STRIP_W - STRIP_LEFT - STRIP_RIGHT,
+      height: COR_H + 6,
+      fill: 'transparent',
     })
   );
 
@@ -1733,16 +1807,17 @@ function renderStrip(root, panel) {
   }
   nodes.push(plot);
 
-  if (drag?.mode === 'marquee' || drag?.mode === 'zoom') {
+  if (drag?.mode === 'marquee' || drag?.mode === 'zoom' || drag?.mode === 'cors') {
     const a = clampX(Math.min(drag.x0, drag.x1));
     const b = clampX(Math.max(drag.x0, drag.x1));
+    const onRow = drag.mode === 'cors';
     nodes.push(
       svgNode('rect', {
         class: drag.mode === 'zoom' ? 'ob-zoom-select' : 'ob-marquee',
         x: a,
-        y: STRIP_TOP - 4,
+        y: onRow ? COR_Y - 3 : STRIP_TOP - 4,
         width: Math.max(0, b - a),
-        height: PLOT_BOTTOM - STRIP_TOP + 8,
+        height: onRow ? COR_H + 6 : PLOT_BOTTOM - STRIP_TOP + 8,
       })
     );
   }
@@ -2147,6 +2222,250 @@ function pressSeg(seg, attr, value) {
   }
 }
 
+// The spectrum in the Correctors head, in its own user units.
+const SIGMA_W = 96;
+const SIGMA_H = 18;
+/** The decades below the largest singular value the bars span at most. */
+const SIGMA_DECADES = 8;
+const SIGMA_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'];
+
+/**
+ * How many singular values the shown plan's spectrum has; 0 without one.
+ * @param {Panel} panel
+ * @returns {number}
+ */
+function sigmaCount(panel) {
+  return shownPlan(panel)?.sigma_values?.length ?? 0;
+}
+
+/**
+ * The count the spectrum shows: the one being dragged or keyed, else the one
+ * the plan kept when the selection asks what the plan was computed with, else
+ * the one the selection asks for. 0 without a spectrum.
+ * @param {Panel} panel
+ * @returns {number}
+ */
+function shownSigma(panel) {
+  const plan = shownPlan(panel);
+  const n = sigmaCount(panel);
+  if (!plan || n === 0) return 0;
+  const asked = panel.selection.sigma_keep;
+  const asPlanned = asked === (plan.sigma_keep ?? null);
+  const k = panel.sigmaPreview ?? (asPlanned ? plan.sigma_kept : asked) ?? n;
+  return Math.min(n, Math.max(1, k));
+}
+
+/**
+ * A singular value for a tooltip: three significant digits, exponent form
+ * when very small or large.
+ * @param {number} value
+ * @returns {string}
+ */
+function sigmaNumber(value) {
+  const size = Math.abs(value);
+  if (size !== 0 && (size < 1e-3 || size >= 1e4)) return value.toExponential(2);
+  return String(Number(value.toPrecision(3)));
+}
+
+/**
+ * Show a count on the spectrum without setting it.
+ * @param {Element} root
+ * @param {number} k
+ */
+function previewSigma(root, k) {
+  const panel = panelOf(root);
+  panel.sigmaPreview = k;
+  renderSigma(root, panel);
+}
+
+/**
+ * Set how many singular values the solve keeps and compute again.
+ * @param {Element} root
+ * @param {number} k
+ */
+export function setSigmaKeep(root, k) {
+  setSelection(root, { sigma_keep: k });
+  void compute(root);
+}
+
+/**
+ * End a drag or a keying of the cutoff: set the previewed count when it differs
+ * from the one shown before.
+ * @param {Element} root
+ */
+function commitSigma(root) {
+  const panel = panelOf(root);
+  const k = panel.sigmaPreview;
+  panel.sigmaPreview = null;
+  if (k == null || k === shownSigma(panel)) {
+    renderSigma(root, panel);
+    return;
+  }
+  setSigmaKeep(root, k);
+}
+
+/**
+ * The singular-value spectrum of the shown plan in the Correctors head: one bar
+ * per value on a log scale, kept bars filled, and a cutoff to drag or key.
+ * @param {Element} root
+ * @returns {HTMLElement}
+ */
+function sigmaControl(root) {
+  const control = htmlNode('span', {
+    class: 'ob-sigma',
+    'data-field': 'sigma',
+    role: 'slider',
+    'aria-label': 'singular values kept',
+    'aria-valuemin': '1',
+    'aria-disabled': 'true',
+  });
+  const plot = svgNode('svg', {
+    class: 'ob-sigma-plot',
+    viewBox: `0 0 ${SIGMA_W} ${SIGMA_H}`,
+    'aria-hidden': 'true',
+  });
+  const readout = htmlNode('span', {
+    class: 'ob-sigma-k',
+    'data-field': 'sigma-k',
+    'data-tip': 'singular values kept',
+    'data-tip-detail': 'drag the cutoff or press ←/→; fewer gives smaller deltas and a looser fit',
+  });
+  control.append(plot, readout);
+
+  /** @param {PointerEvent} event */
+  const countAt = (event) => {
+    const n = sigmaCount(panelOf(root));
+    const box = plot.getBoundingClientRect();
+    if (n === 0 || !(box.width > 0)) return null;
+    const k = Math.round(((event.clientX - box.left) / box.width) * n);
+    return Math.min(n, Math.max(1, k));
+  };
+  let dragging = false;
+  plot.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    const k = countAt(event);
+    if (k == null) return;
+    event.preventDefault();
+    dragging = true;
+    try {
+      plot.setPointerCapture(event.pointerId);
+    } catch {
+      // No active pointer to capture (a synthetic event): the drag works without it.
+    }
+    control.focus({ preventScroll: true });
+    previewSigma(root, k);
+  });
+  plot.addEventListener('pointermove', (event) => {
+    const k = dragging ? countAt(event) : null;
+    if (k != null) previewSigma(root, k);
+  });
+  plot.addEventListener('pointerup', (event) => {
+    if (!dragging) return;
+    dragging = false;
+    const k = countAt(event);
+    if (k != null) panelOf(root).sigmaPreview = k;
+    commitSigma(root);
+  });
+  plot.addEventListener('pointercancel', () => {
+    if (!dragging) return;
+    dragging = false;
+    const panel = panelOf(root);
+    panel.sigmaPreview = null;
+    renderSigma(root, panel);
+  });
+  control.addEventListener('keydown', (event) => {
+    const panel = panelOf(root);
+    const n = sigmaCount(panel);
+    if (n === 0 || !SIGMA_KEYS.includes(event.key)) return;
+    event.preventDefault();
+    const k = shownSigma(panel);
+    const less = event.key === 'ArrowLeft' || event.key === 'ArrowDown';
+    const more = event.key === 'ArrowRight' || event.key === 'ArrowUp';
+    const next =
+      event.key === 'Home' ? 1 : event.key === 'End' ? n : k + (more ? 1 : less ? -1 : 0);
+    previewSigma(root, Math.min(n, Math.max(1, next)));
+  });
+  control.addEventListener('keyup', (event) => {
+    if (SIGMA_KEYS.includes(event.key)) commitSigma(root);
+  });
+  control.addEventListener('blur', () => {
+    if (!dragging && panelOf(root).sigmaPreview != null) commitSigma(root);
+  });
+  return control;
+}
+
+/**
+ * Draw the spectrum and its cutoff, and say the count on the slider; without a
+ * spectrum the control is empty and disabled.
+ * @param {Element} root
+ * @param {Panel} panel
+ */
+function renderSigma(root, panel) {
+  const control = field(root, 'sigma');
+  const plot = control.querySelector('svg');
+  const readout = field(root, 'sigma-k');
+  const plan = shownPlan(panel);
+  const values = (plan?.sigma_values ?? []).map((value) => Math.max(0, Number(value) || 0));
+  const n = values.length;
+  if (!plot) return;
+  if (!plan || n === 0) {
+    plot.replaceChildren();
+    readout.textContent = '';
+    control.setAttribute('aria-disabled', 'true');
+    control.removeAttribute('tabindex');
+    for (const name of ['aria-valuemax', 'aria-valuenow', 'aria-valuetext']) {
+      control.removeAttribute(name);
+    }
+    return;
+  }
+  const k = shownSigma(panel);
+  const split = Math.min(n, Math.max(0, plan.sigma_targets ?? 0));
+  const top = Math.max(...values);
+  const positive = values.filter((value) => value > 0);
+  const smallest = Math.max(top * 10 ** -SIGMA_DECADES, Math.min(...positive));
+  const decades = top > 0 ? Math.max(1, Math.log10(top / smallest)) : 1;
+  const slot = SIGMA_W / n;
+  const width = Math.max(1, slot * 0.7);
+  /** @type {SVGElement[]} */
+  const nodes = values.map((value, i) => {
+    const level = top > 0 && value > 0 ? Math.max(0, 1 + Math.log10(value / top) / decades) : 0;
+    const height = Math.max(1.5, level * (SIGMA_H - 2));
+    const bar = svgNode('rect', {
+      class: i < k ? 'ob-sigma-bar kept' : 'ob-sigma-bar',
+      'data-index': i + 1,
+      x: i * slot + (slot - width) / 2,
+      y: SIGMA_H - height,
+      width,
+      height,
+    });
+    const largest = split > 0 && i >= split ? values[split] : values[0];
+    const step = split > 0 ? (i < split ? ' · target step' : ' · closure step') : '';
+    const ratio = largest > 0 ? ` · σ/σmax ${sigmaNumber(value / largest)}` : '';
+    bar.setAttribute('data-tip', `σ${i + 1} ${sigmaNumber(value)}${ratio}${step}`);
+    return bar;
+  });
+  if (split > 0 && split < n) {
+    nodes.push(
+      svgNode('line', {
+        class: 'ob-sigma-split',
+        x1: split * slot,
+        y1: 0,
+        x2: split * slot,
+        y2: SIGMA_H,
+      })
+    );
+  }
+  const cut = Math.min(SIGMA_W - 1, Math.max(1, k * slot));
+  nodes.push(svgNode('line', { class: 'ob-sigma-cut', x1: cut, y1: 0, x2: cut, y2: SIGMA_H }));
+  plot.replaceChildren(...nodes);
+  readout.textContent = `σ ${k}/${n}`;
+  control.setAttribute('aria-disabled', 'false');
+  control.tabIndex = 0;
+  control.setAttribute('aria-valuemax', String(n));
+  control.setAttribute('aria-valuenow', String(k));
+  control.setAttribute('aria-valuetext', `${k} of ${n} singular values kept`);
+}
+
 /**
  * The overflow after the rule toggle: a ⋯ button opening a popover with the
  * wider MML corrector lists, a check on the active one.
@@ -2326,6 +2645,7 @@ function optionsMenu(root) {
   /** @type {[string[], string][]} */
   const rows = [
     [['drag across dots'], 'add BPMs'],
+    [['drag across ticks'], 'add or remove correctors'],
     [['click', ' · ', '⇧', 'click'], 'toggle · extend'],
     [['drag ◆', ' · ', 'drag grip'], 'set target · move bump'],
     [['↑↓', ' · ', '⇧', ' · ', '⌫'], 'nudge · ×10 · remove'],
@@ -2464,6 +2784,7 @@ function controls(root) {
     htmlNode('span', { class: 'ob-spacer' }),
     priorityChip,
     allChip,
+    sigmaControl(root),
     rule,
     ruleMenu(root)
   );
@@ -2737,6 +3058,7 @@ function renderTable(root, panel) {
   pressSeg(step, 'data-step', String(panel.step));
 
   renderRule(root, selection);
+  renderSigma(root, panel);
 
   const title = field(root, 'cor-title');
   const planeCorrectors = new Set(
@@ -2873,6 +3195,7 @@ export function draftOf(panel) {
     priority: selection.priority,
     others: selection.others,
     all_correctors: selection.all_correctors,
+    sigma_keep: selection.sigma_keep,
     shape: panel.shape,
     amplitude: panel.amp,
   };
@@ -3107,11 +3430,14 @@ function missText(plan, unit) {
  * the BPMs and correctors the solve left out.
  * @param {Plan} plan
  * @param {string} unit
+ * @param {boolean} [withSigma] whether to name the singular values kept
  * @returns {string}
  */
-function closureText(plan, unit) {
+function closureText(plan, unit, withSigma = true) {
   const parts = [];
-  if (plan.sigma_kept != null) parts.push(`σ kept ${plan.sigma_kept}/${plan.sigma_total ?? '?'}`);
+  if (withSigma && plan.sigma_kept != null) {
+    parts.push(`σ kept ${plan.sigma_kept}/${plan.sigma_total ?? '?'}`);
+  }
   if (plan.predicted_closure_max != null) {
     const suffix = unit ? ` ${unit}` : '';
     parts.push(`max predicted leakage ${cellNumber(plan.predicted_closure_max)}${suffix}`);
@@ -3288,15 +3614,16 @@ function renderCard(root, panel) {
 }
 
 /**
- * The Correctors title's tooltip for a plan: its id, the closure line and the
- * residual after an apply.
+ * The Correctors title's tooltip for a plan: its id, the closure line (the
+ * spectrum in the card head says the singular values) and the residual after
+ * an apply.
  * @param {Plan} plan
  * @param {string} unit
  * @returns {string}
  */
 function planSummary(plan, unit) {
   const parts = [`plan #${plan.id}`];
-  const closure = closureText(plan, unit);
+  const closure = closureText(plan, unit, false);
   if (closure) parts.push(closure);
   const residual = Object.entries(plan.residual_after ?? {});
   if (residual.length > 0) {
@@ -3354,6 +3681,7 @@ export async function compute(root) {
     all_correctors: selection.all_correctors,
   };
   if (selection.rule === 'manual') body.correctors = [...selection.correctors];
+  if (selection.sigma_keep != null) body.sigma_keep = selection.sigma_keep;
   const key = selectionKey(selection);
   const send = async () => {
     render(root);

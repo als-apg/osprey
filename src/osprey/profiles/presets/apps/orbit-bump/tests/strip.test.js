@@ -612,3 +612,119 @@ describe('picking and shaping on the strip', () => {
     expect(panelOf(root).step).toBe(0.1);
   });
 });
+
+describe('picking correctors by dragging along their row', () => {
+  /** @type {HTMLElement} */
+  let root;
+
+  beforeEach(() => {
+    root = document.createElement('main');
+    root.innerHTML = MARKUP;
+    document.body.append(root);
+  });
+
+  afterEach(() => root.remove());
+
+  /** @param {BumpState} shown */
+  function mount(shown) {
+    showState(root, shown);
+    layout(root);
+  }
+
+  /**
+   * Press on one corrector's tick and release on another's.
+   * @param {string} from
+   * @param {string} to
+   */
+  function dragTicks(from, to) {
+    pointer(tick(root, from), 'pointerdown', xOf(tick(root, from)) - 5, 210);
+    pointer(svg(root), 'pointermove', xOf(tick(root, to)), 210);
+    pointer(svg(root), 'pointerup', xOf(tick(root, to)) + 5, 210);
+  }
+
+  it('adds every corrector the drag spans under the manual rule, with a band over the row', () => {
+    mount(state());
+    setSelection(root, { rule: 'manual' });
+    pointer(tick(root, 'H1'), 'pointerdown', xOf(tick(root, 'H1')) - 5, 210);
+    pointer(svg(root), 'pointermove', xOf(tick(root, 'H2')), 210);
+    const band = svg(root).querySelector('.ob-marquee');
+    expect(Number(band?.getAttribute('y'))).toBeGreaterThan(190);
+    pointer(svg(root), 'pointerup', xOf(tick(root, 'H2')) + 5, 210);
+    expect(panelOf(root).selection.correctors).toEqual(['H1', 'H2']);
+    expect(svg(root).querySelector('.ob-marquee')).toBeNull();
+  });
+
+  it('starts from the empty row between ticks as well', () => {
+    mount(state());
+    setSelection(root, { rule: 'manual' });
+    const row = svg(root).querySelector('.ob-cor-row');
+    if (!row) throw new Error('no corrector row');
+    pointer(row, 'pointerdown', 300, 210);
+    pointer(svg(root), 'pointerup', 800, 210);
+    // From 30 m to 80 m: H2 (40 m) and H3 (70 m).
+    expect(panelOf(root).selection.correctors).toEqual(['H2', 'H3']);
+  });
+
+  it('removes them all when every corrector in the range is selected already', () => {
+    mount(state());
+    setSelection(root, { rule: 'manual', correctors: ['H1', 'H2', 'H3'] });
+    dragTicks('H1', 'H2');
+    expect(panelOf(root).selection.correctors).toEqual(['H3']);
+  });
+
+  it('adds the rest of a range that is partly selected', () => {
+    mount(state());
+    setSelection(root, { rule: 'manual', correctors: ['H1'] });
+    dragTicks('H1', 'H2');
+    expect(panelOf(root).selection.correctors).toEqual(['H1', 'H2']);
+  });
+
+  it('switches another rule to manual, starting from the shown plan correctors', () => {
+    /** @type {Plan} */
+    const plan = {
+      id: 'p9',
+      model: 'RING',
+      plane: 'x',
+      rule: 'auto',
+      status: 'ready',
+      targets: { B3: 0.5 },
+      correctors: [{ element: 'H2' }, { element: 'H3' }],
+    };
+    mount(state({ plan }));
+    setSelection(root, { all_correctors: true });
+    expect(panelOf(root).selection.rule).toBe('auto');
+    dragTicks('H1', 'H1');
+    const { selection } = panelOf(root);
+    expect(selection.rule).toBe('manual');
+    expect(selection.correctors).toEqual(['H2', 'H3', 'H1']);
+    expect(selection.all_correctors).toBe(false);
+    expect(tick(root, 'H1').classList.contains('pickable')).toBe(true);
+  });
+
+  it('skips a corrector the ORM could not solve', () => {
+    const blocked = model();
+    blocked.orm.unsolved = ['H2'];
+    mount(state({ models: [blocked] }));
+    setSelection(root, { rule: 'manual' });
+    dragTicks('H1', 'H3');
+    expect(panelOf(root).selection.correctors).toEqual(['H1', 'H3']);
+  });
+
+  it('keeps a click a single toggle, and the click that ends a drag picks nothing more', () => {
+    mount(state());
+    setSelection(root, { rule: 'manual' });
+    click(tick(root, 'H2'));
+    expect(panelOf(root).selection.correctors).toEqual(['H2']);
+    dragTicks('H1', 'H1');
+    click(tick(root, 'H1'));
+    expect(panelOf(root).selection.correctors).toEqual(['H2', 'H1']);
+  });
+
+  it('leaves the bump and the view alone', () => {
+    mount(state());
+    setSelection(root, { rule: 'manual' });
+    dragTicks('H1', 'H3');
+    expect(panelOf(root).selection.targets).toEqual({});
+    expect(panelOf(root).view).toBeNull();
+  });
+});
