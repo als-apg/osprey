@@ -3541,7 +3541,20 @@ def test_control_identity_problems_is_empty_for_a_clean_roster() -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["", 7, None, "Alice", "alice:x", "alice\n", "root", "osprey", "osprey-dispatch-0", "backup"],
+    [
+        "",
+        7,
+        None,
+        "Alice",
+        "alice:x",
+        "alice\n",
+        "root",
+        "osprey",
+        "osprey-dispatch-0",
+        "osprey.x",
+        ".alice",
+        "backup",
+    ],
 )
 def test_control_identity_problems_refuses_an_invalid_value(value: Any) -> None:
     """Every value `validate_identity` refuses is an invalid_user_control_identity ERROR,
@@ -3549,6 +3562,20 @@ def test_control_identity_problems_refuses_an_invalid_value(value: Any) -> None:
     problems = control_identity_problems([{"name": "alice", "control_identity": value}])
     assert _codes(problems) == ["web_terminals.invalid_user_control_identity"]
     assert "'alice'" in problems[0][1]
+
+
+def test_control_identity_problems_accepts_a_dotted_value() -> None:
+    """A `first.last` account is a usable identity; the mailbox equal to the same
+    entry's own identity is no collision."""
+    users = [
+        {
+            "name": "alice",
+            "control_identity": "alice.smith",
+            "oidc_subject": "alice.smith@example.org",
+        }
+    ]
+    assert control_identity_problems(users, claim="email") == []
+    assert control_identity_collision_warnings(users, claim="email") == []
 
 
 def test_control_identity_problems_ignores_entries_without_the_key() -> None:

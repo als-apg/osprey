@@ -6490,6 +6490,7 @@ def test_compose_ctx_hands_the_template_the_control_identity_container_paths() -
         pytest.param("", id="empty"),
         pytest.param("root", id="reserved-root"),
         pytest.param("osprey-dispatch-0", id="reserved-service"),
+        pytest.param("osprey.x", id="reserved-dotted"),
         pytest.param("backup", id="base-image-account"),
     ],
 )
@@ -6671,6 +6672,19 @@ def test_control_identity_env_lines_use_the_quoted_whole_pair_form() -> None:
     # Assert
     assert '      - "OSPREY_CONTROL_IDENTITY=ahellert"\n' in text
     assert f'      - "OSPREY_CONTROL_IDENTITY_MODULE={CONTROL_IDENTITY_CONTAINER_PATH}"\n' in text
+
+
+def test_render_emits_a_dotted_control_identity() -> None:
+    """A `first.last` identity renders as the same quoted whole-pair env line."""
+    # Arrange
+    config = copy.deepcopy(_walled_identity_config("password"))
+    config["modules"]["web_terminals"]["users"][0]["control_identity"] = "alice.smith"
+
+    # Act
+    text = render_web_terminals(config)["docker-compose.web.yml"]
+
+    # Assert
+    assert '      - "OSPREY_CONTROL_IDENTITY=alice.smith"\n' in text
 
 
 @pytest.mark.parametrize("method", ["password", "oidc"])
