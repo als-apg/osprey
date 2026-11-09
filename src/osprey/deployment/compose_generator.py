@@ -1154,9 +1154,12 @@ def _resolve_qmd_corpora(config, repo_root):
     :return: Corpus descriptors with ``collection``, ``service``, ``port``,
         ``index`` (``managed`` or ``prebuilt``), ``source`` and ``target`` (the
         corpus mount, ``None`` for a prebuilt corpus without one), ``index_dir``
-        (the prebuilt index's bind source, else ``None``) and ``volume`` (the
-        managed index's named volume, else ``None``)
+        (the prebuilt index's bind source, else ``None``), ``volume`` (the
+        managed index's named volume, else ``None``) and ``embed`` (``False``
+        for a keyword-only index)
     :rtype: list[dict]
+    :raises ValueError: If the ``ariel`` corpus has embedding off while ARIEL's
+        hybrid search queries qmd's vectors
     """
     from osprey.deployment.qmd_service import (
         INDEX_MANAGED,
@@ -1170,7 +1173,7 @@ def _resolve_qmd_corpora(config, repo_root):
         bind_address=resolve_bind_address(config)
     )
 
-    def corpus(collection, raw_source, index=INDEX_MANAGED, raw_index_dir=None):
+    def corpus(collection, raw_source, index=INDEX_MANAGED, raw_index_dir=None, embed=True):
         managed = index == INDEX_MANAGED
         return {
             "collection": collection,
@@ -1183,6 +1186,7 @@ def _resolve_qmd_corpora(config, repo_root):
                 None if managed else repo_relative_mount_source(raw_index_dir, repo_root)
             ),
             "volume": f"qmd_index_{collection}" if managed else None,
+            "embed": embed,
         }
 
     corpora = []
@@ -1194,10 +1198,25 @@ def _resolve_qmd_corpora(config, repo_root):
 
     mirror_path = configured_ariel_mirror_path(config)
     if mirror_path is not None:
-        corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path))
+        ariel_embed = configured_ariel_embed(config)
+        if not ariel_embed:
+            # A keyword-only index under a strategy that queries its vectors
+            # would leave the hybrid mode's vector lane empty, with no error.
+            from osprey.services.ariel_search.search.qmd import DEFAULT_STRATEGY
+
+            ariel = config.get("ariel") or {}
+            hybrid = (ariel.get("search_modules") or {}).get("hybrid") or {}
+            strategy = (hybrid.get("settings") or {}).get("strategy") or DEFAULT_STRATEGY
+            if hybrid.get("enabled") and strategy != "rrf":
+                raise ValueError(
+                    f"{ARIEL_QMD_EMBED_KEY} is false, but "
+                    f"ariel.search_modules.hybrid.settings.strategy is {strategy!r}, which "
+                    "queries qmd's vectors; set strategy: rrf or remove embed: false"
+                )
+        corpora.append(corpus(QMD_ARIEL_COLLECTION, mirror_path, embed=ariel_embed))
 
     corpora.extend(
-        corpus(declared.name, declared.source, declared.index, declared.index_dir)
+        corpus(declared.name, declared.source, declared.index, declared.index_dir, declared.embed)
         for declared in resolved.corpora
     )
 

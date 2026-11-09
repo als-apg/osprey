@@ -70,6 +70,9 @@ services:
       OSPREY_QMD_CORPUS: "okf"
       OSPREY_QMD_CORPUS_PATH: "/corpus/okf"
       OSPREY_QMD_INDEX_MODE: "managed"
+      # Off: the sidecar builds the keyword index only, for a corpus whose
+      # clients query BM25 alone.
+      OSPREY_QMD_EMBED: "1"
       # Fallback sweep period, NOT the expected freshness lag: a corpus writer
       # touches its `.qmd-touch` marker and the sidecar re-indexes within a
       # poll. The sweep only catches writers that forgot to touch it, and its
