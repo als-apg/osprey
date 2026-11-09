@@ -22,11 +22,17 @@ import hashlib
 import json
 from collections.abc import Hashable, Mapping
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from osprey.facility import FACILITY_FILE
 from osprey.facility.build import FacilityDocument
+from osprey.facility.roots import (
+    DEPLOYMENT_CONTENT_DIRS,
+    FacilityRoots,
+    is_machine_entry,
+    is_vcs_metadata,
+)
 
 if TYPE_CHECKING:
     from osprey.facility.views import View, ViewInputs
@@ -42,27 +48,58 @@ __all__ = ["FACILITY_FILE", "facility_bytes", "facility_digest", "render_facilit
 _serialised: tuple[FacilityDocument, bytes] | None = None
 
 
-def facility_digest(facility_dir: Path) -> str:
-    """Hash a ``data/facility`` tree: every file's relative path and bytes.
+def facility_digest(facility_dir: Path, *, content_dir: Path | None = None) -> str:
+    """Hash a deployment's facility facts: every file's relative path and bytes.
+
+    A single tree hashes every file of ``data/facility``. A mounted deployment
+    hashes the machine entries of its machine root (:func:`is_machine_entry`)
+    and the content directories of its content root
+    (:data:`DEPLOYMENT_CONTENT_DIRS`), each keyed by its path relative to its
+    own root. Version-control metadata (``.git`` at any depth) is never hashed,
+    so a clone's history moves no digest.
 
     Args:
-        facility_dir: The ``data/facility`` directory; a missing one hashes as
-            an empty tree.
+        facility_dir: The machine root, the ``data/facility`` directory of a
+            single tree; a missing one hashes as an empty tree.
+        content_dir: The content root when mounted; ``None``, or the same
+            directory, is a single tree.
 
     Returns:
         The sha256 hex digest, equal for two trees holding the same files with
         the same bytes wherever they sit on disk.
     """
+    roots = FacilityRoots(
+        machine=facility_dir, content=content_dir if content_dir is not None else facility_dir
+    )
+    entries = [
+        (relative, path)
+        for relative, path in _tree_files(roots.machine)
+        if is_machine_entry(roots, relative)
+    ]
+    if roots.mounted:
+        entries.extend(
+            (relative, path)
+            for relative, path in _tree_files(roots.content)
+            if relative.parts[0] in DEPLOYMENT_CONTENT_DIRS and not is_vcs_metadata(relative)
+        )
     digest = hashlib.sha256()
-    if facility_dir.is_dir():
-        for path in sorted(facility_dir.rglob("*")):
-            if not path.is_file():
-                continue
-            relative = path.relative_to(facility_dir).as_posix().encode("utf-8")
-            content = path.read_bytes()
-            digest.update(len(relative).to_bytes(8, "big") + relative)
-            digest.update(len(content).to_bytes(8, "big") + content)
+    for relative, path in sorted(entries):
+        name = relative.as_posix().encode("utf-8")
+        content = path.read_bytes()
+        digest.update(len(name).to_bytes(8, "big") + name)
+        digest.update(len(content).to_bytes(8, "big") + content)
     return digest.hexdigest()
+
+
+def _tree_files(root: Path) -> list[tuple[PurePosixPath, Path]]:
+    """Every file under ``root``, with its path relative to ``root``; none when missing."""
+    if not root.is_dir():
+        return []
+    return [
+        (PurePosixPath(path.relative_to(root).as_posix()), path)
+        for path in root.rglob("*")
+        if path.is_file()
+    ]
 
 
 def facility_bytes(doc: FacilityDocument) -> bytes:
@@ -90,6 +127,7 @@ def render_facility_outputs(
     omitted_reported: set[str] | None = None,
     built_databases: dict[str, Path] | None = None,
     views_written: WrittenViews | None = None,
+    content_dir: Path | None = None,
 ) -> list[Path]:
     """Write the facility outputs of one render.
 
@@ -97,8 +135,9 @@ def render_facility_outputs(
         render_dir: The render's root, the directory holding its ``config.yml``.
         doc: The build's facility file.
         rendered_config: The render's ``config.yml``, as a mapping.
-        facility_dir: The build's ``data/facility`` directory, the source of the
-            files a view copies.
+        facility_dir: The build's machine root, its ``data/facility``
+            directory unless mounted, the source of the machine files a view
+            copies.
         omitted_reported: The views this build has already named as not
             written, and the view notes it has printed; one in it is not
             printed again and each one printed is added. ``None`` prints every
@@ -112,6 +151,8 @@ def render_facility_outputs(
             what an earlier render's did is copied from its bytes. ``None``
             writes every view. One build's only: it holds neither the facility
             file nor the files a view copies, which a build does not change.
+        content_dir: The content root when mounted, the source of the
+            deployment's files a view copies; ``None`` means ``facility_dir``.
 
     Each view whose predicate is false is named on stderr, one line each, once
     per build, unless a selector picks it from among its alternatives: a view
@@ -136,6 +177,7 @@ def render_facility_outputs(
         served=resolve_served(rendered_config, records),
         reported=omitted_reported,
         built_databases=built_databases,
+        content_dir=content_dir,
     )
     target = render_dir / FACILITY_FILE
     target.write_bytes(facility_bytes(doc))

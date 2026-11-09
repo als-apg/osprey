@@ -1,0 +1,1 @@
+A deployment with its own logbook database can name a read-only login with `ariel.database.readonly_uri`. Without one, the agent's SQL tool is not offered. A store whose read-only login is refused no longer falls back to the owner's: the SQL tool reports itself unavailable with the reason.

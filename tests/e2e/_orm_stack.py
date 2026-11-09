@@ -60,7 +60,7 @@ from tests.e2e._deploy_support import (
     wait_for_health,
 )
 from tests.e2e._facility_select import corrector_addresses, monitor_addresses, repo_view
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import forced_model
 
 if TYPE_CHECKING:
@@ -75,7 +75,7 @@ _T = TypeVar("_T")
 # caller of this module gets unless it passes its own.
 #
 # This IS freely overridable via `--set virtual_accelerator.port=...`: the
-# Control Assistant preset deliberately leaves
+# Demo preset deliberately leaves
 # `control_system.connector.virtual_accelerator.gateways.*.port` UNSET, so the
 # connector follows `services.virtual_accelerator.port` and moving the deployed
 # soft-IOC's port is a one-place edit that carries the connector with it.
@@ -191,7 +191,7 @@ DEFAULT_BPM_COUNT = 4
 
 # The archive every VA lane deploys, shrunk to what a lane actually reads.
 #
-# The control-assistant preset declares a `va_archiver:` block sized for a
+# The demo preset declares a `va_archiver:` block sized for a
 # tutorial deployment -- a month of history behind two dense days -- and
 # `osprey up` writes every sample of it into the store before the stack answers.
 # No lane here reads that history; they need the store to exist, the recorder to
@@ -209,7 +209,7 @@ VA_ARCHIVER_CI_KNOBS: dict[str, Any] = {"va_archiver": {"retention_days": 2, "ho
 
 # The services a substrate lane deploys only because the preset lists them.
 #
-# The control-assistant preset deploys the agent's knowledge services: the qmd
+# The demo preset deploys the agent's knowledge services: the qmd
 # search sidecars (an image with three GGUF models baked in, ~6 GB on a CI
 # runner's disk), the graph store, ARIEL's Postgres and a ClickHouse store for
 # the agent record. A lane that proves the VA, the bluesky bridge or a sidecar
@@ -247,7 +247,7 @@ def knowledge_services_off(edits: dict[str, Any] | None = None) -> dict[str, Any
 def profile_edits() -> dict[str, Any]:
     """The lane's profile pins: VA control system + the bluesky MCP server.
 
-    ``dispatch: None`` drops control-assistant's default event-dispatcher
+    ``dispatch: None`` drops demo's default event-dispatcher
     stack (Node + Claude CLI image) -- irrelevant to the plan stack and far
     slower to build than the VA/bridge images already are (mirrors
     test_va_substrate_equivalence.py / test_tiled_roundtrip.py). The preset's
@@ -259,7 +259,7 @@ def profile_edits() -> dict[str, Any]:
     web-terminal stack (two render images + nginx, all built locally) for
     the same reason: nothing in the plan stack touches render routing, and
     that coverage lives in the dedicated web-terminals lanes
-    (control-assistant-demo-e2e, multi-user-deploy-lifecycle-e2e,
+    (demo-e2e, multi-user-deploy-lifecycle-e2e,
     tests/e2e/web_terminals/). One dotted LEAF key on purpose -- the preset
     sets the whole ``modules.web_terminals`` subtree as a single dotted key,
     and stating just ``.enabled`` leaves its siblings intact, whereas stating
@@ -347,7 +347,7 @@ def init_args(
     ``provider``/``model``, when given, append ``--set provider=<provider>``
     and/or ``--set model=<model>`` edits -- e.g. an agentic-discovery
     caller that must pin an explicit provider rather than let the
-    control-assistant preset's own default apply silently (this project's
+    demo preset's own default apply silently (this project's
     "no default provider" convention). Left ``None`` by default: nothing is
     appended and the preset's own provider/model apply unchanged, so the
     default deploy shape is unaffected by these params.
@@ -363,8 +363,9 @@ def init_args(
     args = [
         str(output_dir / project_name),
         "--preset",
-        "control-assistant",
+        "demo",
         "--no-git",
+        *e2e_scenario_pin(),
         *set_pairs(merged_profile_edits(extra_config or {})),
         "--set",
         f"virtual_accelerator.port={va_port}",

@@ -148,7 +148,7 @@ class TestGroupFixtureFailures:
         """test_build_boot.py produced 6 node IDs from one uv timeout."""
         node_ids = [
             "tests/integration/test_build_boot.py::test_a[hello-world]",
-            "tests/integration/test_build_boot.py::test_a[control-assistant]",
+            "tests/integration/test_build_boot.py::test_a[demo]",
             "tests/integration/test_build_boot.py::test_b[hello-world]",
         ]
         assert flake_report.group_fixture_failures(node_ids) == [

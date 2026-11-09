@@ -82,9 +82,10 @@ def span_count(recorder: RecordingPool) -> int:
 
     Each span is one ``(raw_text ~* … OR COALESCE(attachment_text,'') ~* …)``
     group in the entry query; the supplementary caption-match statement filters
-    ``caption_text`` and is not counted.
+    ``caption_text`` and is not counted, nor is the page's total ``COUNT``, which
+    repeats the entry query's predicates.
     """
-    return sum(text.count("raw_text ~*") for text in recorder.statements)
+    return sum(text.count("raw_text ~*") for text in recorder.statements if "ts_rank" in text)
 
 
 def entry_query_in_transaction(recorder: RecordingPool) -> bool:

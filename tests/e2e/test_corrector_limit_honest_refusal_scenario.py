@@ -82,7 +82,6 @@ from tests.e2e.test_preset_agentic import _to_workflow_result
 # We gate on HAS_SDK only — the run executes the installed pinned ``claude``,
 # and a runner without it must fail this test loudly, not skip it.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
@@ -150,7 +149,7 @@ async def test_corrector_limit_honest_refusal(tmp_path: Path) -> None:
     repo = init_project(
         tmp_path,
         "honest_refusal_demo",
-        template="control_assistant",
+        template="demo",
         provider="als-apg",
         model="claude-haiku-5-5",
     )

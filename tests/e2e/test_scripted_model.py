@@ -133,8 +133,20 @@ def test_the_turn_follows_the_conversation_not_the_request_count(serve):
     first, _ = _streamed(_post(model, _body())[1])
     retried, _ = _streamed(_post(model, _body())[1])
     second, _ = _streamed(_post(model, _body(assistant_turns=1))[1])
-    assert first == retried
+
+    def calls(blocks):
+        return [{k: v for k, v in b.items() if k != "id"} for b in blocks]
+
+    assert calls(first) == calls(retried)
     assert [b["name"] for b in second] == ["Read"]
+
+
+def test_every_tool_use_id_is_unique_across_models(serve):
+    """Like the real API's: a run's exec id is its tool-use id, and two scripts may share a store."""
+    ids = [
+        b["id"] for _ in range(2) for b in _streamed(_post(serve([[GLOB, READ]]), _body())[1])[0]
+    ]
+    assert len(set(ids)) == len(ids) == 4
 
 
 def test_an_exhausted_script_ends_the_run_with_text(serve):

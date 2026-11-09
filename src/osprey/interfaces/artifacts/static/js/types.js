@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * OSPREY Artifact Gallery — type registry, formatting, and color-pass utilities.
+ * OSPREY Artifact Gallery — type registry and formatting utilities.
  *
  * Stateless/self-contained: the only mutable state is the type registry
  * fetched from `/api/type-registry` (behind a getter, since ES modules only
@@ -11,12 +11,7 @@
  */
 
 import { fileUrl } from './state.js';
-import { escapeHtml } from '/design-system/js/dom.js';
-import {
-  facilityDayKey,
-  formatFacilityTime,
-  viewerSharesFacilityClock,
-} from '/design-system/js/facility-time.js';
+import { formatFacilityTime, viewerSharesFacilityClock } from '/design-system/js/facility-time.js';
 
 // ---- Type Registry ---- //
 
@@ -42,152 +37,11 @@ export async function initTypeRegistry() {
   }
 }
 
-/**
- * Human-readable label for an artifact/category type.
- *
- * Escaped at the source: `info.label` comes from the agent-fed
- * `/api/type-registry`, and `type` itself is the agent-supplied
- * `category`/`artifact_type` value (never validated server-side beyond a
- * log-warning — see artifact_store.py). Every call site interpolates the
- * result directly into innerHTML, so this must return HTML-safe text.
- * Audited: no call site (render.js, preview.js, this module's own
- * `thumbnailHtml`) wraps the result in `escapeHtml` itself, so escaping here
- * cannot double-escape.
- * @param {string} type
- * @returns {string}
- */
-export function typeBadge(type) {
-  const info =
-    (typeRegistry.categories && typeRegistry.categories[type]) ||
-    (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) ||
-    {};
-  return escapeHtml(info.label || type.replace(/_/g, ' '));
-}
-
-// SVG icon markup keyed by artifact/category type. Module-level constant
-// (not rebuilt per `typeIcon` call — it's read once per artifact card on
-// every sidebar render). The `type` key never reaches output; the markup is
-// a fixed internal map, so callers interpolate `typeIcon()`'s result raw.
-/** @type {Record<string, string>} */
-const TYPE_ICONS = {
-  // Artifact types
-  plot_html:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>',
-  plot_png:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
-  table_html:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
-  html: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-  markdown:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
-  text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
-  json: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>',
-  image:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
-  notebook:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
-  dashboard_html:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
-  // Category types
-  archiver_data:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 5v14c0 1.66-4.03 3-9 3s-9-1.34-9-3V5"/><path d="M3 12c0 1.66 4.03 3 9 3s9-1.34 9-3"/></svg>',
-  channel_values:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
-  write_results:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
-  code_output:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
-  visualization:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><polyline points="7 14 11 10 15 14 19 8"/></svg>',
-  dashboard:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
-  document:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>',
-  screenshot:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>',
-  channel_finder:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  search_results:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  logbook_research:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
-  literature_research:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
-  wiki_research:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>',
-  mml_research:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
-  agent_response:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
-  // Facility knowledge — a small node graph, shared by the document-bundle and
-  // knowledge-graph agents that both file here.
-  facility_knowledge:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 7v3M11 11l-4.5 6M13 11l4.5 6"/></svg>',
-  // Lattice analysis — a beam envelope, for computed optics results.
-  lattice_analysis:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12c2.5-7 5-7 7.5 0s5 7 7.5 0"/><path d="M2 12c2.5 7 5 7 7.5 0s5-7 7.5 0"/></svg>',
-  user_artifact:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
-  diagnostic_report:
-    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>',
-};
-
-/**
- * SVG icon markup for an artifact/category type, falling back to the generic
- * text-document icon for unknown types.
- * @param {string} type
- * @returns {string}
- */
-export function typeIcon(type) {
-  return TYPE_ICONS[type] || TYPE_ICONS.text;
-}
-
-/**
- * CSS color for an artifact/category type, with a theme-invariant fallback.
- * @param {string} type
- * @returns {string}
- */
-export function typeColor(type) {
-  const info =
-    (typeRegistry.categories && typeRegistry.categories[type]) ||
-    (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) ||
-    {};
-  return info.color || '#64748b'; // hygiene-allow-color: matches --text-muted exactly, theme-invariant fallback
-}
-
-/**
- * Thumbnail markup for an artifact card: an image preview for image types,
- * a summary-field dump, or a generic type icon fallback.
- * @param {any} a
- * @returns {string}
- */
-export function thumbnailHtml(a) {
-  const url = fileUrl(a);
-  switch (a.artifact_type) {
-    case 'plot_png':
-    case 'image':
-      return `<img src="${url}" alt="" loading="lazy"
-               onerror="this.parentElement.classList.add('img-error')" />`;
-    // HTML-family and notebook cards load no live page: each would be a
-    // sandboxed full document (a plot one carrying the 4.8 MB Plotly bundle
-    // inline), once per card. They show the summary or the type placeholder,
-    // and the full view lives in the preview pane.
-    default:
-      if (a.summary && Object.keys(a.summary).length > 0) {
-        const text = Object.entries(a.summary)
-          .map(([k, v]) => `${k}: ${v}`)
-          .join('\n');
-        return `<div class="thumb-summary">${escapeHtml(text)}</div>`;
-      }
-      return `<div class="thumb-placeholder">${typeIcon(a.artifact_type)}<span>${typeBadge(a.artifact_type)}</span></div>`;
-  }
-}
-
 // ---- Utilities ---- //
 
-// HTML-escaping now lives in the design-system's canonical helper — this
-// module re-exports it so existing importers (render.js, preview.js,
-// preview-content.js) keep working unchanged.
+// HTML-escaping lives in the design-system's canonical helper — this module
+// re-exports it so existing importers (preview.js, preview-content.js) keep
+// working unchanged.
 export { escapeHtml } from '/design-system/js/dom.js';
 
 /**
@@ -228,18 +82,6 @@ export function formatSize(bytes) {
 }
 
 /**
- * Facility-clock time-of-day (e.g. "3:45 PM"). Empty string for falsy or
- * non-ISO input (see `isoToDate`).
- * @param {string} [iso]
- * @returns {string}
- */
-export function formatTime(iso) {
-  const d = isoToDate(iso);
-  if (!d) return '';
-  return formatFacilityTime(d, { hour: '2-digit', minute: '2-digit' });
-}
-
-/**
  * Full facility-clock date + time (e.g. "Jul 3, 2026, 3:45 PM"), naming the
  * zone when the viewer's clock reads differently. Empty string for falsy or
  * non-ISO input (see `isoToDate`).
@@ -260,28 +102,11 @@ export function formatFullTime(iso) {
 }
 
 /**
- * "Today" / "Yesterday" / a short facility-clock date, for grouping the
- * activity timeline. "Unknown" for falsy or non-ISO input (see `isoToDate`).
- * @param {string} [iso]
- * @returns {string}
- */
-export function formatDate(iso) {
-  const d = isoToDate(iso);
-  if (!d) return 'Unknown';
-  const day = facilityDayKey(d);
-  const today = facilityDayKey(new Date());
-  if (day === today) return 'Today';
-  // The civil day before, by calendar arithmetic: counting back 24 hours
-  // lands two days back on the morning after a 23-hour spring-forward day.
-  const [y, m, dd] = today.split('-').map(Number);
-  const yesterday = new Date(Date.UTC(y, m - 1, dd - 1)).toISOString().slice(0, 10);
-  if (day === yesterday) return 'Yesterday';
-  return formatFacilityTime(d, { month: 'short', day: 'numeric' });
-}
-
-/**
- * Whether an artifact is a timeseries (its metadata declares the
- * `timeseries` data_type, or it carries the `archiver_data` category). This
+ * Whether an artifact is a timeseries: its metadata declares the
+ * `timeseries` data_type (an archiver read, an array channel read), or the
+ * archiver wrote it before `data_type` existed (`tool_source` is
+ * `archiver_read`). Never the category: a scalar channel snapshot is not a
+ * timeseries. This
  * is the artifact *type* question only — see `hasTimeseriesData` for the
  * "and it actually has a data file to render" variant. Single source of
  * truth so print.js's strategy dispatch and preview.js's viewport choice
@@ -290,7 +115,9 @@ export function formatDate(iso) {
  * @returns {boolean}
  */
 export function isTimeseries(a) {
-  return (!!a.metadata && a.metadata.data_type === 'timeseries') || a.category === 'archiver_data';
+  return (
+    (!!a.metadata && a.metadata.data_type === 'timeseries') || a.tool_source === 'archiver_read'
+  );
 }
 
 /**
@@ -449,62 +276,4 @@ function artifactsDir() {
  */
 export function artifactPath(a) {
   return `${artifactsDir()}/${a.filename}`;
-}
-
-/**
- * Whether an artifact was created during the current gallery session.
- * `sessionStart` is passed in explicitly (the caller's page-load timestamp —
- * render.js's) rather than held here, keeping this module stateless.
- * @param {{timestamp?: string, origin?: string}} a
- * @param {string} sessionStart
- * @returns {boolean}
- */
-export function isNewThisSession(a, sessionStart) {
-  // A shipped example is written when the gallery first starts, which is
-  // "this session" for whoever opened it; it is never news.
-  if (a.origin === 'demo') return false;
-  return !!(a.timestamp && a.timestamp >= sessionStart);
-}
-
-// ---- Color pass: color badges by type ---- //
-
-/**
- * @param {HTMLElement} el
- * @param {string} color
- */
-function _setTypeColorVars(el, color) {
-  el.style.setProperty('--type-color', color);
-  el.style.setProperty('--type-bg', color + '14');
-  el.style.setProperty('--type-border', color + '40');
-}
-
-/**
- * Re-color every type badge/section/card on screen from the current
- * registry, on the next animation frame.
- * @returns {void}
- */
-export function requestColorPass() {
-  requestAnimationFrame(() => {
-    document.querySelectorAll("[class*='badge-']").forEach((el) => {
-      const cls = [...el.classList].find((c) => c.startsWith('badge-'));
-      if (cls) {
-        const type = cls.replace('badge-', '');
-        const color = typeColor(type);
-        /** @type {HTMLElement} */ (el).style.color = color;
-        /** @type {HTMLElement} */ (el).style.borderColor = color;
-      }
-    });
-    document.querySelectorAll('.tree-section[data-type]').forEach((el) => {
-      const type = /** @type {HTMLElement} */ (el).dataset.type;
-      if (type) _setTypeColorVars(/** @type {HTMLElement} */ (el), typeColor(type));
-    });
-    document.querySelectorAll('.gallery-card[data-type]').forEach((el) => {
-      const type = /** @type {HTMLElement} */ (el).dataset.type;
-      if (type) _setTypeColorVars(/** @type {HTMLElement} */ (el), typeColor(type));
-    });
-    document.querySelectorAll('.timeline-item[data-type]').forEach((el) => {
-      const type = /** @type {HTMLElement} */ (el).dataset.type;
-      if (type) _setTypeColorVars(/** @type {HTMLElement} */ (el), typeColor(type));
-    });
-  });
 }

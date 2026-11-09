@@ -30,7 +30,7 @@ from osprey_connectors.errors import BuildProfileError
 
 # A bundled tier and the host preset whose deployments carry it.
 RENDER_PRESET = "tiers/readonly"
-HOST_PRESET = "control-assistant"
+HOST_PRESET = "demo"
 
 #: Every bundled layer, kind-qualified the way the emitter names it.
 RENDER_PRESETS = tuple(f"tiers/{name}" for name in list_tiers()) + tuple(

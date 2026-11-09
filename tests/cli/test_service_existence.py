@@ -21,10 +21,12 @@ import yaml
 from click.testing import CliRunner
 
 import osprey.deployment.compose_generator as compose_generator
-from osprey.cli.build_cmd import (
-    _bundled_service_names,
-    _render_compose_files,
-    _service_existence_errors,
+from osprey.cli.build_cmd import _render_compose_files, _service_existence_errors
+from osprey.cli.build_injectors import _SHARED_SERVICE_TEMPLATE
+from osprey.cli.build_profile_presets import (
+    SERVICE_INSTANCE_KEYS,
+    bundled_service_names,
+    resolve_service_template,
 )
 from osprey.cli.init_cmd import init
 from osprey_connectors.errors import BuildProfileError
@@ -128,7 +130,7 @@ def test_an_undeployed_block_of_a_bundled_service_passes(tmp_path: Path) -> None
 
 
 def test_every_bundled_service_passes_by_name(tmp_path: Path) -> None:
-    bundled = _bundled_service_names()
+    bundled = bundled_service_names()
     # live_standin is a second instance of the bundled virtual accelerator.
     assert {"qmd", "graphdb", "postgresql", "live_standin"} <= bundled
     assert "openobserve" not in bundled
@@ -174,3 +176,23 @@ def test_the_refusal_is_an_ordinary_build_error_not_an_unexpected_one(
     assert "'openobserve'" in text
     assert "Unexpected error" not in text
     assert "not found in configuration" not in text
+
+
+def test_the_catalog_names_every_shared_instance() -> None:
+    catalog = bundled_service_names()
+
+    assert set(_SHARED_SERVICE_TEMPLATE) <= SERVICE_INSTANCE_KEYS <= catalog
+    assert set(_SHARED_SERVICE_TEMPLATE.values()) <= catalog
+
+
+def test_every_shipped_template_passes_the_one_existence_test(tmp_path: Path) -> None:
+    shipped = bundled_service_names() - SERVICE_INSTANCE_KEYS
+    assert shipped
+
+    for name in sorted(shipped):
+        source = resolve_service_template(tmp_path, f"osprey.{name}")
+        assert source.bundled and source.exists, name
+
+
+def test_a_second_lane_passes_by_name(tmp_path: Path) -> None:
+    assert _service_existence_errors({"services": {"bluesky_va": {}}}, tmp_path) == []

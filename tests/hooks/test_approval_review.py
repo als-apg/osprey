@@ -261,7 +261,11 @@ def test_replace_file_rewrites_the_bytes_and_keeps_the_entry(tmp_path):
     assert replaced.timestamp == saved.timestamp
     assert replaced.size_bytes == len(b"new bytes")
     assert replaced.description == "after"
-    assert replaced.metadata == {"exec_mode": "readwrite"}
+    # first_ts is the store's first-save stamp: a replace keeps it.
+    assert replaced.metadata == {
+        "exec_mode": "readwrite",
+        "first_ts": saved.metadata["first_ts"],
+    }
     assert store.get_file_path(saved.id).read_bytes() == b"new bytes"
     reloaded = ArtifactStore(workspace_root=tmp_path, auto_launch=False).get_entry(saved.id)
     assert reloaded.description == "after"

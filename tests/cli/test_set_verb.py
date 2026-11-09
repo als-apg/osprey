@@ -68,7 +68,7 @@ def _stamp_build(repo: Path) -> Path:
                 "schema_version": "1.2.0",
                 "creation": {
                     "osprey_version": get_framework_release_version(),
-                    "template": "control_assistant",
+                    "template": "demo",
                     "preset_hash": fingerprint.profile_hash,
                     staleness.KEY_DIGESTS_MANIFEST_KEY: fingerprint.key_digests,
                 },

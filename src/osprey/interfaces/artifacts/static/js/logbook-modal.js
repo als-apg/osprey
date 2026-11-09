@@ -67,15 +67,14 @@ export function buildLogbookModal({ onClose, onChooseArtifacts }) {
  * The "Draft created" card that replaces the form body on a successful submit.
  *
  * Built as DOM rather than an interpolated HTML string for the same reason the
- * artifact picker assigns its checkbox value as a property: the two server
- * strings reach text and an href, and property assignment bypasses HTML
- * parsing entirely, so neither can break out of its slot.
+ * artifact picker assigns its checkbox value as a property: the server's string
+ * reaches text, and property assignment bypasses HTML parsing entirely, so it
+ * cannot break out of its slot.
  *
  * @param {string} draftId
- * @param {string} url
  * @returns {HTMLElement}
  */
-export function buildSuccessCard(draftId, url) {
+export function buildSuccessCard(draftId) {
   const card = document.createElement('div');
   card.style.cssText = 'text-align:center; padding:var(--art-space-6); color:var(--color-success);';
 
@@ -85,16 +84,7 @@ export function buildSuccessCard(draftId, url) {
 
   const meta = document.createElement('div');
   meta.style.cssText = 'font-size:var(--art-text-sm); color:var(--text-secondary);';
-  meta.appendChild(document.createTextNode(draftId));
-  meta.appendChild(document.createElement('br'));
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.target = '_blank';
-  link.rel = 'noopener';
-  link.style.color = 'var(--color-accent-light)';
-  link.textContent = 'Open in ARIEL';
-  meta.appendChild(link);
+  meta.textContent = draftId;
 
   card.append(heading, meta);
   return card;

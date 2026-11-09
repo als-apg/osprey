@@ -37,11 +37,13 @@ import {
 } from './chat-client.js';
 import { createChatRenderer, elem } from './chat-render.js';
 import { buildConsole } from './chat-console.js';
+export { renderChatBootFailure } from './chat-console.js';
 import { isTerminalSurface, showTerminalSurface } from './agent-surface.js';
 import { emitChat, setChatNoticeSink } from './chat-events.js';
 import { createTurnFollower } from './chat-follow.js';
 import { initChatFeatures } from './chat-features.js';
 import { handoffRefusal, HANDOFF_FALLBACK, transportNotice } from './chat-notices.js';
+import { createFollowUpQueue } from './chat-queue.js';
 import {
   buildEmptyState,
   onKindChange,
@@ -49,7 +51,7 @@ import {
   renderEmptyStateContent,
 } from './first-contact.js';
 import { getPointer, setPointer, subscribe as subscribeToPointer } from './session-pointer.js';
-import { attachConversationMenu } from './sessions.js';
+import { attachSessionSwitcher } from './session-switcher.js';
 import { attachSlashComplete } from './slash-complete.js';
 import { askAboutStartedCommands } from './started-commands.js';
 import { notifySessionChange } from './terminal.js';
@@ -91,6 +93,22 @@ export function enterFromTerminal(options = {}) {
 }
 
 /**
+ * The mounted console's turn controls, bound by {@link initChat}; null while
+ * no console is mounted (the session model reaches them from outside).
+ * @type {{ streaming: () => boolean, stop: () => Promise<void>, newConversation: () => void } | null}
+ */
+let controls = null;
+
+/** Whether a turn streams in the console (a live handle or a followed turn; a hand-off is not). */
+export const isStreaming = () => controls?.streaming() ?? false;
+
+/** Stop the streaming turn (interrupt, then abort); resolves once asked, not once it ended. */
+export const stopTurn = () => controls?.stop() ?? Promise.resolve();
+
+/** Start a conversation on a new session key, as the Agent bar's `+` does. */
+export const newConversation = () => controls?.newConversation();
+
+/**
  * Mount the operator chat into #operator-container. Called once in
  * the boot sequence; binds one console to the tab's session pointer. A missing
  * container is a no-op so the rest of the page still boots.
@@ -104,8 +122,8 @@ export function initChat(containerId = 'operator-container') {
   // handler closures below, so hand them a statically non-null reference.
   const container = /** @type {HTMLElement} */ (found);
 
-  const handles = buildConsole();
-  const { bar, newBtn, moreBtn, messages, overlay, overlayMessage, overlayAction } = handles;
+  const handles = buildConsole({ onNew: startConversation });
+  const { bar, label, messages, overlay, overlayMessage, overlayAction } = handles;
   const { inputArea, textarea, cmdBtn, sendBtn, stopBtn } = handles;
   container.append(bar, messages, overlay, inputArea);
   const slash = attachSlashComplete(textarea, { load: fetchCommands, mount: inputArea });
@@ -145,16 +163,13 @@ export function initChat(containerId = 'operator-container') {
     key: () => boundKey,
     sending: () => handle !== null,
     setStreaming,
-    dismissInvitation: () => {
-      emptyState?.remove();
-      emptyState = null;
-    },
+    dismissInvitation: () => dismissInvitation(),
     scrollToBottom: () => scrollToBottom(),
     redraw: (turns) => {
       renderer.reset();
       emptyState = null;
       renderer.replay(turns);
-      inviteIfEmpty();
+      syncInvitation();
     },
   });
 
@@ -163,6 +178,18 @@ export function initChat(containerId = 'operator-container') {
 
   /** Whether a hand-off is in flight or refused — the input stays out of reach. */
   let transitioning = false;
+
+  /** The message typed while a turn runs, sent once the turn ends. */
+  const queue = createFollowUpQueue({ textarea, autoResize, send, interrupt: ask, state });
+
+  /** What the queue reads of the console: the turn, the hand-off, the session. */
+  function state() {
+    return { streaming, transitioning, key: boundKey };
+  }
+  /** Ask the agent to end its turn; the turn's own stream reports the end. */
+  function ask() {
+    return interrupt(boundKey);
+  }
 
   /** The first-contact block while it is on screen, or null once it is gone. */
   let emptyState = /** @type {HTMLElement | null} */ (null);
@@ -215,11 +242,22 @@ export function initChat(containerId = 'operator-container') {
     messages.scrollTop = messages.scrollHeight;
   };
 
-  /** Offer first contact when the log is empty and there is something to say. */
-  function inviteIfEmpty() {
-    if (!settled || emptyState || renderer.messageCount() > 0) return;
-    emptyState = buildEmptyState();
-    messages.prepend(emptyState);
+  /** Take the first-contact block away; the log is the conversation from here. */
+  function dismissInvitation() {
+    emptyState?.remove();
+    emptyState = null;
+  }
+
+  /**
+   * Offer first contact when the log is empty and there is something to say,
+   * and take it away when the log is not empty. Called after every replay as
+   * well as at the settled moment: a reloaded page can settle while its
+   * session's transcript is still in flight, and the block put up then would
+   * otherwise stay above the conversation the replay brings back.
+   */
+  function syncInvitation() {
+    if (renderer.messageCount() > 0) dismissInvitation();
+    else if (settled && !emptyState) messages.prepend((emptyState = buildEmptyState()));
   }
 
   // First contact, once there is enough known to say something true. A log that
@@ -227,7 +265,7 @@ export function initChat(containerId = 'operator-container') {
   // page reaches the settled moment too.
   onSettled(() => {
     settled = true;
-    inviteIfEmpty();
+    syncInvitation();
   });
 
   // A switch changes what the sentence may claim. Rebuilt in place, and only
@@ -241,13 +279,17 @@ export function initChat(containerId = 'operator-container') {
     textarea.style.height = `${Math.min(textarea.scrollHeight, MAX_INPUT_HEIGHT)}px`;
   }
 
-  /** Apply the current streaming/transition state to every control. */
+  /**
+   * Apply the current streaming/transition state to every control. A running
+   * turn leaves the box open, so the next message can be typed and queued; a
+   * hand-off closes it, because the session is not this view's. The Agent
+   * bar's `+` follows the `busy` it says on the bus (agent-bar.js).
+   */
   function applyControls() {
     const blocked = streaming || transitioning;
-    textarea.disabled = blocked;
+    textarea.disabled = transitioning;
     cmdBtn.disabled = blocked;
-    sendBtn.disabled = blocked;
-    newBtn.disabled = blocked;
+    sendBtn.disabled = transitioning;
     sendBtn.hidden = streaming;
     stopBtn.hidden = !streaming;
     stopBtn.disabled = false;
@@ -265,6 +307,9 @@ export function initChat(containerId = 'operator-container') {
     streaming = on;
     container.classList.toggle('streaming', on);
     applyControls();
+    // After the caller is done with the turn that ended (its closing draw, the
+    // feed it reopens), so the queued message starts a turn of its own.
+    if (!on && queue.has()) queueMicrotask(queue.flush);
     // Return focus to the input when a turn ends, but only while the console is
     // the visible surface and reachable — focusing a hidden or disabled textarea
     // is pointless.
@@ -277,6 +322,8 @@ export function initChat(containerId = 'operator-container') {
    * @param {boolean} on
    */
   function setTransitioning(on) {
+    // The session is about to be another view's: nothing queued here may go.
+    if (on) queue.recall();
     transitioning = on;
     applyControls();
     if (!on && !streaming && !isTerminalSurface()) textarea.focus();
@@ -455,6 +502,8 @@ export function initChat(containerId = 'operator-container') {
 
   /** Clear the log and everything the old conversation left behind. */
   function resetLog() {
+    // A queued message belongs to the conversation it was typed in.
+    queue.recall();
     handle?.abort();
     handle = null;
     follower.logChanged();
@@ -486,7 +535,7 @@ export function initChat(containerId = 'operator-container') {
     // A newer bind landed while the transcript was in flight; it owns the log.
     if (boundKey !== key) return;
     renderer.replay(turns);
-    inviteIfEmpty();
+    syncInvitation();
     scrollToBottom();
     // Follow the agent from here on, so a turn still running — after a reload,
     // or sent from another tab — keeps drawing.
@@ -597,19 +646,30 @@ export function initChat(containerId = 'operator-container') {
     setTransitioning(false);
   }
 
-  /** Submit the current input as a new turn, unless one is already streaming. */
+  /**
+   * Submit the current input as a new turn. While one streams, the message is
+   * queued instead. A slash command is not: it stays in the box until the turn
+   * ends, because what it does may depend on the turn it would follow.
+   */
   function submit() {
-    if (streaming || transitioning) return;
     const prompt = textarea.value.trim();
-    if (!prompt) return;
-
-    const entry = renderer.addUserMessage(prompt);
-    // The invitation has been taken; the log is the conversation from here.
-    emptyState?.remove();
-    emptyState = null;
+    if (transitioning || !prompt || (streaming && prompt.startsWith('/'))) return;
     textarea.value = '';
-    slash.close();
     autoResize();
+    if (streaming) queue.add(prompt);
+    else send(prompt, () => queue.returnToInput(prompt));
+  }
+
+  /**
+   * Start a turn with *prompt*.
+   * @param {string} prompt
+   * @param {() => void} onUnsent - the send never reached the agent; the
+   *   prompt's bubble is already gone from the log
+   */
+  function send(prompt, onUnsent) {
+    const entry = renderer.addUserMessage(prompt);
+    dismissInvitation();
+    slash.close();
     setStreaming(true);
     renderer.beginTurn();
     // After beginTurn: its status line lands at the foot of the log, and a log
@@ -628,12 +688,11 @@ export function initChat(containerId = 'operator-container') {
       },
       onError: (err) => {
         // A send that no frame answered never reached the agent. Take the
-        // bubble back and return the text to the input the operator typed it
-        // in, as the files attached to it return to the tray.
+        // bubble back and return the text to where the operator wrote it, as
+        // the files attached to it return to the tray.
         if (!answered) {
           entry.remove();
-          textarea.value = prompt;
-          autoResize();
+          onUnsent();
         }
         // The other view holds the session; the overlay carries the one thing
         // left to do.
@@ -655,7 +714,7 @@ export function initChat(containerId = 'operator-container') {
   }
 
   /** Stop the in-flight turn: interrupt server-side first, then abort locally. */
-  async function stop() {
+  async function cutTurn() {
     const current = handle;
     if (!current && !follower.following()) return;
     stopBtn.disabled = true;
@@ -673,18 +732,24 @@ export function initChat(containerId = 'operator-container') {
   }
 
   /**
+   * The operator's own Stop: an operator who stops wants control back, so a
+   * queued message returns to the box rather than going out.
+   */
+  const stop = () => (queue.recall(), cutTurn());
+
+  /**
    * Start a conversation on a new session key. The pointer is the shared slot,
    * so writing it here is what moves both surfaces; the old key's transcript is
    * left alone — it is a session the operator can still resume.
    */
-  function newConversation() {
+  function startConversation() {
     const key = uuid4();
     // Claim it before the pointer notifies, so the subscription below sees the
     // key the console is already on and does not replay an empty transcript.
     boundKey = key;
     setPointer(key);
     resetLog();
-    inviteIfEmpty();
+    syncInvitation();
     if (!isTerminalSurface()) {
       notifySessionChange(key);
       follow(key);
@@ -704,7 +769,8 @@ export function initChat(containerId = 'operator-container') {
   });
   sendBtn.addEventListener('click', submit);
   stopBtn.addEventListener('click', stop);
-  newBtn.addEventListener('click', newConversation);
+
+  controls = { streaming: () => streaming, stop, newConversation: startConversation };
 
   // The pointer is the tab's session, not this console's: a key chosen
   // anywhere else (the session picker, the terminal) moves the log here too. A
@@ -726,10 +792,13 @@ export function initChat(containerId = 'operator-container') {
     renderer,
     getKey: () => boundKey,
     onBeforeSend: (transform) => void sendTransforms.push(transform),
+    scrollToBottom,
+    onNewSession: startConversation,
   });
-  // Last in the bar, after the bell and Export the features appended.
-  bar.append(moreBtn);
-  attachConversationMenu(moreBtn);
+  // After the features, so the queued message sits nearest the box, below the task bar.
+  inputArea.before(queue.root);
+  // The bar's label names the session and opens the switcher.
+  attachSessionSwitcher(label);
 
   // A page that opens on the chat never went through a surface change: the
   // terminal does not connect here, so this console is the surface running the
@@ -744,23 +813,4 @@ export function initChat(containerId = 'operator-container') {
       follow(boundKey);
     }
   }
-}
-
-/**
- * Put a visible failure where the operator console would have been.
- *
- * A console that threw during init leaves an EMPTY container, and an empty
- * container is indistinguishable from an agent with nothing to
- * say — the operator waits at a page that is never going to answer. A console
- * log line is not a user-facing surface; this is.
- *
- * @param {string} containerId
- */
-export function renderChatBootFailure(containerId) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
-  const notice = document.createElement('p');
-  notice.className = 'chat-boot-failure';
-  notice.textContent = 'The agent console failed to start. Reload the page.';
-  container.replaceChildren(notice);
 }

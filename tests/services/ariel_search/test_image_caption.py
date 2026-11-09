@@ -1377,3 +1377,80 @@ async def test_bare_enhance_with_misconfigured_image_caption_completes_text_modu
         + mock_repository.mark_enhancement_failed.await_args_list
     ]
     assert "image_caption" not in statuses
+
+
+# ---------------------------------------------------------------------------
+# Tests of inspect()
+# ---------------------------------------------------------------------------
+
+
+class _InspectRepo(FakeRepo):
+    """FakeRepo with the ``get_entry`` read the inspector makes."""
+
+    async def get_entry(self, entry_id: str) -> dict[str, Any] | None:
+        entry = self.entries.get(entry_id)
+        return json.loads(json.dumps(entry)) if entry is not None else None
+
+
+class TestInspect:
+    async def test_inspect_lists_captions_per_picture_per_model_and_attachment_text(
+        self, provider_configs, monkeypatch
+    ):
+        repo = _InspectRepo()
+        ids = repo.add_entry("e1", 3)
+        other = {"caption": "Old.", "visible_text": "", "prompt_sha256": "x"}
+        repo.entries["e1"]["attachment_captions"] = {
+            ids[0]: {
+                MODEL: {"caption": "A plot.", "visible_text": "QX-77", "prompt_sha256": PROMPT_SHA},
+                "llava:7b": other,
+            },
+            ids[1]: {MODEL: {"error": "over_image_cap"}},
+        }
+        repo.entries["e1"]["attachment_text"] = "[picture p0.png] A plot."
+        module = _module(provider_configs, monkeypatch)
+
+        detail = await module.inspect("e1", repo)
+
+        assert detail == {
+            "model": MODEL,
+            "pictures": [
+                {
+                    "attachment_id": ids[0],
+                    "captions": {
+                        MODEL: {
+                            "caption": "A plot.",
+                            "visible_text": "QX-77",
+                            "prompt_sha256": PROMPT_SHA,
+                        },
+                        "llava:7b": other,
+                    },
+                },
+                {"attachment_id": ids[1], "captions": {MODEL: {"error": "over_image_cap"}}},
+                {"attachment_id": ids[2], "captions": {}},
+            ],
+            "attachment_text": "[picture p0.png] A plot.",
+        }
+        json.dumps(detail)  # JSON-serialisable
+        assert repo.statements == []  # reads only, no transaction
+
+    async def test_inspect_picture_less_entry_returns_none(self, provider_configs, monkeypatch):
+        repo = _InspectRepo()
+        repo.add_entry("e1", 0)
+        module = _module(provider_configs, monkeypatch)
+
+        assert await module.inspect("e1", repo) is None
+
+    async def test_inspect_skips_pictures_no_longer_viewable(self, provider_configs, monkeypatch):
+        repo = _InspectRepo()
+        ids = repo.add_entry("e1", 2)
+        repo.files[ids[0]]["copy_status"] = "pending"
+        module = _module(provider_configs, monkeypatch)
+
+        detail = await module.inspect("e1", repo)
+
+        assert [p["attachment_id"] for p in detail["pictures"]] == [ids[1]]
+
+    async def test_inspect_unknown_entry_returns_none(self, provider_configs, monkeypatch):
+        module = _module(provider_configs, monkeypatch)
+
+        assert await module.inspect("missing", _InspectRepo()) is None

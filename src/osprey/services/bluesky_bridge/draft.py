@@ -58,6 +58,14 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, TypeAdapter, ValidationError
 
+from .queue_backend import (
+    REASON_DRAFT_REVISION_ALREADY_LAUNCHED,
+    REASON_NO_DRAFT,
+    REASON_PLAN_NAME_MISMATCH,
+    REASON_STALE_DRAFT_REVISION,
+)
+from .refusals import refusal
+
 logger = logging.getLogger("osprey.services.bluesky_bridge.draft")
 
 router = APIRouter()
@@ -377,7 +385,7 @@ async def check_launchable(draft_revision: int) -> LaunchSnapshot | LaunchReject
     async with _lock:
         if _draft is None or _revision != draft_revision:
             return LaunchRejected(
-                code="stale_draft_revision",
+                code=REASON_STALE_DRAFT_REVISION,
                 detail=(
                     f"pinned draft_revision {draft_revision} does not match the "
                     f"current draft revision {_revision}"
@@ -386,7 +394,7 @@ async def check_launchable(draft_revision: int) -> LaunchSnapshot | LaunchReject
             )
         if _revision == _last_launched_revision:
             return LaunchRejected(
-                code="draft_revision_already_launched",
+                code=REASON_DRAFT_REVISION_ALREADY_LAUNCHED,
                 detail=(
                     f"draft revision {_revision} was already launched; edit the "
                     "draft (bumping its revision) to launch again"
@@ -395,7 +403,7 @@ async def check_launchable(draft_revision: int) -> LaunchSnapshot | LaunchReject
             )
         if _revision in _launching:
             return LaunchRejected(
-                code="draft_revision_already_launched",
+                code=REASON_DRAFT_REVISION_ALREADY_LAUNCHED,
                 detail=(
                     f"a launch of draft revision {_revision} is already in "
                     "progress; edit the draft (bumping its revision) to launch "
@@ -511,25 +519,14 @@ async def patch_draft(body: PatchDraftRequest) -> dict[str, Any]:
         current_plan_name = _draft.plan_name if _draft is not None else None
 
         if body.expected_plan_name is not None and body.expected_plan_name != current_plan_name:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "plan_name_mismatch",
-                    "detail": (
-                        f"expected draft plan_name {body.expected_plan_name!r}, "
-                        f"but the current draft's plan_name is {current_plan_name!r}"
-                    ),
-                },
+            raise refusal(
+                REASON_PLAN_NAME_MISMATCH,
+                f"expected draft plan_name {body.expected_plan_name!r}, "
+                f"but the current draft's plan_name is {current_plan_name!r}",
             )
 
         if _draft is None and body.plan_name is None:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "no_draft",
-                    "detail": "no draft exists; provide plan_name to create one",
-                },
-            )
+            raise refusal(REASON_NO_DRAFT, "no draft exists; provide plan_name to create one")
 
         plan_name_changing = body.plan_name is not None and body.plan_name != current_plan_name
 

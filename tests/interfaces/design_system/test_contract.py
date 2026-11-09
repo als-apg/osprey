@@ -161,8 +161,7 @@ def test_theme_defaults_ids_exist_with_correct_modes(tree: TokenTree) -> None:
 # no consuming token yet), and font.display/font.mono are deliberately
 # promoted straight to CSS by emit_css.py rather than aliased from a
 # semantic token. Only unreferenced *color* ramp steps are a genuine
-# "why does this exist" smell — this is what would have caught the
-# amber.250 orphan (fixed by aliasing lat-led.computing to it).
+# "why does this exist" smell.
 
 
 def test_every_color_primitive_has_at_least_one_referrer(tree: TokenTree) -> None:
@@ -192,11 +191,6 @@ def test_every_color_primitive_has_at_least_one_referrer(tree: TokenTree) -> Non
 # though they're fully opaque, per the design review:
 _ALLOWED_OPAQUE_LITERAL_DUPLICATES: frozenset[tuple[str, str]] = frozenset(
     {
-        # lat-led.idle (#4a5264) has no matching slate ramp step — verified
-        # by the review; listed here defensively in case a future core.json
-        # addition happens to coincide with it.
-        ("interfaces/lattice_dashboard", "dark.lat-led.idle"),
-        ("interfaces/lattice_dashboard", "light.lat-led.idle"),
         # light.json chart.grid is net-new by design (the pre-migration plots
         # had no light-mode layout at all — the dark-locked-plots bug this
         # feature fixes), not copied from an existing ramp step.

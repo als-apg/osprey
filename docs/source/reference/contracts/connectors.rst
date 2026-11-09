@@ -46,10 +46,7 @@ alone. The agent reaches the numbers by loading ``data_file`` inside
 write, the read still reports success with ``artifact_error`` in place of the
 handle -- the machine did answer.
 
-``channel_read_artifact_retention`` (default 20) keeps only the newest N
-**unpinned** artifacts per channel; pinned readings are never pruned and never
-occupy a slot. ``0`` keeps everything -- remembering that an unattended
-polling loop will then grow the gallery without bound.
+OSPREY never deletes a reading; keep or delete them in the gallery.
 
 Addresses Outside the Facility
 ------------------------------

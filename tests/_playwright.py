@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 
 
+@functools.cache
 def chromium_available() -> bool:
     """Whether the ``playwright`` package and its Chromium binary are both on this host.
 
     Probes the binary's path rather than launching it, so a suite can skip
-    before the code under test starts its own browser.
+    before the code under test starts its own browser. Probed once per process:
+    each probe starts a Playwright driver, and the answer cannot change mid-run.
     """
     try:
         from playwright.sync_api import sync_playwright

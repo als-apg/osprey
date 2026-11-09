@@ -464,10 +464,6 @@ def test_no_js_test_lowers_the_hang_bound_accepts(label: str, src: str) -> None:
         ),
         ("tests/interfaces/artifacts/preview-content.test.mjs", "renderJsonHtml({}, 0)"),
         (
-            "tests/interfaces/lattice_dashboard/net.test.mjs",
-            "stubFigure({ status: 'ready', key: 'k', figure }, 200)",
-        ),
-        (
             "tests/interfaces/web_terminal/activity-strip.test.mjs",
             "pastFrame({ kind: 'channel', detail: 'SR01:HCM1:SP' }, 5)",
         ),

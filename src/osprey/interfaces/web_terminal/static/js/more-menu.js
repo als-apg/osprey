@@ -32,6 +32,7 @@
  */
 
 import { closePopover, openPopover, togglePopover } from '/design-system/js/popover.js';
+import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import {
   getFamily,
   getTheme,
@@ -46,6 +47,7 @@ import {
 import { icon } from '/design-system/js/icons.js';
 import { fetchJSON } from './api.js';
 import { openActivityLog } from './activity-log-link.js';
+import { setTabToggle, tabToggleOn } from './sidebar-tab-key.js';
 import { startTour } from './tour.js';
 
 const MENU_ID = 'more-menu';
@@ -54,7 +56,7 @@ const SHORTCUTS_ID = 'shortcuts-popover';
 const ABOUT_ID = 'about-popover';
 
 /** The rows a click acts on. */
-const ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"]';
+const ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]';
 
 /**
  * Mark the radios of one group: `aria-checked` true on the one whose
@@ -78,6 +80,9 @@ function checkRadios(menu, key, value) {
 function syncMenu(menu) {
   checkRadios(menu, 'appearance', modePreference());
   checkRadios(menu, 'themeFamily', getFamily());
+  menu
+    .querySelector('[data-more="tab-toggle"]')
+    ?.setAttribute('aria-checked', String(tabToggleOn()));
 }
 
 /**
@@ -154,9 +159,28 @@ export function initMoreMenu({ getSessionId }) {
   // focus to a control that is on screen rather than into the hidden menu.
   const close = () => closePopover(menu);
 
+  /** @type {import('/design-system/js/popover.js').PopoverOptions} */
+  const placement = { place: 'beside-right-bottom', edge: sidebar };
+
   button.addEventListener('click', () => {
     if (menu.hidden) syncMenu(menu);
-    togglePopover(button, menu, { place: 'beside-right-bottom', edge: sidebar });
+    togglePopover(button, menu, placement);
+  });
+
+  // Right-click anywhere on the sidebar footer opens this same menu, anchored
+  // at ☰ More — the footer has no menu of its own. A second right-click keeps
+  // it open rather than toggling it shut. Links (the Docs link) and requests
+  // declinesToBrowser hands back keep the browser's menu. The footer's
+  // keyboard route is ☰ More itself, so no key handling here.
+  const footer = button.closest('.sidebar-foot');
+  footer?.addEventListener('contextmenu', (event) => {
+    if (declinesToBrowser(event)) return;
+    const target = /** @type {Element | null} */ (event.target);
+    if (target?.closest('a[href]')) return;
+    event.preventDefault();
+    if (!menu.hidden) return;
+    syncMenu(menu);
+    openPopover(menu, button, placement);
   });
 
   /**
@@ -196,6 +220,9 @@ export function initMoreMenu({ getSessionId }) {
     } else if (more === 'activity') {
       close();
       openActivityLog(getSessionId);
+    } else if (more === 'tab-toggle') {
+      setTabToggle(!tabToggleOn());
+      syncMenu(menu);
     }
   });
 

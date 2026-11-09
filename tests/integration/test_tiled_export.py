@@ -72,6 +72,7 @@ _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 SCALAR_RUN = "export-scalar-run"
 WAVE_RUN = "export-wave-run"
 BARE_RUN = "export-bare-run"
+UNITS_RUN = "export-units-run"
 
 WAVEFORM = np.arange(8, dtype=float)
 
@@ -172,9 +173,21 @@ def stored_runs(tiled_uri: str) -> dict[str, Any]:
 
     engine(_open_and_close())
 
+    class _DeclaredUnitSignal(SynSignal):
+        """A signal whose data key declares a unit, as a facility's devices do."""
+
+        def describe(self) -> dict[str, Any]:
+            described = super().describe()
+            described[self.name]["units"] = "unit-of-det"
+            return described
+
+    det_unit = _DeclaredUnitSignal(func=lambda: 4.56, name="det_unit")
+    engine(count([det_unit, det_scalar], num=2), osprey_run_id=UNITS_RUN)
+
     return {
         "client": client,
         "columns": {run_id: _stored_columns(client, run_id) for run_id in (SCALAR_RUN, WAVE_RUN)},
+        "described": {**det_unit.describe(), **det_scalar.describe()},
     }
 
 
@@ -412,8 +425,29 @@ def test_a_waveform_column_survives_the_export_and_the_data_route(
     body = data.json()
 
     projected = [c for c in declared if c not in ("seq_num", "time") and not c.startswith("ts_")]
-    assert body["columns"] == projected
-    assert "det_wave" in body["columns"]
+    names = [column["name"] for column in body["columns"]]
+    assert names == projected
+    assert "det_wave" in names
+
+
+@pytest.mark.usefixtures("bridge")
+def test_the_stored_run_gives_back_the_units_its_descriptor_declared(
+    stored_runs: dict[str, Any],
+) -> None:
+    """A unit a data key declares survives the catalog: the stored descriptors
+    give back exactly the units the run declared, and a key that declared none
+    has none."""
+    from osprey.services.bluesky_bridge import app as app_module
+
+    declared = {
+        key: entry["units"] for key, entry in stored_runs["described"].items() if "units" in entry
+    }
+    assert declared
+
+    snapshot = app_module._tiled_run_snapshot(UNITS_RUN)
+
+    assert snapshot is not None
+    assert snapshot["units"] == declared
 
 
 @pytest.mark.usefixtures("bridge")
@@ -475,7 +509,8 @@ def test_the_data_route_serves_a_waveform_cell_as_a_json_array(
     parquet list. All three now carry the numbers.
     """
     body = bridge.get(f"/runs/{WAVE_RUN}/data").json()
-    wave_cell = body["rows"][0][body["columns"].index("det_wave")]
+    names = [column["name"] for column in body["columns"]]
+    wave_cell = body["rows"][0][names.index("det_wave")]
 
     assert wave_cell == WAVEFORM.tolist()
     assert type(wave_cell) is list
@@ -529,36 +564,18 @@ def test_a_run_that_recorded_nothing_is_refused_as_such(bridge: TestClient) -> N
     assert bridge.get(f"/runs/{BARE_RUN}/data").status_code == 200
 
 
-@pytest.mark.usefixtures("tiled_uri", "stored_runs")
-def test_an_unconfigured_catalog_is_refused_before_any_read(monkeypatch: Any) -> None:
-    """A deployment with no Tiled at all answers 503, not a 500 out of the client.
-
-    Deliberately not parameterized onto the `bridge` fixture: this is the one
-    test that needs the environment variable ABSENT, and it asserts the branch
-    every browse-only deployment takes on every export request.
-    """
-    monkeypatch.delenv(_TILED_URI_ENV, raising=False)
-
-    from osprey.services.bluesky_bridge.app import app
-
-    with TestClient(app) as client:
-        response = client.get(f"/runs/{SCALAR_RUN}/export")
-
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "tiled_unavailable"
-
-
 @pytest.mark.usefixtures("stored_runs", "impatient_tiled_client")
 def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(
     reserve_port, monkeypatch: Any
 ) -> None:
     """The ordinary outage: Tiled is configured, and nothing is listening.
 
-    This is the case the unset-variable test above cannot reach — that one takes
-    a plain ``if client is None`` branch that has no way to fail. Here the whole
-    catalog resolution runs and throws: `from_uri` performs a real handshake GET
-    before it returns a client, so the connection is refused before any run is
-    ever looked up.
+    A deployment with no catalog configured never reaches the network; that
+    refusal is pinned without a container by
+    `test_export_route.py::test_an_export_with_no_catalog_is_a_settled_refusal`.
+    Here the whole catalog resolution runs and throws: `from_uri` performs a
+    real handshake GET before it returns a client, so the connection is refused
+    before any run is ever looked up.
 
     It is the routine operational state, not an exotic one — the tiled container
     restarting, the bridge coming up before tiled is healthy, a rotated key, a
@@ -580,8 +597,9 @@ def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(
     assert response.status_code == 503, response.text
     detail = response.json()["detail"]
     assert detail["code"] == "tiled_unavailable"
-    # The sentence has to describe THIS failure. The unset-variable branch says
-    # "not configured for this deployment", which would be a lie here.
+    # The sentence has to describe THIS failure. The no-catalog refusal
+    # (`test_an_export_with_no_catalog_is_a_settled_refusal`) says "not
+    # configured for this deployment", which would be a lie here.
     assert "could not be reached" in detail["detail"]
 
 

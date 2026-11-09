@@ -1,79 +1,26 @@
-"""``osprey artifacts web`` binds the address its config names unless told otherwise."""
+"""``osprey artifacts web`` is retired: it says so and starts nothing."""
 
 import pytest
-import yaml
 from click.testing import CliRunner
 
-import osprey.interfaces.artifacts
 from osprey.cli.artifacts_cmd import artifacts
-from osprey.registry.web import framework_web_port_default
 
-CONFIGURED_HOST = "192.0.2.30"
-CONFIGURED_PORT = 18500
-CONFIGURED = {"host": CONFIGURED_HOST, "port": CONFIGURED_PORT}
-
-
-def _write_config(tmp_path, monkeypatch, section: dict) -> None:
-    (tmp_path / "config.yml").write_text(
-        yaml.safe_dump({"project_name": "demo", "artifact_server": section})
-    )
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("OSPREY_ARTIFACT_SERVER_PORT", raising=False)
-    monkeypatch.delenv("OSPREY_WEB_PORT", raising=False)
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
-
-
-@pytest.fixture
-def bound(monkeypatch):
-    seen: list[tuple[str, int]] = []
-    monkeypatch.setattr(
-        osprey.interfaces.artifacts,
-        "run_server",
-        lambda host, port: seen.append((host, port)),
-    )
-    return seen
-
-
-def test_configured_host_and_port_are_bound(tmp_path, monkeypatch, bound):
-    _write_config(tmp_path, monkeypatch, CONFIGURED)
-    result = CliRunner().invoke(artifacts, ["web"])
-    assert result.exit_code == 0, result.output
-    assert bound == [(CONFIGURED_HOST, CONFIGURED_PORT)]
-    assert f"http://{CONFIGURED_HOST}:{CONFIGURED_PORT}" in result.output
-
-
-def test_explicit_host_keeps_configured_port(tmp_path, monkeypatch, bound):
-    _write_config(tmp_path, monkeypatch, CONFIGURED)
-    result = CliRunner().invoke(artifacts, ["web", "--host", "127.0.0.1"])
-    assert result.exit_code == 0, result.output
-    assert bound == [("127.0.0.1", CONFIGURED_PORT)]
+MESSAGE = (
+    "`osprey artifacts web` is retired: the Artifact Gallery runs inside the web terminal "
+    "(`osprey web`)."
+)
 
 
 @pytest.mark.parametrize(
-    ("port_arg", "port"),
-    [
-        pytest.param("18999", 18999, id="explicit-port"),
-        pytest.param("0", 0, id="port-zero"),
-    ],
+    "args",
+    [["web"], ["web", "--port", "8080", "--host", "0.0.0.0", "--reload"], ["web", "--help"]],
+    ids=["bare", "old-flags", "help"],
 )
-def test_an_explicit_port_is_bound_as_given_with_the_configured_host(
-    tmp_path, monkeypatch, bound, port_arg, port
-):
-    _write_config(tmp_path, monkeypatch, CONFIGURED)
-    result = CliRunner().invoke(artifacts, ["web", "--port", port_arg])
-    assert result.exit_code == 0, result.output
-    assert bound == [(CONFIGURED_HOST, port)]
+def test_stub_exits_2_with_the_message(args):
+    result = CliRunner().invoke(artifacts, args)
+    assert result.exit_code == 2
+    assert MESSAGE in result.output
 
 
-def test_both_flags_do_not_read_the_config(tmp_path, monkeypatch, bound):
-    _write_config(tmp_path, monkeypatch, {"web": {"port": 1}})
-    result = CliRunner().invoke(artifacts, ["web", "--host", "127.0.0.1", "--port", "18999"])
-    assert result.exit_code == 0, result.output
-    assert bound == [("127.0.0.1", 18999)]
-
-
-def test_no_configured_host_binds_loopback(tmp_path, monkeypatch, bound):
-    _write_config(tmp_path, monkeypatch, {})
-    result = CliRunner().invoke(artifacts, ["web"])
-    assert result.exit_code == 0, result.output
-    assert bound == [("127.0.0.1", framework_web_port_default("artifact"))]
+def test_stub_is_hidden_from_the_group_help():
+    assert artifacts.commands["web"].hidden
