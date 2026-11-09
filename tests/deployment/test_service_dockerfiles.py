@@ -35,6 +35,7 @@ non-self-excluding ``.dockerignore`` beside every service recipe.
 import dataclasses
 import pathlib
 import re
+import shlex
 import subprocess
 
 import pytest
@@ -373,6 +374,60 @@ class TestLayerSplit:
     def test_release_path_wheel_install_is_unconstrained(self, service, tmp_path):
         calls = wheel_pip_calls(_wheel_body(service), tmp_path, lock=False)
         assert "-c" not in calls[0]
+
+
+# ── Offline vendoring ────────────────────────────────────────────────────────
+#
+# An image that serves vendored web assets fetches them at build time when the
+# deployment is offline, and records the mode so the serving check agrees.
+
+OFFLINE_ARG = 'ARG OSPREY_OFFLINE="0"'
+OFFLINE_FETCH = 'if [ "$OSPREY_OFFLINE" = "1" ]; then osprey vendor fetch; fi'
+OFFLINE_ENV = "ENV OSPREY_OFFLINE=${OSPREY_OFFLINE}"
+
+
+def test_bluesky_web_vendors_its_assets_when_offline():
+    """The plans panel's assets are fetched between the wheel layer and the project label."""
+    text = _dockerfile("bluesky_web")
+    lines = [line for _, line in _instructions(text)]
+    wheel_body = _wheel_body("bluesky_web")
+
+    assert lines.count(OFFLINE_ARG) == 1
+    assert [b for b in _run_bodies(text) if "vendor fetch" in b] == [OFFLINE_FETCH]
+    arg = lines.index(OFFLINE_ARG)
+    fetch = lines.index(f"RUN {OFFLINE_FETCH}")
+    env = lines.index(OFFLINE_ENV)
+    wheel = next(i for i, line in enumerate(lines) if line.startswith("RUN") and wheel_body in line)
+    project = lines.index('ARG OSPREY_PROJECT_NAME=""')
+    assert wheel < arg < fetch < env < project
+
+
+@pytest.mark.parametrize(
+    ("offline", "expected"), [("1", ["vendor fetch"]), ("0", [])], ids=["offline", "online"]
+)
+def test_offline_vendor_run_fetches_only_when_offline(tmp_path, offline, expected):
+    """The fetch RUN calls ``osprey vendor fetch`` for ``1`` only, and succeeds either way."""
+    log = tmp_path / "osprey-calls.log"
+    log.touch()
+    osprey_stub = f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(log))}\nexit 0\n'
+    env = stubbed_env(tmp_path, {"osprey": osprey_stub}, OSPREY_OFFLINE=offline)
+
+    result = run_body(OFFLINE_FETCH, env)
+
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert log.read_text().splitlines() == expected
+
+
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_a_recipe_that_declares_offline_vendors_and_records_it(dockerfile):
+    """An image can never serve a mode it was not built for."""
+    text = dockerfile.read_text(encoding="utf-8")
+    if "ARG OSPREY_OFFLINE" not in text:
+        return
+    lines = [line for _, line in _instructions(text)]
+
+    assert OFFLINE_FETCH in _run_bodies(text)
+    assert OFFLINE_ENV in lines
 
 
 # ── Pre-release pins ─────────────────────────────────────────────────────────
