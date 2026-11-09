@@ -22,6 +22,9 @@
     package index — are rendered by the shared macro rather than spelled out
     per template, so every image OSPREY builds is handed the same set. -#}
 {%- import "services/_site_image_args.j2" as site -%}
+{#- The `build:` gate: rendered only while this service runs the image
+    OSPREY builds, by the shared macro so every built template gates alike. -#}
+{%- import "services/_own_image.j2" as own -%}
 # The slack-bridge service receives Slack events over a Socket Mode WebSocket
 # the bridge itself opens to Slack, and dispatches DMs and mentions of the bot
 # through the osprey.dispatch pair (see src/osprey/bridges/slack/). Socket Mode
@@ -78,11 +81,7 @@
 services:
   slack-bridge:
     image: ${OSPREY_SLACK_BRIDGE_IMAGE:-{{ services.slack_bridge.image | default(osprey_images.slack_bridge) }}}
-{#- The build renders only while this service runs the image OSPREY builds
-    (no `services.slack_bridge.image`, or one naming `osprey_images.slack_bridge`). Any
-    other image is pulled and run as named, so a deploy never builds this
-    Dockerfile under a name the operator chose for something else. #}
-{%- if not services.slack_bridge.image or services.slack_bridge.image == osprey_images.slack_bridge %}
+{%- call own.build(services.slack_bridge.image, osprey_images.slack_bridge) %}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -101,7 +100,7 @@ services:
 {%- if osprey_pip_pre | default(false) %}
         OSPREY_PIP_PRE: "1"
 {%- endif %}
-{%- endif %}
+{%- endcall %}
 {% if 'event_dispatcher' in deployed_services %}
     # Only when the dispatch pair is co-deployed: the bridge's boot sequence
     # reconciles in-flight runs against the dispatcher before accepting a single

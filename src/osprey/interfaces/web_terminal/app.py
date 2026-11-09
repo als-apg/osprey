@@ -35,6 +35,7 @@ from osprey.interfaces.common_middleware import (
     forwarded_identity,
     resolve_storage_scope,
 )
+from osprey.interfaces.design_system.favicon import FAVICON_PATH
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal import scenario_sessions, session_meta
 from osprey.interfaces.web_terminal.config_view import (
@@ -114,7 +115,7 @@ if TYPE_CHECKING:
 STATIC_DIR = Path(__file__).parent / "static"
 
 #: The tab icon, in the design system's static tree.
-_FAVICON = Path(__file__).parent.parent / "design_system" / "static" / "img" / "osprey-mark.svg"
+_FAVICON = FAVICON_PATH
 
 
 def _favicon_url() -> str:

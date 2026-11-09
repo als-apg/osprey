@@ -264,6 +264,7 @@ class TestBuildPhases:
         from osprey.agent_record.config import AgentRecordConfig
         from osprey.cli import build_cmd, build_profile, build_profile_deploy
         from osprey.cli.build_environment import _ProjectVenvPlan
+        from osprey.facility.roots import FacilityRoots
 
         class _Lifecycle:
             pre_build = None
@@ -304,6 +305,11 @@ class TestBuildPhases:
 
             def resolved_data_root(self, profile_dir: Path) -> Path:
                 return profile_dir / "data"
+
+            def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots:
+                # No `machine:`: one facility tree under `data:`, as
+                # BuildProfile resolves it.
+                return FacilityRoots.single(self.resolved_data_root(profile_dir) / "facility")
 
         class _Resolved:
             profile = _Profile()

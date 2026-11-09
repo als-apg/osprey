@@ -121,7 +121,9 @@ The facility tree
 -----------------
 
 ``data/facility/`` holds every source of the facility file: the authored files
-and the ``imported/<layer>/`` directories the importers write.
+and the ``imported/<layer>/`` directories the importers write. With
+``machine:``, the machine facts come from a
+:doc:`machine repository </how-to/control-systems/machine-repository>` instead.
 :doc:`describe-your-facility` walks the tree file by file.
 
 ``osprey build`` reads the tree and writes the facility file and its views into
@@ -392,7 +394,8 @@ the repository, as must every file the profile ``extends``. ``osprey validate``
 and ``osprey build`` refuse a profile that reads anything outside the
 repository, before anything is installed, naming the path. The resolved tree is
 folded into the profile hash, so editing it reports the built project as out of
-date.
+date. ``machine:``, the facility directory of a mounted machine repository,
+resolves and is folded the same way.
 
 
 .. _profile-claim:
@@ -622,8 +625,8 @@ A login file says what its card's agent is: ``name``, ``model``,
 the per-render keys ``extra_mounts``, ``seed_base`` and ``image``, and the
 ``provenance:`` block ``osprey init`` writes. A deployment fact — the
 connector, the provider, ``port_base``, a service block, ``data:``,
-``services:`` — is refused on a login, naming ``profile.yml`` as its home, and
-so are ``extends:`` and ``exclude:``. A login never subtracts.
+``machine:``, ``services:`` — is refused on a login, naming ``profile.yml`` as
+its home, and so are ``extends:`` and ``exclude:``. A login never subtracts.
 
 ``lists:`` says how the file's lists meet the deployment's:
 

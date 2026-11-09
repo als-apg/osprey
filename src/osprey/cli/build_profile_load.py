@@ -238,6 +238,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "extends",
         "exclude",
         "data",
+        "machine",
         "deploy",
         "deploy_services",
         # Shorthand for config's `control_system.type`, consumed by
@@ -300,6 +301,9 @@ ROOT_ONLY_KEYS = frozenset(
     {
         "extends",
         "data",
+        # The machine root the deployment mounts: one machine per deployment,
+        # so no access level may point at another.
+        "machine",
         "project_name",
         "deploy",
         "deploy_services",
@@ -667,8 +671,8 @@ def config_port_base(config: Any) -> int:
     # Only the keys that address `deployment` are folded. Handing the whole
     # block to the folder would make a prefix conflict anywhere in it — a
     # scalar `env:` beside an `env.required:`, say — a refusal raised here, on
-    # behalf of a key this function never reads. Those conflicts belong to the
-    # axis that owns the key and are reported there.
+    # behalf of a key this function never reads. Those conflicts are reported
+    # once, for the whole block, by the profile's validation.
     deployment_keys = {
         key: value
         for key, value in config.items()
@@ -1082,6 +1086,13 @@ def _check_limits_database_path(raw: dict[str, Any]) -> None:
     connector type, in any spelling, is refused. The deployment-wide key is
     named before a per-type one, and per-type keys in sorted type order.
 
+    With ``machine:`` in the profile the facility's limits live in the machine
+    repository, so the stop names ``<machine>/limits.yaml``; without it the
+    text is unchanged. Only this build-time site, which holds the profile,
+    names the machine location: runtime and static strings (compose generator,
+    roster constants, templates) keep saying ``data/facility``, because the
+    render still places the facility description there (D7).
+
     Args:
         raw: The resolved raw profile dict.
 
@@ -1108,14 +1119,19 @@ def _check_limits_database_path(raw: dict[str, Any]) -> None:
 
     written_data = raw.get("data")
     data = PurePosixPath(written_data).as_posix() if isinstance(written_data, str) else "data"
+    machine = raw.get("machine")
+    if isinstance(machine, str) and machine:
+        limits = f"{PurePosixPath(machine).as_posix()}/limits.yaml"
+    else:
+        limits = f"{data}/facility/limits.yaml"
     raise FacilityBuildError(
         "profile-invalid",
         key,
         ["profile.yml"],
-        f"move its limits into {data}/facility/limits.yaml and remove {key} from the profile",
+        f"move its limits into {limits} and remove {key} from the profile",
         record_kind="path",
         detail=(
-            f"the build writes {LIMITS_DATABASE_PATH} from {data}/facility/limits.yaml "
+            f"the build writes {LIMITS_DATABASE_PATH} from {limits} "
             "and names it as the limits database"
         ),
     )
@@ -2147,6 +2163,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         name=raw.get("name", ""),
         project_name=raw.get("project_name"),
         data=raw.get("data"),
+        machine=raw.get("machine"),
         deploy=parse_deploy_block(raw),
         deploy_services=raw.get("deploy_services", True),
         provider=raw.get("provider"),

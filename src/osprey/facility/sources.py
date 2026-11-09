@@ -10,7 +10,7 @@ The tree the loader reads::
     fixes.yaml                {schema: osprey.facility.fixes/1, fixes: [...]}
     records/<kind>s.yaml      [{id, ...}] for places, devices, channels, groups
     scenarios/<name>.yaml     {description?, overrides?, faults?, archiver?, logbook?,
-                               drivers?, couple?, noise?}
+                               drivers?, couple?, noise?, start?}
     measurement/<model>.yaml  {kinds, groups?, instruments?, <step/settle keys>}
     imported/<layer>/         places, devices, channels, groups and models files
                               written by one importer, beside the layer's own

@@ -1924,6 +1924,21 @@ def resolve_profile_document(
             ),
         )
 
+    if "machine" in normalized:
+        from osprey.facility.errors import FacilityBuildError
+
+        raise FacilityBuildError(
+            "profile-invalid",
+            layer_rel,
+            [layer_rel],
+            f"remove `machine:` from {layer_rel}",
+            record_kind="path",
+            detail=(
+                f"a {kind.value} names `machine:`, and every render of a deployment "
+                f"drives the machine the root {PROFILE_FILENAME}'s `machine:` names"
+            ),
+        )
+
     _refuse_layer_spellings(normalized, layer_rel, kind, legacy=retired_tier)
 
     root_path = root_dir / PROFILE_FILENAME
@@ -1976,6 +1991,10 @@ def resolve_profile_document(
 # ---------------------------------------------------------------------------
 
 
+#: The fold label of a mounted machine root (the profile's ``machine:`` key).
+MACHINE_INPUT_LABEL = "machine"
+
+
 def _fold_source_tree(
     digest: Any,
     label: str,
@@ -2009,6 +2028,13 @@ def _fold_source_tree(
     reads differently from a populated one without this function having to
     invent a marker for it.
 
+    Version-control metadata (a ``.git`` file or directory at any depth,
+    :func:`~osprey.facility.roots.is_vcs_metadata`) is never folded: a submodule
+    or nested clone's own bookkeeping is not build input. The ``machine`` input
+    (:data:`MACHINE_INPUT_LABEL`) folds only what
+    :func:`~osprey.facility.roots.is_machine_entry` admits, so the machine
+    root's own copies of the deployment content directories do not move the hash.
+
     Two limits of the walk, both deliberate:
 
     * Symlinks. A symlinked *file* is folded — ``is_file`` and ``read_bytes``
@@ -2030,14 +2056,26 @@ def _fold_source_tree(
     """
     import hashlib
 
+    from osprey.facility.roots import FacilityRoots, is_machine_entry, is_vcs_metadata
     from osprey.utils.workspace import RUNTIME_DATA_DIR_NAME
 
+    # The machine input is listed only when mounted, so its tree folds as the
+    # machine root of a mounted pair: the content root is never walked here and
+    # only has to differ from ``source`` for ``is_machine_entry`` to see a mount.
+    machine_roots = (
+        FacilityRoots(machine=source, content=Path()) if label == MACHINE_INPUT_LABEL else None
+    )
     if source.is_dir():
         entries = []
         for path in source.rglob("*"):
             if not path.is_file():
                 continue
-            rel = path.relative_to(source).as_posix()
+            relative = path.relative_to(source)
+            if is_vcs_metadata(relative):
+                continue
+            if machine_roots is not None and not is_machine_entry(machine_roots, relative):
+                continue
+            rel = relative.as_posix()
             if skip_runtime_output and rel.split("/", 1)[0] == RUNTIME_DATA_DIR_NAME:
                 continue
             if skip is not None and skip(rel):
@@ -2262,7 +2300,8 @@ def profile_inputs(
 
     1. documents — the root ``profile.yml``, then the non-preset files the
        ``extends`` chain read, nearest first (:attr:`ResolvedProfileDocument.extends_files`);
-    2. material — the ``data:`` root (``data``), each existing convention
+    2. material — the ``data:`` root (``data``), the mounted machine root
+       when ``machine:`` is set (``machine``), each existing convention
        directory (``convention:<name>``, sorted by name), the trigger file that
        lives with the profile (``triggers``) and each layer file
        (:func:`layer_fold_label`, in :func:`~osprey.cli.profile_root.layer_files`
@@ -2314,6 +2353,21 @@ def profile_inputs(
 
     if not conventions:
         return tuple(entries)
+
+    # A mounted machine root (``machine:``), which needs a data root to be
+    # mounted beside. Listed unresolved, as spelled, so the repository walk
+    # sees a link that escapes; the build's own resolution refuses a missing or
+    # overlapping root, which the enumeration does not judge.
+    machine = document.raw.get("machine")
+    if data_root is not None and isinstance(machine, str) and machine.strip():
+        entries.append(
+            ProfileInput(
+                f"{PurePosixPath(machine).as_posix()}/",
+                MACHINE_INPUT_LABEL,
+                root / machine,
+                ProfileInputRole.MATERIAL,
+            )
+        )
 
     for source in sorted(CONVENTION_SOURCES):
         candidate = root / source

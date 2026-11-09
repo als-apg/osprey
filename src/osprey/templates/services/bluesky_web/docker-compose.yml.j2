@@ -21,6 +21,9 @@
     package index — are rendered by the shared macro rather than spelled out
     per template, so every image OSPREY builds is handed the same set. -#}
 {%- import "services/_site_image_args.j2" as site -%}
+{#- The `build:` gate: rendered only while this service runs the image
+    OSPREY builds, by the shared macro so every built template gates alike. -#}
+{%- import "services/_own_image.j2" as own -%}
 # The bluesky-web service owns the browser-facing FastAPI sidecar (see
 # src/osprey/interfaces/bluesky_web/) that serves the operator web panels and
 # same-origin read-proxies the bluesky bridge.
@@ -35,11 +38,7 @@
 services:
   bluesky-web:
     image: ${OSPREY_BLUESKY_WEB_IMAGE:-{{ services.bluesky_web.image | default(osprey_images.bluesky_web) }}}
-{#- The build renders only while this service runs the image OSPREY builds
-    (no `services.bluesky_web.image`, or one naming `osprey_images.bluesky_web`). Any
-    other image is pulled and run as named, so a deploy never builds this
-    Dockerfile under a name the operator chose for something else. #}
-{%- if not services.bluesky_web.image or services.bluesky_web.image == osprey_images.bluesky_web %}
+{%- call own.build(services.bluesky_web.image, osprey_images.bluesky_web) %}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -58,7 +57,7 @@ services:
 {%- if osprey_pip_pre | default(false) %}
         OSPREY_PIP_PRE: "1"
 {%- endif %}
-{%- endif %}
+{%- endcall %}
 {% if 'bluesky' in deployed_services %}
     # Only when the bluesky bridge (Task 1.x) is co-deployed: order the
     # sidecar's startup after the bridge's healthcheck, so the read-proxy and

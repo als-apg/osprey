@@ -8,6 +8,9 @@
 -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
 {%- import "services/_site_image_args.j2" as site -%}
+{#- The `build:` gate: rendered only while this service runs the image
+    OSPREY builds, by the shared macro so every built template gates alike. -#}
+{%- import "services/_own_image.j2" as own -%}
 {%- set svc = services.optimizer -%}
 {%- set port = svc.port | default(osprey_ports.optimizer, true) -%}
 # The optimizer service: a FastAPI process (osprey_optimizer.api.main) that runs
@@ -23,8 +26,7 @@
 services:
   optimizer:
     image: ${OSPREY_OPTIMIZER_IMAGE:-{{ svc.image | default(osprey_images.optimizer) }}}
-{#- The build renders only while this service runs the image OSPREY builds. #}
-{%- if not svc.image or svc.image == osprey_images.optimizer %}
+{%- call own.build(svc.image, osprey_images.optimizer) %}
     build:
       # Relative paths resolve against the compose project directory, the
       # deployment repo root, never this file's own subdir.
@@ -40,7 +42,7 @@ services:
 {%- if osprey_pip_pre | default(false) %}
         OSPREY_PIP_PRE: "1"
 {%- endif %}
-{%- endif %}
+{%- endcall %}
     depends_on:
       optimizer-redis:
         condition: service_healthy

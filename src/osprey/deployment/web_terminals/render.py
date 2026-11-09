@@ -95,6 +95,7 @@ from osprey.integrations.canopy import CHANNELS_FILE as CANOPY_CHANNELS_FILE
 
 # The one definition of the session-lifetime default lives in web_auth, which is
 # stdlib-only, so importing it here cannot cycle.
+from osprey.interfaces.design_system.favicon import favicon_data_uri
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.services.auth_sidecar.roster_env import (
@@ -1785,18 +1786,23 @@ def render_web_terminals(
             landing_cfg, resolved_users, token_login_names, sign_in_url=ENTRY_PATH
         ),
         "theme_blocks": _landing_theme_blocks(root),
+        "favicon": favicon_data_uri(),
         "notices": _build_notices(landing_cfg, root),
         "footer": _landing_footer(landing_cfg),
     }
 
     template_dir = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH)
     with as_file(template_dir) as template_path:
+        # The templates root after this directory, so the compose template
+        # imports the shared service partials by the path the service
+        # templates use (`services/_ca_bundles.j2`).
+        search_path = [str(template_path), str(template_path.parents[1])]
         # Compose + nginx emit YAML/conf, not HTML — autoescape=False, matching
         # compose_generator.py's own Jinja2 convention. Landing emits HTML and is
         # rendered with autoescape=True; landing.html.j2 also `|e`-escapes every
         # interpolation itself as defense-in-depth.
-        conf_env = Environment(loader=FileSystemLoader(str(template_path)), autoescape=False)
-        html_env = Environment(loader=FileSystemLoader(str(template_path)), autoescape=True)
+        conf_env = Environment(loader=FileSystemLoader(search_path), autoescape=False)
+        html_env = Environment(loader=FileSystemLoader(search_path), autoescape=True)
 
         rendered_compose = conf_env.get_template(_COMPOSE_TEMPLATE).render(**compose_ctx)
         rendered_nginx = conf_env.get_template(_NGINX_TEMPLATE).render(**nginx_ctx)

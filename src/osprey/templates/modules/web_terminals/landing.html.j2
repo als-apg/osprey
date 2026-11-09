@@ -103,6 +103,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ (facility_name|default("", true))|e or "OSPREY" }} Web Terminals</title>
+  <link rel="icon" type="image/svg+xml" href="{{ favicon }}">
   <style>
     {#- Design-system token values, baked at render time from the deployment's
        `web.theme`. Two blocks when web.theme named a family (dark under :root,

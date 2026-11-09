@@ -133,6 +133,7 @@ from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY, live_standin_active
 from osprey_connectors.types import (
     TARGET_LIVE,
     TARGET_STANDIN,
+    resolve_target,
     speaks_channel_access,
 )
 
@@ -562,6 +563,14 @@ def evaluate_eligibility(
                 "— what it cannot do is move a session onto it.",
             )
 
+        if raw_block.get("gateways") == []:
+            return Eligibility(
+                False,
+                REASON_GATEWAYS_MISSING,
+                f"Target {target!r} declares no endpoints ('{block_key}.gateways: []'), "
+                "so a switch has no gateway to point a connector at. Only a return to "
+                "the deployment baseline accepts a target with nothing to probe.",
+            )
         if not subsection(raw_block, "gateways"):
             return Eligibility(
                 False,
@@ -1119,6 +1128,38 @@ def target_reachability(reports: Iterable[Any], target: str) -> tuple[str, str, 
     return REACHABILITY_NOT_PROBED, "", {}
 
 
+#: A Channel Access block's gateways, as the reachability rung reads them:
+#: an explicit ``gateways: []`` (nothing to probe), no table at all, or rows.
+GATEWAYS_NONE_DECLARED = "none_declared"
+GATEWAYS_MISSING = "missing"
+GATEWAYS_ROWS = "rows"
+
+
+def _declared_gateways(config: Any, target: str) -> tuple[str | None, str]:
+    """How *target*'s Channel Access block spells its gateways, and its connector type.
+
+    The shape is ``None`` for a target that does not resolve, or whose connector does not
+    speak Channel Access: the gateways table is that protocol's shape, and the
+    rung asks nothing of a block it cannot apply to. Only the explicit empty
+    list is :data:`GATEWAYS_NONE_DECLARED`; a table nobody wrote is
+    :data:`GATEWAYS_MISSING`, so a forgotten table never reads as "direct".
+    """
+    control_system = config_section(config, "control_system")
+    try:
+        connector_type = resolve_target(control_system, target)
+    except ValueError:
+        return None, ""
+    if not speaks_channel_access(control_system, connector_type):
+        return None, connector_type
+    block = connector_block(config, connector_type)
+    if not isinstance(block, dict):
+        return GATEWAYS_MISSING, connector_type
+    if block.get("gateways") == []:
+        return GATEWAYS_NONE_DECLARED, connector_type
+    shape = GATEWAYS_ROWS if subsection(block, "gateways") else GATEWAYS_MISSING
+    return shape, connector_type
+
+
 def _gateway_of(row: Mapping[str, Any]) -> str:
     """How a refusal names the gateway a row describes, or a plain fallback."""
     gateway = row.get("gateway")
@@ -1257,7 +1298,22 @@ def evaluate_switch(
             details=availability.as_dict(),
         )
 
-    # (4) Reachability, as the live fleet last measured it.
+    # (4) Reachability, as the live fleet last measured it. A target that
+    # declares no endpoints has nothing a prober could measure, so the rung is
+    # skipped and says so; eligibility has already refused it on any leg but
+    # the return to the baseline.
+    declared, connector_type = _declared_gateways(config, wanted)
+    if declared == GATEWAYS_NONE_DECLARED:
+        return GateVerdict(
+            allowed=True,
+            detail=(
+                f"target {wanted!r} declares no endpoints (`gateways: []`), so there is "
+                "nothing to probe and no reachability is claimed."
+            ),
+            details={"target": wanted, "reachability": REACHABILITY_NOT_APPLICABLE},
+            reachability=REACHABILITY_NOT_APPLICABLE,
+        )
+
     state, role, row = target_reachability(reports, wanted)
 
     if state == REACHABILITY_DOWN:
@@ -1286,6 +1342,28 @@ def evaluate_switch(
         )
 
     live = list(reports)
+    if state == REACHABILITY_NOT_PROBED and live and declared == GATEWAYS_MISSING:
+        block_key = f"control_system.connector.{connector_type}"
+        return GateVerdict(
+            allowed=False,
+            reason=REASON_GATEWAYS_MISSING,
+            detail=(
+                f"target {wanted!r} has no '{block_key}.gateways' table, so the controls "
+                f"server on pid {_server_pids(live)} has nothing to probe for it. A missing "
+                "table is never read as a direct connection."
+            ),
+            suggestions=[
+                f"Name the target's gateways under '{block_key}.gateways', or write "
+                "`gateways: []` if it truly has none to probe.",
+            ],
+            details={
+                "target": wanted,
+                "reason": REASON_GATEWAYS_MISSING,
+                "reachability": REACHABILITY_NOT_PROBED,
+                "server_pids": [getattr(report, "server_pid", None) for report in live],
+            },
+            reachability=REACHABILITY_NOT_PROBED,
+        )
     if state == REACHABILITY_NOT_PROBED and live:
         return GateVerdict(
             allowed=False,

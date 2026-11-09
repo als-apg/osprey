@@ -569,6 +569,9 @@
   would fail nginx's parse at startup ("server" directive is not allowed
   there) and the whole stack would never come up.
 #}
+{#- A CA file's read-only bind, by the shared macro the service templates use
+    too (render.py searches the templates root after this directory). #}
+{%- import "services/_ca_bundles.j2" as ca %}
 services:
 
   nginx:
@@ -1496,12 +1499,7 @@ services:
       {#- The CA file this user's archiver block names under `tls.ca_bundle`,
          bind-mounted read-only at the same path, so the key names one file on
          the host and here. Long syntax, so any path is carried whole. #}
-{%- for ca_bundle in svc.ca_bundle_mounts %}
-      - type: bind
-        source: {{ ca_bundle | replace("$", "$$") | tojson }}
-        target: {{ ca_bundle | replace("$", "$$") | tojson }}
-        read_only: true
-{%- endfor %}
+{{- ca.mounts(svc.ca_bundle_mounts) }}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
       {#- THE DEPLOYMENT BUNDLE SHADOWS THE RENDER'S BAKED COPY. BY DESIGN.
 

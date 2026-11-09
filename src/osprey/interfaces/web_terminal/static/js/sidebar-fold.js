@@ -2,7 +2,9 @@
 /* OSPREY Web Terminal — folding a sidebar group
  *
  * A double-click on a group's heading folds the group to its heading; another
- * unfolds it. Enter / Space on the group's name do the same. Any group with a
+ * unfolds it. Enter / Space on the group's name do the same. Only a folded
+ * group shows a chevron, at the heading's end and pointing right, the sign
+ * that there is more; a click on it unfolds. Any group with a
  * heading folds, built-in or the operator's; the headless group
  * (sidebar-groups.js) never does, whatever is stored. Membership and order
  * are untouched, and the
@@ -12,11 +14,12 @@
  * `scopedStorageKey('osprey-sidebar-folded')`, a JSON array. A folded group is
  * `data-folded` and its name `aria-expanded="false"`; terminal.css hides the
  * rest of the group. The listeners sit on the rail, so a render that rebuilds
- * a heading loses nothing; the name's button role is re-applied after every
- * render. With the sidebar collapsed to icons nothing
- * folds.
+ * a heading loses nothing; the chevron and the name's button role are
+ * re-applied after every render. With the sidebar collapsed to icons the
+ * headings are hairlines, the chevrons hide, and nothing folds.
  */
 
+import { icon } from '/design-system/js/icons.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { SIDEBAR_RENDERED_EVENT } from './panel-rail.js';
 import { isHeadlessGroup } from './sidebar-groups.js';
@@ -26,6 +29,9 @@ export const FOLDED_STORAGE_KEY = 'osprey-sidebar-folded';
 
 /** Fired on `document` after a group folds or unfolds. */
 export const FOLD_EVENT = 'osprey-sidebar-fold-change';
+
+/** The class of a heading's chevron. */
+const CHEVRON_CLASS = 'sidebar-group-chevron';
 
 /** @returns {Set<string>} the folded group ids, as stored */
 function readFolded() {
@@ -60,7 +66,9 @@ export function isGroupFolded(id) {
 }
 
 /**
- * Give every heading its button role, and every group its fold state.
+ * Give every heading its chevron and button role, and every group its fold
+ * state. The chevron is decoration for the pointer: the name, a button with
+ * `aria-expanded`, carries the state for assistive technology and the keyboard.
  * @param {HTMLElement} rail
  */
 function paint(rail) {
@@ -69,7 +77,11 @@ function paint(rail) {
     if (!head) continue;
     const isFolded = isGroupFolded(group.getAttribute('data-group') ?? '');
     group.toggleAttribute('data-folded', isFolded);
-    head.querySelector(':scope > .sidebar-group-chevron')?.remove();
+    if (!head.querySelector(`:scope > .${CHEVRON_CLASS}`)) {
+      const chevron = icon('chevron-down');
+      chevron.classList.add(CHEVRON_CLASS);
+      head.append(chevron);
+    }
     const name = head.querySelector('.sidebar-group-name');
     if (name) {
       name.setAttribute('role', 'button');
@@ -187,7 +199,19 @@ export function initSidebarFold(rail) {
     return group.getAttribute('data-group') ?? '';
   };
 
+  /** @param {Event} event @returns {boolean} whether it landed on a chevron */
+  const onChevron = (event) =>
+    event.target instanceof Element && Boolean(event.target.closest(`.${CHEVRON_CLASS}`));
+
+  rail.addEventListener('click', (event) => {
+    if (!onChevron(event)) return;
+    const id = groupIdOf(event);
+    if (id === null) return;
+    toggle(id);
+  });
   rail.addEventListener('dblclick', (event) => {
+    // Each click of a double-click on the chevron has already toggled.
+    if (onChevron(event)) return;
     const id = groupIdOf(event);
     if (id === null) return;
     event.preventDefault();

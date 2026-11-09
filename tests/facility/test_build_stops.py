@@ -748,6 +748,16 @@ STOP_SENTENCES: tuple[tuple[str, str, str], ...] = (
         "profile-invalid",
         "a guarded tool put to a human while the profile does not select the `approval` hook",
     ),
+    (
+        "machine_missing__no_identity",
+        "machine-missing",
+        "a `machine:` root holding no `identity.yaml`",
+    ),
+    (
+        "machine_restated__deployment_record",
+        "machine-restated",
+        "a mounted deployment's `data/facility` restating a machine file",
+    ),
 )
 
 #: Each case: the tree that breaks the rule, and the one line it stops with.
@@ -2574,6 +2584,26 @@ CASES: dict[str, tuple[Callable[[], Tree], str]] = {
             "hook, so nothing would ask; fix: add `approval` to `hooks:` in profile.yml"
         ),
     ),
+    "machine_missing__no_identity": (
+        _plain(),
+        (
+            "facility: machine-missing: path machine/identity.yaml — the machine root "
+            "'machine' (resolved: <repo>/machine) holds no identity.yaml, so there is no "
+            "machine to build; fix: point `machine:` at the machine repository's facility "
+            "directory (the one holding identity.yaml); for a git submodule, run "
+            "`git submodule update --init`"
+        ),
+    ),
+    "machine_restated__deployment_record": (
+        _plain(),
+        (
+            "facility: machine-restated: path data/facility/records/channels.yaml — the "
+            "mounted machine states machine/records/channels.yaml, and a mounted "
+            "deployment's data/facility/ holds only knowledge/, ariel/, benchmarks/; fix: "
+            "remove data/facility/records/channels.yaml; edit machine/records/channels.yaml "
+            "in the machine repository instead"
+        ),
+    ),
 }
 
 #: The files a case puts in the profile's ``project/`` mirror, beside a clean tree.
@@ -2719,6 +2749,41 @@ def _render_serves_models(repo: Path) -> None:
     render.write_text("name: reader\nconfig:\n  simulation.models: [texture]\n", encoding="utf-8")
 
 
+#: The machine root a mounting case names, relative to the repo.
+MACHINE_DIR = "machine"
+
+#: A machine root's identity: what the machine-missing stop looks for.
+MACHINE_IDENTITY = "code: ca\nname: Mounted Machine\n"
+
+
+def _state_machine(repo: Path) -> None:
+    profile = repo / "profile.yml"
+    data = yaml.safe_load(profile.read_text(encoding="utf-8"))
+    data["machine"] = MACHINE_DIR
+    profile.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+
+
+def _mount_uninitialised(repo: Path) -> None:
+    """Name a machine root that is an empty directory, as an uninitialised submodule."""
+    (repo / MACHINE_DIR).mkdir()
+    _state_machine(repo)
+
+
+def _mount_and_restate(repo: Path) -> None:
+    """Move the machine facts into a mounted root and leave one record file behind."""
+    facility = repo / "data" / "facility"
+    machine = repo / MACHINE_DIR
+    machine.mkdir()
+    for entry in sorted(facility.iterdir()):
+        if entry.name not in {"knowledge", "ariel", "benchmarks"}:
+            shutil.move(str(entry), machine / entry.name)
+    (machine / "identity.yaml").write_text(MACHINE_IDENTITY, encoding="utf-8")
+    restated = facility / "records" / "channels.yaml"
+    restated.parent.mkdir(parents=True)
+    shutil.copy2(machine / "records" / "channels.yaml", restated)
+    _state_machine(repo)
+
+
 #: The profile edit a case makes beside a clean tree.
 PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "view_unsupported__in_context_no_channel": _select_in_context,
@@ -2748,11 +2813,20 @@ PROFILE_EDITS: dict[str, Callable[[Path], None]] = {
     "profile_invalid__freshness_channel": _watch("NOPE:RB"),
     "profile_invalid__default_scenarios": _start_in(["rf-thermal"]),
     "profile_invalid__approval_hook_not_selected": _drop_approval_hook,
+    "machine_missing__no_identity": _mount_uninitialised,
+    "machine_restated__deployment_record": _mount_and_restate,
 }
 
 #: Cases only ``osprey build`` stops on: validate checks the main profile render, and
-#: renders are checked by the build.
-BUILD_ONLY: frozenset[str] = frozenset({"profile_invalid__render_served_models"})
+#: renders are checked by the build. ``osprey facility validate`` does not resolve a
+#: mounted machine root yet, so the ``machine:`` cases are the build's alone.
+BUILD_ONLY: frozenset[str] = frozenset(
+    {
+        "profile_invalid__render_served_models",
+        "machine_missing__no_identity",
+        "machine_restated__deployment_record",
+    }
+)
 
 #: Cases a view raises while the render writes it: the views written before it have
 #: already noted, once each, what they omit.
@@ -2841,10 +2915,13 @@ def test_build_stops_on_the_line(initialised: Path, tmp_path: Path, case: str) -
     result = run_build(repo)
 
     assert result.exit_code == 1, result.output
+    # A stop naming a resolved path shows it under the repo, which is a fresh
+    # temporary directory on every run.
+    stderr = result.stderr.replace(str(repo.resolve()), "<repo>")
     if case not in BUILD_ONLY | VIEW_STAGE:
-        assert result.stderr == CASES[case][1] + "\n"
+        assert stderr == CASES[case][1] + "\n"
         return
-    _assert_notes_then_stop(result.stderr, case)
+    _assert_notes_then_stop(stderr, case)
 
 
 @pytest.mark.parametrize(
