@@ -32,6 +32,8 @@ _COLUMNS = (
     "last_announced",
 )
 _CSV = "text/csv"
+#: The leading characters that make a spreadsheet read a cell as a formula.
+_FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
 
 _Words = Annotated[str, Query()]
 _Many = Annotated[list[str] | None, Query()]
@@ -99,7 +101,8 @@ async def export_csv(
 ) -> Response:
     """The search as CSV: the whole set within the filter cap, else pages 0 to *page*.
 
-    The first line names what was searched, the second the columns.
+    The fetched pages stop at the filter cap's rows and at the first short page. The
+    first line names what was searched, the second the columns.
     """
     service = _service(request)
     filters = _filters(q, name, origin, ioc, record_type)
@@ -107,21 +110,37 @@ async def export_csv(
     total = counted.get("total") if counted.get("outcome") != "unavailable" else None
     cap = service.filter_cap
     if isinstance(total, int) and 0 < total <= cap:
-        pages = [await service.search(**filters, page=0, page_size=total)]
+        answer = await service.search(**filters, page=0, page_size=total)
+        _raise_unavailable(answer)
+        searched, rows = answer.get("searched", ""), list(answer.get("rows", ()))
     else:
-        pages = [
-            await service.search(**filters, page=number, page_size=page_size)
-            for number in range(page + 1)
-        ]
-    for answer in pages:
-        if answer.get("outcome") == "unavailable":
-            raise HTTPException(status_code=503, detail=answer.get("reason") or "unavailable")
+        limit = max(cap, page_size)
+        searched, rows = "", []
+        for number in range(min(page, (limit - 1) // page_size) + 1):
+            answer = await service.search(**filters, page=number, page_size=page_size)
+            _raise_unavailable(answer)
+            fetched = list(answer.get("rows", ()))
+            searched = searched or answer.get("searched", "")
+            rows.extend(fetched)
+            if len(fetched) < page_size:
+                break
+        rows = rows[:limit]
 
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
-    writer.writerow([pages[0].get("searched", "")])
+    writer.writerow([_cell(searched)])
     writer.writerow(_COLUMNS)
-    for answer in pages:
-        for row in answer.get("rows", ()):
-            writer.writerow(["" if row.get(c) is None else row.get(c) for c in _COLUMNS])
+    for row in rows:
+        writer.writerow([_cell(row.get(column)) for column in _COLUMNS])
     return Response(content=out.getvalue(), media_type=_CSV, headers=document_headers(_CSV))
+
+
+def _raise_unavailable(answer: dict[str, Any]) -> None:
+    if answer.get("outcome") == "unavailable":
+        raise HTTPException(status_code=503, detail=answer.get("reason") or "unavailable")
+
+
+def _cell(value: Any) -> str:
+    """*value* as CSV text; text a spreadsheet would read as a formula gains a leading quote."""
+    text = "" if value is None else str(value)
+    return f"'{text}" if text.startswith(_FORMULA_STARTS) else text
