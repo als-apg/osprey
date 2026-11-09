@@ -5,17 +5,11 @@
  * One artifact in, one rendered viewport out. This is the single answer to
  * "how does an artifact of type X render?", and it is deliberately the *only*
  * one: the preview pane (preview.js's `renderPreview`) calls these two
- * functions for every artifact it shows, standalone inside its header/meta/
- * action chrome, and embedded as the hub's single-artifact viewer, where the
- * hub renders the header.
+ * functions for every artifact it shows, as the hub's single-artifact viewer,
+ * where the hub renders the header.
  *
  * The chrome stays with the pane and only this dispatch decides what the
- * viewport holds. A full-size surface once borrowed types.js's
- * `thumbnailHtml()` instead — the *sidebar card* builder, which knows only
- * the `<img>`/`<iframe>` types and drops markdown/JSON/text/PDF/timeseries to
- * a summary dump or a type-icon placeholder. Two dispatch tables cannot stay
- * in parity; there is now one. `thumbnailHtml` is back to meaning only what
- * its name says.
+ * viewport holds.
  *
  * Split in two because the caller needs the halves at different moments:
  * `renderPreview` interpolates the markup into a larger `innerHTML` template
@@ -37,13 +31,29 @@
  * into its import graph just to dispatch a type. gallery.js wires the real
  * `renderTimeseriesView` through the preview renderer's callbacks.
  *
+ * **The viewer hook.** An entry whose `kind` is an extension type with a
+ * viewer (`viewer_url` in the type registry, a "has a viewer" flag only) is
+ * rendered by that type's own ES module: `render(container, artifact, ctx)`
+ * with `ctx = {fileUrl, theme, tokens}`. The import URL is the literal
+ * viewers path built in `mountViewer`, never the registry's string, so the hub's
+ * proxy can rebase it for the embedded gallery. A failed import, a missing
+ * `render` export or a throw logs one `console.warn` and re-fills the viewer's
+ * own element through the base dispatch below.
+ *
+ * **The content strip.** The base dispatch's post-mount step also draws the
+ * strip of view controls over the types that have one (artifact-strip.js:
+ * a plot's zoom, pan and export, a table's copy and CSV export, a note's
+ * contents, find and copy), in the standalone preview and in the embedded
+ * viewer alike.
+ *
  * @module artifact-viewport
  */
 
 import { getTheme } from '/design-system/js/theme-manager.js';
 import { fileUrl } from './state.js';
-import { escapeHtml, hasTimeseriesData, sandboxAttr, withTheme } from './types.js';
+import { escapeHtml, getTypeRegistry, hasTimeseriesData, sandboxAttr, withTheme } from './types.js';
 import { renderMarkdownView, renderJsonView } from './preview-content.js';
+import { mountArtifactStrip } from './artifact-strip.js';
 
 /**
  * The src for an embedded artifact page: the URL stamped with the theme the
@@ -78,6 +88,17 @@ function embedSrc(url) {
  * @returns {string} viewport markup, class-hooked and id-free
  */
 export function artifactViewportHtml(a) {
+  if (viewerKey(a) !== null) return `<div class="ext-viewer-container"></div>`;
+  return baseViewportHtml(a);
+}
+
+/**
+ * The base dispatch's markup: what {@link artifactViewportHtml} returns for an
+ * artifact whose `kind` has no viewer, and what a failed viewer falls back to.
+ * @param {any} a
+ * @returns {string}
+ */
+function baseViewportHtml(a) {
   if (hasTimeseriesData(a)) {
     return `<div class="ts-viewport-container"></div>`;
   }
@@ -122,7 +143,8 @@ export function artifactViewportHtml(a) {
 /**
  * Run the post-mount step for the markup {@link artifactViewportHtml} just
  * produced: the three types whose content is fetched asynchronously rather
- * than named by a `src` attribute. A no-op for every other type.
+ * than named by a `src` attribute, and the content strip of the types that
+ * have one. A no-op for every other type.
  *
  * Every lookup is scoped to `container` — never `document` — so two mounted
  * viewports can never land one's renderer in the other's element.
@@ -130,9 +152,26 @@ export function artifactViewportHtml(a) {
  * @param {HTMLElement} container - the element `artifactViewportHtml`'s markup was written into
  * @param {any} a - the same artifact that markup was built from
  * @param {MountOptions} options
- * @returns {void}
+ * @returns {Promise<void> | void} a promise settling once a viewer has rendered (or fallen back); nothing for the base types
  */
 export function mountArtifactViewport(container, a, options) {
+  const key = viewerKey(a);
+  if (key !== null) {
+    const el = /** @type {HTMLElement|null} */ (container.querySelector('.ext-viewer-container'));
+    if (el) return mountViewer(el, a, key, options);
+    return;
+  }
+  mountBaseViewport(container, a, options);
+}
+
+/**
+ * The base dispatch's post-mount step.
+ * @param {HTMLElement} container
+ * @param {any} a
+ * @param {MountOptions} options
+ * @returns {void}
+ */
+function mountBaseViewport(container, a, options) {
   if (hasTimeseriesData(a)) {
     const tsEl = /** @type {HTMLElement|null} */ (
       container.querySelector('.ts-viewport-container')
@@ -140,6 +179,7 @@ export function mountArtifactViewport(container, a, options) {
     if (tsEl && options.onTimeseriesNeeded) options.onTimeseriesNeeded(tsEl, a);
     return;
   }
+  mountArtifactStrip(container, a);
 
   if (a.artifact_type === 'markdown') {
     const mdEl = /** @type {HTMLElement|null} */ (container.querySelector('.md-preview-container'));
@@ -150,5 +190,104 @@ export function mountArtifactViewport(container, a, options) {
   if (a.artifact_type === 'json') {
     const jsonEl = /** @type {HTMLElement|null} */ (container.querySelector('.json-viewer'));
     if (jsonEl) renderJsonView(jsonEl, a);
+  }
+}
+
+// ---- The viewer hook ---- //
+
+/**
+ * The design-system colour custom properties a viewer receives as
+ * `ctx.tokens`, read off the document at render time.
+ */
+const VIEWER_TOKENS = [
+  '--bg-primary',
+  '--bg-secondary',
+  '--bg-panel',
+  '--bg-elevated',
+  '--text-primary',
+  '--text-secondary',
+  '--text-muted',
+  '--border-default',
+  '--surface-canvas',
+  '--surface-card',
+  '--surface-well',
+  '--color-accent',
+  '--color-accent-light',
+  '--color-on-accent',
+  '--color-accent-secondary',
+  '--color-accent-secondary-light',
+  '--color-accent-secondary-hover',
+  '--color-success',
+  '--color-warning',
+  '--color-error',
+  '--color-error-hover',
+  '--chart-series-1',
+  '--chart-series-2',
+  '--chart-series-3',
+  '--chart-series-4',
+  '--chart-series-5',
+  '--chart-series-6',
+];
+
+/** @type {(url: string) => Promise<any>} */
+const defaultImporter = (url) => import(/* @vite-ignore */ url);
+
+/** @type {(url: string) => Promise<any>} */
+let importViewer = defaultImporter;
+
+/**
+ * Replace the dynamic `import()` a viewer is loaded with (tests); `null`
+ * restores the real one.
+ * @param {((url: string) => Promise<any>) | null} importer
+ * @returns {void}
+ */
+export function setViewerImporter(importer) {
+  importViewer = importer ?? defaultImporter;
+}
+
+/**
+ * The extension-type key whose viewer renders `a`, or `null` for the base
+ * dispatch (no `kind`, an unregistered one, or a type without a viewer).
+ * @param {any} a
+ * @returns {string|null}
+ */
+function viewerKey(a) {
+  const kind = a && a.kind;
+  if (!kind) return null;
+  const types = getTypeRegistry().extension_types;
+  if (!Array.isArray(types)) return null;
+  const ext = types.find((t) => t && t.key === kind);
+  return ext && ext.viewer_url ? kind : null;
+}
+
+/** @returns {Record<string, string>} */
+function readTokens() {
+  const styles = getComputedStyle(document.documentElement);
+  /** @type {Record<string, string>} */
+  const tokens = {};
+  for (const name of VIEWER_TOKENS) tokens[name] = styles.getPropertyValue(name).trim();
+  return tokens;
+}
+
+/**
+ * Import `key`'s viewer and render `a` into `el`; on any failure warn once and
+ * re-fill `el` through the base dispatch.
+ * @param {HTMLElement} el
+ * @param {any} a
+ * @param {string} key
+ * @param {MountOptions} options
+ * @returns {Promise<void>}
+ */
+async function mountViewer(el, a, key, options) {
+  try {
+    const mod = await importViewer(`/viewers/${encodeURIComponent(key)}.js`);
+    if (!mod || typeof mod.render !== 'function') {
+      throw new Error('the module exports no render function');
+    }
+    await mod.render(el, a, { fileUrl: fileUrl(a), theme: getTheme(), tokens: readTokens() });
+  } catch (err) {
+    console.warn(`Viewer for "${key}" failed; showing the base view.`, err);
+    el.innerHTML = baseViewportHtml(a);
+    mountBaseViewport(el, a, options);
   }
 }

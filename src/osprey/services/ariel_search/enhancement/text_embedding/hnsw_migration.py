@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING
 
 from osprey.services.ariel_search.database.migrations import (
     BaseMigration,
-    MigrationSkippedError,
     model_to_table_name,
 )
 from osprey.services.ariel_search.enhancement.text_embedding.migration import (
+    PGVECTOR_UNAVAILABLE_MESSAGE,
     create_vector_index_sql,
     legacy_vector_index_name,
-    pgvector_available,
+    require_pgvector_hnsw,
     vector_index_name,
 )
 
@@ -63,12 +63,7 @@ class TextEmbeddingHnswIndexMigration(BaseMigration):
 
     async def up(self, conn: "AsyncConnection") -> None:
         """Apply the HNSW index reconciliation."""
-        if not await pgvector_available(conn):
-            raise MigrationSkippedError(
-                "pgvector extension is not available in this PostgreSQL installation. "
-                "Install pgvector to enable semantic search. "
-                "ARIEL will fall back to keyword-only search."
-            )
+        await require_pgvector_hnsw(conn, PGVECTOR_UNAVAILABLE_MESSAGE)
 
         for model_name, _dimension in self._get_models():
             table_name = model_to_table_name(model_name)

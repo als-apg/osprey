@@ -10,5 +10,9 @@
   "enabled_search_modules": ["keyword", "semantic"],
   "enabled_enhancement_modules": ["text_embedding", "semantic_processor"],
   "last_ingestion": "2025-01-15T06:00:00Z",
-  "errors": []
+  "errors": [],
+  "enhancement_coverage": {
+    "text_embedding": {"label": "Text embedding", "n/a": 0, "not_run": 0, "pending": 120, "stale": 0, "failed": 8, "complete": 15102},
+    "semantic_processor": {"label": "Summary and keywords", "n/a": 0, "not_run": 0, "pending": 22, "stale": 0, "failed": 8, "complete": 15200}
+  }
 }

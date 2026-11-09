@@ -1,6 +1,6 @@
 """An app file may name the model its render runs; the provider stays the host's.
 
-One build of the control-assistant exemplar, with the logbook app naming a
+One build of the demo exemplar, with the logbook app naming a
 model the host's provider lists and the knowledge app naming one it does not.
 The logbook render runs its own model; the knowledge render runs its id as
 written and the build warns that the provider does not list it, as it does for

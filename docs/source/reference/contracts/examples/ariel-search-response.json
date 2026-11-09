@@ -16,7 +16,10 @@
       "highlights": ["<b>RF cavity</b> trip at 08:15"],
       "matched_via": [],
       "matched_attachment_ids": [],
-      "facility_references": null
+      "facility_references": null,
+      "subject": null,
+      "entry_url": null,
+      "enhancement_status": {}
     }
   ],
   "answer": null,
@@ -24,6 +27,9 @@
   "search_modes_used": ["keyword"],
   "reasoning": "Keyword search: 1 results",
   "total_results": 1,
+  "total": 1,
+  "total_exact": true,
+  "has_more": false,
   "execution_time_ms": 340,
   "diagnostics": [],
   "expanded_terms": []

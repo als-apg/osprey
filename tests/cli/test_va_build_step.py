@@ -55,7 +55,7 @@ def _write_profile(
     deploy_va: bool = False,
     live_standin: int | None = None,
 ) -> Path:
-    """A profile sourcing its own copy of the bundled control-assistant tree.
+    """A profile sourcing its own copy of the bundled demo tree.
 
     ``hierarchical`` resolves to tier 3, the tier whose three paradigm
     databases agree — the shape the generator can actually build from.

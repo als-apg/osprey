@@ -722,6 +722,221 @@ describe('a prompt that never reached the agent', () => {
   });
 });
 
+describe('a follow-up typed during a turn', () => {
+  const textarea = () => /** @type {HTMLTextAreaElement} */ (one('textarea'));
+  const bubble = () => /** @type {HTMLElement} */ (one('.op-queued'));
+  const action = () => /** @type {HTMLButtonElement} */ (one('.op-queued-action'));
+  /** @param {string} text - type *text* and press Enter */
+  const type = (text) => {
+    textarea().value = text;
+    textarea().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }));
+  };
+  /** @param {number} n - the callbacks of the nth prompt sent */
+  const turn = (n) => transport.sendPrompt.mock.calls[n][2];
+  const settle = async () => {
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  };
+
+  /** Mount on K1 with a turn running, then queue *follow*. */
+  async function queuedDuringTurn(follow = 'and the tunes?') {
+    await mountChat({ pointer: 'K1' });
+    type('read the orbit');
+    turn(0).onEvent({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    type(follow);
+  }
+
+  test('the box stays open while a turn runs, and Enter queues instead of sending', async () => {
+    await queuedDuringTurn();
+
+    expect(textarea().disabled).toBe(false);
+    expect(/** @type {HTMLButtonElement} */ (one('.op-session-new')).disabled).toBe(true);
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+    expect(bubble().hidden).toBe(false);
+    expect(textOf('.op-queued-text')).toBe('and the tunes?');
+    expect(textOf('.op-queued-label')).toBe('Queued · sends when the agent finishes');
+    expect(textarea().value).toBe('');
+    // Not in the conversation until it is sent.
+    expect(logEntries()).toEqual(['read the orbit']);
+  });
+
+  test('a second message joins the first in the one slot', async () => {
+    await queuedDuringTurn('and the tunes?');
+    type('and the chromaticity');
+
+    expect(container.querySelectorAll('.op-queued')).toHaveLength(1);
+    expect(textOf('.op-queued-text')).toBe('and the tunes?\nand the chromaticity');
+  });
+
+  test('the queued message goes by itself when the turn ends', async () => {
+    await queuedDuringTurn();
+    turn(0).onClose();
+    await settle();
+
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(2);
+    expect(transport.sendPrompt.mock.calls[1].slice(0, 2)).toEqual(['K1', 'and the tunes?']);
+    expect(bubble().hidden).toBe(true);
+    expect(logEntries()).toEqual(['read the orbit', 'and the tunes?']);
+  });
+
+  test('"Interrupt and ask now" interrupts the turn, then sends once its stream has closed', async () => {
+    const abort = vi.fn();
+    transport.sendPrompt.mockReturnValue({ abort, aborted: false });
+    await queuedDuringTurn();
+
+    expect(action().textContent).toBe('Interrupt and ask now');
+    action().click();
+    expect(action().disabled).toBe(true);
+    expect(action().textContent).toBe('Interrupting…');
+    await settle();
+    expect(transport.interrupt).toHaveBeenCalledWith('K1');
+    // The stream is left to close by itself: it closes once the server has let
+    // the turn go, so the send that follows is not refused as still running.
+    expect(abort).not.toHaveBeenCalled();
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+
+    turn(0).onClose();
+    await settle();
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(2);
+    expect(transport.sendPrompt.mock.calls[1][1]).toBe('and the tunes?');
+  });
+
+  test('a failed interrupt leaves the message waiting and the button usable', async () => {
+    transport.interrupt.mockRejectedValue(new Error('network down'));
+    await queuedDuringTurn();
+    action().click();
+    await settle();
+
+    expect(action().disabled).toBe(false);
+    expect(action().textContent).toBe('Interrupt and ask now');
+    expect(textOf('.op-queued-text')).toBe('and the tunes?');
+    turn(0).onClose();
+    await settle();
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(2);
+  });
+
+  test('remove puts the text back in the box, ahead of what was typed since', async () => {
+    await queuedDuringTurn();
+    textarea().value = 'half a thought';
+    /** @type {HTMLButtonElement} */ (one('.op-queued-remove')).click();
+
+    expect(bubble().hidden).toBe(true);
+    expect(textarea().value).toBe('and the tunes?\nhalf a thought');
+    turn(0).onClose();
+    await settle();
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  test('Stop gives the queued text back to the box and sends nothing', async () => {
+    await queuedDuringTurn();
+    /** @type {HTMLButtonElement} */ (one('.op-stop-btn')).click();
+    await settle();
+    turn(0).onClose();
+    await settle();
+
+    expect(transport.interrupt).toHaveBeenCalledWith('K1');
+    expect(textarea().value).toBe('and the tunes?');
+    expect(bubble().hidden).toBe(true);
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  test('a stop asked for from outside (a session switch) also gives the text back', async () => {
+    await queuedDuringTurn();
+    void chat.stopTurn();
+    turn(0).onClose();
+    await settle();
+
+    expect(textarea().value).toBe('and the tunes?');
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  test('a switch to another session returns the text and never sends it there', async () => {
+    await queuedDuringTurn();
+    const pointer =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js');
+    pointer.setPointer('K2');
+    await settle();
+    turn(0).onClose();
+    await settle();
+
+    expect(textarea().value).toBe('and the tunes?');
+    expect(bubble().hidden).toBe(true);
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  test('a hand-off returns the text to the box it keeps', async () => {
+    transport.requestHandoff.mockReturnValue(new Promise(() => {}));
+    await queuedDuringTurn();
+    void chat.enterFromTerminal();
+
+    expect(textarea().disabled).toBe(true);
+    expect(textarea().value).toBe('and the tunes?');
+    expect(bubble().hidden).toBe(true);
+  });
+
+  test('a queued send that never reached the agent stays queued with a retry', async () => {
+    await queuedDuringTurn();
+    turn(0).onClose();
+    await settle();
+    turn(1).onError(transportError(503));
+    turn(1).onClose();
+    await settle();
+
+    expect(bubble().hidden).toBe(false);
+    expect(bubble().dataset.state).toBe('failed');
+    expect(textOf('.op-queued-label')).toBe('Not sent.');
+    expect(textOf('.op-queued-text')).toBe('and the tunes?');
+    expect(textarea().value).toBe('');
+    expect(logEntries()).not.toContain('and the tunes?');
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(2);
+
+    expect(action().textContent).toBe('Retry');
+    action().click();
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(3);
+    expect(transport.sendPrompt.mock.calls[2][1]).toBe('and the tunes?');
+    expect(bubble().hidden).toBe(true);
+  });
+
+  test('a file attached during a turn waits in the tray and goes with the queued message', async () => {
+    await mountChat({ pointer: 'K1' });
+    type('read the orbit');
+    turn(0).onEvent({ type: 'turn_start', prompt: 'read the orbit', seq: 1 });
+    const picker = /** @type {HTMLInputElement} */ (one('input[type="file"]'));
+    const file = new File([new Uint8Array(10)], 'shot.png', { type: 'image/png' });
+    Object.defineProperty(picker, 'files', { value: [file], configurable: true });
+    picker.dispatchEvent(new Event('change'));
+    await settle();
+    type('what is in this?');
+
+    expect(container.querySelectorAll('.op-attach-chip')).toHaveLength(1);
+    turn(0).onClose();
+    await settle();
+
+    expect(transport.sendPrompt.mock.calls[1][1]).toContain('what is in this?');
+    expect(transport.sendPrompt.mock.calls[1][1]).toContain('/store/b1-shot.png');
+    expect(container.querySelectorAll('.op-attach-chip')).toHaveLength(0);
+  });
+
+  test('a slash command typed during a turn is not queued: it stays in the box', async () => {
+    await queuedDuringTurn('/diagnose');
+
+    expect(bubble().hidden).toBe(true);
+    expect(textarea().value).toBe('/diagnose');
+    expect(transport.sendPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  test('the bubble is a labelled group with a polite status line and real buttons', async () => {
+    await queuedDuringTurn();
+
+    expect(bubble().getAttribute('role')).toBe('group');
+    expect(bubble().getAttribute('aria-label')).toBe('Queued message');
+    expect(one('.op-queued-label')?.getAttribute('aria-live')).toBe('polite');
+    expect(action().tagName).toBe('BUTTON');
+    expect(one('.op-queued-remove')?.getAttribute('aria-label')).toMatch(/back to the input/);
+    // Just above the composer, outside the log.
+    expect(bubble().nextElementSibling).toBe(one('.op-input-area'));
+  });
+});
+
 describe('following a turn on the live feed', () => {
   /** The callbacks of the feed the console opened last. */
   const feedCallbacks = () => transport.followChat.mock.calls.at(-1)?.[1];
@@ -729,12 +944,11 @@ describe('following a turn on the live feed', () => {
   /** @param {Record<string, any>} frame - hand one frame to the live feed */
   const feed = (frame) => feedCallbacks().onEvent(frame);
 
-  /** Whether the console shows a turn running: input out of reach, Stop in place of Send. */
+  /** Whether the console shows a turn running: Stop in place of Send (the box stays open). */
   const busy = () => {
-    const textarea = /** @type {HTMLTextAreaElement} */ (one('textarea'));
     const stop = /** @type {HTMLButtonElement} */ (one('.op-stop-btn'));
     const send = /** @type {HTMLButtonElement} */ (one('.op-send-btn'));
-    return textarea.disabled && !stop.hidden && send.hidden;
+    return !stop.hidden && send.hidden;
   };
 
   /** Let the transcript re-read that a frame started settle. */
@@ -1296,32 +1510,35 @@ describe('renderChatBootFailure', () => {
 });
 
 describe('the Agent bar', () => {
-  test('reads dot, Agent, New conversation, bell, Export, then the ⋯', async () => {
-    await mountChat();
-    const bar = /** @type {HTMLElement} */ (one('.op-session-bar'));
-    const parts = [...bar.children].map(
-      (el) => el.getAttribute('aria-label') ?? el.textContent ?? ''
-    );
-    expect(parts).toEqual([
-      '',
-      'Agent',
-      'New conversation',
-      'Desktop notifications',
-      'Export',
-      'Earlier conversations',
-    ]);
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  test('the ⋯ opens the earlier conversations menu', async () => {
+  test('reads the session switcher and New conversation — no dot, bell, Export or ⋯', async () => {
+    await mountChat();
+    const bar = /** @type {HTMLElement} */ (one('.op-session-bar'));
+    const controls = [...bar.querySelectorAll('button, [role="button"]')].map((el) =>
+      el.getAttribute('aria-label')
+    );
+    expect(controls).toEqual(['Switch session', 'New conversation']);
+    expect(bar.lastElementChild?.classList.contains('agent-bar-new')).toBe(true);
+    expect(bar.querySelector('.osprey-dot, .op-session-more')).toBeNull();
+    expect(document.getElementById('agent-conversations-menu')).toBeNull();
+  });
+
+  test("the console's features put Export and Desktop notifications in the pane's ⋯", async () => {
     vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ sessions: [] }) }))
+      'Notification',
+      class {
+        static permission = 'default';
+      }
     );
     await mountChat();
-    /** @type {HTMLButtonElement} */ (one('.op-session-more')).click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const menu = /** @type {HTMLElement} */ (document.getElementById('agent-conversations-menu'));
-    expect(menu.hidden).toBe(false);
-    vi.unstubAllGlobals();
+    const { agentMenuRows } =
+      await import('../../../src/osprey/interfaces/web_terminal/static/js/agent-menu.js');
+    expect(agentMenuRows().map((row) => row.label)).toEqual([
+      'Export conversation',
+      'Desktop notifications',
+    ]);
   });
 });

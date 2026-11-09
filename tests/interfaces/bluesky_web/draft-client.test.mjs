@@ -62,10 +62,10 @@ const ORM_SCHEMA = {
       type: 'array',
       'x-widget': 'channel-list',
     },
-    span_a: {
+    span: {
       exclusiveMinimum: 0,
       maximum: 10.0,
-      title: 'Max kick (A)',
+      title: 'Max kick',
       type: 'number',
     },
     num: {
@@ -74,7 +74,7 @@ const ORM_SCHEMA = {
       type: 'integer',
     },
   },
-  required: ['correctors', 'span_a', 'num'],
+  required: ['correctors', 'span', 'num'],
   title: 'PARAMS',
   type: 'object',
 };
@@ -459,15 +459,15 @@ describe('shouldAutoSwitch / shouldShowAgentDraftBanner', () => {
 
 describe('computeDelta', () => {
   test('a present key goes into plan_args_patch', () => {
-    const { plan_args_patch, remove } = computeDelta({ num: 4, span_a: 1.5 }, ['num']);
+    const { plan_args_patch, remove } = computeDelta({ num: 4, span: 1.5 }, ['num']);
     expect(plan_args_patch).toEqual({ num: 4 });
     expect(remove).toEqual([]);
   });
 
   test('a blanked (absent/OMIT-dropped) key goes into remove[]', () => {
-    const { plan_args_patch, remove } = computeDelta({ num: 4 }, ['num', 'span_a']);
+    const { plan_args_patch, remove } = computeDelta({ num: 4 }, ['num', 'span']);
     expect(plan_args_patch).toEqual({ num: 4 });
-    expect(remove).toEqual(['span_a']);
+    expect(remove).toEqual(['span']);
   });
 });
 
@@ -572,7 +572,7 @@ describe('createDraftClient — binding transitions', () => {
     });
 
     harness.deps.getDraft.mockResolvedValueOnce({
-      draft: { plan_name: 'orm', plan_args: { num: 7, span_a: 2.5 } },
+      draft: { plan_name: 'orm', plan_args: { num: 7, span: 2.5 } },
       revision: 1,
     });
 
@@ -581,7 +581,7 @@ describe('createDraftClient — binding transitions', () => {
     expect(harness.client.isBound()).toBe(true);
     expect(harness.deps.onBoundChange).toHaveBeenCalledWith(true);
     // Seeded from the fresh GET /draft snapshot, not bare schema defaults.
-    expect(harness.getCollector()()).toEqual({ num: 7, span_a: 2.5 });
+    expect(harness.getCollector()()).toEqual({ num: 7, span: 2.5 });
   });
 
   test('selecting a plan that does not match the draft stays unbound, no affordance', async () => {
@@ -856,7 +856,7 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
 
   test('blanking a field marks it pending and PATCHes it into remove[]', async () => {
     const spanInput = /** @type {HTMLInputElement} */ (
-      harness.getCollector().fields.span_a.el.querySelector('input')
+      harness.getCollector().fields.span.el.querySelector('input')
     );
     spanInput.value = '';
     spanInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -865,7 +865,7 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
 
     expect(harness.deps.patchDraft).toHaveBeenCalledTimes(1);
     const body = harness.deps.patchDraft.mock.calls[0][0];
-    expect(body.remove).toEqual(['span_a']);
+    expect(body.remove).toEqual(['span']);
     expect(body.plan_args_patch).toEqual({});
   });
 
@@ -1109,22 +1109,22 @@ describe('createDraftClient — removed keys clear on apply (not just added/chan
     const harness = makeHarness();
     harness.push({
       type: 'hello',
-      draft: { plan_name: 'orm', plan_args: { num: 5, span_a: 2 } },
+      draft: { plan_name: 'orm', plan_args: { num: 5, span: 2 } },
       revision: 1,
     });
     harness.deps.getDraft.mockResolvedValueOnce({
-      draft: { plan_name: 'orm', plan_args: { num: 5, span_a: 2 } },
+      draft: { plan_name: 'orm', plan_args: { num: 5, span: 2 } },
       revision: 1,
     });
     await harness.client.onPlanSelected('orm');
-    expect(harness.getCollector()()).toEqual({ num: 5, span_a: 2 });
+    expect(harness.getCollector()()).toEqual({ num: 5, span: 2 });
 
-    // The agent removed span_a: the new draft no longer carries it, but it's
+    // The agent removed span: the new draft no longer carries it, but it's
     // still named in changed[].
     harness.push({
       type: 'change',
       draft: { plan_name: 'orm', plan_args: { num: 5 } },
-      changed: ['span_a'],
+      changed: ['span'],
       revision: 2,
       origin: 'mcp-agent',
     });
@@ -1138,17 +1138,17 @@ describe('createDraftClient — removed keys clear on apply (not just added/chan
     const harness = makeHarness();
     harness.push({
       type: 'hello',
-      draft: { plan_name: 'orm', plan_args: { num: 5, span_a: 2 } },
+      draft: { plan_name: 'orm', plan_args: { num: 5, span: 2 } },
       revision: 1,
     });
     harness.deps.getDraft.mockResolvedValueOnce({
-      draft: { plan_name: 'orm', plan_args: { num: 5, span_a: 2 } },
+      draft: { plan_name: 'orm', plan_args: { num: 5, span: 2 } },
       revision: 1,
     });
     await harness.client.onPlanSelected('orm');
-    expect(harness.getCollector()()).toEqual({ num: 5, span_a: 2 });
+    expect(harness.getCollector()()).toEqual({ num: 5, span: 2 });
 
-    // 409 on the next flush -> resync to a snapshot that no longer has span_a.
+    // 409 on the next flush -> resync to a snapshot that no longer has span.
     harness.deps.patchDraft.mockResolvedValueOnce({
       ok: false,
       status: 409,
@@ -1167,7 +1167,7 @@ describe('createDraftClient — removed keys clear on apply (not just added/chan
 
     await harness.client.flushNow();
 
-    // span_a is gone from the resynced snapshot -- it must be cleared, not
+    // span is gone from the resynced snapshot -- it must be cleared, not
     // left showing its stale prior value.
     expect(harness.getCollector()()).toEqual({ num: 5 });
 
@@ -1198,7 +1198,7 @@ describe('createDraftClient — flush coalesces edits added mid-flight', () => {
     harness.deps.patchDraft.mockReturnValueOnce(firstPatch).mockResolvedValueOnce({
       ok: true,
       status: 200,
-      body: { revision: 20, changed: ['span_a'], plan_name: 'orm' },
+      body: { revision: 20, changed: ['span'], plan_name: 'orm' },
     });
 
     const numInput = /** @type {HTMLInputElement} */ (
@@ -1211,7 +1211,7 @@ describe('createDraftClient — flush coalesces edits added mid-flight', () => {
     // A second edit lands on a DIFFERENT field while the first PATCH is
     // still in flight (its promise hasn't resolved yet).
     const spanInput = /** @type {HTMLInputElement} */ (
-      harness.getCollector().fields.span_a.el.querySelector('input')
+      harness.getCollector().fields.span.el.querySelector('input')
     );
     spanInput.value = '3';
     spanInput.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1225,7 +1225,7 @@ describe('createDraftClient — flush coalesces edits added mid-flight', () => {
 
     expect(harness.deps.patchDraft).toHaveBeenCalledTimes(2);
     expect(harness.deps.patchDraft.mock.calls[0][0].plan_args_patch).toEqual({ num: 2 });
-    expect(harness.deps.patchDraft.mock.calls[1][0].plan_args_patch).toEqual({ span_a: 3 });
+    expect(harness.deps.patchDraft.mock.calls[1][0].plan_args_patch).toEqual({ span: 3 });
     // The mid-flight edit's own PATCH revision is what gets pinned.
     expect(result).toEqual({ patched: true, revision: 20 });
 
@@ -1356,7 +1356,7 @@ describe('createDraftClient — agent auto-switch wiring', () => {
 
     const draft = {
       plan_name: 'orm',
-      plan_args: { num: 4, span_a: 1.5 },
+      plan_args: { num: 4, span: 1.5 },
       updated_by: 'mcp-agent',
       updated_at: T1,
     };
@@ -1368,9 +1368,9 @@ describe('createDraftClient — agent auto-switch wiring', () => {
     expect(harness.deps.selectPlan).toHaveBeenCalledWith('orm');
     expect(harness.client.isBound()).toBe(true);
     // The whole applied arg set flashes — the frame's changed[] named only
-    // 'num', but span_a is agent-authored content newly on screen too.
+    // 'num', but span is agent-authored content newly on screen too.
     expect(harness.getCollector().fields.num.el.classList.contains('agent-flash')).toBe(true);
-    expect(harness.getCollector().fields.span_a.el.classList.contains('agent-flash')).toBe(true);
+    expect(harness.getCollector().fields.span.el.classList.contains('agent-flash')).toBe(true);
 
     harness.client.destroy();
   });
@@ -2236,23 +2236,27 @@ describe('classifyQueueAddResponse', () => {
     });
   });
 
-  test('every capability code — connector/config 409s and manager 503s — is cannot_execute', () => {
-    for (const [status, reason] of /** @type {Array<[number, string]>} */ ([
-      [409, 'browse_only_connector'],
-      [409, 'unsupported_connector'],
-      [409, 'config_unreadable'],
-      [503, 'manager_not_configured'],
-      [503, 'manager_unreachable'],
+  test('every refusal that carries a capability record is cannot_execute, retryable as the body says', () => {
+    // The classifier branches on the status only at 2xx and 502, so every row
+    // is posted as a 409; `retryable` is the input under test.
+    for (const [reason, retryable] of /** @type {Array<[string, boolean]>} */ ([
+      ['browse_only_connector', false],
+      ['unsupported_connector', false],
+      ['config_unreadable', false],
+      ['manager_not_configured', false],
+      ['manager_unreachable', true],
     ])) {
       expect(
-        classifyQueueAddResponse(status, {
+        classifyQueueAddResponse(409, {
           detail: {
             code: reason,
             detail: 'refused',
+            retryable,
             capability: {
               can_execute: false,
               reason,
               detail: 'run `osprey config …`',
+              retryable,
               lane: 'bluesky_live',
               lane_target: 'live',
             },
@@ -2262,29 +2266,33 @@ describe('classifyQueueAddResponse', () => {
         type: 'cannot_execute',
         reason,
         detail: 'run `osprey config …`',
+        retryable,
         lane: 'bluesky_live',
         laneTarget: 'live',
       });
     }
   });
 
-  test('cannot_execute falls back to the refusal sentence when no capability rides along', () => {
+  test('a capability refusal with no retryable field is not retryable', () => {
+    const outcome = classifyQueueAddResponse(503, {
+      detail: {
+        code: 'manager_unreachable',
+        detail: 'refused',
+        capability: { can_execute: false, reason: 'manager_unreachable', detail: 'no manager' },
+      },
+    });
+    expect(outcome.type).toBe('cannot_execute');
+    expect(outcome).toHaveProperty('retryable', false);
+  });
+
+  test('a refusal with no capability record is never cannot_execute, whatever its code', () => {
+    const sentence =
+      'This deployment serves the simulator in process, which speaks no Channel Access';
     expect(
       classifyQueueAddResponse(409, {
-        detail: {
-          code: 'browse_only_connector',
-          detail: 'This deployment serves the simulator in process, which speaks no Channel Access',
-        },
+        detail: { code: 'browse_only_connector', detail: sentence },
       })
-    ).toEqual({
-      type: 'cannot_execute',
-      reason: 'browse_only_connector',
-      detail: 'This deployment serves the simulator in process, which speaks no Channel Access',
-      // No capability record rode along, so no lane did either: the outcome
-      // reports what it was told, and was told nothing about a lane.
-      lane: null,
-      laneTarget: null,
-    });
+    ).toEqual({ type: 'error', detail: sentence });
   });
 
   test('both session-plan codes classify together and name the plan', () => {
@@ -2345,6 +2353,7 @@ describe('queueOutcomeBanner', () => {
         type: 'cannot_execute',
         reason: 'browse_only_connector',
         detail: '',
+        retryable: false,
         lane: 'bluesky',
         laneTarget: 'live',
       },
@@ -2410,6 +2419,7 @@ describe('queueOutcomeBanner', () => {
         type: 'cannot_execute',
         reason: 'browse_only_connector',
         detail,
+        retryable: false,
         lane: 'bluesky',
         laneTarget: 'live',
       }).message
@@ -2432,6 +2442,7 @@ describe('classifyCapability', () => {
           can_execute: true,
           reason: 'executable',
           detail: "Plans execute against the 'virtual_accelerator' connector.",
+          retryable: false,
           lane: 'bluesky_va',
           lane_target: 'va',
         },
@@ -2440,6 +2451,7 @@ describe('classifyCapability', () => {
       canExecute: true,
       reason: 'executable',
       detail: "Plans execute against the 'virtual_accelerator' connector.",
+      retryable: false,
       lane: 'bluesky_va',
       laneTarget: 'va',
     });
@@ -2459,6 +2471,7 @@ describe('classifyCapability', () => {
           can_execute: false,
           reason: 'browse_only_connector',
           detail,
+          retryable: false,
           lane: 'bluesky',
           lane_target: 'live',
         },
@@ -2467,6 +2480,7 @@ describe('classifyCapability', () => {
       canExecute: false,
       reason: 'browse_only_connector',
       detail,
+      retryable: false,
       lane: 'bluesky',
       laneTarget: 'live',
     });
@@ -2515,6 +2529,21 @@ describe('classifyCapability', () => {
     expect(classifyCapability(200, null).canExecute).toBe(false);
   });
 
+  test('retryable is read from the record, and a missing or truthy-but-not-true field is false', () => {
+    const read = (/** @type {unknown} */ retryable) =>
+      classifyCapability(200, {
+        capability: { can_execute: false, reason: 'manager_unreachable', detail: 'x', retryable },
+      }).retryable;
+    expect(read(true)).toBe(true);
+    expect(read(false)).toBe(false);
+    expect(read(undefined)).toBe(false);
+    expect(read('yes')).toBe(false);
+  });
+
+  test('an unreadable health surface is retryable — the panel re-reads it on its own', () => {
+    expect(classifyCapability(502, null).retryable).toBe(true);
+  });
+
   test('a truthy-but-not-true can_execute is not permission', () => {
     expect(
       classifyCapability(200, { capability: { can_execute: 'yes', reason: 'executable' } })
@@ -2527,12 +2556,14 @@ describe('capabilityBanner', () => {
   /**
    * @param {string} reason
    * @param {string} [detail]
+   * @param {boolean} [retryable]
    * @returns {import('../../../src/osprey/interfaces/bluesky_web/panels/bluesky/draft-client.js').CapabilityRecord}
    */
-  const cannot = (reason, detail = 'because') => ({
+  const cannot = (reason, detail = 'because', retryable = false) => ({
     canExecute: false,
     reason,
     detail,
+    retryable,
     lane: 'bluesky',
     laneTarget: 'live',
   });
@@ -2543,26 +2574,23 @@ describe('capabilityBanner', () => {
         canExecute: true,
         reason: 'executable',
         detail: 'all good',
+        retryable: false,
         lane: 'bluesky',
         laneTarget: 'live',
       })
     ).toBeNull();
   });
 
-  test('connector/config reasons read as information — browse-only is a supported way to run', () => {
-    for (const reason of ['browse_only_connector', 'unsupported_connector', 'config_unreadable']) {
-      expect(capabilityBanner(cannot(reason))?.kind).toBe('info');
-    }
+  test('a reason that retrying cannot clear reads as information', () => {
+    expect(capabilityBanner(cannot('any_reason', 'because', false))?.kind).toBe('info');
   });
 
-  test('manager reasons and an unreadable health surface warn', () => {
-    for (const reason of [
-      'manager_not_configured',
-      'manager_unreachable',
-      REASON_BRIDGE_UNREACHABLE,
-    ]) {
-      expect(capabilityBanner(cannot(reason))?.kind).toBe('warn');
-    }
+  test('a reason that can clear on its own warns', () => {
+    expect(capabilityBanner(cannot('any_reason', 'because', true))?.kind).toBe('warn');
+  });
+
+  test('the unreadable-health sentinel warns', () => {
+    expect(capabilityBanner(classifyCapability(502, null))?.kind).toBe('warn');
   });
 
   test('the bridge sentence is shown verbatim — it carries the flip command', () => {

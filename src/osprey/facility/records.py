@@ -164,6 +164,7 @@ class FacilityRecords:
     """
 
     def __init__(self, document: Mapping[str, Any]) -> None:
+        self._source = document
         self._document = MappingProxyType(document)
         self._by_kind: dict[RecordKind, dict[str, Mapping[str, Any]]] = {}
         for kind, key, slot in RECORD_KINDS:
@@ -224,6 +225,19 @@ class FacilityRecords:
     def document(self) -> Mapping[str, Any]:
         """The mapping this read model was built from, read-only."""
         return self._document
+
+    def facility_bytes(self) -> bytes:
+        """The bytes of the facility file this read model was built from.
+
+        Serialised by :func:`osprey.facility.render.facility_bytes` from the
+        document handed in, not a copy of it, so a build's renders, which each
+        build their own read model over the one document, share its one
+        serialisation.
+        """
+        from osprey.facility.render import facility_bytes
+
+        source = self._source
+        return facility_bytes(source if isinstance(source, dict) else dict(source))
 
     def record(self, kind: RecordKind, id: str) -> Mapping[str, Any] | None:
         """The one record of ``kind`` with ``id``, or ``None``."""

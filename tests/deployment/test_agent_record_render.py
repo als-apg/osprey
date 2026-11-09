@@ -149,10 +149,10 @@ def test_a_store_less_profile_renders_agent_record_and_no_store(tmp_path: Path) 
     [
         # hello-world: nothing deployed, no web terminals.
         ((), ()),
-        # control-assistant: web terminals and backend services.
+        # demo: web terminals and backend services.
         (("alice", "bob"), ("dispatch_worker", "event_dispatcher", "archive")),
     ],
-    ids=["hello-world", "control-assistant"],
+    ids=["hello-world", "demo"],
 )
 def test_agent_record_is_the_only_derived_render_and_names_only_itself(
     tmp_path: Path, users: tuple[str, ...], deployed: tuple[str, ...]

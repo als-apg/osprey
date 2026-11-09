@@ -755,6 +755,11 @@ class TestBuildAgentOptions:
             ({"max_budget_usd": None}, "max_budget_usd", None),
             ({"permission_mode": None}, "permission_mode", None),
             ({}, "extra_args", {"thinking-display": "summarized"}),
+            (
+                {"persist_session": False},
+                "extra_args",
+                {"thinking-display": "summarized", primitives.NO_SESSION_PERSISTENCE_FLAG: None},
+            ),
         ],
         ids=[
             "allowed_tools",
@@ -769,6 +774,7 @@ class TestBuildAgentOptions:
             "max_budget_usd-omitted",
             "permission_mode-omitted",
             "thinking-display",
+            "persist_session-off",
         ],
     )
     @pytest.mark.usefixtures("routing")

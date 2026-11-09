@@ -55,13 +55,9 @@ import httpx
 import pytest
 
 from osprey.services.bluesky_bridge.app import (
-    PREVIEW_REASON_CATALOG_UNAVAILABLE,
-    PREVIEW_REASON_FAILED,
     PREVIEW_REASON_PLAN_ERROR,
-    PREVIEW_REASON_QUEUE_UNREACHABLE,
-    PREVIEW_REASON_REFUSED,
-    PREVIEW_REASON_TIMED_OUT,
     PREVIEW_REASON_UNKNOWN_PLAN,
+    PREVIEW_REASONS,
 )
 from osprey.services.bluesky_bridge.plan_fields import (
     CHANNEL_ROLE_KEY,
@@ -71,26 +67,18 @@ from osprey.services.bluesky_bridge.plan_fields import (
 from osprey.services.bluesky_bridge.queue_backend import (
     FLIP_COMMAND,
     REASON_BROWSE_ONLY_CONNECTOR,
+    REFUSAL_REASONS,
 )
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_support import format_failure, run_command, wait_for_health
 from tests.e2e._volumes import remove_project_volumes
 
-# Every word the pre-flight is allowed to answer with. Imported rather than
-# spelled, because the approval prompt branches on these exact literals.
-_PREVIEW_REASONS = frozenset(
-    {
-        PREVIEW_REASON_UNKNOWN_PLAN,
-        PREVIEW_REASON_CATALOG_UNAVAILABLE,
-        PREVIEW_REASON_QUEUE_UNREACHABLE,
-        PREVIEW_REASON_REFUSED,
-        PREVIEW_REASON_TIMED_OUT,
-        PREVIEW_REASON_FAILED,
-        PREVIEW_REASON_PLAN_ERROR,
-    }
-)
+# Every word the pre-flight is allowed to answer with: its own words and the
+# backend's reasons it relays. Imported rather than spelled, because the
+# approval prompt branches on these exact literals.
+_PREVIEW_REASONS = PREVIEW_REASONS | set(REFUSAL_REASONS)
 
-# The nine keys every pre-flight answer carries, success or not.
+# The ten keys every pre-flight answer carries, success or not.
 _PREVIEW_KEYS = {
     "ok",
     "plan",
@@ -101,10 +89,10 @@ _PREVIEW_KEYS = {
     "move_cap",
     "reason",
     "detail",
+    "retryable",
 }
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]

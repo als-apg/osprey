@@ -75,8 +75,8 @@ def _expected_triples(text: str, targets: frozenset[str]) -> list[tuple[int, int
     return triples
 
 
-def test_the_shipped_demo_logbook_quotes_become_references(built_control_assistant) -> None:
-    built = built_control_assistant
+def test_the_shipped_demo_logbook_quotes_become_references(built_demo) -> None:
+    built = built_demo
     config = yaml.safe_load((built.build_dir / "config.yml").read_text(encoding="utf-8"))
     records = FacilityRecords(built.facility)
     entries = active_logbook_entries(config, built.build_dir)

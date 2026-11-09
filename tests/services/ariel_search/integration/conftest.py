@@ -259,6 +259,12 @@ _AMBIGUOUS_EXTRA = """  - canonical: timing system
 """
 
 
+@pytest.fixture
+def sample_entries_path() -> Path:
+    """Path to the sample logbook entries fixture file."""
+    return Path(__file__).parents[3] / "fixtures" / "ariel" / "sample_als_entries.jsonl"
+
+
 @pytest.fixture(scope="session")
 def vocabulary_file(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A vocabulary binding ``ts``/``t/s``, ``bpm``/``bpms`` and ``i/o``."""

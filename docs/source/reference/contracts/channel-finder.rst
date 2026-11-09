@@ -41,9 +41,9 @@ addresses follow, with the tree itself underneath:
 .. literalinclude:: examples/channel-finder-hierarchical.json
    :language: json
 
-An ``instances`` level is a node named after the level in capitals
-(``DEVICE`` here), whose ``_expansion`` lists the instances. This tree holds two channels, ``SR:BPM[01]:X:RB`` and
-``SR:BPM[02]:X:RB``.
+An ``instances`` level is a node named after the level in capitals (``DEVICE``
+here), whose ``_expansion`` lists the instances. This tree holds two channels,
+``SR:BPM[01]:X:RB`` and ``SR:BPM[02]:X:RB``.
 
 .. _channel-finder-db-middle-layer:
 

@@ -44,8 +44,8 @@ takes ``file_path`` and optional ``script_args`` in place of ``code``).
      - Save code and output to a workspace data file and artifact store.
    * - ``approved_target``
      - set by the hook
-     - The control target the approval hook admitted the call on. The hook
-       fills it in; a value the agent passes is overwritten.
+     - On a ``"readwrite"`` call, the control target the approval hook admitted
+       it on; a value the agent passes is overwritten.
 
 On success the tool returns a JSON object whose top level describes the saved
 run:

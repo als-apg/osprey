@@ -57,20 +57,20 @@ def _sr_magnet_defaults(render_dir: Path) -> dict[str, float]:
 
 
 def test_a_texture_only_list_leaves_the_facility_file_and_the_graph_alone(
-    tmp_path: Path, built_control_assistant: BuiltProject
+    tmp_path: Path, built_demo: BuiltProject
 ) -> None:
-    render_dir = _texture_only(tmp_path, built_control_assistant)
-    built_graph = (built_control_assistant.build_dir / GRAPH).read_text(encoding="utf-8")
+    render_dir = _texture_only(tmp_path, built_demo)
+    built_graph = (built_demo.build_dir / GRAPH).read_text(encoding="utf-8")
 
-    assert (render_dir / FACILITY_FILE).read_bytes() == built_control_assistant.facility_raw
+    assert (render_dir / FACILITY_FILE).read_bytes() == built_demo.facility_raw
     assert ttl_sha256((render_dir / GRAPH).read_text(encoding="utf-8")) == ttl_sha256(built_graph)
 
 
 async def test_a_texture_only_in_process_simulator_holds_every_sr_magnet_at_its_wiring_default(
-    tmp_path: Path, built_control_assistant: BuiltProject, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, built_demo: BuiltProject, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(composite_module, "default_config_path", lambda: None)
-    render_dir = _texture_only(tmp_path, built_control_assistant)
+    render_dir = _texture_only(tmp_path, built_demo)
     defaults = _sr_magnet_defaults(render_dir)
     connector = VAInProcessConnector()
     await connector.connect(
@@ -85,13 +85,11 @@ async def test_a_texture_only_in_process_simulator_holds_every_sr_magnet_at_its_
     await connector.disconnect()
 
 
-def test_a_changed_seed_changes_the_facility_file(
-    tmp_path: Path, built_control_assistant: BuiltProject
-) -> None:
+def test_a_changed_seed_changes_the_facility_file(tmp_path: Path, built_demo: BuiltProject) -> None:
     rendered: dict[str, bytes] = {}
     for name in ("authored", "reseeded"):
         facility_dir = tmp_path / name / "data" / "facility"
-        shutil.copytree(built_control_assistant.facility_dir, facility_dir)
+        shutil.copytree(built_demo.facility_dir, facility_dir)
         if name == "reseeded":
             seeds = facility_dir / SEEDS
             text = seeds.read_text(encoding="utf-8")
@@ -135,13 +133,11 @@ def _measurement_surface(render_dir: Path, config: dict[str, Any]) -> dict[str, 
 
 
 def test_a_texture_only_render_carries_no_pyaml_view_tool_skill_or_prompt_section(
-    tmp_path: Path, built_control_assistant: BuiltProject
+    tmp_path: Path, built_demo: BuiltProject
 ) -> None:
-    config = yaml.safe_load(
-        (built_control_assistant.build_dir / "config.yml").read_text(encoding="utf-8")
-    )
-    texture = _measurement_surface(_texture_only(tmp_path, built_control_assistant), config)
-    served = _measurement_surface(built_control_assistant.build_dir, config)
+    config = yaml.safe_load((built_demo.build_dir / "config.yml").read_text(encoding="utf-8"))
+    texture = _measurement_surface(_texture_only(tmp_path, built_demo), config)
+    served = _measurement_surface(built_demo.build_dir, config)
 
     assert texture == {
         "view": False,

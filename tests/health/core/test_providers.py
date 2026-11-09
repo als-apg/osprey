@@ -24,6 +24,12 @@ from osprey.health.models import CheckResult, Status
 from tests.health._fakes import StubRegistry, fake_provider
 
 
+def _named(config: dict[str, Any]) -> dict[str, Any]:
+    """*config* with a role naming every catalogue provider, so each one is in use."""
+    names = config["api"]["providers"]
+    return {**config, "models": {f"role_{n}": {"provider": n} for n in names}}
+
+
 async def _run(config: Mapping[str, Any] | None, registry: StubRegistry) -> list[CheckResult]:
     results = await providers(config, registry=registry)()
     assert isinstance(results, list)
@@ -47,7 +53,7 @@ async def test_mixed_results_ok_and_warning() -> None:
             "bad": fake_provider((False, "auth failed")),
         }
     )
-    config = {"api": {"providers": {"good": {"api_key": "k"}, "bad": {"api_key": "k"}}}}
+    config = _named({"api": {"providers": {"good": {"api_key": "k"}, "bad": {"api_key": "k"}}}})
     by_name = {r.name: r for r in await _run(config, registry)}
 
     assert set(by_name) == {"good", "bad"}
@@ -64,7 +70,7 @@ async def test_a_config_only_provider_is_skipped() -> None:
     block and nothing else, so "no Python class" is a normal deployment shape,
     not a fault to report.
     """
-    config = {"api": {"providers": {"made_up": {"api_key": "k"}}}}
+    config = _named({"api": {"providers": {"made_up": {"api_key": "k"}}}})
     rows = await _run(config, StubRegistry({}))
 
     assert len(rows) == 1
@@ -74,7 +80,7 @@ async def test_a_config_only_provider_is_skipped() -> None:
 
 
 async def test_unknown_provider_without_a_block_is_warning() -> None:
-    config = {"api": {"providers": {"made_up": {}}}}
+    config = _named({"api": {"providers": {"made_up": {}}}})
     rows = await _run(config, StubRegistry({}))
 
     assert len(rows) == 1
@@ -98,16 +104,18 @@ async def test_api_key_and_base_url_flow_from_config(monkeypatch: Any) -> None:
             captured.append({"api_key": api_key, "base_url": base_url})
             return (True, "ok")
 
-    config = {
-        "api": {
-            "providers": {
-                "cborg": {
-                    "api_key": "${OSPREY_TEST_CORE_PROV_KEY}",
-                    "base_url": "https://cborg.example",
+    config = _named(
+        {
+            "api": {
+                "providers": {
+                    "cborg": {
+                        "api_key": "${OSPREY_TEST_CORE_PROV_KEY}",
+                        "base_url": "https://cborg.example",
+                    }
                 }
             }
         }
-    }
+    )
     rows = await _run(config, StubRegistry({"cborg": _Recording}))
 
     assert rows[0].status is Status.OK
@@ -121,7 +129,7 @@ async def test_seven_slow_providers_run_concurrently() -> None:
     registry = StubRegistry(
         {f"p{i}": fake_provider((True, "ok"), sleep=per_item_sleep) for i in range(n)}
     )
-    config = {"api": {"providers": {f"p{i}": {"api_key": "k"} for i in range(n)}}}
+    config = _named({"api": {"providers": {f"p{i}": {"api_key": "k"} for i in range(n)}}})
 
     t0 = perf_counter()
     rows = await _run(config, registry)
@@ -152,7 +160,7 @@ async def test_a_non_chat_provider_is_skipped_in_config_order() -> None:
         {"a": _recording("a"), "emb": _recording("emb"), "z": _recording("z")},
         non_chat=frozenset({"emb"}),
     )
-    config = {"api": {"providers": {"a": {}, "emb": {}, "z": {}}}}
+    config = _named({"api": {"providers": {"a": {}, "emb": {}, "z": {}}}})
     rows = await _run(config, registry)
 
     assert [row.name for row in rows] == ["a", "emb", "z"]
@@ -167,10 +175,43 @@ async def test_the_packaged_llama_cpp_entry_gives_no_warning_row() -> None:
     from osprey.profiles.providers import load_provider_catalog
 
     entry = load_provider_catalog(None).entries["llama-cpp"]
-    config = {"api": {"providers": {"llama-cpp": dict(entry)}}}
+    config = _named({"api": {"providers": {"llama-cpp": dict(entry)}}})
     rows = await providers(config, registry=get_provider_registry())()
 
     assert len(rows) == 1
     assert rows[0].name == "llama-cpp"
     assert rows[0].status is Status.SKIP
     assert rows[0].message == _EMBEDDINGS_ONLY
+
+
+async def test_a_provider_no_role_names_is_not_probed() -> None:
+    probed: list[str] = []
+
+    class _Fake:
+        def check_health(self, *_: Any, **__: Any) -> tuple[bool, str]:
+            probed.append("called")
+            return True, "reachable"
+
+    registry = StubRegistry({"agent": _Fake, "spare": _Fake})
+    config = {
+        "claude_code": {"provider": "agent"},
+        "api": {"providers": {"agent": {"api_key": "k"}, "spare": {"api_key": "k"}}},
+    }
+    by_name = {r.name: r for r in await _run(config, registry)}
+
+    assert by_name["agent"].status is Status.OK
+    assert by_name["spare"].status is Status.SKIP
+    assert by_name["spare"].value == "not used by this deployment"
+    assert probed == ["called"]
+
+
+def test_used_providers_reads_every_role_outside_the_catalogue() -> None:
+    from osprey.health.core.providers import used_providers
+
+    config = {
+        "claude_code": {"provider": "a"},
+        "models": {"x": {"provider": "b"}},
+        "ariel": {"enhancement": {"modules": [{"name": "e", "provider": "c"}]}},
+        "api": {"providers": {"d": {"provider": "not-a-role"}}},
+    }
+    assert used_providers(config) == {"a", "b", "c"}

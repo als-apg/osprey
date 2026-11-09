@@ -51,6 +51,8 @@ class ParameterDescriptor:
         required: Whether a value must be supplied; serialized only when True
         depends_on: Names of the parameters whose values this one's options
             depend on; serialized only when non-empty
+        facet: Whether an entry field is offered as a filter dimension (a
+            facet in the browse rail); serialized only when True
     """
 
     name: str
@@ -67,6 +69,7 @@ class ParameterDescriptor:
     options_endpoint: str | None = None
     required: bool = False
     depends_on: tuple[str, ...] = ()
+    facet: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a JSON-friendly dict."""
@@ -94,6 +97,8 @@ class ParameterDescriptor:
             d["required"] = True
         if self.depends_on:
             d["depends_on"] = list(self.depends_on)
+        if self.facet is True:
+            d["facet"] = True
         return d
 
 
@@ -213,11 +218,33 @@ class ModuleOutput:
         expansion: The expansion groups the executed search actually contained,
             surfaced to callers as ``expanded_terms``. Empty when the module
             ran without expansion, even if one was offered.
+        total: How many results the search matched in all, across every
+            page, or None when the module did not count.
+        total_exact: Whether ``total`` is exact (False when it is a lower
+            bound or an estimate).
+        has_more: Whether results exist past this page, or None when the
+            module does not know.
+        tier: Which tier of a tiered module produced the results (keyword:
+            ``strict``, ``partial`` or ``fuzzy``), or None.
+        filter_applied: Whether the module applied the ``entry_filter`` it
+            was passed itself. The service post-filters every result with
+            ``EntryFilter.matches`` regardless.
+
+    Contract change (C-MODOUT): ``total``, ``total_exact``, ``has_more``,
+    ``tier`` and ``filter_applied`` are new and default to "not reported", so
+    a module built against the earlier three-field shape is unaffected. A
+    built-in module always returns a `ModuleOutput` when it is passed
+    ``entry_filter`` or ``offset``.
     """
 
     entries: list[Any]
     diagnostics: tuple[SearchDiagnostic, ...] = ()
     expansion: tuple[ExpansionGroup, ...] = ()
+    total: int | None = None
+    total_exact: bool = False
+    has_more: bool | None = None
+    tier: str | None = None
+    filter_applied: bool = False
 
 
 def module_result(
@@ -259,9 +286,9 @@ class SearchToolDescriptor:
         execute: Async function that performs the search
         format_result: Formats raw search results for the agent
         needs_embedder: Whether this tool requires an embedding provider
-        needs_search_calls: Whether this module makes blocking search-time
-            provider calls. When true, the service passes its search-call pool
-            as ``search_calls=``, the bounded pool those calls run on.
+        needs_search_calls: Whether this tool runs blocking provider calls at
+            search time; when true, the service passes its search-call pool as
+            ``search_calls=``.
         accepts_expansion: Whether this module accepts a resolved vocabulary
             expansion. When true, the service passes `query_expansion=`, a
             `QueryExpansion`, but only when an expansion was actually resolved
@@ -280,6 +307,22 @@ class SearchToolDescriptor:
             receives no `parsed=` argument and parses the query itself if it
             needs to. A module supplies its own parser or none -- it never
             receives another module's parse.
+        accepts_entry_filter: Whether this module applies a dimension filter
+            itself. When true, the service passes ``entry_filter=`` (an
+            ``EntryFilter``, possibly empty) and the module restricts its
+            results to entries the filter matches. Either way the service
+            post-filters every result with ``EntryFilter.matches``, so a
+            module that leaves this false is still filtered.
+        accepts_offset: Whether this module pages itself. When true, the
+            service passes ``offset=`` and the request's ``max_results`` as
+            the page size. When false, the module is called without
+            ``offset`` and with ``max_results = min(offset + page_size * 2,
+            200)``, and the service slices the page out of its results.
+
+    Contract change (C-MODOUT): ``accepts_entry_filter`` and
+    ``accepts_offset`` are new and default to False, so a module that
+    declares neither is called as before, apart from the widened
+    ``max_results`` described above.
     """
 
     name: str
@@ -293,6 +336,8 @@ class SearchToolDescriptor:
     accepts_expansion: bool = False
     accepts_include_images: bool = False
     query_parser: Callable[[str], ParsedKeywordQuery] | None = None
+    accepts_entry_filter: bool = False
+    accepts_offset: bool = False
 
 
 __all__ = [

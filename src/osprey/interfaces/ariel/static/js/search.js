@@ -1,34 +1,24 @@
 // @ts-check
 /**
- * ARIEL Search Module
+ * ARIEL Search driver
  *
- * Search functionality and UI management.
+ * Runs one search against /api/search and reports what happened through
+ * callbacks; it owns no DOM and no chosen state. The caller (the list pane)
+ * passes the query, mode and filters it holds and paints whatever it is told.
+ *
+ * A reranked search runs in two phases rather than one: reranking costs seconds
+ * the operator would otherwise spend looking at a spinner, so the fast ranking
+ * is fetched and reported first, then the reranked one replaces it. The second
+ * response is a full result set drawn from a larger candidate pool, so it is
+ * reported whole — membership, not just order, may differ.
  */
 
 import { searchApi } from './api.js';
-import {
-  renderEntryCard,
-  renderAnswerBox,
-  renderDiagnosticsBar,
-  renderExpansionBanner,
-  renderConfigBanner,
-  renderLoading,
-  renderEmptyState,
-  renderErrorState,
-  escapeHtml,
-} from './components.js';
-import {
-  getCurrentMode,
-  getAdvancedParams,
-  getEffectiveParam,
-  closeAdvancedPanel,
-} from './advanced-options.js';
-import { showEntry } from './entries-detail.js';
+import { declaredParamNames, effectiveParam } from './advanced-options.js';
+import { mergeFilter, splitFilters } from './filter-state.js';
 
 /**
  * @typedef {Object} SearchResults
- * @property {string} [answer]
- * @property {string[]} [sources]
  * @property {string[]} [search_modes_used]
  * @property {number} [execution_time_ms]
  * @property {number} total_results
@@ -37,54 +27,79 @@ import { showEntry } from './entries-detail.js';
  * @property {import('./components.js').ExpandedTerm[]} [expanded_terms]
  */
 
-// Search state
-let currentQuery = '';
-let isSearching = false;
-/** @type {SearchResults|null} */
-let lastResults = null;
-// Monotonic id of the newest search the module has started. A reranked search
-// paints twice, and the second paint arrives long after the first; every render
-// a search performs is guarded on still owning this id, so a late phase-2
-// response from a superseded (or cleared) search can never repaint the view.
+/** @typedef {'reranking'|'updated'|'fallback'|null} RerankStatus */
+
+/**
+ * @typedef {Object} SearchRequest
+ * @property {string} query
+ * @property {string|null} mode
+ * @property {Object<string, *>} [filters] - Touched Filters & Options knobs, any mode
+ * @property {import('./filter-state.js').Filter|null} [filter] - The C-FILTER object to send
+ * @property {string|null} [author] - Restricts to one author (the Mine mailbox); replaces the
+ *   filter's author dimension
+ * @property {number} [offset] - Rows to skip (a later page)
+ * @property {number} [pageSize] - Rows per response; defaults to the `max_results` knob, else 10
+ * @property {'full'|'row'} [view] - The response projection
+ * @property {AbortSignal} [signal] - Aborts every request of this search
+ */
+
+/**
+ * @typedef {Object} SearchHooks
+ * @property {import('./advanced-options.js').Capabilities|null} capabilities
+ * @property {'now'|'when-stable'} [rerank] - When phase 2 runs (default 'now')
+ * @property {(results: SearchResults) => void} onResults - Today's /api/search response
+ * @property {(status: RerankStatus) => void} onStatus - Called before the onResults it describes
+ */
+
+/**
+ * How long a `'when-stable'` search waits after phase 1 before it reranks. A
+ * newer call inside this window supersedes it, so a tile-bar report that is
+ * still being typed never pays for a rerank.
+ */
+export const RERANK_SETTLE_MS = 1000;
+
+// Monotonic id of the newest search started. Every await in runSearch is
+// followed by a check that its call still owns this id, so a newer call or
+// cancelSearch() silences everything an older call has left to report.
 let searchSeq = 0;
-/**
- * Where the current search sits on the two-phase rerank path, or null when the
- * search never had a second phase.
- * @type {'reranking'|'updated'|'fallback'|null}
- */
-let rerankStatus = null;
 
 /**
- * The one-line status each phase shows. The fallback wording is deliberately
- * gentle: a reranker that could not load in time is the normal first-query
- * experience after a sidecar restart, not an error the operator has to act on.
- * @type {Record<'reranking'|'updated'|'fallback', string>}
+ * The pending when-stable wait, if any. Superseding it releases the waiting
+ * call at once instead of leaving it to time out.
+ * @type {{timer: ReturnType<typeof setTimeout>, release: () => void}|null}
  */
-const RERANK_STATUS_TEXT = {
-  reranking: 'Search complete — reranking with LLM…',
-  updated: 'Results updated after reranking',
-  fallback: 'Could not improve the ranking — showing fast results',
-};
+let settle = null;
+
+/** Release a pending when-stable wait (its call is stale and returns). */
+function releaseSettle() {
+  if (!settle) return;
+  clearTimeout(settle.timer);
+  settle.release();
+  settle = null;
+}
 
 /**
- * The rerank status line, or '' when the search has no second phase.
- * @returns {string} HTML string
+ * Wait the when-stable window.
+ * @returns {Promise<void>}
  */
-function renderRerankStatus() {
-  if (!rerankStatus) return '';
-  const message = RERANK_STATUS_TEXT[rerankStatus];
-  return `
-    <div class="results-modes" data-testid="rerank-status" role="status" aria-live="polite">
-      ${escapeHtml(message)}
-    </div>
-  `;
+function waitUntilStable() {
+  return new Promise((resolve) => {
+    const release = () => resolve();
+    settle = {
+      timer: setTimeout(() => {
+        settle = null;
+        resolve();
+      }, RERANK_SETTLE_MS),
+      release,
+    };
+  });
 }
 
 /**
  * Whether a successful response is really the backend's rerank fallback: the
  * hybrid search answered 200 with the fast ranking and a warning diagnostic
- * because the reranker was unavailable. The status line has to say so — from
- * the outside this is indistinguishable from a real rerank.
+ * because the reranker was unavailable. From the outside this is
+ * indistinguishable from a real rerank, so the status has to say so.
  * @param {SearchResults} results - A phase-2 response
  * @returns {boolean}
  */
@@ -92,329 +107,172 @@ function hasRerankFallbackWarning(results) {
   return (results.diagnostics ?? []).some((d) => d.level === 'warning' && d.category === 'rerank');
 }
 
-/**
- * Wire up delegated click handling for entry cards and cited-source links.
- *
- * #search-results' innerHTML is replaced wholesale on every search, so the
- * listener is delegated on the stable results container (attached once, at
- * init) instead of bound to child elements that get discarded on the next
- * render.
- */
-export function initSearchResultsDelegation() {
-  const resultsContainer = document.getElementById('search-results');
-  resultsContainer?.addEventListener('click', (e) => {
-    const target = /** @type {HTMLElement} */ (e.target);
-    const sourceLink = target.closest('a[data-entry-id]');
-    if (sourceLink) {
-      e.preventDefault();
-      const entryId = /** @type {HTMLElement} */ (sourceLink).dataset.entryId;
-      if (entryId) showEntry(entryId);
-      return;
-    }
-    const card = target.closest('[data-entry-id]');
-    if (card) {
-      const entryId = /** @type {HTMLElement} */ (card).dataset.entryId;
-      if (entryId) showEntry(entryId);
-    }
-  });
-}
+/** Shared parameters that are filter dimensions: they travel in `filters`. */
+const DIMENSION_PARAMS = ['author', 'source_system', 'start_date', 'end_date', 'time'];
 
 /**
- * Render the degraded-configuration banner reported by /api/capabilities.
- *
- * `configuration_invalid` means search cannot run at all: the banner
- * (`#config-invalid-banner`) is inserted as the first child of `#search-form`
- * and the search controls are disabled, so the form is present but unusable —
- * the button stays in the DOM rather than being wiped, because that is what
- * the operator (and the browser tests) look at to see search is blocked.
- * `configuration_warning` inserts the same markup as `#config-warning-banner`
- * and leaves the form fully usable. Anything else renders nothing.
- * @param {import('./advanced-options.js').Capabilities|null} [capabilities]
+ * The advanced params a search in `mode` sends: only names the mode or the
+ * shared parameters declare, only non-null values, and never a filter
+ * dimension name — those ride in the request's `filters`.
+ * @param {import('./advanced-options.js').Capabilities|null} capabilities
+ * @param {string|null} mode
+ * @param {Object<string, *>} filters
+ * @returns {Object<string, *>}
  */
-function renderConfigStatus(capabilities) {
-  const status = capabilities?.status;
-  if (status !== 'configuration_invalid' && status !== 'configuration_warning') return;
-
-  const form = document.getElementById('search-form');
-  if (!form) return;
-
-  const blocking = status === 'configuration_invalid';
-  form.insertAdjacentHTML(
-    'afterbegin',
-    renderConfigBanner(capabilities?.config_errors ?? [], capabilities?.remedy ?? null, blocking)
+export function wireParams(capabilities, mode, filters) {
+  const dims = /** @type {Array<{name: string}>} */ (
+    /** @type {any} */ (capabilities)?.filter_dimensions ?? []
   );
-
-  if (!blocking) return;
-
-  const searchBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('search-btn'));
-  if (searchBtn) searchBtn.disabled = true;
-  const searchInput = /** @type {HTMLInputElement|null} */ (
-    document.getElementById('search-input')
-  );
-  if (searchInput) searchInput.disabled = true;
-}
-
-/**
- * Initialize search module.
- * @param {import('./advanced-options.js').Capabilities|null} [capabilities] -
- *   The /api/capabilities payload (null when the fetch failed), used only to
- *   surface a degraded configuration.
- */
-export function initSearch(capabilities = null) {
-  renderConfigStatus(capabilities);
-
-  const searchInput = /** @type {HTMLInputElement|null} */ (
-    document.getElementById('search-input')
-  );
-  const searchBtn = document.getElementById('search-btn');
-
-  // Search input enter key
-  searchInput?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      performSearch();
-    }
-  });
-
-  // Search button click
-  searchBtn?.addEventListener('click', () => {
-    performSearch();
-  });
-
-  // Focus search on page load
-  searchInput?.focus();
-
-  // Keyboard shortcut: / to focus search
-  document.addEventListener('keydown', (e) => {
-    if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
-      e.preventDefault();
-      searchInput?.focus();
-    }
-    // Escape to clear search
-    if (e.key === 'Escape' && document.activeElement === searchInput && searchInput) {
-      searchInput.value = '';
-      searchInput.blur();
-    }
-  });
-
-  initSearchResultsDelegation();
-}
-
-/**
- * Perform a search.
- *
- * A reranked search runs in two phases rather than one: reranking costs seconds
- * the operator would otherwise spend looking at a spinner, so the fast ranking
- * is fetched and painted first, then the reranked one replaces it. The second
- * response is a full result set drawn from a larger candidate pool, so the view
- * is re-rendered wholesale — membership, not just order, may differ.
- *
- * Everything else — any mode that does not declare `rerank`, or declares it and
- * has it off — takes the single-request path unchanged, with no `rerank` key
- * added to the wire params.
- * @param {string|null} [query] - Optional query override
- */
-export async function performSearch(query = null) {
-  const searchInput = /** @type {HTMLInputElement|null} */ (
-    document.getElementById('search-input')
-  );
-  const resultsContainer = document.getElementById('search-results');
-
-  query = query || searchInput?.value?.trim();
-  if (!query || isSearching) return;
-
-  currentQuery = query;
-  isSearching = true;
-  const seq = ++searchSeq;
-  rerankStatus = null;
-
-  // The button stays disabled across BOTH phases: the search is still running
-  // while phase-1 results are on screen, and a second search cannot start.
-  const searchBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('search-btn'));
-  if (searchBtn) searchBtn.disabled = true;
-
-  // Collapse the filters & options panel
-  closeAdvancedPanel();
-
-  // Show loading state
-  if (resultsContainer) {
-    resultsContainer.innerHTML = renderLoading('Searching...');
-  }
-
-  // Get mode and advanced params from the unified capabilities-driven UI
-  const mode = getCurrentMode();
+  const skip = new Set([...DIMENSION_PARAMS, ...dims.map((d) => d.name)]);
   /** @type {Object<string, *>} */
-  const advancedParams = getAdvancedParams();
-  const maxResults = advancedParams.max_results || 10;
-  // getEffectiveParam answers for the knob even when the operator never touched
-  // it (getAdvancedParams deliberately omits untouched knobs), and returns
-  // undefined for a mode that has no reranker at all.
-  const twoPhase = getEffectiveParam('rerank') === true;
+  const params = {};
+  for (const name of declaredParamNames(capabilities, mode)) {
+    const value = filters[name];
+    if (!skip.has(name) && value !== undefined && value !== null) params[name] = value;
+  }
+  return params;
+}
 
+/**
+ * The C-FILTER a search sends: dimension values still held among the knobs
+ * (author, source_system, start/end date) under the passed `filter`, which
+ * wins per dimension, with a Mine `author` replacing the author dimension.
+ * @param {Object<string, *>} filters
+ * @param {import('./filter-state.js').Filter|null|undefined} filter
+ * @param {string|null|undefined} author
+ * @returns {import('./filter-state.js').Filter}
+ */
+function wireFilter(filters, filter, author) {
+  const merged = mergeFilter(splitFilters(filters).filter, filter ?? {});
+  return author ? mergeFilter(merged, { author: [author] }) : merged;
+}
+
+/**
+ * Whether an error is an aborted request, which is never a failure to report.
+ * @param {unknown} error
+ * @returns {boolean}
+ */
+export function isAbort(error) {
+  return /** @type {any} */ (error)?.name === 'AbortError';
+}
+
+/**
+ * The advanced params and the searchApi.search arguments a request sends.
+ * @param {SearchRequest} request
+ * @param {import('./advanced-options.js').Capabilities|null} capabilities
+ * @returns {{sent: Object<string, *>, args: Parameters<typeof searchApi.search>[0]}}
+ */
+function buildRequest(
+  { query, mode, filters = {}, filter = null, author = null, offset, pageSize, view, signal },
+  capabilities
+) {
+  const sent = wireParams(capabilities, mode, filters ?? {});
+  const sentFilter = wireFilter(filters ?? {}, filter, author);
+  const args = {
+    query: (query ?? '').trim(),
+    mode: mode ?? undefined,
+    maxResults: pageSize ?? (sent.max_results || 10),
+    ...(Object.keys(sentFilter).length ? { filters: sentFilter } : {}),
+    ...(offset !== undefined ? { offset } : {}),
+    ...(view !== undefined ? { view } : {}),
+    ...(signal !== undefined ? { signal } : {}),
+  };
+  return { sent, args };
+}
+
+/**
+ * Fetch one later page of a search: a single request, never reranked (a mode
+ * that declares `rerank` sends `rerank:false`), reported to nobody.
+ * @param {SearchRequest} request - As for runSearch, with the page's `offset`
+ * @param {{capabilities: import('./advanced-options.js').Capabilities|null}} options
+ * @returns {Promise<any>} The /api/search response
+ */
+export function searchPage(request, { capabilities }) {
+  const { sent, args } = buildRequest(request, capabilities);
+  const declared = declaredParamNames(capabilities, request.mode ?? null).has('rerank');
+  return searchApi.search({
+    ...args,
+    advancedParams: declared ? { ...sent, rerank: false } : sent,
+  });
+}
+
+/**
+ * Run one search.
+ *
+ * Two-phase is decided from the passed mode, filters and capabilities: when
+ * the mode's effective `rerank` is true, phase 1 sends `rerank:false` and
+ * phase 2 `rerank:true`, each layered on a copy of the sent params. Any other
+ * search sends one request with no `rerank` key added. With `rerank:'now'`
+ * phase 2 starts as soon as phase 1 is reported; with `'when-stable'` only if
+ * no newer call arrived within RERANK_SETTLE_MS.
+ *
+ * A newer call or cancelSearch() supersedes this one: nothing more is reported
+ * and the promise resolves. A phase-2 failure is not a failed search — status
+ * `'fallback'` and phase 1's results are reported again; an aborted phase 2
+ * reports nothing. A phase-1 failure of
+ * the current search rejects the returned promise, so the caller can show its
+ * error state.
+ * @param {SearchRequest} request
+ * @param {SearchHooks} hooks
+ * @returns {Promise<void>}
+ */
+export async function runSearch(request, { capabilities, rerank = 'now', onResults, onStatus }) {
+  releaseSettle();
+  const seq = ++searchSeq;
+  if (!(request.query ?? '').trim()) return;
+
+  const { mode, filters = {} } = request;
+  const { sent, args: req } = buildRequest(request, capabilities);
+  const twoPhase = effectiveParam(capabilities, mode, filters ?? {}, 'rerank') === true;
+
+  /** @type {SearchResults} */
+  let fastResults;
   try {
     if (!twoPhase) {
-      const results = await searchApi.search({ query, mode, maxResults, advancedParams });
+      const results = await searchApi.search({ ...req, advancedParams: sent });
       if (seq !== searchSeq) return;
-      lastResults = results;
-      renderSearchResults(results, mode);
+      onStatus(null);
+      onResults(results);
       return;
     }
-
-    // Phase 1 — the fast ranking. Only the per-phase `rerank` key is layered on
-    // top of the touched params, on a copy: the operator's panel is untouched.
-    const fastResults = await searchApi.search({
-      query,
-      mode,
-      maxResults,
-      advancedParams: { ...advancedParams, rerank: false },
+    fastResults = await searchApi.search({
+      ...req,
+      advancedParams: { ...sent, rerank: false },
     });
-    if (seq !== searchSeq) return;
-    lastResults = fastResults;
-    rerankStatus = 'reranking';
-    renderSearchResults(fastResults, mode);
-
-    // Phase 2 — the reranked ranking. Its own catch, because a failure here is
-    // not a failed search: phase 1's results stay on screen behind a warning.
-    try {
-      const rerankedResults = await searchApi.search({
-        query,
-        mode,
-        maxResults,
-        advancedParams: { ...advancedParams, rerank: true },
-      });
-      if (seq !== searchSeq) return;
-      lastResults = rerankedResults;
-      rerankStatus = hasRerankFallbackWarning(rerankedResults) ? 'fallback' : 'updated';
-      renderSearchResults(rerankedResults, mode);
-    } catch (error) {
-      console.error('Rerank phase failed:', error);
-      if (seq !== searchSeq) return;
-      rerankStatus = 'fallback';
-      renderSearchResults(fastResults, mode);
-    }
   } catch (error) {
-    console.error('Search failed:', error);
     if (seq !== searchSeq) return;
-    if (resultsContainer) {
-      resultsContainer.innerHTML = renderErrorState('Search Failed', error);
-    }
-  } finally {
-    // A superseded search must not hand the controls back: the search that took
-    // its place still owns them.
-    if (seq === searchSeq) {
-      isSearching = false;
-      if (searchBtn) searchBtn.disabled = false;
-    }
+    throw error;
   }
-}
+  if (seq !== searchSeq) return;
+  onStatus('reranking');
+  onResults(fastResults);
 
-/**
- * Render search results.
- * @param {SearchResults} results - Search results from API
- * @param {string} mode - The search mode selected by the user (e.g. 'keyword', 'semantic')
- */
-function renderSearchResults(results, mode = 'keyword') {
-  const resultsContainer = document.getElementById('search-results');
-  if (!resultsContainer) return;
-
-  // Build results header
-  const modesUsed = results.search_modes_used?.join(', ') || 'none';
-  const execTime = results.execution_time_ms || 0;
-
-  let html = '';
-
-  // Answer box with mode label and tools used
-  if (results.answer) {
-    const toolsUsed = results.search_modes_used || [];
-    html += renderAnswerBox(results.answer, results.sources, mode, toolsUsed);
+  if (rerank === 'when-stable') {
+    await waitUntilStable();
+    if (seq !== searchSeq) return;
   }
 
-  // Diagnostics bar if issues detected
-  if ((results.diagnostics?.length ?? 0) > 0) {
-    html += renderDiagnosticsBar(results.diagnostics ?? []);
-  }
-
-  // Two-phase rerank status, immediately above the results header it describes
-  html += renderRerankStatus();
-
-  // Results header
-  html += `
-    <div class="results-header">
-      <span class="results-count">
-        <strong>${results.total_results}</strong> results
-        <span class="text-muted">(${execTime}ms)</span>
-      </span>
-      <span class="results-modes">
-        Modes: ${escapeHtml(modesUsed)}
-      </span>
-    </div>
-  `;
-
-  // What the vocabulary expanded. Empty/absent expansions render nothing.
-  html += renderExpansionBanner(results.expanded_terms);
-
-  // Results list
-  if ((results.entries?.length ?? 0) > 0) {
-    const sourcesSet = results.sources?.length ? new Set(results.sources) : null;
-    html += '<div class="results-list">';
-    (results.entries ?? []).forEach((entry) => {
-      const isCited = sourcesSet ? sourcesSet.has(entry.entry_id) : false;
-      html += renderEntryCard(entry, isCited);
+  try {
+    const reranked = await searchApi.search({
+      ...req,
+      advancedParams: { ...sent, rerank: true },
     });
-    html += '</div>';
-  } else {
-    html += renderEmptyState('No Results Found', 'Try adjusting your search terms or filters.');
+    if (seq !== searchSeq) return;
+    onStatus(hasRerankFallbackWarning(reranked) ? 'fallback' : 'updated');
+    onResults(reranked);
+  } catch (error) {
+    if (seq !== searchSeq || isAbort(error)) return;
+    console.error('Rerank phase failed:', error);
+    onStatus('fallback');
+    onResults(fastResults);
   }
-
-  resultsContainer.innerHTML = html;
 }
 
 /**
- * Clear search results.
- *
- * Clearing also abandons any search still in flight — bumping the sequence makes
- * every render it has left stale, so a reranked search whose second phase lands
- * after the operator emptied the box cannot repaint the cleared view.
+ * Abandon any search in flight: nothing it has left reports, and a pending
+ * when-stable wait is released.
  */
-export function clearSearch() {
-  const searchInput = /** @type {HTMLInputElement|null} */ (
-    document.getElementById('search-input')
-  );
-  const resultsContainer = document.getElementById('search-results');
-
-  if (searchInput) searchInput.value = '';
-  if (resultsContainer) resultsContainer.innerHTML = '';
-
+export function cancelSearch() {
   searchSeq++;
-  isSearching = false;
-  rerankStatus = null;
-  currentQuery = '';
-  lastResults = null;
-
-  // Hand back the button the cancelled search was holding — but never the one
-  // the configuration_invalid banner disabled, which owns it permanently.
-  const searchBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('search-btn'));
-  if (searchBtn?.disabled && !document.getElementById('config-invalid-banner')) {
-    searchBtn.disabled = false;
-  }
+  releaseSettle();
 }
-
-/**
- * Get current search state.
- * @returns {Object} Current state
- */
-export function getSearchState() {
-  return {
-    query: currentQuery,
-    mode: getCurrentMode(),
-    isSearching,
-    results: lastResults,
-  };
-}
-
-export default {
-  initSearch,
-  performSearch,
-  clearSearch,
-  getSearchState,
-};

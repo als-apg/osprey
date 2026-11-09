@@ -23,6 +23,9 @@ from tests.interfaces.ariel._routes_app import routes_app
 CSP = "sandbox; default-src 'none'"
 HTML = b"<!doctype html><html><body><script>alert(1)</script></body></html>"
 PDF = b"%PDF-1.4\n%fake pdf body\n%%EOF\n"
+WEB_KEY = "web-key-1"
+WEB_T = "33333333-3333-4333-8333-333333333333"
+CLI_T = "44444444-4444-4444-8444-444444444444"
 
 
 def _png() -> bytes:
@@ -281,12 +284,103 @@ class TestWorkspaceArtifactRoute:
         monkeypatch.setattr(routes, "_picture_for_workspace_artifact", picture_for_artifact)
         from osprey.services.ariel_search.attachments import artifacts
 
-        monkeypatch.setattr(artifacts, "save_viewable_picture_as_artifact", lambda *args: copied)
+        monkeypatch.setattr(
+            artifacts, "save_viewable_picture_as_artifact", lambda *args, **kwargs: copied
+        )
 
         response = client.post(f"/api/attachments/{ATT_ID}/artifact")
 
         assert response.status_code == 200
         assert response.json() == copied
+
+    @pytest.fixture
+    def saved(self, tmp_path, monkeypatch):
+        """A real artifact store behind the route, and a viewable picture to copy.
+
+        The process environment names a CLI conversation with its pointer
+        present and a different web key, as the ``osprey chat`` launcher's
+        does; the browser route must ignore all of it.
+        """
+        from osprey.stores import artifact_store as artifact_store_module
+        from osprey.stores.artifact_store import ArtifactStore
+
+        root = tmp_path / "agent_data"
+        store = ArtifactStore(workspace_root=root, auto_launch=False)
+        monkeypatch.setattr(artifact_store_module, "_artifact_store", store)
+        (root / "cli-transcripts").mkdir(parents=True)
+        (root / "cli-transcripts" / "launch-1").write_text(CLI_T + "\n", encoding="utf-8")
+        monkeypatch.setenv("OSPREY_TERMINAL_SESSION", "chat-launcher")
+        monkeypatch.setenv("OSPREY_CLI_LAUNCH", "launch-1")
+        monkeypatch.setenv("OSPREY_SESSION_ID", "launcher-env-key")
+        monkeypatch.delenv("OSPREY_DISPATCH_RUN_ID", raising=False)
+        monkeypatch.delenv("OSPREY_DISPATCH_RUN", raising=False)
+
+        row = viewable_row()
+        picture = (row, {"entry_id": "e-1"}, {"attachment_id": ATT_ID, "filename": "beam.png"})
+
+        async def picture_for_artifact(_service, _id):
+            return picture
+
+        monkeypatch.setattr(routes, "_picture_for_workspace_artifact", picture_for_artifact)
+        return store, row
+
+    def test_a_keyed_save_belongs_to_the_keys_current_transcript(
+        self, client, saved, monkeypatch
+    ) -> None:
+        from osprey.stores import artifact_scope
+        from osprey.stores.artifact_store import owner_of
+        from osprey.stores.session_ledger import EPOCH, Ledger, LedgerRow
+
+        store, _row = saved
+        ledger = Ledger(rows=(LedgerRow(WEB_KEY, WEB_T, EPOCH),))
+        monkeypatch.setattr(artifact_scope, "read_ledger", lambda: (ledger, True))
+
+        url = f"/api/attachments/{ATT_ID}/artifact"
+        first = client.post(url, params={"session_key": WEB_KEY})
+        second = client.post(url, params={"session_key": WEB_KEY})
+
+        assert first.status_code == 200, first.text
+        assert first.json()["created"] is True
+        assert second.json()["created"] is False
+        assert second.json()["artifact_id"] == first.json()["artifact_id"]
+        [entry] = store.list_entries()
+        assert entry.session_id == WEB_KEY
+        assert owner_of(entry, ledger) == WEB_T
+
+    def test_a_keyless_save_is_one_earlier_artifact(self, client, saved, monkeypatch) -> None:
+        import hashlib
+
+        from osprey.stores import artifact_scope
+        from osprey.stores.artifact_store import owner_of
+        from osprey.stores.session_ledger import Ledger
+
+        store, row = saved
+        monkeypatch.setattr(artifact_scope, "read_ledger", lambda: (Ledger(), True))
+        # The launcher's CLI conversation already holds the same bytes.
+        cli_copy = store.save_file(
+            row["rendition_bytes"],
+            "beam.jpg",
+            "image",
+            "beam.png (entry e-1)",
+            tool_source="attachment_to_artifact",
+            metadata={"sha256": hashlib.sha256(row["rendition_bytes"]).hexdigest()},
+            session_id="cli:" + CLI_T,
+        )
+
+        url = f"/api/attachments/{ATT_ID}/artifact"
+        first = client.post(url)
+        second = client.post(url)
+
+        assert first.status_code == 200, first.text
+        assert first.json()["artifact_id"] != cli_copy.id
+        assert first.json()["created"] is True
+        assert second.json()["artifact_id"] == first.json()["artifact_id"]
+        assert second.json()["created"] is False
+        entry = store.get_entry(first.json()["artifact_id"])
+        assert entry.session_id == ""
+        assert "transcript_id" not in entry.metadata
+        assert owner_of(entry, Ledger()) is None
+        assert len(store.list_entries()) == 2
 
     def test_malformed_id_is_404_before_lookup(self, client, service, monkeypatch) -> None:
         async def should_not_run(*_args):

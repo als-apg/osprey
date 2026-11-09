@@ -125,5 +125,28 @@
     "captions": false,
     "picture_search": false,
     "picture_search_unavailable": null
-  }
+  },
+  "filter_dimensions": [
+    {
+      "name": "author",
+      "label": "Author",
+      "kind": "builtin"
+    },
+    {
+      "name": "source_system",
+      "label": "Source System",
+      "kind": "builtin"
+    },
+    {
+      "name": "tags",
+      "label": "Tags",
+      "kind": "builtin"
+    },
+    {
+      "name": "enhancement",
+      "label": "Enhancements",
+      "kind": "enhancement"
+    }
+  ],
+  "enhancement_modules": []
 }

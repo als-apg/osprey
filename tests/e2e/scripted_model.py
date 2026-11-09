@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import threading
+import uuid
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -108,7 +109,9 @@ class ScriptedModel:
     def start(self) -> None:
         """Bind an ephemeral loopback port and serve in a daemon thread."""
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler_for(self))
-        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        )
         self._thread.start()
 
     def stop(self) -> None:
@@ -174,7 +177,9 @@ class ScriptedModel:
             blocks = [
                 {
                     "type": "tool_use",
-                    "id": f"toolu_scripted_{index:02d}_{n:02d}",
+                    # Unique like a real tool-use id: the exec id of a run is its
+                    # tool-use id, and two scripts sharing a store must not share one.
+                    "id": f"toolu_scripted_{index:02d}_{n:02d}_{uuid.uuid4().hex[:12]}",
                     "name": call.name,
                     "input": dict(call.input),
                 }

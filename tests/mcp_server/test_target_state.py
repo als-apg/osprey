@@ -234,6 +234,17 @@ class TestProbeChannel:
 
         assert target_state.read(1234)["targets"] == TARGETS_META
 
+    def test_probe_channel_survives_a_republish(self):
+        unprobed = {
+            name: {key: value for key, value in slot.items() if key != "probe_channel"}
+            for name, slot in TARGETS_META.items()
+        }
+        target_state.write_server_record(unprobed, server_pid=1234)
+
+        assert target_state.publish_targets(TARGETS_META, server_pid=1234) is True
+
+        assert target_state.read(1234)["targets"] == TARGETS_META
+
 
 # ---------------------------------------------------------------------------
 # machine_kind round-tripping (C-KIND)

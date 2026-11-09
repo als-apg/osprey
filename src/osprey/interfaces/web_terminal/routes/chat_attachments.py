@@ -42,6 +42,11 @@ per chat instead of a marker beside every upload. The sweep
 (:func:`sweep_uploads`) runs at startup and before an upload, at most once an
 hour; there is no timer. It stays inside the uploads root, never follows a
 symlink, and never deletes a sent file.
+
+A file is also copied into the artifact store when the message carrying it is
+sent, never at upload: one taken back or never sent leaves no artifact. The copy
+lives in the store at the hub's shared data root, tagged with the chat it was
+attached in, so the sweep and the uploads folder never touch it.
 """
 
 from __future__ import annotations
@@ -56,6 +61,7 @@ import secrets
 import threading
 import time
 from collections import OrderedDict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 from urllib.parse import unquote
@@ -67,6 +73,7 @@ from starlette.requests import ClientDisconnect
 from osprey.interfaces.web_terminal._json_store import read_json_object, write_json_atomic
 from osprey.interfaces.web_terminal.operator_session import resolve_agent_data_root
 from osprey.interfaces.web_terminal.session_key import is_posture_key
+from osprey.stores.artifact_store import ArtifactStore
 from osprey.utils.workspace import CHAT_UPLOADS_SUBDIR
 
 if TYPE_CHECKING:
@@ -298,26 +305,106 @@ def _attached_names(chat_dir: Path, prompt: str) -> set[str]:
     return names
 
 
-def mark_sent(app: Any, chat_id: str, prompt: str) -> None:
-    """Record the files *prompt* carries as sent, so the sweep keeps them.
+def mark_sent(app: Any, chat_id: str, prompt: str) -> dict[str, str]:
+    """Record the files *prompt* carries as sent, and save each new one as an artifact.
 
     Called once ``POST /api/chat`` has accepted *prompt* for *chat_id*. A prompt
     that names no file of this chat writes nothing. The manifest is replaced
     whole under the app's lock, so two messages of one chat sent close together
-    both land in it.
+    both land in it. A file the manifest already held went out with an earlier
+    message and is not saved again.
+
+    Returns the artifact id saved per stored name; a name whose save failed, or
+    whose file is gone, has none. A store failure is logged, never raised: the
+    message is sent either way. Blocking file and index I/O, so the route calls
+    it off the event loop.
     """
     if not is_posture_key(chat_id):
-        return
+        return {}
     chat_dir = Path(resolve_agent_data_root(app)) / UPLOADS_DIR / chat_id
     names = _attached_names(chat_dir, prompt)
     if not names:
-        return
+        return {}
     with _manifest_lock(app):
-        sent = _sent_names(chat_dir) | names
+        previous = _sent_names(chat_dir)
         try:
-            write_json_atomic(chat_dir / SENT_MANIFEST, {"sent": sorted(sent)})
+            write_json_atomic(chat_dir / SENT_MANIFEST, {"sent": sorted(previous | names)})
         except OSError:
             logger.warning("Could not record the sent files of chat %s", chat_id, exc_info=True)
+        # Saved under the same lock, so a name two messages carry is saved once.
+        return _save_artifacts(app, chat_id, chat_dir, sorted(names - previous))
+
+
+def _save_artifacts(app: Any, chat_id: str, chat_dir: Path, names: list[str]) -> dict[str, str]:
+    """Copy each stored file in *names* into the artifact store; the id saved per name."""
+    if not names:
+        return {}
+    root = getattr(app.state, "panel_status_root", None)
+    if root is None:
+        logger.warning("No shared data root: the sent files of chat %s are not artifacts", chat_id)
+        return {}
+    try:
+        store = ArtifactStore(workspace_root=Path(root), auto_launch=False)
+    except Exception:
+        logger.warning("Could not open the artifact store for chat %s", chat_id, exc_info=True)
+        return {}
+    sent_at = datetime.now(UTC).isoformat()
+    saved: dict[str, str] = {}
+    for name in names:
+        path = chat_dir / name
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            content = path.read_bytes()
+            original = name.split("-", 1)[1]
+            mime = _stored_type(original, content)
+            entry = store.save_file(
+                file_content=content,
+                filename=original,
+                artifact_type=_artifact_type(mime),
+                title=original,
+                mime_type=mime,
+                tool_source="upload",
+                metadata={"sent_at": sent_at},
+                run_id="",
+                origin="upload",
+                session_id=chat_id,
+            )
+        except Exception:
+            logger.warning(
+                "Could not save the sent file %s of chat %s as an artifact",
+                name,
+                chat_id,
+                exc_info=True,
+            )
+            continue
+        saved[name] = entry.id
+    return saved
+
+
+def _stored_type(name: str, content: bytes) -> str:
+    """The MIME type of a stored upload: its name's, or for an image the one its bytes prove."""
+    extension = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    kind, declared = _ALLOWED.get(extension, ("", "application/octet-stream"))
+    if kind == "image":
+        return _image_type(content[:16]) or declared
+    return declared
+
+
+def _artifact_type(mime: str) -> str:
+    """The artifact type an upload of *mime* is saved as, which decides its form."""
+    if mime.startswith("image/"):
+        return "image"
+    if mime == "application/json":
+        return "json"
+    if mime == "text/markdown":
+        return "markdown"
+    if mime.startswith("text/") and mime != "text/csv":
+        return "text"
+    if mime == "application/yaml":
+        return "text"
+    # A CSV is tabular data and a PDF a document: both forms follow from the mime.
+    return "file"
 
 
 def _manifest_lock(app: Any) -> threading.Lock:
