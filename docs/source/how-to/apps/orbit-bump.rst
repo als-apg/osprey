@@ -74,13 +74,28 @@ closure line is the tooltip of the card's title. The confirmation shows all of
 it, with the channel each row writes.
 
 - Verdict: the declared limit range, ``no declared limit``, ``limits checking
-  off``, or a refusal with the overshoot (``over by …``). Nothing is clamped.
+  off``, or a refusal with the overshoot (``over by …``).
 - Note: ``no tolerance: not staleness-checked`` marks a setpoint without a
   declared tolerance; ``not settled`` shows a readback that has not reached
   its setpoint.
 - Closure line: singular values kept (``σ kept``), ``max predicted leakage``
-  at the leakage BPMs, dropped leakage BPMs, and BPMs skipped because the ORM
-  could not solve them.
+  at the leakage BPMs, dropped leakage BPMs, BPMs skipped because the ORM
+  could not solve them, and correctors left at a limit (``at limit``).
+
+**Unreachable bumps.** The solve keeps every corrector inside its declared
+limits (range and step). When the correctors cannot reach the targets — a
+limit, or too few correctors to close a long bump — the plan still computes:
+a warning chip gives the largest miss, missed BPMs show their predicted value
+in red and a red ring on their handle, and the confirmation names the miss.
+The Correctors ⋯ menu holds two choices; a chip names either when it is not
+the default:
+
+- *Priority*: *close bump* (default) holds the orbit outside the bump; *hit
+  targets* meets the targets where the correctors can and lets it leak.
+- *Outside BPMs*: *hold* (default) keeps them at their current orbit;
+  *golden* steers them to golden with every corrector of the plane, the rule
+  aside. Such a plan on a large ring may not fit the approval card and is then
+  ``not_applicable``.
 
 **7. Apply.** *Apply…* is enabled only on a ``ready``, unedited plan with
 writes on. It
@@ -110,10 +125,12 @@ From the agent
 
    * - Tool
      - Does
-   * - ``plan_bump(model, plane, targets, rule, correctors=None)``
+   * - ``plan_bump(model, plane, targets, rule, correctors=None, priority, outside)``
      - Solves the bump; writes nothing; replaces the current plan and returns
        its ``plan_id``. ``targets`` maps BPM to offset from golden; ``rule``
        is ``auto``, ``mml:[…]``, or ``manual`` with ``correctors``.
+       ``priority`` and ``outside`` are the panel's two choices; ``missed``
+       and ``target_miss_max`` report what the plan does not reach.
    * - ``apply_bump(plan_id)``
      - Writes the plan. Runs only behind an approval bound to that plan id
        and its setpoints. A plan id that is not current is refused, naming
