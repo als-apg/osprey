@@ -192,9 +192,9 @@ def test_an_alias_panel_on_a_disabled_roster_accepts_the_deployment_secret(
     config["modules"]["web_terminals"]["enabled"] = False
     var = terminal_secret_var("ops")
     assert service_panel_grant(config, tmp_path, "knob-demo", build_account=lambda: "ops") == {
-        "secret_env_vars": [],
-        "roster_owners": f"{var.removeprefix('OSPREY_TERMINAL_SECRET_')}=ops",
-        "secret_aliases": {var: "OSPREY_TERMINAL_SECRET"},
+        "credentials": [
+            {"var": var, "source": "OSPREY_TERMINAL_SECRET", "owner": "ops", "required": True}
+        ]
     }
 
 
