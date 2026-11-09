@@ -293,7 +293,14 @@ describe('the compute and apply card', () => {
     await vi.waitFor(() => expect(panelOf(root).lastSeenPlanId).toBe('p7'));
     const posted = calls.find((call) => call.url === 'api/compute');
     expect(posted?.method).toBe('POST');
-    expect(posted?.body).toEqual({ model: 'RING', plane: 'x', targets: { B2: 0.5 }, rule: 'auto' });
+    expect(posted?.body).toEqual({
+      model: 'RING',
+      plane: 'x',
+      targets: { B2: 0.5 },
+      rule: 'auto',
+      priority: 'closure',
+      outside: 'hold',
+    });
     expect(field(root, 'card').hidden).toBe(false);
   });
 
@@ -307,6 +314,8 @@ describe('the compute and apply card', () => {
       plane: 'x',
       targets: { B2: 0.5 },
       rule: 'manual',
+      priority: 'closure',
+      outside: 'hold',
       correctors: ['H1', 'H2'],
     });
   });
@@ -686,5 +695,45 @@ describe('the compute and apply card', () => {
     mount(fetcher, state({ plan: plan({ status: 'not_applicable' }) }));
     openConfirm(root);
     expect(field(root, 'confirm').hidden).toBe(true);
+  });
+
+  // -- targets the plan misses ----------------------------------------------
+
+  describe('targets the plan misses', () => {
+    const missing = () =>
+      plan({ missed: ['B2', 'B3'], miss: { B2: -0.1104, B3: 0.02 }, target_miss_max: 0.1104 });
+
+    it('warns in the actions row with the largest miss, naming the BPMs in its tooltip', () => {
+      const { fetcher } = backend({});
+      mount(fetcher, state({ plan: missing() }));
+      const chip = field(root, 'miss');
+      expect(chip.hidden).toBe(false);
+      expect(chip.classList.contains('osprey-chip--warn')).toBe(true);
+      expect(field(root, 'miss-text').textContent).toBe('targets missed · up to 0.110 mm');
+      expect(chip.title).toBe('missed: B2, B3');
+    });
+
+    it('shows no warning for a plan that meets its targets', () => {
+      const { fetcher } = backend({});
+      mount(fetcher, state({ plan: plan({ missed: [], target_miss_max: 0.0004 }) }));
+      expect(field(root, 'miss').hidden).toBe(true);
+    });
+
+    it('keeps Apply possible and names the miss on the confirm card', () => {
+      const { fetcher } = backend({});
+      mount(fetcher, state({ plan: missing() }));
+      expect(button(root, 'apply').disabled).toBe(false);
+      openConfirm(root);
+      expect(field(root, 'confirm-miss').textContent).toBe(
+        'targets missed · up to 0.110 mm at B2, B3'
+      );
+    });
+
+    it('names the correctors left at a limit in the closure line', () => {
+      const { fetcher } = backend({});
+      mount(fetcher, state({ plan: plan({ bounded: ['H1'] }) }));
+      openConfirm(root);
+      expect(field(root, 'confirm').textContent).toContain('at limit: H1');
+    });
   });
 });

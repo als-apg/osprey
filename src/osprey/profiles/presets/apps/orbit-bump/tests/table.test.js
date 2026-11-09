@@ -426,6 +426,14 @@ describe('the orbit-bump table and controls', () => {
     });
   });
 
+  it('shows the predicted value of a missed bump BPM in the error colour', () => {
+    showState(root, state({ plan: plan({ targets: { B2: 0.5, B3: 0.5 }, missed: ['B3'] }) }));
+    const predicted = (/** @type {string} */ element) =>
+      row(root, element).querySelector('[data-cell="predicted"]');
+    expect(predicted('B3')?.classList.contains('ob-missed')).toBe(true);
+    expect(predicted('B2')?.classList.contains('ob-missed')).toBe(false);
+  });
+
   describe('the corrector rule', () => {
     it('defaults to auto and offers auto, tight and manual as a segmented control', () => {
       showState(root, state());
@@ -505,6 +513,84 @@ describe('the orbit-bump table and controls', () => {
         expect(pressed(root, 'rule', 'data-rule')).toBeNull();
         expect(more().getAttribute('aria-pressed')).toBe('true');
         expect(item('mml:[-2 -1 1 2]').getAttribute('aria-checked')).toBe('true');
+      });
+
+      const menu = () => {
+        const found = document.querySelector('[data-field="rule-menu"]');
+        if (!(found instanceof HTMLElement)) throw new Error('no rule menu');
+        return found;
+      };
+      const choice = (/** @type {string} */ attr, /** @type {string} */ value) => {
+        const found = menu().querySelector(`[${attr}="${value}"]`);
+        if (!(found instanceof HTMLElement)) throw new Error(`no ${attr}=${value}`);
+        return found;
+      };
+      const marks = (/** @type {string} */ attr) =>
+        [...menu().querySelectorAll(`[${attr}]`)].map((i) => [
+          i.getAttribute(attr),
+          i.textContent,
+          i.getAttribute('aria-checked'),
+        ]);
+
+      it('offers Priority and Outside BPMs as two headed radio groups', () => {
+        showState(root, state());
+        const titles = [...menu().querySelectorAll('.osprey-popover-title')];
+        expect(titles.map((t) => t.textContent)).toEqual(['Priority', 'Outside BPMs']);
+        expect(marks('data-priority')).toEqual([
+          ['closure', 'close bump', 'true'],
+          ['targets', 'hit targets', 'false'],
+        ]);
+        expect(marks('data-outside')).toEqual([
+          ['hold', 'hold', 'true'],
+          ['golden', 'golden', 'false'],
+        ]);
+        const radios = menu().querySelectorAll('[data-priority], [data-outside]');
+        expect([...radios].every((i) => i.getAttribute('role') === 'menuitemradio')).toBe(true);
+        expect([...radios].every((i) => (i.getAttribute('title') ?? '') !== '')).toBe(true);
+        expect(field(root, 'priority-chip').hidden).toBe(true);
+        expect(field(root, 'outside-chip').hidden).toBe(true);
+      });
+
+      it('chooses hit targets and golden, naming each in a chip in the Correctors head', () => {
+        showState(root, state());
+        click(more());
+        click(choice('data-priority', 'targets'));
+        expect(panelOf(root).selection.priority).toBe('targets');
+        expect(field(root, 'priority-chip').hidden).toBe(false);
+        expect(field(root, 'priority-chip').textContent).toBe('hit targets');
+        expect(field(root, 'priority-chip').title).not.toBe('');
+        click(more());
+        click(choice('data-outside', 'golden'));
+        expect(panelOf(root).selection.outside).toBe('golden');
+        expect(field(root, 'outside-chip').hidden).toBe(false);
+        expect(field(root, 'outside-chip').textContent).toBe('outside → golden');
+        expect(marks('data-priority').map(([, , checked]) => checked)).toEqual(['false', 'true']);
+        expect(marks('data-outside').map(([, , checked]) => checked)).toEqual(['false', 'true']);
+        // The rule is untouched, and going back hides the chips.
+        expect(panelOf(root).selection.rule).toBe('auto');
+        click(choice('data-priority', 'closure'));
+        click(choice('data-outside', 'hold'));
+        expect(field(root, 'priority-chip').hidden).toBe(true);
+        expect(field(root, 'outside-chip').hidden).toBe(true);
+      });
+
+      it.each([
+        ['data-priority', 'targets'],
+        ['data-outside', 'golden'],
+      ])('marks the plan stale when %s changes to %s', (attr, value) => {
+        showState(root, state({ plan: plan() }));
+        expect(field(root, 'plan-status').textContent).toBe('plan #p1');
+        click(choice(attr, value));
+        expect(field(root, 'plan-status').textContent).toBe('edited · not computed');
+      });
+
+      it("hydrates the plan's priority and outside aim", () => {
+        showState(root, state({ plan: plan({ priority: 'targets', outside: 'golden' }) }));
+        expect(panelOf(root).selection.priority).toBe('targets');
+        expect(panelOf(root).selection.outside).toBe('golden');
+        expect(field(root, 'priority-chip').hidden).toBe(false);
+        expect(field(root, 'outside-chip').hidden).toBe(false);
+        expect(field(root, 'plan-status').textContent).toBe('plan #p1');
       });
 
       it('still hydrates a plan without a wider rule as manual', () => {

@@ -247,6 +247,19 @@
   stroke-width: 1.5;
 }
 
+/* A target the plan misses: an error ring round its diamond. */
+.ob-strip .ob-miss-ring {
+  display: none;
+  fill: none;
+  stroke: var(--color-error);
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+.ob-strip .ob-target.ob-missed .ob-miss-ring {
+  display: inline;
+}
+
 .ob-strip .ob-tline {
   stroke: var(--color-warning);
   stroke-dasharray: 2 2;
@@ -571,7 +584,8 @@
   font-size: var(--text-base);
 }
 
-.ob-refused {
+.ob-refused,
+.ob-table td.ob-missed {
   color: var(--color-error);
 }
 
@@ -614,7 +628,7 @@ p.ob-refused {
   margin-top: 10px;
 }
 
-.osprey-section-label .osprey-icon-btn[aria-pressed="true"] {
+.osprey-section-label .osprey-icon-btn[aria-pressed='true'] {
   background: var(--surface-press);
   color: var(--text-primary);
 }

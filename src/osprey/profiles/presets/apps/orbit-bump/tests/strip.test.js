@@ -275,6 +275,25 @@ describe('the orbit-bump strip', () => {
     expect(tick(root, 'H2').classList.contains('on')).toBe(false);
   });
 
+  it('rings the handle of a bump BPM the plan misses', () => {
+    /** @type {Plan} */
+    const plan = {
+      id: 'agent-2',
+      model: 'RING',
+      plane: 'x',
+      status: 'ready',
+      targets: { B2: 0.5, B3: 0.5 },
+      correctors: [{ element: 'H1' }, { element: 'H3' }],
+      predicted: { B1: 0, B2: 0.5, B3: 0.2, B4: 0 },
+      missed: ['B3'],
+    };
+    showState(root, state({ plan }));
+    expect(handle(root, 'B3').classList.contains('ob-missed')).toBe(true);
+    expect(handle(root, 'B3').querySelector('title')?.textContent).toBe('B3: target missed');
+    expect(handle(root, 'B3').querySelector('.ob-miss-ring')).not.toBeNull();
+    expect(handle(root, 'B2').classList.contains('ob-missed')).toBe(false);
+  });
+
   it("draws each plan corrector's step as a signed bar about a zero axis above the ticks", () => {
     /** @type {Plan} */
     const plan = {

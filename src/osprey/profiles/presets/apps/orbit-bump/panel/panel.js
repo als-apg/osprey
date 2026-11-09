@@ -22,6 +22,8 @@ const REFRESH_MS = 2000;
  * @typedef {'auto' | 'mml:[-1 1]' | 'mml:[-2 -1 1 2]' | 'mml:[-3 -1 1 3]' | 'manual'} Rule
  * @typedef {'idle' | 'building' | 'ready' | 'failed'} OrmStatus
  * @typedef {'flat' | 'peak' | 'cos'} Shape
+ * @typedef {'closure' | 'targets'} Priority
+ * @typedef {'hold' | 'golden'} Outside
  */
 
 /**
@@ -110,6 +112,12 @@ const REFRESH_MS = 2000;
  * @property {string[]} [skipped_unsolved] correctors the rule skipped because the ORM could not solve them
  * @property {string[]} [dropped_bpms] non-bump BPMs left out as unreadable
  * @property {Record<string, number>} [residual_after]
+ * @property {Priority} [priority] close the bump first, or hit the targets first
+ * @property {Outside} [outside] what the BPMs outside the bump aim at
+ * @property {Record<string, number>} [miss] per bump BPM, predicted less its aim
+ * @property {string[]} [missed] bump BPMs whose miss is past the threshold
+ * @property {number} [target_miss_max] the largest |miss|
+ * @property {string[]} [bounded] correctors the solve left at a limit
  */
 
 /**
@@ -129,6 +137,8 @@ const REFRESH_MS = 2000;
  * @property {Record<string, number>} targets
  * @property {Rule} rule
  * @property {string[]} correctors manual correctors, by element
+ * @property {Priority} priority
+ * @property {Outside} outside
  */
 
 /**
@@ -157,7 +167,15 @@ const panels = new WeakMap();
 
 /** @returns {Selection} */
 function emptySelection() {
-  return { plane: 'x', model: null, targets: {}, rule: 'auto', correctors: [] };
+  return {
+    plane: 'x',
+    model: null,
+    targets: {},
+    rule: 'auto',
+    correctors: [],
+    priority: 'closure',
+    outside: 'hold',
+  };
 }
 
 /**
@@ -269,6 +287,8 @@ function hydrate(root, plan) {
     targets: { ...plan.targets },
     rule,
     correctors: rule === 'manual' ? plan.correctors.map((row) => row.element) : [],
+    priority: plan.priority === 'targets' ? 'targets' : 'closure',
+    outside: plan.outside === 'golden' ? 'golden' : 'hold',
   };
   panel.computed = { id: plan.id, key: selectionKey(panel.selection) };
 }
@@ -283,7 +303,15 @@ function selectionKey(selection) {
     .map(([element, value]) => [element, tidy(value)])
     .sort(([a], [b]) => String(a).localeCompare(String(b)));
   const correctors = selection.rule === 'manual' ? [...selection.correctors].sort() : [];
-  return JSON.stringify([selection.plane, selection.model, selection.rule, targets, correctors]);
+  return JSON.stringify([
+    selection.plane,
+    selection.model,
+    selection.rule,
+    targets,
+    correctors,
+    selection.priority,
+    selection.outside,
+  ]);
 }
 
 /**
@@ -1324,6 +1352,7 @@ function renderStrip(root, panel) {
     if (row.delta != null && Number.isFinite(row.delta)) steps.set(row.element, row.delta);
   }
   const planned = new Set((planHere?.correctors ?? []).map((row) => row.element));
+  const missed = new Set(planHere?.missed ?? []);
   const largestStep = Math.max(0, ...[...steps.values()].map(Math.abs));
   const drag = drags.get(root);
 
@@ -1563,9 +1592,14 @@ function renderStrip(root, panel) {
       'aria-valuenow': value,
       'aria-valuetext': `${cellNumber(value)}${unit ? ` ${unit}` : ''}`,
     });
+    if (missed.has(row.member.element)) {
+      handle.classList.add('ob-missed');
+      titled(handle, `${row.member.element}: target missed`);
+    }
     handle.append(
       svgNode('line', { class: 'ob-tline', x1: x, y1: py(row.orbit ?? 0), x2: x, y2: y }),
       svgNode('circle', { class: 'ob-hit', cx: x, cy: y, r: HANDLE_HIT }),
+      svgNode('circle', { class: 'ob-miss-ring', cx: x, cy: y, r: 9 }),
       svgNode('path', { class: 'ob-diamond', d: `M${x} ${y - 6}l6 6-6 6-6-6z` }),
       svgNode(
         'text',
@@ -1715,6 +1749,28 @@ const RULES = [
 const MORE_RULES = [
   ['mml:[-2 -1 1 2]', '±2 (−2 −1 1 2)'],
   ['mml:[-3 -1 1 3]', '±3 (−3 −1 1 3)'],
+];
+
+/**
+ * The solve priorities, in the overflow menu.
+ * @type {[Priority, string, string][]}
+ */
+const PRIORITIES = [
+  ['closure', 'close bump', 'hold the orbit outside the bump; targets may be missed'],
+  [
+    'targets',
+    'hit targets',
+    'meet the targets exactly where the correctors can; the orbit outside may leak',
+  ],
+];
+
+/**
+ * What the BPMs outside the bump aim at, in the overflow menu.
+ * @type {[Outside, string, string][]}
+ */
+const OUTSIDES = [
+  ['hold', 'hold', 'outside BPMs stay at their orbit at Compute'],
+  ['golden', 'golden', 'outside BPMs go to golden, using every corrector of the plane'],
 ];
 
 /** @type {Rule[]} */
@@ -2081,50 +2137,89 @@ function ruleMenu(root) {
     'data-field': 'rule-menu',
   });
   menu.hidden = true;
-  for (const [value, text] of MORE_RULES) {
-    const item = htmlNode(
-      'button',
-      {
-        type: 'button',
-        class: 'osprey-popover-item',
-        role: 'menuitemradio',
-        'aria-checked': 'false',
-        'data-rule': value,
-      },
-      text
-    );
-    const check = icon('M5 12.5l4.5 4.5L19 7.5');
-    check.classList.add('osprey-popover-check');
-    item.append(check);
-    menu.append(item);
-  }
+  /**
+   * @param {string} attr
+   * @param {[string, string, string?][]} options value, label and tooltip
+   * @param {string} label the group's accessible name
+   */
+  const group = (attr, options, label) => {
+    const box = htmlNode('div', { role: 'group', 'aria-label': label });
+    for (const [value, text, tip] of options) {
+      const item = htmlNode(
+        'button',
+        {
+          type: 'button',
+          class: 'osprey-popover-item',
+          role: 'menuitemradio',
+          'aria-checked': 'false',
+          [attr]: value,
+        },
+        text
+      );
+      if (tip) item.title = tip;
+      const check = icon('M5 12.5l4.5 4.5L19 7.5');
+      check.classList.add('osprey-popover-check');
+      item.append(check);
+      box.append(item);
+    }
+    return box;
+  };
+  menu.append(
+    group('data-rule', MORE_RULES, 'wider corrector lists'),
+    htmlNode('div', { class: 'osprey-popover-sep' }),
+    htmlNode('div', { class: 'osprey-popover-title' }, 'Priority'),
+    group('data-priority', PRIORITIES, 'priority'),
+    htmlNode('div', { class: 'osprey-popover-sep' }),
+    htmlNode('div', { class: 'osprey-popover-title' }, 'Outside BPMs'),
+    group('data-outside', OUTSIDES, 'outside BPMs')
+  );
   holder.append(button, menu);
   button.addEventListener('click', () => togglePopover(button, menu));
   menu.addEventListener('click', (event) => {
-    const hit = event.target instanceof Element ? event.target.closest('[data-rule]') : null;
-    const value = /** @type {Rule | null} */ (hit?.getAttribute('data-rule') ?? null);
-    if (!value || !ALL_RULES.includes(value)) return;
-    setSelection(root, { rule: value, correctors: [] });
+    const hit =
+      event.target instanceof Element
+        ? event.target.closest('[data-rule], [data-priority], [data-outside]')
+        : null;
+    if (!hit) return;
+    const rule = /** @type {Rule | null} */ (hit.getAttribute('data-rule'));
+    const priority = hit.getAttribute('data-priority');
+    const outside = hit.getAttribute('data-outside');
+    if (rule && ALL_RULES.includes(rule)) setSelection(root, { rule, correctors: [] });
+    else if (priority === 'closure' || priority === 'targets') setSelection(root, { priority });
+    else if (outside === 'hold' || outside === 'golden') setSelection(root, { outside });
+    else return;
     closePopover(menu);
   });
   return holder;
 }
 
 /**
- * Mark the active rule: a toggle button, or the ⋯ button and its checked item.
+ * Mark the active rule (a toggle button, or the ⋯ button and its checked item),
+ * the checked priority and outside items, and the chips naming a non-default one.
  * @param {Element} root
- * @param {Rule} rule
+ * @param {Selection} selection
  */
-function renderRule(root, rule) {
+function renderRule(root, selection) {
+  const { rule, priority, outside } = selection;
   pressSeg(field(root, 'rule'), 'data-rule', rule);
   const wide = MORE_RULES.some(([value]) => value === rule);
   field(root, 'rule-more').setAttribute('aria-pressed', String(wide));
   // The popover sits at <body> level while open, so it is found by id.
   const id = field(root, 'rule-more').getAttribute('aria-controls') ?? '';
   const menu = root.querySelector(`[id="${id}"]`) ?? root.ownerDocument.getElementById(id);
-  for (const item of menu?.querySelectorAll('[data-rule]') ?? []) {
-    item.setAttribute('aria-checked', String(item.getAttribute('data-rule') === rule));
+  /** @type {[string, string][]} */
+  const marks = [
+    ['data-rule', rule],
+    ['data-priority', priority],
+    ['data-outside', outside],
+  ];
+  for (const [attr, value] of marks) {
+    for (const item of menu?.querySelectorAll(`[${attr}]`) ?? []) {
+      item.setAttribute('aria-checked', String(item.getAttribute(attr) === value));
+    }
   }
+  field(root, 'priority-chip').hidden = priority === 'closure';
+  field(root, 'outside-chip').hidden = outside === 'hold';
 }
 
 /**
@@ -2294,9 +2389,25 @@ function controls(root) {
     RULES.map(([value, text, tip]) => [value, text, tip]),
     'corrector rule'
   );
+  const priorityChip = htmlNode('span', {
+    class: 'osprey-chip',
+    'data-field': 'priority-chip',
+    title: 'priority: hit the targets first; the orbit outside the bump may leak',
+  });
+  priorityChip.append(htmlNode('span', { class: 'osprey-chip-label' }, 'hit targets'));
+  priorityChip.hidden = true;
+  const outsideChip = htmlNode('span', {
+    class: 'osprey-chip',
+    'data-field': 'outside-chip',
+    title: 'outside BPMs aim at golden: every corrector of the plane, the bump on top',
+  });
+  outsideChip.append(htmlNode('span', { class: 'osprey-chip-label' }, 'outside → golden'));
+  outsideChip.hidden = true;
   corsHead.append(
     htmlNode('span', { 'data-field': 'cor-title' }, 'Correctors'),
     htmlNode('span', { class: 'ob-spacer' }),
+    priorityChip,
+    outsideChip,
     rule,
     ruleMenu(root)
   );
@@ -2313,6 +2424,9 @@ function controls(root) {
   const status = htmlNode('span', { class: 'osprey-chip', 'data-field': 'plan-status' });
   status.append(htmlNode('span', { class: 'osprey-chip-label', 'data-field': 'plan-status-text' }));
   status.hidden = true;
+  const miss = htmlNode('span', { class: 'osprey-chip osprey-chip--warn', 'data-field': 'miss' });
+  miss.append(htmlNode('span', { class: 'osprey-chip-label', 'data-field': 'miss-text' }));
+  miss.hidden = true;
   actions.append(
     htmlNode(
       'button',
@@ -2326,6 +2440,7 @@ function controls(root) {
     ),
     htmlNode('button', { type: 'button', class: 'osprey-btn', 'data-field': 'clear' }, 'Clear'),
     htmlNode('span', { class: 'ob-spacer' }),
+    miss,
     status
   );
 
@@ -2494,6 +2609,7 @@ function renderTable(root, panel) {
   const golden = state?.orbit?.golden ?? {};
   const plan = shownPlan(panel);
   const predicted = plan?.predicted ?? null;
+  const missed = new Set(plan?.missed ?? []);
 
   /** @param {Member | undefined} member */
   const goldOf = (member) => (member?.golden_addr ? golden[member.golden_addr] : null);
@@ -2527,8 +2643,10 @@ function renderTable(root, panel) {
     const now = row.querySelector('[data-cell="now"]');
     if (now) now.textContent = cellNumber(orbitOf(panel, member));
     const pred = row.querySelector('[data-cell="predicted"]');
-    if (pred)
+    if (pred) {
       pred.textContent = predicted ? cellNumber(offset(predicted[element], goldOf(member))) : '—';
+      pred.classList.toggle('ob-missed', missed.has(element));
+    }
     const input = row.querySelector('input');
     const target = selection.targets[element];
     if (input) {
@@ -2556,7 +2674,7 @@ function renderTable(root, panel) {
   }
   pressSeg(step, 'data-step', String(panel.step));
 
-  renderRule(root, selection.rule);
+  renderRule(root, selection);
 
   const title = field(root, 'cor-title');
   const planeCorrectors = new Set(
@@ -2859,6 +2977,18 @@ function rowNote(row) {
 }
 
 /**
+ * What a plan misses: "targets missed · up to 0.110 mm", or '' when it meets them.
+ * @param {Plan} plan
+ * @param {string} unit
+ * @returns {string}
+ */
+function missText(plan, unit) {
+  if (!plan.missed?.length) return '';
+  const suffix = unit ? ` ${unit}` : '';
+  return `targets missed · up to ${(plan.target_miss_max ?? 0).toFixed(3)}${suffix}`;
+}
+
+/**
  * The closure line: singular values kept, the largest predicted leakage, and
  * the BPMs and correctors the solve left out.
  * @param {Plan} plan
@@ -2876,6 +3006,7 @@ function closureText(plan, unit) {
   if (plan.skipped_unsolved?.length) {
     parts.push(`skipped (ORM unsolved): ${plan.skipped_unsolved.join(', ')}`);
   }
+  if (plan.bounded?.length) parts.push(`at limit: ${plan.bounded.join(', ')}`);
   return parts.join(' · ');
 }
 
@@ -3019,6 +3150,13 @@ function renderCard(root, panel) {
   status.hidden = text === '';
   status.classList.toggle('osprey-chip--connecting', text === 'edited · not computed');
 
+  const miss = field(root, 'miss');
+  const missing = plan ? missText(plan, bpmUnit(panel)) : '';
+  field(root, 'miss-text').textContent = missing;
+  miss.hidden = missing === '';
+  if (missing && plan) miss.title = `missed: ${(plan.missed ?? []).join(', ')}`;
+  else miss.removeAttribute('title');
+
   field(root, 'cor-empty').hidden = plan != null;
   const node = card(root);
   if (!plan) {
@@ -3097,6 +3235,8 @@ export async function compute(root) {
     plane: selection.plane,
     targets: { ...selection.targets },
     rule: selection.rule,
+    priority: selection.priority,
+    outside: selection.outside,
   };
   if (selection.rule === 'manual') body.correctors = [...selection.correctors];
   const key = selectionKey(selection);
@@ -3170,10 +3310,19 @@ export function openConfirm(root) {
       { class: 'osprey-section-label' },
       `Apply plan ${plan.id} to ${plan.model} · ${plan.plane}`
     ),
-    rowsTable(plan, false),
-    htmlNode('p', { class: 'ob-meta' }, closureText(plan, bpmUnit(panel))),
-    buttons
+    rowsTable(plan, false)
   );
+  const missing = missText(plan, bpmUnit(panel));
+  if (missing) {
+    box.append(
+      htmlNode(
+        'p',
+        { class: 'ob-refused', 'data-field': 'confirm-miss' },
+        `${missing} at ${(plan.missed ?? []).join(', ')}`
+      )
+    );
+  }
+  box.append(htmlNode('p', { class: 'ob-meta' }, closureText(plan, bpmUnit(panel))), buttons);
   confirm.replaceChildren(box);
   confirm.hidden = false;
 }

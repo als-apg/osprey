@@ -42,7 +42,7 @@ function model(name, status = 'ready') {
 
 /**
  * @param {string} id
- * @param {Partial<{model: string, plane: 'x' | 'y'}>} [over]
+ * @param {Partial<{model: string, plane: 'x' | 'y', rule: string, priority: string, outside: string}>} [over]
  */
 function plan(id, over = {}) {
   return {
@@ -215,10 +215,24 @@ describe('the orbit-bump panel', () => {
         targets: { BPM05: 0.1, BPM06: -0.2 },
         rule: 'manual',
         correctors: ['VCM04', 'VCM07'],
+        priority: 'closure',
+        outside: 'hold',
       });
       // Only the state was read: nothing was posted, so nothing was discarded.
       expect(/** @type {any} */ (fetcher).mock.calls).toHaveLength(1);
       expect(/** @type {any} */ (fetcher).mock.calls[0][0]).toBe('api/state');
+    });
+
+    it("takes in the plan's rule, priority and outside aim", () => {
+      showState(
+        root,
+        state({
+          plan: plan('p2', { rule: 'mml:[-3 -1 1 3]', priority: 'targets', outside: 'golden' }),
+        })
+      );
+      const { selection } = panelOf(root);
+      expect([selection.rule, selection.correctors]).toEqual(['mml:[-3 -1 1 3]', []]);
+      expect([selection.priority, selection.outside]).toEqual(['targets', 'golden']);
     });
 
     it('closes an open confirm card with a notice', () => {
