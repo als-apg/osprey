@@ -662,6 +662,8 @@ class BuildProfile:
                     f"(applications here: {known})."
                 )
                 continue
+            if entry.access is not None:
+                errors.extend(self._app_access_errors(name, entry.access))
             for key, axes in sorted(entry.services.items()):
                 where = f"apps.{name}.services.{key}"
                 if key not in manifest.containers:
@@ -748,6 +750,29 @@ class BuildProfile:
                 ),
             )
         return FacilityRoots(machine=machine, content=content)
+
+    def _app_access_errors(self, name: str, access: Any) -> list[str]:
+        """Why ``apps.<name>.access`` cannot be read, through the roster's one parser.
+
+        Args:
+            name: The application's name.
+            access: The authored value.
+
+        Returns:
+            One message naming the login, the application and the value, or none.
+        """
+        from osprey.deployment.web_terminals.roster import (
+            APP_ENTRY_KIND,
+            resolve_access_principals,
+        )
+
+        try:
+            resolve_access_principals(
+                {"kind": APP_ENTRY_KIND, "name": name, "login": self.name, "access": access}
+            )
+        except ValueError as exc:
+            return [str(exc)]
+        return []
 
     def _is_known_panel_id(self, pid: str) -> bool:
         """Return True if ``pid`` names a tab this profile's render shows.

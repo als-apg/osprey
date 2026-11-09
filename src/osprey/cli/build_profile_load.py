@@ -448,7 +448,7 @@ def _app_entry_key_problem(name: str, key: str, *, login: bool) -> str | None:
     if key in _APP_ENTRY_KEYS:
         return (
             f"{spelled} is legal only in the deployment's {PROFILE_FILENAME}: a login "
-            f"selects an application and sets only apps.{name}.shown."
+            f"selects an application and sets only apps.{name}.shown and apps.{name}.access."
         )
     if key in _KNOWN_MCP_SERVER_KEYS:
         return (
@@ -550,6 +550,7 @@ def _parse_apps(raw: Mapping[str, Any]) -> dict[str, AppEntry]:
                 for key, axes in (entry.get("services") or {}).items()
             },
             shown=entry.get("shown"),
+            access=entry.get("access"),
         )
     return parsed
 

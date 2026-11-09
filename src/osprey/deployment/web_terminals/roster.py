@@ -1706,6 +1706,9 @@ def _access_entry_label(entry: Mapping[str, Any]) -> str:
     reader looking for an entry called None. Its position is what identifies
     it instead, and ``index`` is the position the roster itself declares.
 
+    A login's ``apps.<name>`` entry (``kind`` :data:`APP_ENTRY_KIND` with a
+    ``login`` key) is named by its login, application and key instead.
+
     Args:
         entry: A roster entry, authored rather than normalized: neither key is
             known to be present or of the right type.
@@ -1715,6 +1718,9 @@ def _access_entry_label(entry: Mapping[str, Any]) -> str:
         way so the message stands on its own.
     """
     name = entry.get("name")
+    login = entry.get("login")
+    if entry.get("kind") == APP_ENTRY_KIND and isinstance(login, str) and login:
+        return f"login {login!r} apps.{name}.access"
     if isinstance(name, str) and name and entry.get("kind") == APP_ENTRY_KIND:
         return f"modules.web_terminals.shared app {name!r}"
     if isinstance(name, str) and name:
