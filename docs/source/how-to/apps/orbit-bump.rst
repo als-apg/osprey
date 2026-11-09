@@ -8,8 +8,8 @@ The orbit bump app is the example app the ``demo`` preset ships.
 It solves a local closed-orbit bump — move the beam at one or more BPMs by a
 chosen offset and close the bump with the surrounding correctors — on the
 session's control target, shows the plan, and applies it behind an approval.
-The operator works in the **Orbit bump** panel; the agent uses two tools on the
-same backend. Both see one plan per login, control target and model: the plan
+The operator works in the **Orbit bump** panel; the agent uses a tool for each
+panel action, on the same backend. Both see one plan per login, control target and model: the plan
 the agent computes is the plan the panel shows and the plan the approval card
 binds.
 
@@ -97,9 +97,8 @@ the default:
   aside. Such a plan on a large ring may not fit the approval card and is then
   ``not_applicable``.
 
-**7. Apply.** *Apply…* is enabled only on a ``ready``, unedited plan with
-writes on. It
-opens a confirmation with the setpoints and the closure line; *Confirm* writes
+**7. Apply.** *Apply…* is enabled only on a ``ready``, unedited plan while
+the session's machine allows writes. It opens a confirmation with the setpoints and the closure line; *Confirm* writes
 the rows once, in plan order.
 
 **8. Iterate.** After a full apply the plan is ``applied``, the orbit is
@@ -108,16 +107,20 @@ bump BPMs. To refine, compute again on the re-read orbit and apply the new
 plan. Every write is on a confirmed or approved plan.
 
 **Recompute** on the ORM chip rebuilds the orbit response matrix from the
-model; nothing is measured. A new ORM discards the plans on that model not yet
-applied (``ready`` and ``not_applicable``); compute again.
+model; nothing is measured. A new ORM discards every login's plans on that
+model not yet applied (``ready`` and ``not_applicable``); compute again.
 
 With writes off for the session's machine the panel names the reason
 (*Writes are off*) and refuses apply; compute, discard and recompute still
 work, so a bump can be planned and inspected. On a login that does not arm
 the app the panel shows state and the approval only.
 
+.. _how-to-orbit-bump-agent:
+
 From the agent
 ==============
+
+Every panel element has a tool or an argument (:ref:`how-to-apps-skills`):
 
 .. list-table::
    :header-rows: 1
@@ -125,12 +128,23 @@ From the agent
 
    * - Tool
      - Does
-   * - ``plan_bump(model, plane, targets, rule, correctors=None, priority, outside)``
-     - Solves the bump; writes nothing; replaces the current plan and returns
-       its ``plan_id``. ``targets`` maps BPM to offset from golden; ``rule``
-       is ``auto``, ``mml:[…]``, or ``manual`` with ``correctors``.
+   * - ``bump_state(model, plane, bpms)``
+     - Reads what the panel shows: per BPM the orbit, golden, target,
+       prediction and miss; the models and their ORM status and age; the
+       corrector ticks; the posture; the current plan; the operator's draft;
+       and what holds Apply, in the panel's words, with the approval card's
+       lines. ``bpms`` narrows it to a stretch of the ring.
+   * - ``plan_bump(model, plane, targets, rule, correctors, priority, outside, bpms, amplitude, shape)``
+     - Compute. Writes nothing; replaces the current plan and returns it.
+       ``targets`` maps BPM to offset from golden, or ``bpms``,
+       ``amplitude`` and ``shape`` spread it as the panel does; ``rule`` is
+       ``auto``, ``mml:[…]``, or ``manual`` with ``correctors``.
        ``priority`` and ``outside`` are the panel's two choices; ``missed``
        and ``target_miss_max`` report what the plan does not reach.
+   * - ``discard_bump()``
+     - Clear: drops the current plan.
+   * - ``recompute_orm(model)``
+     - *recompute* on the ORM chip.
    * - ``apply_bump(plan_id)``
      - Writes the plan. Runs only behind an approval bound to that plan id
        and its setpoints. A plan id that is not current is refused, naming
@@ -144,6 +158,11 @@ operator's approval is the confirmation. At *allowed* the apply runs bound to
 the same plan, with no card. If ``apply_bump`` gets no answer in time, it
 reports the plan status and the row outcomes the backend holds rather than
 retrying.
+
+The panel publishes the operator's selection as a *draft* a moment after each
+edit, and ``bump_state`` returns it, so the agent sees a bump before it is
+computed. The draft is kept in memory per login, is not published on a login
+that does not arm the app, and only the panel posts it.
 
 The app's skill tells the agent all of this — which tool for which request,
 that offsets are from golden, to show the plan before asking to apply, what
@@ -166,14 +185,16 @@ its own: the ring models, their BPMs and correctors and each model's response
 matrix come from the SDK (``model_members``, ``model_response_matrix``), the
 orbit and golden orbit are read through the connector, and the limit verdict
 and tolerance of each setpoint come from the SDK's pre-write verdict
-(``prewrite_verdict``), the same judgement the connector makes at the write. Four routes
-are the agent's: ``GET /api/state`` (models, orbit, posture, the current
-plan), ``GET /api/approval`` (what the card binds), ``POST /api/compute`` and
-``POST /api/apply``. The panel's recompute and discard routes are not in
-``agent_routes``, so the agent cannot call them.
+(``prewrite_verdict``), the same judgement the connector makes at the write. Six routes
+are the agent's: ``GET /api/state`` (models, orbit, posture, the current plan,
+the draft), ``GET /api/approval`` (what the card binds), and ``POST``
+``/api/recompute``, ``/api/discard``, ``/api/compute`` and ``/api/apply``. The
+panel's ``POST /api/draft`` is not an agent route.
 
-**The tool server** (``orbit_bump/tools.py``) is two functions. ``plan_bump``
-posts to ``/api/compute``. ``apply_bump`` runs ``check_approved_call``, takes
+**The tool server** (``orbit_bump/tools.py``) has one tool per panel action.
+``bump_state`` reads ``/api/state`` and ``/api/approval``; ``plan_bump``,
+``discard_bump`` and ``recompute_orm`` post to their routes and are ``read``
+tools, because none writes a channel. ``apply_bump`` runs ``check_approved_call``, takes
 the plan id and setpoint digest the approval bound, refuses a ``plan_id`` that
 differs from the approved one, and posts both to ``/api/apply`` with a timeout
 long enough for the writes to settle and the orbit to be re-read — which is why

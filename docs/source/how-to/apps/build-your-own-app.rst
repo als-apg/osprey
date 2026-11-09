@@ -20,7 +20,7 @@ current; use any name of lower-case letters, digits and dashes.
    - How the manifest's ``approval`` entry turns a tool into a write the
      operator approves
    - Which logins show the app, and which may write with it
-   - How to give the agent a skill for your app
+   - How to give the agent a skill, and the same reach as the operator
 
    **Prerequisites:** a deployment repository made with ``osprey init``
    (:doc:`/how-to/build-profiles`) that builds and starts; Node and npm on the
@@ -348,22 +348,82 @@ Hide an app from one login in that login's file:
    apps:
      corrector-trim: {shown: false}
 
-Skills
-======
+.. _how-to-apps-skills:
+
+Skills and agent parity
+=======================
 
 A skill is a ``SKILL.md`` the agent reads to know when and how to use a set of
 tools. An app carries its own: list the name under ``skills:`` in ``app.yml``
-and write ``skills/<name>/SKILL.md`` in the app's directory. The build
-installs it into every login that shows the app, so the agent that has the
-tools also has the instructions. A listed skill without its file, or a skill
-name two apps share, fails the build.
+and write ``skills/<name>/SKILL.md`` in the app's directory. The scaffold
+ships one, which ``osprey app new`` renames with the app. The build installs
+it into every login that shows the app, so the agent that has the tools also
+has the instructions. A listed skill without its file, or a skill name two
+apps share, fails the build.
 
-Orbit bump's skill is a good model (``apps/orbit-bump/skills/orbit-bump/
-SKILL.md`` in a ``demo`` deployment): which tool to call for
-which request, what the arguments mean in the facility's terms, how to read a
-plan and an apply, and what the refusals mean — compute first, show the plan,
-then ask to apply; never apply a plan the operator has not seen. See
-:doc:`/contributing/agent-skills` for the format.
+**The parity rule.** Everything the operator sees in the panel, the agent can
+read through a tool; everything the operator can press, the agent can do
+through a tool or an argument. The panel and the tool server are two front
+ends to one backend, so parity needs no second implementation: each panel
+element maps to a backend route, and each route the panel uses has a tool.
+
+.. raw:: html
+   :file: ../../_diagrams/app-parity.html
+
+Design the skill from a parity table, one row per panel element:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 30 20 20
+
+   * - Panel element
+     - Tool or argument
+     - Route
+     - ``tools``
+   * - a value it shows
+     - the read tool, and the field it answers
+     - ``GET``
+     - ``read``
+   * - a control that writes no channel
+     - a tool, or an argument of one
+     - any
+     - ``read``
+   * - a control that writes a channel
+     - the write tool
+     - ``POST``
+     - ``approval``
+
+Then:
+
+1. **One read tool answers the whole screen**, in the panel's terms: the
+   values per element, the statuses, and why a control is disabled, in the
+   sentence the panel shows. The agent then answers *what does the panel
+   say* and *why can't I apply* without guessing.
+2. **Every control is a tool or an argument.** Toggles and menus become
+   arguments; buttons become tools. A gesture that only edits input — drag,
+   nudge — needs no tool when the agent can pass the resulting values. A
+   convenience the operator relies on is an argument, so the agent builds the
+   same input the same way (orbit bump's amplitude and shape).
+3. **Publish the operator's input.** What the operator has set but not yet
+   sent is on screen too. The panel posts it to a route that writes no
+   channel, and the read tool returns it, so the agent never has to ask what
+   the operator is looking at. The route is the operator's: leave it out of
+   ``agent_routes``.
+4. **Classify by what is written, not by the method.** A route that writes
+   no channel — compute a plan, drop it, rebuild a model — backs a ``read``
+   tool even when its method is ``POST``; the terminal still hands ``POST``
+   routes to the agent only on a login that arms the app. A route that
+   writes a channel backs an ``approval`` tool, bound to what the operator
+   saw (`Writes and approvals`_).
+5. **Write the skill from the table**: which tool for which request, the
+   arguments in the facility's terms, how to read each status, what each
+   refusal means, and the order — look, plan, show, then ask to write. Name
+   each tool's panel equivalent, so the agent can tell the operator where to
+   look. Say what the agent does not get (view settings such as zoom) and
+   why.
+
+Orbit bump's skill is the worked example (:ref:`how-to-orbit-bump-agent`);
+:doc:`/contributing/agent-skills` gives the format.
 
 Dependencies
 ============
