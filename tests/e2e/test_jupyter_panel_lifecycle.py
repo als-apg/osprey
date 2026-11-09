@@ -9,7 +9,7 @@ notebook kernel read, refuse, follow and survive the way the panel promises?
 
 THE DEPLOYMENT THIS BUILDS
 --------------------------
-One ``osprey up --dev`` of a ``control-assistant`` render, trimmed to one
+One ``osprey up --dev`` of a ``demo`` render, trimmed to one
 roster user (``alice``) on one render that keeps the preset's write gate armed
 and inherits the preset's panel set — which is what selects the JUPYTER
 panel. The control system is the virtual accelerator, baselined as the ``va``
@@ -111,9 +111,9 @@ from tests.e2e._deploy_support import (
 from tests.e2e._facility_select import bounded_corrector, repo_view, seeded_readback
 from tests.e2e._orm_stack import VA_CA_PORT, VA_PVA_PORT, knowledge_services_off
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 RUNTIME = "docker"
 
@@ -122,7 +122,7 @@ RUNTIME = "docker"
 PROJECT_NAME = "osprey-e2e-jnb"
 #: The compose project name the web tier's containers are named by.
 PROJECT = resolve_project_name({"project_name": PROJECT_NAME})
-PRESET = "control-assistant"
+PRESET = "demo"
 USER = "alice"
 RENDER = "operator"
 #: ``osprey build`` renders a layer to ``build/<repo>-<render>``, and
@@ -369,6 +369,7 @@ def _make_repo(tmp_path: Path, osprey_bin: Path) -> Path:
             "--preset",
             PRESET,
             "--no-git",
+            *e2e_scenario_pin(PRESET),
             *set_pairs(_profile_edits()),
             "--set",
             f"virtual_accelerator.port={VA_CA_PORT}",

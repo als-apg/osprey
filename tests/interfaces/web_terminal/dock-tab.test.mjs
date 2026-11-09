@@ -1,38 +1,57 @@
+// @vitest-environment jsdom
 /**
  * Contract tests for the tile-tab renderer (dock-tab.js): the custom dockview
- * tab that IS each tile's header bar. Every tile gets the same bar — identity
- * on the left, actions right-anchored; the bar itself is the drag handle.
- * Service tiles carry a visible `.tile-tab-title` and a Pop out button, and a
- * TAB STRIP in place of the title once the tile holds several tabs; the
- * Agent tile adopts a live bar instead — the chat console's `.op-session-bar`
- * in chat, the `.terminal-header` on the terminal surface. Run:
+ * tab that IS each tile's header bar. A tile holds ONE panel, so every tile
+ * gets one bar — identity on the left, actions right-anchored, no tab strip;
+ * the bar itself is the drag handle. Service tiles carry a visible
+ * `.tile-tab-title`, the panel's contribution region, an Open in new window button and a
+ * close; the Agent tile adopts a live bar instead — the chat console's
+ * `.op-session-bar` in chat, the `.terminal-header` on the terminal surface.
+ * The last suite builds the bars on the pinned real dockview (see
+ * _dock-real.mjs), as dock-workspace.js wires them. Run:
  *   npx vitest run tests/interfaces/web_terminal/dock-tab.test.mjs
  */
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import { buildConsole } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-console.js';
+import { loadDockview, settle } from './_dock-real.mjs';
 
-const MOD = '../../../src/osprey/interfaces/web_terminal/static/js/dock-tab.js';
+const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
+const MOD = `${JS}/dock-tab.js`;
 
-const { closeTerminalPanel, closeDockPanel } = vi.hoisted(() => ({
+// jsdom has no ResizeObserver; the bar's contribution region observes its
+// size, and dockview observes its grid. The harness installs an inert one.
+loadDockview();
+
+const { closeTerminalPanel, closeTerminalTile, closeDockPanel } = vi.hoisted(() => ({
   closeTerminalPanel: vi.fn(() => true),
+  closeTerminalTile: vi.fn(),
   closeDockPanel: vi.fn(() => true),
 }));
-const { popOutPanel, canPopOut } = vi.hoisted(() => ({
-  popOutPanel: vi.fn(() => true),
-  canPopOut: vi.fn(() => true),
+const { detach, detachBlocker } = vi.hoisted(() => ({
+  detach: vi.fn(() => true),
+  detachBlocker: vi.fn(() => /** @type {string | null} */ (null)),
 }));
 
-// The pop-out itself (window, handle, tile retirement) is popout.js's
-// contract; the bar only has to ask it the right things at the right times.
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
-  popOutPanel,
-  canPopOut,
+/** What the gate says about an opaque-origin panel. */
+const OPAQUE = 'This panel runs at an opaque origin and cannot open in a new window.';
+const NOT_LOADED = 'This panel has not loaded yet.';
+
+// The window itself is pane-window's contract; the bar only has to ask it the
+// right things at the right times.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/pane-window.js', () => ({
+  detach,
+  detachBlocker,
 }));
 
 // dock-tab closes every tile through dock-workspace (the layout holder); the
 // rest of that module (dockview itself) is out of scope here. The doubles
 // cover what the modules dock-tab imports read from it.
+// The Agent close goes through the Undo-offering path the Delete key uses.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js', () => ({
+  closeTerminalTile,
+}));
+
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
   closeTerminalPanel,
   closeDockPanel,
@@ -69,31 +88,29 @@ function detachedTerminalHeader() {
   card.className = 'terminal-card';
   const header = document.createElement('div');
   header.className = 'terminal-header';
-  const sel = document.createElement('select');
-  sel.id = 'session-selector';
-  header.appendChild(sel);
+  // The session switcher's label, as attachSessionSwitcher marks it: a
+  // keyboard-reachable button that opens the switcher popover.
+  const label = document.createElement('span');
+  label.className = 'terminal-label';
+  label.id = 'terminal-label';
+  label.setAttribute('role', 'button');
+  label.setAttribute('aria-label', 'Switch session');
+  header.appendChild(label);
   card.appendChild(header);
   return header;
 }
 
 /**
  * The chat console's Agent bar as the page has it before the dock adopts it:
- * built by chat-console.js, with the bell and Export the feature modules add
- * and the ⋯ chat.js appends last, inside a detached console container.
+ * built by chat-console.js (agent-bar.js), with its label marked as the
+ * session switcher's button the way attachSessionSwitcher marks it, inside a
+ * detached console container.
  * @returns {HTMLElement}
  */
 function detachedConsoleBar() {
-  const { bar, moreBtn } = buildConsole();
-  for (const [cls, label] of [
-    ['op-attention-toggle', 'Desktop notifications'],
-    ['op-export', 'Export'],
-  ]) {
-    const btn = document.createElement('button');
-    btn.className = `osprey-icon-btn ${cls}`;
-    btn.setAttribute('aria-label', label);
-    bar.append(btn);
-  }
-  bar.append(moreBtn);
+  const { bar, label: switcher } = buildConsole();
+  switcher.setAttribute('role', 'button');
+  switcher.setAttribute('aria-label', 'Switch session');
   document.createElement('div').append(bar);
   return bar;
 }
@@ -104,9 +121,10 @@ describe('tile-tab renderer', () => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
     closeTerminalPanel.mockClear();
+    closeTerminalTile.mockClear();
     closeDockPanel.mockClear();
-    popOutPanel.mockClear();
-    canPopOut.mockReset().mockReturnValue(true);
+    detach.mockClear();
+    detachBlocker.mockReset().mockReturnValue(null);
   });
 
   test('service tab renders visible title and close', async () => {
@@ -135,7 +153,7 @@ describe('tile-tab renderer', () => {
     expect(closeTerminalPanel).not.toHaveBeenCalled();
   });
 
-  test('the Agent close runs closeTerminalPanel, never the bare api.close()', async () => {
+  test('the Agent close runs closeTerminalTile (the Undo path), never the bare api.close()', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const api = fakeApi();
@@ -144,89 +162,139 @@ describe('tile-tab renderer', () => {
     const close = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-close'));
     expect(close.getAttribute('aria-label')).toBe('Close Agent pane');
     close.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(closeTerminalPanel).toHaveBeenCalledTimes(1);
+    expect(closeTerminalTile).toHaveBeenCalledTimes(1);
+    expect(closeTerminalPanel).not.toHaveBeenCalled();
     expect(closeDockPanel).not.toHaveBeenCalled();
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('a service tile has a Pop out button before its close, an icon button with the popout icon', async () => {
+  test('a service tile has ⋯, then an Open in new window button before its close, an icon button with the popout icon', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
 
     const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
-    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-popout'));
+    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-window'));
     expect([...actions.children].map((el) => el.className)).toEqual([
-      'tile-tab-popout osprey-icon-btn',
+      'tile-tab-more osprey-icon-btn',
+      'tile-tab-window osprey-icon-btn',
       'tile-tab-close osprey-icon-btn',
     ]);
-    expect(popout.title).toBe('Pop out');
-    expect(popout.getAttribute('aria-label')).toBe('Pop out');
+    expect(popout.title).toBe('Open in new window');
+    expect(popout.getAttribute('aria-label')).toBe('Open in new window');
     expect(popout.disabled).toBe(false);
+    expect(popout.getAttribute('aria-disabled')).toBeNull();
     expect(popout.querySelector('svg.osprey-ic')).not.toBeNull();
   });
 
-  test('Pop out pops the service panel out, inside the click', async () => {
+  test('Open in new window moves the service panel, inside the click', async () => {
     const { createTileTab } = await import(MOD);
     const api = fakeApi();
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api });
 
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-popout')).dispatchEvent(
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-window')).dispatchEvent(
       new MouseEvent('click', { bubbles: true, cancelable: true })
     );
 
-    expect(popOutPanel).toHaveBeenCalledExactlyOnceWith('ariel');
+    expect(detach).toHaveBeenCalledExactlyOnceWith('ariel');
     expect(api.close).not.toHaveBeenCalled();
   });
 
-  test('the Agent tile has no Pop out button', async () => {
+  test('the Agent tile has the same ⋯, Open in new window and close as a service tile', async () => {
     const { createTileTab, setTerminalHeaderSource } = await import(MOD);
     setTerminalHeaderSource(detachedTerminalHeader());
     const tab = createTileTab('terminal');
     tab.init({ title: 'Agent', params: {}, api: fakeApi() });
 
-    expect(tab.element.querySelector('.tile-tab-popout')).toBeNull();
+    const actions = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-actions'));
+    expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Panel menu',
+      'Open in new window',
+      'Close Agent pane',
+    ]);
+    const popout = /** @type {HTMLButtonElement} */ (actions.querySelector('.tile-tab-window'));
+    expect(popout.className).toBe('tile-tab-window osprey-icon-btn');
+    expect(popout.querySelector('svg.osprey-ic')).not.toBeNull();
   });
 
-  test('a panel that cannot pop out is disabled, with the reason, once the pointer reads the gate', async () => {
-    canPopOut.mockReturnValue(false);
+  test('the Agent tile’s Open in new window moves the Agent pane, inside the click', async () => {
+    const { createTileTab, setTerminalHeaderSource } = await import(MOD);
+    setTerminalHeaderSource(detachedTerminalHeader());
+    const api = fakeApi();
+    const tab = createTileTab('terminal');
+    tab.init({ title: 'Agent', params: {}, api });
+
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-window')).dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+
+    expect(detachBlocker).toHaveBeenCalledWith('terminal');
+    expect(detach).toHaveBeenCalledExactlyOnceWith('terminal');
+    expect(api.close).not.toHaveBeenCalled();
+  });
+
+  test('a panel that cannot pop out is marked inert, with the reason, once the pointer reads the gate', async () => {
+    detachBlocker.mockReturnValue(OPAQUE);
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
-    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
 
-    // Built enabled: the URL and frame kind are not known yet, and a button
-    // disabled now would never get the pointer event that re-reads the gate.
-    expect(popout.disabled).toBe(false);
+    // Built live: the URL and frame kind are not known yet.
+    expect(popout.getAttribute('aria-disabled')).toBeNull();
     popout.dispatchEvent(new Event('pointerenter'));
-    expect(popout.disabled).toBe(true);
-    expect(popout.title).toBe('This panel runs at an opaque origin and cannot be popped out.');
+    expect(popout.getAttribute('aria-disabled')).toBe('true');
+    expect(popout.title).toBe(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(popOutPanel).not.toHaveBeenCalled();
+    expect(detach).not.toHaveBeenCalled();
+  });
+
+  test('a hover before the panel loaded never kills the button: once it has loaded, the click moves it', async () => {
+    // A disabled .osprey-icon-btn takes no pointer events (primitives.css), so
+    // a button disabled by an early hover never heard the hover or click that
+    // finds the panel loaded: inert until the bar was rebuilt.
+    detachBlocker.mockReturnValue(NOT_LOADED);
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:jupyter');
+    tab.init({ title: 'Jupyter', params: {}, api: fakeApi() });
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
+
+    popout.dispatchEvent(new Event('pointerenter'));
+    expect(popout.getAttribute('aria-disabled')).toBe('true');
+    expect(popout.title).toBe(NOT_LOADED);
+    expect(popout.disabled).toBe(false);
+
+    detachBlocker.mockReturnValue(null);
+    popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    expect(detach).toHaveBeenCalledExactlyOnceWith('jupyter');
+    expect(popout.getAttribute('aria-disabled')).toBe('false');
+    expect(popout.title).toBe('Open in new window');
   });
 
   test('the gate is read again at click time: a frame that resolved opaque after the bar was built', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:notes');
     tab.init({ title: 'NOTES', params: {}, api: fakeApi() });
-    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-popout'));
-    expect(popout.disabled).toBe(false);
+    const popout = /** @type {HTMLButtonElement} */ (tab.element.querySelector('.tile-tab-window'));
+    expect(popout.getAttribute('aria-disabled')).toBeNull();
 
-    canPopOut.mockReturnValue(false);
+    detachBlocker.mockReturnValue(OPAQUE);
     popout.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
 
-    expect(popOutPanel).not.toHaveBeenCalled();
-    expect(popout.disabled).toBe(true);
-    expect(popout.title).toBe('This panel runs at an opaque origin and cannot be popped out.');
+    expect(detach).not.toHaveBeenCalled();
+    expect(popout.getAttribute('aria-disabled')).toBe('true');
+    expect(popout.disabled).toBe(false);
+    expect(popout.title).toBe(OPAQUE);
   });
 
-  test('Pop out pointerdown is prevented so it cannot start a tile drag', async () => {
+  test('Open in new window pointerdown is prevented so it cannot start a tile drag', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
     const ev = new MouseEvent('pointerdown', { bubbles: true, cancelable: true });
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-popout')).dispatchEvent(ev);
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-window')).dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true);
   });
 
@@ -253,7 +321,7 @@ describe('tile-tab renderer', () => {
     }
   );
 
-  test('the strip carries the dockview panel id as a stable handle', async () => {
+  test('the bar carries the dockview panel id as a stable handle', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
@@ -290,7 +358,7 @@ describe('tile-tab renderer', () => {
     expect(api.onDidTitleChange).not.toHaveBeenCalled();
   });
 
-  test('the whole service strip is the drag handle — nothing swallows pointerdown', async () => {
+  test('the whole service bar is the drag handle — nothing swallows pointerdown', async () => {
     const { createTileTab } = await import(MOD);
     const tab = createTileTab('iframe:ariel');
     tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
@@ -335,7 +403,7 @@ describe('tile-tab renderer', () => {
       expect(tab.element.querySelector('.tile-tab-close')).toBeTruthy();
     });
 
-    test('the chat adopts the console bar: dot, Agent, pen, bell, share, more, close', async () => {
+    test('the chat adopts the console bar: session switcher, +, then ⋯, Open in new window and close', async () => {
       const { createTileTab, setTerminalHeaderSource, setTerminalConsoleBarSource } = await import(
         MOD
       );
@@ -354,12 +422,10 @@ describe('tile-tab renderer', () => {
         (el) => el.getAttribute('aria-label') ?? el.textContent
       );
       expect(parts).toEqual([
-        '',
-        'Agent',
+        'Switch session',
         'New conversation',
-        'Desktop notifications',
-        'Export',
-        'Earlier conversations',
+        'Panel menu',
+        'Open in new window',
         'Close Agent pane',
       ]);
     });
@@ -443,7 +509,7 @@ describe('tile-tab renderer', () => {
       tab.element.addEventListener('pointerdown', reachedRoot);
 
       tab.element
-        .querySelector('#session-selector')
+        .querySelector('#terminal-label')
         .dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
       expect(reachedRoot).not.toHaveBeenCalled(); // contained — no tile drag
 
@@ -453,7 +519,7 @@ describe('tile-tab renderer', () => {
       expect(reachedRoot).toHaveBeenCalledTimes(1); // plain surface drags
     });
 
-    test("the console bar's buttons act instead of dragging; its plain surface drags", async () => {
+    test("the console bar's buttons and session switcher act instead of dragging; its plain surface drags", async () => {
       const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
       document.documentElement.removeAttribute('data-agent-surface');
       const bar = detachedConsoleBar();
@@ -471,6 +537,8 @@ describe('tile-tab renderer', () => {
       /** @type {HTMLElement} */ (bar.querySelector('.op-session-label')).dispatchEvent(
         new MouseEvent('pointerdown', { bubbles: true, cancelable: true })
       );
+      expect(reachedRoot).not.toHaveBeenCalled(); // the switcher label is a button
+      bar.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }));
       expect(reachedRoot).toHaveBeenCalledTimes(1);
     });
   });
@@ -562,6 +630,98 @@ describe('tile header context menu', () => {
     expect(ev.defaultPrevented).toBe(false);
   });
 
+  test('Shift+right-click is the browser’s: no handler call, nothing prevented', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    const ev = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      button: 2,
+      shiftKey: true,
+    });
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title')).dispatchEvent(ev);
+    expect(handler).not.toHaveBeenCalled();
+    expect(ev.defaultPrevented).toBe(false);
+  });
+
+  /** @param {string} key @param {boolean} [shiftKey] */
+  const keyPress = (key, shiftKey = false) =>
+    new KeyboardEvent('keydown', { key, shiftKey, bubbles: true, cancelable: true });
+
+  test('the menu key and Shift+F10 open the same menu from the keyboard, under the bar', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+    tab.element.getBoundingClientRect = () => new DOMRect(100, 0, 300, 32);
+    const more = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-more'));
+
+    for (const ev of [keyPress('ContextMenu'), keyPress('F10', true)]) {
+      more.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(true);
+    }
+    expect(handler).toHaveBeenCalledTimes(2);
+    for (const [id, opts] of /** @type {any[][]} */ (handler.mock.calls)) {
+      expect(id).toBe('ariel');
+      expect(opts).toEqual({ x: 108, y: 32, anchorEl: tab.element, mode: 'tile' });
+    }
+
+    // Plain F10, or any other key, is not a menu request.
+    const plain = keyPress('F10');
+    more.dispatchEvent(plain);
+    expect(handler).toHaveBeenCalledTimes(2);
+    expect(plain.defaultPrevented).toBe(false);
+  });
+
+  test('a declined keyboard request keeps the default; a text field keeps its own menu', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => false);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    const declined = keyPress('ContextMenu');
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-more')).dispatchEvent(
+      declined
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(declined.defaultPrevented).toBe(false);
+
+    const input = document.createElement('input');
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-contrib')).appendChild(input);
+    const inField = keyPress('F10', true);
+    input.dispatchEvent(inField);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(inField.defaultPrevented).toBe(false);
+  });
+
+  test('⋯ and right-click ask for the same menu: same id, same mode, same anchor', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    document.body.appendChild(tab.element);
+
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-title')).dispatchEvent(
+      rightClick()
+    );
+    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-more')).click();
+    expect(handler).toHaveBeenCalledTimes(2);
+    const [[byClick, clickOpts], [byMore, moreOpts]] = /** @type {any[][]} */ (handler.mock.calls);
+    expect(byMore).toBe(byClick);
+    expect(moreOpts.mode).toBe(clickOpts.mode);
+    expect(moreOpts.anchorEl).toBe(clickOpts.anchorEl);
+  });
+
   test('interactive bar children are excluded — their native menu survives', async () => {
     const { createTileTab, setTerminalHeaderSource, setTileContextMenuHandler } = await import(MOD);
     const handler = vi.fn(() => true);
@@ -594,16 +754,14 @@ describe('tile header context menu', () => {
     );
     expect(handler).toHaveBeenCalledTimes(1);
 
-    // The terminal bar's adopted header applies the same rule to its selector.
+    // The terminal bar's adopted header applies the same rule to its session switcher.
     const header = detachedTerminalHeader();
     setTerminalHeaderSource(header);
     const terminal = createTileTab('terminal');
     terminal.init({ title: 'Agent', params: {}, api: fakeApi() });
     document.body.appendChild(terminal.element);
     const onSelector = rightClick();
-    /** @type {HTMLElement} */ (header.querySelector('#session-selector')).dispatchEvent(
-      onSelector
-    );
+    /** @type {HTMLElement} */ (header.querySelector('#terminal-label')).dispatchEvent(onSelector);
     expect(handler).toHaveBeenCalledTimes(1);
     expect(onSelector.defaultPrevented).toBe(false);
   });
@@ -667,7 +825,8 @@ describe('tile header context menu', () => {
     tab.init({ title: 'Agent', params: {}, api: fakeApi() });
     document.body.appendChild(tab.element);
 
-    /** @type {HTMLElement} */ (bar.querySelector('.op-session-label')).dispatchEvent(rightClick());
+    // The bar's plain surface — the switcher label is a button and keeps its own click.
+    bar.dispatchEvent(rightClick());
     expect(handler).toHaveBeenCalledTimes(1);
     const { id, opts } = firstCall(handler);
     expect(id).toBe('terminal');
@@ -677,328 +836,358 @@ describe('tile header context menu', () => {
 });
 
 /**
- * A dockview group with `entries` as its panels: `[id, title]` pairs, the one
- * at `activeIndex` showing. Its model emits the three panel events the bar
- * follows, each panel's api answers `setActive` by making it the group's
- * active panel, and `rename` fires the panel's title change.
- * @param {[string, string][]} entries
- * @param {number} [activeIndex]
+ * The bars on the pinned real dockview, built through createTabComponent with
+ * the layout holder applying the tiles, as dock-workspace.js wires them: a
+ * service tile and the Agent pane's, each holding its one panel.
  */
-function fakeGroup(entries, activeIndex = 0) {
-  /** @type {Record<string, Array<(e: any) => void>>} */
-  const listeners = { add: [], remove: [], active: [] };
-  /** @param {Array<(e: any) => void>} list */
-  const emitter = (list) =>
-    vi.fn((/** @type {(e: any) => void} */ fn) => {
-      list.push(fn);
-      return {
-        dispose: () => {
-          const i = list.indexOf(fn);
-          if (i >= 0) list.splice(i, 1);
-        },
-      };
-    });
-  /** @type {any} */
-  const group = {
-    id: 't1',
-    model: {
-      onDidAddPanel: emitter(listeners.add),
-      onDidRemovePanel: emitter(listeners.remove),
-      onDidActivePanelChange: emitter(listeners.active),
-    },
-    panels: [],
-    activePanel: null,
+describe('the bars on a real dock', () => {
+  const LAYOUT = {
+    split: 'row',
+    items: [
+      { tile: 't1', tabs: ['ariel'], showing: 'ariel', size: 0.6 },
+      { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+    ],
   };
-  /** @param {string} id @param {string} title */
-  const panelOf = (id, title) => {
-    /** @type {Array<(e: any) => void>} */
-    const titleListeners = [];
-    /** @type {any} */
-    const panel = {
-      id,
-      title,
-      api: {
-        setActive: vi.fn(() => {
-          group.activePanel = panel;
-          for (const fn of [...listeners.active]) fn({});
-        }),
-        onDidTitleChange: vi.fn((/** @type {(e: any) => void} */ fn) => {
-          titleListeners.push(fn);
-          return { dispose: vi.fn() };
-        }),
-        onDidGroupChange: vi.fn(() => ({ dispose: vi.fn() })),
-        close: vi.fn(),
-        get group() {
-          return group;
-        },
-      },
-      /** @param {string} next */
-      rename(next) {
-        panel.title = next;
-        for (const fn of [...titleListeners]) fn({ title: next });
-      },
-    };
-    return panel;
-  };
-  group.panels = entries.map(([id, title]) => panelOf(id, title));
-  group.activePanel = group.panels[activeIndex] ?? null;
-  /** @param {string} id @param {string} title */
-  group.add = (id, title) => {
-    const panel = panelOf(id, title);
-    group.panels.push(panel);
-    for (const fn of [...listeners.add]) fn({});
-    return panel;
-  };
-  /** @param {string} id */
-  group.remove = (id) => {
-    group.panels = group.panels.filter((/** @type {any} */ p) => p.id !== id);
-    if (group.activePanel?.id === id) group.activePanel = group.panels[0] ?? null;
-    for (const fn of [...listeners.remove]) fn({});
-  };
-  return group;
-}
 
-/**
- * The bar of `panel` in `group`, built and initialised as dockview does, and
- * mounted inside a `.dv-tab` (active unless `inactive`) under `.dv-groupview`.
- * @param {any} mod  the dock-tab module
- * @param {any} panel
- * @param {{ inactive?: boolean, header?: HTMLElement }} [opts]
- */
-function mountBar(mod, panel, { inactive = false, header } = {}) {
-  const tab = mod.createTileTab(panel.id);
-  tab.init({ title: panel.title, params: {}, api: panel.api });
-  const host = header ?? document.createElement('div');
-  if (!header) {
-    host.className = 'dv-groupview';
-    document.body.appendChild(host);
-  }
-  let strip = host.querySelector('.dv-tabs-and-actions-container');
-  if (!strip) {
-    strip = document.createElement('div');
-    strip.className = 'dv-tabs-and-actions-container';
-    host.appendChild(strip);
-  }
-  const dvTab = document.createElement('div');
-  dvTab.className = inactive ? 'dv-tab dv-inactive-tab' : 'dv-tab dv-active-tab';
-  dvTab.appendChild(tab.element);
-  strip.appendChild(dvTab);
-  return { tab, host };
-}
+  /** @type {Array<() => void>} */
+  const teardowns = [];
 
-/** @param {HTMLElement} root */
-const items = (root) =>
-  [...root.querySelectorAll('.tile-tab-item')].map((el) => ({
-    key: el.getAttribute('data-panel-key'),
-    text: el.textContent,
-    showing: el.classList.contains('tile-tab-item--showing'),
-    selected: el.getAttribute('aria-selected'),
-  }));
-
-describe('a tile with tabs', () => {
   beforeEach(() => {
     vi.resetModules();
     document.body.innerHTML = '';
-    closeDockPanel.mockClear();
+    // dockview's drag source reads PointerEvent, which jsdom lacks.
+    vi.stubGlobal('PointerEvent', class extends MouseEvent {});
   });
 
-  test('one tab renders the title, no strip, a tile close, and the tile and key stamps', async () => {
-    const mod = await import(MOD);
-    const group = fakeGroup([['iframe:ariel', 'ARIEL']]);
-    const { tab } = mountBar(mod, group.panels[0]);
-    const root = tab.element;
-    expect(root.dataset.tile).toBe('t1');
-    expect(root.getAttribute('data-panel-key')).toBe('ariel');
-    const title = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-title'));
-    const strip = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-tabs'));
-    expect(title.hidden).toBe(false);
-    expect(title.textContent).toBe('Ariel');
-    expect(strip.hidden).toBe(true);
-    expect(strip.children).toHaveLength(0);
-    expect(root.querySelector('.tile-tab-close')?.getAttribute('aria-label')).toBe('Close tile');
+  afterEach(() => {
+    for (const teardown of teardowns.splice(0)) teardown();
+    vi.unstubAllGlobals();
   });
 
-  test('two tabs render the strip in bar order, the showing one marked, and a tab close', async () => {
+  /** Mount a dock with the bar renderer, its tiles applied by a layout holder. */
+  async function mountBars() {
     const mod = await import(MOD);
-    const group = fakeGroup(
-      [
-        ['iframe:ariel', 'ARIEL'],
-        ['iframe:okf', 'KNOWLEDGE'],
-      ],
-      1
-    );
-    const { tab } = mountBar(mod, group.panels[1]);
-    const root = tab.element;
-    const title = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-title'));
-    const strip = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-tabs'));
-    expect(title.hidden).toBe(true);
-    expect(strip.hidden).toBe(false);
-    expect(strip.getAttribute('role')).toBe('tablist');
-    expect(strip.tabIndex).toBe(0);
-    expect(items(root)).toEqual([
-      { key: 'ariel', text: 'Ariel', showing: false, selected: 'false' },
-      { key: 'okf', text: 'Knowledge', showing: true, selected: 'true' },
-    ]);
-    expect(strip.getAttribute('aria-activedescendant')).toBe('tile-tab-item-t1-okf');
-    for (const item of strip.querySelectorAll('.tile-tab-item')) {
-      expect(item.getAttribute('role')).toBe('tab');
-      expect(/** @type {HTMLElement} */ (item).draggable).toBe(true);
-      expect(/** @type {HTMLElement} */ (item).tabIndex).toBe(-1);
-    }
-    expect(root.querySelector('.tile-tab-close')?.getAttribute('aria-label')).toBe('Close tab');
-    // The root still names its own panel, the one it was built for.
-    expect(root.getAttribute('aria-label')).toBe('Knowledge');
-  });
-
-  test('a panel joining or leaving the tile re-renders the strip; a rename renames its item', async () => {
-    const mod = await import(MOD);
-    const group = fakeGroup([['iframe:ariel', 'ARIEL']]);
-    const { tab } = mountBar(mod, group.panels[0]);
-    const root = tab.element;
-    const strip = /** @type {HTMLElement} */ (root.querySelector('.tile-tab-tabs'));
-    const okf = group.add('iframe:okf', 'KNOWLEDGE');
-    expect(strip.hidden).toBe(false);
-    expect(items(root).map((i) => i.key)).toEqual(['ariel', 'okf']);
-    // A title change on a sibling the bar was built before it joined still
-    // reaches the strip: the title subscriptions are re-made on every change.
-    okf.rename('WIKI');
-    expect(items(root).map((i) => i.text)).toEqual(['Ariel', 'Wiki']);
-    group.remove('iframe:okf');
-    expect(strip.hidden).toBe(true);
-    expect(/** @type {HTMLElement} */ (root.querySelector('.tile-tab-title')).hidden).toBe(false);
-  });
-
-  test('a click on an item shows that tab in dockview', async () => {
-    const mod = await import(MOD);
-    const group = fakeGroup([
-      ['iframe:ariel', 'ARIEL'],
-      ['iframe:okf', 'KNOWLEDGE'],
-    ]);
-    const { tab } = mountBar(mod, group.panels[0]);
-    const okfItem = /** @type {HTMLElement} */ (
-      tab.element.querySelector('.tile-tab-item[data-panel-key="okf"]')
-    );
-    okfItem.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    expect(group.panels[1].api.setActive).toHaveBeenCalledTimes(1);
-    expect(group.panels[0].api.setActive).not.toHaveBeenCalled();
-    // dockview answered: the strip now marks the new showing tab.
-    expect(items(tab.element).find((i) => i.showing)?.key).toBe('okf');
-  });
-
-  test('arrow keys, Home and End on the strip move the showing tab, wrapping; Delete closes it', async () => {
-    const mod = await import(MOD);
-    const group = fakeGroup([
-      ['iframe:a', 'A'],
-      ['iframe:b', 'B'],
-      ['iframe:c', 'C'],
-    ]);
-    const { tab } = mountBar(mod, group.panels[0]);
-    const strip = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-tabs'));
-    /** @param {string} key */
-    const press = (key) =>
-      strip.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
-    press('ArrowLeft');
-    expect(group.activePanel.id).toBe('iframe:c');
-    press('ArrowRight');
-    expect(group.activePanel.id).toBe('iframe:a');
-    press('End');
-    expect(group.activePanel.id).toBe('iframe:c');
-    press('Home');
-    expect(group.activePanel.id).toBe('iframe:a');
-    press('Delete');
-    expect(closeDockPanel).toHaveBeenCalledExactlyOnceWith('a');
-  });
-
-  test('an item dragstart records {tab: key} for the drop bridge until the gesture ends', async () => {
-    const mod = await import(MOD);
-    const group = fakeGroup([
-      ['iframe:ariel', 'ARIEL'],
-      ['iframe:okf', 'KNOWLEDGE'],
-    ]);
-    const { tab } = mountBar(mod, group.panels[0]);
-    const seen = vi.fn();
-    const off = mod.onDockDragStart(seen);
-    /** @type {Record<string, string>} */
-    const store = {};
-    const dataTransfer = {
-      setData: (/** @type {string} */ t, /** @type {string} */ v) => {
-        store[t] = v;
-      },
-      effectAllowed: 'all',
+    const { createLayoutHolder } = await import(`${JS}/dock-apply.js`);
+    mod.setTerminalHeaderSource(detachedTerminalHeader());
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const api = loadDockview().createDockview(root, {
+      disableFloatingGroups: true,
+      createComponent: () => ({ element: document.createElement('div'), init() {} }),
+      createTabComponent: (/** @type {{ id: string }} */ o) => mod.createTileTab(o.id),
+      defaultTabComponent: mod.OSPREY_TAB_COMPONENT,
+      dndStrategy: 'html5',
+    });
+    api.layout(1000, 600);
+    teardowns.push(() => api.dispose());
+    const holder = createLayoutHolder({ api, dockPx: { width: 1000, height: 600 } });
+    holder.setPanelRecord('ariel', { title: 'ARIEL' });
+    holder.restore(LAYOUT);
+    await settle();
+    /** @param {string} tile @returns {HTMLElement} */
+    const barOf = (tile) => {
+      const bar = root.querySelector(`.tile-tab[data-tile="${tile}"]`);
+      if (!(bar instanceof HTMLElement)) throw new Error(`no bar for tile ${tile}`);
+      return bar;
     };
-    const okfItem = /** @type {HTMLElement} */ (
-      tab.element.querySelector('.tile-tab-item[data-panel-key="okf"]')
-    );
-    const start = new MouseEvent('dragstart', { bubbles: true, cancelable: true });
-    Object.defineProperty(start, 'dataTransfer', { value: dataTransfer });
-    okfItem.dispatchEvent(start);
-    expect(mod.dockDragSource()).toEqual({ tab: 'okf' });
-    expect(seen).toHaveBeenCalledExactlyOnceWith({ tab: 'okf' });
-    expect(JSON.parse(store[mod.DOCK_SOURCE_MIME])).toEqual({ tab: 'okf' });
-    expect(store['text/plain']).toBe('okf');
-    expect(dataTransfer.effectAllowed).toBe('move');
-    document.dispatchEvent(new MouseEvent('dragend', { bubbles: true }));
-    expect(mod.dockDragSource()).toBeNull();
-    off();
+    return { mod, api, root, holder, barOf };
+  }
+
+  test('a service bar: its title, contribution region, ⋯, Open in new window and Close tile — no strip', async () => {
+    const { root, barOf } = await mountBars();
+    expect(root.querySelectorAll('.tile-tab')).toHaveLength(2);
+    const bar = barOf('t1');
+    expect(bar.getAttribute('data-panel-key')).toBe('ariel');
+    expect(bar.dataset.panelId).toBe('iframe:ariel');
+    expect([...bar.children].map((el) => el.classList[0])).toEqual([
+      'tile-tab-title',
+      'tile-tab-contrib',
+      'tile-tab-actions',
+    ]);
+    expect(bar.querySelector('.tile-tab-title')?.textContent).toBe('Ariel');
+    const actions = /** @type {HTMLElement} */ (bar.querySelector('.tile-tab-actions'));
+    expect([...actions.children].map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Panel menu',
+      'Open in new window',
+      'Close tile',
+    ]);
+    expect(bar.querySelector('.tile-tab-tabs, .tile-tab-item')).toBeNull();
+    // The Agent pane's bar carries its tile and key too.
+    expect(barOf('t2').getAttribute('data-panel-key')).toBe('terminal');
   });
 
-  test('a right-click on an item opens the menu for that tab, elsewhere for the showing one', async () => {
-    const mod = await import(MOD);
-    /** @type {import('vitest').Mock<(id: string, opts: any) => boolean>} */
+  test('measureTabRects measures each tile’s header row, with no tab rects — the Agent tile’s too', async () => {
+    const { mod, api, root } = await mountBars();
+    // jsdom lays nothing out: give each header row the rect a browser would.
+    for (const group of api.groups) {
+      const header = group.element.querySelector('.dv-tabs-and-actions-container');
+      const x = group.id === 't1' ? 0 : 600;
+      header.getBoundingClientRect = () => new DOMRect(x, 0, group.id === 't1' ? 600 : 400, 32);
+    }
+    expect(mod.measureTabRects(root)).toEqual({
+      t1: { barRect: { x: 0, y: 0, width: 600, height: 32 }, tabRects: [] },
+      t2: { barRect: { x: 600, y: 0, width: 400, height: 32 }, tabRects: [] },
+    });
+  });
+
+  test('a right-click on a service bar opens the menu for its panel', async () => {
+    const { mod, barOf } = await mountBars();
     const handler = vi.fn(() => true);
     mod.setTileContextMenuHandler(handler);
-    const group = fakeGroup([
-      ['iframe:ariel', 'ARIEL'],
-      ['iframe:okf', 'KNOWLEDGE'],
-    ]);
-    const { tab } = mountBar(mod, group.panels[0]);
-    const okfItem = /** @type {HTMLElement} */ (
-      tab.element.querySelector('.tile-tab-item[data-panel-key="okf"]')
-    );
-    okfItem.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
-    expect(handler.mock.calls[0][0]).toBe('okf');
-    /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-contrib')).dispatchEvent(
-      new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
-    );
-    expect(handler.mock.calls[1][0]).toBe('ariel');
+    const press = new MouseEvent('contextmenu', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 40,
+      clientY: 12,
+    });
+    /** @type {HTMLElement} */ (barOf('t1').querySelector('.tile-tab-title')).dispatchEvent(press);
+    expect(handler).toHaveBeenCalledExactlyOnceWith('ariel', {
+      x: 40,
+      y: 12,
+      anchorEl: barOf('t1'),
+      mode: 'tile',
+    });
+    expect(press.defaultPrevented).toBe(true);
     mod.setTileContextMenuHandler(null);
   });
 
-  test('measureTabRects keys the showing bars by tile: the items of a strip, the lone title, none for the Agent tile', async () => {
-    const mod = await import(MOD);
-    mod.setTerminalHeaderSource(detachedTerminalHeader());
-    const two = fakeGroup([
-      ['iframe:ariel', 'ARIEL'],
-      ['iframe:okf', 'KNOWLEDGE'],
-    ]);
-    const { host } = mountBar(mod, two.panels[0]);
-    // The hidden sibling's bar renders the same strip but is not on screen.
-    mountBar(mod, two.panels[1], { inactive: true, header: host });
-    const one = fakeGroup([['iframe:lattice', 'LATTICE']]);
-    one.id = 't2';
-    mountBar(mod, one.panels[0]);
-    const agent = fakeGroup([['terminal', 'Agent']]);
-    agent.id = 't3';
-    mountBar(mod, agent.panels[0]);
-    const rects = mod.measureTabRects(document);
-    expect(Object.keys(rects).sort()).toEqual(['t1', 't2', 't3']);
-    expect(rects.t1.tabRects).toHaveLength(2);
-    expect(rects.t2.tabRects).toHaveLength(1);
-    expect(rects.t3.tabRects).toHaveLength(0);
-    for (const tile of Object.values(rects)) {
-      expect(Object.keys(tile.barRect).sort()).toEqual(['height', 'width', 'x', 'y']);
-    }
+  test('a drag of the bar is a drag of its tile for the drop bridge', async () => {
+    const { mod, api, root, holder, barOf } = await mountBars();
+    const { initDockDrop } = await import(`${JS}/dock-drop.js`);
+    teardowns.unshift(initDockDrop(api, root, { holder: () => holder }));
+    const start = new MouseEvent('dragstart', { bubbles: true, cancelable: true });
+    Object.defineProperty(start, 'dataTransfer', {
+      value: { setData: () => {}, setDragImage: () => {}, effectAllowed: 'all', items: [] },
+    });
+    /** @type {HTMLElement} */ (barOf('t1').querySelector('.tile-tab-title')).dispatchEvent(start);
+    expect(mod.dockDragSource()).toEqual({ tile: 't1' });
+    document.dispatchEvent(new MouseEvent('dragend', { bubbles: true }));
+    expect(mod.dockDragSource()).toBeNull();
   });
 
-  test('the Agent tile renders no strip, whatever its group holds', async () => {
-    const mod = await import(MOD);
-    mod.setTerminalHeaderSource(detachedTerminalHeader());
-    const group = fakeGroup([
-      ['terminal', 'Agent'],
-      ['iframe:ariel', 'ARIEL'],
+  test('the title follows a rename of the panel', async () => {
+    const { api, barOf } = await mountBars();
+    api.getPanel('iframe:ariel').api.setTitle('KNOWLEDGE');
+    expect(barOf('t1').querySelector('.tile-tab-title')?.textContent).toBe('Knowledge');
+    expect(barOf('t1').getAttribute('aria-label')).toBe('Knowledge');
+  });
+});
+
+/**
+ * The contract S3's renderer keeps: a bar in the pane's own window is this same
+ * TileTab in `mode: 'detached'`, with Reattach far right, a name, and no verb that
+ * acts on the dock.
+ */
+describe('the bar of a pane in its own window', () => {
+  const REATTACH = { mode: 'detached' };
+
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = '';
+  });
+
+  test('Reattach is the far-right slot, after the ⋯: no open-in-window button and no ×', async () => {
+    const { createTileTab } = await import(MOD);
+    const onReattach = vi.fn();
+    const tab = createTileTab('ariel', { mode: 'detached', onReattach });
+    tab.init({ title: 'ARIEL' });
+    const actions = tab.element.querySelector('.tile-tab-actions');
+    expect(tab.element.lastElementChild).toBe(actions);
+    expect([...actions.children].map((el) => el.className)).toEqual([
+      'tile-tab-more osprey-icon-btn',
+      'tile-tab-reattach osprey-btn',
     ]);
-    const { tab } = mountBar(mod, group.panels[0]);
-    expect(tab.element.querySelector('.tile-tab-tabs')).toBeNull();
-    expect(tab.element.dataset.tile).toBe('t1');
+    const reattach = actions.lastElementChild;
+    expect(reattach.classList.contains('tile-tab-reattach')).toBe(true);
+    expect(reattach.textContent).toBe('Reattach');
+    expect(reattach.title).toBe('Put Ariel back in the workspace');
+    expect(tab.element.querySelector('.tile-tab-window')).toBeNull();
+    expect(tab.element.querySelector('.tile-tab-close')).toBeNull();
+    reattach.click();
+    expect(onReattach).toHaveBeenCalledTimes(1);
+  });
+
+  test('its ⋯ asks for the tile menu hung under it, in detached mode; docked, in tile mode', async () => {
+    const { createTileTab, setTileContextMenuHandler } = await import(MOD);
+    const { initLayoutHolder } = await import(`${JS}/dock-apply.js`);
+    const holder = initLayoutHolder({ dockPx: { width: 1200, height: 800 } });
+    holder.restore({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['ariel'], showing: 'ariel', size: 0.5 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.5 },
+      ],
+    });
+    /** @type {any} */
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const docked = createTileTab('iframe:ariel');
+    docked.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    const dockedMore = /** @type {HTMLElement} */ (docked.element.querySelector('.tile-tab-more'));
+    dockedMore.click();
+    expect(handler.mock.lastCall?.[0]).toBe('ariel');
+    expect(handler.mock.lastCall?.[1]).toMatchObject({
+      anchorEl: docked.element,
+      triggerEl: dockedMore,
+      mode: 'tile',
+    });
+
+    holder.detach('ariel', null);
+    docked.dispose();
+    const tab = createTileTab('ariel', REATTACH);
+    tab.init({ title: 'ARIEL' });
+    const more = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-more'));
+    expect(more.getAttribute('aria-haspopup')).toBe('menu');
+    more.click();
+    expect(handler.mock.lastCall?.[0]).toBe('ariel');
+    expect(handler.mock.lastCall?.[1]).toMatchObject({ triggerEl: more, mode: 'detached' });
+    setTileContextMenuHandler(null);
+  });
+
+  test('it has the pane’s name, and no tile', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('ariel', REATTACH);
+    tab.init({ title: 'ARIEL' });
+    expect(tab.element.querySelector('.tile-tab-title')?.textContent).toBe('Ariel');
+    expect(tab.element.getAttribute('aria-label')).toBe('Ariel');
+    expect(tab.element.dataset.tile).toBeUndefined();
+  });
+
+  test('a docked bar keeps its two buttons and no Reattach', async () => {
+    const { createTileTab } = await import(MOD);
+    const tab = createTileTab('iframe:ariel');
+    tab.init({ title: 'ARIEL', params: {}, api: fakeApi() });
+    expect(tab.element.querySelector('.tile-tab-reattach')).toBeNull();
+    expect(tab.element.querySelector('.tile-tab-window')).not.toBeNull();
+    expect(tab.element.querySelector('.tile-tab-close')).not.toBeNull();
+  });
+
+  test('the contribution host registers from the window, at attached(), not at build', async () => {
+    const { createTileTab } = await import(MOD);
+    const contrib = await import(`${JS}/tile-header-contrib.js`);
+    const dispatch = vi.fn();
+    contrib.contributeLocal('ariel', [{ kind: 'button', id: 'a', label: 'hello' }], dispatch);
+    const tab = createTileTab('ariel', REATTACH);
+    tab.init({ title: 'ARIEL' });
+    const host = tab.element.querySelector('.tile-tab-contrib');
+    expect(host.children).toHaveLength(0);
+    document.body.append(tab.element);
+    tab.attached();
+    expect(host.textContent).toContain('hello');
+    tab.dispose();
+    const next = createTileTab('ariel', REATTACH);
+    next.init({ title: 'ARIEL' });
+    document.body.append(next.element);
+    next.attached();
+    expect(next.element.querySelector('.tile-tab-contrib').textContent).toContain('hello');
+    next.dispose();
+  });
+
+  test('a right-click asks for the menu with the mode at that moment, Agent bar included', async () => {
+    const { createTileTab, setTerminalConsoleBarSource, setTileContextMenuHandler } = await import(
+      MOD
+    );
+    const { initLayoutHolder } = await import(`${JS}/dock-apply.js`);
+    const holder = initLayoutHolder({ dockPx: { width: 1200, height: 800 } });
+    holder.restore({
+      split: 'row',
+      items: [
+        { tile: 't1', tabs: ['ariel'], showing: 'ariel', size: 0.5 },
+        { tile: 't2', tabs: ['terminal'], showing: 'terminal', size: 0.5 },
+      ],
+    });
+    /** @type {any} */
+    const handler = vi.fn(() => true);
+    setTileContextMenuHandler(handler);
+    const bar = detachedConsoleBar();
+    setTerminalConsoleBarSource(bar);
+    const led = /** @type {HTMLElement} */ (bar.querySelector('.agent-bar-spacer'));
+    const docked = createTileTab('terminal');
+    document.body.append(docked.element);
+    led.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(handler.mock.lastCall?.[1].mode).toBe('tile');
+
+    // The same node, wired once, in the window.
+    holder.detach('terminal', null);
+    docked.dispose();
+    const tab = createTileTab('terminal', REATTACH);
+    document.body.append(tab.element);
+    expect(tab.element.contains(bar)).toBe(true);
+    led.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    expect(handler.mock.lastCall?.[0]).toBe('terminal');
+    expect(handler.mock.lastCall?.[1].mode).toBe('detached');
+    tab.dispose();
+  });
+
+  test('disposed, it sends the Agent bar home, intact', async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    const bar = detachedConsoleBar();
+    const home = bar.parentElement;
+    const first = home?.firstElementChild;
+    expect(first).toBe(bar);
+    setTerminalConsoleBarSource(bar);
+    home?.append(document.createElement('main'));
+    const tab = createTileTab('terminal', REATTACH);
+    expect(tab.element.contains(bar)).toBe(true);
+    expect(bar.querySelector('.op-session-new')).not.toBeNull();
+    tab.dispose();
+    expect(bar.parentElement).toBe(home);
+    expect(home?.firstElementChild).toBe(bar);
+    expect(bar.querySelector('.op-session-new')).not.toBeNull();
+  });
+
+  test('a tile that adopted the Agent bar first keeps it when the window’s bar goes', async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    const bar = detachedConsoleBar();
+    setTerminalConsoleBarSource(bar);
+    const inWindow = createTileTab('terminal', REATTACH);
+    const docked = createTileTab('terminal');
+    expect(docked.element.contains(bar)).toBe(true);
+    inWindow.dispose();
+    expect(docked.element.contains(bar)).toBe(true);
+  });
+
+  test('a tile bar disposed in the dock leaves the Agent bar for its reopen, as it did', async () => {
+    const { createTileTab, setTerminalConsoleBarSource } = await import(MOD);
+    const bar = detachedConsoleBar();
+    setTerminalConsoleBarSource(bar);
+    const docked = createTileTab('terminal');
+    docked.dispose();
+    expect(docked.element.contains(bar)).toBe(true);
+  });
+});
+
+describe('a window bar going away takes what it opened', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = '';
+  });
+
+  test('an open popover and an open context menu close', async () => {
+    const { createTileTab } = await import(MOD);
+    const { openPopover } = await import('/design-system/js/popover.js');
+    const { openContextMenu } = await import('/design-system/js/context-menu.js');
+    const tab = createTileTab('ariel', { mode: 'detached' });
+    tab.init({ title: 'ARIEL' });
+    document.body.append(tab.element);
+    tab.attached();
+    const anchor = /** @type {HTMLElement} */ (tab.element.querySelector('.tile-tab-reattach'));
+    const pop = document.createElement('div');
+    pop.className = 'osprey-popover';
+    pop.hidden = true;
+    document.body.append(pop);
+    openPopover(pop, anchor);
+    openContextMenu({
+      x: 1,
+      y: 1,
+      anchorEl: anchor,
+      ariaLabel: 'Actions',
+      items: [{ label: 'A' }],
+    });
+    expect(pop.hidden).toBe(false);
+    expect(document.querySelector('.osprey-context-menu')).not.toBeNull();
+    tab.dispose();
+    expect(pop.hidden).toBe(true);
+    expect(document.querySelector('.osprey-context-menu')).toBeNull();
   });
 });

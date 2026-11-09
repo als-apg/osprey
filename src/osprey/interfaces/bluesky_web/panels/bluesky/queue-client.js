@@ -74,7 +74,7 @@ export function managerStateKnown(status) {
 /** Run statuses a run record can no longer leave (`runs.py`). */
 export const TERMINAL_RUN_STATUSES = Object.freeze(['completed', 'stopped', 'error']);
 
-// The three controls of the queue control strip read as one row of verbs:
+// The three queue controls of the panel toolbar read as one row of verbs:
 // Start · Stop · Abort. What each one does to the running plan is said in its
 // tooltip and, for the two that confirm, in the note that renders on arm.
 export const START_LABEL = 'Start';
@@ -90,19 +90,19 @@ export const CONFIRM_WITHDRAW_STOP_LABEL = 'Confirm — the queue keeps draining
 // has a Stop and the two must not read as degrees of the same thing: this one
 // throws away the rest of the running plan.
 export const ABORT_LABEL = 'Abort';
-// The armed second step of BOTH confirming buttons (Abort, Clear) is the one
-// word "Confirm": the button turns to the caution colour and the note under
-// the strip says what the second click does. panel.css floors every strip
-// button at this label's width, the longest any of them shows, so no swap
-// resizes a box: Abort's width positions Stop beside it, and a label that
+// The armed second step of every confirm (Abort, and the two Clears) is the
+// one word "Confirm": the button turns to the caution colour and the note
+// under the toolbar (Abort) or at the top of its card (the Clears) says what
+// the confirm does. panel.css floors Abort at this label's width, so arming
+// never resizes it: Abort's width positions Stop beside it, and a label that
 // grew on arming used to drag Stop sideways at the exact moment an operator
 // is choosing between the two halts — the armed Abort then covered the
 // pixels Stop had just vacated, so a click aimed at Stop committed the abort.
 export const CONFIRM_LABEL = 'Confirm';
 export const CONFIRM_ABORT_LABEL = CONFIRM_LABEL;
-// Removes every WAITING plan; the running one is untouched (that is Abort).
-export const CLEAR_LABEL = 'Clear';
 export const CONFIRM_CLEAR_LABEL = CONFIRM_LABEL;
+/** The second button of a Clear's confirm note: disarm, remove nothing. */
+export const CANCEL_CLEAR_LABEL = 'Cancel';
 
 /**
  * Plain-language tooltips for the four controls — one sentence each, what the
@@ -321,7 +321,9 @@ export function queueArmed(status) {
  * unknown state is doubt, and doubt is not painted calm.
  *
  * `hint` is the badge's tooltip: one plain sentence saying what the state
- * means for the operator, followed by the manager's own word.
+ * means for the operator, followed by the manager's own word. For an
+ * unavailable queue it is the bridge's own `detail` sentence when the summary
+ * carries one.
  *
  * @param {QueueStatus|null} status
  * @returns {{label: string, tone: BadgeTone, note: string|null, raw: string|null, hint: string}}
@@ -329,6 +331,9 @@ export function queueArmed(status) {
 export function describeQueueStatus(status) {
   if (!status || status.available !== true) {
     const reason = status && typeof status.reason === 'string' ? status.reason : null;
+    // The bridge's own sentence names the cause and its remedy; a summary
+    // with no detail gets the generic unreachable sentence.
+    const detail = status && typeof status.detail === 'string' ? status.detail : '';
     return {
       label: 'unavailable',
       tone: 'err',
@@ -336,7 +341,7 @@ export function describeQueueStatus(status) {
         ? `The queue manager could not be read (${reason}).`
         : 'The queue manager could not be read.',
       raw: null,
-      hint: 'The queue server cannot be reached.',
+      hint: detail || 'The queue server cannot be reached.',
     };
   }
   const raw = typeof status.manager_state === 'string' ? status.manager_state : null;
@@ -417,6 +422,58 @@ export function describeQueueStatus(status) {
     default:
       return { label: raw, tone: 'warn', note: null, raw, hint: hint('Unfamiliar state.') };
   }
+}
+
+/** @typedef {'ok'|'warn'|'err'|'info'|'connecting'|null} ChipTone */
+
+/**
+ * The toolbar's queue status chip: the badge `describeQueueStatus` names, plus
+ * the one state it cannot know — a stream that has not delivered a frame yet,
+ * or has dropped. `tone` names the `.osprey-chip--<tone>` modifier; `null` is
+ * the plain chip, the stopped queue's "nothing happening" look (`neutral`).
+ *
+ * @param {QueueState} state
+ * @returns {{label: string, tone: ChipTone, hint: string, note: string|null}}
+ */
+export function queueChip(state) {
+  const described = describeQueueStatus(state.status);
+  if (!state.connected) {
+    return {
+      label: 'connecting…',
+      tone: 'connecting',
+      hint: 'Waiting for the queue stream.',
+      note: described.note,
+    };
+  }
+  return {
+    label: described.label,
+    tone: described.tone === 'neutral' ? null : described.tone,
+    hint: described.hint,
+    note: described.note,
+  };
+}
+
+/**
+ * What the chip's info popover says. The state in one sentence with the
+ * manager's own word, what the panel could not read (the bridge's reason
+ * included — technical detail stays here, off the page), and one plain
+ * sentence per queue control.
+ *
+ * @param {QueueState} state
+ * @returns {{title: string, text: string, rows: Array<{label: string, value: string}>}}
+ */
+export function queueChipDetail(state) {
+  const chip = queueChip(state);
+  return {
+    title: `Queue: ${chip.label}`,
+    text: [chip.hint, chip.note].filter(Boolean).join('\n'),
+    rows: [
+      { label: START_LABEL, value: CONTROL_HINTS.start },
+      { label: STOP_LABEL, value: CONTROL_HINTS.stop },
+      { label: ABORT_LABEL, value: CONTROL_HINTS.abort },
+      { label: 'Clear waiting plans', value: CONTROL_HINTS.clear },
+    ],
+  };
 }
 
 /** @typedef {{disabled: boolean, reason: string|null}} ControlState */
@@ -545,7 +602,7 @@ export function stopButtonLabel(stop, confirmArmed) {
  * @returns {string}
  */
 export function stopButtonClass(stop, confirmArmed) {
-  return stop.arming && confirmArmed ? 'btn confirm' : 'btn';
+  return stop.arming && confirmArmed ? 'osprey-btn confirm' : 'osprey-btn';
 }
 
 /** @typedef {{note: string|null, running: boolean}} AbortControlState */
@@ -585,7 +642,7 @@ export function abortControl(state) {
 }
 
 /**
- * The Clear control: drop every waiting plan. A usability gate only, like
+ * The queue's Clear: drop every waiting plan. A usability gate only, like
  * Start — it is dead when there is provably nothing to clear, and it never
  * touches the running item (that is Abort). Two-step in the view, because
  * the plans it removes are somebody's staged work.
@@ -602,22 +659,74 @@ export function clearControl(state) {
 }
 
 /**
- * Whether the two halts must be on screen on EVERY tab right now.
+ * The sentence the armed queue Clear shows at the top of the Queued card,
+ * beside its Confirm: what the confirm removes.
+ *
+ * @param {number} waiting
+ * @returns {string|null} `null` when nothing is waiting.
+ */
+export function queueClearConfirmNote(waiting) {
+  if (waiting <= 0) return null;
+  const what = waiting === 1 ? 'the waiting plan' : `all ${waiting} waiting plans`;
+  return `Remove ${what}? The running plan is not touched.`;
+}
+
+/** The id of the panel's one `menu` contribution: the tile ⋯, "This panel". */
+export const MENU_ID = 'bluesky';
+
+/** Its entry ids; `onHeaderAction(MENU_ID, <entry id>)` delivers them. */
+export const MENU_ENTRY = Object.freeze({
+  clearQueue: 'clear-queue',
+  clearHistory: 'clear-history',
+});
+
+/**
+ * The panel's ⋯ "This panel" entries: the two Clears. They are rare and
+ * destructive, so they live in the menu rather than one divider from Abort.
+ * A live entry names how many rows it removes; a dead one claims no count.
+ * A click only ARMS a clear: the confirm is the panel's own, at the top of
+ * the card it empties.
+ *
+ * @param {{queue: ControlState, waiting: number, history: ControlState, listed: number}} clears
+ * @returns {Array<{id: string, label: string, disabled: boolean, danger: boolean}>}
+ */
+export function clearMenuEntries({ queue, waiting, history, listed }) {
+  /** @param {string} verb @param {ControlState} control @param {number} count */
+  const label = (verb, control, count) =>
+    control.disabled || count <= 0 ? `${verb}…` : `${verb} (${count})…`;
+  return [
+    {
+      id: MENU_ENTRY.clearQueue,
+      label: label('Clear waiting plans', queue, waiting),
+      disabled: queue.disabled,
+      danger: true,
+    },
+    {
+      id: MENU_ENTRY.clearHistory,
+      label: label('Clear history', history, listed),
+      disabled: history.disabled,
+      danger: true,
+    },
+  ];
+}
+
+/**
+ * Whether the two halts must be on screen on EVERY view right now.
  *
  * This gates VISIBILITY, never function — the halts stay undisabled and
  * always-sendable whenever they are on screen (see `queueControls` /
  * `abortControl` for why they have no disabled state). What this predicate
- * decides is whether a tab other than Queue may show the queue as a badge
- * alone, and it answers no only when the panel affirmatively knows the halts
- * are dormant. The default for every other state — no frame yet, a dropped
- * stream, an unreadable manager, a state string this bundle has never heard
- * of — is PINNED. Reasons to stay visible are enumerated; hiding is what has
- * to be earned.
+ * decides is whether a view other than Queue may show the queue as its status
+ * chip alone, and it answers no only when the panel affirmatively knows the
+ * halts are dormant. The default for every other state — no frame yet, a
+ * dropped stream, an unreadable manager, a state string this bundle has never
+ * heard of — is PINNED. Reasons to stay visible are enumerated; hiding is what
+ * has to be earned.
  *
  * Dormant means nothing is moving: manager idle, no running item, no pending
  * stop. An ARMED idle queue is dormant by this test — the machine is still —
  * and the moment an item lands the manager leaves idle, so the next frame
- * (≤ 1 s) pins the halts on whichever tab the operator is looking at.
+ * (≤ 1 s) pins the halts on whichever view the operator is looking at.
  *
  * A pending stop pins them even though nothing is "running" in the dangerous
  * sense: the stop button is in its withdrawal mode, and a control an operator
@@ -641,14 +750,15 @@ export function haltsPinned(state) {
 }
 
 /**
- * Which of the strip's controls are shown, given the tab on screen.
+ * Which of the toolbar's queue controls are shown, given the view on screen.
  *
- * ONE set of controls serves every tab (they render outside the view
- * containers, so a halt is never a tab switch away). The Queue tab is the
- * control panel and shows all of them in every state. The other two tabs show
- * the queue as a badge while it is dormant, and grow the two halts the moment
- * anything is moving or in doubt (`haltsPinned`). Start never leaves the
- * Queue tab: arming a queue is a deliberate act, not an always-at-hand one.
+ * ONE set of controls serves every view (the toolbar sits outside the view
+ * containers, so a halt is never a view switch away). The Queue view is the
+ * control panel and shows all of them in every state. The other two views
+ * show the queue as its status chip while it is dormant, and grow the two
+ * halts the moment anything is moving or in doubt (`haltsPinned`). Start
+ * never leaves the Queue view: arming a queue is a deliberate act, not an
+ * always-at-hand one.
  *
  * `dormant` is the halts' visual weight: true when the panel affirmatively
  * knows nothing is moving, so Stop and Abort may render quiet. They stay
@@ -656,12 +766,12 @@ export function haltsPinned(state) {
  *
  * @param {QueueState} state
  * @param {string} view The active view id (`plans` | `queue` | `results`).
- * @returns {{start: boolean, halts: boolean, clear: boolean, dormant: boolean}}
+ * @returns {{start: boolean, halts: boolean, dormant: boolean}}
  */
 export function stripControls(state, view) {
   const pinned = haltsPinned(state);
-  if (view === 'queue') return { start: true, halts: true, clear: true, dormant: !pinned };
-  return { start: false, halts: pinned, clear: false, dormant: !pinned };
+  if (view === 'queue') return { start: true, halts: true, dormant: !pinned };
+  return { start: false, halts: pinned, dormant: !pinned };
 }
 
 /**
@@ -723,7 +833,7 @@ export function abortButtonLabel(confirmArmed) {
  * @returns {string}
  */
 export function abortButtonClass(confirmArmed) {
-  return confirmArmed ? 'btn confirm' : 'btn';
+  return confirmArmed ? 'osprey-btn confirm' : 'osprey-btn';
 }
 
 /**
@@ -845,7 +955,8 @@ export function historyClearControl(records, removals, loaded) {
 }
 
 /**
- * The sentence the armed history Clear shows: what the second click removes.
+ * The sentence the armed history Clear shows at the top of the History card,
+ * beside its Confirm: what the confirm removes.
  *
  * Names the halves that are actually there, so the operator reads what will go
  * rather than a fixed sentence about runs over a card that holds withdrawals.
@@ -861,7 +972,7 @@ export function historyClearConfirmNote(runs, removals) {
     parts.push(removals === 1 ? 'the removed-plan row' : `the ${removals} removed-plan rows`);
   }
   if (parts.length === 0) return null;
-  return `Click again to remove ${parts.join(' and ')} from the list.`;
+  return `Remove ${parts.join(' and ')} from the list?`;
 }
 
 /**
@@ -1191,7 +1302,7 @@ export function historyRecords(runs) {
 const _INITIAL_BACKOFF_MS = 1000;
 const _MAX_BACKOFF_MS = 15000;
 
-/** @typedef {{close: () => void}} QueueStream */
+/** @typedef {{close: () => void, reconnect: () => void}} QueueStream */
 
 /**
  * Subscribe to the queue's SSE stream with reconnect backoff.
@@ -1248,6 +1359,16 @@ export function createQueueStream(url, { onFrame, onConnectionChange, EventSourc
       closed = true;
       if (retryTimer !== null) clearTimeout(retryTimer);
       if (source) source.close();
+    },
+    // An operator's Retry: skip whatever backoff wait is pending and dial
+    // again now, from the first backoff step.
+    reconnect() {
+      if (closed) return;
+      clearTimeout(retryTimer ?? undefined);
+      retryTimer = null;
+      if (source) source.close();
+      backoff = _INITIAL_BACKOFF_MS;
+      connect();
     },
   };
 }

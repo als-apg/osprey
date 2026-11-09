@@ -7,7 +7,7 @@ compares each of them with what ``init`` would write from that source today,
 so a facility edit to an app is reported the way an edit to the profile is —
 and a file whose source no longer ships is named rather than crashed on.
 
-The fixture is one real ``osprey init`` of ``control-assistant``, copied per
+The fixture is one real ``osprey init`` of ``demo``, copied per
 test so each test edits its own repo the way an operator would.
 """
 
@@ -27,14 +27,14 @@ from osprey.cli.validate_cmd import validate
 PROFILE = "profile.yml"
 LOGBOOK = Path("apps") / "logbook.yml"
 READONLY = Path("tiers") / "readonly.yml"
-EXAMPLE_ARTIFACT = "artifact_server.example_artifact: false"
+PICKER = "web.control_target_picker: false"
 
 
 @pytest.fixture(scope="module")
 def materialized(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """One real materialization of the control-assistant preset."""
+    """One real materialization of the demo preset."""
     root = tmp_path_factory.mktemp("layer-drift") / "demo"
-    result = CliRunner().invoke(init, [str(root), "--preset", "control-assistant", "--no-git"])
+    result = CliRunner().invoke(init, [str(root), "--preset", "demo", "--no-git"])
     assert result.exit_code == 0, result.output
     return root
 
@@ -103,12 +103,12 @@ def test_every_tier_and_app_file_is_paired(repo: Path) -> None:
 
 
 def test_one_edited_app_key_is_one_drift_line(repo: Path) -> None:
-    _edit(repo / LOGBOOK, EXAMPLE_ARTIFACT, "artifact_server.example_artifact: true")
+    _edit(repo / LOGBOOK, PICKER, "web.control_target_picker: true")
     report = _report(repo)
     assert len(report.unmarked) == 1
     finding = report.unmarked[0]
     assert finding.kind == "value"
-    assert finding.subject == "config.artifact_server.example_artifact"
+    assert finding.subject == "config.web.control_target_picker"
     assert finding.profile_ref.startswith("apps/logbook.yml:")
 
     result = _validate(str(repo / PROFILE))
@@ -116,11 +116,11 @@ def test_one_edited_app_key_is_one_drift_line(repo: Path) -> None:
     lines = _drift_lines(result.output)
     assert len(lines) == 1, result.output
     assert "apps/logbook.yml" in lines[0]
-    assert "artifact_server.example_artifact" in lines[0]
+    assert "web.control_target_picker" in lines[0]
 
 
 def test_validating_the_app_file_reports_that_app_only(repo: Path) -> None:
-    _edit(repo / LOGBOOK, EXAMPLE_ARTIFACT, "artifact_server.example_artifact: true")
+    _edit(repo / LOGBOOK, PICKER, "web.control_target_picker: true")
     _edit(repo / READONLY, "control_system.writes: never", "control_system.writes: asked")
     refs = [f.profile_ref for f in _report(repo, repo / LOGBOOK).unmarked]
     assert len(refs) == 1 and refs[0].startswith("apps/logbook.yml:")
@@ -143,8 +143,8 @@ def test_structural_app_drift_is_refused(repo: Path) -> None:
 def test_a_marker_claims_a_layer_difference(repo: Path) -> None:
     _edit(
         repo / LOGBOOK,
-        EXAMPLE_ARTIFACT,
-        "# DEVIATION: our gallery shows the example\n  artifact_server.example_artifact: true",
+        PICKER,
+        "# DEVIATION: our logbook shows the picker\n  web.control_target_picker: true",
     )
     report = _report(repo)
     assert report.unmarked == []

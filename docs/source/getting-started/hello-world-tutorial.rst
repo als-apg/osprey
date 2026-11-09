@@ -103,7 +103,7 @@ per line:
      # the built facility; `serving: in_process` runs it inside this process — the
      # facility's channels, its seeds and scenarios, no hardware and no containers
      # — and refuses any address outside the facility. `served` reaches the same
-     # simulator in its container over Channel Access. The control-assistant
+     # simulator in its container over Channel Access. The demo
      # preset shows the EPICS connector configuration,
      # and `osprey config --defaults` lists every shipped connector type.
      control_system.type: virtual_accelerator
@@ -415,7 +415,7 @@ which OSPREY installs:
 
 On the first day the archive is still empty, and DuckDB reports that no file
 matches. See :doc:`/how-to/health-and-monitoring/agent-record` for what the
-record and its archive hold. The control-assistant preset adds a history page in the browser,
+record and its archive hold. The demo preset adds a history page in the browser,
 described in :doc:`/how-to/health-and-monitoring/read-the-record`.
 
 The commands you now know are the complete lifecycle, and they are the same
@@ -428,8 +428,8 @@ Next Steps
 You have a working agent, and — more importantly — a ``profile.yml`` whose
 commented blocks map everything it can become.
 
-- **The production tutorial**: :doc:`control-assistant` builds the
-  ``control-assistant`` preset, which adds a channel database with
+- **The production tutorial**: :doc:`demo` builds the
+  ``demo`` preset, which adds a channel database with
   natural-language channel finding, a seeded electronic logbook, a real
   archive, sub-agents, and operator skills — on the same safety model.
 - **How it works**: :doc:`conceptual-tutorial` explains the MCP server

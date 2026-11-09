@@ -38,6 +38,7 @@ Failure modes
                          matrix produces is stale, or missing
 10. ``layout``           a ``default:`` line stranded below a comment block
                          instead of sitting inside the entry it belongs to
+11. ``preset-count``     manifest prose, or a page that describes presets, that counts them
 
 plus the manifest's own consistency checks (covered-by chains, evidence
 vacuity, governed sets, keeps, absent paths) and a self-test
@@ -57,12 +58,13 @@ with ``re.M`` serves both.
 Usage
 -----
     python scripts/check_config_keys.py
-    python scripts/check_config_keys.py --back-test          # dev-time only
+    python scripts/check_config_keys.py --back-test
     python scripts/check_config_keys.py --back-test <commit>
 
 The back-test proves every orphan regex is falsifiable — it must match at the
 recorded merge-base and not on the branch. It shells out to git and extracts
-the base tree, so it is a developer-time check, not part of the CI run.
+the base tree, so it needs the repository's history. Every ``config-keys``
+run (CI and both gate tiers) includes it.
 """
 
 from __future__ import annotations
@@ -109,6 +111,36 @@ REQUIRED_SECTIONS = ("keys", "deleted", "orphan_sites", "render_contexts")
 EVIDENCE_ROOTS = ("src/osprey", "packages/osprey-connectors/src/osprey_connectors")
 PRESET_DIR = "src/osprey/profiles/presets"
 
+#: The files whose prose describes the presets; ``preset-count`` reads them
+#: beside the manifest's prose. A missing file fails the check, so a moved file
+#: moves here.
+PRESET_PROSE_FILES = (
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
+    "docs/source/how-to/build-profiles.rst",
+    "plugins/osprey/skills/housekeeping/SKILL.md",
+    "plugins/osprey/skills/release/SKILL.md",
+    "scripts/config_key_parity.md",
+    "src/osprey/cli/build_profile_emit.py",
+    "tests/cli/test_emit_partition.py",
+    "tests/cli/test_example_server_launch.py",
+    "tests/cli/test_init_revalidate_fill.py",
+    "tests/cli/test_posture_floor.py",
+    "tests/cli/test_profile_annotations.py",
+    "tests/deployment/test_ci_workflow_wiring.py",
+    "tests/mcp_server/workspace/test_setup_tools.py",
+    "tests/profiles/test_preset_connector_prose.py",
+    "tests/profiles/test_simulation_models_key.py",
+    "tests/profiles/test_simulation_tick_s_key.py",
+    "tests/templates/test_graphdb_preset_block.py",
+)
+
+#: Phrases that count presets and stay, keyed by the one file of
+#: ``PRESET_PROSE_FILES`` each is declared in, with the reason. A count inside
+#: a phrase passes in that file only; a phrase its file does not hold fails, so
+#: an exception leaves with the text it excused.
+PRESET_COUNT_EXCEPTIONS: dict[str, dict[str, str]] = {}
+
 #: The union's non-preset half: the framework template's renders, under one
 #: name so a failure can say which side of the config a key came from.
 FRAMEWORK_SOURCE = "framework"
@@ -133,6 +165,21 @@ INJECTED_SUFFIX = "+injectors"
 #: them.
 PANEL_PORT_MARKER = "osprey:panel-port"
 PANEL_PORT_MARKER_RE = re.compile(rf"{re.escape(PANEL_PORT_MARKER)}\s+([A-Za-z0-9_-]+)")
+
+# A number word from "two" up, any numeral, or "both" within two words before
+# "preset(s)" counts presets. "One" is never a count: it is a pronoun, an
+# article or a distributive ("one ... per preset"), and a sentence about a
+# single preset cannot go stale by a preset being added. A quantifier such as
+# "every root preset" passes: it stays true as presets are added. So does a
+# threshold ("no two", "at least two", "fewer than two"), which states a rule
+# rather than how many presets ship.
+PRESET_COUNT_RE = re.compile(
+    r"(?<!\bno\s)(?<!\bleast\s)(?<!\bthan\s)"
+    r"\b(?:two|three|four|five|six|seven|eight|nine|ten|both|\d+)\b"
+    r"(?:\s+[\w`'-]+){0,2}?\s+presets?\b",
+    re.IGNORECASE,
+)
+PATTERN_FIELDS = frozenset({"evidence", "regex"})
 
 #: A bare-word ``evidence`` regex appearing in more than this many files proves
 #: nothing — it would keep matching after its reader was deleted. See the
@@ -263,6 +310,19 @@ def walk_paths(node: Any, prefix: str = "") -> Iterator[str]:
             path = f"{prefix}.{key}" if prefix else str(key)
             yield path
             yield from walk_paths(value, path)
+
+
+def _prose_strings(node: Any, path: tuple[str, ...]) -> Iterator[tuple[tuple[str, ...], str]]:
+    """Every string scalar under ``node`` with its dotted path, patterns skipped."""
+    if isinstance(node, str):
+        yield path, node
+    elif isinstance(node, dict):
+        for key, value in node.items():
+            if key not in PATTERN_FIELDS:
+                yield from _prose_strings(value, (*path, str(key)))
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from _prose_strings(value, (*path, str(index)))
 
 
 _ABSENT = object()
@@ -990,19 +1050,7 @@ class ConfigKeyGuard:
         A retired key documented as a commented example is still a retired key
         put back in front of the operator, which is what ``system.facility_name``
         was before this branch removed it.
-
-        Some keys are exempt, and the manifest says which and why
-        (``deleted_commented_examples``). Each was removed from what OSPREY
-        SHIPS while staying live in its reader — an explicitly set
-        ``ariel.database.uri`` still wins over the derived DSN — and the
-        commented line beside that prose is the documentation of an override
-        that works, not a retired knob put back. The exemption is narrow: an
-        exempt key is still checked against the rendered union, against a LIVE
-        preset override and against the loader's defaults, which is where an
-        actual resurrection would show.
         """
-        if key in (self.manifest.get("deleted_commented_examples") or {}):
-            return []
         pattern = rf"^\s*#\s*{re.escape(key)}\s*:"
         return [name for name, text in self.preset_texts() if self.has_match(pattern, text)]
 
@@ -1044,36 +1092,6 @@ class ConfigKeyGuard:
                     "resurrection",
                     f"{key} is deleted but the config loader still synthesizes it as a default",
                 )
-
-    def check_deleted_commented_examples(self) -> None:
-        """The exemptions above must stay tied to something real.
-
-        Three ways one rots: it can name a key that was never deleted, it can
-        carry no reason, and it can outlive the preset line it was written for —
-        the last being the one that matters, because an unused exemption is a
-        hole waiting for the next retired key that happens to share the name.
-        """
-        deleted = set(self.manifest["deleted"])
-        for key, why in (self.manifest.get("deleted_commented_examples") or {}).items():
-            if key not in deleted:
-                self.fail(
-                    "resurrection",
-                    f"deleted_commented_examples exempts {key}, which is not on the deleted list",
-                )
-                continue
-            if not str(why or "").strip():
-                self.fail(
-                    "resurrection", f"the commented-example exemption for {key} gives no reason"
-                )
-            pattern = rf"^\s*#\s*{re.escape(key)}\s*:"
-            if not any(self.has_match(pattern, text) for _name, text in self.preset_texts()):
-                self.fail(
-                    "resurrection",
-                    f"the commented-example exemption for {key} is unused — no preset documents "
-                    f"it any more, so the exemption is a hole with nothing behind it",
-                )
-
-    # ── failure mode 5: orphan sites ────────────────────────────────────
 
     def check_orphan_sites(self) -> None:
         absent = [entry["path"] for entry in self.manifest.get("absent_paths") or []]
@@ -1263,6 +1281,58 @@ class ConfigKeyGuard:
                         f"entry; an entry inserted between the two would steal it",
                     )
                 comment = None
+
+    def check_preset_counts(self) -> None:
+        """Manifest prose and the preset pages never count presets.
+
+        ``render_contexts.presets`` and the preset files state how many presets
+        ship; a number, or "both", in a note restates that fact and goes false
+        when a preset is added or removed. Every string scalar is read except
+        ``evidence`` and ``regex`` values, which are patterns, not prose. The
+        files in ``PRESET_PROSE_FILES`` are read whole, so a count wrapped
+        across a line break is still found; a missing file fails. A count
+        inside a ``PRESET_COUNT_EXCEPTIONS`` phrase passes in the file it is
+        declared in, and a phrase its file does not hold fails. A quantifier
+        such as "every root preset" stays true and passes.
+        """
+        for path, text in _prose_strings(self.manifest, ()):
+            match = PRESET_COUNT_RE.search(text)
+            if match is not None:
+                self.fail(
+                    "preset-count",
+                    f"{'.'.join(path)} counts presets ({match.group(0)!r}); the "
+                    f"presets list in render_contexts.presets is the count's one home",
+                )
+        unused = {
+            (rel, phrase) for rel, phrases in PRESET_COUNT_EXCEPTIONS.items() for phrase in phrases
+        }
+        for rel in PRESET_PROSE_FILES:
+            page = self.root / rel
+            if not page.is_file():
+                self.fail("preset-count", f"{rel} is missing; the preset-count check reads it")
+                unused -= {(rel, phrase) for phrase in PRESET_COUNT_EXCEPTIONS.get(rel, {})}
+                continue
+            text = page.read_text(encoding="utf-8")
+            excused = []
+            for phrase in PRESET_COUNT_EXCEPTIONS.get(rel, {}):
+                for found in re.finditer(re.escape(phrase), text):
+                    excused.append((found.start(), found.end()))
+                    unused.discard((rel, phrase))
+            for match in PRESET_COUNT_RE.finditer(text):
+                if any(start <= match.start() and match.end() <= end for start, end in excused):
+                    continue
+                line = text.count("\n", 0, match.start()) + 1
+                self.fail(
+                    "preset-count",
+                    f"{rel}:{line} counts presets ({match.group(0)!r}); the presets "
+                    f"list in render_contexts.presets is the count's one home",
+                )
+        for rel, phrase in sorted(unused):
+            self.fail(
+                "preset-count",
+                f"exception {phrase!r} is not in {rel}; drop it from "
+                f"PRESET_COUNT_EXCEPTIONS[{rel!r}]",
+            )
 
     def check_branch_self_test(self) -> None:
         """Each Jinja conditional branch must still be covered by the matrix.
@@ -1466,7 +1536,7 @@ class ConfigKeyGuard:
         proc = self.git("ls-files", "--", rel_path)
         return [line for line in proc.stdout.splitlines() if line.strip()]
 
-    # ── back-test (developer-time) ──────────────────────────────────────
+    # ── back-test ───────────────────────────────────────────────────────
 
     def back_test(self, commit: str) -> None:
         """Prove every orphan regex is falsifiable against the merge-base.
@@ -1559,12 +1629,12 @@ class ConfigKeyGuard:
         self.check_defaults()
         self.check_evidence_vacuity()
         self.check_deleted()
-        self.check_deleted_commented_examples()
         self.check_orphan_sites()
         self.check_parity()
         self.check_panel_port_markers()
         self.check_branch_self_test()
         self.check_manifest_layout()
+        self.check_preset_counts()
         self.check_provider_shape()
         self.check_governed_sets()
         self.check_keeps()
@@ -1595,7 +1665,7 @@ def main(argv: list[str] | None = None) -> int:
         const="",
         default=None,
         metavar="COMMIT",
-        help="also prove every orphan regex fires at the merge-base (developer-time; "
+        help="also prove every orphan regex fires at the merge-base (needs git history; "
         "defaults to the commit recorded in the manifest)",
     )
     args = parser.parse_args(argv)

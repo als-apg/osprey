@@ -34,8 +34,8 @@ NOISE_SIGMAS = 6.0
 
 
 @pytest.fixture(scope="module")
-def facility(built_control_assistant) -> dict[str, Any]:
-    root = built_control_assistant.facility_dir
+def facility(built_demo) -> dict[str, Any]:
+    root = built_demo.facility_dir
     return {
         "seeds": read_yaml((root / "seeds.yaml").read_text(encoding="utf-8")),
         "scenario": yaml.safe_load(
@@ -45,8 +45,8 @@ def facility(built_control_assistant) -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
-def archive(built_control_assistant) -> ArchiveComposite:
-    view = built_control_assistant.build_dir / "data" / "simulator"
+def archive(built_demo) -> ArchiveComposite:
+    view = built_demo.build_dir / "data" / "simulator"
     return build(view, ["rf-thermal"], anchor_s=RF_ANCHOR_S)
 
 

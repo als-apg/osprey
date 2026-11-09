@@ -3,7 +3,6 @@
 Provides the 'osprey channel-finder' command group with subcommands:
 - Validate database (osprey channel-finder validate)
 - Preview database (osprey channel-finder preview)
-- Web interface (osprey channel-finder web)
 - Benchmark (osprey channel-finder benchmark)
 """
 
@@ -12,8 +11,8 @@ import os
 import click
 
 from osprey.build.modes import VALID_CHANNEL_FINDER_MODES
-from osprey.cli import output
 from osprey.cli.altitude import lift_gate
+from osprey.cli.retired import retired_web_command
 from osprey.cli.styles import Messages, Styles, console
 
 #: The paradigms ``validate --pipeline`` accepts: every registered paradigm
@@ -88,7 +87,7 @@ def _initialize_registry():
 def channel_finder(ctx, project: str | None, verbose: bool):
     """Channel Finder - channel database tools.
 
-    Tools for validating, previewing, serving and benchmarking
+    Tools for validating, previewing and benchmarking
     control system channel databases.
 
     Examples:
@@ -96,7 +95,6 @@ def channel_finder(ctx, project: str | None, verbose: bool):
     \b
       osprey channel-finder validate
       osprey channel-finder preview
-      osprey channel-finder web
     """
     ctx.ensure_object(dict)
     ctx.obj["project"] = project
@@ -256,72 +254,7 @@ def preview(
         raise click.Abort() from None
 
 
-@channel_finder.command("web")
-@click.option("--host", default=None, help="Host to bind to (default: from config or 127.0.0.1)")
-@click.option(
-    "--port",
-    default=None,
-    type=int,
-    help=(
-        "Port to run on (default: OSPREY_CHANNEL_FINDER_PORT, then config, "
-        "then this deployment's layout port)"
-    ),
-)
-@click.pass_context
-def web(ctx, host: str | None, port: int | None):
-    """Launch the Channel Finder web interface.
-
-    Opens a browser-based interface for exploring, searching, and managing
-    control system channels.
-
-    Examples:
-
-    \b
-      osprey channel-finder web
-      osprey channel-finder web --port 9000
-    """
-    project = ctx.obj.get("project")
-    try:
-        _setup_config(project)
-    except click.ClickException:
-        raise
-
-    import uvicorn
-
-    from osprey.interfaces.channel_finder.app import create_app
-    from osprey.interfaces.common_middleware import WEB_PORT_ENV
-    from osprey.interfaces.web_auth import OPERATOR_SECRET_ENV, mint_and_announce
-    from osprey.registry.web import resolve_web_server_bind
-    from osprey_connectors.config import get_config_builder
-
-    # The config _setup_config selected, not the working directory's: under --project they differ.
-    # It is read only when a flag is missing, because a fully flagged run may have no config.
-    config = get_config_builder().raw_config if host is None or port is None else None
-    host, port = resolve_web_server_bind("channel_finder", config, host=host, port=port)
-
-    # Publish the settled port before the app is constructed: cookies ignore
-    # ports, so two OSPREY servers on this host share an origin as far as the
-    # browser is concerned, and the port is the only thing keeping their session
-    # cookies apart. ``session_cookie_name()`` reads it from here.
-    os.environ[WEB_PORT_ENV] = str(port)
-
-    # Mint the operator secret in this CLI parent, which becomes the server
-    # (direct-serve: uvicorn.run(app) runs in-process). ``mint_and_announce``
-    # settles the secret and returns the ``?token=`` login URL — the
-    # operator's only way past the auth middleware. ``announce`` is False only
-    # when the secret was already supplied by an ancestor/deployment, so a
-    # supplied secret is never re-echoed here.
-    announce = not (os.environ.get(OPERATOR_SECRET_ENV) or "").strip()
-    login_url = mint_and_announce(host, port)
-
-    output.report(f"Starting Channel Finder at http://{host}:{port}")
-    if announce:
-        # ``output.report`` rather than ``console.print``: the login URL is a
-        # single unbroken token, and the plain Rich console wraps it at the
-        # terminal width, so a copied line loses the middle of the secret.
-        output.report(f"Open: {login_url}")
-    app = create_app()
-    uvicorn.run(app, host=host, port=port, log_level="info")
+channel_finder.add_command(retired_web_command("channel-finder", "Channel Finder"))
 
 
 def _parse_query_indices(queries_spec: str, total: int) -> list[int]:

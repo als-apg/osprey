@@ -73,7 +73,6 @@ from tests.e2e.profile_edits import set_pairs
 from tests.e2e.provider import build_model, build_provider, e2e_provider
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.requires_e2e_provider,
 ]
@@ -217,7 +216,9 @@ def otlp_json(request: Any) -> dict[str, Any]:
 def sink() -> Iterator[Sink]:
     collected = Sink()
     collected.server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(collected))
-    thread = threading.Thread(target=collected.server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=collected.server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield collected

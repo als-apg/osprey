@@ -2,19 +2,19 @@
 
 ``osprey_panels_context.py`` fetches the web-terminal panel inventory at session
 start, injects it as ``additionalContext`` alongside a line naming the tiles
-actually on screen (each tile with its tabs and showing tab, the terminal
-included), and seeds the workspace snapshot that the UserPromptSubmit
-delta hook diffs against. It is a stdlib-only, fail-open hook: any unreachable
-web terminal or parse error must leave the session unblocked (silent, exit 0).
-These tests cover the string builders and snapshot helpers as pure functions,
-and the ``main`` envelope/fail-open behavior with a stubbed ``urlopen`` (no real
-HTTP).
+actually on screen (each by the one panel it shows, the terminal's included),
+and seeds the workspace snapshot that the UserPromptSubmit delta hook diffs
+against. It is a stdlib-only, fail-open hook: any unreachable web terminal or
+parse error must leave the session unblocked (silent, exit 0). These tests
+cover the string builders and snapshot helpers as pure functions, and the
+``main`` envelope/fail-open behavior with a stubbed ``urlopen`` (no real HTTP).
 """
 
 from __future__ import annotations
 
 import io
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -78,7 +78,7 @@ def test_inventory_lists_enabled_panels_with_visibility():
     result = panels._build_inventory(data)
     assert "Archiver (id=archiver, on rail)" in result
     assert "Bluesky (id=bluesky, off rail)" in result
-    assert "Active tab: archiver." in result
+    assert "Active panel: archiver." in result
 
 
 def test_inventory_label_falls_back_to_uppercase_id():
@@ -105,10 +105,10 @@ def test_inventory_skips_custom_panel_without_id():
     assert "OK (id=ok, off rail)" in result
 
 
-def test_inventory_no_active_tab_phrase():
+def test_inventory_no_active_panel_phrase():
     data = {"enabled": ["bluesky"], "labels": {"bluesky": "Bluesky"}, "visible": ["bluesky"]}
     result = panels._build_inventory(data)
-    assert "No active tab." in result
+    assert "No active panel." in result
 
 
 def test_inventory_empty_returns_none():
@@ -117,10 +117,14 @@ def test_inventory_empty_returns_none():
 
 
 def test_inventory_mentions_control_tools():
+    """The one close verb, and the agent's open: a new tile by default, replace on request."""
     data = {"enabled": ["bluesky"], "labels": {"bluesky": "Bluesky"}, "visible": ["bluesky"]}
     result = panels._build_inventory(data)
-    assert "open_panel" in result and "close_panel" in result
+    assert "open_panel(id)" in result and "new tile" in result
+    assert "place='replace'" in result and "Prefer a new tile" in result
+    assert re.findall(r"close_panel\w*", result) == ["close_panel"]
     assert "add_panel_to_rail" in result and "remove_panel_from_rail" in result
+    assert not re.search(r"\btabs?\b", result)
 
 
 # ---------------------------------------------------------------------------
@@ -176,14 +180,14 @@ def _row(*items):
     return {"split": "row", "items": list(items)}
 
 
-def _flat(tile_id, *tabs, showing=None):
-    """The snapshot form of one tile: id, tabs, showing — no size."""
-    return {"tile": tile_id, "tabs": list(tabs), "showing": showing or tabs[0]}
+def _flat(tile_id, panel):
+    """The snapshot form of one tile: its id and the one panel it shows."""
+    return {"tile": tile_id, "panel": panel}
 
 
-#: Terminal on the left, a two-tab tile showing artifacts beside it.
-_LAYOUT = _row(_tile("t1", "terminal"), _tile("t2", "lattice", "artifacts", showing="artifacts"))
-_TILES = [_flat("t1", "terminal"), _flat("t2", "lattice", "artifacts", showing="artifacts")]
+#: Terminal on the left, then a LATTICE tile and an ARTIFACTS tile.
+_LAYOUT = _row(_tile("t1", "terminal"), _tile("t2", "lattice"), _tile("t3", "artifacts"))
+_TILES = [_flat("t1", "terminal"), _flat("t2", "lattice"), _flat("t3", "artifacts")]
 
 
 def test_workspace_state_extracts_three_facets():
@@ -208,28 +212,20 @@ def test_layout_tiles_reads_nested_splits_depth_first():
         "split": "row",
         "items": [
             _tile("t1", "terminal"),
-            {"split": "column", "items": [_tile("t2", "a", "b"), _tile("t3", "c")]},
+            {"split": "column", "items": [_tile("t2", "a"), _tile("t3", "c")]},
             _tile("t4", "d"),
         ],
     }
-    assert [t["tabs"] for t in panels._layout_tiles(layout)] == [
-        ["terminal"],
-        ["a", "b"],
-        ["c"],
-        ["d"],
-    ]
+    assert [t["panel"] for t in panels._layout_tiles(layout)] == ["terminal", "a", "c", "d"]
 
 
 def test_layout_tiles_single_tile_root():
     assert panels._layout_tiles(_tile("t1", "terminal")) == [_flat("t1", "terminal")]
 
 
-def test_layout_tiles_defaults_showing_to_first_tab():
-    """A showing that names no tab of its tile falls back to the engine's default."""
-    tiles = panels._layout_tiles({"tile": "t1", "tabs": ["a", "b"], "showing": "zzz"})
-    assert tiles[0]["showing"] == "a"
-    tiles = panels._layout_tiles({"tabs": ["a", "b"]})
-    assert tiles == [{"tile": None, "tabs": ["a", "b"], "showing": "a"}]
+def test_layout_tiles_reads_the_panel_and_ignores_showing():
+    """A tile shows the one panel its ``tabs`` lists; a tile without a string id keeps None."""
+    assert panels._layout_tiles({"tabs": ["a"], "showing": "zzz"}) == [{"tile": None, "panel": "a"}]
 
 
 @pytest.mark.parametrize(
@@ -240,8 +236,9 @@ def test_layout_tiles_defaults_showing_to_first_tab():
         [],
         {},
         {"tile": "t1", "tabs": []},
-        {"tile": "t1", "tabs": ["a", 3]},
-        {"tile": "t1", "tabs": ["a", ""]},
+        {"tile": "t1", "tabs": [3]},
+        {"tile": "t1", "tabs": [""]},
+        {"tile": "t1", "tabs": ["a", "b"], "showing": "b"},
         {"split": "row", "items": []},
         {"split": "row", "items": [_tile("t1", "a"), "junk"]},
         {"split": "row"},
@@ -252,8 +249,9 @@ def test_layout_tiles_defaults_showing_to_first_tab():
         "list",
         "empty-object",
         "empty-tabs",
-        "non-string-tab",
-        "blank-tab",
+        "non-string-panel",
+        "blank-panel",
+        "two-panels-in-a-tile",
         "empty-split",
         "junk-item",
         "split-no-items",
@@ -358,26 +356,14 @@ def test_write_snapshot_returns_false_when_unwritable(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_tile_line_names_tiles_tabs_and_showing_with_terminal():
+def test_tile_line_names_each_tile_by_its_panel_with_terminal():
     line = panels._build_tile_line({"tiles": _TILES, "active": "artifacts", "visible": []})
-    assert line == "Open tiles: [terminal], [lattice, artifacts (showing)]; active artifacts."
+    assert line == "Open tiles: [terminal], [lattice], [artifacts]; active artifacts."
 
 
-def test_tile_line_one_tab_tiles_carry_no_marker():
-    tiles = [_flat("t1", "terminal"), _flat("t2", "lattice"), _flat("t3", "bluesky")]
-    line = panels._build_tile_line({"tiles": tiles, "active": "lattice", "visible": []})
-    assert line == "Open tiles: [terminal], [lattice], [bluesky]; active lattice."
-
-
-def test_tile_line_marks_the_showing_tab_wherever_it_sits():
-    tiles = [_flat("t1", "terminal", "lattice", "bluesky", showing="lattice")]
-    line = panels._build_tile_line({"tiles": tiles, "active": "lattice", "visible": []})
-    assert line == "Open tiles: [terminal, lattice (showing), bluesky]; active lattice."
-
-
-def test_tile_line_without_active_tab():
+def test_tile_line_without_active_panel():
     line = panels._build_tile_line({"tiles": _TILES, "active": None, "visible": []})
-    assert line.endswith("; no active tab.")
+    assert line.endswith("; no active panel.")
 
 
 def test_tile_line_is_one_line():
@@ -470,7 +456,7 @@ _TILED_PAYLOAD = {
     "layout_dock": True,
 }
 
-_TILE_LINE = "Open tiles: [terminal], [lattice, artifacts (showing)]; active artifacts."
+_TILE_LINE = "Open tiles: [terminal], [lattice], [artifacts]; active artifacts."
 
 
 def test_main_appends_tile_state_to_context(monkeypatch, capsys):
@@ -485,7 +471,7 @@ def test_main_appends_tile_state_to_context(monkeypatch, capsys):
 
 
 def test_main_omits_tile_state_when_never_reported(monkeypatch, capsys):
-    payload = dict(_TILED_PAYLOAD, layout=None, rev=0, layout_age_s=None)
+    payload = dict(_TILED_PAYLOAD, layout=None, rev=0, layout_age_s=None, layout_dock=None)
     _stub_urlopen(monkeypatch, payload=payload)
     _stub_stdin(monkeypatch, {"session_id": "sess-1"})
 
@@ -622,3 +608,57 @@ def test_workspace_state_names_the_pop_outs_beside_the_tiles():
 def test_tile_line_names_no_pop_outs_when_there_are_none():
     state = panels._workspace_state({"layout": _LAYOUT, "layout_dock": True, "active": "lattice"})
     assert "pop-outs" not in panels._build_tile_line(state)
+
+
+def test_workspace_state_terminal_in_pop_outs_beside_the_tiles():
+    data = {"layout": _tile("t1", "lattice"), "layout_dock": True, "popouts": ["terminal"]}
+    state = panels._workspace_state(data)
+    assert state["popouts"] == ["terminal"]
+    assert "Open tiles: [lattice]; pop-outs: terminal;" in panels._build_tile_line(state)
+
+
+def test_a_dock_report_with_a_null_layout_and_pop_outs_is_an_empty_dock():
+    """The Agent pane detached from the default layout: nothing docked, not unknown."""
+    data = {"layout": None, "layout_dock": True, "popouts": ["terminal"], "visible": []}
+    assert panels._occupancy_is_known(data) is True
+    state = panels._workspace_state(data)
+    assert state["tiles"] == []
+    assert state["popouts"] == ["terminal"]
+    assert panels._build_tile_line(state).startswith("Open tiles: none; pop-outs: terminal;")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"layout": None, "layout_dock": False, "popouts": ["terminal"]},
+        {"layout": None, "layout_dock": None, "popouts": ["terminal"]},
+    ],
+    ids=["dockless", "never-reported"],
+)
+def test_a_null_layout_stays_unknown_unless_a_dock_reported_it(payload):
+    assert panels._occupancy_is_known(payload) is False
+    assert panels._workspace_state(payload)["tiles"] is None
+
+
+def test_a_dock_report_with_a_null_layout_and_no_pop_outs_is_known_empty():
+    """The last detached pane's window closed: the dock says it is empty."""
+    data = {"layout": None, "layout_dock": True, "popouts": [], "visible": []}
+    assert panels._occupancy_is_known(data) is True
+    state = panels._workspace_state(data)
+    assert state["tiles"] == []
+    assert state["popouts"] == []
+    assert panels._build_tile_line(state) == "Open tiles: none (nothing on screen)."
+
+
+def test_main_names_the_detached_agent_pane(monkeypatch, capsys, temp_snapshot_dir):
+    payload = dict(_TILED_PAYLOAD, layout=None, layout_dock=True, popouts=["terminal"])
+    _stub_urlopen(monkeypatch, payload=payload)
+    _stub_stdin(monkeypatch, {"session_id": "sess-1"})
+
+    assert panels.main() == 0
+
+    out = capsys.readouterr().out
+    assert "pop-outs: terminal" in out
+    snapshot = json.loads((temp_snapshot_dir / "osprey-workspace-sess-1.json").read_text())
+    assert snapshot["tiles"] == []
+    assert snapshot["popouts"] == ["terminal"]

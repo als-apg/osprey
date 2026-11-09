@@ -141,7 +141,7 @@ def _overlay_repo_env(repo_root: Path) -> None:
     each with ``override=True`` — so the host-local file wins over the committed
     defaults, and both win over a stale shell export. That is the same
     local-wins precedence every other launch path applies. Every key is copied,
-    not a declared subset — the agent CLI expands ``.mcp.json`` ``${VAR}``
+    except the shell-only launch variables, not a declared subset — the agent CLI expands ``.mcp.json`` ``${VAR}``
     references (Channel Access addressing among them) out of this environment,
     so a narrowed copy would silently mis-address the control system rather
     than fail.
@@ -156,14 +156,10 @@ def _overlay_repo_env(repo_root: Path) -> None:
     :func:`_restore_managed_env`). What survives either way is the non-managed
     remainder that ``.mcp.json`` expansion needs.
     """
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
+    from osprey_connectors.config import apply_env_chain
     from osprey_connectors.dotenv import chain_files
 
-    for env_file in chain_files(repo_root):
-        load_dotenv(env_file, override=True)
+    apply_env_chain(os.environ, chain_files(repo_root))
 
 
 def _snapshot_managed_env() -> dict[str, str | None]:
@@ -434,9 +430,11 @@ def chat(
     # Who this session is, to the ledger: the one name the build recorded.
     from osprey.agent_record.credentials import export_built_host_identity
     from osprey.build.claude_code_telemetry import export_host_terminal_session
+    from osprey.stores.artifact_scope import export_cli_launch
 
     export_built_host_identity(os.environ, repo_root)
     export_host_terminal_session(os.environ)
+    export_cli_launch(os.environ)
 
     config_path = build_dir / "config.yml"
     try:

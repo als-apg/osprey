@@ -19,7 +19,7 @@ Coverage (one test each, every test in Chromium and in WebKit):
       drag does not also sort.
   (d) a right-click on a row opens the shared context menu inside the window,
       and its "Only section" row narrows the result.
-  (e) a device opens in the inspector beside the results, its rows are marked,
+  (e) a device opens in the inspector under the results, its rows are marked,
       and Escape closes it.
 
 The server is the graph-mode Channel Finder over the shared demo corpus
@@ -35,13 +35,14 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.interfaces._panel_host import PanelHost, open_panel_host
 from tests.interfaces.conftest import launch_graph_channel_finder
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-    from playwright.sync_api import Browser, Page
+    from playwright.sync_api import Browser
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
@@ -62,20 +63,20 @@ def finder_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]
         yield url
 
 
-def _open(browser: Browser, url: str) -> Page:
+def _open(browser: Browser, url: str) -> PanelHost:
     page = browser.new_page(viewport=VIEWPORT)
-    page.goto(f"{url}/#explore")
-    page.wait_for_selector(ROWS)
-    return page
+    host = open_panel_host(page, f"{url}/#explore")
+    host.wait_for_selector(ROWS)
+    return host
 
 
-def _columns(page: Page) -> list[str]:
+def _columns(page: PanelHost) -> list[str]:
     return page.eval_on_selector_all(
         ".result-table thead th[data-col]", "els => els.map(e => e.dataset.col)"
     )
 
 
-def _box(page: Page, selector: str) -> dict:
+def _box(page: PanelHost, selector: str) -> dict:
     box = page.locator(selector).bounding_box()
     assert box is not None, f"{selector} is not laid out"
     return box
@@ -170,7 +171,7 @@ def test_a_row_menu_opens_inside_the_window_and_narrows_the_search(
     engine_browser: Browser, finder_url: str
 ):
     page = _open(engine_browser, finder_url)
-    total = page.locator(".result-counts strong").first.inner_text()
+    total = page.locator("#cf-result-count strong").first.inner_text()
 
     row = page.locator(ROWS).nth(2)
     section = row.locator("td.sec").inner_text()
@@ -191,7 +192,7 @@ def test_a_row_menu_opens_inside_the_window_and_narrows_the_search(
 
     menu.locator(".osprey-context-item", has_text=f"Only section {section}").click()
     page.wait_for_selector(f'.active-filter[data-chip="section:{section}"]')
-    assert page.locator(".result-counts strong").first.inner_text() != total
+    assert page.locator("#cf-result-count strong").first.inner_text() != total
     assert set(
         page.eval_on_selector_all(
             "#graph-finder-table .result-table tbody td.sec", "els => els.map(e => e.textContent)"
@@ -199,7 +200,7 @@ def test_a_row_menu_opens_inside_the_window_and_narrows_the_search(
     ) == {section}
 
 
-def test_a_device_opens_beside_the_results_and_escape_closes_it(
+def test_a_device_opens_under_the_results_and_escape_closes_it(
     engine_browser: Browser, finder_url: str
 ):
     page = _open(engine_browser, finder_url)
@@ -209,9 +210,43 @@ def test_a_device_opens_beside_the_results_and_escape_closes_it(
     card.wait_for()
     results = _box(page, ".finder-results")
     inspector = _box(page, ".finder-inspector")
-    assert inspector["x"] >= results["x"] + results["width"]
+    # One wide row under the results: it starts below them and spans their width.
+    assert inspector["y"] >= results["y"] + results["height"]
+    assert abs(inspector["width"] - results["width"]) <= 2
+    assert results["height"] >= 140
     assert page.locator("#graph-finder-table tbody tr.open").count() >= 1
 
     page.keyboard.press("Escape")
     card.wait_for(state="detached")
     assert page.locator("#graph-finder-table tbody tr.open").count() == 0
+
+
+def test_the_menu_key_on_the_focused_results_background_opens_the_results_menu(
+    engine_browser: Browser, finder_url: str
+):
+    """A click on the finder's empty background makes the results the keyboard's
+    surface; Shift+F10 there opens the Results menu, focus on its first row, and
+    Escape hands focus back."""
+    page = _open(engine_browser, finder_url)
+    # A click whose target is the background itself (its own box, not a row).
+    page.eval_on_selector(
+        ".finder-main", "el => el.dispatchEvent(new MouseEvent('click', { bubbles: true }))"
+    )
+    page.wait_for_function(
+        "() => document.activeElement?.matches('.finder-results') ?? false", timeout=5_000
+    )
+
+    page.keyboard.press("Shift+F10")
+    menu = page.locator(".osprey-context-menu")
+    menu.wait_for()
+    assert menu.count() == 1
+    assert menu.get_attribute("aria-label") == "Results"
+    labels = [t.strip() for t in menu.locator(".osprey-context-label").all_inner_texts()]
+    assert labels == ["Clear all filters", "Clear selection", "Choose columns…"], labels
+    assert page.evaluate(
+        "() => document.activeElement?.classList.contains('osprey-context-item') ?? false"
+    )
+
+    page.keyboard.press("Escape")
+    menu.wait_for(state="detached")
+    assert page.evaluate("() => document.activeElement?.matches('.finder-results') ?? false")

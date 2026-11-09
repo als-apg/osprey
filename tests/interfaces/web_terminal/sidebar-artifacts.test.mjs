@@ -1,24 +1,22 @@
 // @ts-check
 /**
- * The sidebar's artifact lists (sidebar-artifacts.js):
+ * The sidebar's session tree controller (sidebar-artifacts.js):
  *   npx vitest run tests/interfaces/web_terminal/sidebar-artifacts.test.mjs
  *
- * The hub owns the artifact list in layout F: the Artifacts row lists the
- * session's artifacts, the Script runs row its run records, both fetched from
- * the artifacts panel through the hub's proxy with the server's `run` filter,
- * and the artifacts iframe shows the one artifact this module picks. These
- * tests drive the module through the sidebar skeleton's ids, the panel's event
- * stream (api.js's real shared stream over a stubbed EventSource) and stubbed
- * fetches, and observe what it draws, what it fetches, what it tells the
- * viewer (`osprey-artifact-select`, and `osprey-artifact-changed` for the
- * shown artifact; the agent's `/api/focus` is only read, never written) and
- * what it contributes to the pane header.
+ * The Sessions row's tree lists the operator's sessions (session-model.js, real
+ * here, over a stubbed hub), each expanding to its artifacts grouped by form
+ * (Kind mode, stored per test), loaded lazily through the artifacts panel's
+ * `session-list` and counted by one `session-summary` per page of sessions.
+ * These tests pin the data flow (what loads when), the clicks (only the
+ * current session opens; another session's name switches and reveals, the
+ * current one's folds, an artifact opens without switching and records
+ * last-artifact), the viewer's
+ * focus rules and pager, and the live counts.
  *
- * Seams mocked: the session source (terminal.js), the header region
- * (tile-header-contrib.js), the iframe sends (panel-iframe-sync.js), the
- * panel activation (panel-manager.js, panel-placement.js) and the tile-menu
- * registry (panel-menu-policy.js). Module state is isolated by
- * vi.resetModules() + dynamic import per test and the module's own teardown.
+ * Collaborators that need a running page are mocked (the chat console, the
+ * terminal session switch, the confirm dialog, the dock, the tile header, the
+ * iframe sync); api.js, session-pointer.js and the row builders are real, with
+ * fetch and EventSource stubbed.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
@@ -26,12 +24,15 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 import { stubEventSource } from '../_support/event-source.mjs';
 
 const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
-const MODULE = `${JS}/sidebar-artifacts.js`;
 
 const mocks = vi.hoisted(() => ({
-  sessionId: /** @type {string | null} */ ('sess-1'),
-  /** @type {((id: string) => void)[]} */
-  sessionListeners: [],
+  streaming: false,
+  terminal: false,
+  showConfirm: vi.fn(),
+  stopTurn: vi.fn(async () => true),
+  newConversation: vi.fn(),
+  resumeSession: vi.fn(),
+  startNewSession: vi.fn(),
   contributeLocal: vi.fn(),
   sendSelect: vi.fn(),
   sendAction: vi.fn(),
@@ -39,11 +40,35 @@ const mocks = vi.hoisted(() => ({
   activateTab: vi.fn(),
   hasDockedTile: vi.fn(() => true),
   setServiceMenuExtras: vi.fn(),
+  isTerminalPanelOpen: vi.fn(() => true),
+  openTerminalPanel: vi.fn(),
+  showAgentPane: vi.fn(),
+  isDetached: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
 }));
 
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/terminal.js', () => ({
-  getCurrentSessionId: () => mocks.sessionId,
-  onSessionChange: (/** @type {(id: string) => void} */ fn) => mocks.sessionListeners.push(fn),
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-apply.js', () => ({
+  TERMINAL_KEY: 'terminal',
+  isDetached: mocks.isDetached,
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/chat.js', () => ({
+  isStreaming: () => mocks.streaming,
+  stopTurn: mocks.stopTurn,
+  newConversation: mocks.newConversation,
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sessions.js', () => ({
+  resumeSession: mocks.resumeSession,
+  startNewSession: mocks.startNewSession,
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/posture-confirm.js', () => ({
+  showConfirm: mocks.showConfirm,
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/agent-surface.js', () => ({
+  isTerminalSurface: () => mocks.terminal,
+  onSurfaceChange: () => () => {},
+}));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => ({
+  isTerminalPanelOpen: mocks.isTerminalPanelOpen,
+  openTerminalPanel: mocks.openTerminalPanel,
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js', () => ({
   contributeLocal: mocks.contributeLocal,
@@ -56,16 +81,26 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-iframe-sync
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js', () => ({
   activateTab: mocks.activateTab,
 }));
+// The panel's frame as dock-iframe holds it: the skeleton's.
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-iframe.js', () => ({
+  managedIframe: (/** @type {string} */ id) => {
+    const iframe = document.querySelector(`iframe.panel-iframe[data-panel-id="${id}"]`);
+    return iframe ? { iframe, title: 'Artifacts' } : null;
+  },
+}));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.js', () => ({
   hasDockedTile: mocks.hasDockedTile,
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js', () => ({
   setServiceMenuExtras: mocks.setServiceMenuExtras,
+  showAgentPane: mocks.showAgentPane,
 }));
 vi.mock('/design-system/js/theme-manager.js', () => ({ getTheme: () => 'dark' }));
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts.js')} */
 let mod;
+/** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/session-pointer.js')} */
+let pointer;
 /** @type {ReturnType<typeof stubEventSource>} */
 let events;
 /** @type {ReturnType<typeof vi.fn>} */
@@ -73,141 +108,238 @@ let fetchMock;
 
 /* ---- fixtures ---------------------------------------------------------- */
 
+const K1 = '11111111-1111-4111-8111-111111111111';
+const K2 = '22222222-2222-4222-8222-222222222222';
+const T1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const T2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const T3 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+
 /**
- * @param {string} id
- * @param {string} type
- * @param {string} timestamp
- * @param {string} title
- * @param {object} [extra]
+ * @param {string} id @param {string} form @param {string} timestamp @param {object} [extra]
  */
-const art = (id, type, timestamp, title, extra = {}) => ({
+const art = (id, form, timestamp, extra = {}) => ({
   id,
-  artifact_type: type,
-  timestamp,
-  title,
+  title: `Title ${id}`,
   filename: `${id}.bin`,
-  session_id: 'sess-1',
+  artifact_type: 'markdown',
+  timestamp,
+  session_id: K1,
+  owner: T1,
+  operator_visible: true,
+  form,
   run_record: false,
   ...extra,
 });
 
-const A3 = art('a3', 'markdown', '2026-10-30T11:00:00Z', 'Tunes report');
-const A2 = art('a2', 'plot_png', '2026-10-30T10:00:00Z', 'Orbit plot');
-const A1 = art('a1', 'markdown', '2026-10-30T09:00:00Z', 'Chroma report');
-const R1 = art('r1', 'notebook', '2026-10-30T10:30:00Z', 'Notebook: compute', { run_record: true });
+const A3 = art('a3', 'documents', '2026-10-30T11:00:00Z');
+const A2 = art('a2', 'plots', '2026-10-30T10:00:00Z');
+const RUN1 = art('run1', 'runs', '2026-10-30T09:00:00Z', {
+  run_record: true,
+  exec_id: 'x1',
+  run_part: 'result',
+  run_status: 'succeeded',
+  run_parts: [
+    { id: 'run1', role: 'result', title: 'Result' },
+    { id: 'out1', role: 'output', title: 'Output plot', form: 'plots' },
+  ],
+});
+const B1 = art('b1', 'plots', '2026-10-29T10:00:00Z', { owner: T2, session_id: K2 });
 
-/**
- * The pages each listing serves, by cursor (`first` for the first page), the
- * single artifacts `GET /api/artifacts/{id}` answers, and what `GET /api/focus`
- * answers.
- * @type {{artifacts: Record<string, any>, runs: Record<string, any>, byId: Record<string, any>,
- *   focus: any}}
- */
+/** @type {any} */
 let server;
 
 function defaultServer() {
   return {
-    artifacts: { first: { artifacts: [A3, A2, A1], total: 3, next_cursor: null } },
-    runs: { first: { artifacts: [R1], total: 1, next_cursor: null } },
-    byId: {},
+    sessions: {
+      first: {
+        sessions: [
+          {
+            transcript_id: T1,
+            session_key: K1,
+            current_for_key: true,
+            title: 'Orbit study',
+            last_artifact_id: null,
+            state: 'live',
+          },
+          {
+            transcript_id: T2,
+            session_key: K2,
+            current_for_key: false,
+            title: 'Tune scan',
+            last_artifact_id: 'b1',
+          },
+        ],
+        more: true,
+        next_cursor: 'p2',
+        record: 'complete',
+      },
+      p2: {
+        sessions: [{ transcript_id: T3, session_key: null, title: 'Old work' }],
+        more: false,
+        next_cursor: null,
+      },
+    },
+    summary: {
+      counts: {
+        [T1]: { total: 3, by_form: { documents: 1, plots: 1, runs: 1 } },
+        [T2]: { total: 2, by_form: { plots: 2 } },
+        [T3]: { total: 1, by_form: { data: 1 } },
+      },
+      owned_total: 9,
+      ledger: 'ok',
+    },
+    /** session-list pages by `${scope}|${form}|${cursor}` */
+    lists: {
+      [`session:${T1}||`]: { artifacts: [A3, A2, RUN1], total: 3, next_cursor: null },
+      [`key:${K1}||`]: { artifacts: [A3, A2, RUN1], total: 3, next_cursor: null },
+      [`session:${T1}|plots|`]: { artifacts: [A2], total: 1, next_cursor: null },
+      [`session:${T1}|documents|`]: { artifacts: [A3], total: 1, next_cursor: null },
+      [`session:${T1}|runs|`]: { artifacts: [RUN1], total: 1, next_cursor: null },
+      [`session:${T2}||`]: { artifacts: [B1], total: 2, next_cursor: 'b-c2' },
+      [`session:${T2}|plots|`]: { artifacts: [B1], total: 2, next_cursor: 'b-c2' },
+      [`session:${T2}|plots|b-c2`]: {
+        artifacts: [art('b2', 'plots', '2026-10-29T09:00:00Z', { owner: T2 })],
+        total: 2,
+        next_cursor: null,
+      },
+    },
+    byId: {
+      a2: A2,
+      a3: A3,
+      b1: B1,
+      run1: RUN1,
+      u1: art('u1', 'plots', '2026-10-30T08:00:00Z', { owner: null, session_id: '' }),
+    },
     focus: { focused: false, artifact: null },
+    enterKey: '99999999-9999-4999-8999-999999999999',
   };
 }
 
 /** @param {unknown} body @param {number} [status] */
-const reply = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
+const reply = (body, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
-/** @param {string} url */
-function route(url) {
+/** @param {any} body */
+function listKey(body) {
+  const scope = body.session ? `session:${body.session}` : `key:${body.key}`;
+  return `${scope}|${body.form ?? ''}|${body.cursor ?? ''}`;
+}
+
+/** @param {string} url @param {any} [init] */
+function route(url, init = {}) {
   const u = new URL(url, 'http://hub');
+  const body = init.body ? JSON.parse(init.body) : null;
+  const method = init.method ?? 'GET';
+  if (u.pathname === '/api/sessions')
+    return reply(server.sessions[u.searchParams.get('cursor') ?? 'first']);
+  if (u.pathname.endsWith('/enter')) return reply({ session_key: server.enterKey });
+  if (method === 'PUT' && u.pathname.endsWith('/pin'))
+    return reply({ pinned: body.pinned ? new Date().toISOString() : null });
+  if (method === 'PUT') return reply({ ok: true });
+  if (u.pathname.endsWith('/api/artifacts/session-summary')) return reply(server.summary);
+  if (u.pathname.endsWith('/api/artifacts/session-list')) {
+    return reply(server.lists[listKey(body)] ?? { artifacts: [], total: 0, next_cursor: null });
+  }
+  if (u.pathname.endsWith('/api/type-registry')) return reply({}, 404);
+  if (u.pathname.endsWith('/api/focus')) return reply(server.focus);
   const one = u.pathname.match(/\/panel\/artifacts\/api\/artifacts\/(.+)$/);
   if (one) {
     const entry = server.byId[decodeURIComponent(one[1])];
-    return entry ? reply(entry) : reply({ detail: 'not found' }, 404);
-  }
-  if (u.pathname.endsWith('/panel/artifacts/api/focus')) return reply(server.focus);
-  if (u.pathname.endsWith('/panel/artifacts/api/artifacts')) {
-    const pages = u.searchParams.get('run') === 'true' ? server.runs : server.artifacts;
-    return reply(pages[u.searchParams.get('cursor') ?? 'first'] ?? { artifacts: [], total: 0 });
+    return entry ? reply(entry) : reply({ detail: 'gone' }, 404);
   }
   return reply({}, 404);
 }
 
-/** The sidebar skeleton slots this module draws into (index.html, sidebar.js). */
 function skeleton() {
   document.body.innerHTML = `
-    <nav id="sidebar">
-      <div class="sidebar-row" id="sidebar-artifacts-row">
-        <button class="osprey-nav-row parent panel-rail-button" data-panel-id="artifacts">
-          <span class="osprey-nav-badge" data-art-count></span>
-        </button>
-        <div class="sidebar-row-actions">
-          <button class="osprey-mini" data-art-filter-toggle></button>
-          <button class="osprey-mini" data-art-menu aria-controls="sidebar-artifacts-menu"></button>
-        </div>
-        <div id="sidebar-artifacts-kids" class="sidebar-kids">
-          <label class="sidebar-kids-filter" data-art-filter hidden><input type="search"></label>
-          <div id="sidebar-artifacts-list" class="sidebar-kids-list" role="listbox"></div>
-        </div>
-      </div>
-      <div class="sidebar-row" id="sidebar-runs-row">
-        <button class="osprey-nav-row parent" id="sidebar-runs-toggle">
-          <span class="osprey-nav-badge" data-runs-count></span>
-        </button>
-        <div id="sidebar-runs-kids" class="sidebar-kids">
-          <div id="sidebar-runs-list" class="sidebar-kids-list" role="listbox"></div>
-        </div>
-      </div>
-    </nav>
-    <div id="sidebar-artifacts-flyout" class="osprey-popover" hidden>
-      <div class="sidebar-flyout-head"><b>Artifacts</b><span class="osprey-count" data-art-count></span></div>
-      <div class="sidebar-kids">
-        <label class="sidebar-kids-filter" data-art-filter hidden><input type="search"></label>
-        <div id="sidebar-artifacts-flyout-list" class="sidebar-kids-list" role="listbox"></div>
-      </div>
+    <div class="sidebar-row" id="sidebar-agent-wrap">
+      <button class="osprey-nav-row parent panel-rail-button" id="sidebar-agent-row" data-panel-id="terminal"></button>
+      <button class="osprey-icon-btn sidebar-new-session" id="sidebar-new-session" type="button"></button>
+      <div class="sidebar-kids osprey-tree" id="sidebar-session-tree" data-session-tree></div>
     </div>
-    <div id="sidebar-artifacts-menu" class="osprey-popover" role="menu" hidden></div>
-    <iframe class="panel-iframe" data-panel-id="artifacts"></iframe>
-  `;
+    <iframe class="panel-iframe" data-panel-id="artifacts"></iframe>`;
 }
 
-/** @returns {HTMLIFrameElement} */
-function viewer() {
-  return /** @type {HTMLIFrameElement} */ (document.querySelector('iframe.panel-iframe'));
-}
-
-/** Let every pending fetch and render settle. */
 async function settle() {
-  for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-/** @param {string} listId */
-function ids(listId) {
-  return [...document.querySelectorAll(`#${listId} .osprey-list-row`)].map(
-    (row) => /** @type {HTMLElement} */ (row).dataset.id
+const tree = () => /** @type {HTMLElement} */ (document.getElementById('sidebar-session-tree'));
+
+/** The session rows' titles. */
+function sessionTitles() {
+  return [...tree().querySelectorAll('.osprey-tree-session .osprey-tree-title')].map(
+    (t) => t.textContent
   );
 }
 
-/** @param {string} listId */
-function heads(listId) {
-  return [...document.querySelectorAll(`#${listId} .osprey-list-head`)].map((h) => h.textContent);
-}
-
-/** @param {string} listId @param {string} id */
-function row(listId, id) {
-  const el = [...document.querySelectorAll(`#${listId} .osprey-list-row`)].find(
-    (r) => /** @type {HTMLElement} */ (r).dataset.id === id
-  );
-  if (!el) throw new Error(`no row ${id} in #${listId}`);
+/** @param {string} id */
+function sessionRowEl(id) {
+  const el = tree().querySelector(`.osprey-tree-session[data-session-id="${id}"]`);
+  if (!el) throw new Error(`no session row ${id}`);
   return /** @type {HTMLElement} */ (el);
 }
 
-/** The artifact id the viewer was last told to show. */
-function shown() {
-  return mocks.sendSelect.mock.lastCall?.[1];
+/** @param {string} id */
+function artifactRowEl(id) {
+  const el = tree().querySelector(`.osprey-list-row[data-id="${id}"]`);
+  if (!el) throw new Error(`no artifact row ${id}`);
+  return /** @type {HTMLElement} */ (el);
 }
 
-/** The last header contribution: its items and its dispatch. */
+/** @param {string} sid */
+function boxIds(sid) {
+  const box = tree().querySelector(`[data-session-box="${sid}"]`);
+  return box
+    ? [...box.querySelectorAll('.osprey-list-row[data-id]')].map(
+        (r) => /** @type {HTMLElement} */ (r).dataset.id
+      )
+    : null;
+}
+
+/** @param {Element} el @param {number} [detail]  the click count */
+function click(el, detail = 1) {
+  el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail }));
+}
+
+/** A ⌥-click (altKey). @param {Element} el */
+function altClick(el) {
+  el.dispatchEvent(
+    new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, altKey: true })
+  );
+}
+
+/** @returns {string[]} the open session rows' ids */
+function openSessions() {
+  return [...tree().querySelectorAll('.osprey-tree-session[aria-expanded="true"]')].map(
+    (r) => /** @type {HTMLElement} */ (r).dataset.sessionId ?? ''
+  );
+}
+
+/** A double-click: two clicks, the second with `detail` 2, then dblclick. @param {Element} el */
+function dblclick(el) {
+  click(el, 1);
+  click(el, 2);
+  el.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, detail: 2 }));
+}
+
+/**
+ * Requests to a path, with their bodies.
+ * @param {string} suffix
+ * @param {string | null} [method]
+ */
+function requests(suffix, method = null) {
+  return fetchMock.mock.calls
+    .filter(
+      ([url, init]) =>
+        new URL(String(url), 'http://hub').pathname.endsWith(suffix) &&
+        (!method || (init?.method ?? 'GET') === method)
+    )
+    .map(([url, init]) => ({ url: String(url), body: init?.body ? JSON.parse(init.body) : null }));
+}
+
+const shown = () => mocks.sendSelect.mock.lastCall?.[1];
+
 function headerNow() {
   const call = mocks.contributeLocal.mock.lastCall;
   if (!call) throw new Error('no header contribution');
@@ -217,21 +349,20 @@ function headerNow() {
   };
 }
 
-/** @param {string} id */
-function headerItem(id) {
-  return headerNow().items.find((item) => item.id === id);
+/** The artifacts panel's event source. */
+function artifactSource() {
+  const source = events.opened.find((s) => s.url.includes('/panel/artifacts/api/events'));
+  if (!source) throw new Error('no artifacts event source');
+  return source;
 }
 
-/** Every listing request, as URL search params. */
-function listingQueries() {
-  return fetchMock.mock.calls
-    .map(([url]) => new URL(String(url), 'http://hub'))
-    .filter((u) => u.pathname.endsWith('/api/artifacts'))
-    .map((u) => Object.fromEntries(u.searchParams));
+/** @param {any} frame */
+function frame(frame) {
+  artifactSource().onmessage?.({ data: JSON.stringify(frame) });
 }
 
-async function boot() {
-  mod.initSidebarArtifacts();
+async function boot({ served = true } = {}) {
+  mod.initSidebarArtifacts({ served });
   await settle();
 }
 
@@ -240,591 +371,1070 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(Date.UTC(2026, 9, 30, 12, 0));
   document.documentElement.setAttribute('data-facility-timezone', 'UTC');
-  document.documentElement.dataset.agentSurface = 'terminal';
   localStorage.clear();
-  mocks.sessionId = 'sess-1';
-  mocks.sessionListeners.length = 0;
-  for (const fn of [
-    mocks.contributeLocal,
-    mocks.sendSelect,
-    mocks.sendAction,
-    mocks.sendChanged,
-    mocks.activateTab,
-    mocks.setServiceMenuExtras,
-  ]) {
-    fn.mockClear();
-  }
-  mocks.hasDockedTile.mockReset();
+  // Written against Kind mode, which an operator must choose (Activity is the
+  // default; see the tree-mode test below).
+  localStorage.setItem('osprey-sidebar-artifacts-view', 'kind');
+  mocks.streaming = false;
+  mocks.terminal = false;
+  for (const fn of Object.values(mocks))
+    if (typeof fn === 'function' && 'mockClear' in fn) fn.mockClear();
   mocks.hasDockedTile.mockReturnValue(true);
+  mocks.isTerminalPanelOpen.mockReturnValue(true);
+  mocks.resumeSession.mockImplementation(async (key) => pointer.setPointer(key));
   server = defaultServer();
-  fetchMock = vi.fn(async (/** @type {string} */ url) => route(url));
+  fetchMock = vi.fn(async (/** @type {string} */ url, /** @type {any} */ init) => route(url, init));
   vi.stubGlobal('fetch', fetchMock);
   events = stubEventSource();
   skeleton();
-  mod = await import(MODULE);
+  pointer = await import(`${JS}/session-pointer.js`);
+  pointer.setPointer(K1);
+  mod = await import(`${JS}/sidebar-artifacts.js`);
 });
 
 afterEach(() => {
-  mod.teardownSidebarArtifacts();
+  mod.resetSidebarArtifacts();
   vi.useRealTimers();
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
   document.body.replaceChildren();
   document.documentElement.removeAttribute('data-facility-timezone');
-  delete document.documentElement.dataset.agentSurface;
-  document.documentElement.removeAttribute('data-osprey-storage-scope');
 });
 
-/* ---- stopping and starting again ---------------------------------------- */
+/* ---- data -------------------------------------------------------------- */
 
-describe('teardown and a later start', () => {
-  test('takes the rows, counts and filter off the page', async () => {
+describe('the data', () => {
+  test('session rows load whether or not the artifacts panel is served; groups and counts only while it is', async () => {
+    await boot({ served: false });
+    expect(sessionTitles()).toEqual(['Orbit study', 'Tune scan']);
+    expect(requests('/session-summary')).toHaveLength(0);
+    expect(requests('/session-list')).toHaveLength(0);
+    expect(tree().querySelector('[data-session-box]')).toBeNull();
+
+    mod.initSidebarArtifacts();
+    await settle();
+    expect(requests('/session-summary').map((r) => r.body)).toEqual([{ sessions: [T1, T2] }]);
+    expect(boxIds(T1)).toEqual([]);
+  });
+
+  test('the active session opens on first paint; one summary per loaded page; More sessions counts the rest', async () => {
     await boot();
-    expect(ids('sidebar-artifacts-list')).not.toEqual([]);
+    expect(sessionRowEl(T1).classList.contains('active')).toBe(true);
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+    expect(sessionRowEl(T1).querySelector('.osprey-tree-n')?.textContent).toBe('3');
+    // 9 owned − (3 + 2) loaded.
+    expect(tree().querySelector('[data-tree-more] .osprey-tree-n')?.textContent).toBe('4');
+    // Every row the tree shows is an agent session's: no bucket for the rest.
+    expect(tree().querySelector('[data-tree-earlier], .osprey-tree-earlier')).toBeNull();
 
-    mod.teardownSidebarArtifacts();
+    click(/** @type {Element} */ (tree().querySelector('[data-tree-more]')));
+    await settle();
+    expect(sessionTitles()).toEqual(['Orbit study', 'Tune scan', 'Old work']);
+    expect(requests('/session-summary').map((r) => r.body)).toEqual([
+      { sessions: [T1, T2] },
+      { sessions: [T3] },
+    ]);
+    expect(tree().querySelector('[data-tree-more]')).toBeNull();
+  });
 
-    expect(document.getElementById('sidebar-artifacts-list')?.children.length).toBe(0);
-    expect(document.getElementById('sidebar-runs-list')?.children.length).toBe(0);
-    for (const el of document.querySelectorAll('[data-art-count], [data-runs-count]')) {
-      expect(/** @type {HTMLElement} */ (el).hidden).toBe(true);
-    }
-    const row = /** @type {HTMLElement} */ (
-      document.querySelector('.osprey-nav-row[data-panel-id="artifacts"]')
+  test('the session listing walks the session pages with drain only on each first listing', async () => {
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector('[data-tree-more]')));
+    await settle();
+    const urls = requests('/api/sessions').map((r) => r.url);
+    expect(urls).toEqual(['/api/sessions?drain=1', '/api/sessions?cursor=p2&drain=1']);
+  });
+
+  test('Kind mode loads a group only when it opens, grouped runs, paged in its box', async () => {
+    await boot();
+    // First paint lists the active key's artifacts, nothing per group.
+    expect(requests('/session-list').map((r) => r.body)).toEqual([{ key: K1, runs: 'grouped' }]);
+    // Group heads come from the summary counts, before anything loaded.
+    const heads = [...tree().querySelectorAll(`[data-group-head^="${T1}:"]`)].map(
+      (h) => /** @type {HTMLElement} */ (h).dataset.groupHead
     );
-    expect(row.dataset.tip).toBe('Artifacts');
-    expect(mocks.contributeLocal.mock.lastCall?.[1][0]).toMatchObject({
-      root: 'Artifacts',
-      leaf: '',
+    expect(heads).toEqual([`${T1}:runs`, `${T1}:plots`, `${T1}:documents`]);
+
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    expect(requests('/session-list').map((r) => r.body)).toEqual([
+      { key: K1, runs: 'grouped' },
+      { session: T1, form: 'plots', runs: 'grouped' },
+    ]);
+    expect(boxIds(T1)).toEqual(['a2']);
+  });
+
+  test('a scroll to the end of a box loads the next page of its open groups', async () => {
+    await boot();
+    // Entering T2 reveals its last-open b1, which opens the plots group.
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(boxIds(T2)).toEqual(['b1']);
+    const box = /** @type {HTMLElement} */ (tree().querySelector(`[data-session-box="${T2}"]`));
+    box.dispatchEvent(new Event('scroll'));
+    await settle();
+    expect(boxIds(T2)).toEqual(['b1', 'b2']);
+    expect(requests('/session-list').at(-1)?.body).toEqual({
+      session: T2,
+      form: 'plots',
+      runs: 'grouped',
+      cursor: 'b-c2',
     });
   });
 
-  test('closes the stream and leaves no retry behind', async () => {
+  test('the incomplete notice row shows', async () => {
+    server.sessions.first.record = 'incomplete';
     await boot();
-    vi.useFakeTimers();
-    const fail = () => {
-      const source = /** @type {any} */ (events.opened.at(-1));
-      source.readyState = 2;
-      source.onerror?.();
-      return source;
-    };
-    // A refused stream retries by itself: that retry is what has to end.
-    fail();
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(events.opened.length).toBe(2);
-
-    const source = fail();
-    mod.teardownSidebarArtifacts();
-    await vi.advanceTimersByTimeAsync(5 * 60_000);
-
-    expect(source.closed).toBe(true);
-    expect(events.opened.length).toBe(2);
+    expect(tree().querySelector('[data-tree-notice="incomplete"]')).not.toBeNull();
   });
 
-  test('a start after a teardown reads and follows again, once per change', async () => {
+  test('a new key gets a synthesized "New session" row, listed by key', async () => {
     await boot();
-    mod.teardownSidebarArtifacts();
-    await boot();
-
-    expect(ids('sidebar-artifacts-list')).not.toEqual([]);
-    expect(events.opened.length).toBe(2);
-    // One subscription, however many starts: a second would refetch twice.
-    expect(mocks.sessionListeners.length).toBe(1);
-  });
-});
-
-/* ---- fetching ---------------------------------------------------------- */
-
-describe('fetching', () => {
-  test('fetches both lists through the proxy, split by run and scoped to the session', async () => {
-    await boot();
-    expect(listingQueries()).toEqual([
-      { run: 'false', session_id: 'sess-1' },
-      { run: 'true', session_id: 'sess-1' },
-    ]);
-    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^\/panel\/artifacts\/api\/artifacts\?/);
-  });
-
-  test('All sessions drops the session; a session change brings the scope back', async () => {
-    await boot();
-    /** @type {HTMLElement} */ (document.querySelector('[data-art-menu]')).click();
-    const allSessions = /** @type {HTMLElement} */ (
-      document.querySelector('[data-art-all-sessions]')
-    );
-    allSessions.click();
+    pointer.setPointer('77777777-7777-4777-8777-777777777777');
     await settle();
-    expect(listingQueries().slice(2)).toEqual([{ run: 'false' }, { run: 'true' }]);
-    expect(allSessions.getAttribute('aria-checked')).toBe('true');
-    expect(document.querySelector('[data-art-menu]')?.hasAttribute('data-art-scope')).toBe(true);
-
-    mocks.sessionId = 'sess-2';
-    for (const listener of mocks.sessionListeners) listener('sess-2');
-    await settle();
-    expect(listingQueries().slice(4)).toEqual([
-      { run: 'false', session_id: 'sess-2' },
-      { run: 'true', session_id: 'sess-2' },
-    ]);
-    expect(allSessions.getAttribute('aria-checked')).toBe('false');
-  });
-
-  test('Refresh fetches both lists again and closes the menu', async () => {
-    await boot();
-    /** @type {HTMLElement} */ (document.querySelector('[data-art-menu]')).click();
-    const menu = /** @type {HTMLElement} */ (document.getElementById('sidebar-artifacts-menu'));
-    expect(menu.hidden).toBe(false);
-    /** @type {HTMLElement} */ (menu.querySelector('[data-art-refresh]')).click();
-    await settle();
-    expect(listingQueries()).toHaveLength(4);
-    expect(menu.hidden).toBe(true);
-  });
-
-  test('scrolling a list to its end fetches the next page by its cursor', async () => {
-    server.artifacts.first = { artifacts: [A3, A2], total: 3, next_cursor: 'c1' };
-    server.artifacts.c1 = { artifacts: [A1], total: 3, next_cursor: null };
-    await boot();
-    expect(ids('sidebar-artifacts-list')).toEqual(['a3', 'a2']);
-    document.getElementById('sidebar-artifacts-list')?.dispatchEvent(new Event('scroll'));
-    await settle();
-    expect(listingQueries()[2]).toEqual({ run: 'false', session_id: 'sess-1', cursor: 'c1' });
-    expect(ids('sidebar-artifacts-list')).toEqual(['a3', 'a1', 'a2']);
-  });
-
-  test('a reconnect fetches again; the first open does not', async () => {
-    await boot();
-    const [source] = events.opened;
-    expect(source.url).toBe('/panel/artifacts/api/events');
-    source.onopen?.();
-    await settle();
-    expect(listingQueries()).toHaveLength(2);
-    source.onopen?.();
-    await settle();
-    expect(listingQueries()).toHaveLength(4);
-  });
-});
-
-/* ---- drawing ----------------------------------------------------------- */
-
-describe('drawing', () => {
-  test('groups by type into the row list and the flyout list alike', async () => {
-    await boot();
-    for (const listId of ['sidebar-artifacts-list', 'sidebar-artifacts-flyout-list']) {
-      expect(heads(listId)).toEqual(['Reports', 'Plots']);
-      expect(ids(listId)).toEqual(['a3', 'a1', 'a2']);
-    }
-    expect(ids('sidebar-runs-list')).toEqual(['r1']);
-    expect(heads('sidebar-runs-list')).toEqual([]);
-  });
-
-  test('Activity groups by day, and the grouping is kept per user', async () => {
-    document.documentElement.setAttribute('data-osprey-storage-scope', 'alice');
-    await boot();
-    /** @type {HTMLElement} */ (document.querySelector('[data-art-view="activity"]')).click();
-    expect(heads('sidebar-artifacts-list')).toEqual(['Today']);
-    expect(ids('sidebar-artifacts-list')).toEqual(['a3', 'a2', 'a1']);
-    expect(document.querySelector('[data-art-view="activity"]')?.getAttribute('aria-checked')).toBe(
-      'true'
-    );
-    expect(document.querySelector('[data-art-view="types"]')?.getAttribute('aria-checked')).toBe(
-      'false'
-    );
-    expect(localStorage.getItem('osprey-sidebar-artifacts-view--alice')).toBe('activity');
-    expect(localStorage.getItem('osprey-sidebar-artifacts-view')).toBeNull();
-
-    mod.teardownSidebarArtifacts();
-    await boot();
-    expect(heads('sidebar-artifacts-list')).toEqual(['Today']);
-  });
-
-  test('counts go on the rows, the flyout and the collapsed tooltips', async () => {
-    await boot();
-    const counts = [...document.querySelectorAll('[data-art-count]')].map((el) => el.textContent);
-    expect(counts).toEqual(['3', '3']);
-    expect(document.querySelector('[data-runs-count]')?.textContent).toBe('1');
-    expect(/** @type {HTMLElement} */ (document.querySelector('[data-runs-count]')).hidden).toBe(
-      false
-    );
+    expect(sessionTitles()[0]).toBe('New session');
     expect(
-      /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]')).dataset.tip
-    ).toBe('Artifacts · 3');
-    expect(document.getElementById('sidebar-runs-toggle')?.dataset.tip).toBe('Script runs · 1');
-  });
-
-  test('the filter opens on its toggle while the list is short, and filters by title', async () => {
-    await boot();
-    const label = /** @type {HTMLElement} */ (document.querySelector('[data-art-filter]'));
-    expect(label.hidden).toBe(true);
-    /** @type {HTMLElement} */ (document.querySelector('[data-art-filter-toggle]')).click();
-    expect(label.hidden).toBe(false);
-    const input = /** @type {HTMLInputElement} */ (label.querySelector('input'));
-    input.value = 'REPORT';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    expect(ids('sidebar-artifacts-list')).toEqual(['a3', 'a1']);
-    expect(ids('sidebar-artifacts-flyout-list')).toEqual(['a3', 'a1']);
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    expect(ids('sidebar-artifacts-list')).toEqual(['a3', 'a1', 'a2']);
-  });
-
-  test('above eight artifacts the filter stays open', async () => {
-    server.artifacts.first = { artifacts: [A3, A2, A1], total: 9, next_cursor: 'c1' };
-    await boot();
-    for (const label of document.querySelectorAll('[data-art-filter]')) {
-      expect(/** @type {HTMLElement} */ (label).hidden).toBe(false);
-    }
-    expect(document.querySelector('[data-art-filter-toggle]')?.getAttribute('aria-pressed')).toBe(
-      'true'
-    );
-  });
-
-  test('runs without the sidebar skeleton', async () => {
-    document.body.replaceChildren();
-    await boot();
-    expect(listingQueries()).toHaveLength(2);
-    expect(mocks.sendSelect).not.toHaveBeenCalled();
+      requests('/session-list').some((r) => r.body.key === '77777777-7777-4777-8777-777777777777')
+    ).toBe(true);
   });
 });
 
-/* ---- selection --------------------------------------------------------- */
+/* ---- expansion and clicks ---------------------------------------------- */
 
-describe('selection', () => {
-  test('the newest result is shown first and the viewer is told', async () => {
+describe('expansion and clicks', () => {
+  test('with no mode stored the tree opens in Activity mode', async () => {
+    localStorage.removeItem('osprey-sidebar-artifacts-view');
     await boot();
-    expect(mocks.sendSelect).toHaveBeenLastCalledWith(viewer(), 'a3');
-    expect(row('sidebar-artifacts-list', 'a3').getAttribute('aria-selected')).toBe('true');
+    expect(mod.treeView()).toBe('activity');
+    expect(tree().querySelector('[data-group-head]')).toBeNull();
   });
 
-  test('a row click shows it and never asks for the agent focus', async () => {
+  test('only the current session is open: the others are folded, with no disclosure', async () => {
     await boot();
-    const before = fetchMock.mock.calls.length;
-    row('sidebar-artifacts-list', 'a2').click();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T1).querySelector('[data-tree-disc]')).not.toBeNull();
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).toBeNull();
+    expect(tree().querySelectorAll('[data-session-box]')).toHaveLength(1);
+    expect(boxIds(T1)).not.toBeNull();
+  });
+
+  test('a non-current session never opens in place: any click on its row enters it', async () => {
+    await boot();
+    mocks.streaming = true;
+    mocks.showConfirm.mockImplementation((spec) => spec.onDismiss());
+    // The slot where a disclosure would be, the dot and the count: each one
+    // asks to switch (Cancel here), and none opens the row without switching.
+    for (const part of ['.osprey-tree-disc', '.osprey-dot', '.osprey-tree-n']) {
+      click(/** @type {Element} */ (sessionRowEl(T2).querySelector(part)));
+      await settle();
+      expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+    }
+    expect(mocks.showConfirm).toHaveBeenCalledTimes(3);
+    expect(pointer.getPointer()).toBe(K1);
+  });
+
+  test('switching collapses the previous session and opens the new one, even if it was folded', async () => {
+    await boot();
+    // Fold the current session first: the switch still opens the next one.
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
     await settle();
-    expect(shown()).toBe('a2');
-    expect(row('sidebar-artifacts-list', 'a2').getAttribute('aria-selected')).toBe('true');
-    expect(row('sidebar-artifacts-list', 'a3').getAttribute('aria-selected')).toBe('false');
-    expect(mocks.activateTab).not.toHaveBeenCalled();
-    // The only focus request is the read at start; a pick writes nothing.
-    expect(fetchMock.mock.calls.slice(before)).toEqual([]);
-    const writes = fetchMock.mock.calls.filter(([, init]) => init?.method && init.method !== 'GET');
-    expect(writes).toEqual([]);
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).not.toBeNull();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    expect(sessionRowEl(T1).querySelector('[data-tree-disc]')).toBeNull();
+    expect(tree().querySelector(`[data-session-box="${T1}"]`)).toBeNull();
   });
 
-  test('a row click brings the artifacts tile up when it is not docked', async () => {
-    mocks.hasDockedTile.mockReturnValue(false);
+  test('a session switched to from elsewhere (the pointer moves) opens and the old one folds', async () => {
     await boot();
-    row('sidebar-artifacts-list', 'a1').click();
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    pointer.setPointer('77777777-7777-4777-8777-777777777777');
+    await settle();
+    const fresh = /** @type {HTMLElement} */ (tree().querySelector('.osprey-tree-session.active'));
+    expect(fresh.getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('a double-click on the current session folds it (once), and on another enters it open', async () => {
+    await boot();
+    dblclick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    dblclick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+
+    dblclick(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(1);
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test("a click on the current session's name or disclosure folds and unfolds it, and nothing else", async () => {
+    await boot();
+    const calls = fetchMock.mock.calls.length;
+
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    expect(sessionRowEl(T1).querySelector('[data-tree-disc]')).not.toBeNull();
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('[data-tree-disc]')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('[data-tree-disc]')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+
+    expect(mocks.resumeSession).not.toHaveBeenCalled();
+    expect(mocks.openTerminalPanel).not.toHaveBeenCalled();
+    expect(mocks.activateTab).not.toHaveBeenCalled();
+    expect(pointer.getPointer()).toBe(K1);
+    // No reveal: the session's rows were loaded, so nothing is fetched.
+    expect(fetchMock.mock.calls.length).toBe(calls);
+  });
+
+  test('⌥-click on a session expands every session, artifacts shown; again collapses them all', async () => {
+    await boot();
+    altClick(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+    // The other session shows its artifacts, behind a disclosure, without a switch.
+    expect(tree().querySelector(`[data-session-box="${T2}"] [data-group-head]`)).not.toBeNull();
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).not.toBeNull();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(0);
+    expect(pointer.getPointer()).toBe(K1);
+
+    altClick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([]);
+    expect(tree().querySelectorAll('[data-session-box]')).toHaveLength(0);
+
+    // Not all open (only the current one): ⌥-click expands rather than collapses.
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1]);
+    altClick(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+  });
+
+  test('toggleAllSessions (the Agent row’s ⌥-click) expands, collapses, and honours a forced value', async () => {
+    await boot();
+    mod.toggleAllSessions();
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+    mod.toggleAllSessions();
+    await settle();
+    expect(openSessions()).toEqual([]);
+    mod.toggleAllSessions(true);
+    await settle();
+    mod.toggleAllSessions(true);
+    await settle();
+    expect(openSessions()).toEqual([T1, T2]);
+  });
+
+  test('a plain click on the current session after expand-all returns to it alone, still open', async () => {
+    await boot();
+    mod.toggleAllSessions();
+    await settle();
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([T1]);
+    expect(sessionRowEl(T2).querySelector('[data-tree-disc]')).toBeNull();
+    // From there the plain rule holds: the next click folds it.
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(openSessions()).toEqual([]);
+  });
+
+  test('a switch after expand-all returns to the current-only rule', async () => {
+    await boot();
+    mod.toggleAllSessions();
+    await settle();
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(1);
+    expect(openSessions()).toEqual([T2]);
+  });
+
+  test('a session title carries no tooltip: no title, no tip detail', async () => {
+    await boot();
+    for (const id of [T1, T2]) {
+      const title = /** @type {HTMLElement} */ (
+        sessionRowEl(id).querySelector('.osprey-tree-title')
+      );
+      expect(title.hasAttribute('title')).toBe(false);
+      expect(title.hasAttribute('data-tip')).toBe(false);
+      expect(title.hasAttribute('data-tip-detail')).toBe(false);
+    }
+  });
+
+  test('openInAgent on the current session opens the Agent pane and keeps it unfolded', async () => {
+    await boot();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+
+    await mod.openInAgent(T1);
+    await settle();
+
+    expect(mocks.openTerminalPanel).toHaveBeenCalled();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(mocks.resumeSession).not.toHaveBeenCalled();
+  });
+
+  test('with the Agent pane closed, a click on the current session reopens it instead of folding', async () => {
+    await boot();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    mocks.showAgentPane.mockClear();
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(mocks.showAgentPane).toHaveBeenCalledTimes(1);
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+    // Pane back: the next click folds again, and does not reopen.
+    mocks.isTerminalPanelOpen.mockReturnValue(true);
+    click(/** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(mocks.showAgentPane).toHaveBeenCalledTimes(1);
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('with the Agent pane in its window, a click on the current session brings it forward and leaves the fold', async () => {
+    await boot();
+    mocks.showAgentPane.mockClear();
+    const title = () =>
+      /** @type {Element} */ (sessionRowEl(T1).querySelector('.osprey-tree-title'));
+    // Folded first, the way an operator would have left it.
+    click(title());
+    await settle();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    mocks.isDetached.mockImplementation((/** @type {string} */ id) => id === 'terminal');
+    click(title());
+    await settle();
+    expect(mocks.showAgentPane).toHaveBeenCalledTimes(1);
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    mocks.isDetached.mockReset();
+    mocks.isDetached.mockReturnValue(false);
+  });
+
+  test('a session-name click enters a non-current session and reveals its last-open artifact', async () => {
+    await boot();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(mocks.openTerminalPanel).toHaveBeenCalled();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(1);
+    expect(pointer.getPointer()).toBe(server.enterKey);
+    expect(shown()).toBe('b1');
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('true');
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    expect(
+      artifactRowEl('b1').getAttribute('aria-selected') ?? artifactRowEl('b1').className
+    ).toBeTruthy();
+  });
+
+  test('during a chat turn a session-name click asks first, and Cancel stays put', async () => {
+    await boot();
+    mocks.streaming = true;
+    mocks.showConfirm.mockImplementation((spec) => spec.onDismiss());
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(mocks.showConfirm).toHaveBeenCalledOnce();
+    expect(pointer.getPointer()).toBe(K1);
+    expect(sessionRowEl(T2).getAttribute('aria-expanded')).toBe('false');
+  });
+
+  test('reveal of an artifact on page 3 inside a collapsed run opens the run', async () => {
+    const part = art('deep-out', 'plots', '2026-10-01T00:00:00Z', {
+      owner: T2,
+      exec_id: 'deep',
+      run_part: 'output',
+    });
+    const head = art('deep-head', 'runs', '2026-10-01T00:00:00Z', {
+      owner: T2,
+      exec_id: 'deep',
+      run_status: 'failed',
+      run_parts: [
+        { id: 'deep-head', role: 'result' },
+        { id: 'deep-out', role: 'output', title: 'Deep output', form: 'plots' },
+      ],
+    });
+    server.byId['deep-out'] = part;
+    server.sessions.first.sessions[1].last_artifact_id = 'deep-out';
+    server.lists[`session:${T2}|runs|`] = {
+      artifacts: [art('r-a', 'runs', '2026-10-29T00:00:00Z', { owner: T2, exec_id: 'ra' })],
+      total: 3,
+      next_cursor: 'c2',
+    };
+    server.lists[`session:${T2}|runs|c2`] = {
+      artifacts: [art('r-b', 'runs', '2026-10-28T00:00:00Z', { owner: T2, exec_id: 'rb' })],
+      total: 3,
+      next_cursor: 'c3',
+    };
+    server.lists[`session:${T2}|runs|c3`] = { artifacts: [head], total: 3, next_cursor: null };
+    await boot();
+
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+
+    const runRow = /** @type {HTMLElement} */ (tree().querySelector('[data-run="deep"]'));
+    expect(runRow.getAttribute('aria-expanded')).toBe('true');
+    expect(boxIds(T2)).toContain('deep-out');
+    expect(shown()).toBe('deep-out');
+  });
+
+  test('an artifact click shows it without switching, records last-artifact, and brings an undocked panel up', async () => {
+    await boot();
+    mocks.hasDockedTile.mockReturnValue(false);
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+
+    click(artifactRowEl('a2'));
+    await settle();
+
+    expect(shown()).toBe('a2');
+    expect(pointer.getPointer()).toBe(K1);
+    expect(requests(`/api/sessions/${T1}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
+      { artifact_id: 'a2' },
+    ]);
     expect(mocks.activateTab).toHaveBeenCalledWith('artifacts', { userInitiated: true });
   });
 
-  test('a script run row is shown too', async () => {
+  test('a docked panel is focused in place: no activation', async () => {
     await boot();
-    row('sidebar-runs-list', 'r1').click();
-    expect(shown()).toBe('r1');
-    expect(row('sidebar-runs-list', 'r1').getAttribute('aria-selected')).toBe('true');
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    click(artifactRowEl('a2'));
+    expect(mocks.activateTab).not.toHaveBeenCalled();
   });
 
-  test('the viewer announcing itself gets the selection again', async () => {
+  test("a chat artifact link records its owner's last-artifact", async () => {
     await boot();
-    const frameWindow = {};
-    Object.defineProperty(viewer(), 'contentWindow', { value: frameWindow });
-    mocks.sendSelect.mockClear();
-    const announce = (/** @type {unknown} */ source) => {
-      const event = new MessageEvent('message', {
-        data: { type: 'osprey-artifact-ready' },
-        origin: window.location.origin,
-      });
-      Object.defineProperty(event, 'source', { value: source });
-      window.dispatchEvent(event);
-    };
-    announce({});
-    expect(mocks.sendSelect).not.toHaveBeenCalled();
-    announce(frameWindow);
-    expect(mocks.sendSelect).toHaveBeenCalledWith(viewer(), 'a3');
-  });
-
-  test('Up and Down move between the rows of a list', async () => {
-    await boot();
-    const first = row('sidebar-artifacts-list', 'a3');
-    first.focus();
-    first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
-    expect(document.activeElement).toBe(row('sidebar-artifacts-list', 'a1'));
+    document.dispatchEvent(new CustomEvent('osprey-artifact-opened', { detail: { id: 'b1' } }));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
+      { artifact_id: 'b1' },
+    ]);
+    expect(pointer.getPointer()).toBe(K1);
   });
 });
 
-/* ---- the pane header --------------------------------------------------- */
+/* ---- the viewer -------------------------------------------------------- */
 
-describe('the pane header', () => {
-  test('crumb and pager follow the list as drawn; next and prev step through it', async () => {
+describe('the viewer', () => {
+  test("with no pick it shows the active session's newest artifact", async () => {
     await boot();
-    expect(headerItem('crumb').leaf).toBe('Tunes report');
-    expect(headerItem('pager').text).toBe('1 of 3');
-    expect(headerItem('prev').disabled).toBe(true);
-    headerNow().dispatch('next');
-    await settle();
-    expect(shown()).toBe('a1');
-    expect(headerItem('pager').text).toBe('2 of 3');
-    headerNow().dispatch('next');
-    await settle();
-    expect(shown()).toBe('a2');
-    expect(headerItem('next').disabled).toBe(true);
-    headerNow().dispatch('prev');
-    await settle();
-    expect(shown()).toBe('a1');
+    expect(shown()).toBe('a3');
   });
 
-  test('next past the last held artifact fetches the next page', async () => {
-    server.artifacts.first = { artifacts: [A3], total: 2, next_cursor: 'c1' };
-    server.artifacts.c1 = { artifacts: [A1], total: 2, next_cursor: null };
+  test('a non-automatic focus takes the pick and records last-artifact; an automatic one in chat only records the focus', async () => {
     await boot();
-    expect(headerItem('next').disabled).toBe(false);
-    headerNow().dispatch('next');
-    await settle();
-    expect(shown()).toBe('a1');
-    expect(headerItem('pager').text).toBe('2 of 2');
-  });
-
-  test('a scope change during that fetch keeps the pick and steps nowhere', async () => {
-    server.artifacts.first = { artifacts: [A3], total: 2, next_cursor: 'c1' };
-    /** @type {(value: unknown) => void} */
-    let release = () => {};
-    const gate = new Promise((resolve) => {
-      release = resolve;
-    });
-    fetchMock.mockImplementation(async (/** @type {string} */ url) => {
-      if (String(url).includes('cursor=c1')) {
-        await gate;
-        return reply({ artifacts: [A1], total: 2, next_cursor: null });
-      }
-      return route(url);
-    });
-    await boot();
-    headerNow().dispatch('next');
-    await settle();
-    // The new session's list no longer holds a3; drawn by type it starts at
-    // a1, its newest is a2.
-    server.artifacts.first = { artifacts: [A2, A1], total: 2, next_cursor: null };
-    mocks.sessionId = 'sess-2';
-    for (const listener of mocks.sessionListeners) listener('sess-2');
-    await settle();
-    expect(shown()).toBe('a2');
-    release(undefined);
-    await settle();
-    expect(shown()).toBe('a2');
-  });
-
-  test('a shown artifact its own list does not hold gets no pager', async () => {
-    await boot();
-    // The server's verdict moved a3 to the run records; the artifacts list
-    // still holds and shows it until the next first page.
-    events.emit({ type: 'artifact_updated', id: 'a3', run_record: true });
+    // The hook's review notebook: a run record, focused automatically.
+    frame({ type: 'focus', id: 'run1', automatic: true, session: T1 });
     await settle();
     expect(shown()).toBe('a3');
-    expect(headerNow().items.map((item) => item.id)).toEqual(['crumb', 'open', 'save']);
+    expect(requests('/last-artifact', 'PUT')).toHaveLength(0);
+
+    frame({ type: 'focus', id: 'a2', automatic: false, session: T1 });
+    await settle();
+    expect(shown()).toBe('a2');
+    expect(requests(`/api/sessions/${T1}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
+      { artifact_id: 'a2' },
+    ]);
   });
 
-  test('Open full size and Save act on the shown artifact', async () => {
+  test('on the terminal surface every focus takes the pick', async () => {
+    mocks.terminal = true;
     await boot();
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    headerNow().dispatch('open');
-    expect(open).toHaveBeenCalledWith(
-      '/panel/artifacts/api/markdown/a3/rendered?theme=dark',
-      '_blank',
-      'noopener'
-    );
+    frame({ type: 'focus', id: 'a2', automatic: true, session: T1 });
+    await settle();
+    expect(shown()).toBe('a2');
+  });
+
+  test('a focus naming another transcript, or none, leaves the pick alone', async () => {
+    await boot();
+    frame({ type: 'focus', id: 'a2', automatic: false, session: T2 });
+    frame({ type: 'focus', id: 'a2', automatic: false, session: null });
+    frame({ type: 'focus', id: 'a2', automatic: false });
+    await settle();
+    expect(shown()).toBe('a3');
+    expect(requests('/last-artifact', 'PUT')).toHaveLength(0);
+  });
+
+  test('a session without a transcript follows no focus', async () => {
+    // A key the listing has no row for: the active row is synthesized.
+    pointer.setPointer('77777777-7777-4777-8777-777777777777');
+    await boot();
+    const before = shown();
+    frame({ type: 'focus', id: 'a2', automatic: false, session: null });
+    frame({ type: 'focus', id: 'a2', automatic: false, session: T1 });
+    await settle();
+    expect(shown()).toBe(before);
+    expect(requests('/last-artifact', 'PUT')).toHaveLength(0);
+  });
+
+  test("a key change never re-shows the previous session's artifact", async () => {
+    await boot();
+    frame({ type: 'focus', id: 'a2', automatic: false, session: T1 });
+    await settle();
+    pointer.setPointer('77777777-7777-4777-8777-777777777777');
+    await settle();
+    expect(shown()).not.toBe('a2');
+  });
+
+  test('the tile bar offers Info and Download, no subtitle and no pager', async () => {
+    await boot();
+    const { items, dispatch } = headerNow();
+    expect(items.map((i) => `${i.kind}:${i.id}`)).toEqual(['icon:info', 'icon:download']);
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    headerNow().dispatch('save');
+    dispatch('download');
     expect(click).toHaveBeenCalledTimes(1);
+    click.mockRestore();
+    dispatch('next');
+    await settle();
+    expect(shown()).toBe('a3');
   });
 
-  test('with no artifact the header is the bare crumb and disabled actions', async () => {
-    server.artifacts.first = { artifacts: [], total: 0 };
-    server.runs.first = { artifacts: [], total: 0 };
+  test('an artifact no session owns shows without a pager, and lists nowhere', async () => {
     await boot();
-    expect(headerNow().items.map((item) => item.id)).toEqual(['crumb', 'open', 'save']);
-    expect(headerItem('crumb').leaf).toBe('');
-    expect(headerItem('open').disabled).toBe(true);
-    expect(mocks.contributeLocal.mock.lastCall?.[0]).toBe('artifacts');
+    frame({ type: 'focus', id: 'u1', automatic: false, session: T1 });
+    await settle();
+    expect(shown()).toBe('u1');
+    expect(headerNow().items.map((i) => i.id)).toEqual(['info', 'download']);
+    expect(requests('/session-list').some((r) => !r.body.session && !r.body.key)).toBe(false);
+    expect(tree().querySelector('.osprey-list-row[data-id="u1"]')).toBeNull();
+  });
+
+  test('the tile menu keeps its artifact verbs', async () => {
+    await boot();
+    expect(mocks.setServiceMenuExtras).toHaveBeenCalledWith('artifacts', expect.any(Function));
   });
 });
 
-/* ---- the event stream -------------------------------------------------- */
+/* ---- live updates ------------------------------------------------------ */
 
-describe('the event stream', () => {
-  test('a new artifact lands in the list the server says, and is counted', async () => {
+describe('live updates', () => {
+  const count = (/** @type {string} */ sid) =>
+    sessionRowEl(sid).querySelector('.osprey-tree-n')?.textContent;
+
+  test('a duplicate frame is counted once', async () => {
     await boot();
-    events.emit({ type: 'artifact', ...art('a4', 'table_html', '2026-10-30T11:30:00Z', 'Scan') });
-    events.emit({
-      type: 'artifact',
-      ...art('r2', 'json', '2026-10-30T11:40:00Z', 'Result', { run_record: true }),
-    });
-    expect(ids('sidebar-artifacts-list')).toContain('a4');
-    expect(ids('sidebar-runs-list')).toEqual(['r2', 'r1']);
-    expect(document.querySelector('[data-art-count]')?.textContent).toBe('4');
-    expect(document.querySelector('[data-runs-count]')?.textContent).toBe('2');
+    const fresh = art('n1', 'plots', '2026-10-30T11:30:00Z');
+    frame({ type: 'artifact', ...fresh });
+    frame({ type: 'artifact', ...fresh });
+    await settle();
+    expect(count(T1)).toBe('4');
   });
 
-  test('an artifact of another session stays out; an untagged one comes in', async () => {
+  test('the preview then the result of one exec_id count once, and the status follows', async () => {
     await boot();
-    events.emit({
+    frame({
       type: 'artifact',
-      ...art('x', 'markdown', '2026-10-30T11:50:00Z', 'X', { session_id: 'sess-9' }),
+      ...art('pv', 'runs', '2026-10-30T11:40:00Z', {
+        exec_id: 'x9',
+        run_part: 'preview',
+        run_status: null,
+      }),
     });
-    events.emit({
+    frame({
       type: 'artifact',
-      ...art('u', 'markdown', '2026-10-30T11:50:00Z', 'U', { session_id: '' }),
+      ...art('res', 'runs', '2026-10-30T11:41:00Z', {
+        exec_id: 'x9',
+        run_part: 'result',
+        run_status: 'succeeded',
+      }),
     });
-    expect(ids('sidebar-artifacts-list')).not.toContain('x');
-    expect(ids('sidebar-artifacts-list')).toContain('u');
+    await settle();
+    expect(count(T1)).toBe('4');
   });
 
-  test('an update merges; a delete removes and the next artifact is shown', async () => {
+  test('a dispatch frame (not operator-visible) is ignored', async () => {
     await boot();
-    events.emit({ type: 'artifact_updated', ...A3, title: 'Tunes report v2' });
-    expect(headerItem('crumb').leaf).toBe('Tunes report v2');
-    events.emit({ type: 'artifact_deleted', id: 'a3' });
-    expect(ids('sidebar-artifacts-list')).toEqual(['a1', 'a2']);
-    expect(document.querySelector('[data-art-count]')?.textContent).toBe('2');
-    expect(shown()).toBe('a2');
+    frame({
+      type: 'artifact',
+      ...art('d1', 'plots', '2026-10-30T11:30:00Z', { operator_visible: false }),
+    });
+    await settle();
+    expect(count(T1)).toBe('3');
   });
 
-  test('the viewer is told when the shown artifact changes, and never about another', async () => {
+  test('a frame no session owns adds no row and no count anywhere', async () => {
     await boot();
-    expect(shown()).toBe('a3');
-    events.emit({ type: 'artifact_updated', ...A2, title: 'Orbit plot v2' });
-    events.emit({ type: 'artifact_deleted', id: 'a1' });
+    frame({
+      type: 'artifact',
+      ...art('u2', 'plots', '2026-10-30T11:30:00Z', { owner: null, session_id: '' }),
+    });
+    await settle();
+    expect(count(T1)).toBe('3');
+    expect(tree().querySelector('.osprey-list-row[data-id="u2"]')).toBeNull();
+    expect(tree().querySelector('[data-tree-earlier], .osprey-tree-earlier')).toBeNull();
+    // 9 owned − (3 + 2) loaded: an unowned artifact is not a hidden session's.
+    expect(tree().querySelector('[data-tree-more] .osprey-tree-n')?.textContent).toBe('4');
+  });
+
+  test('an owner change re-places the entry and its count', async () => {
+    await boot();
+    frame({ type: 'artifact_updated', ...A2, owner: T2 });
+    await settle();
+    expect(count(T1)).toBe('2');
+    expect(count(T2)).toBe('3');
+  });
+
+  test('a delete re-fetches the summary; so does a reconnect', async () => {
+    await boot();
+    expect(requests('/session-summary')).toHaveLength(1);
+    frame({ type: 'artifact_deleted', id: 'a2' });
+    await settle();
+    expect(requests('/session-summary')).toHaveLength(2);
     expect(mocks.sendChanged).not.toHaveBeenCalled();
 
-    events.emit({ type: 'artifact_updated', ...A3, pinned: true });
-    events.emit({ type: 'artifact_deleted', id: 'a3' });
-    expect(mocks.sendChanged.mock.calls).toEqual([
-      [viewer(), 'a3', 'updated', { ...A3, pinned: true }],
-      [viewer(), 'a3', 'deleted', undefined],
-    ]);
-    // The delete reaches the viewer before the select of the next artifact.
-    expect(shown()).toBe('a2');
-    expect(mocks.sendChanged.mock.invocationCallOrder[1]).toBeLessThan(
-      /** @type {number} */ (mocks.sendSelect.mock.invocationCallOrder.at(-1))
+    artifactSource().onopen?.();
+    artifactSource().onopen?.();
+    await settle();
+    expect(requests('/session-summary').length).toBeGreaterThanOrEqual(3);
+  });
+
+  test('a frame whose owner is no known row refreshes the sessions', async () => {
+    await boot();
+    const before = requests('/api/sessions').length;
+    frame({
+      type: 'artifact',
+      ...art('z1', 'plots', '2026-10-30T11:50:00Z', {
+        owner: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      }),
+    });
+    await vi.waitFor(() => expect(requests('/api/sessions').length).toBe(before + 1), {
+      timeout: 2500,
+      interval: 50,
+    });
+    expect(requests('/api/sessions').at(-1)?.url).toBe('/api/sessions');
+  });
+
+  test("the shown artifact's update is forwarded to the viewer", async () => {
+    await boot();
+    frame({ type: 'artifact_updated', ...A3, title: 'Renamed' });
+    await settle();
+    expect(mocks.sendChanged).toHaveBeenCalledWith(
+      expect.anything(),
+      'a3',
+      'updated',
+      expect.objectContaining({ title: 'Renamed' })
     );
   });
+});
 
-  test('with no viewer open, a change of the shown artifact is not sent', async () => {
+/* ---- the highlight ------------------------------------------------------ */
+
+describe('the highlight: at most one row, the one the Artifacts panel shows', () => {
+  const selected = () =>
+    [...document.querySelectorAll('[data-session-tree] [aria-selected="true"]')].map(
+      (el) => /** @type {HTMLElement} */ (el).dataset.id
+    );
+  const dockChanged = () => document.dispatchEvent(new CustomEvent('osprey-dock-view-changed'));
+
+  test("only one row is selected, and a switch clears the old session's", async () => {
     await boot();
-    viewer().remove();
-    events.emit({ type: 'artifact_updated', ...A3, pinned: true });
-    events.emit({ type: 'artifact_deleted', id: 'a3' });
-    expect(mocks.sendChanged).not.toHaveBeenCalled();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    click(artifactRowEl('a2'));
+    await settle();
+    expect(selected()).toEqual(['a2']);
+
+    click(/** @type {Element} */ (sessionRowEl(T2).querySelector('.osprey-tree-title')));
+    await settle();
+
+    expect(shown()).toBe('b1');
+    expect(selected()).toEqual(['b1']);
+    expect(tree().querySelector('[data-id="a2"]')).toBeNull();
+  });
+
+  test('closing the Artifacts panel clears the highlight; reopening it brings it back', async () => {
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    click(artifactRowEl('a2'));
+    await settle();
+    expect(selected()).toEqual(['a2']);
+
+    mocks.hasDockedTile.mockReturnValue(false);
+    dockChanged();
+    expect(selected()).toEqual([]);
+
+    mocks.hasDockedTile.mockReturnValue(true);
+    dockChanged();
+    expect(selected()).toEqual(['a2']);
+  });
+
+  test('with the Artifacts panel off view no row is selected, whatever it would show', async () => {
+    mocks.hasDockedTile.mockReturnValue(false);
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    expect(shown()).toBeTruthy();
+    expect(selected()).toEqual([]);
   });
 });
 
-/* ---- agent focus ------------------------------------------------------- */
+/* ---- the session rows: accent, busy, peek, "+" ------------------------- */
 
-describe('agent focus', () => {
-  test('terminal surface: a focus frame jumps the selection, automatic or not', async () => {
+describe('the session rows: accent, breathing, peek and "+"', () => {
+  /** @param {number} ms */
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const classesOf = (/** @type {string} */ id) => [...sessionRowEl(id).classList];
+  const titleOf = (/** @type {string} */ id) =>
+    /** @type {HTMLElement} */ (sessionRowEl(id).querySelector('.osprey-tree-title'));
+  const peekEl = () =>
+    /** @type {HTMLElement | null} */ (document.getElementById('sidebar-session-peek'));
+  /** @param {Element} el */
+  const hover = (el) => el.dispatchEvent(new Event('pointerover', { bubbles: true }));
+
+  test('the active session holds the accent; a clicked one takes it at once and keeps it once switched', async () => {
     await boot();
-    row('sidebar-artifacts-list', 'a2').click();
-    events.emit({ type: 'focus', domain: 'artifact', id: 'a1', automatic: true });
+    expect(classesOf(T1)).toEqual(expect.arrayContaining(['active', 'accent']));
+    expect(classesOf(T2)).not.toContain('accent');
+
+    /** @type {(v: Response) => void} */
+    let release = () => {};
+    fetchMock.mockImplementation(async (/** @type {string} */ url, /** @type {any} */ init) =>
+      String(url).endsWith('/enter')
+        ? new Promise((resolve) => (release = resolve))
+        : route(url, init)
+    );
+    click(titleOf(T2));
     await settle();
-    expect(shown()).toBe('a1');
+    // Mid-switch: the accent is on the clicked row; only the active one is bold.
+    expect(classesOf(T2)).toContain('accent');
+    expect(classesOf(T2)).not.toContain('active');
+    expect(classesOf(T1)).toContain('active');
+    expect(classesOf(T1)).not.toContain('accent');
+
+    release(reply({ session_key: server.enterKey }));
+    await settle();
+    expect(classesOf(T2)).toEqual(expect.arrayContaining(['active', 'accent']));
+    expect(classesOf(T1)).not.toContain('accent');
+    expect(classesOf(T1)).not.toContain('active');
   });
 
-  test('chat: an automatic focus does not take the operator pick; a requested one does', async () => {
-    delete document.documentElement.dataset.agentSurface;
+  test('a switch cancelled at the streaming guard gives the accent back', async () => {
     await boot();
-    row('sidebar-artifacts-list', 'a2').click();
-    events.emit({ type: 'focus', domain: 'artifact', id: 'a1', automatic: true });
+    mocks.streaming = true;
+    mocks.showConfirm.mockImplementation((spec) => spec.onDismiss());
+    click(titleOf(T2));
     await settle();
-    expect(shown()).toBe('a2');
-    events.emit({ type: 'focus', domain: 'artifact', id: 'a1' });
-    await settle();
-    expect(shown()).toBe('a1');
+    expect(classesOf(T1)).toEqual(expect.arrayContaining(['active', 'accent']));
+    expect(classesOf(T2)).not.toContain('accent');
   });
 
-  test('chat: with no pick the focus shows, unless it is a script run', async () => {
-    delete document.documentElement.dataset.agentSurface;
+  test('the active session breathes while the agent works (the chat bus busy), and stops after', async () => {
     await boot();
-    events.emit({ type: 'focus', domain: 'artifact', id: 'r1', automatic: true });
-    await settle();
-    expect(shown()).toBe('a3');
-    events.emit({ type: 'focus', domain: 'artifact', id: 'a1', automatic: true });
-    await settle();
-    expect(shown()).toBe('a1');
+    const chatEvents = await import(`${JS}/chat-events.js`);
+    expect(tree().querySelectorAll('.is-busy')).toHaveLength(0);
+    chatEvents.emitChat('busy', { busy: true });
+    expect(classesOf(T1)).toContain('is-busy');
+    expect(classesOf(T2)).not.toContain('is-busy');
+    chatEvents.emitChat('busy', { busy: false });
+    expect(tree().querySelectorAll('.is-busy')).toHaveLength(0);
   });
 
-  test('an older artifact is fetched and held, not counted; another session is ignored', async () => {
-    server.byId.old = art('old', 'markdown', '2026-10-01T09:00:00Z', 'Old report');
-    server.byId.alien = art('alien', 'markdown', '2026-10-01T09:00:00Z', 'Alien', {
-      session_id: 'x',
+  test('"+" starts a new session through the session model, opening the Agent pane first', async () => {
+    await boot();
+    mocks.isTerminalPanelOpen.mockReturnValue(false);
+    click(/** @type {Element} */ (document.getElementById('sidebar-new-session')));
+    await settle();
+    expect(mocks.openTerminalPanel).toHaveBeenCalledOnce();
+    expect(mocks.newConversation).toHaveBeenCalledOnce();
+  });
+
+  test('hovering a folded session peeks at its artifacts; a click there opens one without switching', async () => {
+    await boot();
+    // The open session gets no peek: its artifacts are in the tree.
+    hover(titleOf(T1));
+    await wait(350);
+    expect(peekEl()?.hidden ?? true).toBe(true);
+
+    hover(titleOf(T2));
+    await wait(350);
+    await settle();
+    const peek = /** @type {HTMLElement} */ (peekEl());
+    expect(peek.hidden).toBe(false);
+    expect(titleOf(T2).getAttribute('aria-controls')).toBe('sidebar-session-peek');
+    expect(peek.querySelector('.osprey-popover-title')?.textContent).toBe('Tune scan');
+    expect(
+      [...peek.querySelectorAll('.osprey-list-row[data-id]')].map(
+        (r) => /** @type {HTMLElement} */ (r).dataset.id
+      )
+    ).toEqual(['b1']);
+    // The summary counts 2; one is listed.
+    expect(peek.querySelector('[data-peek-more]')?.textContent).toBe('1 more');
+
+    click(/** @type {Element} */ (peek.querySelector('.osprey-list-row[data-id="b1"]')));
+    await settle();
+    expect(shown()).toBe('b1');
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(0);
+    expect(peek.hidden).toBe(true);
+  });
+
+  test('the peek\'s "more" switches to the session; Escape closes the peek', async () => {
+    await boot();
+    hover(titleOf(T2));
+    await wait(350);
+    await settle();
+    expect(peekEl()?.hidden).toBe(false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(peekEl()?.hidden).toBe(true);
+
+    hover(titleOf(T2));
+    await wait(350);
+    await settle();
+    click(/** @type {Element} */ (peekEl()?.querySelector('[data-peek-more]')));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(1);
+    expect(classesOf(T2)).toContain('active');
+  });
+});
+
+describe('session pins: the pinned group and the pin button', () => {
+  const PINNED_AT = '2026-10-30T08:00:00+00:00';
+  /** Put the pinned group's rail around the Sessions row, as index.html does. */
+  function withRail() {
+    const rail = document.createElement('div');
+    rail.id = 'panel-rail';
+    rail.append(/** @type {HTMLElement} */ (document.getElementById('sidebar-agent-wrap')));
+    document.body.prepend(rail);
+  }
+  const group = () => /** @type {HTMLElement} */ (document.querySelector('.sidebar-pinned'));
+  const head = () => /** @type {HTMLElement} */ (group().querySelector('.sidebar-pinned-head'));
+  const pinnedList = () =>
+    /** @type {HTMLElement} */ (group().querySelector('[data-tree-where="pinned"]'));
+  /** @param {string} id */
+  const pinnedCopy = (id) =>
+    /** @type {HTMLElement} */ (
+      pinnedList().querySelector(`.osprey-tree-session[data-session-id="${id}"]`)
+    );
+  /** @param {HTMLElement} row */
+  const pinButton = (row) => /** @type {HTMLElement} */ (row.querySelector('[data-tree-pin]'));
+  /** Pin T2 on the hub's first page. */
+  function pinT2OnHub() {
+    const first = server.sessions.first;
+    first.sessions[1] = { ...first.sessions[1], pinned: PINNED_AT };
+    first.pinned_sessions = [first.sessions[1]];
+  }
+
+  beforeEach(() => withRail());
+
+  test('no pin, no group; the first pin shows it above Sessions, folded, with its count', async () => {
+    await boot();
+    expect(group().hidden).toBe(true);
+    expect(group().nextElementSibling?.id).toBe('sidebar-agent-wrap');
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-label')).toBe('Pin session');
+
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: true },
+    ]);
+    expect(group().hidden).toBe(false);
+    expect(head().getAttribute('aria-expanded')).toBe('false');
+    expect(head().querySelector('.sidebar-group-name')?.textContent).toBe('Pinned');
+    expect(head().querySelector('.sidebar-pinned-count')?.textContent).toBe('1');
+    expect(pinnedList().hidden).toBe(true);
+    // The row stays in Sessions, with a marker and a pressed button.
+    expect(sessionRowEl(T2).querySelector('.osprey-tree-pin-mark')).not.toBeNull();
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+    expect(requests(`/api/sessions/${T2}/enter`, 'POST')).toHaveLength(0);
+  });
+
+  test('unpinning the last session takes the group away', async () => {
+    pinT2OnHub();
+    await boot();
+    expect(group().hidden).toBe(false);
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: false },
+    ]);
+    expect(group().hidden).toBe(true);
+    expect(sessionRowEl(T2).querySelector('.osprey-tree-pin-mark')).toBeNull();
+  });
+
+  test('a refused pin puts the row back', async () => {
+    fetchMock.mockImplementation(async (/** @type {string} */ url, /** @type {any} */ init) =>
+      String(url).endsWith('/pin') ? reply({ detail: 'No such session.' }, 404) : route(url, init)
+    );
+    await boot();
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(group().hidden).toBe(true);
+    expect(sessionRowEl(T2).dataset.pinned).toBeUndefined();
+  });
+
+  test('the second click of a double-click on the pin button does nothing', async () => {
+    await boot();
+    const button = pinButton(sessionRowEl(T2));
+    click(button, 1);
+    click(button, 2);
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT')).toHaveLength(1);
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test("a pin click while that session's PUT is in flight is ignored", async () => {
+    /** @type {() => void} */
+    let answer = () => {};
+    const gate = new Promise((resolve) => (answer = () => resolve(undefined)));
+    fetchMock.mockImplementation(async (/** @type {string} */ url, /** @type {any} */ init) => {
+      if (String(url).endsWith('/pin')) await gate;
+      return route(url, init);
     });
     await boot();
-    events.emit({ type: 'focus', domain: 'artifact', id: 'old' });
+    click(pinButton(sessionRowEl(T2)));
     await settle();
-    expect(shown()).toBe('old');
-    expect(ids('sidebar-artifacts-list')).toContain('old');
-    expect(document.querySelector('[data-art-count]')?.textContent).toBe('3');
-    events.emit({ type: 'focus', domain: 'artifact', id: 'alien' });
+    click(pinButton(sessionRowEl(T2)));
     await settle();
-    expect(shown()).toBe('old');
-  });
-
-  test('a reload or a second tab shows the focus the panel kept', async () => {
-    server.focus = { focused: true, artifact: A1 };
-    await boot();
-    expect(shown()).toBe('a1');
-    const urls = fetchMock.mock.calls.map(([url]) => String(url));
-    expect(urls).toContain('/panel/artifacts/api/focus');
-  });
-
-  test("the panel's newest-artifact fallback is no focus", async () => {
-    server.focus = { focused: false, artifact: A1 };
-    await boot();
-    expect(shown()).toBe('a3');
-  });
-
-  test('chat: a kept focus on a script run is recorded, not shown', async () => {
-    delete document.documentElement.dataset.agentSurface;
-    server.focus = { focused: true, artifact: R1 };
-    await boot();
-    expect(shown()).toBe('a3');
-  });
-
-  test('a reconnect reads the focus again; an unchanged one keeps the pick', async () => {
-    server.focus = { focused: true, artifact: A1 };
-    await boot();
-    const [source] = events.opened;
-    source.onopen?.();
-    row('sidebar-artifacts-list', 'a2').click();
-    source.onopen?.();
-    await settle();
-    expect(shown()).toBe('a2');
-    server.focus = { focused: true, artifact: A3 };
-    source.onopen?.();
-    await settle();
-    expect(shown()).toBe('a3');
-  });
-});
-
-/* ---- the tile menu ----------------------------------------------------- */
-
-describe('the tile menu', () => {
-  test('lends the verbs of the shown artifact, sent to the viewer', async () => {
-    await boot();
-    const [panelId, extras] = mocks.setServiceMenuExtras.mock.calls[0];
-    expect(panelId).toBe('artifacts');
-    const items = extras();
-    expect(items.map((/** @type {any} */ item) => item.label)).toEqual([
-      'Pin artifact',
-      'Print artifact',
-      'Compose logbook entry',
-      'Delete artifact',
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: true },
     ]);
-    items[3].run();
-    expect(mocks.sendAction).toHaveBeenCalledWith(viewer(), 'a3', 'delete');
+    answer();
+    await settle();
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(requests(`/api/sessions/${T2}/pin`, 'PUT').map((r) => r.body)).toEqual([
+      { pinned: true },
+      { pinned: false },
+    ]);
   });
 
-  test('offers nothing while no viewer is there, and is withdrawn on teardown', async () => {
+  test('the focus stays on the pin button through the redraw a pin causes', async () => {
     await boot();
-    const [, extras] = mocks.setServiceMenuExtras.mock.calls[0];
-    viewer().remove();
-    expect(extras()).toEqual([]);
-    mod.teardownSidebarArtifacts();
-    expect(mocks.setServiceMenuExtras).toHaveBeenLastCalledWith('artifacts', null);
+    pinButton(sessionRowEl(T2)).focus();
+    click(pinButton(sessionRowEl(T2)));
+    await settle();
+    expect(document.activeElement).toBe(pinButton(sessionRowEl(T2)));
+    expect(pinButton(sessionRowEl(T2)).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('the pinned list is a labelled group, not a tree of rows that are no treeitems', async () => {
+    await boot();
+    expect(pinnedList().getAttribute('role')).toBe('group');
+    expect(pinnedList().getAttribute('aria-labelledby')).toBe('sidebar-pinned-label');
+  });
+
+  test('neither copy of a pinned session carries a tooltip; only its pin button is labelled', async () => {
+    pinT2OnHub();
+    await boot();
+    click(head());
+    await settle();
+    for (const row of [sessionRowEl(T2), pinnedCopy(T2)]) {
+      for (const el of [
+        row,
+        /** @type {HTMLElement} */ (row.querySelector('.osprey-tree-title')),
+      ]) {
+        expect(el.hasAttribute('title')).toBe(false);
+        expect(el.hasAttribute('data-tip')).toBe(false);
+        expect(el.hasAttribute('data-tip-detail')).toBe(false);
+      }
+      expect(pinButton(row).getAttribute('aria-label')).toBe('Unpin session');
+    }
+  });
+
+  test('a click on the heading unfolds it: the pinned copies, no marker, in pin order', async () => {
+    pinT2OnHub();
+    server.sessions.first.sessions[0].pinned = '2026-10-30T09:00:00+00:00';
+    server.sessions.first.pinned_sessions.push(server.sessions.first.sessions[0]);
+    await boot();
+    click(head());
+    await settle();
+    expect(head().getAttribute('aria-expanded')).toBe('true');
+    const copies = [...pinnedList().querySelectorAll('.osprey-tree-session')].map(
+      (r) => /** @type {HTMLElement} */ (r).dataset.sessionId
+    );
+    expect(copies).toEqual([T2, T1]);
+    expect(pinnedCopy(T2).dataset.where).toBe('pinned');
+    expect(pinnedCopy(T2).querySelector('.osprey-tree-pin-mark')).toBeNull();
+    expect(sessionRowEl(T2).querySelector('.osprey-tree-pin-mark')).not.toBeNull();
+  });
+
+  test('both copies show the active session; its artifacts open under the copy clicked', async () => {
+    server.sessions.first.sessions[0].pinned = PINNED_AT;
+    server.sessions.first.pinned_sessions = [server.sessions.first.sessions[0]];
+    await boot();
+    click(head());
+    await settle();
+    expect(pinnedCopy(T1).classList.contains('active')).toBe(true);
+    expect(sessionRowEl(T1).classList.contains('active')).toBe(true);
+    const chatEvents = await import(`${JS}/chat-events.js`);
+    chatEvents.emitChat('busy', { busy: true });
+    expect(pinnedCopy(T1).classList.contains('is-busy')).toBe(true);
+    expect(sessionRowEl(T1).classList.contains('is-busy')).toBe(true);
+    chatEvents.emitChat('busy', { busy: false });
+    // Open under Sessions at first; a click on the pinned copy moves them there.
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(pinnedList().querySelector('[data-session-box]')).toBeNull();
+    click(/** @type {Element} */ (pinnedCopy(T1).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(pinnedCopy(T1).getAttribute('aria-expanded')).toBe('true');
+    expect(pinnedList().querySelector(`[data-session-box="${T1}"]`)).not.toBeNull();
+    expect(sessionRowEl(T1).getAttribute('aria-expanded')).toBe('false');
+    expect(tree().querySelector('[data-session-box]')).toBeNull();
+  });
+
+  test('a pinned session on a later page is in the group, and a click switches to it', async () => {
+    const old = { transcript_id: T3, session_key: K2, current_for_key: true, title: 'Old work' };
+    server.sessions.first.pinned_sessions = [{ ...old, pinned: PINNED_AT }];
+    await boot();
+    expect(sessionTitles()).not.toContain('Old work');
+    click(head());
+    await settle();
+    click(/** @type {Element} */ (pinnedCopy(T3).querySelector('.osprey-tree-title')));
+    await settle();
+    expect(mocks.resumeSession).toHaveBeenCalledWith(K2);
+    // The row the tab is on is the pinned one, not a synthesized "New session".
+    expect(pinnedCopy(T3).classList.contains('active')).toBe(true);
+    expect(pinnedCopy(T3).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  test('pinning while the group is hidden keeps it hidden; hiding hides no session', async () => {
+    pinT2OnHub();
+    await boot();
+    const pins = await import(`${JS}/sidebar-session-pins.js`);
+    pins.setPinnedHidden(true);
+    expect(group().hidden).toBe(true);
+    expect(sessionTitles()).toEqual(['Orbit study', 'Tune scan']);
+    click(pinButton(sessionRowEl(T1)));
+    await settle();
+    expect(group().hidden).toBe(true);
+    expect(head().querySelector('.sidebar-pinned-count')?.textContent).toBe('2');
+    pins.setPinnedHidden(false);
+    await settle();
+    expect(group().hidden).toBe(false);
+  });
+
+  test('the collapsed sidebar flyout lists the pinned sessions first, under the group name', async () => {
+    pinT2OnHub();
+    const flyout = document.createElement('div');
+    flyout.id = 'sidebar-sessions-flyout';
+    flyout.innerHTML = '<div data-session-tree></div>';
+    document.body.append(flyout);
+    await boot();
+    const kids = [.../** @type {HTMLElement} */ (flyout.firstElementChild).children].map((el) => {
+      const row = /** @type {HTMLElement} */ (el);
+      return row.dataset.sessionId ?? (row.hasAttribute('data-tree-label') ? row.textContent : '');
+    });
+    expect(kids.slice(0, 4)).toEqual(['Pinned', T2, 'Sessions', T1]);
   });
 });

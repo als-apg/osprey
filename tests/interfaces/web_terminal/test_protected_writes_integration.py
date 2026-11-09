@@ -115,13 +115,13 @@ def _baked_project(tmp_path_factory) -> Path:
         manager,
         project_name="protected-writes",
         output_dir=tmp_path_factory.mktemp("protected-writes-bake"),
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     from osprey.utils.config_writer import config_update_fields
 
     manager.regenerate_claude_code(project_dir)
-    # The control-assistant preset ships both of these surfaces OFF: they are
+    # The demo preset ships both of these surfaces OFF: they are
     # administration, and the admin tier is what turns them back on. That is a
     # different, coarser boundary than the one under test -- a disabled panel
     # refuses every verb before there is a key to judge, so it would hide the
