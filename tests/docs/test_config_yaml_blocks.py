@@ -45,7 +45,8 @@ address whose entries are seeds, as ``seeds.yaml`` is; or a mapping whose
 roots are all root keys of one other file and not all config or profile keys.
 Those root sets come from the files' own schemas and loaders (the facility
 schema ``facility/schema/core.yaml``, the MML mapping loader, the bluesky
-device file, ``providers.yml``, the trigger loader), not from the pages. A
+device file, ``providers.yml``, the trigger loader; a Slack app manifest, which
+no OSPREY code reads, from Slack's manifest schema), not from the pages. A
 block that shows the inside of one config section (``oidc:``, ``shared:``) is
 checked under that section (:func:`_fragment_parent`). A block no rule places is listed in :data:`_NOT_CONFIG`; a key the manifest
 cannot declare is listed in :data:`_UNDECLARED` with its reason. Both are keyed
@@ -136,6 +137,23 @@ _BLOCK_KEYS: dict[str, frozenset[str]] = {
 #: Config paths whose children are named by the facility and checked by a
 #: parser rather than by the ledger: ``health.categories.<name>.*``.
 _PARSED_ELSEWHERE = ("health.categories.",)
+
+#: The top-level keys of a Slack app manifest. No OSPREY code reads one (the
+#: reader pastes it into Slack), so there is no loader to take them from.
+_SLACK_MANIFEST_ROOTS = frozenset(
+    {
+        "_metadata",
+        "display_information",
+        "features",
+        "oauth_config",
+        "settings",
+        "functions",
+        "workflows",
+        "datastores",
+        "outgoing_domains",
+        "types",
+    }
+)
 
 #: Jinja markup: a block carrying it is a template (``docker-compose.yml.j2``).
 #: An expression opens on a name (``{{ services.x }}``, ``{{project_root}}``),
@@ -380,6 +398,9 @@ def _other_file_roots() -> tuple[tuple[str, frozenset[str], frozenset[str]], ...
         ("providers.yml", frozenset({_PROVIDERS_KEY}), none),
         # load_triggers reads exactly these two keys.
         ("triggers.yml", frozenset({"dispatcher", "triggers"}), none),
+        # Pasted into Slack, never read by OSPREY: the manifest schema's top-level
+        # keys (api.slack.com/reference/manifests), of which it requires one.
+        ("a Slack app manifest", _SLACK_MANIFEST_ROOTS, frozenset({"display_information"})),
     )
 
 
@@ -603,6 +624,8 @@ def test_a_jinja_template_is_not_checked() -> None:
         ("triggers:\n  - name: t\n", "triggers.yml"),
         ("providers:\n  local: {}\n", "providers.yml"),
         ("- id: SR\n", "a list"),
+        ("display_information:\n  name: x\nsettings: {}\n", "a Slack app manifest"),
+        ("display_informaton:\n  name: x\nsettings: {}\n", None),
         ("SR:BEAM:CURRENT:\n  nominl: 400\n", None),
         ("name: demo\nconfig:\n  web.theme: dark\n", None),
         ("contrl_system:\n  type: epics\n", None),
@@ -612,7 +635,7 @@ def test_a_jinja_template_is_not_checked() -> None:
     ],
 )
 def test_another_files_block_is_told_by_its_content(text: str, expected: str | None) -> None:
-    """Facility, provider and trigger files are recognised by their own schemas' keys."""
+    """Facility, provider, trigger and Slack manifest files are told by their own keys."""
     found = _other_file(_parse(Block("fake.rst", 1, text)))
     if expected is None:
         assert found is None
