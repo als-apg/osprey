@@ -47,7 +47,8 @@ in place, with the round-trip writer so every comment the operator kept survives
    is named, and before every render carried all of them. A bare entry the
    repo ships a file for (``safety`` beside ``rules/safety.md``) becomes the
    path in place; every other unnamed one is appended. Tiers inherit
-   ``profile.yml``'s lists.
+   ``profile.yml``'s lists. A profile whose lists already name one by path is
+   under that rule already, and the step is skipped.
 
 Every file is read and rewritten in memory before the repo is touched, so a
 file that cannot be read leaves the repo as it was. The result is reported as
@@ -63,7 +64,7 @@ import json
 import re
 import shutil
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
@@ -2411,6 +2412,31 @@ def _name_convention_artifacts(document: Any, artifacts: list[str]) -> list[str]
     return added
 
 
+def _names_artifacts_by_path(documents: Iterable[Any]) -> bool:
+    """Whether a list in *documents* (``profile.yml``, its overlays) names an own artifact by path.
+
+    A path entry (``skills/beam-check``) means something only under the by-name
+    rule; before it a list spelled bare names alone. So a profile with one is
+    under the rule already, and an artifact it leaves unnamed is one it renders
+    nowhere. A login file is not asked: one scaffolded by a newer OSPREY into a
+    repo from before the rule names the facility description by path too.
+    """
+    from .profile_conventions import SELECTED_CONVENTION_SOURCES, convention_selections
+
+    return any(
+        convention_selections(
+            {
+                field: value
+                for field in SELECTED_CONVENTION_SOURCES
+                for value in (document.get(field),)
+                if isinstance(value, list)
+            }
+        )
+        for document in documents
+        if isinstance(document, dict)
+    )
+
+
 def _listed_artifacts(artifacts: list[str]) -> list[str]:
     """The artifacts of *artifacts* a list may name: every one but a facility hook.
 
@@ -2948,7 +2974,8 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     # before; a tier that adds inherits profile.yml's lists. A facility hook is
     # the exception: its declaration wires and copies it, so it is never
     # listed, and each `lists: own` login declares the host's non-guard hooks
-    # it used to inherit.
+    # it used to inherit. A profile whose lists already name an artifact by
+    # path is under the rule already: what it leaves unnamed stays unnamed.
     from .build_persistence import (
         FACILITY_RULE_NAME,
         FACILITY_RULE_PATH_ENTRY,
@@ -2956,6 +2983,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     )
     from .profile_conventions import BUILD_OUTPUT_DIR, unselected_convention_artifacts
 
+    by_name = _names_artifacts_by_path(documents.values())
     shipped = _listed_artifacts(unselected_convention_artifacts(root, frozenset()))
     # A repo from before the facility description moved into the profile keeps
     # its only, edited copy in build/; the bare `facility` it selects now means
@@ -2963,7 +2991,8 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     # other writes) and named by its path like every shipped shadow.
     rescued_facility_rule = (
         root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH
-        if not (root / FACILITY_RULE_RELPATH).exists()
+        if not by_name
+        and not (root / FACILITY_RULE_RELPATH).exists()
         and FACILITY_RULE_NAME in (document.get("rules") or [])
         and (root / BUILD_OUTPUT_DIR / ".claude" / FACILITY_RULE_RELPATH).is_file()
         else None
@@ -2972,7 +3001,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
         shipped = sorted({*shipped, FACILITY_RULE_PATH_ENTRY})
         writes[FACILITY_RULE_RELPATH.as_posix()] = rescued_facility_rule.read_text(encoding="utf-8")
     session_hooks = _host_session_hooks(document.get("config"))
-    if shipped or session_hooks:
+    if not by_name and (shipped or session_hooks):
         if shipped:
             _name_convention_artifacts(document, shipped)
         own_rels = {
