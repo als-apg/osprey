@@ -397,7 +397,9 @@ join_mounted_group() {
 }
 
 # The SELinux line a failed access probe appends, printed only when this
-# container can see that SELinux confines it. The hint is a cause to check,
+# container can see that SELinux confines it. A readable enforce file decides:
+# `1` names SELinux, anything else names nothing. The process label speaks only
+# when that file is masked (absent or unreadable). The hint is a cause to check,
 # not a diagnosis: the probe's outcome and exit code never depend on it. Every
 # read sits inside an `if`, so an unreadable or empty file cannot abort the
 # boot under `set -e`. Both files end without a newline (selinuxfs writes
@@ -406,11 +408,12 @@ join_mounted_group() {
 log_selinux_hint() {
     _sx_lead=''
     _sx_v=''
-    if [ -r "$SELINUX_ENFORCE" ] \
-        && { read -r _sx_v < "$SELINUX_ENFORCE" || [ -n "$_sx_v" ]; } \
-        && [ "$_sx_v" = 1 ]; then
-        _sx_lead='SELinux is enforcing'
-    elif _sx_v='' && [ -r "$PROC_ATTR" ] \
+    if [ -r "$SELINUX_ENFORCE" ]; then
+        if { read -r _sx_v < "$SELINUX_ENFORCE" || [ -n "$_sx_v" ]; } \
+            && [ "$_sx_v" = 1 ]; then
+            _sx_lead='SELinux is enforcing'
+        fi
+    elif [ -r "$PROC_ATTR" ] \
         && { read -r _sx_v < "$PROC_ATTR" || [ -n "$_sx_v" ]; }; then
         case "$_sx_v" in
             *:*:*_t:*) _sx_lead='SELinux labels this container' ;;
