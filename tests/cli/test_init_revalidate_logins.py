@@ -144,7 +144,7 @@ def test_the_move_leaves_application_directories_alone(tmp_path: Path) -> None:
     assert _revalidate(root).exit_code == 0
 
     assert (root / "apps" / "knob" / "app.yml").read_text(encoding="utf-8") == "name: knob\n"
-    assert sorted(p.name for p in (root / "apps").iterdir()) == ["knob", "orbit-bump"]
+    assert sorted(p.name for p in (root / "apps").iterdir()) == ["knob"]
 
 
 def test_a_second_run_after_the_move_rewrites_nothing(tmp_path: Path) -> None:

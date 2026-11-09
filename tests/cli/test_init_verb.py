@@ -42,7 +42,6 @@ import yaml
 from click.testing import CliRunner
 from rich.console import Console
 
-from osprey.cli.build_profile_drift import APP_PROVENANCE_FILENAME
 from osprey.cli.init_cmd import (
     _PRESERVED_PROSE,
     CI_EMITTED_PATHS,
@@ -60,7 +59,12 @@ from osprey.cli.profile_conventions import unknown_root_entries
 from osprey.cli.styles import osprey_theme
 from osprey.utils.workspace import APPS_DIRNAME, TIERS_DIRNAME
 from tests.cli._reporters import installed
-from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, exemplar_source_files
+from tests.fixtures.lifecycle_repo import (
+    ENABLE_ORBIT_BUMP,
+    EXEMPLAR_DIRNAME,
+    exemplar_source_files,
+    packaged_application_files,
+)
 
 #: The exemplar's display name — what ``init`` derives from the directory it
 #: was given (``als-exemplar`` → ``Als Exemplar``). Spelled out here rather than
@@ -329,20 +333,24 @@ def test_rendered_files_match_the_exemplar_byte_for_byte(exemplar_repo: Path) ->
     assert differing == []
 
 
-def test_the_listed_application_is_copied_as_packaged(exemplar_repo: Path) -> None:
-    """Every file of the application, and its sidecar, down to the byte."""
-    expected = {
-        name: text
-        for name, text in exemplar_source_files(with_ci=False).items()
-        if name.startswith(f"{APPS_DIRNAME}/")
-    }
+def test_the_listed_application_is_copied_as_packaged(runner: CliRunner, tmp_path: Path) -> None:
+    """Every file of an application init is told to list, and its sidecar, down to the byte."""
+    target = tmp_path / EXEMPLAR_DIRNAME
+    result = init_exemplar(runner, target, "--set", ENABLE_ORBIT_BUMP)
+    assert result.exit_code == 0, result.output
+    expected = packaged_application_files()
     emitted = {
-        path.relative_to(exemplar_repo).as_posix(): path.read_text(encoding="utf-8")
-        for path in (exemplar_repo / APPS_DIRNAME).rglob("*")
+        path.relative_to(target).as_posix(): path.read_text(encoding="utf-8")
+        for path in (target / APPS_DIRNAME).rglob("*")
         if path.is_file()
     }
     assert f"{APPS_DIRNAME}/orbit-bump/app.yml" in expected
     assert emitted == expected
+
+
+def test_the_preset_lists_no_application(exemplar_repo: Path) -> None:
+    """``demo`` turns no application on, so init copies none."""
+    assert not (exemplar_repo / APPS_DIRNAME).exists()
 
 
 def test_the_data_readme_is_the_packaged_one(exemplar_repo: Path) -> None:
@@ -402,8 +410,7 @@ def test_render_catalog_stores_only_each_renders_source(exemplar_repo: Path) -> 
     the files in ``tiers/`` and from ``project_name``, and writes them into
     ``build/config.yml``, so a catalog in the profile would be a second home
     for one fact. The roster names a tier per person and the logins it shares,
-    and every name it uses has its file; ``apps/`` holds applications only, and
-    init writes the one the preset lists, with its provenance.
+    and every name it uses has its file.
     """
     profile = yaml.safe_load((exemplar_repo / "profile.yml").read_text(encoding="utf-8"))
     web_terminals = profile["config"]["modules.web_terminals"]
@@ -417,8 +424,6 @@ def test_render_catalog_stores_only_each_renders_source(exemplar_repo: Path) -> 
         "readonly",
         "readwrite",
     ]
-    assert (exemplar_repo / APPS_DIRNAME / "orbit-bump" / "app.yml").is_file()
-    assert (exemplar_repo / APPS_DIRNAME / "orbit-bump" / APP_PROVENANCE_FILENAME).is_file()
     tiers = {web_terminals["default_tier"], *(user["tier"] for user in web_terminals["users"])}
     for tier in tiers:
         assert (exemplar_repo / TIERS_DIRNAME / f"{tier}.yml").is_file(), tier

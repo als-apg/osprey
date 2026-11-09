@@ -14,13 +14,21 @@ from click.testing import CliRunner, Result
 
 from osprey.cli.app_cmd import EXAMPLE_APP_DIR, app
 from tests.cli._lifecycle_build import invoke_build, rendered_config
+from tests.fixtures.lifecycle_repo import ORBIT_BUMP, enable_orbit_bump
 
 #: The scaffold ``app new`` copies, by the name its own ``app.yml`` declares.
 TEMPLATE: str = yaml.safe_load((EXAMPLE_APP_DIR / "app.yml").read_text(encoding="utf-8"))["name"]
 TEMPLATE_PACKAGE = TEMPLATE.replace("-", "_")
 #: The application the lifecycle repo's profile already lists.
-LISTED = "orbit-bump"
+LISTED = ORBIT_BUMP
 VENDOR_IGNORE = "/apps/*/panel/vendor/"
+
+
+@pytest.fixture(autouse=True)
+def _one_listed_application(request: pytest.FixtureRequest) -> None:
+    """The lifecycle repo with orbit bump on, so ``app new`` adds beside a listed application."""
+    if "lifecycle_repo" in request.fixturenames:
+        enable_orbit_bump(request.getfixturevalue("lifecycle_repo"))
 
 
 def _new(runner: CliRunner, repo: Path, *args: str) -> Result:

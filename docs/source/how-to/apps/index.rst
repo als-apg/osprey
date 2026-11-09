@@ -29,9 +29,9 @@ agent reads back.
    :file: ../../_diagrams/apps.html
 
 ``osprey build`` turns ``app.yml`` into the three parts; ``osprey up`` starts
-them with the rest of the deployment. The ``demo`` preset ships
-one app, :doc:`orbit bump <orbit-bump>`, which this section uses as its
-example; ``osprey app new`` copies a minimal scaffold for your own.
+them with the rest of the deployment. OSPREY ships one app,
+:doc:`orbit bump <orbit-bump>`, off in the ``demo`` preset, which this section
+uses as its example; ``osprey app new`` copies a minimal scaffold for your own.
 
 .. dropdown:: What You'll Learn
    :color: primary

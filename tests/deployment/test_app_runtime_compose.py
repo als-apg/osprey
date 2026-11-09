@@ -257,15 +257,15 @@ def test_the_declared_state_survives_the_render_a_build_takes(tmp_path: Path) ->
 
 @pytest.mark.slow
 def test_a_bridge_application_without_a_name_server_names_the_profile_keys(
-    built_demo,
+    built_demo_orbit_bump,
 ) -> None:
-    """The shipped preset pointed at a Channel Access facility with no gateway address.
+    """The demo preset with orbit bump on, pointed at a Channel Access facility with no gateway.
 
     The refusal stands, and its remedy names only keys ``profile.yml`` can
     spell: the gateway address, the application's projected network axis, or
     dropping the application. ``services.<key>`` itself is a projected key.
     """
-    config = yaml.safe_load((built_demo.repo / "build" / "config.yml").read_text())
+    config = yaml.safe_load((built_demo_orbit_bump.repo / "build" / "config.yml").read_text())
     config["control_system"]["type"] = "epics"
 
     with pytest.raises(DeploymentPreconditionError) as excinfo:

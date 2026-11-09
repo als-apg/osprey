@@ -1371,10 +1371,12 @@ services:
     template: osprey.archive
 
 # ── Applications ─────────────────────────────────────────────────────────────
-# Each entry runs the application in apps/<name>/. Orbit bump is the bundled
-# showcase: strip, model bump, approval-gated apply. Delete it to turn it off.
-apps:
-  orbit-bump: {}
+# Each entry runs the application in apps/<name>/; none is on by default. Orbit
+# bump ships with OSPREY (strip, model bump, approval-gated apply):
+# `osprey init --preset demo --set 'apps.orbit-bump={}'` copies it into
+# apps/orbit-bump/ and lists it as
+# apps:
+#   orbit-bump: {}
 
 # ── Build checks ─────────────────────────────────────────────────────────────
 # `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,
@@ -3180,50 +3182,26 @@ def seeded_facility_rule(profile_text: str) -> str:
         return (root / "rules" / "facility.md").read_text(encoding="utf-8")
 
 
-#: The live ``apps:`` block the exemplar's profile carries for the preset's application.
-LISTED_APPLICATIONS = """# ── Applications ─────────────────────────────────────────────────────────────
-# Each entry runs the application in apps/<name>/. Orbit bump is the bundled
-# showcase: strip, model bump, approval-gated apply. Delete it to turn it off.
-apps:
-  orbit-bump: {}
+#: The application OSPREY ships beside the demo preset, off in it by default.
+ORBIT_BUMP = "orbit-bump"
 
-"""
-
-#: What a profile listing no application carries at its end instead.
-UNLISTED_APPLICATIONS = """
-# --- Applications ------------------------------------------------------------
-# The applications this deployment runs, one entry per apps/<name>/ directory
-# holding its app.yml. Listing one turns it on; to turn it off, remove the
-# entry. Its tool server is added by the build, so no tool-server key goes here,
-# and its writes follow each login's control_system.writes tier.
-#
-# apps:
-#   orbit-bump:
-#     config:                    # free-form; handed to the application as a file
-#       step: 0.5
-#     services:
-#       orbit-bump:              # a container key from its app.yml
-#         network: host          # bridge | host
-#         env: [HTTP_PROXY]      # host variables passed through
-#
-# A login (tiers/<name>.yml) chooses what its card shows: `apps: {<name>:
-# {shown: false}}`, and `lists: own` to show only what it names.
-"""
+#: The ``osprey init --set`` pair that turns it on: init copies it into
+#: ``apps/orbit-bump/`` and lists it.
+ENABLE_ORBIT_BUMP = f"apps.{ORBIT_BUMP}={{}}"
 
 
-def profile_without_applications(text: str) -> str:
-    """*text* as a profile that lists no application reads."""
-    assert text.count(LISTED_APPLICATIONS) == 1
-    return text.replace(LISTED_APPLICATIONS, "") + UNLISTED_APPLICATIONS
+def enable_orbit_bump(root: Path) -> None:
+    """Turn orbit bump on in the repo at *root*, as ``--set apps.orbit-bump={}`` at init does.
 
-
-def drop_applications(root: Path) -> None:
-    """Take the preset's application out of the repo at *root*, listing and directory."""
-    profile = root / "profile.yml"
-    profile.write_text(
-        profile_without_applications(profile.read_text(encoding="utf-8")), encoding="utf-8"
-    )
-    shutil.rmtree(root / "apps")
+    For a repo made from the exemplar rather than by ``osprey init``: the
+    profile lists the application and its tree is copied with its provenance.
+    """
+    with (root / "profile.yml").open("a", encoding="utf-8") as profile:
+        profile.write(f"\napps:\n  {ORBIT_BUMP}: {{}}\n")
+    for rel, text in packaged_application_files().items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
 
 
 def lay_preset_applications(preset: str, root: Path) -> None:
@@ -3243,7 +3221,7 @@ def lay_preset_applications(preset: str, root: Path) -> None:
 
 
 def packaged_application_files() -> dict[str, str]:
-    """The applications the preset lists, as ``osprey init`` copies them, sidecar included.
+    """Orbit bump as ``osprey init`` copies it when turned on, sidecar included.
 
     Read rather than frozen, for the reason the data README is: the package owns
     these files, and what the comparison downstream is for is that init copies
@@ -3312,8 +3290,6 @@ def _exemplar_source_texts(*, with_ci: bool = False) -> dict[str, str]:
     # The facility description `osprey init` seeds for a profile selecting the
     # facility rule, rendered from the package for the same reason.
     files["rules/facility.md"] = seeded_facility_rule(files["profile.yml"])
-    # The application the profile lists, read from the package as the README is.
-    files.update(packaged_application_files())
     if with_ci:
         files.update(CI_PIPELINE_FILES)
     return files

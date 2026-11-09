@@ -1,4 +1,4 @@
-"""The preset ships this application alone, and re-initialising drops an application it no longer ships."""
+"""Init turned on packages this application alone, and re-initialising drops an application it no longer ships."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from osprey.cli.build_profile_drift import APP_PROVENANCE_FILENAME
 from osprey.cli.init_cmd import init
 from osprey.profiles import presets
 from tests._builds import BuiltProject, init_project
+from tests.fixtures.lifecycle_repo import ENABLE_ORBIT_BUMP
 
 pytestmark = pytest.mark.slow
 
@@ -31,9 +32,9 @@ def _listed_apps(repo: Path) -> list[str]:
 
 
 def test_an_initialised_deployment_packages_exactly_this_app(
-    built_demo: BuiltProject,
+    built_demo_orbit_bump: BuiltProject,
 ) -> None:
-    repo = built_demo.repo
+    repo = built_demo_orbit_bump.repo
     assert _listed_apps(repo) == [APP_NAME]
     assert sorted(path.name for path in (repo / "apps").iterdir()) == [APP_NAME]
     assert deployment_packages(repo, [], apps=_listed_apps(repo)) == [
@@ -42,14 +43,14 @@ def test_an_initialised_deployment_packages_exactly_this_app(
 
 
 def test_a_skip_deps_build_records_the_package_for_the_image(
-    built_demo: BuiltProject,
+    built_demo_orbit_bump: BuiltProject,
 ) -> None:
-    dockerfile = (built_demo.repo / "build" / "Dockerfile").read_text()
+    dockerfile = (built_demo_orbit_bump.repo / "build" / "Dockerfile").read_text()
     assert f"{APP_NAME}==0.1.0" in dockerfile
 
 
 def test_a_forced_init_drops_an_application_the_preset_no_longer_ships(tmp_path: Path) -> None:
-    repo = init_project(tmp_path, "demo", "demo")
+    repo = init_project(tmp_path, "demo", "demo", ENABLE_ORBIT_BUMP)
     stale = repo / "apps" / OLD_APP
     shutil.copytree(
         APP_TREE,
@@ -69,7 +70,10 @@ def test_a_forced_init_drops_an_application_the_preset_no_longer_ships(tmp_path:
     )
     assert _listed_apps(repo) == [OLD_APP]
 
-    result = CliRunner().invoke(init, [str(repo), "--preset", "demo", "--no-git", "--force"])
+    result = CliRunner().invoke(
+        init,
+        [str(repo), "--preset", "demo", "--no-git", "--force", "--set", ENABLE_ORBIT_BUMP],
+    )
 
     assert result.exit_code == 0, result.output
     assert not stale.exists()

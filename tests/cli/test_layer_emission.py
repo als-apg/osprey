@@ -34,6 +34,7 @@ from osprey.utils.workspace import RETIRED_LAYER_DIRS
 from osprey_connectors.errors import BuildProfileError
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.fixtures.lifecycle_repo import (
+    ENABLE_ORBIT_BUMP,
     EXEMPLAR_DIRNAME,
     SHARED_LOGIN_PRESETS,
     TIER_PRESETS,
@@ -86,7 +87,7 @@ def test_init_writes_exactly_the_exemplar_layer_set(exemplar_repo: Path) -> None
     )
 
     assert written == sorted(EXEMPLAR_LAYER_FILES)
-    assert [path.name for path in (exemplar_repo / "apps").iterdir()] == ["orbit-bump"]
+    assert not (exemplar_repo / "apps").exists()
     for retired in RETIRED_LAYER_DIRS:
         assert not (exemplar_repo / retired).exists()
 
@@ -251,7 +252,7 @@ def test_only_the_logins_the_roster_names_are_written(runner: CliRunner, tmp_pat
         shared=["logbook"],
     )
 
-    result = _new(runner, target, "demo", *edit)
+    result = _new(runner, target, "demo", *edit, "--set", ENABLE_ORBIT_BUMP)
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly", "logbook"}
@@ -270,7 +271,7 @@ def test_the_default_tier_is_written_even_when_nobody_runs_on_it_yet(
         shared=[],
     )
 
-    result = _new(runner, target, "demo", *edit)
+    result = _new(runner, target, "demo", *edit, "--set", ENABLE_ORBIT_BUMP)
 
     assert result.exit_code == 0, result.output
     assert _layer_names(target, "tiers") == {"readonly", "readwrite"}
@@ -337,6 +338,8 @@ def test_a_backend_only_deployment_writes_and_builds_its_dispatch_tier(
         "demo",
         "--set",
         "config.modules.web_terminals.enabled=false",
+        "--set",
+        ENABLE_ORBIT_BUMP,
     )
 
     assert result.exit_code == 0, result.output

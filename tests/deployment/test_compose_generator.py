@@ -2283,11 +2283,10 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
     assert container_lifecycle._deployed_project_image_services(dict(config)) == [
-        "orbit-bump",
         "agent_record",
     ], (
-        "on the project image the plan-stack lanes deploy only the preset's example "
-        f"application and the always-deployed agent record: {config.get('deployed_services')}"
+        "on the project image the plan-stack lanes deploy only the always-deployed "
+        f"agent record: {config.get('deployed_services')}"
     )
 
     # -- bluesky MCP server enabled in the rendered .mcp.json -------------------

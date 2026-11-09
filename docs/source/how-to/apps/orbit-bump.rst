@@ -4,7 +4,8 @@
 Example: Orbit Bump
 ===================
 
-The orbit bump app is the example app the ``demo`` preset ships.
+The orbit bump app is the example app OSPREY ships; the ``demo`` preset leaves
+it off.
 It solves a local closed-orbit bump — move the beam at one or more BPMs by a
 chosen offset and close the bump with the surrounding correctors — on the
 session's control target, shows the plan, and applies it behind an approval.
@@ -16,8 +17,10 @@ binds.
 This page reads the app three ways: as the operator, as the agent, and as its
 source — the worked example for :doc:`build-your-own-app`.
 
-The preset lists it in ``profile.yml`` as ``orbit-bump: {}``; delete the entry
-to turn it off. The model dropdown offers the ring models that solve a closed
+To turn it on, initialise with
+``osprey init --preset demo --set 'apps.orbit-bump={}'``: init copies the app
+into ``apps/orbit-bump/`` and lists it in ``profile.yml`` as ``orbit-bump: {}``
+under ``apps:``. The model dropdown offers the ring models that solve a closed
 orbit — a served ``pyat`` model not set to ``single_pass`` — so a facility
 without one has nothing to pick. The app sets a bump and leaves it; to step a
 bump through amplitudes and measure the orbit shift at each, use Bluesky's

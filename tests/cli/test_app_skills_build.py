@@ -10,7 +10,7 @@ import yaml
 
 from osprey.deployment.web_terminals.render_naming import render_project
 from tests.cli._lifecycle_build import invoke_build
-from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo, drop_applications
+from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 KNOB: dict[str, Any] = {
     "name": "knob",
@@ -39,7 +39,6 @@ def _rendered_skills(repo: Path, login: str) -> Path:
 @pytest.fixture(scope="module")
 def skills_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
     repo = build_exemplar_repo(tmp_path_factory.mktemp("skills") / EXEMPLAR_DIRNAME)
-    drop_applications(repo)
     app_dir = repo / "apps" / "knob"
     app_dir.mkdir(parents=True, exist_ok=True)
     (app_dir / "app.yml").write_text(yaml.safe_dump(KNOB, sort_keys=False), encoding="utf-8")

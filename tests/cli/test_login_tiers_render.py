@@ -25,6 +25,7 @@ from tests._builds import Restorable
 from tests.fixtures.lifecycle_repo import (
     EXEMPLAR_DIRNAME,
     build_exemplar_repo,
+    enable_orbit_bump,
     preserved_environ,
 )
 
@@ -46,7 +47,8 @@ _ROSTER_TIERS = {"alice": "asked", "bob": "never", "carol": "allowed"}
 #: Where the two shared-container configs are staged, under ``build/``.
 _BLUESKY = Path("services/bluesky/config.yml")
 _WORKER = Path("services/dispatch_worker/config.yml")
-#: The example application's container: it holds the map because it drives the target.
+#: The example application's container, turned on in each build here: it holds
+#: the map because it drives the target.
 _APP = Path("services/orbit-bump/config.yml")
 
 
@@ -81,6 +83,7 @@ def _build(base: Path, *, tiered: bool = True) -> Path:
     base.mkdir(parents=True, exist_ok=True)
     with _pinned_env():
         repo = build_exemplar_repo(base / EXEMPLAR_DIRNAME, seed_env=True)
+        enable_orbit_bump(repo)
         if not tiered:
             profile = repo / "profile.yml"
             text = profile.read_text(encoding="utf-8")
