@@ -94,8 +94,9 @@ the default:
   targets* meets the targets where the correctors can and lets it leak.
 - *Outside BPMs*: *hold* (default) keeps them at their current orbit;
   *golden* steers them to golden with every corrector of the plane, the rule
-  aside. On a large ring the approval card then shows a summary line and the
-  largest-|Δ| rows; the panel's confirm card lists every row.
+  aside. On a large ring the approval card then shows a summary line, the largest-|Δ| rows and
+  every row without a tolerance in full, and names all other correctors;
+  the panel's confirm card lists every row.
 
 **7. Apply.** *Apply…* is enabled only on a ``ready``, unedited plan while
 the session's machine allows writes. It opens a confirmation with the setpoints and the closure line; *Confirm* writes

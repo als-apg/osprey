@@ -81,8 +81,10 @@ replaces your current plan; the answer is the plan with its `id`.
   plane is used; `rule` and `correctors` are ignored). On a ring with many
   correctors a `golden` plan has more rows than the approval card shows; the
   card then shows a summary line (corrector count, largest |delta|, bounded
-  count, setpoint digest) and the largest-|delta| rows. Tell the operator the
-  card lists only some rows and that the panel lists every one.
+  count, not-staleness-checked count, setpoint digest), the rows without a
+  tolerance and the largest-|delta| rows in full, and "also writes:" lines
+  naming every other corrector. Tell the operator the card gives the rest by
+  name only and that the panel lists every row.
 
 Switching model or plane in the panel clears the bump; for you, computing on
 another model or plane simply replaces the current plan.

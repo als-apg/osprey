@@ -77,5 +77,5 @@ def test_the_skill_says_what_recompute_and_a_golden_plan_cost():
     body = SKILL.read_text(encoding="utf-8")
     assert "every owner's plan" in body
     assert "more rows than the approval card shows" in body
-    assert "summary line" in body and "the panel lists every one" in body
+    assert "summary line" in body and "the panel lists every row" in body
     assert "cannot be applied" not in body

@@ -229,31 +229,96 @@ def miss_text(plan: Mapping[str, Any]) -> str | None:
     return f"targets missed: up to {worst:.3f}{unit} at {', '.join(missed)}"
 
 
-def _summary_text(correctors: list[Mapping[str, Any]], plan: Mapping[str, Any], listed: int) -> str:
+ALSO_WRITES = "also writes: "
+
+
+def _summary_text(
+    correctors: list[Mapping[str, Any]], plan: Mapping[str, Any], listed: int, unchecked: int
+) -> str:
     unit = next((f" {row['unit']}" for row in correctors if row.get("unit")), "")
     largest = max((abs(row["delta"]) for row in correctors), default=0.0)
     return (
         f"{len(correctors)} correctors, max |delta| {largest:.6g}{unit}, "
-        f"{len(plan.get('bounded') or [])} bounded, setpoint digest "
-        f"{setpoint_digest(correctors)[:12]}; the {listed} largest |delta| follow"
+        f"{len(plan.get('bounded') or [])} bounded, {unchecked} not staleness-checked, "
+        f"setpoint digest {setpoint_digest(correctors)[:12]}; {listed} rows in full, "
+        f"the rest named below"
     )
 
 
-def _largest_rows(correctors: list[Mapping[str, Any]], room: int) -> tuple[list[str], int]:
-    """The rows by falling |delta|, packed into at most *room* lines; stops at the first
-    row that does not fit, so the rows shown are always the largest."""
-    lines: list[str] = []
-    listed = 0
-    for row in sorted(correctors, key=lambda row: -abs(row["delta"])):
-        piece = _row_text(row)
-        if lines and _width(lines[-1] + ROW_SEPARATOR + piece) <= MAX_DISPLAY_LINE_CHARS:
-            lines[-1] += ROW_SEPARATOR + piece
-        elif len(lines) < room and _width(piece) <= MAX_DISPLAY_LINE_CHARS:
-            lines.append(piece)
+def _run_tokens(hidden: list[tuple[int, Mapping[str, Any]]], ranges: bool) -> list[str]:
+    """The hidden rows as runs of consecutive plan positions: ``HCM1-HCM23 (0.1-0.5)``."""
+    runs: list[list[tuple[int, Mapping[str, Any]]]] = []
+    for item in hidden:
+        if runs and runs[-1][-1][0] + 1 == item[0]:
+            runs[-1].append(item)
         else:
-            break
-        listed += 1
-    return lines, listed
+            runs.append([item])
+    tokens = []
+    for run in runs:
+        first, last = run[0][1]["element"], run[-1][1]["element"]
+        token = first if first == last and len(run) == 1 else f"{first}\u2013{last}"
+        if ranges:
+            sizes = [abs(row["delta"]) for _, row in run]
+            low, high = min(sizes), max(sizes)
+            token += f" ({low:.3g})" if low == high else f" ({low:.3g}\u2013{high:.3g})"
+        tokens.append(token)
+    return tokens
+
+
+def _pack_names(tokens: list[str]) -> list[str]:
+    """Greedy-pack *tokens* into ``also writes:`` lines that fit the display cap."""
+    lines: list[str] = []
+    for token in tokens:
+        if _width(ALSO_WRITES + token) > MAX_DISPLAY_LINE_CHARS:
+            raise DisplayOverflow(f"{token[:40]}... is longer than one display line")
+        if lines and _width(lines[-1] + ", " + token) <= MAX_DISPLAY_LINE_CHARS:
+            lines[-1] += ", " + token
+        else:
+            lines.append(ALSO_WRITES + token)
+    return lines
+
+
+def _summary_block(
+    correctors: list[Mapping[str, Any]], plan: Mapping[str, Any], room: int
+) -> list[str]:
+    """The summary line, the rows in full and the lines naming every hidden row.
+
+    The rows without a tolerance are always in full; the rest by falling |delta| as long as
+    the names of the others still fit in *room* lines.
+
+    Raises:
+        DisplayOverflow: No split leaves one full row and every hidden name in *room* lines.
+    """
+    unchecked = [i for i, row in enumerate(correctors) if row.get("tolerance") is None]
+    pinned = set(unchecked)
+    rest = sorted(
+        (i for i in range(len(correctors)) if i not in pinned),
+        key=lambda i: -abs(correctors[i]["delta"]),
+    )
+    cause = "no split of the plan's rows fits"
+    for count in range(len(rest), -1, -1):
+        shown = pinned | set(rest[:count])
+        if not shown:
+            cause = "the summary would list no row in full"
+            continue
+        order = [i for i in range(len(correctors)) if i in shown]
+        by_size = sorted(order, key=lambda i: (i not in pinned, -abs(correctors[i]["delta"])))
+        try:
+            row_lines = _pack((_row_text(correctors[i]) for i in by_size), ROW_SEPARATOR)
+            hidden = [(i, correctors[i]) for i in range(len(correctors)) if i not in shown]
+            for ranges in (True, False):
+                names = _pack_names(_run_tokens(hidden, ranges)) if hidden else []
+                if len(row_lines) + len(names) <= room:
+                    summary = _summary_text(correctors, plan, len(shown), len(unchecked))
+                    if _width(summary) > MAX_DISPLAY_LINE_CHARS:
+                        raise DisplayOverflow("the summary line is longer than one display line")
+                    return [summary, *row_lines, *names]
+        except DisplayOverflow as exc:
+            cause = str(exc)
+    raise DisplayOverflow(
+        f"the {len(unchecked)} rows without a tolerance and the names of the other rows "
+        f"do not fit the approval card ({cause})"
+    )
 
 
 def display_lines(plan: Mapping[str, Any]) -> list[str]:
@@ -261,8 +326,9 @@ def display_lines(plan: Mapping[str, Any]) -> list[str]:
     then the closure.
 
     When every row does not fit, a summary line (corrector count, largest |delta|,
-    bounded count, short setpoint digest) and the largest-|delta| rows that fit take
-    the rows' place. Each line is at most ``MAX_DISPLAY_LINE_CHARS`` once HTML-escaped,
+    bounded and not-staleness-checked counts, short setpoint digest), the rows without a
+    tolerance and the largest-|delta| rows in full, and ``also writes:`` lines naming
+    every other corrector take the rows' place. Each line is at most ``MAX_DISPLAY_LINE_CHARS`` once HTML-escaped,
     and there are at most ``MAX_DISPLAY_LINES`` in all.
 
     Raises:
@@ -286,8 +352,7 @@ def display_lines(plan: Mapping[str, Any]) -> list[str]:
             f"the missed targets and the closure need {len(tail)} display lines; the "
             f"approval card shows {MAX_DISPLAY_LINES}"
         )
-    rows, listed = _largest_rows(correctors, room)
-    return [_summary_text(correctors, plan, listed), *rows, *tail]
+    return [*_summary_block(correctors, plan, room), *tail]
 
 
 def _finite(value: Any) -> float | None:

@@ -14,6 +14,7 @@ import html
 import json
 import math
 import os
+import re
 import threading
 from types import SimpleNamespace
 from typing import Any
@@ -619,11 +620,8 @@ def test_many_rows_pack_into_lines_that_fit_the_hook(render) -> None:
 
 
 def _too_many_rows() -> list[dict[str, Any]]:
-    """120 rows, deltas all distinct and out of order: far more than twenty lines hold."""
-    return [
-        _row(f"SR{n:02d}C___HCM&{n}", 1.0 + ((n * 37) % 120 - 60) / 100, tolerance=None)
-        for n in range(120)
-    ]
+    """120 rows with a tolerance, deltas distinct and out of order: more than 20 lines hold."""
+    return [_row(f"SR{n:02d}C___HCM&{n}", 1.0 + ((n * 37) % 120 - 60) / 100) for n in range(120)]
 
 
 def test_rows_that_cannot_fit_give_way_to_a_summary_within_the_caps(render) -> None:
@@ -634,19 +632,111 @@ def test_rows_that_cannot_fit_give_way_to_a_summary_within_the_caps(render) -> N
     assert all(len(html.escape(line, quote=True)) <= MAX_DISPLAY_LINE_CHARS for line in lines)
     assert not any(render.TRUNCATION_MARK in line for line in render.render_display_lines(lines))
     summary = lines[0]
-    assert summary.startswith("120 correctors, max |delta| 0.6 A, 2 bounded, ")
+    assert summary.startswith(
+        "120 correctors, max |delta| 0.6 A, 2 bounded, 0 not staleness-checked, "
+    )
     assert f"setpoint digest {setpoint_digest(rows)[:12]};" in summary
     assert lines[-1].startswith("dropped_bpms:")
 
 
-def test_the_summary_lists_the_largest_deltas_first_and_says_how_many() -> None:
+def _html_width(line: str) -> int:
+    return len(html.escape(line, quote=True))
+
+
+def _full_rows(lines: list[str]) -> list[str]:
+    """The elements of the rows shown in full (they carry ' -> ')."""
+    return [
+        piece.split(" ")[0] for line in lines[1:] for piece in line.split(" | ") if " -> " in piece
+    ]
+
+
+def test_the_summary_lists_the_largest_deltas_first_then_names_the_rest() -> None:
     rows = _too_many_rows()
     lines = display_lines(_plan(correctors=rows))
-    shown = [piece.split(" ")[1].rstrip(":") for line in lines[1:-1] for piece in line.split(" | ")]
+    shown = _full_rows(lines)
     by_size = sorted(rows, key=lambda row: -abs(row["delta"]))
-    assert shown == [row["setpoint_addr"] for row in by_size[: len(shown)]]
+    assert shown == [row["element"] for row in by_size[: len(shown)]]
     assert 0 < len(shown) < len(rows)
-    assert lines[0].endswith(f"the {len(shown)} largest |delta| follow")
+    assert f"{len(shown)} rows in full" in lines[0]
+    assert any(line.startswith("also writes: ") for line in lines)
+
+
+def _plan72(**changes: Any) -> dict[str, Any]:
+    rows = [
+        _row(f"HCM{n}", 1.0 + (0.5 if n % 9 == 0 else 0.01 * (n % 7 + 1)))
+        | {"setpoint_addr": f"SR{n:02d}C:HCM{n}:Current:SP:{'x' * 20}"}
+        for n in range(1, 73)
+    ]
+    return _plan(correctors=rows, **changes)
+
+
+def test_every_element_of_a_72_row_plan_appears_in_the_approval_lines() -> None:
+    plan = _plan72()
+    lines = display_lines(plan)
+    assert len(lines) <= MAX_DISPLAY_LINES
+    assert all(_html_width(line) <= MAX_DISPLAY_LINE_CHARS for line in lines)
+    names = set(_full_rows(lines))
+    for line in lines:
+        if line.startswith("also writes: "):
+            for token in line.removeprefix("also writes: ").split(", "):
+                first, _, rest = token.partition("\u2013")
+                names.add(first.split(" ")[0])
+                if rest:
+                    names.add(rest.split(" ")[0])
+                    low, high = int(first.split(" ")[0][3:]), int(rest.split(" ")[0][3:])
+                    names.update(f"HCM{k}" for k in range(low, high + 1))
+    assert names >= {row["element"] for row in plan["correctors"]}
+
+
+def test_hidden_runs_are_compressed_in_plan_order() -> None:
+    lines = display_lines(_plan72())
+    named = " ".join(line for line in lines if line.startswith("also writes: "))
+    assert "\u2013HCM" in named
+    assert named.count("HCM") < 2 * len(re.findall(r"HCM\d+", named))  # runs, not a list
+
+
+def test_the_summary_line_counts_rows_without_a_tolerance() -> None:
+    rows = [_row(f"HCM{n}", 1.0 + n / 1000, tolerance=None if n < 3 else 0.01) for n in range(72)]
+    lines = display_lines(_plan(correctors=rows))
+    assert "3 not staleness-checked" in lines[0]
+
+
+def test_rows_without_a_tolerance_are_always_shown_in_full() -> None:
+    quiet = {f"HCM{n}" for n in (5, 6, 40, 41, 70)}
+    rows = [
+        _row(
+            f"HCM{n}",
+            1.0 + (0.9 if n % 9 == 0 else 0.0001 * (n + 1)),
+            tolerance=None if f"HCM{n}" in quiet else 0.01,
+        )
+        for n in range(72)
+    ]
+    lines = display_lines(_plan(correctors=rows))
+    assert quiet <= set(_full_rows(lines))
+    for line in lines[1:]:
+        for piece in line.split(" | "):
+            if piece.split(" ")[0] in quiet:
+                assert NO_TOLERANCE_NOTE in piece
+
+
+def test_too_many_rows_without_a_tolerance_are_refused_with_the_cause() -> None:
+    rows = [_row(f"SR{n:02d}C___HCM&{n}", 1.0 + n / 1000, tolerance=None) for n in range(120)]
+    with pytest.raises(DisplayOverflow, match="without a tolerance"):
+        display_lines(_plan(correctors=rows))
+
+
+def test_a_name_that_cannot_fit_a_line_is_refused() -> None:
+    rows = [_row(f"SR{n:02d}C___HCM&{n}", 1.0 + n / 100) for n in range(120)]
+    rows[0] = _row("X" * 250, 1.001)
+    with pytest.raises(DisplayOverflow, match="do not fit"):
+        display_lines(_plan(correctors=rows))
+
+
+def test_a_refused_summary_makes_the_plan_not_applicable() -> None:
+    rows = [_row(f"SR{n:02d}C___HCM&{n}", 1.0 + n / 1000, tolerance=None) for n in range(120)]
+    with pytest.raises(DisplayOverflow) as raised:
+        display_lines(_plan(correctors=rows))
+    assert "without a tolerance" in str(raised.value)
 
 
 def test_the_display_mode_leaves_the_setpoint_digest_alone(client, app) -> None:
@@ -656,6 +746,7 @@ def test_the_display_mode_leaves_the_setpoint_digest_alone(client, app) -> None:
     approval = client.get(APPROVAL_ROUTE).json()
     assert approval["display_lines"] == display_lines(stored)
     assert approval["display_lines"][0].startswith("120 correctors, ")
+    assert setpoint_digest(stored["correctors"]) == digest
     assert approval["setpoint_digest"] == digest
 
 
@@ -1242,7 +1333,7 @@ def _periodic_ring(model: str) -> tuple[ModelMembers, ResponseMatrix]:
         model=model,
         length_m=float(3 * PERIODIC),
         bpms=[_bpm(f"B{k}", "x", 3 * k + 1) for k in cells],
-        correctors=[_cor(f"C{k}", "x", 3 * k, tolerance=None) for k in cells],
+        correctors=[_cor(f"C{k}", "x", 3 * k) for k in cells],
     )
     matrix = ResponseMatrix(
         model=model,
@@ -1419,6 +1510,11 @@ def test_the_miss_line_counts_against_the_line_cap() -> None:
     fits = display_lines(_plan(correctors=rows))
     assert len(fits) == MAX_DISPLAY_LINES
     assert fits[0].startswith("SR00C")
+    rows = [
+        _row(f"SR{n:02d}C___HCM&{n}", 1.0 + n / 100) | {"setpoint_addr": f"SR{n:02d}:{'x' * 60}"}
+        for n in range(19)
+    ]
+    assert len(display_lines(_plan(correctors=rows))) == MAX_DISPLAY_LINES
     summed = display_lines(_plan(correctors=rows, missed=["B1"], target_miss_max=0.2))
     assert len(summed) == MAX_DISPLAY_LINES
     assert summed[0].startswith("19 correctors, ")
