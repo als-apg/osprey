@@ -112,7 +112,9 @@ def constraint_statement(cypher: str) -> str:
 
 
 def _page_cypher() -> str:
-    (block,) = _code_blocks(GRAPH_PAGE.read_text(encoding="utf-8"), "cypher")
+    """The external-store setup block: the one Cypher block that initialises n10s."""
+    blocks = _code_blocks(GRAPH_PAGE.read_text(encoding="utf-8"), "cypher")
+    (block,) = [block for block in blocks if "n10s.graphconfig.init" in block]
     return block
 
 
