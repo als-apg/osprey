@@ -205,3 +205,59 @@ async def test_no_read_means_no_task():
 
     assert _other_tasks() - before == set()
     await snapshot.aclose()
+
+
+class _Probed(_StillLoading):
+    """A feed that catches up after *load_s* seconds; its probe answers at once."""
+
+    def __init__(self, load_s: float) -> None:
+        super().__init__()
+        self._load_s = load_s
+        self._caught_up = False
+        self.probes: list[float] = []
+
+    async def start(self) -> None:
+        self.started += 1
+
+    async def state_for(self, pv: str, deadline: float):  # noqa: ARG002 - a fake
+        self.deadlines.append(deadline)
+        await asyncio.sleep(min(self._load_s, deadline))
+        self._caught_up = deadline >= self._load_s
+        return None if self._caught_up else LOADING
+
+    async def probe(self, deadline: float):
+        self.probes.append(deadline)
+        return "read 3 messages; last contact 0 s ago" if self._caught_up else LOADING
+
+
+async def test_a_probe_starts_the_feed_and_answers_once_it_caught_up():
+    backend = _Probed(load_s=0.05)
+    snapshot = AlarmSnapshot(backend, "live")
+    try:
+        assert await snapshot.probe(1.0) == "read 3 messages; last contact 0 s ago"
+    finally:
+        await snapshot.aclose()
+
+    assert backend.started == 1
+    assert len(backend.probes) == 1
+    assert 0.0 <= backend.probes[0] < 1.0
+
+
+async def test_a_probe_answers_loading_only_when_the_deadline_ran_out():
+    backend = _Probed(load_s=5.0)
+    snapshot = AlarmSnapshot(backend, "live")
+    try:
+        assert await snapshot.probe(0.05) == LOADING
+    finally:
+        await snapshot.aclose()
+
+
+async def test_a_probe_of_a_replay_answers_its_messages():
+    snapshot = AlarmSnapshot(_replay_backend(STOPPED_FEED), "va")
+    try:
+        answer = await snapshot.probe(2.0)
+    finally:
+        await snapshot.aclose()
+
+    assert answer.startswith("read ")
+    assert answer.endswith("from the replay file; the feed stopped")

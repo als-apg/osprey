@@ -8,7 +8,9 @@ it and closes the backend. A read waits for the start up to the caller's deadlin
 then reads the backend once with what is left of it; the backend does the waiting
 for catch-up. The answer is exactly the backend's: a feed still loading, a missing
 client or an unreachable broker stays its ``Unavailable``, never a clear state, and
-``stale`` is the backend's flag, passed on unchanged.
+``stale`` is the backend's flag, passed on unchanged. :meth:`AlarmSnapshot.probe`
+waits the same way, with one read, and then asks the backend's probe, which
+answers at once.
 """
 
 from __future__ import annotations
@@ -24,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
+#: The PV a probe's waiting read asks for; any name waits the same.
+_ANY_PV = ""
+
 
 class _AlarmStateBackend(Protocol):
     """The part of the connectors' ``AlarmState`` a snapshot drives."""
@@ -35,6 +40,8 @@ class _AlarmStateBackend(Protocol):
     async def state_for(self, pv: str, deadline: float) -> Any: ...
 
     async def config_for(self, pv: str, deadline: float) -> Any: ...
+
+    async def probe(self, deadline: float) -> Any: ...
 
 
 class AlarmSnapshot:
@@ -57,6 +64,17 @@ class AlarmSnapshot:
     async def config_for(self, pv: str, deadline: float) -> Any:
         """The backend's live alarm configuration of *pv*, read as :meth:`state_for` reads."""
         return await self._read(self.backend.config_for, pv, deadline)
+
+    async def probe(self, deadline: float) -> Any:
+        """The backend's probe, once the feed has had up to *deadline* seconds to catch up.
+
+        The wait is one read, whose answer is dropped: the backend waits for
+        catch-up inside its reads, and its probe says what it has right now.
+        """
+        loop = asyncio.get_running_loop()
+        until = loop.time() + max(deadline, 0.0)
+        await self._read(self.backend.state_for, _ANY_PV, deadline)
+        return await self.backend.probe(max(until - loop.time(), 0.0))
 
     async def aclose(self) -> None:
         """Cancel the start task and close the backend; idempotent."""

@@ -60,6 +60,8 @@ _DEFAULT_FILTER_CAP = 5000
 #: How long a fetched count or result set answers repeat searches of one query.
 _CACHE_TTL_S = 30.0
 _CACHE_SIZE = 32
+#: How far past its deadline an alarm-feed probe may run before it is cut off.
+_PROBE_GRACE_S = 1.0
 
 #: The row fields the directory fills from a property, by that property's name.
 _ROW_PROPERTIES = {
@@ -250,17 +252,24 @@ class DirectoryService:
                 self._snapshot = AlarmSnapshot(backend, target)
         return self._snapshot
 
-    async def probes(self) -> dict[str, dict[str, Any]]:
-        """Each configured service's probe on the current target, by kind."""
+    async def probes(self, kinds: Iterable[str] | None = None) -> dict[str, dict[str, Any]]:
+        """Each configured service's probe on the current target, by kind.
+
+        *kinds* limits the answer to those kinds. The ``alarm_state`` probe starts
+        the feed through :meth:`snapshot` and waits for catch-up up to the
+        deadline. Without the PV directory modules the answer is the one
+        ``pv_directory`` floor entry, whatever *kinds* asks.
+        """
         target = await self._sync()
         if not DIRECTORY_CONNECTORS_AVAILABLE:
             if self._config.get(_SECTION_KEY) is None:
                 return {}
             return {"pv_directory": unavailable_payload(FLOOR_REASON, target=target)}
+        wanted = _KINDS if kinds is None else tuple(kinds)
         table = pv_directory_targets(self._config, ariel_configured=False)
-        kinds = [kind for kind in _KINDS if any(table[kind].values())]
-        answers = await asyncio.gather(*(self._probe(kind, target) for kind in kinds))
-        return dict(zip(kinds, answers, strict=True))
+        asked = [kind for kind in _KINDS if kind in wanted and any(table[kind].values())]
+        answers = await asyncio.gather(*(self._probe(kind, target) for kind in asked))
+        return dict(zip(asked, answers, strict=True))
 
     async def aclose(self) -> None:
         """Close the alarm snapshot and drop every backend and cached set; idempotent."""
@@ -335,7 +344,15 @@ class DirectoryService:
         if backend is None:
             return unavailable_payload(reason or NO_SOURCE_REASON, target=target)
         deadline = _seconds(backend.spec.settings.get("timeout_s"), self._timeout())
-        answer = await self._bounded(backend.probe(deadline), deadline)
+        if kind == "alarm_state":
+            snapshot = await self.snapshot()
+            if snapshot is None:  # the target moved during the build
+                return unavailable_payload(NO_SOURCE_REASON, target=target)
+            # The snapshot spends the deadline waiting; the grace only bounds a
+            # backend that overruns it, so "still loading" stays the backend's word.
+            answer = await self._bounded(snapshot.probe(deadline), deadline + _PROBE_GRACE_S)
+        else:
+            answer = await self._bounded(backend.probe(deadline), deadline)
         if isinstance(answer, str):
             return {"outcome": "found", "source": as_payload(source), "evidence": answer}
         return {"outcome": "unavailable", "source": as_payload(source), "reason": answer.reason}
