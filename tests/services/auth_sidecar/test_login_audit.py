@@ -1211,6 +1211,9 @@ class TestTheLedgerWindowIsNotTheLoginThrottle:
     def test_the_ledger_window_is_what_grew_instead(self, zone: SidecarZone) -> None:
         """The bound still holds — it is simply held by the other object."""
         app = _oidc_app(UNMAPPED_OIDC_ENV)
+        # A clock the test drives: on a slow runner the wall-clock window can
+        # elapse between the eight requests and file a second record.
+        _with_movable_audit_window(app)
         for _ in range(8):
             _oidc_start(app, "bob")
         assert len(zone.records()) == 1

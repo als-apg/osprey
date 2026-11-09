@@ -24,6 +24,7 @@ from osprey_connectors.control_system._base import (
 )
 from osprey_connectors.errors import (
     ChannelLimitsViolationError,
+    ChannelUnreachableError,
     ChannelWriteBlockedError,
     ConnectorInternalError,
     RefusalReason,
@@ -466,6 +467,19 @@ def test_a_typed_exception_round_trips_with_every_spec_field(original):
     # The operator-facing message is re-rendered (or carried) intact.
     assert str(frame.exception) == str(original)
     assert exceptions.exception_fields(frame.exception) == exceptions.exception_fields(original)
+
+
+def test_a_vocabulary_subclass_is_tagged_as_its_registered_ancestor():
+    # No host in between: the codec itself names the class the far side rebuilds.
+    class _Mine(ChannelUnreachableError):
+        pass
+
+    frame = _round_trip(frames.encode_error("req-s", _Mine("SR:Q", "SR:Q went quiet")))
+
+    assert frame.class_tag == "ChannelUnreachableError"
+    assert type(frame.exception) is ChannelUnreachableError
+    assert frame.exception.channel_address == "SR:Q"
+    assert str(frame.exception) == "SR:Q went quiet"
 
 
 def test_unknown_class_tag_fails_closed_to_the_contract_fault():
