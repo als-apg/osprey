@@ -14,6 +14,7 @@ import json
 import os
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -54,7 +55,7 @@ SECTION = {"type": "epics", "writes": "allowed"}
 TARGET = "va"
 ME = FIXTURE_IDENTITY
 OPS = [("A:SP", 5.0)]
-FAR_FUTURE_NS = time.time_ns() + 10 * 365 * 24 * 3600 * 10**9
+FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
 
 @pytest.fixture(autouse=True)
@@ -131,7 +132,7 @@ def request_payload(**fields: Any) -> dict[str, Any]:
         "target": TARGET,
         "channels": {"A:SP": {"min": 0.0, "max": 10.0}},
         "steps": 4,
-        "requested_at_ns": 1,
+        "requested_at_ns": time.time_ns(),
         "expires_at_ns": FAR_FUTURE_NS,
         "lease_s": 30.0,
         "label": "run-7",
@@ -261,8 +262,11 @@ class TestRequestFormat:
             {"extra": 1},
             {"completion": "apply_worst"},
             {"steps": 0},
+            {"steps": wa.MAX_STEPS + 1},
             {"lease_s": 0},
+            {"lease_s": wa.MAX_LEASE_S + 1},
             {"expires_at_ns": 1},
+            {"expires_at_ns": time.time_ns() + 2 * int(wa.MAX_EXPIRES_S * 1e9)},
             {"channels": {}},
             {"channels": {"A:SP": {"min": 2, "max": 1}}},
             {"channels": {"A:SP": {"min": 0, "max": "1"}}},
@@ -332,6 +336,13 @@ class TestRequestFormat:
 
 
 class TestApproval:
+    def test_a_request_past_a_ceiling_is_never_approved(self):
+        """The approval re-reads what it writes, so a budget past :data:`MAX_STEPS` refuses."""
+        request = replace(ask(), steps=wa.MAX_STEPS + 1)
+        with pytest.raises(ValueError):
+            approve_request(request, surface="cli")
+        assert approved_grant(request.id) is None
+
     def test_the_grant_is_the_request_under_its_id(self):
         request = ask()
         assert approved_grant(request.id) is None
@@ -526,7 +537,7 @@ class TestPruneAndShow:
         live = make_grant()
         stopped_long_ago = make_grant(revoked=Revocation(at_ns=now - 2 * hour, by="bob"))
         stopped_now = make_grant(revoked=Revocation(at_ns=now, by="bob"))
-        expired_long_ago = make_grant(issued_at_ns=1, expires_at_ns=now - 2 * hour)
+        expired_long_ago = make_grant(issued_at_ns=now - 3 * hour, expires_at_ns=now - 2 * hour)
         for grant in (live, stopped_long_ago, stopped_now, expired_long_ago):
             issue_grant(grant, directory=own_dir())
         broken = own_dir() / f"{uuid.uuid4().hex}.json"

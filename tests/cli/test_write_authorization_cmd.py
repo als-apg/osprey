@@ -25,7 +25,7 @@ from osprey_connectors import write_authorization as wa
 from osprey_connectors.identity import acting_identity
 from osprey_connectors_tests._harness import isolate_verdict_environment, write_control_context
 
-FAR_FUTURE_NS = time.time_ns() + 10 * 365 * 24 * 3600 * 10**9
+FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
 LIMITS = {
     "SR:A": {"writable": True, "min_value": 0.0, "max_value": 10.0},

@@ -296,6 +296,16 @@ def test_the_channels_asked_for_are_the_setpoints_at_the_runs_window(
     assert deployment.spent(grant.id) == EVALUATIONS
 
 
+def test_an_expiry_set_past_the_ceiling_is_held_to_it(
+    deployment: Deployment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deployment.switch("allowed")
+    monkeypatch.setattr(run_auth, "EXPIRES_S", 7 * 24 * 3600.0)
+    deployment.run(deployment.config(on_complete="hold"))
+    grant = wa.parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
+    assert grant.expires_at_ns - grant.issued_at_ns <= wa.MAX_EXPIRES_S * 1e9
+
+
 def test_a_flaky_objective_read_costs_no_extra_step_and_no_extra_write(
     deployment: Deployment, monkeypatch: pytest.MonkeyPatch
 ) -> None:

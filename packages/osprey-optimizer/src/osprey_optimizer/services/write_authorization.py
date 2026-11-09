@@ -37,7 +37,11 @@ Nothing asks again.
 **The end.** :meth:`RunAuthorization.release` stops the heartbeat, withdraws a
 request still pending, marks a self-issued grant revoked (it is in the run's
 own directory; one a person approved is left to its lease and expiry), and
-stops the connector child that names the authorization. It writes nothing to
+stops the connector child that names the authorization. With the heartbeat
+stopped the lease lapses within :data:`LEASE_S`, and from then on a person's
+grant no longer blocks another program's approval on its channels
+(:func:`~osprey_connectors.write_authorization.auth_overlap`); a paused run
+keeps renewing, so it keeps blocking. It writes nothing to
 the machine: a cancelled or failed run holds the machine where it is.
 """
 
@@ -75,6 +79,8 @@ __all__ = [
 Completion = Literal["none", "apply_best", "restore"]
 
 #: How long a run's authorization lasts at most, from the moment it is asked for.
+#: A value past the connectors' ceiling (:data:`~osprey_connectors.write_authorization.MAX_EXPIRES_S`,
+#: a day) is held to it when the run asks.
 EXPIRES_S = float(os.environ.get("OPTIMIZER_AUTHORIZATION_EXPIRES_S", 8 * 3600))
 #: How long a request waits for a person's approval before the run ends.
 WAIT_S = float(os.environ.get("OPTIMIZER_AUTHORIZATION_WAIT_S", 15 * 60))
@@ -317,7 +323,7 @@ class RunAuthorization:
             reason=None,
             detail=None,
         )
-        expires_at_ns = time.time_ns() + int(EXPIRES_S * 1e9)
+        expires_at_ns = time.time_ns() + int(min(EXPIRES_S, wa.MAX_EXPIRES_S) * 1e9)
         try:
             grant = wa.self_issue(
                 _control_system_section(),

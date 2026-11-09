@@ -327,8 +327,12 @@ and a switch moved to *asked* or *allowed* does not widen it. The how-to is
 
 **Three files, three writers.** Each is read the fail-closed way: no symbolic
 link followed, a bounded read, a regular file, exactly the fields below, no
-repeated key, every number finite. A file that is there and cannot be read
-refuses; an absent grant is no authorization (``switch_off``).
+repeated key, every number finite. A request or grant must also stay inside
+three ceilings: at most 100000 ``steps``, an ``expires_at_ns`` at most 24 hours
+after its ``requested_at_ns`` or ``issued_at_ns``, and a ``lease_s`` of at most
+600 seconds (``MAX_STEPS``, ``MAX_EXPIRES_S``, ``MAX_LEASE_S``). A file that is
+there and cannot be read refuses; an absent grant is no authorization
+(``switch_off``).
 
 .. list-table::
    :header-rows: 1
@@ -377,7 +381,9 @@ grants directory's — the one lock order every writer of both keeps — stamps
 the record's ``switch_epoch`` on the grant, and refuses ``auth_overlap`` when
 a live grant of another holder lists one of the channels on the same machine:
 one in the owner's own directory, or a self-issued one in the ledger directory
-the approver sees. Another owner's directory is not read. A grant file that
+the approver sees. A grant whose ledger, where the approver sees it, shows
+its lease lapsed (its holder stopped renewing, or is gone) does not count; one
+with no ledger in sight does, until it expires. Another owner's directory is not read. A grant file that
 cannot be read is logged and left out of that check; it refuses every write
 under it already. Both surfaces also refuse a target the deployment does not
 configure, a ceiling of ``never`` or ``unknown``, a range outside the limits

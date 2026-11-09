@@ -433,7 +433,7 @@ def _approve_card_lock(staged: Staged) -> Any:
         "target": case.target,
         "channels": {"SR:A": {"min": 0.0, "max": 1.0}},
         "steps": 1,
-        "requested_at_ns": 1,
+        "requested_at_ns": time.time_ns(),
         "expires_at_ns": time.time_ns() + 3600 * 10**9,
         "lease_s": 30.0,
         "label": "",
