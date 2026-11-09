@@ -8206,12 +8206,15 @@ class TestStageSiteImageArgsForContext:
         assert self._resolve({"project_name": "p"}, context) == {}
         assert [path.name for path in context.iterdir()] == ["Dockerfile"]
 
-    def test_a_context_that_builds_nothing_is_left_alone(self, tmp_path: Path) -> None:
+    def test_a_context_that_builds_nothing_is_left_alone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A pure-image service gets no staged CA it would never COPY.
 
         Its compose fragment declares no ``build:`` block at all, so a file
         staged beside it is dead weight that also churns the context hash.
         """
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
         context = tmp_path / "postgresql"
         context.mkdir()
         source = tmp_path / "site-ca.pem"
@@ -8220,7 +8223,39 @@ class TestStageSiteImageArgsForContext:
         assert (
             self._resolve({"project_name": "p", "images": {"site_ca": str(source)}}, context) == {}
         )
+        assert self._resolve({"project_name": "p", "offline": True}, context) == {}
         assert list(context.iterdir()) == []
+
+    def test_offline_reaches_a_built_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An offline deployment tells every image it builds, in the spelling recipes compare."""
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+
+        assert self._resolve({"project_name": "p", "offline": True}, self._context(tmp_path)) == {
+            "OSPREY_OFFLINE": "1"
+        }
+
+    def test_an_online_deployment_renders_no_offline_arg(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``offline: false`` renders the args block an online deployment always had."""
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+
+        assert self._resolve({"project_name": "p", "offline": False}, self._context(tmp_path)) == {}
+
+    def test_the_environment_overrides_the_offline_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``OSPREY_OFFLINE`` wins over the config key, as the serving check reads it."""
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+        context = self._context(tmp_path)
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "0")
+        assert self._resolve({"project_name": "p", "offline": True}, context) == {}
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        assert self._resolve({"project_name": "p"}, context) == {"OSPREY_OFFLINE": "1"}
 
     def test_the_pip_axes_are_carried_through_verbatim(self, tmp_path: Path) -> None:
         """The three pip axes need no rewriting — they are values, not paths."""

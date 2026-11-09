@@ -46,6 +46,7 @@ from osprey.deployment.compose_generator import (
     resolve_image_defaults,
     resolve_project_name,
     resolve_repo_root,
+    resolve_site_build_args,
     resolve_site_image_axes,
 )
 from osprey.deployment.compose_watch import watched_compose_up
@@ -1991,17 +1992,15 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
     honours them. Before this, the Dockerfiles declared the ARGs and no builder
     passed them: the settings existed only for a hand-run ``docker build``.
 
-    Two producers feed it:
-
-    * :func:`~osprey.deployment.compose_generator.resolve_site_image_axes` for
-      the ``images.*`` block — the site CA, pip's proxy bypass list and the two
-      index URLs; and
-    * the top-level ``offline`` key, read exactly as
-      :func:`osprey.interfaces.vendor.is_offline` reads it, so build-time
-      vendoring and the runtime check that decides whether to SERVE the
-      vendored assets cannot disagree. A deployment that sets ``offline: true``
-      and gets an image that never ran ``osprey vendor fetch`` serves broken
-      asset paths with nothing to point at.
+    One resolver feeds it,
+    :func:`~osprey.deployment.compose_generator.resolve_site_build_args`: the
+    ``images.*`` block (the site CA, pip's proxy bypass list and the two index
+    URLs) and the top-level ``offline`` key, read exactly as
+    :func:`osprey.interfaces.vendor.is_offline` reads it, so build-time
+    vendoring and the runtime check that decides whether to SERVE the vendored
+    assets cannot disagree. A deployment that sets ``offline: true`` and gets an
+    image that never ran ``osprey vendor fetch`` serves broken asset paths with
+    nothing to point at.
 
     An axis the deployment did not set contributes nothing, so an unconfigured
     deployment's build command is exactly what it was before this existed.
@@ -2014,18 +2013,11 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
         there. A CA the build cannot find is a build that silently fails TLS
         verification against the site proxy much later.
     """
-    from osprey.interfaces.vendor import offline_from_config
-
     args: list[str] = []
-    axes = resolve_site_image_axes(config)
-    for arg_name, value in axes.items():
+    for arg_name, value in resolve_site_build_args(config).items():
         if arg_name == "OSPREY_SITE_CA":
             value = _stage_site_ca(value, context_dir)
         args.extend(["--build-arg", f"{arg_name}={value}"])
-    if offline_from_config(config):
-        # "1" is the one spelling the Dockerfiles compare against; the config
-        # layer accepts every truthy spelling `is_offline` does.
-        args.extend(["--build-arg", "OSPREY_OFFLINE=1"])
     return args
 
 
