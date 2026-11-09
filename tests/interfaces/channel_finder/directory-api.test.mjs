@@ -97,9 +97,9 @@ describe('directory-api routes', () => {
     expect(lastCall(fetchMock).url).toBe('/api/directory/logbook/availability');
     await readValues(['A', 'B']);
     const { url, opts } = lastCall(fetchMock);
-    expect(url).toBe('/api/directory/values');
-    expect(opts.method).toBe('POST');
-    expect(JSON.parse(opts.body)).toEqual({ names: ['A', 'B'] });
+    expect(url).toBe('/api/directory/values?name=A&name=B');
+    expect(opts.method).toBeUndefined();
+    expect(opts.body).toBeUndefined();
   });
 });
 

@@ -123,8 +123,8 @@ async function mount(setup = {}) {
       searches.push(target);
       return answer(200, typeof search === 'function' ? search(target) : search);
     }
-    if (target === '/api/directory/values') {
-      const names = JSON.parse(opts.body).names;
+    if (target.startsWith('/api/directory/values')) {
+      const names = new URL(target, 'http://x').searchParams.getAll('name');
       const rows = values ?? ROUTES.values.filter((/** @type {any} */ v) => names.includes(v.name));
       return answer(200, rows);
     }
@@ -248,11 +248,14 @@ describe('rows and states', () => {
     const { container, fetchMock } = await mount();
     await vi.waitFor(() => expect(rows(container)[0].textContent).toContain('0.125'));
     const reads = () =>
-      fetchMock.mock.calls.filter(([url]) => String(url) === '/api/directory/values');
+      fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/directory/values'));
     expect(reads()).toHaveLength(1);
     /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="refresh"]')).click();
     await vi.waitFor(() => expect(reads()).toHaveLength(2));
-    expect(JSON.parse(reads()[1][1].body).names).toEqual(['DEMO:BPM01:X', 'DEMO:BPM01:HEARTBEAT']);
+    expect(new URL(reads()[1][0], 'http://x').searchParams.getAll('name')).toEqual([
+      'DEMO:BPM01:X',
+      'DEMO:BPM01:HEARTBEAT',
+    ]);
   });
 });
 
