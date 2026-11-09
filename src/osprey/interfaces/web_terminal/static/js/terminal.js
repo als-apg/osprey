@@ -178,13 +178,53 @@ function copyKeyHandler(event) {
   return false;
 }
 
+/** The page globals the xterm.js scripts define, all read by initTerminal(). */
+const XTERM_GLOBALS = ['Terminal', 'FitAddon', 'WebLinksAddon', 'ClipboardAddon'];
+
+/**
+ * Put a visible notice where the terminal would have been.
+ *
+ * A terminal whose assets never loaded leaves an EMPTY pane, and an empty pane
+ * is indistinguishable from a terminal that has nothing to show — the operator
+ * waits at a prompt that is never going to appear. A console log line is not a
+ * user-facing surface; this is. The page's data-vendor attribute says where the
+ * assets were meant to come from, so the sentence names the real cause.
+ *
+ * @param {string} containerId
+ */
+export function renderTerminalBootFailure(containerId) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const notice = document.createElement('p');
+  notice.className = 'terminal-boot-failure';
+  notice.textContent =
+    document.documentElement.dataset.vendor === 'cdn'
+      ? 'Terminal assets did not load from the CDN. For a host without internet, build the images with offline: true in config.yml.'
+      : 'Terminal assets are missing from this image. Rebuild it with offline: true in config.yml.';
+  container.replaceChildren(notice);
+}
+
 /**
  * Initialize xterm.js terminal in the given container.
+ *
+ * A missing xterm.js global renders the boot-failure notice in the container
+ * and returns without constructing a terminal, so every later call stays a
+ * no-op.
+ *
  * @param {string} containerId
  */
 export function initTerminal(containerId) {
   const container = document.getElementById(containerId);
   if (!container) return;
+
+  const missing = XTERM_GLOBALS.filter(
+    (name) => /** @type {any} */ (globalThis)[name] === undefined
+  );
+  if (missing.length > 0) {
+    console.error('xterm.js globals unavailable:', missing.join(', '));
+    renderTerminalBootFailure(containerId);
+    return;
+  }
 
   term = new Terminal({
     scrollback: 10000,
