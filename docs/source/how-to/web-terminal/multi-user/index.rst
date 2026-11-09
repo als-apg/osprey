@@ -434,10 +434,10 @@ project the image was built from, in its own file (and may state its
 ``image``); its terminal runs in ``/app/<project>``.
 
 ``<tag>`` is ``modules.web_terminals.image_tag``, ``latest`` when unset.
-A ``${VAR}`` in it is expanded from the environment of ``osprey up``, and a
-variable that is unset there expands to nothing.
-``osprey scaffold web-terminals lint`` warns when the whole tag comes out empty
-(code ``web_terminals.empty_image_tag``).
+A ``${VAR}`` in it is expanded from the environment of ``osprey build`` and
+``osprey up``.
+In registry mode a variable that is unset or empty there is refused by lint,
+the build and ``up`` (code ``web_terminals.empty_image_tag``).
 
 ``<registry.url>`` is the top-level ``registry.url`` of ``config.yml``, with no
 scheme.
