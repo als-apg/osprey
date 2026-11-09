@@ -69,7 +69,7 @@ def test_artifacts_lists_every_kind_with_known_members(runner: CliRunner) -> Non
     for kind in ("hooks", "rules", "skills", "agents", "output_styles", "web_panels"):
         assert kind in result.output
     assert "approval" in result.output  # a hook
-    assert "lattice" in result.output  # a web panel
+    assert "okf" in result.output  # a web panel
     assert "control-operator" in result.output  # the output style
 
 

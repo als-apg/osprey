@@ -35,7 +35,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
@@ -86,18 +86,17 @@ def valid_tool_use_id(value: Any) -> str | None:
     return None
 
 
-def harness_session_id() -> str | None:
+def harness_session_id(environ: Mapping[str, str] | None = None) -> str | None:
     """The conversation id this process runs under, or ``None``.
 
     ``OSPREY_TELEMETRY_SESSION_ID`` first (the id Osprey forces, which is the
     one the agent record is tagged with), then ``CLAUDE_CODE_SESSION_ID``
     (the one the harness stamps on its MCP children).
+
+    :param environ: The environment to read; ``None`` reads ``os.environ``.
     """
-    return (
-        os.environ.get(_OSPREY_CONVERSATION_ENV)
-        or os.environ.get(_HARNESS_CONVERSATION_ENV)
-        or None
-    )
+    env = os.environ if environ is None else environ
+    return env.get(_OSPREY_CONVERSATION_ENV) or env.get(_HARNESS_CONVERSATION_ENV) or None
 
 
 @dataclass

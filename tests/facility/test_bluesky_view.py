@@ -139,6 +139,36 @@ def test_a_declared_tolerance_is_written_and_the_band_is_not() -> None:
     assert "motion_band" not in first and "motion_band" not in second
 
 
+def test_each_device_states_the_unit_its_channels_declare() -> None:
+    """``unit`` is the unit of the column a device's name records -- a paired
+    settable's readback, an unpaired one's setpoint, a readable's channel -- and
+    ``setpoint_unit`` the paired setpoint's; a channel with no unit gives no key."""
+    channels = [
+        {**_channel("A:SP", "setpoint", "A:RB"), "unit": "u-a-sp"},
+        {**_channel("A:RB", "readback"), "unit": "u-a-rb"},
+        {**_channel("B:SP", "setpoint"), "unit": "u-b-sp"},
+        {**_channel("C:RB", "readback"), "unit": "u-c-rb"},
+        _channel("D:SP", "setpoint", "D:RB"),
+        _channel("D:RB", "readback"),
+        {**_channel("E:SP", "setpoint", "E:RB"), "unit": ""},
+        _channel("E:RB", "readback"),
+    ]
+    unit = {channel["id"]: channel["unit"] for channel in channels if channel.get("unit")}
+
+    document = bluesky_document(FacilityRecords({"channels": channels}))
+
+    paired, unpaired, unitless, blank = document["settables"]
+    assert (paired["unit"], paired["setpoint_unit"]) == (unit["A:RB"], unit["A:SP"])
+    assert unpaired["unit"] == unit["B:SP"] and "setpoint_unit" not in unpaired
+    assert "unit" not in unitless and "setpoint_unit" not in unitless
+    assert "unit" not in blank and "setpoint_unit" not in blank
+    readables = {entry["name"]: entry for entry in document["readables"]}
+    assert readables["C:RB"]["unit"] == unit["C:RB"]
+    assert readables["A:RB"]["unit"] == unit["A:RB"]
+    assert "unit" not in readables["D:RB"] and "unit" not in readables["E:RB"]
+    assert validate_device_document(document) == []
+
+
 def _toleranced(scenarios: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """A setpoint toleranced at 0.05 A, its readback noisy, and an untoleranced pair."""
     return {
@@ -305,7 +335,7 @@ def test_a_build_names_the_omitted_view_once_over_all_its_renders(
 
 @pytest.mark.slow
 def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     """A real build hands every render one ``omitted_reported`` set.
 
@@ -314,12 +344,12 @@ def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
     """
     without = [
         render
-        for render in built_control_assistant.outputs
+        for render in built_demo.outputs
         if f"data/{BLUESKY_DEVICES_FILE}" not in render.files
     ]
 
     assert len(without) > 1
-    assert built_control_assistant.output.count("view bluesky not written: services.bluesky") == 1
+    assert built_demo.output.count("view bluesky not written: services.bluesky") == 1
 
 
 # --- the demo ----------------------------------------------------------------------
@@ -327,7 +357,7 @@ def test_the_shared_build_names_the_omitted_view_once_over_its_renders(
 
 @pytest.mark.slow
 def test_the_demo_view_holds_every_setpoint_and_readback(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
     setpoints = sorted(row["address"] for row in rows if row["role"] == "setpoint")
@@ -335,11 +365,48 @@ def test_the_demo_view_holds_every_setpoint_and_readback(
     assert len(setpoints) == 674
     assert sum(address.startswith("LINE:") for address in setpoints) == 16
 
-    settables, readables = specs_from_file(
-        built_control_assistant.build_dir / "data" / BLUESKY_DEVICES_FILE
-    )
+    settables, readables = specs_from_file(built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE)
 
     assert sorted(spec.name for spec in settables) == setpoints
     assert sorted(spec.name for spec in readables) == readbacks
     assert all(spec.name == spec.setpoint_pv for spec in settables)
     assert all(spec.name == spec.read_pv for spec in readables)
+
+
+_WRITE_PLANS_DOC = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "source"
+    / "how-to"
+    / "bluesky"
+    / "write-plans.rst"
+)
+
+
+def _documented_device_file() -> dict[str, Any]:
+    """The ``bluesky_devices.yml`` example the plan-writing guide shows."""
+    lines = _WRITE_PLANS_DOC.read_text(encoding="utf-8").splitlines()
+    start = lines.index("   # build/data/bluesky_devices.yml")
+    block: list[str] = []
+    for line in lines[start:]:
+        if line and not line.startswith("   "):
+            break
+        block.append(line[3:])
+    return yaml.safe_load("\n".join(block))
+
+
+@pytest.mark.slow
+def test_the_guide_shows_devices_as_the_demo_build_writes_them(
+    built_demo: BuiltProject,
+) -> None:
+    """Every device the guide shows, and every key it shows on one, is the build's."""
+    documented = _documented_device_file()
+    built = yaml.safe_load((built_demo.build_dir / "data" / BLUESKY_DEVICES_FILE).read_text())
+
+    assert documented["schema"] == built["schema"]
+    for kind in ("settables", "readables"):
+        by_name = {device["name"]: device for device in built[kind]}
+        assert documented[kind]
+        for device in documented[kind]:
+            emitted = by_name[device["name"]]
+            assert {key: emitted.get(key) for key in device} == device

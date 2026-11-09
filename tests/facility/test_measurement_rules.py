@@ -64,14 +64,14 @@ def _stop(tmp_path: Path, tree: dict[str, Any]) -> FacilityBuildError:
 # --- what builds --------------------------------------------------------------------
 
 
-def test_the_demo_sr_model_builds_all_five_kinds(built_control_assistant: BuiltProject) -> None:
-    measurement = _model(built_control_assistant.facility, "SR")["measurement"]
+def test_the_demo_sr_model_builds_all_five_kinds(built_demo: BuiltProject) -> None:
+    measurement = _model(built_demo.facility, "SR")["measurement"]
     assert measurement["kinds"] == DEMO_KINDS
     assert set(measurement["instruments"]) == {"tune", "rf"}
 
 
-def test_the_demo_corrector_groups_are_their_planes(built_control_assistant: BuiltProject) -> None:
-    document = built_control_assistant.facility
+def test_the_demo_corrector_groups_are_their_planes(built_demo: BuiltProject) -> None:
+    document = built_demo.facility
     groups = measurement_groups(FacilityRecords(document), "SR")
     dipoles = {
         channel["id"]
@@ -92,20 +92,20 @@ def test_the_demo_corrector_groups_are_their_planes(built_control_assistant: Bui
 
 
 def test_the_demo_view_carries_the_tune_and_chromaticity_corrections(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     import yaml
 
-    path = built_control_assistant.build_dir / "data" / "pyaml" / "SR" / "configuration.yaml"
+    path = built_demo.build_dir / "data" / "pyaml" / "SR" / "configuration.yaml"
     configuration = yaml.safe_load(path.read_text(encoding="utf-8"))
     names = {str(device["name"]) for device in configuration["devices"]}
     assert {"DEFAULT_TUNE_CORRECTION", "DEFAULT_CHROMATICITY_CORRECTION"} <= names
 
 
 def test_the_demo_bpm_group_is_both_planes_device_by_device(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    bpm = measurement_groups(FacilityRecords(built_control_assistant.facility), "SR")["bpm"]
+    bpm = measurement_groups(FacilityRecords(built_demo.facility), "SR")["bpm"]
     assert bpm[:4] == [
         "SR:DIAG:BPM:01:POSITION:X",
         "SR:DIAG:BPM:01:POSITION:Y",

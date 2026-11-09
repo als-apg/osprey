@@ -68,6 +68,7 @@ __all__ = [
     "EXTERNAL_ORIGIN_ENV",
     "FACILITY_TIMEZONE_ATTRIBUTE",
     "FIRST_PARTY_PANEL_STATIC",
+    "FIRST_PARTY_PANEL_VIEWERS",
     "FORM_BODY_ROUTES",
     "FORM_BODY_TYPES",
     "FORM_UPLOAD_HEADER",
@@ -125,7 +126,9 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     aggressively — they never change without a filename bump, but only for a
     200: an error or redirect on a vendor path is uncached, so it cannot
     outlive the deploy that produced it. All other
-    static/API paths are uncached to avoid stale code after updates.
+    static/API paths are uncached to avoid stale code after updates; the
+    design system's modules among them, since a page's own scripts import
+    names from them and a stale copy breaks the page at load.
     """
 
     async def dispatch(self, request: Request, call_next):
@@ -136,7 +139,7 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             else:
                 response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        elif path.startswith(("/static/", "/api/")):
+        elif path.startswith(("/static/", "/api/", "/design-system/")):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 
@@ -372,6 +375,14 @@ PANEL_ASSET_SUBPATHS: tuple[str, ...] = ("design-system", "static/fonts")
 FIRST_PARTY_PANEL_STATIC: Mapping[str, tuple[str, ...]] = MappingProxyType(
     {"artifacts": ("static/js", "static/css")}
 )
+
+#: Where the hub answers an extension type's viewer module for the embedded
+#: gallery: ``/panel/artifacts/viewers/<key>.js``, one segment ending ``.js``.
+#: The bytes are the one file the type registry resolved for ``<key>`` at load
+#: (installed facility code, never agent-written), so they are as public as
+#: the gallery's own modules. Its own constant, not a
+#: :data:`FIRST_PARTY_PANEL_STATIC` sub-path: those map onto package dirs.
+FIRST_PARTY_PANEL_VIEWERS = "/panel/artifacts/viewers/"
 
 #: The path segment that marks a C-CAP capability path:
 #: ``/panel-static/<id>/~c/<cap>/…`` or ``/panel/<id>/~c/<cap>/…``. The ``~``
@@ -777,7 +788,8 @@ def is_panel_asset_path(path: str) -> bool:
 
     True for ``/panel/<id>/<sub>/<rest>`` where ``<sub>`` is one of
     :data:`PANEL_ASSET_SUBPATHS` (any well-formed ``<id>``), or one of the
-    :data:`FIRST_PARTY_PANEL_STATIC` sub-paths of that one panel id. The
+    :data:`FIRST_PARTY_PANEL_STATIC` sub-paths of that one panel id, or
+    exactly ``<prefix><key>.js`` under :data:`FIRST_PARTY_PANEL_VIEWERS`. The
     sub-path must be followed by ``/``: the bare ``/panel/<id>/design-system``
     is not answered by the hub's local route — the proxy's catch-all would
     relay it to the panel's backend — so it is never exempt.
@@ -795,6 +807,9 @@ def is_panel_asset_path(path: str) -> bool:
     parts = path.split("/")
     if ".." in parts or len(parts) < 5 or parts[0] != "" or parts[1] != "panel":
         return False
+    if path.startswith(FIRST_PARTY_PANEL_VIEWERS):
+        name = path.removeprefix(FIRST_PARTY_PANEL_VIEWERS)
+        return "/" not in name and name.endswith(".js") and len(name) > len(".js")
     panel_id = parts[2]
     if MOUNT_SEGMENT_RE.fullmatch(panel_id) is None:
         return False
@@ -2158,7 +2173,7 @@ class HttpAuditMiddleware:
     because they are the whole static-asset path.
 
     **Landing in every interface app is the point.** The terminal, ARIEL,
-    channel finder, health, artifacts and the lattice dashboard all call
+    channel finder, health and artifacts all call
     ``configure_interface_app``, so a mutation route added to any of them is
     audited the day it is written, without its author knowing this exists.
 

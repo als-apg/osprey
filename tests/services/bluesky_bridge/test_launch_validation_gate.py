@@ -26,7 +26,7 @@ from fastapi import HTTPException
 
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
-from osprey.services.bluesky_bridge.session_upload import REASON_UNVALIDATED
+from osprey.services.bluesky_bridge.queue_backend import REASON_SESSION_PLAN_UNVALIDATED
 from osprey.services.bluesky_bridge.validation import _validate_launchable_request
 from osprey.services.bluesky_bridge.validation_record import validation_records
 from tests.services.bluesky_bridge._session_plans import session_plan_source, write_session_plan
@@ -58,7 +58,7 @@ def test_gate_blocks_a_session_plan_with_no_passing_record() -> None:
         _validate_launchable_request(_request("unvalidated_plan"))
     assert excinfo.value.status_code == 409
     detail = excinfo.value.detail
-    assert detail["code"] == REASON_UNVALIDATED
+    assert detail["code"] == REASON_SESSION_PLAN_UNVALIDATED
     assert detail["plan"] == "unvalidated_plan"
     assert "no passing validation record" in detail["detail"]
 
@@ -69,15 +69,17 @@ def test_the_refusal_body_matches_the_session_upload_gate_it_pre_empts() -> None
     caller sees. If its body drifted from that gate's, `session_plan_unvalidated`
     would be unreachable at enqueue and every consumer branching on
     `detail.code` would break on exactly this case."""
+    from osprey.services.bluesky_bridge.queue import _session_refusal
     from osprey.services.bluesky_bridge.session_upload import SessionPlanNotReadyError
 
     write_session_plan("shape_probe", session_plan_source("shape_probe"))
-    equivalent = SessionPlanNotReadyError("some sentence", plan="shape_probe")
-    expected_keys = {*equivalent.to_dict(), "code"}
+    equivalent = _session_refusal(SessionPlanNotReadyError("some sentence", plan="shape_probe"))
 
     with pytest.raises(HTTPException) as excinfo:
         _validate_launchable_request(_request("shape_probe"))
-    assert set(excinfo.value.detail) == expected_keys
+    assert excinfo.value.status_code == equivalent.status_code
+    assert set(excinfo.value.detail) == set(equivalent.detail)
+    assert excinfo.value.detail["retryable"] is equivalent.detail["retryable"]
     # `code` and `reason` carry the same value, as `_session_refusal` does.
     assert excinfo.value.detail["code"] == excinfo.value.detail["reason"]
 
@@ -124,7 +126,7 @@ def test_gate_reblocks_after_the_session_file_is_edited() -> None:
     with pytest.raises(HTTPException) as excinfo:
         _validate_launchable_request(_request("edited_plan"))
     assert excinfo.value.status_code == 409
-    assert excinfo.value.detail["code"] == REASON_UNVALIDATED
+    assert excinfo.value.detail["code"] == REASON_SESSION_PLAN_UNVALIDATED
 
 
 def test_gate_ignores_a_non_session_plan(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

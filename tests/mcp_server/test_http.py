@@ -258,7 +258,7 @@ def test_fetch_panels_returns_payload_with_freshness_fields():
     """The layout-report fields reach the caller unchanged."""
     body = (
         b'{"enabled": ["artifacts"], "visible": ["artifacts"], "active": null,'
-        b' "layout": {"tile": "t1", "tabs": ["artifacts", "lattice"], "showing": "lattice"},'
+        b' "layout": {"tile": "t1", "tabs": ["lattice"], "showing": "lattice"},'
         b' "rev": 3, "layout_age_s": 4.5, "layout_dock": true}'
     )
     with (
@@ -268,7 +268,7 @@ def test_fetch_panels_returns_payload_with_freshness_fields():
         data = http.fetch_panels()
     assert urlopen.call_args.args[0].full_url == "http://wt/api/panels"
     assert data is not None
-    assert data["layout"] == {"tile": "t1", "tabs": ["artifacts", "lattice"], "showing": "lattice"}
+    assert data["layout"] == {"tile": "t1", "tabs": ["lattice"], "showing": "lattice"}
     assert data["rev"] == 3
     assert data["layout_age_s"] == 4.5
     assert data["layout_dock"] is True
@@ -325,8 +325,7 @@ def _capture_op(status: int = 200, body: dict | None = None):
     ("op", "route"),
     [
         ("drop", "/api/panel-op/drop"),
-        ("close_tab", "/api/panel-op/close-tab"),
-        ("close_tile", "/api/panel-op/close-tile"),
+        ("close", "/api/panel-op/close"),
         ("open", "/api/panel-op/open"),
         ("open_set", "/api/panel-op/open-set"),
         ("open_arrangement", "/api/panel-op/open-arrangement"),
@@ -367,9 +366,9 @@ def test_panel_op_sends_base_rev_when_given():
         patch.object(http, "web_terminal_url", return_value="http://wt"),
         patch.object(http, "_post_json_with_response", side_effect=fake),
     ):
-        http.panel_op("close_tile", {"tile": "t1"}, base_rev=7)
+        http.panel_op("drop", {"source": {"tile": "t1"}, "target": {"outer": "left"}}, base_rev=7)
     assert calls[0]["payload"]["base_rev"] == 7
-    assert calls[0]["payload"]["tile"] == "t1"
+    assert calls[0]["payload"]["source"] == {"tile": "t1"}
 
 
 def test_panel_op_success_returns_layout_and_rev():
@@ -381,6 +380,18 @@ def test_panel_op_success_returns_layout_and_rev():
     ):
         out = http.panel_op("open", {"member": "ariel"})
     assert out == {"ok": True, "status": 200, "layout": layout, "popouts": [], "rev": 9}
+
+
+def test_panel_op_passes_an_opens_placement_report_through():
+    layout = {"tile": "t0", "tabs": ["terminal"], "showing": "terminal", "size": 1}
+    report = {"placed": "replaced", "replaced": "okf", "note": "no room for a new tile"}
+    _, fake = _capture_op(200, {"status": "ok", "layout": layout, "rev": 9, **report})
+    with (
+        patch.object(http, "web_terminal_url", return_value="http://wt"),
+        patch.object(http, "_post_json_with_response", side_effect=fake),
+    ):
+        out = http.panel_op("open", {"member": "ariel"})
+    assert out == {"ok": True, "status": 200, "layout": layout, "popouts": [], "rev": 9, **report}
 
 
 def test_panel_op_relays_a_named_refusal():
@@ -427,9 +438,11 @@ def test_panel_op_unreachable_is_reported_not_raised():
     }
 
 
-def test_panel_op_refuses_an_unknown_op():
+@pytest.mark.parametrize("op", ["place", "close_tab", "close_tile"])
+def test_panel_op_refuses_an_unknown_op(op):
+    """``close`` is the one close op: a tile shows one panel, so it closes with it."""
     with pytest.raises(ValueError, match="Unknown panel op"):
-        http.panel_op("place", {})
+        http.panel_op(op, {})
 
 
 # ---------------------------------------------------------------------------

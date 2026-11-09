@@ -5,7 +5,7 @@ Two files carry the same safety copy for two different readers. The packaged one
 (``templates/modules/web_terminals/notices/working-safely.md``) is what a landing
 page renders when a deployment lists no notices of its own, so it is the copy an
 operator sees when nobody made a choice. The other
-(``templates/apps/control_assistant/data/landing/working-safely.md``) is written
+(``templates/apps/demo/data/landing/working-safely.md``) is written
 into a facility's profile by ``osprey init`` as a seed the facility then owns and
 edits, which is why it cannot be generated at render time.
 
@@ -33,7 +33,7 @@ PACKAGED_NOTICE = _TEMPLATES / "modules" / "web_terminals" / "notices" / "workin
 
 #: Copied verbatim into a facility's profile by `osprey init`, then owned by the
 #: facility.
-SEED_NOTICE = _TEMPLATES / "apps" / "control_assistant" / "data" / "landing" / "working-safely.md"
+SEED_NOTICE = _TEMPLATES / "apps" / "demo" / "data" / "landing" / "working-safely.md"
 
 #: The one paragraph the seed carries and the packaged copy must not: it tells a
 #: facility how to add notices of its own, which is advice for whoever edits the

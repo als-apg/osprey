@@ -73,6 +73,8 @@ graphviz_output_format = "svg"
 # longer exist; values are PAGE-RELATIVE targets with the `.html` suffix, e.g.
 # "cli-reference/index": "../reference/cli.html". Populated as pages move.
 redirects: dict[str, str] = {
+    # The control-assistant preset became `demo`
+    "getting-started/control-assistant": "demo.html",
     # CLI reference -> the new top-level Reference section
     "cli-reference/index": "../reference/cli.html",
     # Build & deploy

@@ -1,8 +1,8 @@
 """Shared-splitter contract: one divider implementation, every resizable pane.
 
-The OKF knowledge panel, the artifact gallery's browse view, the PLAN panel,
-the LATTICE control sidebar, and the settings drawer all put a draggable
-divider between two panes. Hand-copying that implementation per host lets the
+The OKF knowledge panel, the PLAN panel,
+ARIEL's rail/list/reader screen, and the
+settings drawer all put a draggable divider between two panes. Hand-copying that implementation per host lets the
 copies drift — a grip pill as a child element in one and a ``::after`` in
 another, disagreeing hover treatments, keyboard and ARIA support in only some
 — because nothing fails when a copy stops matching. This is that missing
@@ -15,13 +15,12 @@ The contract is static and deliberately shallow: each host's markup must carry
 the shared ``.osprey-splitter`` class on a proper ARIA separator, each host's
 script must drive it from the design system's ``splitter.js``, and no host may
 re-declare the shared visual. Behaviour itself is covered once, in
-``tests/interfaces/design_system/splitter.test.mjs``; the surfaces are driven
-live in ``tests/interfaces/design_system/test_splitter_surfaces.py``.
+``tests/interfaces/design_system/splitter.test.mjs``.
 
 Two rules here exist because of specific bugs this suite is meant to prevent:
 
-- **Every** splitter tag is checked, not just the first. The gallery ships two
-  handles (one per orientation), and a first-match-only assertion would leave
+- **Every** splitter tag is checked, not just the first. ARIEL ships two
+  handles, and a first-match-only assertion would leave
   whichever one happened to be second entirely unguarded.
 - ``aria-orientation`` is checked against a per-host expected set rather than
   hardcoded to ``vertical``. ``splitter.js`` sets the attribute at runtime from
@@ -63,17 +62,9 @@ SPLITTER_HOSTS = [
     Host(
         label="okf",
         html=f"{_IFACE}/okf_panel/static/index.html",
-        js=f"{_IFACE}/okf_panel/static/js/resize.js",
+        js=f"{_IFACE}/okf_panel/static/js/contents.js",
         orientations=frozenset({"vertical"}),
         styles=(f"{_IFACE}/okf_panel/static/style.css",),
-    ),
-    Host(
-        label="artifacts",
-        html=f"{_IFACE}/artifacts/static/index.html",
-        js=f"{_IFACE}/artifacts/static/js/browse-layout.js",
-        # Two handles: the side-by-side split and the stacked-mode split.
-        orientations=frozenset({"vertical", "horizontal"}),
-        styles=(f"{_IFACE}/artifacts/static/css/gallery.css",),
     ),
     Host(
         label="bluesky-plans",
@@ -83,11 +74,12 @@ SPLITTER_HOSTS = [
         styles=(f"{_IFACE}/bluesky_web/panels/bluesky/panel.css",),
     ),
     Host(
-        label="lattice",
-        html=f"{_IFACE}/lattice_dashboard/static/index.html",
-        js=f"{_IFACE}/lattice_dashboard/static/js/ui.js",
+        label="ariel",
+        html=f"{_IFACE}/ariel/static/index.html",
+        js=f"{_IFACE}/ariel/static/js/layout.js",
+        # Two handles, both between side-by-side panes: rail|list, list|reader.
         orientations=frozenset({"vertical"}),
-        styles=(f"{_IFACE}/lattice_dashboard/static/dashboard.css",),
+        styles=(f"{_IFACE}/ariel/static/css/layout.css",),
     ),
     Host(
         label="drawer",
@@ -165,15 +157,24 @@ def test_every_splitter_is_a_keyboard_reachable_aria_separator(host: Host) -> No
     )
 
 
+#: The two design-system modules a host may drive its splitter through: the
+#: splitter itself, or the panel sidebar, which wraps it (panel-sidebar.js
+#: imports splitter.js and calls initSplitter on the host's behalf).
+_SPLITTER_DRIVERS = (
+    ("/design-system/js/splitter.js", "initSplitter"),
+    ("/design-system/js/panel-sidebar.js", "initPanelSidebar"),
+)
+
+
 @pytest.mark.parametrize("host", SPLITTER_HOSTS, ids=lambda h: h.label)
 def test_splitter_behaviour_comes_from_the_design_system(host: Host) -> None:
     js = (REPO / host.js).read_text(encoding="utf-8")
 
-    assert "/design-system/js/splitter.js" in js, (
+    assert any(module in js and call in js for module, call in _SPLITTER_DRIVERS), (
         f"{host.label}: drag/clamp/persist/keyboard behaviour must come from the shared "
-        "module, not a local reimplementation"
+        "splitter.js (initSplitter) or the panel sidebar built on it "
+        "(panel-sidebar.js, initPanelSidebar), not a local reimplementation"
     )
-    assert "initSplitter" in js, f"{host.label}: must call initSplitter()"
 
 
 @pytest.mark.parametrize("host", SPLITTER_HOSTS, ids=lambda h: h.label)

@@ -4,7 +4,7 @@ The target switch never edits config: whatever a session can switch to has to be
 present in the rendered ``build/config.yml`` already, which means it has to be
 present in the preset the deployment materialized. The framework template
 renders no connector at all — a connector is a declarative fact about a
-facility, not a derived one — so the Control Assistant preset is the single
+facility, not a derived one — so the Demo preset is the single
 source these facts live in, and its own file is where an operator reads them.
 
 That makes these preset facts load-bearing rather than cosmetic:
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from tests._builds import BuiltProject
 
 TEMPLATE_ROOT = Path(osprey.templates.__file__).parent
-PRESET = "control-assistant"
+PRESET = "demo"
 
 #: The VA gateway shape both templates render: localhost over CA name-server
 #: (TCP) mode, and NO port — that is derived, not written out.
@@ -57,10 +57,10 @@ PROBE_PROVEN_GATEWAY_SHAPE = {
     "use_name_server": True,
 }
 
-#: The Control Assistant preset's epics connector — the timeout and nothing
+#: The Demo preset's epics connector — the timeout and nothing
 #: else. The gateways ship commented out: authoring them is the go-live edit
 #: (same constant as tests/templates/test_preset_va_block.py pins).
-CONTROL_ASSISTANT_SHIPPED_EPICS_BLOCK = {"timeout_s": 5.0}
+DEMO_SHIPPED_EPICS_BLOCK = {"timeout_s": 5.0}
 
 
 def _preset_text() -> str:
@@ -138,18 +138,18 @@ def test_no_gateway_port_example_can_steer_an_operator_onto_the_standin():
 
 
 @pytest.mark.slow
-def test_control_assistant_probe_channel_is_served_by_its_own_facility(
-    built_control_assistant: BuiltProject,
+def test_demo_probe_channel_is_served_by_its_own_facility(
+    built_demo: BuiltProject,
 ):
     """The derived probe channel must exist in what the VA actually serves.
 
-    The Control Assistant VA serves the simulator view its build writes, so a
+    The Demo VA serves the simulator view its build writes, so a
     probe channel that view does not list would fail every switch to va on a
     stock preset build — the one deployment where the framework CAN know the
     answer and therefore must get it right.
     """
-    view = json.loads(built_control_assistant.outputs[0].files["data/simulator/addresses.json"])
-    config = yaml.safe_load((built_control_assistant.repo / "build" / "config.yml").read_text())
+    view = json.loads(built_demo.outputs[0].files["data/simulator/addresses.json"])
+    config = yaml.safe_load((built_demo.repo / "build" / "config.yml").read_text())
     va = config["control_system"]["connector"]["virtual_accelerator"]
     assert va["probe_channel"] in view["channels"]
 
@@ -247,6 +247,6 @@ def test_acknowledgment_example_is_a_real_hostname_shape():
 # ── The production connector configuration is what the preset promises ──────
 
 
-def test_control_assistant_epics_block_ships_no_gateway_values():
+def test_demo_epics_block_ships_no_gateway_values():
     epics = _control_system()["connector"]["epics"]
-    assert epics == CONTROL_ASSISTANT_SHIPPED_EPICS_BLOCK
+    assert epics == DEMO_SHIPPED_EPICS_BLOCK

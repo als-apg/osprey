@@ -132,4 +132,4 @@ class TestShippedPresetsResolve:
 
         shipped = sorted(p.stem for p in PRESET_DIR.glob("*.yml"))
         assert shipped == list_presets()
-        assert {"control-assistant", "hello-world"} <= set(shipped)
+        assert {"demo", "hello-world"} <= set(shipped)

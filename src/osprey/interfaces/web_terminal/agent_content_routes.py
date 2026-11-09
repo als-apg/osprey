@@ -8,8 +8,8 @@ This table is the enumeration those points are *held to*:
 
 * the drift test (``tests/interfaces/web_terminal/test_panel_sandbox.py``)
   scans the companion servers' route decorators and fails when a GET route that
-  builds a non-JSON response is neither listed here nor one of its panel's entry
-  pages, and fails when a listed route no longer exists — so a new surface is
+  builds a non-JSON response is neither listed here, a shell asset
+  (:data:`SHELL_ASSET_ROUTES`) nor one of its panel's entry pages, and fails when a listed route no longer exists — so a new surface is
   classified when it is added, not when it is probed;
 * the agent-page protection probe
   (``tests/deployment/test_agent_page_protections_drift.py``) reads
@@ -71,7 +71,6 @@ _ARTIFACTS = "osprey.interfaces.artifacts.app"
 _ARIEL_ROUTES = "osprey.interfaces.ariel.api.routes"
 _ARIEL_DRAFTS = "osprey.interfaces.ariel.api.drafts"
 _CF_REVIEW = "osprey.interfaces.channel_finder.pending_review_api"
-_LATTICE = "osprey.interfaces.lattice_dashboard.app"
 _TERMINAL_PANELS = "osprey.interfaces.web_terminal.routes.panels"
 _TERMINAL_PROXY = "osprey.interfaces.web_terminal.routes.proxy"
 _JUPYTER_FILES = "jupyter_server.files.handlers"
@@ -99,10 +98,7 @@ AGENT_CONTENT_ROUTES: tuple[AgentContentRoute, ...] = (
     AgentContentRoute(
         kind="event-stream",
         panel_id="artifacts",
-        routes=(
-            RouteRef(_ARTIFACTS, "/api/events"),
-            RouteRef(_LATTICE, "/api/events"),
-        ),
+        routes=(RouteRef(_ARTIFACTS, "/api/events"),),
         sample_path="/panel/artifacts/api/events",
         sandboxed_by=("artifact_sandbox", "panel_sandbox"),
     ),
@@ -150,6 +146,18 @@ AGENT_CONTENT_ROUTES: tuple[AgentContentRoute, ...] = (
     ),
 )
 
+#: Script modules a companion server's shell imports, served from a route
+#: rather than its ``/static`` mount: installed facility code, never agent
+#: content. Each is ``not_content`` in its app, answers ``text/javascript`` with
+#: ``nosniff`` (a type the terminal's panel sandbox passes untouched), and is
+#: answered by the hub itself as a first-party asset path. Classified here so
+#: the drift test holds them to the code like every other non-JSON route; a
+#: route listed here is neither a surface kind nor an entry page.
+SHELL_ASSET_ROUTES: tuple[RouteRef, ...] = (
+    # An extension type's viewer, the one file resolved for its key at load.
+    RouteRef(_ARTIFACTS, "/viewers/{key}.js"),
+)
+
 #: Modules whose routes are OSPREY's companion servers: the drift test scans
 #: their route decorators. Routes outside them (the terminal's own, and
 #: jupyter-server's) are listed above for the probe and pinned by their own tests.
@@ -157,7 +165,6 @@ SCANNED_PACKAGES: tuple[str, ...] = (
     "osprey.interfaces.artifacts",
     "osprey.interfaces.ariel",
     "osprey.interfaces.channel_finder",
-    "osprey.interfaces.lattice_dashboard",
     "osprey.interfaces.okf_panel",
     "osprey.interfaces.health",
 )

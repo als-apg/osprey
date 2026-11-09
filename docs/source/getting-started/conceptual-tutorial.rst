@@ -102,7 +102,7 @@ Now that you understand the core concepts, you're ready to build:
   Build your first agent with one MCP server and the simulator served in process.
   Three commands: ``osprey init``, ``osprey build``, ``osprey web``.
 
-**Then scale up:** :doc:`control-assistant`
+**Then scale up:** :doc:`demo`
   Add channel finding, logbook search, an archive of its own, and
   logbook and channel-finder panels in the web terminal.
 

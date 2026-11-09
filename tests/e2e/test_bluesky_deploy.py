@@ -24,8 +24,8 @@ else covers:
     service going red;
   * that deployment refuses to hold queue items it could never run.
 
-``hello-world`` (not ``control-assistant``) is still the right preset for that:
-control-assistant ships a ``dispatch:`` block, the VA, Tiled, the sidecar and
+``hello-world`` (not ``demo``) is still the right preset for that:
+demo ships a ``dispatch:`` block, the VA, Tiled, the sidecar and
 the web-terminal stack by default, all of which would be built and deployed for
 no reason — ``_inject_bluesky`` only *adds* to ``deployed_services``, it does
 not replace what a preset already declares. ``hello-world`` declares no
@@ -152,7 +152,6 @@ _BLUESKY_BRIDGE_ONLY_MODULES = (
 # ``Failed``, not ``AssertionError``, so they now fail fast instead of burning a
 # retry on a multi-minute rebuild that would deterministically fail again.
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
     pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"]),

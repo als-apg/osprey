@@ -25,8 +25,8 @@ skeleton, the CI emission, and the initial commit.
 Usage::
 
     osprey init                              # in-place, into an empty directory
-    osprey init my-assistant --preset control-assistant
-    osprey init demo --preset control-assistant --up -d --dev
+    osprey init my-assistant --preset demo
+    osprey init demo --preset demo --up -d --dev
 """
 
 from __future__ import annotations
@@ -339,13 +339,13 @@ mcp_servers:
 ```
 
 The hello-world preset ships `example_server` as a worked copy to read. Which
-buckets the artifact gallery sorts into is a separate, top-level key, one entry
-per bucket:
+facility artifact kinds the gallery lists is a separate, top-level key, each
+type conforming to one base form:
 
 ```yaml
 artifact_server:
-  categories:
-    beam_studies: {{label: Beam studies, color: "#4C6EF5"}}
+  extension_types:
+    beam_study: {{label: Beam study, base_form: plots}}
 ```
 
 ### Adding a panel of your own
@@ -1327,8 +1327,8 @@ def init(
 
     \b
       $ osprey init --list-presets
-      $ osprey init my-assistant --preset control-assistant
-      $ osprey init demo --preset control-assistant --up -d --dev
+      $ osprey init my-assistant --preset demo
+      $ osprey init demo --preset demo --up -d --dev
       $ osprey init my-assistant --revalidate
     """
     if revalidate:

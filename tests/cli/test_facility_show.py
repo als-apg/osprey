@@ -36,8 +36,8 @@ CHANNEL_FINDER_VIEWS = ("in_context", "hierarchical", "middle_layer")
 
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo, initialised once for this module and never edited."""
-    return init_project(tmp_path_factory.mktemp("ca"), "control-assistant", "demo")
+    """A demo repo, initialised once for this module and never edited."""
+    return init_project(tmp_path_factory.mktemp("ca"), "demo", "demo")
 
 
 @pytest.fixture

@@ -98,7 +98,6 @@ from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.sdk_helpers import arm_deployed_queue_owner
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # harness_benchmark: the pre-flight refusal is a harness property -- the
     # roster decides, not the model-under-test.

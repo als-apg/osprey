@@ -17,7 +17,7 @@ import {
   hasFilters,
   headerMenu,
   inspectorMenu,
-  moreMenu,
+  panelMenuEntries,
   rowMenu,
 } from '../../../src/osprey/interfaces/channel_finder/static/js/graph-finder-menus.js';
 import {
@@ -53,7 +53,6 @@ function spies() {
     'autosizeAll',
     'resetColumns',
     'setDensity',
-    'toggleRail',
   ];
   return Object.fromEntries(names.map((n) => [n, vi.fn()]));
 }
@@ -69,8 +68,6 @@ function ctx(over = {}) {
     layout: defaultLayout(COLUMN_SPECS),
     embedded: false,
     openDevice: null,
-    density: 'comfortable',
-    railCollapsed: false,
     actions: spies(),
     ...over,
   });
@@ -298,22 +295,38 @@ describe('the inspector', () => {
   });
 });
 
-describe('the toolbar ⋯ menu', () => {
-  test('density is a pair of toggles reflecting the preference', () => {
-    const items = moreMenu(ctx({ density: 'compact' }));
-    expect(row(items, 'Compact').checked).toBe(true);
-    expect(row(items, 'Comfortable').checked).toBe(false);
+describe("the panel's ⋯ entries", () => {
+  test('are density, the columns and the two clears, with the ids the hub sends back', () => {
+    expect(panelMenuEntries(createFinderState(), 'comfortable').map((e) => e.id)).toEqual([
+      'density-comfortable',
+      'density-compact',
+      'columns',
+      'reset-columns',
+      'clear-filters',
+      'clear-selection',
+    ]);
   });
 
-  test('the rail verb names what it will do', () => {
-    expect(labels(moreMenu(ctx()))).toContain('Hide filters');
-    expect(labels(moreMenu(ctx({ railCollapsed: true })))).toContain('Show filters');
+  test('density is a pair of checks reflecting the preference', () => {
+    const entries = panelMenuEntries(createFinderState(), 'compact');
+    const checked = Object.fromEntries(entries.map((e) => [e.id, e.checked]));
+    expect(checked['density-compact']).toBe(true);
+    expect(checked['density-comfortable']).toBe(false);
+    // The verbs carry no check at all, so they read as plain actions.
+    expect(checked.columns).toBeUndefined();
   });
 
-  test('bulk verbs are disabled when there is nothing to clear', () => {
-    const items = moreMenu(ctx());
-    expect(row(items, 'Clear all filters').disabled).toBe(true);
-    expect(row(items, 'Clear selection').disabled).toBe(true);
+  test('the clears are disabled until there is a filter or a selection to clear', () => {
+    const finder = createFinderState();
+    const disabled = () =>
+      Object.fromEntries(panelMenuEntries(finder, 'comfortable').map((e) => [e.id, e.disabled]));
+    expect(disabled()['clear-filters']).toBe(true);
+    expect(disabled()['clear-selection']).toBe(true);
+
+    toggleFacet(finder, 'section', 'SR01C');
+    toggleSelection(finder, 'SR01C:QF1:SP');
+    expect(disabled()['clear-filters']).toBe(false);
+    expect(disabled()['clear-selection']).toBe(false);
   });
 });
 

@@ -13,10 +13,10 @@ import time
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from osprey.interfaces.artifacts.inline_assets import self_contained
@@ -47,6 +47,11 @@ from osprey.interfaces.web_terminal.dock_layout import (
 )
 from osprey.interfaces.web_terminal.feedback_destination import resolve_feedback_destination
 from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox
+from osprey.interfaces.web_terminal.presets import (
+    ONE_PANEL_PER_TILE,
+    ONE_PANEL_PER_TILE_TEXT,
+    crowded_tile,
+)
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.interfaces.web_terminal.routes.proxy import _backend_is_loopback, _resolve_panel_url
 from osprey.profiles.web_panels import (
@@ -54,6 +59,7 @@ from osprey.profiles.web_panels import (
     BUILTIN_PANELS,
     JUPYTER_PANEL_ID,
     SIDECAR_PANELS,
+    in_catalog_order,
     panel_id_refusal,
 )
 from osprey.registry.web import panel_url_state_attr
@@ -149,14 +155,6 @@ async def channel_finder_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
-@router.get("/api/lattice-server")
-async def lattice_server_config(request: Request):
-    """Return the lattice dashboard server URL for iframe embedding."""
-    url = getattr(request.app.state, "lattice_dashboard_server_url", None)
-    proxy_url = f"{compute_url_prefix()}/panel/lattice" if url else None
-    return {"url": proxy_url, "available": proxy_url is not None}
-
-
 def _sidecar_panel_config(request: Request, panel_id: str) -> dict:
     """The config body of a sidecar panel: its proxy URL and its start outcome.
 
@@ -201,6 +199,15 @@ async def sidecar_server_config(panel_id: str, request: Request):
     return _sidecar_panel_config(request, panel_id)
 
 
+def _require_enabled_sidecar(request: Request, panel_id: str) -> None:
+    """Refuse with 404 unless *panel_id* is a sidecar this terminal starts."""
+    enabled: set[str] = getattr(request.app.state, "enabled_panels", set())
+    if panel_id not in SIDECAR_PANELS or panel_id not in enabled:
+        raise HTTPException(
+            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
+        )
+
+
 @router.post("/api/panels/{panel_id}/start")
 async def start_sidecar_panel(panel_id: str, request: Request):
     """Start a panel sidecar again, one attempt at a time.
@@ -212,14 +219,59 @@ async def start_sidecar_panel(panel_id: str, request: Request):
     """
     from osprey.interfaces.web_terminal.app import request_sidecar_start
 
-    enabled: set[str] = getattr(request.app.state, "enabled_panels", set())
-    if panel_id not in SIDECAR_PANELS or panel_id not in enabled:
-        raise HTTPException(
-            status_code=404, detail=f"{panel_id} is not a panel this terminal starts"
-        )
+    _require_enabled_sidecar(request, panel_id)
     status = await request_sidecar_start(request.app, panel_id)
     return JSONResponse(
         _sidecar_panel_config(request, panel_id),
+        status_code=200 if status.state == "running" else 202,
+    )
+
+
+@router.get(f"/api/panels/{JUPYTER_PANEL_ID}/log")
+async def jupyter_server_log(request: Request):
+    """Return the notebook sidecar's last stderr lines, for the tile's "Show server log".
+
+    The tail of the sidecar the terminal holds now (running, or dead after it
+    ran). A start that failed leaves no sidecar behind, so the recorded
+    failure reason stands in for it. The launch token is replaced with
+    ``<token>``: the browser never holds it. Empty when there is nothing yet.
+    """
+    _require_enabled_sidecar(request, JUPYTER_PANEL_ID)
+    state = request.app.state
+    sidecar = getattr(state, "sidecars", {}).get(JUPYTER_PANEL_ID)
+    text: str = getattr(sidecar, "stderr_tail", "") if sidecar is not None else ""
+    token = getattr(sidecar, "token", None) if sidecar is not None else None
+    if token:
+        text = text.replace(token, "<token>")
+    if not text:
+        status = getattr(state, "sidecar_status", {}).get(JUPYTER_PANEL_ID)
+        if status is not None and status.state == "failed":
+            text = status.reason or ""
+    return {"text": text}
+
+
+@router.post(f"/api/panels/{JUPYTER_PANEL_ID}/restart")
+async def restart_jupyter_server(request: Request):
+    """Stop the notebook sidecar and start a fresh one; running kernels stop.
+
+    The tile's "Restart kernel server". The published URL and credential are
+    withdrawn first, so the panel answers unavailable at once; then the
+    operator's start path (:func:`request_sidecar_start`) stops the old
+    sidecar, which reaps its kernels, and launches a new one. A request while
+    a start is in flight joins it. Answers the config body with 202, as the
+    start route does for a start in progress.
+    """
+    from osprey.interfaces.web_terminal.app import request_sidecar_start
+
+    _require_enabled_sidecar(request, JUPYTER_PANEL_ID)
+    state = request.app.state
+    task = getattr(state, "sidecar_start_tasks", {}).get(JUPYTER_PANEL_ID)
+    if task is None or task.done():
+        setattr(state, panel_url_state_attr(JUPYTER_PANEL_ID), None)
+        state.panel_auth_headers.pop(JUPYTER_PANEL_ID, None)
+    status = await request_sidecar_start(request.app, JUPYTER_PANEL_ID)
+    return JSONResponse(
+        _sidecar_panel_config(request, JUPYTER_PANEL_ID),
         status_code=200 if status.state == "running" else 202,
     )
 
@@ -342,9 +394,9 @@ async def get_panels(request: Request):
     at startup against the live panel set and carried in config order. It is
     empty unless a deployment opts in, so the "+" popover renders unchanged by
     default. Each entry is ``{"name": <label>, "panels": [<member id>, ...],
-    "layout": <dock layout>}``: ``layout`` is the collection form with panel-id
-    tabs, pruned to the panels known now and normalised, and ``panels`` its tabs
-    in reading order.
+    "layout": <dock layout>}``: ``layout`` is the collection form, each tile
+    naming one panel id in its ``tabs``, pruned to the panels known now and
+    normalised, and ``panels`` the panels it places, in reading order.
 
     ``allow_runtime_panels`` mirrors the config gate the ``POST /api/panels/register``
     route enforces, so the frontend can show or hide the "new panel from URL" input
@@ -352,7 +404,7 @@ async def get_panels(request: Request):
 
     ``default`` is not validated here — the frontend falls back to
     ``DEFAULT_PANEL_FALLBACK`` when it is unknown so a typo doesn't leave the
-    user staring at a blank tabset.
+    user staring at an empty workspace.
 
     ``active`` mirrors ``GET /api/panel-focus`` so the agent can read back the
     full panel state in a single round-trip.
@@ -378,9 +430,11 @@ async def get_panels(request: Request):
       and ``layout_dock: false``. A client is watching but runs without the
       dock shell, so it cannot report tiles.
     - **Known occupancy** — ``layout`` is a tree (possibly holding only the
-      terminal) with a numeric age and ``layout_dock: true``.
+      terminal) with a numeric age and ``layout_dock: true``, or ``null`` with
+      ``layout_dock: true`` for a dock that is empty, its panes in ``popouts``
+      or closed.
 
-    So the age tells the two flavours of a null ``layout`` apart.
+    So ``layout_dock`` tells the flavours of a null ``layout`` apart.
 
     ``docs_url``, ``feedback_trackers`` and ``feedback_email`` are the resolved
     ``web.docs_url`` / ``web.feedback.*`` values that address the two utility
@@ -394,7 +448,7 @@ async def get_panels(request: Request):
     whose backend is a loopback literal served at its root (see
     :func:`_loopback_backend_ports`). Nothing else about a backend is exposed.
     """
-    enabled = list(getattr(request.app.state, "enabled_panels", set()))
+    enabled = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
     custom = [{**cp, "url": _browser_panel_url(cp)} for cp in custom_raw]
     default = getattr(request.app.state, "default_panel", None)
@@ -598,7 +652,7 @@ def _mirror_agent_panel_activity(request: Request, tool: str, panel: str) -> Non
 
 
 class PanelFocusRequest(BaseModel):
-    """A person's tab switch, reported by ``panel-commands.js``.
+    """A person's switch to a panel, reported by ``panel-commands.js``.
 
     Extra fields are refused: the agent's ``source``/``url`` form of this body is
     retired (an agent opens a panel through ``POST /api/panel-op/open``), and an
@@ -619,10 +673,10 @@ async def get_panel_focus(request: Request):
 
 @router.post("/api/panel-focus")
 async def set_panel_focus(body: PanelFocusRequest, request: Request):
-    """Mirror a person's tab switch as ``active_panel``; broadcast nothing.
+    """Mirror a person's switch to a panel as ``active_panel``; broadcast nothing.
 
     This is a gesture REPORT, not a command: the server records the active
-    panel for the agent's gaze, and one operator's tab switches never move
+    panel for the agent's gaze, and one operator's panel switches never move
     another client's workspace. The gesturing client applies its own focus.
 
     A report naming a panel that is not on the launcher rail is dropped whole:
@@ -647,7 +701,7 @@ async def set_panel_focus(body: PanelFocusRequest, request: Request):
         raise HTTPException(status_code=422, detail=f"Unknown panel: {body.panel}")
     stored_visible = getattr(request.app.state, "visible_panels", None)
     if stored_visible is None:
-        visible_panels = list(getattr(request.app.state, "enabled_panels", set()))
+        visible_panels = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     else:
         visible_panels = list(stored_visible)
     if body.panel not in visible_panels:
@@ -762,7 +816,7 @@ async def set_rail_order(body: RailOrderRequest, request: Request):
     # Membership, resolved the same way ``get_panels`` resolves ``visible``.
     stored_visible = getattr(request.app.state, "visible_panels", None)
     if stored_visible is None:
-        visible_panels = sorted(getattr(request.app.state, "enabled_panels", set()))
+        visible_panels = in_catalog_order(getattr(request.app.state, "enabled_panels", set()))
     else:
         visible_panels = list(stored_visible)
     if body.panel not in visible_panels:
@@ -789,7 +843,7 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
 
     This is the reporter's endpoint, not a command: it is how the browser's dock
     tells the server what the operator's workspace actually looks like. The body
-    is the holder's dock layout tree (tiles, their tabs, each tile's showing tab and
+    is the holder's dock layout tree (its tiles, the panel each one shows and
     the terminal tile, keyed ``"terminal"``), the panels that client shows in
     pop-out windows of their own (``popouts``, which the tree never names), the
     page's ``client_id`` and the client's ``dock`` capability flag. Nothing is
@@ -797,10 +851,15 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
     (report-only, last-writer-wins).
 
     A ``dock: true`` report must carry a layout that passes
-    :func:`~osprey.interfaces.web_terminal.dock_layout.layout_refusal` and whose
-    every key other than the terminal is a known panel id; a pop-out is a known
-    panel id that is not in the tree. The layout is stored normalised, its
-    ``client_id`` becomes the current dock client, and a changed layout or
+    :func:`~osprey.interfaces.web_terminal.dock_layout.layout_refusal`, holds
+    one panel per tile (``one_panel_per_tile``,
+    :func:`~osprey.interfaces.web_terminal.presets.crowded_tile`) and whose
+    every key other than the terminal is a known panel id; a pop-out is the
+    terminal or a known panel id, and is not in the tree. A dock whose panes are
+    all in windows of their own (the Agent pane detached from the default
+    layout) reports ``layout: None`` with those pop-outs, and an empty dock with
+    none left reports ``layout: None`` alone. The layout is stored
+    normalised, its ``client_id`` becomes the current dock client, and a changed layout or
     pop-out set mints the next ``rev``. A client running without the dock
     shell cannot see the layout, so ``dock: false`` records the layout as
     **unknown** (``None``) with no current client while still stamping the
@@ -820,9 +879,9 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
         keeps as its ``ackedRev``.
 
     Raises:
-        HTTPException: 422 when the layout breaks a dock layout rule, a key or
-            a pop-out is unknown, a pop-out is also in the tree, or a dock
-            report carries no layout.
+        HTTPException: 422 when the layout breaks a dock layout rule, puts
+            several panels in one tile, names an unknown key or pop-out, or has a
+            pop-out also in the tree.
     """
     layout = _checked_dock_layout(request, body.layout) if body.dock else None
     popouts = _checked_popouts(request, body.popouts, layout) if body.dock else []
@@ -839,19 +898,30 @@ async def report_panel_layout(body: PanelLayoutRequest, request: Request):
     }
 
 
-def _checked_dock_layout(request: Request, layout: dict | None) -> dict:
+def _checked_dock_layout(request: Request, layout: dict | None) -> dict | None:
     """``layout`` normalised, once it passes the dock layout rules and names only known panels.
 
+    The same check guards a dock's report (``/api/panel-layout``) and an op's
+    result (``/api/panel-op-result``). ``None`` is an empty dock, which passes
+    as it is.
+
     Raises:
-        HTTPException: 422 when the layout is missing, breaks a dock layout rule or
-            names a key that is neither the terminal nor a known panel id.
+        HTTPException: 422 when the layout breaks a dock layout rule,
+            puts several panels in one tile (``one_panel_per_tile``) or names a
+            key that is neither the terminal nor a known panel id.
     """
     if layout is None:
-        raise HTTPException(status_code=422, detail="A dock report must carry its layout")
+        return None
     refusal = layout_refusal(layout)
     if refusal is not None:
         reason, where = refusal
         raise HTTPException(status_code=422, detail=f"{where}: {reason}: {REASON_TEXT[reason]}")
+    crowded = crowded_tile(layout)
+    if crowded is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"{crowded}: {ONE_PANEL_PER_TILE}: {ONE_PANEL_PER_TILE_TEXT}",
+        )
     known = _known_panel_ids(request)
     unknown = [key for key in layout_keys(layout) if key != _TERMINAL_PANEL_ID and key not in known]
     if unknown:
@@ -863,21 +933,24 @@ def _checked_dock_layout(request: Request, layout: dict | None) -> dict:
 
 
 def _checked_popouts(request: Request, popouts: list[str], layout: dict | None) -> list[str]:
-    """``popouts`` sorted and deduplicated, once each names a known panel outside ``layout``.
+    """``popouts`` sorted and deduplicated, once each names a pane outside ``layout``.
+
+    A pop-out is the terminal (the Agent pane) or a known panel id. ``layout``
+    may be ``None``, an empty dock.
 
     Raises:
-        HTTPException: 422 when a pop-out is the terminal or an unknown id, or is
-            also a tab of the tree (a panel is in a window or in a tile, never both).
+        HTTPException: 422 when a pop-out is an unknown id, or is also in the tree
+            (a pane is in a window or in a tile, never both).
     """
     known = _known_panel_ids(request)
-    bad = [key for key in popouts if key == _TERMINAL_PANEL_ID or key not in known]
+    bad = [key for key in popouts if key != _TERMINAL_PANEL_ID and key not in known]
     if bad:
         raise HTTPException(status_code=422, detail=f"Unknown pop-out panel ids: {bad}")
     docked = set(layout_keys(layout))
     both = sorted(set(popouts) & docked)
     if both:
         raise HTTPException(
-            status_code=422, detail=f"A pop-out cannot also be a tab of the layout: {both}"
+            status_code=422, detail=f"A pop-out cannot also be in the layout: {both}"
         )
     return sorted(set(popouts))
 
@@ -1344,14 +1417,21 @@ async def mint_panel_cap(panel_id: str, request: Request):
     bound to the login that asked for it and is never shared between browsers
     (so it is never part of ``GET /api/panels`` or a broadcast frame).
 
+    The hub asks for every panel it has no catalog entry for, config-defined
+    ones included, so "this panel is first-party" is an answer, not an error.
+
     Returns:
-        ``{"id": <id>, "cap_url": "<prefix>/panel-static|panel/<id>/~c/<cap>/"}``,
-        or ``404`` for a panel that is not opaque or a caller naming no login.
+        ``{"id": <id>, "opaque": true, "cap_url": "<prefix>/panel-static|panel/<id>/~c/<cap>/"}``
+        for an opaque panel, ``{"id": <id>, "opaque": false, "cap_url": null}``
+        for a first-party one, or ``404`` for an unknown panel or an opaque one
+        asked for by a caller naming no login (the hub frames it opaque, uncapped).
     """
+    if panel_cap.is_first_party_panel(request, panel_id):
+        return {"id": panel_id, "opaque": False, "cap_url": None}
     url = panel_cap.cap_url(request, panel_id)
     if url is None:
         raise HTTPException(status_code=404, detail=f"No capability path for panel {panel_id!r}")
-    return {"id": panel_id, "cap_url": url}
+    return {"id": panel_id, "opaque": True, "cap_url": url}
 
 
 def _resolve_bundle_file(request: Request, panel_id: str, path: str) -> Path | None:
@@ -1437,12 +1517,58 @@ async def serve_discovered_panel(panel_id: str, path: str, request: Request):
     panel needs must be inline in the page itself, as in the design-system
     reference panel.
 
+    A top-level visit to the bundle's entry document opens the web terminal with
+    this panel instead (:func:`_direct_visit_redirect`).
+
     Returns:
-        A :class:`FileResponse` for the requested asset, or a 404 ``Response``.
+        A :class:`FileResponse` for the requested asset, a 404 ``Response``, or
+        the 303 of a direct visit.
     """
+    redirect = _direct_visit_redirect(panel_id, path, request)
+    if redirect is not None:
+        return redirect
     response = _discovered_panel_file(panel_id, path, request)
     apply_panel_sandbox(response, path, ())
     return response
+
+
+def _is_top_level_visit(request: Request) -> bool:
+    """Whether a request is a browser opening this address as its own page.
+
+    ``Sec-Fetch-*`` says so outright, and an iframe says ``iframe``. Browsers omit
+    those headers on a plain-http hostname, so there a page request counts unless
+    it carries the ``embedded=true`` every panel frame is loaded with.
+    """
+    if request.query_params.get("embedded") == "true":
+        return False
+    dest = request.headers.get("sec-fetch-dest")
+    if dest is not None:
+        return dest == "document" and request.headers.get("sec-fetch-mode") == "navigate"
+    return "text/html" in request.headers.get("accept", "")
+
+
+def _direct_visit_redirect(panel_id: str, path: str, request: Request) -> Response | None:
+    """The 303 that takes a direct visit to a bundle's entry document to the hub.
+
+    The server half of ``frame-params.js``'s ``directVisitHref``, which holds the
+    ``at`` contract, for bundles that never call ``applyEmbedded``. They route by
+    path, so nothing is lost by answering before a fragment could be read; only
+    the entry document moves, so a bundle's other files stay addressable. This
+    app sees paths with the per-user mount stripped, hence the prefix here.
+    """
+    panel = getattr(request.app.state, "discovered_panel_dirs", {}).get(panel_id)
+    if panel is None or path not in {"", "index.html", panel.entry}:
+        return None
+    if _resolve_bundle_file(request, panel_id, path) is None:
+        return None
+    if not _is_top_level_visit(request):
+        return None
+    prefix = compute_url_prefix()
+    query = f"?{request.url.query}" if request.url.query else ""
+    at = f"{prefix}/panel-static/{quote(panel_id, safe='')}/{quote(path)}{query}"
+    return RedirectResponse(
+        f"{prefix}/?open={quote(panel_id, safe='')}&at={quote(at, safe='')}", status_code=303
+    )
 
 
 def _discovered_panel_file(panel_id: str, path: str, request: Request) -> Response:

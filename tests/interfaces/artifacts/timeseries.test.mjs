@@ -9,9 +9,8 @@
  *   npx vitest run tests/interfaces/artifacts/timeseries.test.mjs
  *
  * `Plotly` is a vendored classic-script global (see vendor-globals.d.ts),
- * stubbed via vi.stubGlobal like lattice_dashboard/render.test.mjs does for
- * its own Plotly usage. Unlike that module, this one lazily injects Plotly
- * via a `<script>` tag (`ensurePlotlyLoaded`) rather than assuming it's
+ * stubbed via vi.stubGlobal. This module lazily injects Plotly via a
+ * `<script>` tag (`ensurePlotlyLoaded`) rather than assuming it's
  * already loaded — `stubScriptLoad()` below spies `document.head.appendChild`
  * so an injected `<script>` "loads" synchronously (next microtask) instead
  * of happy-dom attempting a real network fetch of the vendored path (which

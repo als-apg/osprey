@@ -1,3 +1,2 @@
 control_system:
   read_inline_max_elements: 2000        # per-value element budget
-  channel_read_artifact_retention: 20   # readings kept per channel

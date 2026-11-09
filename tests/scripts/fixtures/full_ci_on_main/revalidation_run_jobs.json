@@ -40,7 +40,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Tier 1 — Build + MCP boot (control-assistant)",
+  "name": "Tier 1 — Build + MCP boot (demo)",
   "status": "completed",
   "conclusion": "success"
  },
@@ -90,7 +90,7 @@
   "conclusion": "success"
  },
  {
-  "name": "Tier 3 — Agentic flow (control-assistant)",
+  "name": "Tier 3 — Agentic flow (demo)",
   "status": "completed",
   "conclusion": "success"
  },
