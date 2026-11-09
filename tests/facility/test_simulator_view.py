@@ -16,7 +16,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 import shutil
+import tomllib
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +31,7 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.render import FACILITY_FILE, render_facility_outputs
 from osprey.facility.settings import BENCHMARK_DATASET_PATH
+from osprey.facility.views.simulator import TRANSITIONAL_ROLE_KEY
 from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.simulation.view import SCENARIOS_SCHEMA, SEEDS_SCHEMA, SimulatorView
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -38,6 +41,7 @@ if TYPE_CHECKING:
 
 pytestmark = [pytest.mark.slow]
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVED = "data/simulator/served_models.json"
 ADDRESSES = "data/simulator/addresses.json"
 DECK = "data/simulator/decks/SR.json"
@@ -380,7 +384,11 @@ def test_every_wiring_entry_carries_the_engines_description(
 
     roles = set()
     for entry in sr["wiring"]:
-        record = {key: value for key, value in entry.items() if key not in DESCRIPTION_KEYS}
+        record = {
+            key: value
+            for key, value in entry.items()
+            if key not in (*DESCRIPTION_KEYS, TRANSITIONAL_ROLE_KEY)
+        }
         described = pyat.describe(record)
         assert {key: entry[key] for key in DESCRIPTION_KEYS} == {
             key: described[key] for key in DESCRIPTION_KEYS
@@ -392,6 +400,32 @@ def test_every_wiring_entry_carries_the_engines_description(
     assert {k: facility_sr["wiring"][0][k] for k in DESCRIPTION_KEYS} == {
         k: sr["wiring"][0][k] for k in DESCRIPTION_KEYS
     }
+
+
+def test_every_wiring_entry_carries_its_engine_role_also_as_the_transitional_role(
+    built_demo: BuiltProject,
+) -> None:
+    variables = _view(built_demo.build_dir, VARIABLES)
+    entries = [entry for model in variables["models"] for entry in model["wiring"]]
+
+    assert entries
+    for entry in entries:
+        assert entry[TRANSITIONAL_ROLE_KEY] == entry["engine_role"], entry
+
+
+def test_the_transitional_role_copy_is_gone_once_the_connectors_floor_reads_engine_role() -> None:
+    """The copy serves connectors <2026.11.8 only; the floor bump deletes it with this test."""
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    (floor,) = [
+        match["floor"]
+        for dependency in pyproject["project"]["dependencies"]
+        if (match := re.fullmatch(r"osprey-connectors>=(?P<floor>[0-9.]+)", dependency))
+    ]
+
+    assert tuple(int(part) for part in floor.split(".")) < (2026, 11, 8), (
+        f"the connectors floor is {floor}: delete TRANSITIONAL_ROLE_KEY from "
+        "osprey.facility.views.simulator, its tests and this one"
+    )
 
 
 def test_a_model_without_wiring_records_has_empty_wiring(

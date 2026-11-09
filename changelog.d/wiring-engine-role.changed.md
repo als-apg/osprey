@@ -1,1 +1,1 @@
-The facility file's wiring records, the simulator view and a scenario's `still` selection name what a model's engine says a record is `engine_role`, apart from a channel's own `role`; an engine's `describe()` returns `engine_role`.
+The facility file's wiring records, the simulator view and a scenario's `still` selection name what a model's engine says a record is `engine_role`, apart from a channel's own `role`; an engine's `describe()` returns `engine_role`. To upgrade, rename `role:` to `engine_role:` in a scenario's `still`.
