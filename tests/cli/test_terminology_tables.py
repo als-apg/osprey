@@ -64,7 +64,7 @@ def _create_project(manager: TemplateManager, facts: Path | None, **kwargs) -> P
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
 
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
     kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
@@ -131,7 +131,7 @@ _SECTION_HEADING = "## Channel Database Terminology"
 
 
 def _demo_facts_path(built: Any) -> Path:
-    """The facts file of the session's control-assistant build."""
+    """The facts file of the session's demo build."""
     return built.build_dir / "data" / FACTS_FILE
 
 
@@ -167,14 +167,14 @@ def _forbidden_hits(text: str) -> list[str]:
 def _project(
     tmp_path: Path, name: str, mode: str, facts: Path | None
 ) -> tuple[TemplateManager, Path]:
-    """A control-assistant project in *mode*, rendered the way the CLI renders one."""
+    """A demo project in *mode*, rendered the way the CLI renders one."""
     manager = TemplateManager()
     project_dir = _create_project(
         manager,
         facts,
         project_name=name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": mode, "deploy_services": True},
     )
     return manager, project_dir
@@ -186,7 +186,7 @@ def _project(
 
 
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
-def test_every_alias_and_class_reaches_the_table(tmp_path, built_control_assistant, mode):
+def test_every_alias_and_class_reaches_the_table(tmp_path, built_demo, mode):
     """The table's content is the build's facts, class by class.
 
     Derived rather than spelled: the expectation is read from the facts file the
@@ -194,11 +194,11 @@ def test_every_alias_and_class_reaches_the_table(tmp_path, built_control_assista
     test cannot drift from the table it guards.
     """
     _manager, project_dir = _project(
-        tmp_path, f"cf-vocab-{mode}", mode, _demo_facts_path(built_control_assistant)
+        tmp_path, f"cf-vocab-{mode}", mode, _demo_facts_path(built_demo)
     )
     section = _terminology_section(project_dir)
     # The middle-layer index files and names its families itself.
-    indexed = middle_layer_families(FacilityRecords(built_control_assistant.facility))
+    indexed = middle_layer_families(FacilityRecords(built_demo.facility))
     backticked = set(re.findall(r"`([^`]+)`", section))
 
     for name, entry in _device_classes(project_dir).items():
@@ -224,9 +224,7 @@ def test_every_alias_and_class_reaches_the_table(tmp_path, built_control_assista
 _FAMILY_TOKEN = re.compile(r"`(?P<family>[^`]+)`(?: \(System (?P<system>[^)]+)\))?")
 
 
-def test_every_middle_layer_family_cell_names_a_family_of_the_index(
-    tmp_path, built_control_assistant
-):
+def test_every_middle_layer_family_cell_names_a_family_of_the_index(tmp_path, built_demo):
     """A ``Family:`` cell names what ``list_families`` returns for that System.
 
     The facts keep each group's id as authored; the middle-layer index files a
@@ -238,17 +236,15 @@ def test_every_middle_layer_family_cell_names_a_family_of_the_index(
     """
     from osprey.facility.views.channel_finder import middle_layer_document
 
-    index, _left_out, _by_address = middle_layer_document(
-        FacilityRecords(built_control_assistant.facility)
-    )
+    index, _left_out, _by_address = middle_layer_document(FacilityRecords(built_demo.facility))
     listed = {
         system: {family for family in node if not family.startswith("_")}
         for system, node in index.items()
         if isinstance(node, dict)
     }
-    indexed = middle_layer_families(FacilityRecords(built_control_assistant.facility))
+    indexed = middle_layer_families(FacilityRecords(built_demo.facility))
     _manager, project_dir = _project(
-        tmp_path, "cf-ml-families", "middle_layer", _demo_facts_path(built_control_assistant)
+        tmp_path, "cf-ml-families", "middle_layer", _demo_facts_path(built_demo)
     )
     section = _terminology_section(project_dir)
 
@@ -293,10 +289,10 @@ def test_a_class_with_no_group_or_alias_still_has_a_row(tmp_path, mode):
 
 
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
-def test_the_table_says_it_was_read_from_the_build(tmp_path, built_control_assistant, mode):
+def test_the_table_says_it_was_read_from_the_build(tmp_path, built_demo, mode):
     """An operator reading the prompt is told where the vocabulary came from."""
     _manager, project_dir = _project(
-        tmp_path, f"cf-provenance-{mode}", mode, _demo_facts_path(built_control_assistant)
+        tmp_path, f"cf-provenance-{mode}", mode, _demo_facts_path(built_demo)
     )
     section = _terminology_section(project_dir)
 
@@ -319,9 +315,9 @@ def _hierarchical_keys(tree: dict[str, Any]) -> set[str]:
     return keys
 
 
-def test_the_hierarchical_table_names_only_what_the_tree_holds(tmp_path, built_control_assistant):
+def test_the_hierarchical_table_names_only_what_the_tree_holds(tmp_path, built_demo):
     """Every backticked token of the table is a level, an option, a leaf or a leaf's signal."""
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     document = hierarchical_document(FacilityRecords(facility))
     levels = [level["name"] for level in document["hierarchy"]["levels"]]
     keys = _hierarchical_keys(document["tree"])
@@ -329,7 +325,7 @@ def test_the_hierarchical_table_names_only_what_the_tree_holds(tmp_path, built_c
     # A signal two channels of one device share under one role keys its leaves by address.
     signals = {str(channel["signal"]) for channel in facility["channels"] if channel.get("signal")}
     _manager, project_dir = _project(
-        tmp_path, "cf-tree-hierarchical", "hierarchical", _demo_facts_path(built_control_assistant)
+        tmp_path, "cf-tree-hierarchical", "hierarchical", _demo_facts_path(built_demo)
     )
     section = _terminology_section(project_dir)
     table = section[: section.index("### Hierarchy Conventions")]
@@ -350,12 +346,12 @@ def test_the_hierarchical_table_names_only_what_the_tree_holds(tmp_path, built_c
 
 
 @pytest.mark.parametrize("mode", ("in_context", "hierarchical"))
-def test_role_rows_come_from_the_records_roles(tmp_path, built_control_assistant, mode):
+def test_role_rows_come_from_the_records_roles(tmp_path, built_demo, mode):
     """Each role row lists exactly the signals the records give that role."""
-    facts = json.loads(_demo_facts_path(built_control_assistant).read_text(encoding="utf-8"))
+    facts = json.loads(_demo_facts_path(built_demo).read_text(encoding="utf-8"))
     used = facts["vocabulary"]
     _manager, project_dir = _project(
-        tmp_path, f"cf-roles-{mode}", mode, _demo_facts_path(built_control_assistant)
+        tmp_path, f"cf-roles-{mode}", mode, _demo_facts_path(built_demo)
     )
     section = _terminology_section(project_dir)
 
@@ -370,12 +366,10 @@ def test_role_rows_come_from_the_records_roles(tmp_path, built_control_assistant
 
 
 @pytest.mark.parametrize("mode", ("in_context", "hierarchical", "graph"))
-def test_no_middle_layer_word_outside_the_middle_layer_mode(
-    tmp_path, built_control_assistant, mode
-):
+def test_no_middle_layer_word_outside_the_middle_layer_mode(tmp_path, built_demo, mode):
     """The agent outside the middle-layer paradigm is told about the facility in OSPREY's words."""
     _manager, project_dir = _project(
-        tmp_path, f"cf-words-{mode}", mode, _demo_facts_path(built_control_assistant)
+        tmp_path, f"cf-words-{mode}", mode, _demo_facts_path(built_demo)
     )
     rendered = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text(
         encoding="utf-8"
@@ -384,18 +378,16 @@ def test_no_middle_layer_word_outside_the_middle_layer_mode(
     hit = _MIDDLE_LAYER_WORDS.search(rendered)
     assert hit is None, f"{mode}: the channel finder names {hit.group(0)!r}"
     for path in ("data/facility_facts.md", ".claude/agents/facility-knowledge-graph.md"):
-        text = (built_control_assistant.build_dir / path).read_text(encoding="utf-8")
+        text = (built_demo.build_dir / path).read_text(encoding="utf-8")
         hit = _MIDDLE_LAYER_WORDS.search(text)
         assert hit is None, f"{path} names {hit.group(0)!r}"
 
 
 def test_the_middle_layer_mode_leaves_the_other_sources_in_product_words(
-    built_control_assistant,
+    built_demo,
 ):
     """The middle-layer arm is the defended view; the facts and other partials stay clean."""
-    page = (built_control_assistant.build_dir / "data/facility_facts.md").read_text(
-        encoding="utf-8"
-    )
+    page = (built_demo.build_dir / "data/facility_facts.md").read_text(encoding="utf-8")
     assert _MIDDLE_LAYER_WORDS.search(page) is None
     for mode in ("in_context", "hierarchical"):
         source = (_TEMPLATE_ROOT / f"{mode}.md.j2").read_text(encoding="utf-8")
@@ -503,13 +495,13 @@ def test_the_partial_source_spells_no_device_token_and_no_config_key(mode):
 
 @pytest.mark.parametrize("partial", PARTIALS)
 @pytest.mark.parametrize("facts_of", ("demo", "zero classes"))
-def test_no_partial_names_a_protocol_word(built_control_assistant, partial, facts_of):
+def test_no_partial_names_a_protocol_word(built_demo, partial, facts_of):
     """The rendered partial says "channel" and "channel address", whatever the facts."""
     facts = zero_source_facts({"code": "lab", "name": "lab", "description": None})
     facility: dict[str, Any] = {}
     if facts_of == "demo":
-        facts = json.loads(_demo_facts_path(built_control_assistant).read_text(encoding="utf-8"))
-        facility = built_control_assistant.facility
+        facts = json.loads(_demo_facts_path(built_demo).read_text(encoding="utf-8"))
+        facility = built_demo.facility
 
     rendered = (
         TemplateManager()
@@ -526,7 +518,7 @@ def test_no_partial_names_a_protocol_word(built_control_assistant, partial, fact
 
 
 @pytest.mark.parametrize("mode", FILE_BACKED_MODES)
-def test_the_scaffold_render_equals_the_builds_agent_file(tmp_path, built_control_assistant, mode):
+def test_the_scaffold_render_equals_the_builds_agent_file(tmp_path, built_demo, mode):
     """``osprey scaffold diff agents/channel-finder`` finds nothing to report.
 
     The scaffold command renders the agent template from
@@ -534,7 +526,7 @@ def test_the_scaffold_render_equals_the_builds_agent_file(tmp_path, built_contro
     two renders must agree byte for byte, terminology table included.
     """
     manager, project_dir = _project(
-        tmp_path, f"cf-scaffold-{mode}", mode, _demo_facts_path(built_control_assistant)
+        tmp_path, f"cf-scaffold-{mode}", mode, _demo_facts_path(built_demo)
     )
     config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
 

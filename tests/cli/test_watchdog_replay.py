@@ -181,7 +181,7 @@ class TestReport:
             directory.mkdir()
             shutil.copytree(PRESET_DIR / "watchdogs" / TWIN, directory / "watchdogs" / TWIN)
             (directory / "profile.yml").write_text(
-                (PRESET_DIR / "control-assistant.yml").read_text(encoding="utf-8"),
+                (PRESET_DIR / "demo.yml").read_text(encoding="utf-8"),
                 encoding="utf-8",
             )
         return directory

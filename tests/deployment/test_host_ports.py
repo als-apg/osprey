@@ -551,6 +551,7 @@ class TestHostNetworkDerivation:
             "nextcloud_bridge",
             "gchat_bridge",
             "teams_bridge",
+            "slack_bridge",
             "ariel_sync",
             "archive",
             "site_poller",

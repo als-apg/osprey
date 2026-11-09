@@ -270,8 +270,8 @@ def test_servicedef_osprey_prefix_skips_filesystem_check(tmp_path: Path) -> None
         missing.validate(tmp_path)
 
 
-def test_control_assistant_readwrite_render_ships_events_panel(tmp_path) -> None:
-    """The control-assistant family exposes the event-dispatcher dashboard as
+def test_demo_readwrite_render_ships_events_panel(tmp_path) -> None:
+    """The demo family exposes the event-dispatcher dashboard as
     an ``events`` web panel on its write-capable tier: the readwrite tier
     declares the panel id and nothing else — its URL is projected into the
     render from the hosting deployment's own, where the dispatch injector
@@ -288,6 +288,6 @@ def test_control_assistant_readwrite_render_ships_events_panel(tmp_path) -> None
     assert "events" in profile.web_panels
     assert "web.panels.events.url" not in profile.config
 
-    base, _dir = bp.resolve_build_profile(None, preset="control-assistant")
+    base, _dir = bp.resolve_build_profile(None, preset="demo")
     assert "events" not in base.web_panels
     assert "web.panels.events.url" not in base.config

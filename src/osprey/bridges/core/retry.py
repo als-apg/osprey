@@ -4,7 +4,8 @@ The drain loop periodically re-examines entries the bridge parked in its retry
 queue (``status == "queued"`` in the :class:`~osprey.bridges.core.dedup.DedupStore`)
 and, for each, must decide: is this failure the kind worth retrying at all? is it
 *safe* to fire a fresh dispatch? has it aged enough to try again? should we give
-up and file a GitLab issue instead? which queued entries collapse into one?
+up and post a give-up notice to the chat instead? which queued entries collapse
+into one?
 
 Every function here is a **pure** decision — no I/O, no clock, no config lookup
 of its own: the caller passes ``now`` (epoch seconds, ``time.time()``) and the
@@ -142,8 +143,8 @@ def is_eligible(entry: dict[str, Any], now: float, cfg: Any) -> bool:
 
 
 def give_up_due(entry: dict[str, Any], now: float, gate_ever_open: bool, cfg: Any) -> bool:
-    """Whether a queued entry should be abandoned (a GitLab give-up issue filed)
-    instead of retried further.
+    """Whether a queued entry should be abandoned (a give-up notice posted to the
+    chat) instead of retried further.
 
     Two independent ceilings:
 

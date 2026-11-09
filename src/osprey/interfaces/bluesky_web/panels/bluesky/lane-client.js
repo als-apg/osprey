@@ -130,13 +130,38 @@ export function withLane(path, lane) {
  * A lane is named for its target, never for its index — "va" / "live" is
  * what tells an operator which machine a click arms. The service key is the
  * fallback for a roster entry that declared none (lane 1 on rosters written
- * before targets were declared), so the picker never renders a blank button.
+ * before targets were declared), so the picker never renders a blank option.
  *
  * @param {LaneEntry} entry
  * @returns {string}
  */
 export function laneLabel(entry) {
   return entry.laneTarget || entry.lane;
+}
+
+/**
+ * The toolbar lane picker's options: one per rendered lane, labelled by its
+ * target, with the document's own lane selected. A document pinned to a lane
+ * the roster does not render leads with that lane, selected and disabled, so
+ * the picker still names where the panel points and every other option is a
+ * way out — never a silent reroute.
+ *
+ * @param {LaneEntry[]} roster
+ * @param {string} current The lane this document addresses.
+ * @returns {Array<{value: string, label: string, selected: boolean, disabled: boolean}>}
+ */
+export function laneOptions(roster, current) {
+  const options = roster.map((entry) => ({
+    value: entry.lane,
+    label: laneLabel(entry),
+    selected: entry.lane === current,
+    disabled: false,
+  }));
+  if (laneIsKnown(roster, current)) return options;
+  return [
+    { value: current, label: `${current} (not rendered)`, selected: true, disabled: true },
+    ...options,
+  ];
 }
 
 /**

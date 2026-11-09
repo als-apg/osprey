@@ -3,7 +3,7 @@
 The connector serves exactly the channels of the built facility file and
 refuses any other address, so an address a tutorial asks the reader to read or
 write must be a channel of that preset's facility tree: hello-world's own small
-facility, or the example facility the control-assistant preset ships. A family
+facility, or the example facility the demo preset ships. A family
 written with a ``*`` segment (``SR:MAG:HCM:*:CURRENT:SP``) must match at least
 one channel, and a ``*`` stands for one segment. The one address the
 hello-world tutorial shows being refused is the exception, and must stay
@@ -31,7 +31,7 @@ FACILITIES = REPO_ROOT / "src/osprey/templates/facilities"
 #: Each tutorial page, and the facility tree its preset ships.
 TUTORIALS = {
     "hello-world-tutorial.rst": "hello_world",
-    "control-assistant.rst": "example",
+    "demo.rst": "example",
 }
 
 #: A colon-separated channel address, as the tutorials spell one; a ``*``

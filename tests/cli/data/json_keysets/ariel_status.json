@@ -12,6 +12,7 @@
   "attachments.skipped",
   "attachments.view",
   "captions",
+  "coverage",
   "database",
   "database.connected",
   "database.uri",

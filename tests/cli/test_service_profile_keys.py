@@ -19,12 +19,12 @@ import yaml
 from osprey.bluesky_bridge_connection import SECOND_LANE_KEYS
 from osprey.cli.build_profile_load import (
     _parse_profile,
-    bundled_service_names,
     manifest_rows,
     reject_unknown_closed_config_keys,
     service_family,
 )
 from osprey.cli.build_profile_model import SERVICE_AXES
+from osprey.cli.build_profile_presets import bundled_service_names
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey_connectors.errors import BuildProfileError
 

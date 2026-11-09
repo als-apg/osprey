@@ -17,12 +17,13 @@ import glob
 import importlib.util
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import ModuleType
@@ -35,6 +36,7 @@ from check_kit import (
     FULL,
     NOT_TOUCHED,
     PATHS,
+    SPENDS,
     UV_RUN,
     WHOLE,
     Check,
@@ -57,11 +59,12 @@ class UnitSelection:
     marker: str
     quick_marker: str
     #: Shard name to (paths, extra ignores); the shards cover the roots exactly once.
+    #: An ignore holding a glob character is passed as ``--ignore-glob``.
     shards: dict[str, tuple[tuple[str, ...], tuple[str, ...]]]
     dist: tuple[str, ...]
-    #: Trim name to the test files it leaves out of the roots. Selected with
-    #: ``--shard``, but outside the partition: one job over everything else.
-    trims: dict[str, tuple[str, ...]]
+    #: Subset name to the test files and node IDs it runs in place of the
+    #: roots. Selected with ``--shard``, but outside the partition.
+    subsets: dict[str, tuple[str, ...]]
 
 
 #: The tests that pin this declaration and the repository-wide rules, and
@@ -74,6 +77,7 @@ INVARIANT_TESTS = (
     "tests/scripts/test_changelog_fragments.py",
     "tests/interfaces/test_js_module_tests.py",
     "tests/deployment/test_ci_workflow_wiring.py",
+    "tests/deployment/test_e2e_scenario_pin.py",
     "tests/deployment/test_retired_spellings_at_parse_point.py",
     "tests/deployment/web_terminals/test_roster_entries.py",
     "tests/infrastructure/test_import_time_audit.py",
@@ -83,6 +87,7 @@ INVARIANT_TESTS = (
     "tests/test_graphdb_container.py",
     "tests/test_mongo_container.py",
     "tests/test_no_legacy_symbols.py",
+    "tests/test_wait_ceilings.py",
 )
 
 LIVE_CA_VENUE = "linux-x86_64"
@@ -127,172 +132,475 @@ TEST_MIRRORS: tuple[tuple[str, str], ...] = (
 )
 
 #: The test directories of the ``rest-a`` shard.
-_REST_A = ("tests/facility", "tests/mcp_server", "tests/deployment")
+_REST_A = ("tests/facility", "tests/deployment")
 
-#: The files the macOS cells leave to ubuntu: each was read, and none reaches
-#: anything whose outcome depends on the OS — no platform branch, no real
-#: child process it signals, no path or permission semantics macOS spells
-#: differently, no native binary. A file is listed whole or not at all, and a
-#: new test file runs on macOS until someone reads it.
-_MACOS_REPEATS_UBUNTU = (
-    # In-process `osprey build --skip-deps` renders, which install nothing;
-    # the build's directory swap stays on macOS in test_build_swap.py.
-    "tests/cli/test_answer_provenance_render.py",
-    "tests/cli/test_build_cmd.py",
-    "tests/cli/test_build_config_edit_session.py",
-    "tests/cli/test_build_graph_index.py",
-    "tests/cli/test_build_graphdb_removal.py",
-    "tests/cli/test_build_hierarchy_embedding.py",
-    "tests/cli/test_build_preset.py",
-    "tests/cli/test_build_profile_ariel_sync.py",
-    "tests/cli/test_build_zero_arg.py",
-    "tests/cli/test_channel_finder_graph_tools.py",
-    "tests/cli/test_claude_code_integration.py",
-    "tests/cli/test_claude_regen.py",
-    "tests/cli/test_config_records_environment.py",
-    "tests/cli/test_convention_artifacts_by_name.py",
-    "tests/cli/test_deployed_services_injection.py",
-    "tests/cli/test_deployment_project_name.py",
-    "tests/cli/test_e2e_preset_login_tiers.py",
-    "tests/cli/test_explicit_config_equivalence.py",
-    "tests/cli/test_facility_rule_source_zone.py",
-    "tests/cli/test_facility_show.py",
-    "tests/cli/test_facility_validate.py",
-    "tests/cli/test_graph_agent_surface.py",
-    "tests/cli/test_hooks_channel.py",
-    "tests/cli/test_init_revalidate.py",
-    "tests/cli/test_init_revalidate_fill.py",
-    "tests/cli/test_init_revalidate_write_keys.py",
-    "tests/cli/test_interpreter_role_split.py",
-    "tests/cli/test_json_contracts.py",
-    "tests/cli/test_killswitch_on_tier.py",
-    "tests/cli/test_layer_emission.py",
-    "tests/cli/test_live_standin_overrides.py",
-    "tests/cli/test_live_standin_render.py",
-    "tests/cli/test_login_tiers_render.py",
-    "tests/cli/test_mml_build_recipes.py",
-    "tests/cli/test_model_warnings_report.py",
-    "tests/cli/test_port_base_both_halves.py",
-    "tests/cli/test_posture_floor.py",
-    "tests/cli/test_posture_render_matrix.py",
-    "tests/cli/test_preset_drift.py",
-    "tests/cli/test_preset_render.py",
-    "tests/cli/test_profile_annotations.py",
-    "tests/cli/test_profile_data_root.py",
-    "tests/cli/test_profile_to_claude_contract.py",
-    "tests/cli/test_profile_va_archiver_block.py",
-    "tests/cli/test_rendered_identity_literals.py",
-    "tests/cli/test_renders_projection.py",
-    "tests/cli/test_set_config_dotted.py",
-    "tests/cli/test_set_verb.py",
-    "tests/cli/test_source_zone_materialization.py",
-    "tests/cli/test_store_file_deny.py",
-    "tests/cli/test_terminology_tables.py",
-    "tests/cli/test_tier_app_presets.py",
-    "tests/cli/test_va_build_step.py",
-    "tests/cli/test_va_default_config.py",
-    "tests/cli/test_variant_selection.py",
-    "tests/deployment/test_container_project_layout.py",
-    "tests/deployment/test_control_assistant_end_state.py",
-    "tests/deployment/test_live_standin_render.py",
-    "tests/deployment/test_login_tiers_staged_render.py",
-    "tests/deployment/test_render_e2e.py",
-    "tests/deployment/test_render_reach_drift.py",
-    "tests/deployment/test_render_reach_endpoints.py",
-    "tests/deployment/test_render_reach_paths.py",
-    "tests/facility/test_build_stops.py",
-    "tests/facility/test_chain.py",
-    "tests/facility/test_demo_census.py",
-    "tests/facility/test_knowledge_links.py",
-    "tests/facility/test_simulator_view.py",
-    "tests/integration/test_data_checksum_stability.py",
-    "tests/integration/test_profile_roundtrip.py",
-    "tests/test_e2e_ariel_db_pin.py",
-    # Facility logic in process; pyAT is only compared against itself here,
-    # while the fixed-reference replays stay on macOS.
-    "tests/connectors/test_archiver_scenario_signatures.py",
-    "tests/facility/test_cf_index_middle_layer.py",
-    "tests/facility/test_demo_seed_rules.py",
-    "tests/facility/test_injector_sources.py",
-    "tests/facility/test_layer_mml.py",
-    "tests/facility/test_layer_mml_decks.py",
-    "tests/facility/test_layer_mml_identity.py",
-    "tests/facility/test_layer_mml_import.py",
-    "tests/facility/test_layer_mml_tune.py",
-    "tests/facility/test_layer_mml_wiring.py",
-    "tests/facility/test_line_sources.py",
-    "tests/facility/test_minimal_trees.py",
-    "tests/facility/test_mml_layer_seed_once.py",
-    "tests/facility/test_served_models.py",
-    "tests/services/channel_finder/graph_index/test_build.py",
-    "tests/simulation/test_single_pass_plugin.py",
-    "tests/simulation/test_waveform_equivalence.py",
-    "tests/templates/test_pyat_specialist.py",
-    # Scans of the source tree: AST, text, git ls-files, import graphs.
-    "tests/benchmark/test_matrix_lanes.py",
-    "tests/cli/test_lifecycle_invariants.py",
-    "tests/cli/test_printed_copy_style.py",
-    "tests/config/test_bluesky_keys_retired.py",
-    "tests/config/test_facility_keys_retired.py",
-    "tests/config/test_injected_keys_are_manifest_rows.py",
-    "tests/config/test_simulation_keys_retired.py",
-    "tests/connectors/test_framework_connectors_compat.py",
-    "tests/connectors/test_public_api.py",
-    "tests/connectors/test_safety_file_single_home.py",
-    "tests/deployment/test_ci_workflow_wiring.py",
-    "tests/deployment/test_retired_spellings_at_parse_point.py",
-    "tests/deployment/test_runtime_env_digest.py",
-    "tests/docs/test_shipped_identity_literals.py",
-    "tests/infrastructure/test_import_time_audit.py",
-    "tests/interfaces/test_js_module_tests.py",
-    "tests/mcp_server/test_channel_finder_tool_vocabulary.py",
-    "tests/registry/test_tool_classification_drift.py",
-    "tests/scripts/test_check.py",
-    "tests/scripts/test_config_key_guard.py",
-    "tests/services/ariel_search/test_import_graph.py",
-    "tests/services/facility_knowledge/test_import_isolation.py",
-    "tests/test_no_legacy_symbols.py",
-    "tests/test_retired_store_words.py",
-    # Logic over a faked runtime, subprocess or clock, or a POSIX-wide protocol.
-    "tests/cli/test_lifecycle_promotions.py",
-    "tests/connectors/test_mock_connector.py",
-    "tests/deployment/test_container_lifecycle.py",
-    "tests/deployment/test_down_restart_gates.py",
-    "tests/deployment/test_status_sections.py",
-    "tests/deployment/test_up_as_built.py",
-    "tests/hooks/test_approval_outcome.py",
-    "tests/hooks/test_approval_queue_enrichment.py",
-    "tests/hooks/test_hook_agreement.py",
-    "tests/hooks/test_store_path_pattern.py",
-    "tests/integration/test_write_verdict_surfaces.py",
-    "tests/interfaces/ariel/test_routes.py",
-    "tests/interfaces/web_terminal/test_config_routes.py",
-    "tests/interfaces/web_terminal/test_facility_timezone_stamp.py",
-    "tests/interfaces/web_terminal/test_proxy.py",
-    "tests/interfaces/web_terminal/test_tour.py",
-    "tests/mcp_server/python_executor/test_sandbox_single_posture.py",
-    "tests/mcp_server/test_bluesky_client_tools.py",
-    "tests/mcp_server/test_error_envelope_ipc.py",
-    "tests/mcp_server/test_executor_token_regression.py",
-    "tests/mcp_server/test_fastmcp_contract.py",
-    "tests/pty/test_stub_coverage.py",
-    "tests/services/ariel_search/test_image_lane.py",
-    "tests/services/ariel_search/test_ingestion.py",
-    "tests/services/bluesky_bridge/test_plan_validation.py",
-    "tests/services/bluesky_bridge/test_planspec_render.py",
-    "tests/templates/test_control_system_safety_rule.py",
-    "tests/test_e2e_provider_gate.py",
-    "tests/utils/test_import_env_hygiene.py",
-    "tests/va/test_suite_still_scenario.py",
-    # Chromium only: the engine is the same on both hosts.
-    "tests/interfaces/ariel/test_embedded_nav.py",
-    "tests/interfaces/artifacts/test_opaque_origin_browser.py",
-    "tests/interfaces/design_system/test_osprey_drawer.py",
-    "tests/interfaces/web_terminal/test_panels_browser.py",
-    # Shell a Linux image runs, as PID 1 or a RUN step: ubuntu is the faithful host.
-    "tests/cli/test_dockerfile_template.py",
-    "tests/deployment/test_entrypoint_script.py",
-    "tests/deployment/test_image_member_install.py",
+#: The test directories of the ``rest-c`` shard. None of them uses a session
+#: container another shard uses (agent_record's ClickHouse is its own; the
+#: shared Mongo, Neo4j and Postgres sessions stay in ``rest-b``), so no
+#: container is started in two jobs.
+_REST_C = (
+    "tests/interfaces",
+    "tests/mcp_server",
+    "tests/scripts",
+    "tests/hooks",
+    "tests/agent_record",
+    "tests/infrastructure",
+    "tests/docs",
+    "tests/templates",
+)
+
+#: The tests/cli modules of the ``cli-a`` shard, by the first letter of the name
+#: after ``test_``: a-h with tests/cli/templates is about half the directory's
+#: test time. ``cli-b`` takes every other top-level module, so a new module
+#: lands in one shard by its name; tests/deployment/test_ci_workflow_wiring.py
+#: holds that every tests/cli module is in exactly one.
+_CLI_A_LETTERS = "a-h"
+
+#: What the macOS cell runs: the test files, and the tests of a file (a node
+#: ID, ``path::name`` or ``path::Class::name``, every parametrization of it),
+#: whose outcome can differ on macOS through a named mechanism, one per group
+#: below. Everything else only repeats ubuntu, so a new test file runs on
+#: ubuntu alone until it is added here. The list was drawn by reading every
+#: test file the cell ran, the source each reaches for a darwin branch, and
+#: the CI logs for tests that skip on ubuntu and pass on macOS;
+#: tests/scripts/test_check.py holds that each entry exists and that a test
+#: file comparing the platform to darwin is listed.
+_MACOS_RUNS = (
+    # The test, or the code it reaches, reads the platform and takes its darwin branch.
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_write_authorization.py",
+    "tests/agent_record/test_host_record.py::test_a_busy_forward_skips_the_round",
+    "tests/agent_record/test_host_record.py::test_a_deployment_without_a_host_identity_is_refused",
+    "tests/agent_record/test_host_record.py::test_a_drained_read_forwards_first_in_a_host_launchs_children",
+    "tests/agent_record/test_host_record.py::test_a_failed_first_pass_answers_503_so_no_one_waits_on_it",
+    "tests/agent_record/test_host_record.py::test_a_foreign_port_that_is_not_ready_is_refused_at_the_health_bound",
+    "tests/agent_record/test_host_record.py::test_a_forward_resumes_from_its_own_position",
+    "tests/agent_record/test_host_record.py::test_a_forwarded_entry_is_scrubbed_of_the_build_secrets",
+    "tests/agent_record/test_host_record.py::test_a_host_root_that_does_not_exist_yet_is_empty_not_an_error",
+    "tests/agent_record/test_host_record.py::test_a_lease_written_under_one_zone_is_live_under_another",
+    "tests/agent_record/test_host_record.py::test_a_live_pid_with_another_start_time_is_a_dead_lease",
+    "tests/agent_record/test_host_record.py::test_a_live_port_that_is_not_ours_is_never_spawned_over",
+    "tests/agent_record/test_host_record.py::test_a_live_stack_marker_is_never_spawned_under",
+    "tests/agent_record/test_host_record.py::test_a_missing_host_login_names_the_build_and_the_run_time_mount",
+    "tests/agent_record/test_host_record.py::test_a_missing_service_file_names_the_build_and_the_run_time_mount",
+    "tests/agent_record/test_host_record.py::test_a_missing_service_file_spawns_nothing",
+    "tests/agent_record/test_host_record.py::test_a_prefix_must_be_a_relative_directory_path",
+    "tests/agent_record/test_host_record.py::test_a_reuser_that_outlives_the_starter_leaves_no_process",
+    "tests/agent_record/test_host_record.py::test_a_start_time_reads_the_same_under_any_time_zone",
+    "tests/agent_record/test_host_record.py::test_a_takeover_files_nothing_twice_and_reads_no_sibling",
+    "tests/agent_record/test_host_record.py::test_an_unhealthy_port_that_turns_healthy_is_reused",
+    "tests/agent_record/test_host_record.py::test_forward_for_drain_reads_the_rendered_config",
+    "tests/agent_record/test_host_record.py::test_shutdown_waits_for_the_first_pass_before_closing_the_backend",
+    "tests/agent_record/test_host_record.py::test_the_clickhouse_refusal_creates_no_file",
+    "tests/agent_record/test_host_record.py::test_the_idle_stop_is_decided_under_the_ensure_lock",
+    "tests/agent_record/test_host_record.py::test_the_lease_watch_skips_a_round_while_an_ensure_holds_the_lock",
+    "tests/agent_record/test_host_record.py::test_the_process_is_gone_when_the_last_holder_returns",
+    "tests/agent_record/test_host_record.py::test_the_repr_keeps_the_token_out",
+    "tests/agent_record/test_host_record.py::test_the_service_reads_only_the_host_root_on_the_host",
+    "tests/agent_record/test_host_record.py::test_the_service_stops_itself_when_its_holder_dies",
+    "tests/agent_record/test_host_record.py::test_the_starter_waits_out_its_own_childs_first_pass",
+    "tests/agent_record/test_host_record.py::test_the_store_is_group_writable",
+    "tests/agent_record/test_host_record.py::test_two_concurrent_ensures_share_one_process",
+    "tests/agent_record/test_host_record.py::test_without_a_stack_marker_nothing_is_forwarded",
+    "tests/agent_record/test_host_record_integration.py::test_a_host_chat_session_records_without_a_container",
+    "tests/agent_record/test_host_record_integration.py::test_a_host_query_records_without_a_container",
+    "tests/agent_record/test_host_record_integration.py::test_a_host_session_keeps_its_record_through_up_and_down",
+    "tests/agent_record/test_host_record_integration.py::test_a_host_web_session_records_without_a_container",
+    "tests/agent_record/test_host_record_integration.py::test_a_launcher_uses_the_stacks_record",
+    "tests/agent_record/test_host_record_integration.py::test_two_concurrent_host_sessions_share_one_record_and_leave_none",
+    "tests/cli/test_failure_replay.py",
+    "tests/connectors/ipc/test_host_child.py",
+    "tests/connectors/test_pva_venue_guard.py",
+    "tests/deployment/test_docker_desktop.py",
+    "tests/deployment/test_process_table.py",
+    "tests/deployment/test_runtime_detection.py",
+    "tests/deployment/test_subprocess_capture.py",
+    "tests/imaging/test_render_worker.py::test_the_worker_entry_point_hardens_before_its_handshake",
+    "tests/imaging/test_render_worker.py::test_worker_process_is_hardened_and_imports_no_service_code",
+    "tests/imaging/test_render_worker.py::test_worker_refuses_a_picture_between_the_pixel_limit_and_twice_it",
+    "tests/imaging/test_render_worker.py::test_worker_renders_the_large_jpegs",
+    "tests/imaging/test_render_worker.py::test_worker_round_trip_and_clean_exit_on_end_of_input",
+    "tests/infrastructure/test_ports.py",
+    "tests/integrations/canopy/test_proven_commits.py::test_the_venue_is_this_interpreters_platform",
+    "tests/interfaces/web_terminal/test_chat_process_tree.py",
+    "tests/interfaces/web_terminal/test_handoff_process_tree.py",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_a_sidecar_that_dies_later_is_reported_once_with_its_stderr_tail",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_a_stop_during_wait_ready_ends_the_wait",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_an_early_exit_surfaces_the_stderr_tail",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_checkpoints_obey_the_same_confinement_as_the_contents_api",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_on_exit_registered_after_the_death_fires_at_once",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_raw_files_obey_the_same_confinement_as_the_contents_api",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_stop_ends_a_member_of_the_sidecars_group_that_ignores_sigterm",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_stop_leaves_no_process_and_removes_the_tempdir",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_stop_names_what_its_group_stop_could_not_prove_gone",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_stop_reports_no_exit_and_fires_no_callback",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_the_exit_watcher_reports_without_reaping",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_the_root_redirects_to_jupyterlab_not_the_server_landing_page",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_the_runtime_dir_is_outside_the_shared_root",
+    "tests/interfaces/web_terminal/test_jupyter_sidecar.py::test_the_sidecar_exits_when_its_parent_is_killed",
+    "tests/interfaces/web_terminal/test_supervised_child.py",
+    "tests/mcp_server/test_dispatch_worker_credentials.py",
+    "tests/runtime/test_raw_put_block_readonly_warmups.py",
+    "tests/services/code_review/test_switch.py",
+    "tests/utils/test_facility_zone.py",
+    "tests/va/test_live_ca_venue_guard.py::TestTheVenueIsPresentWhereItIsRequired::test_the_live_channel_access_venue_is_installed",
+    # The readonly gate over real native loads: dlopen paths, library names and the
+    # stdlib's lazy loads differ on darwin.
+    "tests/mcp_server/python_executor/test_model_response_matrix.py::TestSolve::test_the_matrix_equals_the_plug_in_called_directly",
+    "tests/runtime/test_raw_put_block_no_client.py::test_a_renamed_libca_is_refused_by_symbol",
+    "tests/runtime/test_raw_put_block_no_client.py::test_cffi_dlopen_is_gated",
+    "tests/runtime/test_raw_put_block_no_client.py::test_osprey_layer_imports_and_client_frameworks_are_refused",
+    "tests/runtime/test_raw_put_block_readonly_loader.py",
+    "tests/services/python_executor/execution/test_readonly_guard.py::test_guard_holds_against_installed_libraries",
+    "tests/services/python_executor/execution/test_readonly_guard.py::test_readonly_aioca_caget_still_reads",
+    "tests/services/python_executor/execution/test_readonly_guard.py::test_readonly_prewarms_ctypes_util",
+    "tests/services/python_executor/execution/test_readonly_guard.py::test_readonly_prewarms_platform_processor",
+    "tests/services/python_executor/execution/test_readonly_guard.py::test_readonly_refuses_the_installed_pvaccess_writes",
+    # Native code built per platform: EPICS libca and soft IOCs, pyAT tracking,
+    # DuckDB, p4p and libzmq, the claude binary.
+    "packages/osprey-connectors/tests/osprey_connectors_tests/ipc/test_pool_authorization_soft_ioc.py",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/ipc/test_pool_soft_ioc.py",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_ca_bulk_path.py::TestOverTheWire::test_a_second_connector_on_another_route_repoints_the_first_and_it_comes_back",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_ca_bulk_path.py::TestOverTheWire::test_ioc_kill_and_restart_keeps_one_pair_and_delivers_each_value_once",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_ca_bulk_path.py::TestOverTheWire::test_subscribe_unsubscribe_subscribe_and_two_subscribers",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_ca_bulk_path.py::TestOverTheWire::test_values_limits_labels_and_one_record_per_address",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_ca_wait_stale.py::TestOverTheWire::test_a_kill_and_restart_reports_stale_exactly_once",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_ca_wait_stale.py::TestOverTheWire::test_a_one_shot_of_an_unknown_pv_on_an_idle_connector_is_not_stale",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_ca_wait_stale.py::TestOverTheWire::test_a_server_that_stays_gone_reports_stale_once_after_the_silent_window",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_ca_wait_stale.py::TestOverTheWire::test_a_udp_search_connector_never_reports_stale",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_ca_wait_stale.py::TestOverTheWire::test_names_the_ioc_does_not_serve_never_report_stale",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_pva_disconnect.py::TestLiveDisconnect::test_get_metadata_of_a_subscribed_address_awaits_its_first_update",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_pva_disconnect.py::TestLiveDisconnect::test_get_metadata_of_a_subscribed_unserved_address_times_out",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_pva_disconnect.py::TestLiveDisconnect::test_server_drop_reports_false_then_true_on_the_same_monitor",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_soft_ioc_fixture.py",
+    "tests/agent_record/test_embedded_backend.py",
+    "tests/agent_runner/test_task_tools_real_cli.py",
+    "tests/agent_runner/test_unrendered_mcp_servers.py",
+    "tests/connectors/test_epics_ca_softioc.py",
+    "tests/connectors/test_pva_live_fixture.py",
+    "tests/connectors/test_write_door_libca.py",
+    "tests/facility/test_check_a.py::test_chromaticity_replays_the_model_file",
+    "tests/facility/test_check_a.py::test_dispersion_replays_the_model_file",
+    "tests/facility/test_check_a.py::test_family_response_replays_the_model_file",
+    "tests/facility/test_check_a.py::test_orbit_response_replays_the_model_file",
+    "tests/facility/test_check_a.py::test_ring_state_replays_the_model_file",
+    "tests/facility/test_check_a.py::test_the_engine_builds_the_model_on_the_deck_the_build_wrote",
+    "tests/facility/test_check_a.py::test_transport_dispersion_replays_the_model_file",
+    "tests/facility/test_check_a.py::test_transport_orbit_response_replays_the_model_file",
+    "tests/facility/test_check_a.py::test_tunes_replay_the_model_file",
+    "tests/facility/test_check_a_hardware.py::test_line_dispersion_hardware_is_the_plug_in_twiss_dispersion",
+    "tests/facility/test_check_a_hardware.py::test_line_orbit_hardware_is_the_plug_in_orbit_through_the_build_calibration",
+    "tests/facility/test_mml_fixtures_wellformed.py::TestSyntheticExport::test_the_synthetic_fixture_regenerates_byte_identically",
+    "tests/facility/test_mml_fixtures_wellformed.py::TestSyntheticExport::test_the_synthetic_ring_boots",
+    "tests/facility/test_mml_synthetic_fixture.py",
+    "tests/facility/test_response_check.py::test_a_measured_export_prints_its_wrapped_positions_then_one_line_and_exits_0",
+    "tests/facility/test_response_check.py::test_spear3_holds_its_counts",
+    "tests/interfaces/web_terminal/test_audit_routes.py::test_only_the_entries_this_identity_wrote_are_served",
+    "tests/interfaces/web_terminal/test_process_tree.py",
+    "tests/mcp_server/channel_finder_middle_layer/test_run_sql.py::test_an_umbrella_family_and_its_member_family_share_a_channel",
+    "tests/mcp_server/channel_finder_middle_layer/test_run_sql.py::test_query_returns_columns_rows_and_count",
+    "tests/mcp_server/workspace/test_sandbox_executor.py",
+    "tests/runtime/test_jupyter_kernel_shell_rearm.py",
+    "tests/scripts/test_bpm_polarity_picture.py::test_a_rerun_writes_the_same_bytes_and_the_committed_picture_is_the_same_picture",
+    "tests/services/bluesky_bridge/test_document_plane.py",
+    "tests/services/channel_finder/graph_index/test_open.py",
+    "tests/services/channel_finder/graph_index/test_writer.py",
+    "tests/services/python_executor/test_client_packages_cover_connectors.py::test_every_shipped_library_is_a_client_stem_or_reviewed",
+    "tests/simulation/test_fidelity.py",
+    "tests/simulation/test_lattice.py",
+    # A real venv: its layout, its base interpreter and the wheels it installs.
+    "tests/cli/test_freeze_base_environment.py",
+    "tests/test_offline_build_env.py::test_a_build_installs_osprey_with_no_route_to_an_index",
+    # Real children signalled, killed or reaped: process groups, signal delivery,
+    # fork, ptys and the event loop's child watcher.
+    "packages/osprey-connectors/tests/osprey_connectors_tests/process/test_process.py",
+    "tests/cli/test_agent_record_cmd.py::test_a_clickhouse_project_with_no_stack_is_refused_naming_the_fix",
+    "tests/cli/test_agent_record_cmd.py::test_export_on_a_no_stack_project_runs_catch_up_and_leaves_no_process",
+    "tests/cli/test_agent_record_cmd.py::test_health_on_a_no_stack_project_answers_from_the_record_and_leaves_no_process",
+    "tests/cli/test_build_lifecycle_drain.py",
+    "tests/cli/test_build_swap.py::TestServedFilesSurviveABuild::test_the_served_files_are_intact_after_a_build",
+    "tests/cli/test_build_swap.py::TestSwapRecovery::test_a_leftover_that_cannot_even_be_moved_names_the_path_and_the_reason",
+    "tests/cli/test_build_swap.py::TestSwapRecovery::test_a_present_build_wins_over_leftovers",
+    "tests/cli/test_build_swap.py::TestSwapRecovery::test_an_incoming_render_is_adopted_when_build_is_gone",
+    "tests/cli/test_build_swap.py::TestSwapRecovery::test_an_outgoing_render_is_adopted_when_nothing_else_is_left",
+    "tests/cli/test_build_swap.py::TestSwapRecovery::test_an_undeletable_leftover_is_moved_aside_rather_than_left_in_the_way",
+    "tests/cli/test_build_swap.py::test_a_killed_build_leaves_a_build_that_can_still_stop_the_stack",
+    "tests/cli/test_feedback_cmd.py::test_export_resolves_the_referenced_steps_and_leaves_no_process",
+    "tests/cli/test_feedback_cmd.py::test_list_on_a_no_stack_project_sees_every_users_pending_lines_and_leaves_no_process",
+    "tests/cli/test_health_cmd.py::TestNoHang::test_subprocess_no_hang_hung_plugin_exits",
+    "tests/cli/test_host_launch_record.py::test_the_supervisor_restarts_the_record_stopped_mid_session",
+    "tests/cli/test_host_launch_record.py::test_web_ends_the_lease_when_stopped_by_sigterm",
+    "tests/cli/test_host_launch_record.py::test_web_stop_ends_the_lease_and_leaves_no_record",
+    "tests/cli/test_host_launch_record.py::test_web_stop_leaves_a_record_another_session_still_holds",
+    "tests/connectors/ipc/test_pool.py::test_a_child_starts_on_first_use_and_is_shared_by_its_key",
+    "tests/connectors/ipc/test_pool.py::test_a_child_that_exits_before_answering_init_is_refused_at_the_init_stage",
+    "tests/connectors/ipc/test_pool.py::test_a_child_that_never_finishes_connecting_hits_the_start_timeout",
+    "tests/connectors/ipc/test_pool.py::test_a_killed_child_fails_its_call_once_and_the_next_call_respawns",
+    "tests/connectors/ipc/test_pool.py::test_a_project_env_file_puts_no_epics_variable_back_into_a_child",
+    "tests/connectors/ipc/test_pool.py::test_a_wedged_child_is_killed_and_replaced",
+    "tests/connectors/ipc/test_pool.py::test_children_do_not_outlive_a_parent_that_is_killed",
+    "tests/connectors/ipc/test_pool.py::test_close_during_a_start_leaves_nothing_running",
+    "tests/connectors/ipc/test_pool.py::test_close_stops_every_child",
+    "tests/connectors/ipc/test_pool.py::test_close_with_a_call_in_flight_fails_it_as_stopped",
+    "tests/connectors/ipc/test_pool.py::test_failed_starts_leave_no_unhandled_asyncio_errors",
+    "tests/connectors/ipc/test_pool.py::test_with_kill_on_write_timeout_a_write_that_misses_its_deadline_kills_its_child",
+    "tests/hooks/test_watchdog_trigger.py",
+    "tests/imaging/test_render_isolated.py",
+    "tests/imaging/test_render_loop_lifetime.py",
+    "tests/infrastructure/test_ci_diagnostics.py::test_a_capture_past_an_armed_timeout_leaves_the_worker_alive",
+    "tests/infrastructure/test_ci_diagnostics.py::test_a_capture_whose_first_call_times_out_is_marked_incomplete",
+    "tests/infrastructure/test_ci_diagnostics.py::test_snapshot_is_taken_before_the_module_fixture_tears_down",
+    "tests/infrastructure/test_nested_pytest.py",
+    "tests/integration/test_mcp_handshake_budget.py",
+    "tests/integration/test_target_switch_mock_pair.py",
+    "tests/integration/test_watchdog_non_operator.py::TestWatchedPrompts::test_positive_control_without_the_skip_stamp_a_verdict_is_recorded",
+    "tests/integration/test_watchdog_non_operator.py::test_the_settle_wait_sees_a_lingering_child",
+    "tests/integrations/canopy/test_sidecar.py",
+    "tests/interfaces/test_watchdog_e2e.py::test_a_stop_a_running_command_outlives_keeps_the_dialog_until_continue",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtyChildWaits",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtyRegistry",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_is_alive_never_reaps_the_child",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_resize",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_sigwinch_delivered_on_resize",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_start_with_custom_dimensions",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_start_with_cwd",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_started_commands_lists_only_groups_of_their_own",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_started_commands_of_a_dead_child_is_empty",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_terminate_cleans_up",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_terminate_ends_a_helper_that_outlives_the_hang_up",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_terminate_ends_a_started_process_that_ignores_sigterm",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_terminate_ends_and_logs_the_process_groups_the_child_started",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_terminate_ends_what_the_child_started_when_the_first_process_table_read_fails",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_terminate_of_a_dead_child_looks_for_nothing_it_started",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_terminate_stops_the_childs_own_group_including_a_member_that_ignores_the_hang_up",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_terminate_warns_and_ends_its_own_group_when_the_table_stays_unreadable",
+    "tests/interfaces/web_terminal/test_pty_manager.py::TestPtySession::test_write_and_read",
+    "tests/mcp_server/python_executor/test_local_run_cancel.py",
+    "tests/mcp_server/python_executor/test_wrapper_interrupt.py",
+    "tests/mcp_server/test_connector_host_handshake_exit_code.py",
+    "tests/mcp_server/test_switch_lifecycle.py::TestConcurrentSwitches::test_two_switches_serialize_and_the_second_sees_the_first",
+    "tests/mcp_server/test_switch_lifecycle.py::TestDraining::test_the_drain_deadline_kills_the_child_and_names_the_switch",
+    "tests/mcp_server/test_switch_lifecycle.py::TestFailedSwitchLeavesThePreviousTargetActive::test_a_failed_probe_kills_the_candidate_and_keeps_the_previous_child",
+    "tests/mcp_server/test_switch_lifecycle.py::TestFailedSwitchLeavesThePreviousTargetActive::test_an_underivable_target_is_refused_before_any_spawn",
+    "tests/mcp_server/test_switch_lifecycle.py::TestFailedSwitchLeavesThePreviousTargetActive::test_an_unknown_target_name_is_refused",
+    "tests/mcp_server/test_switch_lifecycle.py::TestFailedSwitchLeavesThePreviousTargetActive::test_the_configured_probe_timeout_bounds_the_probe",
+    "tests/mcp_server/test_switch_lifecycle.py::TestNoChildRefusal::test_the_next_call_is_served_by_the_restarted_child",
+    "tests/mcp_server/test_switch_lifecycle.py::TestNoChildState::test_a_child_that_dies_outside_a_switch_leaves_the_session_without_one",
+    "tests/mcp_server/test_switch_lifecycle.py::TestRespawn::test_a_same_target_respawn_replaces_the_process_without_a_generation_bump",
+    "tests/mcp_server/test_switch_lifecycle.py::TestRespawn::test_invalidating_without_a_connector_host_is_unchanged",
+    "tests/mcp_server/test_switch_lifecycle.py::TestStartupSweep::test_a_dead_servers_report_is_swept_and_its_recorded_children_are_not_signalled",
+    "tests/mcp_server/test_switch_lifecycle.py::TestSuccessfulSwitch::test_a_reconcile_asked_to_launch_brings_up_the_first_child_on_the_record",
+    "tests/mcp_server/test_switch_lifecycle.py::TestSuccessfulSwitch::test_a_reconcile_with_no_child_adopts_and_spawns_nothing",
+    "tests/mcp_server/test_switch_lifecycle.py::TestSuccessfulSwitch::test_the_new_child_serves_reads_on_its_own_target",
+    "tests/mcp_server/test_switch_lifecycle.py::TestSuccessfulSwitch::test_the_previous_child_process_actually_exits",
+    "tests/pyaml_cs_osprey/test_run_tool.py::TestRunLock::test_a_second_run_on_the_target_is_busy_and_never_calls_the_tool",
+    "tests/pyaml_cs_osprey/test_run_tool.py::TestSigintAbort::test_sigint_abort_stops_script",
+    "tests/pyaml_cs_osprey/test_run_tool.py::TestSigintAbort::test_sigint_during_span_aborts",
+    "tests/pyaml_cs_osprey/test_run_tool.py::TestSigintAbort::test_sigint_in_nested_run_aborts_outer",
+    "tests/pyaml_cs_osprey/test_run_tool.py::TestSigintAbort::test_sigint_stops_a_helper_threads_tool_through_its_callback",
+    "tests/pyaml_cs_osprey/test_run_tool.py::TestSigintAbort::test_sigint_without_callback_raises_with_what_it_moved",
+    "tests/runtime/test_guarded_run_cases.py",
+    "tests/runtime/test_kernel_connector_pool.py::TestPoolCleanup::test_a_forked_child_exits_without_touching_the_parents_pool",
+    "tests/runtime/test_kernel_connector_pool.py::TestRealChildren::test_an_in_process_deployment_reads_through_a_real_child",
+    "tests/runtime/test_kernel_connector_pool.py::TestRealChildren::test_reads_share_a_child_and_a_generation_move_respawns_it",
+    "tests/runtime/test_kernel_connector_pool.py::TestRealChildrenFollowTheSwitch::test_writes_follow_the_switch_through_fresh_children",
+    "tests/runtime/test_run_lock.py",
+    "tests/scripts/test_live_ca_gate.py",
+    "tests/scripts/test_run_bounded.py",
+    "tests/services/ariel_search/test_search_offload.py::test_a_forked_child_gets_its_own_pool",
+    "tests/services/ariel_search/test_search_offload.py::test_the_pool_does_not_outlive_its_process",
+    "tests/services/python_executor/execution/test_net_guard.py",
+    "tests/utils/test_profile_env_writes.py::TestConcurrentAppends::test_two_processes_both_land_their_keys",
+    # Real children spawned and read back: exec, inherited descriptors, environment, exit status.
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_record_lock.py",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_session_hold.py",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_set_switch.py::test_all_off_racing_a_non_person_write_leaves_the_switch_empty",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_set_switch.py::test_the_gesture_waits_for_the_lock_and_refuses_after_a_bounded_wait",
+    "tests/agent_runner/test_agent_shell_env.py",
+    "tests/agent_runner/test_claude_state.py::test_the_pinned_cli_prints_the_notice_in_the_recognised_form",
+    "tests/cli/test_build_lifecycle_report.py",
+    "tests/cli/test_init_verb.py::test_enclosing_git_repository_is_left_alone",
+    "tests/cli/test_init_verb.py::test_env_is_seeded_from_the_shell",
+    "tests/cli/test_init_verb.py::test_git_status_is_clean_from_birth",
+    "tests/cli/test_init_verb.py::test_in_place_into_an_empty_clone",
+    "tests/cli/test_init_verb.py::test_refuses_to_nest_inside_another_deployment",
+    "tests/cli/test_scaffold_cmd.py::TestClaimRefusals::test_a_skill_containing_an_escaping_symlink_is_refused",
+    "tests/cli/test_scaffold_cmd.py::TestClaimRefusals::test_a_symlinked_artifact_is_refused",
+    "tests/cli/test_verify_script_run.py",
+    "tests/connectors/test_mock_journal.py",
+    "tests/deployment/test_reset_keeps_record_volume.py::test_a_live_lease_refuses_every_reset_and_names_the_session",
+    "tests/hooks/test_approval_hook.py::test_a_measurement_on_a_held_target_is_asked_with_both_approved_fields",
+    "tests/hooks/test_approval_hook.py::test_the_prompt_binds_the_target_whatever_holds_its_lock",
+    "tests/infrastructure/test_run_temp_root.py",
+    "tests/mcp_server/python_executor/test_record_protected_roots.py",
+    "tests/mcp_server/test_sandbox_child_env_allowlist.py::test_executor_child_does_not_reload_the_env_chain",
+    "tests/mcp_server/test_sandbox_guard_characterization.py",
+    "tests/scripts/test_cli_tool_inventory.py::test_probe_of_a_silent_build_reports_a_timeout",
+    "tests/scripts/test_cli_tool_inventory.py::test_the_probe_hands_its_environment_to_the_build",
+    "tests/scripts/test_pinned_claude.py",
+    "tests/services/python_executor/test_fs_guard.py",
+    "tests/services/python_executor/test_runtime_guard.py",
+    "tests/services/python_executor/test_secret_zone_guard.py::test_a_secret_spelled_in_another_case_is_refused",
+    "tests/services/python_executor/test_secret_zone_guard.py::test_executor_refuses_secret_opens",
+    "tests/services/python_executor/test_secret_zone_guard.py::test_executor_still_reads_the_config",
+    "tests/services/python_executor/test_secret_zone_guard.py::test_visualization_sandbox_refuses_env",
+    "tests/services/python_executor/test_secret_zone_guard.py::test_visualization_sandbox_still_reads_project_data",
+    "tests/services/python_executor/test_wrapper_holds_lock.py",
+    "tests/services/watchdog/test_record_only.py",
+    "tests/test_version.py",
+    "tests/va/test_va_build_check_builder.py",
+    # Real sockets: binds and reuse, the ephemeral port range, AF_UNIX path length and modes.
+    "tests/cli/test_web_bind.py::TestBusyPortFallback::test_declared_port_still_hard_fails",
+    "tests/cli/test_web_bind.py::TestBusyPortFallback::test_explicit_port_flag_still_hard_fails",
+    "tests/cli/test_web_bind.py::TestBusyPortFallback::test_unspecified_port_auto_moves_off_busy_default",
+    "tests/cli/test_web_bind.py::TestCompanionProbeAttribution::test_companion_port_held_by_the_roster_is_attributed",
+    "tests/cli/test_web_bind.py::TestCompanionProbeAttribution::test_companion_port_held_without_a_roster_stays_foreign",
+    "tests/cli/test_web_cmd.py::TestPortZero::test_a_busy_default_moves_without_releasing_the_socket",
+    "tests/cli/test_web_cmd.py::TestPortZero::test_port_zero_serves_on_the_announced_port",
+    "tests/cli/test_web_cmd.py::TestPreflightCompanionPortCollision::test_held_artifact_port_reported",
+    "tests/deployment/test_host_ports.py::TestExternalConflict::test_listener_detected_then_cleared",
+    "tests/deployment/test_host_ports.py::TestHistoryOriginSlot::test_a_listener_already_on_the_slot_stops_the_deploy",
+    "tests/infrastructure/test_server_launcher.py::TestPortIsBindableAgainstARealKernel::test_a_reserved_ipv4_port_is_bindable",
+    "tests/infrastructure/test_server_launcher.py::TestPortIsBindableAgainstARealKernel::test_a_reserved_ipv6_port_is_bindable",
+    "tests/infrastructure/test_server_launcher.py::TestPortIsBindableAgainstARealKernel::test_an_ipv4_listener_holds_its_own_address",
+    "tests/infrastructure/test_server_launcher.py::TestPortIsBindableAgainstARealKernel::test_an_ipv6_listener_holds_its_own_address",
+    "tests/infrastructure/test_server_launcher.py::TestPortIsBindableAsksTheKernelToBind::test_the_address_family_follows_the_host_spelling",
+    "tests/interfaces/test_serving.py::test_a_held_port_is_refused",
+    "tests/interfaces/test_serving.py::test_port_zero_listens_on_the_port_the_socket_reports",
+    "tests/interfaces/web_terminal/test_code_review_switch.py::test_closing_removes_the_socket_and_unpublishes_it",
+    "tests/interfaces/web_terminal/test_code_review_switch.py::test_only_the_owner_can_reach_the_socket",
+    "tests/interfaces/web_terminal/test_code_review_switch.py::test_the_socket_answers_on_without_a_registry",
+    "tests/interfaces/web_terminal/test_code_review_switch.py::test_the_socket_serves_the_row_each_connection_reads",
+    "tests/mcp_server/test_endpoint_prober.py",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_closes_every_descriptor",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_directory_leaf_is_not_a_regular_file",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_errno_maps_to_outcome",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_fifo_leaf_does_not_block",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_file_as_intermediate_is_source_gone",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_mode_000_directory_is_source_refused",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_mode_000_file_is_source_refused",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_refuses_dot_dot_absolute_and_empty_parts",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_symlinked_intermediate_directory_is_not_a_regular_file",
+    "tests/services/ariel_search/test_attachment_fetch.py::test_fetch_file_source_symlinked_leaf_is_not_a_regular_file",
+    # The live file-watch backend: FSEvents on darwin, inotify on Linux.
+    "tests/interfaces/artifacts/test_store_watcher.py::TestStoreWatcher::test_an_external_save_reaches_the_broadcast_under_the_live_backend",
+    "tests/interfaces/web_terminal/test_file_watcher.py",
+    # Timezones from the system tzdata, or set through TZ and tzset.
+    "tests/cli/test_build_profile_timezone.py",
+    "tests/connectors/test_archiver_timezone.py",
+    "tests/simulation/test_series_primitives.py::TestDailyOccurrences::test_positions_are_box_tz_independent",
+    # Filesystem semantics macOS spells differently: case-insensitive APFS,
+    # /var -> /private/var, symlinks, hard links, modes and renames.
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_agent_dir_container_anchor.py",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_control_context.py::test_a_writer_created_state_dir_is_exactly_mode_2770",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_control_context.py::test_a_written_record_is_group_readable_and_not_owner_only",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_control_context.py::test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_control_context.py::test_every_level_the_writer_creates_is_exactly_mode_2770",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_control_context.py::test_every_state_dir_file_is_written_group_readable_mode",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_control_context.py::test_the_record_lands_group_readable_under_an_owner_only_umask",
+    "packages/osprey-connectors/tests/osprey_connectors_tests/test_safety_file.py",
+    "tests/agent_record/test_spool_consumer.py::test_a_fifo_and_a_symlink_are_quarantined",
+    "tests/agent_record/test_transcript_tailer.py::test_a_symlink_never_escapes_the_root",
+    "tests/agent_record/test_transcript_tailer.py::test_a_symlinked_root_is_refused",
+    "tests/agent_record/test_transcript_tailer.py::test_only_jsonl_regular_files_are_read",
+    "tests/audit/test_posture_store.py::TestDegradation::test_an_unreadable_record_refuses",
+    "tests/audit/test_posture_store.py::TestSignatureCache::test_a_same_size_rewrite_inside_one_clock_tick_is_still_seen",
+    "tests/audit/test_posture_store.py::TestSignatureCache::test_a_turn_off_lands_on_a_process_already_running",
+    "tests/audit/test_posture_store.py::TestSignatureCache::test_turning_it_on_is_seen_too",
+    "tests/cli/test_code_review_build_check.py::test_a_prompt_linked_out_of_the_source_zone_is_refused",
+    "tests/connectors/test_posture_store_contract.py",
+    "tests/deployment/test_agent_record_render.py::test_the_build_provisions_the_spool_and_record_dir_group_shared",
+    "tests/deployment/test_archive_dir.py",
+    "tests/deployment/test_compose_generator.py::TestBuildPathProvisionsTheControlTree::test_a_fresh_build_creates_the_control_target_root_at_exactly_2770",
+    "tests/deployment/test_compose_generator.py::TestBuildPathProvisionsTheControlTree::test_a_symlink_planted_at_a_control_target_identity_name_is_not_chmodded_through",
+    "tests/deployment/test_compose_generator.py::TestBuildPathProvisionsTheControlTree::test_a_symlink_planted_at_the_control_target_root_is_not_provisioned_through",
+    "tests/deployment/test_compose_generator.py::TestBuildPathProvisionsTheControlTree::test_a_symlink_planted_at_the_control_tree_marker_is_not_written_through",
+    "tests/deployment/test_compose_generator.py::TestControlTargetPathSeam::test_a_control_target_identity_swapped_to_a_symlink_after_the_guard_is_refused",
+    "tests/deployment/test_compose_generator.py::TestControlTargetPathSeam::test_a_control_target_identity_under_a_symlinked_tree_root_is_refused",
+    "tests/deployment/test_compose_generator.py::TestControlTargetPathSeam::test_a_control_target_tree_swapped_to_a_symlink_after_the_guard_is_refused",
+    "tests/deployment/test_compose_generator.py::TestControlTargetPathSeam::test_the_control_target_root_and_identity_dir_are_provisioned_at_2770",
+    "tests/deployment/test_compose_generator.py::TestEnsureGroupSharedDirExact::test_a_directory_this_call_creates_lands_at_2770_either_way",
+    "tests/deployment/test_compose_generator.py::TestEnsureGroupSharedDirExact::test_an_existing_0755_dir_is_narrowed_to_exactly_2770",
+    "tests/deployment/test_guarded_run_mounts.py",
+    "tests/deployment/test_reset_scoping.py::test_the_refusal_points_at_a_recorded_path_that_really_is_there",
+    "tests/deployment/test_reset_scoping.py::test_two_spellings_of_one_repo_are_one_checkout",
+    "tests/deployment/web_terminals/test_auth_credentials.py::test_a_link_planted_at_the_temporary_name_is_never_followed",
+    "tests/deployment/web_terminals/test_auth_credentials.py::test_a_purge_holds_the_lock_a_concurrent_append_must_wait_for",
+    "tests/deployment/web_terminals/test_auth_credentials.py::test_a_re_mint_is_one_critical_section_a_concurrent_append_waits_for",
+    "tests/deployment/web_terminals/test_auth_credentials.py::test_an_unwritable_root_reports_missing_without_raising",
+    "tests/deployment/web_terminals/test_auth_credentials.py::test_purge_preserves_mode_and_leaves_no_temporary_file",
+    "tests/deployment/web_terminals/test_auth_credentials.py::test_set_auth_password_raises_on_a_write_failure",
+    "tests/deployment/web_terminals/test_auth_credentials.py::test_unwritable_env_auth_reports_missing_secrets_without_raising",
+    "tests/deployment/web_terminals/test_auth_credentials.py::test_unwritable_env_auth_reports_missing_without_raising",
+    "tests/deployment/web_terminals/test_bundle_mount.py::test_a_wider_existing_mode_is_not_narrowed_either",
+    "tests/deployment/web_terminals/test_bundle_mount.py::test_existing_bundle_dir_keeps_its_own_other_triad",
+    "tests/deployment/web_terminals/test_bundle_mount.py::test_new_bundle_dir_gets_exactly_the_bits_sharing_needs",
+    "tests/deployment/web_terminals/test_bundle_mount.py::test_new_files_inherit_the_directorys_group",
+    "tests/deployment/web_terminals/test_bundle_mount.py::test_no_chmod_when_the_mode_already_satisfies_sharing",
+    "tests/deployment/web_terminals/test_bundle_mount.py::test_provisioning_failure_is_not_fatal",
+    "tests/deployment/web_terminals/test_render_images.py::test_delta_symlinked_out_of_the_profile_is_rejected",
+    "tests/deployment/web_terminals/test_render_images.py::test_symlinked_tiers_directory_is_rejected",
+    "tests/hooks/test_write_approval_stamp.py::test_a_link_planted_at_the_stamps_temporary_name_is_never_followed",
+    "tests/hooks/test_write_verdict_twin.py::test_a_link_at_the_record_or_the_directory_is_held_on_both_sides",
+    "tests/interfaces/test_session_store.py::test_directory_that_cannot_be_created_warns_at_construction",
+    "tests/interfaces/test_session_store.py::test_saved_file_is_owner_only",
+    "tests/interfaces/test_session_store.py::test_unreadable_file_loads_empty_with_one_warning",
+    "tests/interfaces/test_session_store.py::test_unwritable_directory_keeps_retrying",
+    "tests/interfaces/test_session_store.py::test_unwritable_directory_warns_once_and_never_raises",
+    "tests/interfaces/web_terminal/test_chat_attachments.py::test_the_sweep_does_not_follow_a_symlink",
+    "tests/interfaces/web_terminal/test_files_route_concealment.py::TestContentReturns404::test_case_variant_spellings_cannot_bypass_the_guard",
+    "tests/interfaces/web_terminal/test_protected_writes_integration.py::TestTheGateIsDiscriminating::test_a_knowledge_page_linked_into_the_facility_tree_is_refused",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestCreateArtifact::test_create_artifact_hook_executable",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestLinkedWritesAreJudgedOnTheResolvedFile::test_a_link_onto_a_reserved_file_is_shown_read_only",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestLinkedWritesAreJudgedOnTheResolvedFile::test_create_artifact_refuses_a_link_that_lands_on_a_reserved_file",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestRestoreRefusesBodiesThatEscapeTheStore::test_a_body_reached_through_a_symlinked_directory_is_not_restored",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestRestoreRefusesBodiesThatEscapeTheStore::test_a_fifo_body_is_refused_under_its_own_reason",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestRestoreRefusesBodiesThatEscapeTheStore::test_a_hard_linked_body_is_refused",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestRestoreRefusesBodiesThatEscapeTheStore::test_a_symlinked_body_is_not_restored",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestRestoreRefusesReservedRecords::test_restore_reserved_skips_a_record_resolving_onto_a_reserved_file",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestScanUntrackedJudgesTheResolvedFile::test_a_link_onto_an_ordinary_file_is_still_listed",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestScanUntrackedJudgesTheResolvedFile::test_an_entry_linked_onto_a_reserved_file_is_not_listed",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestUnclaimDeletesTheStoredPath::test_a_stored_path_in_the_protected_set_is_refused",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestUnoverrideFrameworkRestore::test_a_restore_that_fails_keeps_the_release_and_says_so",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestVolumeMode::test_concurrent_claims_do_not_lose_records",
+    "tests/interfaces/web_terminal/test_scaffold_gallery_service.py::TestWritesThatLeaveTheProjectAreRefused::test_delete_untracked_refuses_a_link_that_lands_outside_the_project",
+    "tests/mcp_server/test_phoebus_tools.py::test_panel_lookup_accepts_a_file_url_from_the_caller",
+    "tests/mcp_server/test_phoebus_tools.py::test_panel_lookup_follows_a_symlinked_display_mount",
+    "tests/mcp_server/test_phoebus_tools.py::test_panel_lookup_matches_a_config_relative_registration",
+    "tests/mcp_server/test_phoebus_tools.py::test_panel_lookup_matches_a_file_url_registration",
+    "tests/mcp_server/test_phoebus_tools.py::test_panel_lookup_names_the_panel_that_opens_the_path",
+    "tests/mcp_server/test_phoebus_tools.py::test_panel_lookup_normalises_dot_segments",
+    "tests/mcp_server/workspace/test_transcript_reader.py",
+    "tests/runtime/test_guarded_run_dir.py",
+    "tests/runtime/test_guarded_run_regular_files.py",
+    "tests/services/archive/test_run.py",
+    "tests/services/ariel_search/test_qmd_writer.py::TestMirrorPath::test_path_round_trips_to_entry_id",
+    "tests/services/ariel_search/test_qmd_writer.py::TestMirrorPath::test_stays_inside_mirror_root",
+    "tests/services/ariel_search/test_qmd_writer.py::TestWriteEntry::test_hostile_ids_do_not_collide",
+    "tests/services/ariel_search/test_qmd_writer.py::TestWriteEntry::test_hostile_ids_write_and_reread",
+    "tests/services/ariel_search/test_qmd_writer.py::TestWriteEntry::test_no_temp_files_left_behind",
+    "tests/services/bluesky_bridge/test_substrate_devices.py::TestWriteDevicesFile::test_leaves_no_temp_file_behind",
+    "tests/services/bluesky_bridge/test_substrate_devices.py::TestWriteDevicesFile::test_written_file_is_readable_by_a_container_user",
+    "tests/services/channel_finder/feedback/test_pending_store.py::test_concurrent_captures",
+    "tests/services/code_review/test_settings.py::test_resolve_absolute_prompt_inside_the_source_zone",
+    "tests/services/code_review/test_settings.py::test_resolve_default_prompt_anchors_at_the_repo_root",
+    "tests/services/code_review/test_settings.py::test_resolve_prompt_in_another_source_entry",
+    "tests/services/code_review/test_settings.py::test_resolve_refuses_absolute_prompt_outside_the_repo",
+    "tests/services/code_review/test_settings.py::test_resolve_refuses_dotdot_out_of_the_source_zone",
+    "tests/services/code_review/test_settings.py::test_resolve_refuses_prompt_under_an_absolute_agent_data_root",
+    "tests/services/code_review/test_settings.py::test_resolve_refuses_symlink_out_of_the_source_zone",
+    "tests/services/code_review/test_settings.py::test_resolve_refuses_unreadable_prompt",
+    "tests/services/code_review/test_settings.py::test_unreadable_config_file_is_refused",
+    "tests/services/test_bundle_path_resolution.py",
+    "tests/services/watchdog/test_agent_engine.py::TestDenyCallbacks::test_read_refuses_a_link_out_of_the_references",
+    "tests/stores/test_artifact_manifest.py::test_a_directory_or_a_fifo_under_an_artifact_name_is_not_collected",
+    "tests/stores/test_artifact_manifest.py::test_a_hard_link_to_a_file_outside_is_neither_collected_nor_read",
+    "tests/stores/test_artifact_manifest.py::test_a_link_in_the_folder_to_a_file_outside_is_neither_collected_nor_read",
+    "tests/stores/test_artifact_manifest.py::test_a_manifest_that_is_a_link_collects_nothing",
+    "tests/stores/test_artifact_manifest.py::test_an_artifacts_folder_that_is_a_link_collects_nothing",
+    "tests/stores/test_artifact_sha256_dedup.py::test_two_threads_saving_the_same_bytes_give_one_artifact",
+    "tests/stores/test_artifact_two_file_entries.py::TestOutsideStoreDirectoryIsNeverUnlinked::test_symlinked_companion_escaping_the_store_survives",
+    "tests/test_e2e_chart_value_reading_build.py",
 )
 
 UNIT_SELECTION = UnitSelection(
@@ -303,7 +611,6 @@ UNIT_SELECTION = UnitSelection(
         ("tests/e2e", "e2e-tests"),
         ("tests/va/test_apply_fault.py", "live-ca"),
         ("tests/va/test_lume_pva_seam.py", "live-ca"),
-        ("tests/services/channel_finder/graph_index/test_scale.py", "channel-finder-benchmarks"),
         ("tests/integration/test_build_boot.py", "build-boot-smoke"),
         ("tests/integration/test_preset_static.py", "static-checks"),
         ("tests/integration/test_preset_build.py", "static-checks"),
@@ -313,12 +620,18 @@ UNIT_SELECTION = UnitSelection(
     marker="not pty and not wallclock and not canopy",
     quick_marker="not pty and not wallclock and not canopy and not slow",
     shards={
-        "cli": (("tests/cli",), ()),
+        "cli-a": (("tests/cli",), (f"tests/cli/test_[!{_CLI_A_LETTERS}]*",)),
+        "cli-b": (("tests/cli",), ("tests/cli/templates", f"tests/cli/test_[{_CLI_A_LETTERS}]*")),
         "rest-a": (_REST_A, ()),
-        "rest-b": (("tests/", "packages/osprey-connectors/tests"), ("tests/cli", *_REST_A)),
+        "rest-b": (
+            ("tests/", "packages/osprey-connectors/tests"),
+            ("tests/cli", *_REST_A, *_REST_C),
+        ),
+        "rest-c": (_REST_C, ()),
     },
-    trims={"macos": _MACOS_REPEATS_UBUNTU},
-    dist=("--dist", "loadgroup"),
+    subsets={"macos": _MACOS_RUNS},
+    # A dead worker ends the sweep with its report instead of being replaced.
+    dist=("--dist", "loadgroup", "--max-worker-restart=0"),
 )
 
 #: The module that owns the JavaScript module-to-test mapping.
@@ -433,24 +746,24 @@ def _select_pytest(
                 chosen.append("tests/scripts")
                 continue
             if name == "conftest.py" or _mirror_root(path) is None:
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
         elif name in ("pyproject.toml", "uv.lock"):
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
         elif suffix in JS_SUFFIXES or suffix in INERT_SUFFIXES:
             continue
         elif path.startswith("tests/") and len(PurePosixPath(path).parts) > 2:
             directory = "tests/" + PurePosixPath(path).parts[1]
             if not _holds_test_module(directory, files):
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
             chosen.append(directory)
             continue
         elif path.startswith(("packages/", "tests/")):
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
         elif not path.startswith("src/osprey/"):
             continue
         mirror = _mirror(path, files)
         if mirror is None:
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
         chosen.append(mirror)
     return _paths(chosen)
 
@@ -462,13 +775,14 @@ def _select_vitest(
     if guard is None:
         # Without the mapping no JavaScript change can be placed, so any one
         # widens Vitest to its whole selection.
-        reaches = any(
-            path.endswith(JS_SUFFIXES)
+        reaching = [
+            path
+            for path in paths
+            if path.endswith(JS_SUFFIXES)
             or path.rsplit("/", 1)[-1] in VITEST_WIDE_NAMES
             or path == VITEST_SETUP
-            for path in paths
-        )
-        return Selection(WHOLE) if reaches else Selection(NOT_TOUCHED)
+        ]
+        return Selection(WHOLE, cause=reaching[0]) if reaching else Selection(NOT_TOUCHED)
     chosen: list[str] = []
     for path in paths:
         name = path.rsplit("/", 1)[-1]
@@ -478,14 +792,14 @@ def _select_vitest(
         elif guard.modules([path]):
             interface = guard.interface_of(path)
             if interface == SHARED_INTERFACE:
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
             own = guard.covering_tests(path, files)
             if own:
                 chosen += own
                 continue
             fallback = f"{guard.TESTS_ROOT}{interface}/"
             if not any(f.startswith(fallback) and f.endswith(guard.TEST_SUFFIXES) for f in files):
-                return Selection(WHOLE)
+                return Selection(WHOLE, cause=path)
             chosen.append(fallback)
         elif (
             name in VITEST_WIDE_NAMES
@@ -493,12 +807,17 @@ def _select_vitest(
             or path.endswith(JS_SUFFIXES)
             and path.startswith(("tests/", "src/"))
         ):
-            return Selection(WHOLE)
+            return Selection(WHOLE, cause=path)
     return _paths(chosen)
 
 
 # ---------------------------------------------------------------------------
 # Commands
+
+
+def ignore_flag(path: str) -> str:
+    """The pytest flag that leaves *path* out: ``--ignore-glob`` for a pattern."""
+    return f"--ignore-glob={path}" if any(c in path for c in "*?[") else f"--ignore={path}"
 
 
 def unit_argv(
@@ -508,15 +827,17 @@ def unit_argv(
     unit: UnitSelection = UNIT_SELECTION,
 ) -> list[str]:
     """The parallel sweep's selection: paths, ignores and marker expression."""
-    if shard in unit.trims:
-        roots, shard_ignores = unit.roots, unit.trims[shard]
+    if shard in unit.subsets:
+        if targets:
+            raise ValueError(f"the {shard} subset names its own tests; it takes no paths")
+        roots, shard_ignores = unit.subsets[shard], ()
     else:
         roots, shard_ignores = unit.shards[shard] if shard else (unit.roots, ())
     ignores = [*shard_ignores, *(path for path, _host in unit.ignores)]
     marker = unit.quick_marker if tier == "quick" else unit.marker
     return [
         *(targets or roots),
-        *(f"--ignore={path}" for path in ignores),
+        *(ignore_flag(path) for path in ignores),
         "-m",
         marker,
     ]
@@ -533,6 +854,39 @@ def _pytest_command(
     selected = unit_argv(context.tier, selection.paths, context.shard)
     argv = [*check.argv, *selected, *flags, *UNIT_SELECTION.dist, *written]
     return [kit.bounded(bound, argv)]
+
+
+#: Finds the test files that carry the ``wallclock`` marker; the root conftest
+#: holds its answer to what pytest marks.
+WALLCLOCK_FILES_MODULE = "tests/_wallclock_files.py"
+
+
+def wallclock_unit_files() -> list[str]:
+    """The files the image-free wall-clock budgets live in, read off the tree."""
+    # The scanner is this checkout's code; the tree it reads is the root's.
+    spec = importlib.util.spec_from_file_location(
+        "wallclock_files", Path(__file__).resolve().parents[1] / WALLCLOCK_FILES_MODULE
+    )
+    if spec is None or spec.loader is None:
+        raise Refused(f"cannot load {WALLCLOCK_FILES_MODULE}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.marked_files(kit.ROOT)
+
+
+def _wallclock_unit_command(
+    check: Check,
+    _selection: Selection,
+    _context: Context,
+    flags: Sequence[str],
+    written: Sequence[str],
+) -> list[list[str]]:
+    """Only the marked files, selected by the marker: collecting the whole tree
+    to pick a handful of tests cost about a minute. No file found falls back
+    to the tree, where the marker selects nothing and the run says so."""
+    files = wallclock_unit_files() or ["tests/", "--ignore=tests/e2e", "--ignore=tests/integration"]
+    argv = [*check.argv, *files, "-m", "wallclock", *flags, *written]
+    return [kit.bounded(check.bound_s, argv)]
 
 
 #: The connectors wheel's import walk, shared with release-connectors.yml so the
@@ -685,6 +1039,115 @@ def _check_tracked_ignored(_context: Context) -> int:
         kit.say(f"tracked-ignored: the file): {' '.join(ignored)}")
         return FAILED_EXIT
     return CLEAN
+
+
+#: Lists every tracked prose file, NUL-separated.
+TRACKED_DOCS = ("git", "ls-files", "-z", "--", "*.md", "*.rst")
+
+#: Hand-typed parallel sweeps a document may keep, keyed by (path, command
+#: text) and valued with the reason; a key whose document holds no such line is
+#: reported.
+SWEEP_LINE_EXCEPTIONS: dict[tuple[str, str], str] = {
+    (
+        "plugins/osprey/skills/release/SKILL.md",
+        "pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile",
+    ): (
+        "the e2e lane's invocation is declared only in ci.yml's e2e-tests job"
+        " until that lane is a check"
+    ),
+}
+
+#: A ``pytest`` command word: bare, ``uv run pytest`` or ``python -m pytest``.
+_PYTEST_WORD = re.compile(r"(?<![\w./-])pytest(?=[\s`'\"]|$)")
+
+#: An xdist flag: ``-n <count>``, ``-n<count>``, ``--numprocesses`` or ``--dist``.
+_XDIST_FLAG = re.compile(
+    r"(?<![\w-])(?:-n\s*(?:\d+|auto|logical)(?![\w-])|--numprocesses\b|--dist\b)"
+)
+
+
+def _logical_lines(text: str) -> Iterable[tuple[int, str]]:
+    """Yield each line with its 1-based number, a ``\\``-continued run joined into one."""
+    start, held = 0, list[str]()
+    for number, line in enumerate(text.splitlines(), 1):
+        if not held:
+            start = number
+        if line.rstrip().endswith("\\"):
+            held.append(line.rstrip()[:-1])
+            continue
+        held.append(line)
+        yield start, " ".join(held)
+        held = []
+    if held:
+        yield start, " ".join(held)
+
+
+def hand_typed_sweeps(
+    texts: Mapping[str, str],
+    exceptions: Mapping[tuple[str, str], str] = SWEEP_LINE_EXCEPTIONS,
+) -> list[str]:
+    """Name every line that types a ``pytest`` command with an xdist flag.
+
+    A line naming ``scripts/check.py`` runs a declared check and passes; a line
+    holding an exception's command text passes, and an exception that matches
+    no line, its document gone or unread included, is reported as stale.
+    """
+    found: list[str] = []
+    used: set[tuple[str, str]] = set()
+    for path in sorted(texts):
+        held = [key for key in exceptions if key[0] == path]
+        for number, line in _logical_lines(texts[path]):
+            if "scripts/check.py" in line:
+                continue
+            if not (_PYTEST_WORD.search(line) and _XDIST_FLAG.search(line)):
+                continue
+            excepted = [key for key in held if key[1] in line]
+            if excepted:
+                used.update(excepted)
+                continue
+            found.append(
+                f"{path}:{number}: a hand-typed parallel sweep; "
+                "name scripts/check.py (quick, full, run pytest)"
+            )
+    stale = sorted(key for key in exceptions if key not in used)
+    found += [f"stale exception: {path}: {text}" for path, text in stale]
+    return found
+
+
+def read_doc_texts(paths: Iterable[str], root: Path) -> tuple[dict[str, str], list[str]]:
+    """Return each existing file's UTF-8 text, and the sorted paths that are not UTF-8."""
+    texts: dict[str, str] = {}
+    unreadable: list[str] = []
+    for path in paths:
+        file = root / path
+        if not file.is_file():
+            continue
+        try:
+            texts[path] = file.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            unreadable.append(path)
+    return texts, sorted(unreadable)
+
+
+def tracked_doc_texts() -> tuple[dict[str, str], list[str]] | None:
+    """Read every tracked ``*.md`` and ``*.rst`` file; None when git fails."""
+    status, out = kit.capture(TRACKED_DOCS)
+    if status != 0:
+        return None
+    return read_doc_texts((path for path in out.split("\0") if path), kit.ROOT)
+
+
+def _check_hand_typed_sweeps(_context: Context) -> int:
+    read = tracked_doc_texts()
+    if read is None:
+        kit.say(f"hand-typed-sweeps: {shlex.join(TRACKED_DOCS)} failed")
+        return FAILED_EXIT
+    texts, unreadable = read
+    findings = [f"{path}: not UTF-8 text" for path in unreadable]
+    findings += hand_typed_sweeps(texts, SWEEP_LINE_EXCEPTIONS)
+    for finding in findings:
+        kit.say(f"hand-typed-sweeps: {finding}")
+    return FAILED_EXIT if findings else CLEAN
 
 
 #: Run in the documentation directory; needs the docs extra, as the build does.
@@ -997,6 +1460,16 @@ CHECKS: tuple[Check, ...] = (
         scope=(".github/workflows/**",),
         needs=("uv", "workflow-linters"),
     ),
+    # Implemented in Python: a contributor instruction that runs the parallel
+    # sweep names a declared check, so its flags have one home.
+    Check(
+        "hand-typed-sweeps",
+        "static",
+        BOTH,
+        (),
+        scope=("*.md", "*.rst"),
+        builtin=_check_hand_typed_sweeps,
+    ),
     # The parallel sweep: its selection is UNIT_SELECTION, a range picks its
     # tests through TEST_MIRRORS, and a run whose paths the marker expression
     # empties is named, not failed.
@@ -1019,7 +1492,7 @@ CHECKS: tuple[Check, ...] = (
         selector=_select_pytest,
         command=_pytest_command,
         prepare=_prune_bytecode,
-        shards=(*UNIT_SELECTION.shards, *UNIT_SELECTION.trims),
+        shards=(*UNIT_SELECTION.shards, *UNIT_SELECTION.subsets),
         exec_flags=True,
     ),
     Check(
@@ -1048,6 +1521,24 @@ CHECKS: tuple[Check, ...] = (
         report="junit-pytest",
         tier_flags={"full": ("--tb=short",)},
         exec_flags=True,
+    ),
+    # The image-free budgets: every wallclock test outside tests/integration,
+    # whose budgets need the sidecar image and are timed by pytest-wallclock.
+    # The files are found by a scan of the tree when the check runs, so a budget
+    # added anywhere is timed alone with no new wiring, and the run collects
+    # those files rather than the whole tree.
+    Check(
+        "pytest-wallclock-unit",
+        "tests",
+        FULL,
+        (*UV_RUN, "pytest"),
+        scope=("tests/**", "*.py", "pyproject.toml", "uv.lock"),
+        needs=("uv",),
+        bound_s=900,
+        report="junit-pytest",
+        tier_flags={"full": ("--tb=short",)},
+        exec_flags=True,
+        command=_wallclock_unit_command,
     ),
     # The readonly gate refuses every shared-library load once user code starts,
     # so a stdlib lookup that loads native code lazily must be warmed before it
@@ -1137,7 +1628,7 @@ CHECKS: tuple[Check, ...] = (
 )
 
 #: The CI jobs that call the check command; every other required job is a lane.
-CALLER_JOBS = ("test", "lint", "docs", "package", "frontend-js")
+CALLER_JOBS = ("test", "serial-suites", "lint", "docs", "package", "frontend-js")
 
 #: The paths of the scan stack: a range that touches one needs the container lanes.
 SCAN_STACK = (
@@ -1155,12 +1646,12 @@ SCAN_STACK = (
 _PLUGIN_TREES = ("plugins/**", ".claude-plugin/**", ".agents/plugins/**")
 
 
-def _e2e(job: str, *tests: str, why: str = "containers") -> Lane:
-    return Lane(job, why, tuple(f"tests/e2e/{name}" for name in tests))
+def _e2e(job: str, *tests: str, why: str = "containers", prefix: str | None = None) -> Lane:
+    return Lane(job, why, tuple(f"tests/e2e/{name}" for name in tests), prefix)
 
 
-def _scan(job: str, *tests: str, why: str = "containers") -> Lane:
-    return Lane(job, why, (*SCAN_STACK, *(f"tests/e2e/{name}" for name in tests)))
+def _scan(job: str, *tests: str, why: str = "containers", prefix: str | None = None) -> Lane:
+    return Lane(job, why, (*SCAN_STACK, *(f"tests/e2e/{name}" for name in tests)), prefix)
 
 
 def _va(job: str, *tests: str) -> Lane:
@@ -1220,13 +1711,34 @@ LANES: tuple[Lane, ...] = (
             "tests/docs/screenshots/**",
         ),
     ),
+    Lane(
+        "visual-theming-agent",
+        "browser",
+        (
+            "src/osprey/interfaces/**",
+            "tests/interfaces/**/*.py",
+            "tests/interfaces/design_system/baselines/**",
+        ),
+    ),
     Lane("build-boot-smoke", "matrix", ("tests/integration/test_build_boot.py",)),
-    Lane("e2e-tests", "models", ("tests/e2e/**",)),
+    Lane("e2e-tests", SPENDS, ("tests/e2e/**",), "E2E Tests"),
     Lane("e2e-no-model", "containers", ("tests/e2e/**",)),
     Lane("deploy-e2e", "containers", ("src/osprey/**",)),
-    _e2e("dispatch-deploy-e2e", "test_dispatch_deploy.py"),
-    _e2e("single-user-narrowing-e2e", "test_single_user_narrowing_e2e.py"),
-    _e2e("dispatch-overlay-e2e", "test_dispatch_overlay_visibility.py"),
+    _e2e(
+        "dispatch-deploy-e2e", "test_dispatch_deploy.py", why=SPENDS, prefix="Dispatch Deploy E2E"
+    ),
+    _e2e(
+        "single-user-narrowing-e2e",
+        "test_single_user_narrowing_e2e.py",
+        why=SPENDS,
+        prefix="Single-User Narrowing E2E",
+    ),
+    _e2e(
+        "dispatch-overlay-e2e",
+        "test_dispatch_overlay_visibility.py",
+        why=SPENDS,
+        prefix="Dispatch Overlay E2E",
+    ),
     _scan("bluesky-deploy-e2e", "test_bluesky_deploy.py"),
     Lane(
         "optimizer-deploy-e2e",
@@ -1247,26 +1759,53 @@ LANES: tuple[Lane, ...] = (
         "test_preflight_probe.py",
     ),
     _scan("bluesky-queue-e2e", "test_bluesky_queue_e2e.py"),
-    _e2e("scan-agentic-e2e", "test_plan_stack_agentic.py", why="models"),
+    _e2e(
+        "scan-agentic-e2e",
+        "test_plan_stack_agentic.py",
+        why=SPENDS,
+        prefix="Scan Stack Agentic E2E",
+    ),
     _e2e("archiver-world-e2e", "test_archiver_world_e2e.py"),
     _e2e("agent-record-e2e", "test_agent_record_e2e.py"),
-    _e2e("host-record-e2e", "test_host_record_e2e.py", why="models"),
+    _e2e("host-record-e2e", "test_host_record_e2e.py", why=SPENDS, prefix="Host Record E2E"),
     _e2e("graph-reseed-e2e", "test_graph_reseed_stamp.py"),
     _scan("tiled-roundtrip-e2e", "test_tiled_roundtrip.py"),
     _scan("bluesky-catalog-e2e", "test_bluesky_catalog_e2e.py"),
     _scan("bluesky-sandbox-escape-e2e", "test_bluesky_sandbox_escape_e2e.py"),
-    _e2e("nextcloud-talk-bridge-e2e", "test_nextcloud_talk_bridge_e2e.py"),
-    _e2e("gchat-bridge-e2e", "test_gchat_bridge_e2e.py", "fixtures/test_gchat_fixture_smoke.py"),
+    _e2e(
+        "nextcloud-talk-bridge-e2e",
+        "test_nextcloud_talk_bridge_e2e.py",
+        why=SPENDS,
+        prefix="Nextcloud Talk Bridge E2E",
+    ),
+    _e2e(
+        "gchat-bridge-e2e",
+        "test_gchat_bridge_e2e.py",
+        "fixtures/test_gchat_fixture_smoke.py",
+        why=SPENDS,
+        prefix="Google Chat Bridge E2E",
+    ),
     _e2e(
         "teams-bridge-e2e",
         "test_teams_bridge_e2e.py",
         "fixtures/test_teams_fixture_smoke.py",
         why="loopback services",
     ),
+    _e2e(
+        "slack-bridge-e2e",
+        "test_slack_bridge_e2e.py",
+        "fixtures/test_slack_fixture_smoke.py",
+        why="loopback services",
+    ),
     _e2e("dockerfile-e2e", "test_dockerfile_e2e.py"),
     _e2e("privilege-split-e2e", "test_privilege_split.py", "test_audit_two_container.py"),
     _e2e("execution-environment-parity-e2e", "test_execution_environment_parity.py"),
-    _e2e("agentic-per-preset", "test_preset_agentic.py", why="models"),
+    _e2e(
+        "agentic-per-preset",
+        "test_preset_agentic.py",
+        why=SPENDS,
+        prefix="Tier 3 — Agentic flow",
+    ),
     _e2e("deploy-writeback-e2e", "test_deploy_writeback_e2e.py"),
     _e2e("multi-user-deploy-lifecycle-e2e", "test_deploy_lifecycle.py"),
     _e2e("multi-user-deploy-lifecycle-e2e-podman", "test_deploy_lifecycle.py"),
@@ -1277,7 +1816,17 @@ LANES: tuple[Lane, ...] = (
     Lane(
         "qmd-sidecar-e2e",
         "containers",
-        ("tests/integration/test_qmd_models_mount.py", "tests/e2e/test_deploy_lifecycle.py"),
+        (
+            "src/osprey/templates/services/qmd/**",
+            "tests/_container_support.py",
+            "tests/e2e/test_deploy_lifecycle.py",
+            "tests/integration/_qmd_ariel_support.py",
+            "tests/integration/_qmd_okf_support.py",
+            "tests/integration/test_qmd_ariel_resync_paths.py",
+            "tests/integration/test_qmd_ariel_search_sidecar.py",
+            "tests/integration/test_qmd_models_mount.py",
+            "tests/integration/test_qmd_okf_search_sidecar.py",
+        ),
     ),
     Lane(
         "qmd-cache-warmup",
@@ -1293,7 +1842,12 @@ LANES: tuple[Lane, ...] = (
         "test_per_target_posture.py",
         "test_model_status_va.py",
     ),
-    _e2e("target-switch-agentic-e2e", "test_target_switch_agentic.py", why="models"),
+    _e2e(
+        "target-switch-agentic-e2e",
+        "test_target_switch_agentic.py",
+        why=SPENDS,
+        prefix="Control-Target Switch Agentic E2E",
+    ),
     _va(
         "va-live-e2e",
         "test_approval_smoke.py",
@@ -1316,10 +1870,7 @@ LANES: tuple[Lane, ...] = (
     Lane(
         "channel-finder-benchmarks",
         "on-demand benchmark",
-        (
-            "tests/services/channel_finder/graph_index/test_scale.py",
-            "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
-        ),
+        ("tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",),
     ),
 )
 

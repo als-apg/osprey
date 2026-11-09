@@ -1,9 +1,10 @@
-"""MCP tools: artifact_register, artifact_delete, artifact_delete_all, artifact_get.
+"""MCP tools: artifact_register, artifact_delete, artifact_delete_all.
 
-Register files or inline content as gallery artifacts, delete them (one at a
-time or a whole scope), or look up artifact metadata and file paths.
+Register files or inline content as gallery artifacts, and delete them (one by
+id, or this session's artifacts in one scope).
 
-Listing and reading artifact content live in ``artifact_query``.
+Listing artifacts and reading one (metadata, file path and content) live in
+``artifact_query`` (``artifact_list`` / ``artifact_read``).
 """
 
 import json
@@ -34,7 +35,6 @@ async def artifact_register(
     file_path: str | None = None,
     content: str | None = None,
     content_type: str | None = None,
-    category: str = "",
 ) -> str:
     """Register a file on disk, or literal text, as a gallery artifact.
 
@@ -55,8 +55,6 @@ async def artifact_register(
         content: Literal text to store (markdown, HTML, plain text, or JSON).
         content_type: Required with ``content`` — "markdown", "html", "text",
                       or "json". Ignored when file_path is provided.
-        category: Optional category for gallery grouping. See the type
-                  registry for valid categories.
 
     Returns:
         JSON with artifact ID and gallery URL.
@@ -112,7 +110,6 @@ async def artifact_register(
                 title=title,
                 description=description,
                 tool_source="artifact_register",
-                category=category,
             )
         else:
             # Inline content
@@ -137,7 +134,6 @@ async def artifact_register(
                 description=description,
                 mime_type=mime,
                 tool_source="artifact_register",
-                category=category,
             )
 
         url = gallery_url()
@@ -175,32 +171,37 @@ async def artifact_register(
 async def artifact_delete(artifact_id: str) -> str:
     """Delete an artifact from the OSPREY gallery.
 
-    Removes both the artifact file and its index entry.
+    The same rule as the gallery's delete: deleting a run's head deletes its
+    whole run; any other artifact goes alone. Files and index entries are both
+    removed. The id is an explicit reference, so it is not scoped to the
+    current session.
 
     Args:
         artifact_id: ID of the artifact to delete.
 
     Returns:
-        JSON confirmation of deletion.
+        JSON confirmation listing every deleted id.
     """
     try:
         from osprey.stores.artifact_store import get_artifact_store
 
         store = get_artifact_store()
-        deleted = store.delete_entry(artifact_id)
+        removed = store.delete_with_group(artifact_id)
 
-        if not deleted:
+        if not removed:
             return make_error(
                 "not_found",
                 f"Artifact {artifact_id} not found.",
                 ["Check the artifact_id from a previous artifact_register response."],
             )
 
+        deleted_ids = [e.id for e in removed]
         return json.dumps(
             {
                 "status": "success",
                 "artifact_id": artifact_id,
-                "message": f"Artifact {artifact_id} deleted.",
+                "deleted_ids": deleted_ids,
+                "message": f"Deleted {len(deleted_ids)} artifact(s).",
             }
         )
 
@@ -215,56 +216,54 @@ async def artifact_delete(artifact_id: str) -> str:
         )
 
 
-#: ``scope`` value that means the whole store, every category. Spelled out
-#: so a bulk delete can never be reached by omitting an argument.
+#: ``scope`` value that means every form this session owns. Spelled out so a
+#: bulk delete can never be reached by omitting an argument.
 _SCOPE_EVERYTHING = "everything"
-
-#: ``scope`` value for entries with no category (plots, screenshots and other
-#: artifacts saved without one). The store spells this ``category=""``.
-_SCOPE_UNCATEGORIZED = "uncategorized"
 
 
 @mcp.tool()
 async def artifact_delete_all(scope: str) -> str:
-    """Permanently delete a whole scope of artifacts in one atomic call.
+    """Permanently delete this session's artifacts in one scope, in one atomic call.
+
+    Reaches only artifacts THIS session made: other sessions' artifacts, the
+    shipped example, watchdog judgements and dispatch-run output are never
+    touched. To delete another session's artifact, pass its id to
+    ``artifact_delete``. With no current session it deletes nothing and says
+    why in ``reason``.
 
     Deletion is NOT recoverable — files are unlinked, there is no trash.
     ``scope`` is required and names exactly what gets destroyed:
 
-    - a category key (e.g. "visualization", "archiver_data") — deletes only
-      that category and leaves every other one intact. Use
-      ``artifact_list`` first to see which categories exist.
-    - "uncategorized" — only artifacts saved without a category.
-    - "everything" — EVERY artifact in the store, across all categories.
-      This includes archiver datasets, run results and other stored data,
-      not just plots and documents. Only use it when the user asked to wipe
-      the whole workspace.
+    - a form — "runs", "plots", "trends", "tables", "documents",
+      "dashboards", "images" or "data" — or a registered extension type's
+      key: this session's artifacts listed under it; every other group stays.
+      "runs" deletes each script run with its code and outputs; any other
+      form deletes a run's outputs in it, never the run. Use
+      ``artifact_list`` first to see what each form holds.
+    - "everything" — every artifact this session owns, across all forms,
+      including archiver datasets and run results. Only use it when the user
+      asked to wipe this session's artifacts.
 
     Prefer this over many sequential ``artifact_delete`` calls: it acquires
     the index lock once and notifies listeners consistently.
 
     Args:
-        scope: "everything", "uncategorized", or a single category key.
+        scope: "everything", a form, or an extension type key.
 
     Returns:
-        JSON with the scope acted on, the number of artifacts destroyed,
-        their IDs, and a per-category breakdown of what was destroyed.
+        JSON with the scope acted on, the session, the number of artifacts
+        destroyed and their IDs, plus ``reason`` when no session resolved.
     """
     try:
+        from osprey.mcp_server.workspace.tools.artifact_query import (
+            extension_registry,
+            require_form,
+        )
+        from osprey.stores.artifact_scope import current_scope
         from osprey.stores.artifact_store import get_artifact_store
-        from osprey.stores.type_registry import valid_category_keys
 
-        valid_scopes = valid_category_keys() | {_SCOPE_EVERYTHING, _SCOPE_UNCATEGORIZED}
-        if scope not in valid_scopes:
-            return make_error(
-                "validation_error",
-                f"Unknown scope '{scope}'.",
-                [
-                    f'Use "{_SCOPE_EVERYTHING}" to delete every artifact in the store.',
-                    f'Use "{_SCOPE_UNCATEGORIZED}" for artifacts saved without a category.',
-                    f"Valid category keys: {', '.join(sorted(valid_category_keys()))}",
-                ],
-            )
+        registry = extension_registry()
+        require_form(scope, registry, extra=(_SCOPE_EVERYTHING,))
 
         from osprey.mcp_server.artifact_activity import (
             notify_bulk_delete,
@@ -272,35 +271,32 @@ async def artifact_delete_all(scope: str) -> str:
         )
 
         store = get_artifact_store()
+        session = current_scope(root=store._workspace)
+        form = None if scope == _SCOPE_EVERYTHING else scope
         # One action, one activity frame: the store fires its delete listener
         # once per removed entry, and a scope bigger than the web terminal's
         # 50-frame history buffer would evict the buffer's whole content with
         # copies of the same delete. Suppress the per-entry frames and report
         # the summary instead.
         with suppress_delete_frames():
-            if scope == _SCOPE_EVERYTHING:
-                deleted = store.delete_everything()
-            elif scope == _SCOPE_UNCATEGORIZED:
-                deleted = store.delete_category("")
-            else:
-                deleted = store.delete_category(scope)
+            deleted = store.delete_owned(session, form, registry)
         notify_bulk_delete(scope, len(deleted))
 
-        by_category: dict[str, int] = {}
-        for entry in deleted:
-            key = entry.category or _SCOPE_UNCATEGORIZED
-            by_category[key] = by_category.get(key, 0) + 1
-
-        return json.dumps(
-            {
-                "status": "success",
-                "scope": scope,
-                "deleted_count": len(deleted),
-                "artifact_ids": [e.id for e in deleted],
-                "deleted_by_category": by_category,
-                "message": (f"Permanently deleted {len(deleted)} artifact(s) in scope '{scope}'."),
-            }
-        )
+        response = {
+            "status": "success",
+            "scope": scope,
+            "session": session.transcript,
+            "deleted_count": len(deleted),
+            "artifact_ids": [e.id for e in deleted],
+            "message": (
+                f"Permanently deleted {len(deleted)} artifact(s) of this session "
+                f"in scope '{scope}'."
+            ),
+        }
+        if session.transcript is None:
+            response["reason"] = session.reason
+            response["message"] = f"Deleted nothing: {session.reason}."
+        return json.dumps(response)
 
     except ToolError:
         raise
@@ -309,67 +305,5 @@ async def artifact_delete_all(scope: str) -> str:
         return make_error(
             "internal_error",
             f"Failed to delete artifacts in scope '{scope}': {exc}",
-            ["Check MCP server logs for details."],
-        )
-
-
-@mcp.tool()
-async def artifact_get(artifact_id: str) -> str:
-    """Look up an artifact by ID to get its file path and metadata.
-
-    Returns metadata including the on-disk file path, which can be passed
-    to tools like ``graph_extract(image_path=...)``. Does not return the
-    file content inline (artifacts can be large binaries) — use
-    ``artifact_read`` for that.
-
-    Args:
-        artifact_id: ID of the artifact to look up.
-
-    Returns:
-        JSON with artifact metadata and file path.
-    """
-    try:
-        from osprey.stores.artifact_store import get_artifact_store
-
-        store = get_artifact_store()
-        entry = store.get_entry(artifact_id)
-
-        if entry is None:
-            return make_error(
-                "not_found",
-                f"Artifact {artifact_id} not found.",
-                ["Use artifact_list or check a previous artifact_register response."],
-            )
-
-        file_path = store.get_file_path(artifact_id)
-        url = gallery_url()
-
-        result = {
-            "artifact_id": entry.id,
-            "title": entry.title,
-            "description": entry.description,
-            "artifact_type": entry.artifact_type,
-            "mime_type": entry.mime_type,
-            "size_bytes": entry.size_bytes,
-            "timestamp": entry.timestamp,
-            "file_path": str(file_path) if file_path else None,
-            "gallery_url": url,
-        }
-        # Project the one provenance shape that can reconnect a gallery image
-        # to ARIEL. Do not return arbitrary metadata: artifacts may carry
-        # implementation details unrelated to a user's question.
-        metadata = entry.metadata if isinstance(entry.metadata, dict) else {}
-        logbook_picture = metadata.get("logbook_picture")
-        if isinstance(logbook_picture, dict):
-            result["logbook_picture"] = logbook_picture
-        return json.dumps(result, default=str)
-
-    except ToolError:
-        raise
-    except Exception as exc:
-        logger.exception("artifact_get failed")
-        return make_error(
-            "internal_error",
-            f"Failed to get artifact: {exc}",
             ["Check MCP server logs for details."],
         )

@@ -193,12 +193,12 @@ import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 import yaml  # noqa: E402
 
+from osprey.facility import TEXTURE  # noqa: E402
 from osprey_connectors.control_system._va_in_process_connector import UDF_SEVERITY  # noqa: E402
 from osprey_connectors.simulation import decode_char_waveform, pulse, topoff  # noqa: E402
 from osprey_connectors.simulation.envelope import _noise_sigma, declares_motion  # noqa: E402
 from osprey_connectors.simulation.values import is_waveform  # noqa: E402
 from osprey_connectors.simulation.view import (  # noqa: E402
-    TEXTURE,
     VIEW_RELPATH,
     Channel,
     SimulatorView,

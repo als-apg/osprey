@@ -1,0 +1,50 @@
+{#
+  _ca_bundles.j2 — the SINGLE renderer for a CA file's read-only bind mount.
+
+  A connection's `tls.ca_bundle` names a file on the host, and a container
+  reads it at the SAME path, so the key names one file on the host and inside.
+  Every compose template that hands a container such files imports this macro
+  rather than writing the mount itself, so the escaping cannot drift between
+  them.
+
+  ----------------------------------------------------------------------------
+  IMPORTING AND WHITESPACE
+  ----------------------------------------------------------------------------
+
+  A plain (context-free) import, as for `_network_axis.j2` beside it:
+
+      {% import "services/_ca_bundles.j2" as ca %}
+
+  The web-terminal stack's renderer searches the templates root after its own
+  directory, so its template imports by the same path.
+
+  The macro emits a LEADING newline before each entry and no trailing one, and
+  is called alone on its own line inside a `volumes:` list with a left-trim
+  marker:
+
+      {{- ca.mounts(connection_ca_bundles) }}
+
+  An empty or undefined list renders nothing, and the line disappears.
+
+  ----------------------------------------------------------------------------
+  WHAT AN EDIT HERE REDDENS
+  ----------------------------------------------------------------------------
+
+  Every importer's render is pinned byte for byte, so an edit to the macro
+  moves the goldens of every importer at once. Regenerate in the same change:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+      PYTHONPATH=src:. ./.venv/bin/python tests/deployment/test_recorder_compose_target.py
+#}
+
+{#- One read-only bind per path, in the long syntax so any path is carried
+    whole. `$` doubles to `$$`, so compose reads a path literally rather than
+    interpolating it; `tojson` quotes it for YAML. -#}
+{%- macro mounts(paths, indent=6) -%}
+{%- set pad = ' ' * indent -%}
+{%- for path in paths | default([], true) -%}
+{%- set quoted = path | replace("$", "$$") | tojson -%}
+{{ ['', pad ~ '- type: bind', pad ~ '  source: ' ~ quoted, pad ~ '  target: ' ~ quoted, pad ~ '  read_only: true'] | join('\n') }}
+{%- endfor -%}
+{%- endmacro %}

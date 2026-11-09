@@ -71,7 +71,7 @@ Step 2: Read profile.yml — It Is the Curriculum
 Open ``profile.yml``. This one file is the manifest for the whole deployment,
 and the preset deliberately leaves most of it unset — because every key it
 leaves unset is emitted into your copy as a **commented block** you can turn on
-later. The hello-world preset's minimalism yields exactly **14** such blocks,
+later. The hello-world preset's minimalism yields exactly **15** such blocks,
 covering everything from a channel database to event dispatch to a virtual
 accelerator. Growing this project into a production deployment is, quite
 literally, uncommenting one block at a time and rebuilding.
@@ -93,7 +93,7 @@ write-safety chain), three rules, and one output style:
      - approval       # Gate hardware-write tool calls on human approval prompt
      - limits         # Enforce per-channel min/max limits, from data/facility/limits.yaml
 
-``build/.claude/hooks/`` also holds three helper scripts. The hooks import
+``build/.claude/hooks/`` also holds four helper scripts. The hooks import
 them; they are not hooks themselves.
 
 And all remaining configuration lives in the ``config:`` block, one dotted key
@@ -106,7 +106,7 @@ per line:
      # the built facility; `serving: in_process` runs it inside this process — the
      # facility's channels, its seeds and scenarios, no hardware and no containers
      # — and refuses any address outside the facility. `served` reaches the same
-     # simulator in its container over Channel Access. The control-assistant
+     # simulator in its container over Channel Access. The demo
      # preset shows the EPICS connector configuration,
      # and `osprey config --defaults` lists every shipped connector type.
      control_system.type: virtual_accelerator
@@ -408,7 +408,7 @@ environment:
 
 On the first day the archive is still empty, and DuckDB reports that no file
 matches. See :doc:`/how-to/health-and-monitoring/agent-record` for what the
-record and its archive hold. The control-assistant preset adds a history page in the browser,
+record and its archive hold. The demo preset adds a history page in the browser,
 described in :doc:`/how-to/health-and-monitoring/read-the-record`.
 
 The commands you now know are the complete lifecycle, and they are the same
@@ -421,14 +421,14 @@ Next Steps
 You have a working agent, and — more importantly — a ``profile.yml`` whose
 commented blocks map everything it can become.
 
-- **The production tutorial**: :doc:`control-assistant` builds the
-  ``control-assistant`` preset, which adds natural-language channel finding
+- **The production tutorial**: :doc:`demo` builds the
+  ``demo`` preset, which adds natural-language channel finding
   over a facility knowledge graph, a seeded electronic logbook, a real
   archive, sub-agents, and operator skills — on the same safety model.
 - **How it works**: :doc:`conceptual-tutorial` explains the MCP server
   architecture, the connector system, and the safety mechanisms in depth.
 - **The profile format**: :doc:`../how-to/build-profiles` documents every key
-  those 14 commented blocks can hold.
+  those 15 commented blocks can hold.
 - **CLI reference**: :doc:`/reference/cli` covers all ``osprey``
   commands.
 

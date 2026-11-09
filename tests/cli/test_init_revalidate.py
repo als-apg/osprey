@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,10 @@ from osprey.cli.build_profile_document import (
 from osprey.cli.init_cmd import init
 from osprey.cli.init_revalidate import RETIRED_PRESETS, _content_hash, _text_hash
 from tests._retired_layout import RETIRED_LAYER_DIRNAME
-from tests.fixtures.lifecycle_repo import exemplar_source_files, expand_sentinels
+from tests.fixtures.lifecycle_repo import (
+    exemplar_source_files,
+    expand_sentinels,
+)
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "previous_release_repo"
 
@@ -419,6 +423,19 @@ def test_a_second_run_rewrites_nothing(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "nothing to rewrite" in result.output
     assert _repo_files(root) == before
+
+
+def test_a_swap_whose_exemplar_text_moved_names_that_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    files = exemplar_source_files()
+    tier_line = "    default_tier: readonly   # used for any user below with no tier\n"
+    assert files["profile.yml"].count(tier_line) == 1
+    files["profile.yml"] = files["profile.yml"].replace(tier_line, "    default_tier: operator\n")
+    monkeypatch.setattr(sys.modules[__name__], "exemplar_source_files", lambda: files)
+
+    with pytest.raises(AssertionError, match=re.escape(tier_line.strip())):
+        _previous_release_repo(tmp_path / "als-exemplar")
 
 
 # ── What the rewrite leaves alone ───────────────────────────────────────────

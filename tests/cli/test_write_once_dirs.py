@@ -169,13 +169,13 @@ def test_seed_carries_no_byte_code(tmp_path: Path) -> None:
 def test_bundle_without_the_tree_seeds_nothing(tmp_path: Path) -> None:
     """A bundle that ships no such directory is not an error, and writes nothing.
 
-    The control assistant ships no ``mcp_servers/``, so asking for one is a
+    The demo ships no ``mcp_servers/``, so asking for one is a
     no-op rather than a refusal: the same caller passes the same seed table for
     every preset, and only the bundles that ship the tree get it.
     """
     target = tmp_path / "repo"
 
-    materialized = _materialize_profile_directory(target, "control-assistant", seed_dirs=SEED_DIRS)
+    materialized = _materialize_profile_directory(target, "demo", seed_dirs=SEED_DIRS)
 
     assert materialized.seeded == ()
     assert not (target / "mcp_servers").exists()
@@ -316,7 +316,7 @@ def test_the_zone_row_names_the_directory_only_where_it_was_seeded(
     seeding = tmp_path / "seeded"
     bare = tmp_path / "bare"
     assert _init(runner, seeding).exit_code == 0
-    assert _init(runner, bare, "control-assistant").exit_code == 0
+    assert _init(runner, bare, "demo").exit_code == 0
 
     assert "`mcp_servers/`" in _zone_row(seeding)
     assert "mcp_servers" not in _zone_row(bare)
@@ -408,13 +408,13 @@ def test_a_paired_first_init_prints_no_warning(runner: CliRunner, tmp_path: Path
 
 
 def test_a_preset_declaring_no_server_prints_no_warning(runner: CliRunner, tmp_path: Path) -> None:
-    """The control assistant declares no Python server, so there is no pair to break.
+    """The demo declares no Python server, so there is no pair to break.
 
     The check reads the profile rather than the directory: a preset with no
     ``mcp_servers`` block must not be told that a package is missing just
     because it has no ``mcp_servers/`` either.
     """
-    result = _init(runner, tmp_path / "bare", "control-assistant")
+    result = _init(runner, tmp_path / "bare", "demo")
 
     assert result.exit_code == 0, result.output
     assert WARNING_TAIL not in result.output

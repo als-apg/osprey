@@ -2,7 +2,7 @@
 
 The guide is read from the library the deployment ships, so every library screen is
 in it under its ``ref``, and each screen lists the devices it draws or binds by their
-labels. The control-assistant build renders it; a project without the CANOPY panel
+labels. The demo build renders it; a project without the CANOPY panel
 renders none.
 """
 
@@ -21,7 +21,7 @@ from osprey.integrations.canopy.screen_guide import (
 from tests._builds import BuiltProject
 
 ROOT = Path(__file__).resolve().parents[2]
-LIBRARY = ROOT / "src/osprey/templates/apps/control_assistant/data/canopy/library"
+LIBRARY = ROOT / "src/osprey/templates/apps/demo/data/canopy/library"
 SKILL = Path(".claude/skills/canopy-screens/SKILL.md")
 _RUN = re.compile(r"^(?P<stem>.*?)(?P<first>\d+)–(?P<last>\d+)$")
 
@@ -62,9 +62,9 @@ def test_compress_writes_numbered_runs_first_to_last(labels, expected) -> None:
 
 
 def test_the_guide_holds_every_library_screen_and_what_it_opens(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    guide = build_screen_guide(LIBRARY, built_control_assistant.facility)
+    guide = build_screen_guide(LIBRARY, built_demo.facility)
     files = sorted((LIBRARY / "screens").rglob("*.screen.json"))
     refs = [f"library/{p.relative_to(LIBRARY / 'screens').as_posix()[:-12]}" for p in files]
     assert [s.ref for s in guide.screens] == refs
@@ -90,10 +90,10 @@ def test_the_guide_holds_every_library_screen_and_what_it_opens(
 
 
 def test_each_sector_lists_its_bpms_pumps_gauges_valves_and_insertion_devices(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     """Every such device the records place in a sector is on that sector's screen, by label."""
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     guide = {s.ref: s for s in build_screen_guide(LIBRARY, facility).screens}
     classes = {"BeamPositionMonitor", "Pump", "InsertionDevice", "Gauge", "Valve"}
     for n in range(1, 13):
@@ -111,9 +111,9 @@ def test_each_sector_lists_its_bpms_pumps_gauges_valves_and_insertion_devices(
 
 
 def test_the_build_renders_the_skill_from_the_library(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    text = (built_control_assistant.build_dir / SKILL).read_text(encoding="utf-8")
+    text = (built_demo.build_dir / SKILL).read_text(encoding="utf-8")
     assert text.startswith("---\nname: canopy-screens\n")
     for path in sorted((LIBRARY / "screens").rglob("*.screen.json")):
         ref = f"library/{path.relative_to(LIBRARY / 'screens').as_posix()[:-12]}"
@@ -122,7 +122,7 @@ def test_the_build_renders_the_skill_from_the_library(
     assert "- SR: " in sector and "EPU7" in sector and "ION-PUMP 37–42" in sector
     # The bare tools open empty; each seeded view is a collection member's own query.
     assert "`open_tool` with `tool: waveform`" not in text
-    assert "Collection **Control assistant**" in text
+    assert "Collection **Demo**" in text
     assert "Septum pulse (waveform on `pv=SR:MAG:SEPTUM:01:CURRENT:WAVEFORM&persist=10`)" in text
 
 

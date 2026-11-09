@@ -73,8 +73,7 @@ const PANEL_VERBS = {
   open_panel: 'agent opened',
   open_panel_set: 'agent opened',
   drop_panel: 'agent moved',
-  close_panel_tab: 'agent closed',
-  close_panel_tile: 'agent closed tile',
+  close_panel: 'agent closed',
   register_panel: 'agent added',
 };
 

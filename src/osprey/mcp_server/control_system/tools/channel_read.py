@@ -26,10 +26,6 @@ DEFAULT_READ_INLINE_MAX_ELEMENTS = 2000
 #: across all requested channels, consumed in request order.
 AGGREGATE_BUDGET_FACTOR = 4
 
-#: Per-channel rolling window of unpinned read artifacts when config.yml says
-#: nothing. 0 means keep everything.
-DEFAULT_CHANNEL_READ_ARTIFACT_RETENTION = 20
-
 
 def _config_int(path: str, default: int) -> int:
     """Read a non-negative integer config value, falling back to *default*.
@@ -47,8 +43,8 @@ def _config_int(path: str, default: int) -> int:
         return default
 
     if isinstance(raw, bool):
-        # bool is an int subclass: YAML `false` would silently coerce to 0,
-        # flipping retention to keep-everything instead of failing loudly.
+        # bool is an int subclass: YAML `false` would silently coerce to 0
+        # instead of failing loudly.
         logger.warning("Ignoring boolean %s=%r; using %d", path, raw, default)
         return default
 
@@ -80,18 +76,6 @@ def get_read_aggregate_max_elements() -> int:
     individually-small arrays cannot add up to a context-flooding response.
     """
     return AGGREGATE_BUDGET_FACTOR * get_read_inline_max_elements()
-
-
-def get_channel_read_artifact_retention() -> int:
-    """How many unpinned read artifacts to keep per channel (0 = keep all).
-
-    ``control_system.channel_read_artifact_retention`` in config.yml; defaults to
-    :data:`DEFAULT_CHANNEL_READ_ARTIFACT_RETENTION`.
-    """
-    return _config_int(
-        "control_system.channel_read_artifact_retention",
-        DEFAULT_CHANNEL_READ_ARTIFACT_RETENTION,
-    )
 
 
 #: Why a value took the artifact path instead of being inlined.
@@ -214,9 +198,8 @@ def _save_series_reading(store, address: str, value, summary: dict, np) -> dict:
     """Persist a 1-D reading as a timeseries artifact and return its handle fields.
 
     ``metadata.data_type = "timeseries"`` is what the gallery keys on to pick the
-    interactive chart viewport, and ``metadata.channel`` is the key the retention
-    sweep selects this channel's readings by; ``category`` must be
-    ``channel_values`` for the same reason.
+    interactive chart viewport, and ``metadata.channel`` (with
+    ``tool_source="channel_read"``) is the key that selects this channel's readings.
     """
     values = _series_values(value, np)
     store_summary = _reading_store_summary(address, summary)
@@ -250,7 +233,6 @@ def _save_series_reading(store, address: str, value, summary: dict, np) -> dict:
             },
             "view_hint": "Open this artifact in the gallery to see the interactive chart.",
         },
-        category="channel_values",
         metadata={"data_type": "timeseries", "channel": address},
     )
 
@@ -448,7 +430,6 @@ def _save_image_reading(store, address: str, value, summary: dict, np, png_bytes
                 "extension) with your file-reading tool to view the image."
             ),
         },
-        category="channel_values",
         metadata={
             "channel": address,
             "data_type": "ndarray",
@@ -494,8 +475,8 @@ def _save_data_only_reading(store, address: str, value, reason: str) -> dict:
     frame whose render failed - have no honest image, but they still have data,
     and losing it because it could not be drawn would be the worse failure. The
     array is stored as a plain ``.npy`` artifact carrying the same
-    ``channel_values`` category and ``metadata.channel`` key the image path
-    uses, so retention sweeps it on the same schedule.
+    ``channel_read`` tool source and ``metadata.channel`` key the image path
+    uses.
     """
     entry = store.save_object(
         value,
@@ -505,7 +486,6 @@ def _save_data_only_reading(store, address: str, value, reason: str) -> dict:
             f"{_shape_text(value)} {value.dtype} (no preview: {reason})"
         ),
         tool_source="channel_read",
-        category="channel_values",
         metadata={
             "channel": address,
             "data_type": "ndarray",
@@ -544,20 +524,6 @@ def _unstored_reading_note() -> dict:
     }
 
 
-def _prune_channel_history(store, address: str) -> None:
-    """Trim this channel's rolling window of unpinned read artifacts.
-
-    Runs only after a save has succeeded. A failing sweep is logged and
-    swallowed on purpose: the artifact it would have tidied up around is already
-    on disk and already handed to the agent, and letting the error escape would
-    strip that working handle off the entry over a housekeeping problem.
-    """
-    try:
-        store.prune_channel_readings(address, get_channel_read_artifact_retention())
-    except Exception as exc:  # the reading itself is already saved
-        logger.warning("Retention sweep failed for %s: %s", address, exc)
-
-
 def _persist_oversized_reading(
     address: str,
     value,
@@ -575,7 +541,7 @@ def _persist_oversized_reading(
 
     Args:
         address: Channel address the value was read from. Stored as
-            ``metadata.channel``, which is also the retention key.
+            ``metadata.channel``.
         value: The numpy array being withheld from the inline payload.
         summary: The inline summary already computed for the value (shape, dtype,
             element count, numeric stats, artifact_reason) - the same dict the
@@ -615,10 +581,8 @@ def _persist_oversized_reading(
         elif not value.dtype.hasobject:
             handle = _save_data_only_reading(store, address, value, reason)
         else:
-            # Nothing to write: no save happened, so no retention sweep.
             return _unstored_reading_note()
 
-    _prune_channel_history(store, address)
     return handle
 
 

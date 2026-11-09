@@ -119,31 +119,30 @@ def test_entries_follow_the_version_sorted_by_address() -> None:
     ]
 
 
-# --- the control-assistant build ---------------------------------------------------
+# --- the demo build ---------------------------------------------------
 
 
 @pytest.mark.slow
-class TestTheControlAssistantBuild:
-    def test_every_render_carries_the_view(self, built_control_assistant: BuiltProject) -> None:
+class TestTheDemoBuild:
+    def test_every_render_carries_the_view(self, built_demo: BuiltProject) -> None:
         expected = (
-            json.dumps(limits_document(FacilityRecords(built_control_assistant.facility)), indent=2)
-            + "\n"
+            json.dumps(limits_document(FacilityRecords(built_demo.facility)), indent=2) + "\n"
         )
 
-        assert built_control_assistant.outputs
-        for outputs in built_control_assistant.outputs:
+        assert built_demo.outputs
+        for outputs in built_demo.outputs:
             assert outputs.files[LIMITS] == expected.encode("utf-8")
 
     def test_the_rendered_file_is_the_view_not_the_copied_file(
-        self, built_control_assistant: BuiltProject
+        self, built_demo: BuiltProject
     ) -> None:
-        rendered = (built_control_assistant.build_dir / LIMITS).read_bytes()
+        rendered = (built_demo.build_dir / LIMITS).read_bytes()
 
-        assert rendered == built_control_assistant.outputs[0].files[LIMITS]
+        assert rendered == built_demo.outputs[0].files[LIMITS]
         assert "defaults" not in json.loads(rendered)
 
-    def test_the_entries_are_the_limits_golden(self, built_control_assistant: BuiltProject) -> None:
-        document = json.loads((built_control_assistant.build_dir / LIMITS).read_bytes())
+    def test_the_entries_are_the_limits_golden(self, built_demo: BuiltProject) -> None:
+        document = json.loads((built_demo.build_dir / LIMITS).read_bytes())
         version = document.pop("_version")
         resolved = {
             address: {slot: entry.get(slot) for slot in SLOTS}
@@ -282,7 +281,7 @@ class TestTheBuildDerivesTheDatabasePath:
 
         assert "limits_checking" not in (rendered.get("control_system") or {})
 
-    @pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+    @pytest.mark.parametrize("preset", ["demo", "hello-world"])
     def test_no_preset_states_the_path(self, preset: str) -> None:
         from osprey.cli.build_profile import resolve_build_profile
 
@@ -291,12 +290,10 @@ class TestTheBuildDerivesTheDatabasePath:
         assert DATABASE_KEY not in profile.config
 
     @pytest.mark.slow
-    def test_the_built_render_names_the_view(self, built_control_assistant: BuiltProject) -> None:
+    def test_the_built_render_names_the_view(self, built_demo: BuiltProject) -> None:
         import yaml
 
-        config = yaml.safe_load(
-            (built_control_assistant.build_dir / "config.yml").read_text(encoding="utf-8")
-        )
+        config = yaml.safe_load((built_demo.build_dir / "config.yml").read_text(encoding="utf-8"))
 
         assert config["control_system"]["limits_checking"]["database_path"] == LIMITS
-        assert (built_control_assistant.build_dir / LIMITS).is_file()
+        assert (built_demo.build_dir / LIMITS).is_file()
