@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.enhancement._offload import run_blocking
 from osprey.services.ariel_search.enhancement.base import BaseEnhancementModule, HealthResult
-from osprey.services.ariel_search.enhancement.qmd_export.writer import write_entry
+from osprey.services.ariel_search.enhancement.qmd_export.writer import mirror_path, write_entry
 from osprey.utils.config_paths import resolve_config_relative_path
 from osprey_connectors.logger import get_logger
 from osprey_connectors.safety_file import atomic_replace
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
     from osprey.services.ariel_search.config import ARIELConfig
     from osprey.services.ariel_search.database.migrations import BaseMigration
+    from osprey.services.ariel_search.database.repository import ARIELRepository
     from osprey.services.ariel_search.models import EnhancedLogbookEntry
     from osprey.services.ariel_search.vocabulary import EntryExpander
 
@@ -44,6 +45,11 @@ logger = get_logger("ariel")
 #: instead of waiting out the sidecar's interval sweep. The file is only ever
 #: replaced, never deleted, so a consumer cannot observe it missing.
 TOUCH_MARKER_NAME = ".qmd-touch"
+
+#: Version of the rule that turns an entry into its mirrored markdown. Bump it
+#: when the written bytes change for an unchanged entry and config: it is part
+#: of the ``qmd_export`` completion marker, so a bump makes mirrored entries stale.
+QMD_FORMAT_VERSION = 1
 
 
 def resolve_mirror_path(raw: str | Path, config_dir: Path | None = None) -> Path:
@@ -220,6 +226,29 @@ class QmdExportModule(BaseEnhancementModule):
             self._touch_marker()
             return True
         return False
+
+    async def inspect(self, entry_id: str, repository: ARIELRepository) -> dict[str, Any] | None:
+        """Return the entry's mirror file path and whether that file exists.
+
+        Args:
+            entry_id: The entry to describe.
+            repository: Repository the entry's id and timestamp are read through.
+
+        Returns:
+            ``{"mirror_path", "exists"}``, or None when no mirror is configured or
+            the entry is unknown.
+
+        Raises:
+            ValueError: If the entry's id cannot be mirrored.
+        """
+        if self._mirror_root is None:
+            return None
+        entry = await repository.get_entry(entry_id)
+        if entry is None:
+            return None
+        path = mirror_path(self._mirror_root, entry)
+        exists = await run_blocking(path.is_file)
+        return {"mirror_path": str(path), "exists": exists}
 
     async def health_check(self) -> HealthResult:
         """Check if module is ready.

@@ -105,7 +105,7 @@ from tests.e2e._deploy_support import (
 )
 from tests.e2e.profile_edits import set_pairs
 
-pytestmark = [pytest.mark.e2e, pytest.mark.slow, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.slow, pytest.mark.dockerbuild]
 
 # ---------------------------------------------------------------------------
 # Fixture identity. The deployment repo's directory name IS the deployment's

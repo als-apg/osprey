@@ -530,6 +530,42 @@ class ImageCaptionModule(BaseEnhancementModule):
             return ImageEntryOutcome.done()
         return ImageEntryOutcome.partial()
 
+    async def inspect(self, entry_id: str, repository: ARIELRepository) -> dict[str, Any] | None:
+        """The entry's captions per picture per model, and its composed ``attachment_text``.
+
+        Pictures are the entry's viewable ones in attachment list order, the
+        same read :meth:`_todo` makes; each carries every model's stored value
+        (a caption, an error, or a refresh flag), or an empty mapping when none
+        is stored yet.
+
+        Returns:
+            ``{"model", "pictures": [{"attachment_id", "captions"}], "attachment_text"}``,
+            or None for an unknown entry, one with no viewable picture, or a
+            store without copy state.
+        """
+        entry = await repository.get_entry(entry_id)
+        if entry is None:
+            return None
+        viewable = await viewable_in_list_order(entry, repository)
+        if not viewable:
+            return None
+        captions = entry.get("attachment_captions")
+        captions = captions if isinstance(captions, Mapping) else {}
+        pictures = []
+        for attachment_id in viewable:
+            per_item = captions.get(attachment_id)
+            pictures.append(
+                {
+                    "attachment_id": attachment_id,
+                    "captions": dict(per_item) if isinstance(per_item, Mapping) else {},
+                }
+            )
+        return {
+            "model": self._model_id,
+            "pictures": pictures,
+            "attachment_text": entry.get("attachment_text"),
+        }
+
     async def _todo(
         self, entry: EnhancedLogbookEntry, repository: ARIELRepository, model_id: str
     ) -> list[tuple[str, bool]] | None:

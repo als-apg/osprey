@@ -9,9 +9,9 @@ machine that has them, and no facility constant, family name, count or address
 enters osprey or its committed tests. So nothing here is pinned to a number or
 names a line: every assertion runs over every model the facility file holds.
 
-The lane is the install a deployer types, on a control-assistant deployment:
+The lane is the install a deployer types, on a demo deployment:
 
-* ``init --preset control-assistant`` -> the reviewed
+* ``init --preset demo`` -> the reviewed
   ``imported/mml/mapping.yaml`` -> ``facility import mml``, which replaces the
   preset's bundled facility;
 * the isolation settings below -> ``build`` past the ``seed-invalid`` stops the
@@ -480,7 +480,7 @@ def install(lane: Lane, repo: Path, port: int) -> Install:
     """Install *lane* into *repo* through ``facility import mml`` and build it."""
     runner = CliRunner()
     exports = list(lane.exports)
-    _ok(runner, "init", str(repo), "--preset", "control-assistant", "--no-git")
+    _ok(runner, "init", str(repo), "--preset", "demo", "--no-git")
 
     target = repo / FACILITY_DIR / _mapping_file()
     target.parent.mkdir(parents=True, exist_ok=True)

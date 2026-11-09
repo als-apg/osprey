@@ -99,7 +99,7 @@ def _rendered_project(tmp_path_factory):
         manager,
         project_name="route-regen",
         output_dir=tmp_path_factory.mktemp("config-routes"),
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     config_update_fields(project_dir / "config.yml", {"control_system.writes": "never"})

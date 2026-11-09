@@ -4,19 +4,28 @@
  *
  * Every click, change, keystroke and right-click the finder answers, delegated
  * from the mounted pane (which outlives every re-render inside it, so nothing
- * is re-bound) plus the two document-level keys: `/` to search and Escape to
- * close the inspector. Each handler resolves its target to a verb from
- * graph-finder-verbs.js and runs it against the mount's {@link FinderHost};
- * none of them draws or fetches on its own.
+ * is re-bound), the typing in the panel toolbar's search field, and the two
+ * document-level keys: `/` to search and Escape to close the inspector. Each
+ * handler resolves its target to a verb from graph-finder-verbs.js and runs it
+ * against the mount's {@link FinderHost}; none of them draws or fetches on its
+ * own.
  *
  * Keyboard model: the result table is one Tab stop. Arrows, Home and End walk
  * its rows, Space selects, Enter opens the device, ⌘C/Ctrl+C copies the row's
  * address, and Shift+F10 or the menu key opens the focused surface's menu
  * (macOS fires no `contextmenu` for those keys). A focused column header sorts
  * on Enter/Space and moves on Alt+←/→.
+ *
+ * Right-click: a surface with verbs opens its menu; the results area's empty
+ * background opens Clear all filters · Clear selection · Choose columns….
+ * Shift+right-click, text fields, links, form controls, selected text and the
+ * inspector's body keep the browser's own menu. A background click focuses
+ * the results container, so the menu key and Shift+F10 reach the background
+ * menu too.
  */
 
 import {
+  declinesToBrowser,
   isContextMenuKey,
   openContextMenu,
   openContextMenuAt,
@@ -26,19 +35,20 @@ import { setQuery, togglePageSelection, toggleSelection } from './graph-finder-s
 import { deviceAddresses } from './graph-finder-render.js';
 import {
   bindingMenu,
+  hasFilters,
   chipMenu,
   facetHeadMenu,
   facetValueMenu,
   headerMenu,
   inspectorMenu,
-  moreMenu,
   rowMenu,
 } from './graph-finder-menus.js';
 import {
-  contributeHeader,
   createActions,
   menuContext,
+  publishMenu,
   runAction,
+  runPanelMenu,
   sortBy,
   toggleFold,
 } from './graph-finder-verbs.js';
@@ -53,6 +63,26 @@ export const SEARCH_DEBOUNCE_MS = 200;
 const ROWS = '.result-table tbody tr[data-pv]';
 const DATA_HEADS = '.result-table thead th[data-col]:not([data-pinned])';
 
+/** The results container: focusable, so the keyboard reaches the background menu. */
+const RESULTS = '.finder-results';
+
+/**
+ * The finder's empty background: the layout containers themselves, never
+ * anything drawn inside them. A target must BE one of these, so text, rows,
+ * chips and controls inside the results area never count as background.
+ */
+const BACKGROUND = [
+  '.graph-explorer',
+  '.graph-explorer-body',
+  '.finder-layout',
+  '.finder-main',
+  RESULTS,
+  '.active-filters',
+  '#graph-finder-caution',
+  '.finder-table',
+  '.result-wrap',
+].join(', ');
+
 /**
  * Wire every listener the finder needs. Returns the teardown, which also
  * cancels a query still settling in its debounce.
@@ -66,12 +96,12 @@ export function bindFinderEvents(pane, host) {
   const controller = new AbortController();
   const { signal } = controller;
 
-  pane.addEventListener(
+  // The search field is the toolbar's, outside the pane (panel-toolbar.js).
+  const input = host.searchInput();
+  input?.addEventListener(
     'input',
-    (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLInputElement) || target.id !== host.searchInputId) return;
-      const value = target.value;
+    () => {
+      const value = input.value;
       window.clearTimeout(debounce);
       debounce = window.setTimeout(() => {
         setQuery(host.finder(), value);
@@ -118,7 +148,7 @@ function onChange(event, host) {
     return;
   }
   host.renderTable();
-  contributeHeader(host);
+  publishMenu(host);
 }
 
 /**
@@ -148,25 +178,6 @@ function onClick(event, host) {
   if (chip) return act.removeChip(chip.getAttribute('data-chip') || '');
   if (target.closest('[data-clear-all]')) return act.clearFilters();
 
-  const density = target.closest('button[data-density]');
-  if (density)
-    return act.setDensity(
-      density.getAttribute('data-density') === 'compact' ? 'compact' : 'comfortable'
-    );
-
-  const more = target.closest('button[data-more]');
-  if (more instanceof HTMLElement) {
-    const rect = more.getBoundingClientRect();
-    openContextMenu({
-      x: rect.right - 220,
-      y: rect.bottom + 4,
-      anchorEl: more,
-      ariaLabel: 'Finder options',
-      items: moreMenu(menuContext(host)),
-    });
-    return;
-  }
-
   const copy = target.closest('button.copy-btn[data-copy]');
   if (copy)
     return void host.copy(
@@ -185,20 +196,30 @@ function onClick(event, host) {
 
   // A click anywhere else on a row makes it the keyboard's row.
   const row = target.closest(ROWS);
-  if (row instanceof HTMLElement && !target.closest('input, button, a')) row.focus();
+  if (row instanceof HTMLElement && !target.closest('input, button, a')) return row.focus();
+
+  // A click on the background makes the results container the keyboard's
+  // surface, so the menu key and Shift+F10 open the background menu.
+  if (isBackground(target)) {
+    const box = host.pane()?.querySelector(RESULTS);
+    if (box instanceof HTMLElement) {
+      box.setAttribute('tabindex', '-1');
+      box.focus({ preventScroll: true });
+    }
+  }
 }
 
 /**
  * Every right-click the finder answers. A surface with verbs opens its menu and
- * suppresses the browser's; anywhere else — the search box above all, where the
- * native menu pastes — the browser's own menu shows.
+ * suppresses the browser's; anywhere else the browser's own menu shows.
  * @param {MouseEvent} event
  * @param {FinderHost} host
  * @returns {void}
  */
 function onContextMenu(event, host) {
   const target = event.target;
-  if (!(target instanceof Element) || target.closest('input[type="search"]')) return;
+  if (!(target instanceof Element)) return;
+  if (declinesToBrowser(event)) return;
   const menu = menuFor(target, host);
   if (!menu) return;
   event.preventDefault();
@@ -257,7 +278,45 @@ export function menuFor(target, host) {
   const chip = target.closest('button.active-filter[data-chip]');
   if (chip)
     return { ariaLabel: 'Filter', items: chipMenu(ctx, chip.getAttribute('data-chip') || '') };
+  if (isBackground(target) && !hasTextSelection())
+    return { ariaLabel: 'Results', items: backgroundMenu(host) };
   return null;
+}
+
+/**
+ * Whether a target is the finder's empty background (see {@link BACKGROUND}).
+ * @param {Element} target
+ * @returns {boolean}
+ */
+function isBackground(target) {
+  return target.matches(BACKGROUND);
+}
+
+/** @returns {boolean} whether the document holds a text selection */
+function hasTextSelection() {
+  return String(window.getSelection?.() ?? '') !== '';
+}
+
+/**
+ * The background menu: the two bulk clears and the column checklist, with
+ * the same verbs and enablement as the panel's ⋯ entries. Nothing here is
+ * destructive enough for danger styling.
+ * @param {FinderHost} host
+ * @returns {MenuItem[]}
+ */
+function backgroundMenu(host) {
+  const finder = host.finder();
+  const act = createActions(host);
+  const hasHeader = Boolean(host.pane()?.querySelector('.result-table thead tr'));
+  return [
+    { label: 'Clear all filters', disabled: !hasFilters(finder), run: () => act.clearFilters() },
+    {
+      label: 'Clear selection',
+      disabled: finder.selected.size === 0,
+      run: () => act.clearSelection(),
+    },
+    { label: 'Choose columns…', disabled: !hasHeader, run: () => runPanelMenu(host, 'columns') },
+  ];
 }
 
 /**
@@ -334,8 +393,9 @@ function onFocusIn(event, host) {
 }
 
 /**
- * Document-level keys while the finder is mounted: `/` jumps to the search box
- * and Escape closes the inspector. Neither fires while the operator is typing,
+ * Document-level keys while the finder is mounted: `/` jumps to the toolbar's
+ * search field (opening it where a narrow panel folds it to an icon) and
+ * Escape closes the inspector. Neither fires while the operator is typing,
  * and an Escape the context menu already handled never reaches here.
  * @param {KeyboardEvent} event
  * @param {FinderHost} host
@@ -350,9 +410,8 @@ function onDocKeydown(event, host) {
   )
     return;
   if (event.key === '/' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-    const input = /** @type {HTMLInputElement|null} */ (host.part(host.searchInputId));
-    // Hidden when the hub's tile bar carries the search box instead.
-    if (input && input.getClientRects().length > 0) {
+    const input = host.searchInput();
+    if (input && !input.disabled) {
       event.preventDefault();
       input.focus();
       input.select();

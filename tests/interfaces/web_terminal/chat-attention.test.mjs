@@ -5,15 +5,22 @@
  * The signal reads the chat's frames and turn ends from the bus, so the tests
  * publish the same details the renderer would. Notification and
  * document.visibilityState are stubbed: the browser is not asked anything.
+ * The opt-in is a row in the Agent pane's ⋯ (agent-menu.js); the tests read
+ * it as the menu would and run it as a pick does. The hub's menu is a double.
  */
 
 import { test, expect, describe, vi, beforeEach, afterEach } from 'vitest';
 
+import { agentMenuRows } from '../../../src/osprey/interfaces/web_terminal/static/js/agent-menu.js';
 import { initChatAttention } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-attention.js';
 import {
   emitChat,
   onChat,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
+
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-menu-policy.js', () => ({
+  setServiceMenuExtras: () => {},
+}));
 
 const BASE_TITLE = 'Osprey Console';
 const STORAGE_KEY = 'osprey-chat-notify';
@@ -23,12 +30,10 @@ let notes;
 /** @type {() => void} */
 let dispose;
 /** @type {HTMLElement} */
-let bar;
-/** @type {HTMLElement} */
 let messages;
 
-/** The console context the feature reads; only the bar and the log matter here. */
-const ctxOf = () => /** @type {any} */ ({ bar, messages });
+/** The console context the feature reads; only the log matters here. */
+const ctxOf = () => /** @type {any} */ ({ messages });
 
 /**
  * Stub the Notification constructor. The permission is what the browser
@@ -87,10 +92,14 @@ const question = (id) => ({
 /** @param {string} id */
 const resolved = (id) => ({ type: 'permission_resolved', request_id: id, allow: true });
 
-/** The bell the feature put in the bar. */
-const bell = () => /** @type {HTMLButtonElement} */ (bar.querySelector('.op-attention-toggle'));
+/** The opt-in's row in the Agent pane's ⋯, as the menu reads it now; undefined when absent. */
+const notifyRow = () =>
+  agentMenuRows().find((row) => row.label?.startsWith('Desktop notifications'));
 
-/** Let the bell's permission prompt and the title watcher settle. No fake time passes. */
+/** Pick the opt-in's row, as a click on it does. */
+const pick = () => notifyRow()?.run?.();
+
+/** Let the permission prompt and the title watcher settle. No fake time passes. */
 const flush = () => vi.advanceTimersByTimeAsync(0);
 
 beforeEach(() => {
@@ -99,7 +108,6 @@ beforeEach(() => {
   localStorage.clear();
   setVisibility('visible');
   stubNotification();
-  bar = document.createElement('div');
   messages = document.createElement('div');
   document.body.append(messages);
   dispose = initChatAttention(ctxOf());
@@ -114,8 +122,8 @@ afterEach(() => {
   localStorage.clear();
 });
 
-/** Turn the bell on, with the browser already granting permission. */
-function turnBellOn() {
+/** Turn notifications on, with the browser already granting permission. */
+function turnNotificationsOn() {
   localStorage.setItem(STORAGE_KEY, '1');
   dispose();
   dispose = initChatAttention(ctxOf());
@@ -150,7 +158,7 @@ describe('tab title count', () => {
   });
 
   test('replayed history never badges the title, and never notifies, even when hidden and enabled', () => {
-    turnBellOn();
+    turnNotificationsOn();
     setVisibility('hidden');
     frame(approval('old'), true);
     frame(question('oldq'), true);
@@ -182,7 +190,7 @@ describe('tab title count', () => {
       },
     ],
   ])('%s clears the badge and closes its notification', (_name, resolution) => {
-    turnBellOn();
+    turnNotificationsOn();
     setVisibility('hidden');
     frame(approval('a'));
     expect(document.title).toBe(`(1) Approval needed · ${BASE_TITLE}`);
@@ -244,7 +252,7 @@ describe('waiting count on the chat bus', () => {
 
 describe('desktop notifications', () => {
   test('a waiting card notifies once when hidden and enabled, and dedupes per request', () => {
-    turnBellOn();
+    turnNotificationsOn();
     setVisibility('hidden');
     frame(approval('n1'));
     expect(notes).toHaveLength(1);
@@ -261,12 +269,12 @@ describe('desktop notifications', () => {
     expect(notes[1].title).toContain('Bash');
   });
 
-  test('nothing notifies while the page is visible or the bell is off', () => {
+  test('nothing notifies while the page is visible or notifications are off', () => {
     setVisibility('hidden');
     frame(approval('off'));
     expect(notes).toHaveLength(0);
 
-    turnBellOn();
+    turnNotificationsOn();
     setVisibility('visible');
     frame(approval('visible'));
     expect(notes).toHaveLength(0);
@@ -274,7 +282,7 @@ describe('desktop notifications', () => {
   });
 
   test('clicking the notification focuses the window and the card', () => {
-    turnBellOn();
+    turnNotificationsOn();
     setVisibility('hidden');
     const card = document.createElement('section');
     card.className = 'op-card';
@@ -291,7 +299,7 @@ describe('desktop notifications', () => {
   });
 
   test('a turn that ends while hidden notifies once; a visible one does not', () => {
-    turnBellOn();
+    turnNotificationsOn();
     setVisibility('visible');
     emitChat('turn-end', {});
     expect(notes).toHaveLength(0);
@@ -303,36 +311,37 @@ describe('desktop notifications', () => {
   });
 });
 
-describe('the bell', () => {
-  test('is a named icon button in the Agent bar', () => {
-    expect(bell().classList.contains('osprey-icon-btn')).toBe(true);
-    expect(bell().querySelector('svg.osprey-ic')).not.toBeNull();
-    expect(bell().getAttribute('aria-label')).toBe('Desktop notifications');
+describe('the Desktop notifications row in the Agent pane ⋯', () => {
+  test('is a checkable row, off until the operator turns it on', () => {
+    expect(notifyRow()).toMatchObject({
+      label: 'Desktop notifications',
+      checked: false,
+      disabled: false,
+    });
   });
 
-  test('a click requests permission and turns the bell on when granted', async () => {
+  test('a pick requests permission and turns notifications on when granted', async () => {
     const Fake = stubNotification({ permission: 'default', answer: 'granted' });
     dispose();
     dispose = initChatAttention(ctxOf());
-    expect(bell().getAttribute('aria-pressed')).toBe('false');
-    expect(bell().getAttribute('aria-label')).toBeTruthy();
+    expect(notifyRow()?.checked).toBe(false);
 
-    bell().click();
+    pick();
     await flush();
-    expect(bell().getAttribute('aria-pressed')).toBe('true');
+    expect(notifyRow()?.checked).toBe(true);
     expect(Fake.requestPermission).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(STORAGE_KEY)).toBe('1');
   });
 
-  test('a denied permission leaves the bell off with no throw', async () => {
+  test('a denied permission leaves notifications off with no throw', async () => {
     const Fake = stubNotification({ permission: 'default', answer: 'denied' });
     dispose();
     dispose = initChatAttention(ctxOf());
 
-    expect(() => bell().click()).not.toThrow();
+    expect(() => pick()).not.toThrow();
     await flush();
     expect(Fake.requestPermission).toHaveBeenCalledTimes(1);
-    expect(bell().getAttribute('aria-pressed')).toBe('false');
+    expect(notifyRow()?.checked).toBe(false);
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
 
     setVisibility('hidden');
@@ -340,30 +349,39 @@ describe('the bell', () => {
     expect(notes).toHaveLength(0);
   });
 
-  test('a browser that already denies notifications shows the bell disabled and off', () => {
+  test('a browser that already blocks notifications shows the row inert and off, saying so', () => {
     stubNotification({ permission: 'denied' });
     localStorage.setItem(STORAGE_KEY, '1');
     dispose();
     dispose = initChatAttention(ctxOf());
-    expect(bell().disabled).toBe(true);
-    expect(bell().getAttribute('aria-pressed')).toBe('false');
+    const row = notifyRow();
+    expect(row?.disabled).toBe(true);
+    expect(row?.checked).toBe(false);
+    expect(row?.label).toMatch(/blocked/);
   });
 
-  test('a second click turns it off and forgets the choice', () => {
-    turnBellOn();
-    expect(bell().getAttribute('aria-pressed')).toBe('true');
-    bell().click();
-    expect(bell().getAttribute('aria-pressed')).toBe('false');
+  test('a second pick turns it off and forgets the choice', () => {
+    turnNotificationsOn();
+    expect(notifyRow()?.checked).toBe(true);
+    pick();
+    expect(notifyRow()?.checked).toBe(false);
     expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 
-  test('without a Notification API the bell stays hidden and nothing throws', () => {
+  test('without a Notification API there is no row, and nothing throws', () => {
     vi.stubGlobal('Notification', undefined);
     dispose();
     dispose = initChatAttention(ctxOf());
-    expect(bell().hidden).toBe(true);
+    expect(notifyRow()).toBeUndefined();
     setVisibility('hidden');
     expect(() => frame(approval('nope'))).not.toThrow();
     expect(document.title).toBe(`(1) Approval needed · ${BASE_TITLE}`);
+  });
+
+  test('stopping the signal takes the row away', () => {
+    dispose();
+    expect(notifyRow()).toBeUndefined();
+    dispose = initChatAttention(ctxOf());
+    expect(notifyRow()).toBeDefined();
   });
 });

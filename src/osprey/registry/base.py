@@ -176,6 +176,12 @@ class ArielEnhancementModuleRegistration:
     :type description: str
     :param execution_order: Lower = earlier execution (e.g., 10, 20)
     :type execution_order: int
+    :param label: Human-readable module name the reader's inspector and the
+        coverage table show; None falls back to ``name``
+    :type label: str | None
+    :param feeds: The search modes the module's output feeds (e.g.
+        ``("keyword", "semantic")``); empty when it feeds none or says nothing
+    :type feeds: tuple[str, ...]
     """
 
     name: str
@@ -183,6 +189,8 @@ class ArielEnhancementModuleRegistration:
     class_name: str
     description: str
     execution_order: int = 50
+    label: str | None = None
+    feeds: tuple[str, ...] = ()
 
 
 @dataclass

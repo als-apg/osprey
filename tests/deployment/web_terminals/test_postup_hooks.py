@@ -547,7 +547,9 @@ def test_a_redirect_counts_as_an_answer_and_is_never_followed() -> None:
     redirect = ThreadingHTTPServer(("127.0.0.1", 0), _Redirect)
     servers = [target, redirect]
     for server in servers:
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+        ).start()
     try:
         # Act
         answered = postup_hooks._host_port_answers(

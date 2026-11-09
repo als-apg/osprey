@@ -38,6 +38,7 @@ The leading underscore keeps the module out of pytest collection.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import tempfile
 import time
@@ -136,7 +137,8 @@ def run_nested_pytest(
 
     Returns:
         The finished run, with its stdout and stderr as text and how long it
-        sat silent before it exited.
+        sat silent before it exited. A run killed by a signal has a line naming
+        the signal appended to its stderr.
     """
     child_env = dict(os.environ if env is None else env)
     child_env["PYTHONUNBUFFERED"] = "1"
@@ -190,11 +192,15 @@ def run_nested_pytest(
                 )
             elif leftover.survivors:
                 pytest.fail("nested run left processes behind" + _note(leftover))
+        stderr = err_path.read_text()
+        if proc.returncode < 0:
+            # A crash is otherwise a bare negative code beside the output.
+            stderr += f"\nnested run killed by {signal.Signals(-proc.returncode).name}\n"
         return NestedRun(
             argv,
             proc.returncode,
             out_path.read_text(),
-            err_path.read_text(),
+            stderr,
             quiet_before_exit=exited - last_progress,
         )
 

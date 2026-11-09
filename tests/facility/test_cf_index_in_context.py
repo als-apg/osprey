@@ -212,10 +212,10 @@ def test_a_facility_with_no_channel_stops_with_view_unsupported(tmp_path: Path) 
 
 @pytest.mark.slow
 def test_the_demo_index_holds_the_569_golden_rows_and_the_declared_additions(
-    built_control_assistant: BuiltProject, tmp_path: Path
+    built_demo: BuiltProject, tmp_path: Path
 ) -> None:
     golden = load_golden("in_context_size.json")
-    (target,) = write_in_context(tmp_path, _inputs(built_control_assistant.facility))
+    (target,) = write_in_context(tmp_path, _inputs(built_demo.facility))
 
     document = json.loads(target.read_bytes())
     rows = document["channels"]
@@ -231,14 +231,12 @@ def test_the_demo_index_holds_the_569_golden_rows_and_the_declared_additions(
 
 
 @pytest.mark.slow
-def test_an_in_context_build_writes_the_index(
-    built_control_assistant: BuiltProject, tmp_path: Path
-) -> None:
+def test_an_in_context_build_writes_the_index(built_demo: BuiltProject, tmp_path: Path) -> None:
     """The shared build's deployment rendered selecting in_context: that index, no other."""
     from osprey.facility.views.channel_finder import HIERARCHICAL_FILE, MIDDLE_LAYER_FILE
     from tests.facility._built_render import render_built
 
-    written = render_built(built_control_assistant, tmp_path / "render", "in_context")
+    written = render_built(built_demo, tmp_path / "render", "in_context")
 
     indexes = tmp_path / "render" / "data" / "channel_finder"
     assert indexes / IN_CONTEXT_FILE in written

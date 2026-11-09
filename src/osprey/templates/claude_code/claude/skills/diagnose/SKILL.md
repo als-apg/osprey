@@ -62,12 +62,12 @@ Do NOT treat empty session_log results as "nothing to see." Document what was qu
 
 ### 2c. Workspace State
 
-1. Call `session_summary()` to get the current workspace inventory (artifacts, agents)
-2. Call `artifact_list()` to see every stored artifact
+1. Call `artifact_list(scope="all")` to see stored artifacts across sessions
+2. Call `artifact_read(artifact_id)` on each artifact the report cites
 
 Cross-reference against session_log findings:
 - Are there artifacts that should exist but don't? (tool succeeded but nothing saved)
-- Are there artifacts from unexpected sources? (different agent, different tool)
+- Are there artifacts from an unexpected tool?
 - Does the artifact count match expected outputs?
 
 ### 2d. Graph Store (when configured)
@@ -184,8 +184,7 @@ artifact_register(
     title="Diagnostic Report — <brief failure description>",
     description="Infrastructure failure investigation: <1-line summary>",
     content=<the HTML string>,
-    content_type="html",
-    category="diagnostic_report"
+    content_type="html"
 )
 ```
 

@@ -6,6 +6,10 @@ code and whatever it printed, so a broken child is never mistaken for a slow
 one. ``CHILD_HANG_CEILING`` only ends a wait on a child that is alive and
 silent; it never decides a pass. Some children start grandchildren of their
 own, and every test that starts one kills them in ``finally``.
+
+The children are stdlib-only test code started with ``-S``: without ``site`` they do
+not start coverage, which pyproject's subprocess patch otherwise does in every
+Python child (~0.2 s a start on the coverage cell, for no data).
 """
 
 from __future__ import annotations
@@ -181,7 +185,7 @@ import os, subprocess, sys, tty
 tty.setraw(0)
 def spawn(path, new_session):
     proc = subprocess.Popen(
-        [sys.executable, path],
+        [sys.executable, "-S", path],
         start_new_session=new_session,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,

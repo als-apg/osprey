@@ -3,11 +3,10 @@
 Fixtures defined here are automatically available to all test files in
 ``tests/connectors/`` and any subdirectories.
 
-The MongoDB fixtures hand their tests the credentials, database and
-collection names the connector needs, and delegate the bring-up to the shared
-recipe in ``tests/_mongo_container.py``: the image pin, the start, the
-readiness wait and the teardown all live there, as does the skip on a host with
-no container engine.
+The MongoDB fixtures seed the session's ``mongodb_container`` (defined in
+``tests/conftest.py``, so the recorder and simulation lanes share it), whose
+bring-up is the shared recipe in ``tests/_mongo_container.py``: the image pin,
+the start, the readiness wait and the teardown all live there.
 
 ``ioc_prefix``, the record prefix every soft-IOC suite names its records
 with, is the harness's (``osprey_connectors_tests._harness._guards``), shared with the
@@ -21,38 +20,6 @@ import pytest
 from osprey_connectors_tests._harness._guards import (
     ioc_prefix,  # noqa: F401 - a fixture, used by name
 )
-from tests._container_support import is_docker_available
-from tests._mongo_container import MONGO_AUTH_DB, started_mongo
-
-
-@pytest.fixture(scope="session")
-def mongodb_container():
-    """Start a MongoDB container for the test session.
-
-    Yields a dict with connection parameters. Skips the entire chain
-    of dependent tests if Docker isn't available.
-    """
-    if not is_docker_available():
-        pytest.skip(
-            "Docker not available — install Docker Desktop or Podman "
-            "to run MongoDB archiver integration tests."
-        )
-
-    username = "testuser"
-    password = "testpass123"
-    db_name = "test_archiver_db"
-    collection_name = "test_archiver_collection"
-
-    with started_mongo("mongodb", username=username, password=password) as (host, port):
-        yield {
-            "host": host,
-            "port": port,
-            "username": username,
-            "password": password,
-            "auth_db": MONGO_AUTH_DB,
-            "db_name": db_name,
-            "collection_name": collection_name,
-        }
 
 
 @pytest.fixture(scope="function")

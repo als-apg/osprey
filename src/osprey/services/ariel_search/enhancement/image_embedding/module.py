@@ -331,6 +331,66 @@ class ImageEmbeddingModule(BaseEnhancementModule):
             return ImageEntryOutcome.done()
         return ImageEntryOutcome.partial()
 
+    async def inspect(self, entry_id: str, repository: ARIELRepository) -> dict[str, Any] | None:
+        """The image table and the entry's per-picture rows in it; never a vector.
+
+        Pictures are the entry's viewable ones in attachment list order, the
+        same read :meth:`_todo` makes. A stored row reports its width
+        (``vector_dims``, None for a skipped picture), ``skip_reason``,
+        ``model_ref`` and ``created_at``; a picture with no row reports
+        ``stored: false``.
+
+        Returns:
+            ``{"table", "model", "dimensions", "table_exists", "rows"}``, or None
+            for an unconfigured module, an unknown entry, one with no viewable
+            picture, or a store without copy state.
+        """
+        target = self._target
+        if target is None:
+            return None
+        entry = await repository.get_entry(entry_id)
+        if entry is None:
+            return None
+        viewable = await viewable_in_list_order(entry, repository)
+        if not viewable:
+            return None
+        found: dict[str, Any] = {}
+        exists = await availability._relation_exists(repository.pool, target.table)
+        if exists:
+            async with repository.pool.connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT attachment_id, vector_dims(embedding), skip_reason, model_ref,"
+                    f" created_at FROM {target.table} WHERE attachment_id = ANY(%(ids)s)",
+                    {"ids": viewable},
+                )
+                found = {row[0]: row for row in await cursor.fetchall()}
+        rows: list[dict[str, Any]] = []
+        for attachment_id in viewable:
+            row = found.get(attachment_id)
+            if row is None:
+                rows.append({"attachment_id": attachment_id, "stored": False})
+                continue
+            created_at = row[4]
+            rows.append(
+                {
+                    "attachment_id": attachment_id,
+                    "stored": True,
+                    "dimensions": row[1],
+                    "skip_reason": row[2],
+                    "model_ref": row[3],
+                    "created_at": (
+                        created_at.isoformat() if hasattr(created_at, "isoformat") else created_at
+                    ),
+                }
+            )
+        return {
+            "table": target.table,
+            "model": target.model,
+            "dimensions": target.dims,
+            "table_exists": exists,
+            "rows": rows,
+        }
+
     async def _todo(
         self,
         entry: EnhancedLogbookEntry,

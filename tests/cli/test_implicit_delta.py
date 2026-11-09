@@ -89,7 +89,7 @@ def test_delta_inherits_every_key_it_does_not_name(host: Path) -> None:
     assert profile.name == "Reader"
     # The root records no preset, so the bundle it inherits is the framework
     # default — the bundle is read back from the preset chain, not from a key.
-    assert _profile_data_bundle(profile) == "control_assistant"
+    assert _profile_data_bundle(profile) == "demo"
     assert profile.provider == "anthropic"
     assert profile.model == "claude-sonnet-5"
     assert profile.channel_finder_mode == "in_context"

@@ -5,13 +5,13 @@
   "build_account": "osprey-freeze-builder",
   "cells": [
     "hello-world/unset",
-    "control-assistant/in_context",
-    "control-assistant/hierarchical",
-    "control-assistant/middle_layer",
-    "control-assistant/graph"
+    "demo/in_context",
+    "demo/hierarchical",
+    "demo/middle_layer",
+    "demo/graph"
   ],
   "completeness": {
-    "control-assistant/graph": {
+    "demo/graph": {
       "build_configs_checked": 25,
       "documents": [
         "admin.yml",
@@ -32,7 +32,7 @@
         "readwrite"
       ]
     },
-    "control-assistant/hierarchical": {
+    "demo/hierarchical": {
       "build_configs_checked": 25,
       "documents": [
         "admin.yml",
@@ -53,7 +53,7 @@
         "readwrite"
       ]
     },
-    "control-assistant/in_context": {
+    "demo/in_context": {
       "build_configs_checked": 25,
       "documents": [
         "admin.yml",
@@ -74,7 +74,7 @@
         "readwrite"
       ]
     },
-    "control-assistant/middle_layer": {
+    "demo/middle_layer": {
       "build_configs_checked": 25,
       "documents": [
         "admin.yml",

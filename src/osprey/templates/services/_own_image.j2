@@ -1,0 +1,49 @@
+{#
+  _own_image.j2 — the SINGLE gate on a service's `build:` block.
+
+  Compose tags a build with the service's `image:`. A template that rendered
+  `build:` beside an operator's own `services.<key>.image` would build OSPREY's
+  recipe and tag it with the operator's name. So the build renders only while
+  the service runs the image OSPREY builds: no `services.<key>.image` (unset or
+  a null block), or one naming the packaged `osprey_images.<key>`. Any other
+  image is pulled and run as named, so a deploy never builds a Dockerfile under
+  a name the operator chose for something else.
+
+  ----------------------------------------------------------------------------
+  IMPORTING AND WHITESPACE
+  ----------------------------------------------------------------------------
+
+  A plain (context-free) import, as for `_network_axis.j2` beside it:
+
+      {% import "services/_own_image.j2" as own %}
+
+  The `build:` block is the call body, opened right after the `image:` line
+  and closed with a left-trim marker, so the body supplies its own leading
+  newline and a skipped build leaves no blank line:
+
+      image: ...
+  {%- call own.build(svc.image, osprey_images.<key>) %}
+      build:
+        ...
+  {%- endcall %}
+
+  A template where several services share one image picks ONE builder instead
+  (bluesky, virtual_accelerator, qmd): two builds of one tag race each other.
+
+  ----------------------------------------------------------------------------
+  WHAT AN EDIT HERE REDDENS
+  ----------------------------------------------------------------------------
+
+  Every importer's render is pinned byte for byte. Regenerate in the same
+  change:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+#}
+
+{#- The call body, only while `image` is unset or names `own_image`. -#}
+{%- macro build(image, own_image) -%}
+{%- if not image or image == own_image -%}
+{{ caller() }}
+{%- endif -%}
+{%- endmacro %}

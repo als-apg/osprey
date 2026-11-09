@@ -1,7 +1,7 @@
 # triggers.yml
 #
 # Four control-system-free demonstration triggers shipped with the
-# control-assistant preset. Each illustrates one event-dispatch concept so a
+# demo preset. Each illustrates one event-dispatch concept so a
 # new user can exercise the pipeline end-to-end without any facility hardware:
 #
 #   1. hello-dispatch    — anatomy of a trigger + first successful round-trip

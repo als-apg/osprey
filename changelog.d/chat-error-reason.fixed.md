@@ -1,0 +1,1 @@
+A failed chat turn on the buffered `/api/chat` answer now reports the error's own text, or its type when the text is empty, instead of the placeholder "Unknown error"; with neither, the answer says only that it failed.

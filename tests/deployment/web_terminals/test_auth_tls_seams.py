@@ -49,7 +49,7 @@ from tests.deployment.web_terminals._nginx import (
     render_nginx,
 )
 
-_BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
+_BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391}
 
 _TLS_STANZA = {
     "enabled": True,
@@ -79,7 +79,6 @@ def _config(users: list[str]) -> dict:
                 "web_base_port": _BASE_PORTS["web"],
                 "artifact_base_port": _BASE_PORTS["artifact"],
                 "ariel_base_port": _BASE_PORTS["ariel"],
-                "lattice_base_port": _BASE_PORTS["lattice"],
                 "users": users,
                 "default_tier": "assistant",
                 "renders": {"assistant": tier_render("assistant", "demo-assistant")},
