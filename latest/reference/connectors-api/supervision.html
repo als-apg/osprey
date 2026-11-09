@@ -1293,7 +1293,7 @@ spells it; <code class="docutils literal notranslate"><span class="pre">role</sp
 
 <dl class="py class">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.TargetDerivation">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.ipc.</span></span><span class="sig-name descname"><span class="pre">TargetDerivation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">connector_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">endpoints</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">selected_role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">transport</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/ipc/_verification.html#TargetDerivation"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.ipc.TargetDerivation" title="Link to this definition">#</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">osprey_connectors.ipc.</span></span><span class="sig-name descname"><span class="pre">TargetDerivation</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">connector_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">endpoints</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">selected_role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">transport</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">declares_no_endpoints</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/ipc/_verification.html#TargetDerivation"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.ipc.TargetDerivation" title="Link to this definition">#</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
 <p>What a connector-host child <em>will</em> do for a target, derived from config.</p>
 <p><code class="docutils literal notranslate"><span class="pre">endpoints</span></code> carries one row per configured role: <code class="docutils literal notranslate"><span class="pre">read_only</span></code> and
@@ -1305,6 +1305,10 @@ with: EPICS keeps one process-wide context, so exactly one gateway is used.</p>
 <p><code class="docutils literal notranslate"><span class="pre">transport</span></code> is the wire the child’s connector will speak
 (<a class="reference internal" href="building.html#osprey_connectors.types.connector_transport" title="osprey_connectors.types.connector_transport"><code class="xref py py-func docutils literal notranslate"><span class="pre">connector_transport()</span></code></a>), so a child that
 built the other venue of the simulator is refused by what it echoes.</p>
+<p><code class="docutils literal notranslate"><span class="pre">declares_no_endpoints</span></code> is true only for a block that spells an explicit
+empty <code class="docutils literal notranslate"><span class="pre">gateways:</span> <span class="pre">[]</span></code>: the facility saying this target has nothing to
+probe. A missing table is not that statement — a forgotten table must never
+read as a direct connection — so it leaves this false.</p>
 <dl class="field-list simple">
 </dl>
 <dl class="py attribute">
@@ -1332,6 +1336,11 @@ built the other venue of the simulator is refused by what it echoes.</p>
 <span class="sig-name descname"><span class="pre">transport</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></span><a class="headerlink" href="#osprey_connectors.ipc.TargetDerivation.transport" title="Link to this definition">#</a></dt>
 <dd></dd></dl>
 
+<dl class="py attribute">
+<dt class="sig sig-object py" id="osprey_connectors.ipc.TargetDerivation.declares_no_endpoints">
+<span class="sig-name descname"><span class="pre">declares_no_endpoints</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">False</span></span><a class="headerlink" href="#osprey_connectors.ipc.TargetDerivation.declares_no_endpoints" title="Link to this definition">#</a></dt>
+<dd></dd></dl>
+
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.TargetDerivation.selected_endpoint">
 <span class="sig-name descname"><span class="pre">selected_endpoint</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../../_modules/osprey_connectors/ipc/_verification.html#TargetDerivation.selected_endpoint"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#osprey_connectors.ipc.TargetDerivation.selected_endpoint" title="Link to this definition">#</a></dt>
@@ -1345,7 +1354,7 @@ built the other venue of the simulator is refused by what it echoes.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="osprey_connectors.ipc.TargetDerivation.__init__">
-<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">connector_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">endpoints</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">selected_role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">transport</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.ipc.TargetDerivation.__init__" title="Link to this definition">#</a></dt>
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">connector_type</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">endpoints</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">selected_role</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">transport</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">declares_no_endpoints</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#osprey_connectors.ipc.TargetDerivation.__init__" title="Link to this definition">#</a></dt>
 <dd><dl class="field-list simple">
 </dl>
 </dd></dl>
@@ -2046,6 +2055,7 @@ successor serves, and answers whether it did.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.TargetDerivation.endpoints"><code class="docutils literal notranslate"><span class="pre">TargetDerivation.endpoints</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.TargetDerivation.selected_role"><code class="docutils literal notranslate"><span class="pre">TargetDerivation.selected_role</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.TargetDerivation.transport"><code class="docutils literal notranslate"><span class="pre">TargetDerivation.transport</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.TargetDerivation.declares_no_endpoints"><code class="docutils literal notranslate"><span class="pre">TargetDerivation.declares_no_endpoints</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.TargetDerivation.selected_endpoint"><code class="docutils literal notranslate"><span class="pre">TargetDerivation.selected_endpoint()</span></code></a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey_connectors.ipc.TargetDerivation.__init__"><code class="docutils literal notranslate"><span class="pre">TargetDerivation.__init__()</span></code></a></li>
 </ul>
