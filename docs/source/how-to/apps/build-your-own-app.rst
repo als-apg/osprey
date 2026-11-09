@@ -400,7 +400,8 @@ Then:
    sentence the panel shows. The agent then answers *what does the panel
    say* and *why can't I apply* without guessing.
 2. **Every control is a tool or an argument.** Toggles and menus become
-   arguments; buttons become tools. A gesture that only edits input — drag,
+   arguments (orbit bump's *Other BPMs* is ``plan_bump``'s ``others``);
+   buttons become tools. A gesture that only edits input — drag,
    nudge — needs no tool when the agent can pass the resulting values. A
    convenience the operator relies on is an argument, so the agent builds the
    same input the same way (orbit bump's amplitude and shape).

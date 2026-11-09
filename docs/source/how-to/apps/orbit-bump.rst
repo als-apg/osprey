@@ -43,6 +43,11 @@ current reading. Set them with the amplitude and shape (*flat*, *peak*,
 (moves every target), with ↑/↓ on a focused handle or row (⇧ ×10), or by
 typing in the table. The nudge step (1, 10, 100 µm) is in the ☰ menu.
 
+*Other BPMs* on the Bump card sets what every BPM not in the bump aims at,
+inside the corrector span and outside it: *free* (unconstrained), *hold*
+(default; its reading at Compute) or *zero* (golden). The strip rings each
+held BPM at its aim.
+
 **4. Choose the corrector rule.**
 
 .. list-table::
@@ -60,7 +65,11 @@ typing in the table. The nudge step (1, 10, 100 µm) is in the ☰ menu.
      - the correctors you click on the strip
 
 The ⋯ menu after the toggle adds two wider MML lists, ``[-2 -1 1 2]`` and
-``[-3 -1 1 3]``.
+``[-3 -1 1 3]``, and *Use all correctors of the plane*, which overrides the
+rule (an *all correctors* chip shows it). On a large ring the approval card
+then shows a summary line, the largest-|Δ| rows and every row without a
+tolerance in full, and names all other correctors; the panel's confirm card
+lists every row.
 
 **5. Compute.** Compute writes nothing. It replaces your current plan with a
 new one and draws the predicted orbit and each corrector's step under the
@@ -79,24 +88,17 @@ it, with the channel each row writes.
   declared tolerance; ``not settled`` shows a readback that has not reached
   its setpoint.
 - Closure line: singular values kept (``σ kept``), ``max predicted leakage``
-  at the leakage BPMs, dropped leakage BPMs, BPMs skipped because the ORM
+  at the held BPMs, dropped other BPMs, BPMs skipped because the ORM
   could not solve them, and correctors left at a limit (``at limit``).
 
 **Unreachable bumps.** The solve keeps every corrector inside its declared
 limits (range and step). When the correctors cannot reach the targets — a
-limit, or too few correctors to close a long bump — the plan still computes:
+limit, or too few correctors to hold the other BPMs — the plan still computes:
 a warning chip gives the largest miss, missed BPMs show their predicted value
 in red and a red ring on their handle, and the confirmation names the miss.
-The Correctors ⋯ menu holds two choices; a chip names either when it is not
-the default:
-
-- *Priority*: *close bump* (default) holds the orbit outside the bump; *hit
-  targets* meets the targets where the correctors can and lets it leak.
-- *Outside BPMs*: *hold* (default) keeps them at their current orbit;
-  *golden* steers them to golden with every corrector of the plane, the rule
-  aside. On a large ring the approval card then shows a summary line, the largest-|Δ| rows and
-  every row without a tolerance in full, and names all other correctors;
-  the panel's confirm card lists every row.
+*Priority* in the Correctors ⋯ menu trades the two: *close bump* (default)
+holds the other BPMs first; *hit targets* meets the targets where the
+correctors can and lets the other BPMs leak. A chip names *hit targets*.
 
 **7. Apply.** *Apply…* is enabled only on a ``ready``, unedited plan while
 the session's machine allows writes. It opens a confirmation with the setpoints and the closure line; *Confirm* writes
@@ -135,13 +137,14 @@ Every panel element has a tool or an argument (:ref:`how-to-apps-skills`):
        corrector ticks; the posture; the current plan; the operator's draft;
        and what holds Apply, in the panel's words, with the approval card's
        lines. ``bpms`` narrows it to a stretch of the ring.
-   * - ``plan_bump(model, plane, targets, rule, correctors, priority, outside, bpms, amplitude, shape)``
+   * - ``plan_bump(model, plane, targets, rule, correctors, priority, others, all_correctors, bpms, amplitude, shape)``
      - Compute. Writes nothing; replaces the current plan and returns it.
        ``targets`` maps BPM to offset from golden, or ``bpms``,
        ``amplitude`` and ``shape`` spread it as the panel does; ``rule`` is
        ``auto``, ``mml:[…]``, or ``manual`` with ``correctors``.
-       ``priority`` and ``outside`` are the panel's two choices; ``missed``
-       and ``target_miss_max`` report what the plan does not reach.
+       ``priority``, ``others`` and ``all_correctors`` are the panel's
+       choices; ``missed`` and ``target_miss_max`` report what the plan does
+       not reach.
    * - ``discard_bump()``
      - Clear: drops the current plan.
    * - ``recompute_orm(model)``
