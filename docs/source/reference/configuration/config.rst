@@ -62,7 +62,8 @@ the dotted form; the reason is under "Configuration overrides" in
        the way ``osprey sim apply`` would, before it seeds the archive and the
        logbook, and only while no set has been chosen. Absent, the build
        derives it from the scenarios marked ``start: true``; with no mark,
-       absent, ``null`` or ``[]`` starts in ``nominal`` alone. The demo preset sets
+       absent, ``null`` or ``[]`` starts in
+       ``nominal`` alone, which is the default. The demo preset sets
        ``[rf-thermal, demo-history]`` (an existing deployment gets
        ``demo-history``'s sessions only from a fresh ``osprey init``); the other
        presets leave it out. A value that is not a list of non-empty
