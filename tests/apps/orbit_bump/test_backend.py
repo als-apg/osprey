@@ -834,6 +834,7 @@ DRAFT = {
     "priority": "targets",
     "others": "zero",
     "all_correctors": True,
+    "sigma_keep": 4,
     "shape": "peak",
     "amplitude": 0.1,
 }
@@ -865,6 +866,7 @@ def test_a_draft_defaults_what_the_panel_leaves_out(client) -> None:
     assert draft["rule"] == "auto"
     assert (draft["priority"], draft["others"], draft["shape"]) == ("closure", "hold", "flat")
     assert draft["all_correctors"] is False
+    assert draft["sigma_keep"] is None
 
 
 def test_a_draft_with_an_unknown_field_is_refused(client) -> None:
@@ -1013,6 +1015,9 @@ def test_compute_stores_a_ready_plan_solved_on_the_ready_orm(client, app, sdk) -
         assert plan["predicted"][f"B{b}"] == pytest.approx(0.1 * b + moved)
     assert (plan["skipped_unsolved"], plan["dropped_bpms"]) == ([], [])
     assert 0 < plan["sigma_kept"] <= plan["sigma_total"] == 3
+    assert plan["sigma_keep"] is None and plan["sigma_targets"] == 0
+    assert len(plan["sigma_values"]) == 3
+    assert plan["sigma_values"] == sorted(plan["sigma_values"], reverse=True)
     assert client.get(STATE_ROUTE).json()["plan"] == plan
 
 
@@ -1281,6 +1286,8 @@ def test_compute_takes_the_ticked_correctors_under_the_manual_rule(client, app, 
         {"others": "golden"},
         {"outside": "hold"},
         {"all_correctors": "every"},
+        {"sigma_keep": 0},
+        {"sigma_keep": 1.5},
     ],
 )
 @pytest.mark.usefixtures("machine")
@@ -1387,6 +1394,22 @@ def test_compute_records_rule_priority_others_and_defaults(client, app, sdk) -> 
     plan = client.post(COMPUTE_ROUTE, json=asked).json()
     assert (plan["rule"], plan["priority"], plan["others"]) == ("auto", "targets", "zero")
     assert plan["all_correctors"] is True
+
+
+@pytest.mark.usefixtures("machine")
+def test_compute_keeps_the_asked_count_of_singular_values_clamped(client, app, sdk) -> None:
+    _built(app, sdk, "RING")
+    default = client.post(COMPUTE_ROUTE, json=_ask()).json()
+    one = client.post(COMPUTE_ROUTE, json=_ask(sigma_keep=1)).json()
+    assert (one["sigma_keep"], one["sigma_kept"], one["sigma_total"]) == (1, 1, 3)
+    assert one["sigma_values"] == pytest.approx(default["sigma_values"])
+    assert [r["delta"] for r in one["correctors"]] != pytest.approx(
+        [r["delta"] for r in default["correctors"]]
+    )
+    past = client.post(COMPUTE_ROUTE, json=_ask(sigma_keep=99)).json()
+    assert (past["sigma_keep"], past["sigma_kept"]) == (99, 3)
+    targets = client.post(COMPUTE_ROUTE, json=_ask(priority="targets")).json()
+    assert 0 < targets["sigma_targets"] <= targets["sigma_total"]
 
 
 @pytest.mark.usefixtures("machine")

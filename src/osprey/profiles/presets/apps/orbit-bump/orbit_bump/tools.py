@@ -184,6 +184,7 @@ def draft_matches_plan(
         ("priority", "closure"),
         ("others", "hold"),
         ("all_correctors", False),
+        ("sigma_keep", None),
     ):
         if draft.get(key, default) != plan.get(key, default):
             return False
@@ -328,6 +329,7 @@ def register(server: FastMCP) -> None:
         priority: Literal["closure", "targets"] = "closure",
         others: Literal["free", "hold", "zero"] = "hold",
         all_correctors: bool = False,
+        sigma_keep: int | None = None,
         bpms: list[str] | None = None,
         amplitude: float | None = None,
         shape: Literal["flat", "peak", "cos"] = "flat",
@@ -352,6 +354,10 @@ def register(server: FastMCP) -> None:
                 corrector span: ``free`` leaves them out of the solve, ``hold`` aims each
                 at its orbit now, ``zero`` at its golden orbit.
             all_correctors: Use every solved corrector of the plane (rule ignored).
+            sigma_keep: How many singular values of the solve to keep, at least 1 and
+                clamped to the plan's ``sigma_total``; default keeps those above 1e-4 of
+                the largest. Fewer gives smaller, smoother deltas and a looser fit; under
+                ``targets`` closure directions go before target directions.
             bpms: The bump BPMs, for an amplitude spread in ring order.
             amplitude: The offset from golden at the bump's peak, in the facility's unit.
             shape: ``flat`` (every BPM at the amplitude), ``peak`` (a triangle) or ``cos``
@@ -371,6 +377,8 @@ def register(server: FastMCP) -> None:
             "others": others,
             "all_correctors": all_correctors,
         }
+        if sigma_keep is not None:
+            body["sigma_keep"] = sigma_keep
         if correctors is not None:
             body["correctors"] = correctors
         return await _panel_call("POST", COMPUTE_ROUTE, json=body)

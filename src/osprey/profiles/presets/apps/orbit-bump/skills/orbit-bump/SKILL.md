@@ -25,7 +25,7 @@ see or press, so you can always tell the operator where to look.
 | Tool | Panel equivalent | Writes to the machine |
 |---|---|---|
 | `bump_state(model?, plane?, bpms?)` | everything on screen | no |
-| `plan_bump(model, plane, targets \| bpms+amplitude+shape, rule, correctors?, priority?, others?, all_correctors?)` | the bump and corrector controls, then Compute | no |
+| `plan_bump(model, plane, targets \| bpms+amplitude+shape, rule, correctors?, priority?, others?, all_correctors?, sigma_keep?)` | the bump and corrector controls, then Compute | no |
 | `discard_bump()` | Clear | no |
 | `recompute_orm(model)` | *recompute* on the response-matrix chip | no |
 | `apply_bump(plan_id)` | Apply… then Confirm | yes, behind approval |
@@ -47,7 +47,7 @@ current plan's, else the first model and `x`):
 - `plan`: the current plan whole (see *Reading a plan*).
 - `draft`: what the operator has set in the panel, computed or not: plane,
   model, targets, rule, manual correctors, priority, others, all_correctors,
-  shape and amplitude. `draft_matches_plan` says whether the current plan was computed
+  sigma_keep, shape and amplitude. `draft_matches_plan` says whether the current plan was computed
   from it. When the operator says "this bump" or "what I have", the draft is
   what they mean: compute it with its own arguments rather than asking for
   them. When it differs from the plan, say so; the operator may want Compute
@@ -83,6 +83,12 @@ replaces your current plan; the answer is the plan with its `id`.
 - `priority`: `closure` (default; hold the other BPMs first, trading target
   accuracy) or `targets` (hit the bump BPMs exactly when the correctors can,
   then minimise leakage). Has no effect with `others: free`.
+- `sigma_keep`: the panel's singular-value cutoff on the Correctors card.
+  Omit it to keep the singular values above 1e-4 of the largest; a number
+  keeps that many of the largest (clamped to `sigma_total`). Fewer gives
+  smaller, smoother deltas and a looser fit. Under `priority: targets` the
+  count spends the target directions first, so lowering it drops closure
+  before targets. Look at `sigma_values` before choosing one.
 - On a ring with many correctors, an `all_correctors` plan has
   more rows than the approval card shows; the card then shows a summary line
   (corrector count, largest |delta|, bounded count, not-staleness-checked
@@ -110,6 +116,8 @@ another model or plane simply replaces the current plan.
   `tolerance` (none means "no tolerance: not staleness-checked").
 - Closure: `leakage` per held BPM (its predicted residual from its aim; empty
   with `others: free`), `predicted_closure_max`, `sigma_kept`/`sigma_total`,
+  `sigma_values` (the solve's singular values, the kept ones first; under
+  `targets` the first `sigma_targets` are the target step's), `sigma_keep`,
   `dropped_bpms` (unreadable other BPMs), `skipped_unsolved`; `others` and
   `all_correctors` as computed.
 - A bump BPM that is unreadable or non-finite blocks compute, naming it.

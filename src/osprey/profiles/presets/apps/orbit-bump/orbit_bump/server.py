@@ -27,7 +27,7 @@ import numpy as np
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from orbit_bump import APP_NAME
 from orbit_bump.orm import READY as ORM_READY
@@ -385,6 +385,8 @@ class ComputeRequest(BaseModel):
     priority: Literal["closure", "targets"] = CLOSURE
     others: Literal["free", "hold", "zero"] = HOLD
     all_correctors: bool = False
+    #: How many singular values the solve keeps; ``None`` keeps those above the cut.
+    sigma_keep: int | None = Field(default=None, ge=1)
 
 
 class DraftRequest(BaseModel):
@@ -400,6 +402,7 @@ class DraftRequest(BaseModel):
     priority: Literal["closure", "targets"] = CLOSURE
     others: Literal["free", "hold", "zero"] = HOLD
     all_correctors: bool = False
+    sigma_keep: int | None = Field(default=None, ge=1)
     shape: Literal["flat", "peak", "cos"] = "flat"
     amplitude: float = 0.0
 
@@ -567,6 +570,7 @@ def solve_plan(
             lower=lower,
             upper=upper,
             priority=body.priority,
+            sigma_keep=body.sigma_keep,
         )
     except ValueError as exc:
         raise ComputeRefused(409, str(exc)) from None
@@ -611,6 +615,7 @@ def solve_plan(
         "priority": body.priority,
         "others": body.others,
         "all_correctors": body.all_correctors,
+        "sigma_keep": body.sigma_keep,
         "orm_version": snapshot.version,
         "created_at": created_at,
         "status": READY,
@@ -630,6 +635,8 @@ def solve_plan(
         ),
         "sigma_kept": solved.sigma_kept,
         "sigma_total": solved.sigma_total,
+        "sigma_values": [float(v) for v in solved.sigma_values],
+        "sigma_targets": solved.sigma_targets,
         "bounded": [plane.correctors[picked.selected[c]].element for c in solved.bounded],
         "skipped_unsolved": [plane.correctors[c].element for c in picked.skipped_unsolved],
         "dropped_bpms": [plane.bpms[b].element for b in dropped],

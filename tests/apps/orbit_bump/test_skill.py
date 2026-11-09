@@ -60,6 +60,8 @@ def test_the_skill_covers_the_tools_and_every_outcome():
         "`free`",
         "`hold`",
         "`zero`",
+        "`sigma_keep`",
+        "`sigma_values`",
     ):
         assert word in body, word
 

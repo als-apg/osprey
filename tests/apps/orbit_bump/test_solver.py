@@ -401,3 +401,98 @@ def test_solve_refuses_an_unknown_priority_and_mismatched_bounds():
         solve_bump(orm, np.zeros(8), np.ones(8), [0], [1, 2], lower=np.zeros(2))
     with pytest.raises(ValueError, match="bound"):
         solve_bump(orm, np.zeros(8), np.ones(8), [0], [1, 2], lower=np.ones(3), upper=np.zeros(3))
+
+
+# -- the singular-value count ---------------------------------------------------------
+
+
+def test_solve_reports_the_spectrum_of_the_weighted_system_descending():
+    orm, now, goal, bump, leak = _wide_problem()
+    result = solve_bump(orm, now, goal, bump, leak)
+    w = np.r_[np.full(3, 0.5 * 6 / 3), np.ones(6)]
+    expected = np.linalg.svd(w[:, None] * orm[bump + leak], compute_uv=False)
+    np.testing.assert_allclose(result.sigma_values, expected)
+    assert result.sigma_total == 4 and result.sigma_targets == 0
+
+
+@pytest.mark.parametrize("priority", ["closure", "targets"])
+def test_solve_a_count_equal_to_the_cuts_reproduces_the_cut(priority):
+    orm, now, goal, bump, leak = _wide_problem()
+    cut = solve_bump(orm, now, goal, bump, leak, priority=priority)
+    counted = solve_bump(orm, now, goal, bump, leak, priority=priority, sigma_keep=cut.sigma_kept)
+    np.testing.assert_allclose(counted.delta, cut.delta, atol=1e-12)
+    assert counted.sigma_kept == cut.sigma_kept
+
+
+def test_solve_a_count_truncates_the_closure_solve_to_its_largest_values():
+    orm, now, goal, bump, leak = _wide_problem()
+    result = solve_bump(orm, now, goal, bump, leak, sigma_keep=2)
+    w = np.r_[np.full(3, 0.5 * 6 / 3), np.ones(6)]
+    rows = bump + leak
+    u, s, vt = np.linalg.svd(w[:, None] * orm[rows], full_matrices=False)
+    expected = vt[:2].T @ ((u[:, :2].T @ (w * (goal[rows] - now[rows]))) / s[:2])
+    np.testing.assert_allclose(result.delta, expected, atol=1e-12)
+    assert (result.sigma_kept, result.sigma_total) == (2, 4)
+
+
+@pytest.mark.parametrize("priority", ["closure", "targets"])
+def test_solve_a_count_past_the_spectrum_is_clamped(priority):
+    orm, now, goal, bump, leak = _wide_problem()
+    every = solve_bump(orm, now, goal, bump, leak, priority=priority, sigma_keep=4)
+    past = solve_bump(orm, now, goal, bump, leak, priority=priority, sigma_keep=99)
+    np.testing.assert_array_equal(past.delta, every.delta)
+    assert past.sigma_kept == past.sigma_total == 4
+
+
+def test_solve_refuses_a_count_below_one():
+    orm, now, goal, bump, leak = _wide_problem()
+    with pytest.raises(ValueError, match="sigma_keep"):
+        solve_bump(orm, now, goal, bump, leak, sigma_keep=0)
+
+
+def test_solve_the_targets_spectrum_is_the_bump_step_then_the_closure_step():
+    orm, now, goal, bump, leak = _wide_problem()
+    result = solve_bump(orm, now, goal, bump, leak, priority="targets")
+    _u, s, vt = np.linalg.svd(orm[bump], full_matrices=True)
+    closure = np.linalg.svd(orm[leak] @ vt[3:].T, compute_uv=False)
+    np.testing.assert_allclose(result.sigma_values, np.r_[s, closure])
+    assert result.sigma_targets == 3
+
+
+def test_solve_a_targets_count_drops_closure_before_any_target():
+    orm, now, goal, bump, leak = _wide_problem()
+    three = solve_bump(orm, now, goal, bump, leak, priority="targets", sigma_keep=3)
+    # The bump rows are still met exactly; only the closure direction is gone.
+    np.testing.assert_allclose(three.predicted[bump], goal[bump], atol=1e-12)
+    np.testing.assert_allclose(three.delta, np.linalg.pinv(orm[bump]) @ (goal - now)[bump])
+    two = solve_bump(orm, now, goal, bump, leak, priority="targets", sigma_keep=2)
+    assert np.abs(two.predicted[bump] - goal[bump]).max() > 1e-3
+    assert (two.sigma_kept, three.sigma_kept) == (2, 3)
+
+
+@pytest.mark.parametrize("priority", ["closure", "targets"])
+def test_solve_a_bounded_solve_stays_in_the_kept_directions(priority):
+    orm, now, goal, bump, leak = _wide_problem()
+    free = solve_bump(orm, now, goal, bump, leak, priority=priority, sigma_keep=2)
+    cap = 0.5 * np.abs(free.delta).max()
+    held = solve_bump(
+        orm,
+        now,
+        goal,
+        bump,
+        leak,
+        priority=priority,
+        sigma_keep=2,
+        lower=np.full(4, -cap),
+        upper=np.full(4, cap),
+    )
+    assert np.all(np.abs(held.delta) <= cap + 1e-12)
+    assert held.bounded and held.sigma_kept == 2
+    # The delta lies in the span the unbounded truncated solve used.
+    if priority == "closure":
+        w = np.r_[np.full(3, 0.5 * 6 / 3), np.ones(6)]
+        vt = np.linalg.svd(w[:, None] * orm[bump + leak], full_matrices=False)[2]
+    else:
+        vt = np.linalg.svd(orm[bump], full_matrices=True)[2]
+    outside = np.eye(4) - vt[:2].T @ vt[:2]
+    assert np.linalg.norm(outside @ held.delta) <= 1e-4 * np.linalg.norm(held.delta)

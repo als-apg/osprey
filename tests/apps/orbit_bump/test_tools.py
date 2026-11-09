@@ -200,6 +200,12 @@ async def test_plan_bump_carries_the_priority_others_and_all_correctors(door: Do
     assert (sent["priority"], sent["others"], sent["all_correctors"]) == ("targets", "zero", True)
 
 
+async def test_plan_bump_carries_the_singular_value_count(door: Door) -> None:
+    await _call("plan_bump", model="RING", plane="x", targets={"m5": 0.1}, sigma_keep=3)
+    [request] = door.requests
+    assert json.loads(request.content)["sigma_keep"] == 3
+
+
 @pytest.mark.usefixtures("stamps")
 async def test_plan_bump_carries_the_manual_correctors(door: Door) -> None:
     await _call(
@@ -557,6 +563,9 @@ def test_the_draft_is_shown_with_whether_the_plan_was_computed_from_it() -> None
     assert tools.draft_matches_plan({**draft, "priority": "targets"}, _ready_plan()) is False
     assert tools.draft_matches_plan({**draft, "others": "free"}, _ready_plan()) is False
     assert tools.draft_matches_plan({**draft, "all_correctors": True}, _ready_plan()) is False
+    assert tools.draft_matches_plan({**draft, "sigma_keep": 2}, _ready_plan()) is False
+    keep = _ready_plan(sigma_keep=2)
+    assert tools.draft_matches_plan({**draft, "sigma_keep": 2}, keep) is True
     assert tools.draft_matches_plan(draft, None) is None
     assert tools.draft_matches_plan(None, _ready_plan()) is None
 
