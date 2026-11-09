@@ -7,7 +7,7 @@ How to Use the Channel Finder
 The Channel Finder translates natural language queries, such as "beam current"
 or "RF cavity voltage", into control system addresses, such as
 ``SR:DIAG:DCCT:01:CURRENT:RB`` or ``SR:RF:CAVITY:01:VOLTAGE:RB`` in the
-control-assistant preset. It uses LLM-based pipelines, so a query can use
+demo preset. It uses LLM-based pipelines, so a query can use
 everyday terms rather than exact channel names.
 
 .. seealso::
