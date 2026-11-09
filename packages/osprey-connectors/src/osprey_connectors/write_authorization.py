@@ -141,7 +141,7 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 logger = logging.getLogger("osprey_connectors.write_authorization")
 
@@ -241,7 +241,6 @@ _LEDGER_READ_LIMIT: Final = 16 * 1024 * 1024
 
 _LOCK_TIMEOUT_S: Final = 5.0
 _LOCK_POLL_S: Final = 0.01
-_FILE_MODE: Final = 0o640
 
 _PROC_STAT: Final = "/proc/{pid}/stat"
 _PID_NS_LINK: Final = "/proc/self/ns/pid"
@@ -1233,7 +1232,7 @@ def _locked(lock: Path) -> Iterator[None]:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    atomic_replace(path, data, mode=_FILE_MODE)
+    atomic_replace(path, data, mode=SHARED_FILE_MODE)
 
 
 def _ledger_lock_path(place: _Place, authorization: str) -> Path:
@@ -1528,7 +1527,7 @@ def _grant_directory(directory: Path | None, owner: str) -> Path:
 def _prepare_directory(directory: Path) -> None:
     """Create *directory* (0o2770, as the record's) when absent; refuse a link or a file."""
     if not os.path.lexists(directory):
-        control_context._ensure_directory(directory)
+        ensure_shared_dir(directory)
     mode = os.lstat(directory).st_mode
     if not stat.S_ISDIR(mode):
         raise OSError(errno.ENOTDIR, f"{directory} is not a plain directory; nothing was written")

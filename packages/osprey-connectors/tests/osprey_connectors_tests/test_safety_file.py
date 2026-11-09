@@ -110,3 +110,69 @@ def test_a_refused_flush_still_replaces_the_file_when_sync_is_best_effort(
     assert path.read_bytes() == b"new"
     assert path.stat().st_mode & 0o777 == 0o640
     assert [p.name for p in tmp_path.iterdir()] == ["file"]
+
+
+# -- ensure_shared_dir --------------------------------------------------------
+
+
+@pytest.fixture
+def owner_only_umask():
+    """Umask 077, the one under which a directory left at the umask shuts the group out."""
+    previous = os.umask(0o077)
+    try:
+        yield
+    finally:
+        os.umask(previous)
+
+
+@pytest.mark.usefixtures("owner_only_umask")
+def test_every_level_created_is_exactly_the_shared_dir_mode(tmp_path: Path) -> None:
+    root = tmp_path / "shared"
+    root.mkdir()
+    os.chmod(root, 0o2750)
+    leaf = root / "tree" / "alice"
+
+    safety_file.ensure_shared_dir(leaf)
+
+    assert stat.S_IMODE(leaf.stat().st_mode) == safety_file.SHARED_DIR_MODE == 0o2770
+    assert stat.S_IMODE(leaf.parent.stat().st_mode) == 0o2770
+    assert stat.S_IMODE(root.stat().st_mode) == 0o2750, "an existing level is not this writer's"
+
+
+def test_a_created_level_takes_the_group_of_the_location(tmp_path: Path) -> None:
+    root = tmp_path / "shared"
+    root.mkdir()
+    os.chmod(root, 0o2770)
+
+    safety_file.ensure_shared_dir(root / "alice")
+
+    assert (root / "alice").stat().st_gid == root.stat().st_gid
+
+
+def test_an_existing_directory_keeps_the_mode_it_was_provisioned_with(tmp_path: Path) -> None:
+    leaf = tmp_path / "alice"
+    leaf.mkdir()
+    os.chmod(leaf, 0o750)
+
+    safety_file.ensure_shared_dir(leaf)
+
+    assert stat.S_IMODE(leaf.stat().st_mode) == 0o750
+
+
+def test_a_refused_mode_raises_unless_best_effort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(*_args: Any) -> None:
+        raise PermissionError("chmod refused")
+
+    monkeypatch.setattr(os, "chmod", refuse)
+    with pytest.raises(PermissionError, match="chmod refused"):
+        safety_file.ensure_shared_dir(tmp_path / "a")
+
+    safety_file.ensure_shared_dir(tmp_path / "b", modes="best_effort")
+    assert (tmp_path / "b").is_dir()
+
+
+def test_the_shared_file_modes_are_named() -> None:
+    assert safety_file.SHARED_FILE_MODE == 0o640
+    assert safety_file.SHARED_LOCK_MODE == 0o660

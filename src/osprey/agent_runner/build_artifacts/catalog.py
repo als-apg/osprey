@@ -295,7 +295,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_hook_log.py",
             output_path=".claude/hooks/osprey_hook_log.py",
             description="Shared hook logging utility",
-            requires=("hooks/hook-config",),
+            requires=("hooks/hook-config", "hooks/safety-file"),
         ),
         BuildArtifact(
             canonical_name="hooks/target-state",
@@ -308,7 +308,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/safety-file",
             template_path="claude/hooks/osprey_safety_file.py",
             output_path=".claude/hooks/osprey_safety_file.py",
-            description="Shared atomic file-replace helper",
+            description="Shared atomic file-replace and group-shared directory helper",
         ),
         BuildArtifact(
             canonical_name="hooks/hook-config",
