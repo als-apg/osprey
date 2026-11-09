@@ -59,6 +59,19 @@ async def test_documents_without_vectors_are_a_warning_naming_the_count(monkeypa
     assert "keyword search only" in row.details
 
 
+async def test_a_corpus_with_embedding_off_is_ok_without_vectors(monkeypatch):
+    config = {
+        "services": {
+            "qmd": {"port": 9000, "corpora": [{"name": "papers", "source": "./p", "embed": False}]}
+        }
+    }
+    rows = await _run(config, monkeypatch, {9002: QMDIndexStatus(9984, 9984)})
+    row = rows["qmd_papers"]
+    assert row.status is Status.OK
+    assert row.message == "papers: 9984 documents, keyword index only (embedding off)"
+    assert row.value == "9984"
+
+
 async def test_a_sidecar_that_does_not_answer_is_a_warning(monkeypatch):
     rows = await _run(
         BOTH_CORPORA,
