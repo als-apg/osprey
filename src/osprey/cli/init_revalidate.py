@@ -37,7 +37,8 @@ in place, with the round-trip writer so every comment the operator kept survives
    that never stated it stays ``never``.
 6. ``providers.yml`` is completed, never rewritten: every value it states is
    kept, an edited entry OSPREY ships included, and only the entries OSPREY
-   ships that it lacks, and the keys an existing one lacks, are added.
+   ships that it lacks, and the keys an existing one lacks, are added; one a
+   deviation marker claims absent is not.
    ``osprey validate`` reports each remaining difference as drift.
 7. ``provenance:`` is restamped with the preset, its hash and the catalog's
    hash, and ``requires_osprey_version`` at the schema floor, so a release
@@ -2005,7 +2006,15 @@ def _stamp_provenance(document: Any, preset: str, preset_hash: str, providers_ha
     _refresh_provenance_comment(document)
     for key, value in stamps.items():
         block[key] = value
-    marker = block.get("deviation_marker")
+    return _deviation_marker(document)
+
+
+def _deviation_marker(document: Any) -> str:
+    """The marker that claims a drift finding: *document*'s ``deviation_marker:``, or the default."""
+    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
+
+    block = document.get("provenance")
+    marker = block.get("deviation_marker") if isinstance(block, dict) else None
     return marker if isinstance(marker, str) and marker else DEFAULT_DEVIATION_MARKER
 
 
@@ -3031,7 +3040,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
             _drop_key_and_pre_comment(document, PRESET_DATA_BUNDLE_KEY)
     else:
         steps.append(_NO_PRESET_STEP)
-    plan = _plan_providers(root)
+    plan = _plan_providers(root, _deviation_marker(document))
     if (root / PROVIDERS_FILENAME).is_file():
         writes[PROVIDERS_FILENAME] = plan.text
         result.providers_kept = plan.carried
@@ -3094,14 +3103,25 @@ def _app_drift(root: Path, marker: str) -> list[str]:
     return [finding.render() for finding in findings if not finding.marked] + notes
 
 
-def _plan_providers(root: Path) -> Any:
-    """The ``providers.yml`` this repo is brought to; refuses before anything is written."""
+def _plan_providers(root: Path, marker: str) -> Any:
+    """The ``providers.yml`` this repo is brought to; refuses before anything is written.
+
+    A packaged entry or key the file lacks is added unless a *marker* comment
+    claims it absent, read as ``osprey validate`` reads it.
+    """
     import click
 
+    from .build_profile_drift import _compare_catalog
     from .profile_cmd import _plan_provider_catalog
 
     try:
-        return _plan_provider_catalog(root, keep_values=True)
+        findings, _stale = _compare_catalog(root, marker)
+    except BuildProfileError:
+        # The file does not parse; the merge below refuses it in its own words.
+        findings = []
+    claimed = {f.subject for f in findings if f.kind == "missing" and f.marked}
+    try:
+        return _plan_provider_catalog(root, keep_values=True, claimed_absent=claimed)
     except click.UsageError as e:
         raise BuildProfileError(e.message) from e
 
