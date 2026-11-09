@@ -1611,9 +1611,10 @@ def _create_lifespan(
             # answers with the same call.
             _env_dir = repo_root_for_config(app.state.config_path)
             _spec = load_provider_spec(_project_dir, env_dir=_env_dir)
-            from osprey_connectors.workspace import load_osprey_config as _load_config
-
-            app.state.personal_login_allowed = personal_login_allowed(_load_config() or {})
+            _render = app.state.terminal_config.render()
+            app.state.personal_login_allowed = personal_login_allowed(
+                _render if isinstance(_render, dict) else {}
+            )
             app.state.personal_login_present = personal_login_present(os.environ)
             if _spec and app.state.personal_login_allowed and app.state.personal_login_present:
                 # The deployment lets its users bring their own subscription,
