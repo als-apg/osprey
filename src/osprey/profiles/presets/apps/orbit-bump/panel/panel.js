@@ -15,7 +15,10 @@ const RECOMPUTE_URL = 'api/recompute';
 const DISCARD_URL = 'api/discard';
 const COMPUTE_URL = 'api/compute';
 const APPLY_URL = 'api/apply';
+const DRAFT_URL = 'api/draft';
 const REFRESH_MS = 2000;
+// The pause after the last edit before the draft is published for the agent.
+const DRAFT_DEBOUNCE_MS = 300;
 
 /**
  * @typedef {'x' | 'y'} Plane
@@ -160,6 +163,10 @@ const REFRESH_MS = 2000;
  * @property {{id: string, key: string} | null} computed the plan id this panel computed or took
  *   in last, with the selection it was computed for
  * @property {typeof fetch} fetcher what the panel's own controls send through
+ * @property {boolean} bound whether bindControls wired this panel; only a wired one publishes its draft
+ * @property {string | null} draftSent the draft last published, as sent
+ * @property {string | null} draftPending the draft waiting out the debounce
+ * @property {ReturnType<typeof setTimeout> | null} draftTimer
  */
 
 /** @type {WeakMap<Element, Panel>} */
@@ -202,6 +209,10 @@ export function panelOf(root) {
       anchor: null,
       computed: null,
       fetcher: (input, init) => fetch(input, init),
+      bound: false,
+      draftSent: null,
+      draftPending: null,
+      draftTimer: null,
     };
     panels.set(root, panel);
   }
@@ -279,7 +290,7 @@ function hydrate(root, plan) {
   }
   panel.amp = amplitudeOf(plan.targets);
   const rule =
-    plan.rule && MORE_RULES.some(([value]) => value === plan.rule) ? plan.rule : 'manual';
+    plan.rule && ALL_RULES.includes(/** @type {Rule} */ (plan.rule)) ? plan.rule : 'manual';
   panel.selection = {
     ...panel.selection,
     plane: plan.plane,
@@ -2769,6 +2780,7 @@ export async function clearBump(root, fetcher) {
 export function bindControls(root, fetcher) {
   const panel = panelOf(root);
   if (fetcher) panel.fetcher = fetcher;
+  panel.bound = true;
   field(root, 'plane').addEventListener('click', (event) => {
     const hit = event.target instanceof Element ? event.target.closest('[data-plane]') : null;
     const plane = hit?.getAttribute('data-plane');
@@ -2792,6 +2804,56 @@ export function render(root) {
   renderStrip(root, panel);
   renderTable(root, panel);
   renderCard(root, panel);
+  publishDraft(root);
+}
+
+/**
+ * What the operator has set, computed or not, as the backend keeps it for the agent.
+ * @param {Panel} panel
+ */
+export function draftOf(panel) {
+  const { selection } = panel;
+  return {
+    plane: selection.plane,
+    model: selection.model,
+    targets: { ...selection.targets },
+    rule: selection.rule,
+    correctors: selection.rule === 'manual' ? [...selection.correctors] : [],
+    priority: selection.priority,
+    outside: selection.outside,
+    shape: panel.shape,
+    amplitude: panel.amp,
+  };
+}
+
+/**
+ * Publish the draft once the operator pauses, so the agent sees what the operator
+ * sees. Only a change is sent. A failure is dropped and retried on the next change
+ * or poll, except a 403: a login that may not post keeps its draft to itself.
+ * @param {Element} root
+ */
+function publishDraft(root) {
+  const panel = panelOf(root);
+  if (!panel.bound || panel.readOnly || !panel.state) return;
+  const body = JSON.stringify(draftOf(panel));
+  if (body === panel.draftSent || body === panel.draftPending) return;
+  if (panel.draftTimer != null) clearTimeout(panel.draftTimer);
+  panel.draftPending = body;
+  panel.draftTimer = setTimeout(async () => {
+    panel.draftTimer = null;
+    panel.draftPending = null;
+    panel.draftSent = body;
+    try {
+      const response = await panel.fetcher(DRAFT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+      if (!response.ok && response.status !== 403) panel.draftSent = null;
+    } catch {
+      panel.draftSent = null;
+    }
+  }, DRAFT_DEBOUNCE_MS);
 }
 
 /**

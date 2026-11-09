@@ -86,6 +86,8 @@ APPROVAL_ROUTE = "/api/approval"
 RECOMPUTE_ROUTE = "/api/recompute"
 #: Discard the owner's current plan.
 DISCARD_ROUTE = "/api/discard"
+#: The panel's draft: what the owner has set, computed or not, for the agent to read.
+DRAFT_ROUTE = "/api/draft"
 #: Solve a bump and store it as the owner's current plan.
 COMPUTE_ROUTE = "/api/compute"
 #: Write the owner's current plan to the machine.
@@ -280,6 +282,22 @@ class ComputeRequest(BaseModel):
     correctors: list[str] | None = None
     priority: Literal["closure", "targets"] = CLOSURE
     outside: Literal["hold", "golden"] = HOLD
+
+
+class DraftRequest(BaseModel):
+    """What the owner has set in the panel, computed or not."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    plane: Literal["x", "y"]
+    model: str | None = None
+    targets: dict[str, float] = {}
+    rule: str = "auto"
+    correctors: list[str] = []
+    priority: Literal["closure", "targets"] = CLOSURE
+    outside: Literal["hold", "golden"] = HOLD
+    shape: Literal["flat", "peak", "cos"] = "flat"
+    amplitude: float = 0.0
 
 
 class ApplyRequest(BaseModel):
@@ -736,6 +754,8 @@ def create_app(
     members_of: dict[str, ModelMembers] = {}
     rings: dict[str, RingView] = {}
     refused: dict[str, ValueError] = {}
+    # Each owner's panel draft, in memory only: a restart starts every panel afresh.
+    drafts: dict[str | None, dict[str, Any]] = {}
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -891,6 +911,7 @@ def create_app(
                 "golden": {addr: values[addr] for addr in golden},
             },
             "plan": store.current(owner),
+            "draft": drafts.get(owner),
         }
 
     @app.get(APPROVAL_ROUTE)
@@ -920,6 +941,12 @@ def create_app(
             )
         started = orm.recompute(body.model)
         return {"model": body.model, "started": started}
+
+    @app.post(DRAFT_ROUTE, status_code=204)
+    async def draft(body: DraftRequest, request: Request) -> Response:
+        # A mirror of the panel's input for the agent to read; nothing is solved or written.
+        drafts[owner_of(request)] = {**body.model_dump(), "updated_at": clock()}
+        return Response(status_code=204)
 
     @app.post(DISCARD_ROUTE, status_code=204)
     async def discard(request: Request) -> Response:

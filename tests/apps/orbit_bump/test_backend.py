@@ -36,6 +36,7 @@ from orbit_bump.server import (
     APPROVAL_ROUTE,
     COMPUTE_ROUTE,
     DISCARD_ROUTE,
+    DRAFT_ROUTE,
     LAUNCH_TOKEN_ENV,
     MAX_DISPLAY_LINE_CHARS,
     MAX_DISPLAY_LINES,
@@ -687,6 +688,71 @@ def test_discard_while_applying_is_refused(client, app) -> None:
     answer = client.post(DISCARD_ROUTE)
     assert answer.status_code == 409
     assert stored["id"] in answer.json()["detail"]
+
+
+# -- draft ------------------------------------------------------------------------
+
+DRAFT = {
+    "plane": "y",
+    "model": "RING",
+    "targets": {"V3": 0.1},
+    "rule": "manual",
+    "correctors": ["C2"],
+    "priority": "targets",
+    "outside": "hold",
+    "shape": "peak",
+    "amplitude": 0.1,
+}
+
+
+def test_the_state_carries_no_draft_until_the_panel_posts_one(client) -> None:
+    assert client.get(STATE_ROUTE).json()["draft"] is None
+
+
+def test_a_posted_draft_is_the_owners_in_the_state(client) -> None:
+    answer = client.post(DRAFT_ROUTE, json=DRAFT)
+    assert answer.status_code == 204
+    assert client.get(STATE_ROUTE).json()["draft"] == {**DRAFT, "updated_at": NOW}
+
+
+def test_a_draft_is_kept_per_owner(client, monkeypatch) -> None:
+    owner = {"name": OWNER}
+    monkeypatch.setattr(backend, "owner_from_header", lambda _value: owner["name"])
+    client.post(DRAFT_ROUTE, json=DRAFT)
+    owner["name"] = "bob"
+    assert client.get(STATE_ROUTE).json()["draft"] is None
+    owner["name"] = OWNER
+    assert client.get(STATE_ROUTE).json()["draft"]["targets"] == {"V3": 0.1}
+
+
+def test_a_draft_defaults_what_the_panel_leaves_out(client) -> None:
+    client.post(DRAFT_ROUTE, json={"plane": "x"})
+    draft = client.get(STATE_ROUTE).json()["draft"]
+    assert draft["rule"] == "auto"
+    assert (draft["priority"], draft["outside"], draft["shape"]) == ("closure", "hold", "flat")
+
+
+def test_a_draft_with_an_unknown_field_is_refused(client) -> None:
+    assert client.post(DRAFT_ROUTE, json={**DRAFT, "zoom": 2}).status_code == 422
+
+
+def test_a_draft_does_not_survive_a_restart(app, sdk, machines, verdicts, section, monkeypatch):  # noqa: ARG001
+    with TestClient(app) as first:
+        first.post(DRAFT_ROUTE, json=DRAFT)
+
+    async def connector_for(target: str) -> StandInConnector:
+        return machines.setdefault(target, StandInConnector(target))
+
+    restarted = create_app(connector_for, sdk=sdk, clock=lambda: NOW)
+    restarted.user_middleware = list(app.user_middleware)
+    with TestClient(restarted) as second:
+        assert second.get(STATE_ROUTE).json()["draft"] is None
+
+
+def test_a_draft_neither_plans_nor_discards(client, app) -> None:
+    stored = app.state.plans.set_current(OWNER, _plan())
+    client.post(DRAFT_ROUTE, json=DRAFT)
+    assert client.get(STATE_ROUTE).json()["plan"]["id"] == stored["id"]
 
 
 # -- compute ----------------------------------------------------------------------

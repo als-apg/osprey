@@ -235,6 +235,16 @@ describe('the orbit-bump panel', () => {
       expect([selection.priority, selection.outside]).toEqual(['targets', 'golden']);
     });
 
+    it('takes in an auto or tight plan by its rule, not as manual', () => {
+      showState(root, state({ plan: plan('p3', { rule: 'auto' }) }));
+      expect([panelOf(root).selection.rule, panelOf(root).selection.correctors]).toEqual([
+        'auto',
+        [],
+      ]);
+      showState(root, state({ plan: plan('p4', { rule: 'mml:[-1 1]' }) }));
+      expect(panelOf(root).selection.rule).toBe('mml:[-1 1]');
+    });
+
     it('closes an open confirm card with a notice', () => {
       field(root, 'confirm').hidden = false;
       field(root, 'confirm').textContent = 'Apply bump';
