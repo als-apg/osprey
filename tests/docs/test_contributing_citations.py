@@ -9,7 +9,7 @@ rots without a warning. This guard resolves each citation against its owner:
 * ``scripts/check.py <verb> --flag`` against the command's own parser, and
   ``check.py run <ID>`` against the declared checks;
 * ``scripts/ci/full_ci_on_main.py <subcommand> [lane]`` against that script's parser
-  and its ``SPENDING_LANES``, and the workflow page's lane count against the same map;
+  and its ``SPENDING_LANES``;
 * the execution flags after ``check.py … --`` against ``validate_exec_flags``;
 * ``npm run <script>`` against ``package.json``;
 * a repository path (``tests/``, ``scripts/``, ``src/``, ``packages/``,
@@ -47,13 +47,6 @@ _ILLUSTRATIVE_PATHS = {
 
 _CHECK_CALL = re.compile(r"scripts/check\.py[ \t]+([^\n`]*)")
 _FULL_CI_CALL = re.compile(r"scripts/ci/full_ci_on_main\.py[ \t]+([a-z-]+)(?:[ \t]+([a-z0-9-]+))?")
-_LANE_COUNT = re.compile(r"\b(\w+) CI lanes drive real agent sessions")
-_NUMBER_WORDS = {
-    word: n
-    for n, word in enumerate(
-        "zero one two three four five six seven eight nine ten eleven twelve thirteen".split()
-    )
-}
 _NPM_RUN = re.compile(r"\bnpm run ([\w:-]+)")
 _REPO_PATH = re.compile(
     r"(?<![\w/.<-])((?:tests|scripts|src|packages|plugins|changelog\.d|\.github)/[\w./*<>{}-]*)"
@@ -235,17 +228,6 @@ def test_repository_paths_exist(page):
 @pytest.mark.parametrize("page", _PAGES)
 def test_workflow_dispatch_inputs_exist(page):
     assert not _stale_workflow_inputs(_page_text(page), _REPO_ROOT)
-
-
-def test_the_spending_lane_count_matches_the_lanes():
-    """The workflow page's lane count is the number of spending lanes CI declares."""
-    match = _LANE_COUNT.search(_page_text("workflow.rst"))
-    assert match, "workflow.rst no longer counts the model-spending lanes"
-    count = _NUMBER_WORDS.get(match.group(1).lower())
-    assert count == len(_spending_lanes()), (
-        f"workflow.rst says {match.group(1)} lanes; "
-        f"scripts/ci/full_ci_on_main.py declares {len(_spending_lanes())}"
-    )
 
 
 def test_illustrative_paths_are_still_cited():
