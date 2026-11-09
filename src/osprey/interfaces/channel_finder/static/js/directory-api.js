@@ -11,7 +11,7 @@
 
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { isEmbedded } from '/design-system/js/frame-params.js';
-import { fetchJSON, postJSON } from './api.js';
+import { fetchJSON } from './api.js';
 import { state } from './state.js';
 
 /** @typedef {'found'|'inactive'|'not_listed'|'no_match'|'unavailable'} Outcome */
@@ -253,7 +253,9 @@ export function fetchLogbookAvailability() {
  * @returns {Promise<ValueRow[]>}
  */
 export function readValues(names) {
-  return postJSON('/api/directory/values', { names });
+  const params = new URLSearchParams();
+  for (const name of names) params.append('name', name);
+  return fetchJSON(`/api/directory/values?${params}`);
 }
 
 /**

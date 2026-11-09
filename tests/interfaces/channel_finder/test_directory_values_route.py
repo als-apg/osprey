@@ -1,4 +1,4 @@
-"""The current-value route, ``POST /api/directory/values``.
+"""The current-value route, ``GET /api/directory/values?name=…``.
 
 Every test runs the real lifespan over a config with the ``pv_directory`` section,
 with the value supervisor swapped for a fake that answers the way
@@ -18,6 +18,7 @@ pytest.importorskip("osprey_connectors.pv_directory.contract")
 
 from fastapi.testclient import TestClient
 
+from osprey.audit import writer as audit_writer
 from osprey.interfaces.channel_finder import directory_values_supervisor
 from osprey.interfaces.channel_finder.directory_values_ipc import (
     MAX_NAMES,
@@ -25,6 +26,7 @@ from osprey.interfaces.channel_finder.directory_values_ipc import (
     OUTCOME_UNAVAILABLE,
     ValueRow,
 )
+from osprey.interfaces.common_middleware import HTTP_MUTATION_SURFACE
 from osprey_connectors import control_context
 
 _CONFIG_SEAM = "osprey_connectors.workspace.load_osprey_config"
@@ -112,7 +114,7 @@ def test_the_values_payload_matches_the_shared_fixture(client: TestClient) -> No
     found = ValueRow.from_wire(expected[0])
     FakeSupervisor.rows = {found.name: found}
 
-    response = client.post(_ROUTE, json={"names": [row["name"] for row in expected]})
+    response = client.get(_ROUTE, params={"name": [row["name"] for row in expected]})
 
     assert response.status_code == 200
     assert response.json() == expected
@@ -123,7 +125,7 @@ def test_the_values_payload_matches_the_shared_fixture(client: TestClient) -> No
 def test_a_name_without_an_answer_reads_no_answer_in_request_order(client: TestClient) -> None:
     names = ["SR:B", "SR:A", "SR:C"]
 
-    rows = client.post(_ROUTE, json={"names": names}).json()
+    rows = client.get(_ROUTE, params={"name": names}).json()
 
     assert [row["name"] for row in rows] == names
     assert {row["outcome"] for row in rows} == {OUTCOME_NO_ANSWER}
@@ -135,7 +137,7 @@ def test_an_unavailable_supervisor_makes_every_row_unavailable_with_the_reason(
 ) -> None:
     FakeSupervisor.reason = "the value process is not running"
 
-    response = client.post(_ROUTE, json={"names": ["SR:A", "SR:B"]})
+    response = client.get(_ROUTE, params={"name": ["SR:A", "SR:B"]})
 
     assert response.status_code == 200
     assert response.json() == [
@@ -155,7 +157,7 @@ def test_an_unavailable_supervisor_makes_every_row_unavailable_with_the_reason(
 def test_the_cap_admits_exactly_max_names(client: TestClient) -> None:
     names = [f"SR:PV{index}" for index in range(MAX_NAMES)]
 
-    response = client.post(_ROUTE, json={"names": names})
+    response = client.get(_ROUTE, params={"name": names})
 
     assert response.status_code == 200
     assert len(response.json()) == MAX_NAMES
@@ -164,26 +166,44 @@ def test_the_cap_admits_exactly_max_names(client: TestClient) -> None:
 def test_more_names_than_the_cap_is_a_422_before_any_read(client: TestClient) -> None:
     names = [f"SR:PV{index}" for index in range(MAX_NAMES + 1)]
 
-    response = client.post(_ROUTE, json={"names": names})
-
-    assert response.status_code == 422
-    assert FakeSupervisor.reads == []
-
-
-@pytest.mark.parametrize(
-    "body",
-    [{}, {"names": "SR:A"}, {"names": [1]}, {"names": ["SR:A"], "value": 1}],
-    ids=["no-names", "not-a-list", "not-text", "extra-field"],
-)
-def test_a_body_other_than_a_list_of_names_is_a_422(client: TestClient, body: Any) -> None:
-    response = client.post(_ROUTE, json=body)
+    response = client.get(_ROUTE, params={"name": names})
 
     assert response.status_code == 422
     assert FakeSupervisor.reads == []
 
 
 def test_no_names_reads_nothing(client: TestClient) -> None:
-    response = client.post(_ROUTE, json={"names": []})
+    response = client.get(_ROUTE)
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_the_answer_is_never_cached(client: TestClient) -> None:
+    response = client.get(_ROUTE, params={"name": ["SR:A"]})
+
+    directives = {part.strip() for part in response.headers["cache-control"].split(",")}
+    assert "no-store" in directives
+
+
+def test_post_is_not_a_method_of_the_route(client: TestClient) -> None:
+    response = client.post(_ROUTE, json={"names": ["SR:A"]})
+
+    assert response.status_code == 405
+    assert FakeSupervisor.reads == []
+
+
+def test_a_read_files_no_http_mutation_record(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded: list[dict[str, Any]] = []
+
+    def fake_record(**fields: Any) -> None:
+        recorded.append(fields)
+
+    monkeypatch.setattr(audit_writer, "record", fake_record)
+
+    response = client.get(_ROUTE, params={"name": ["SR:A", "SR:B"]})
+
+    assert response.status_code == 200
+    assert [f for f in recorded if f.get("surface") == HTTP_MUTATION_SURFACE] == []
