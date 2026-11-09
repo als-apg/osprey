@@ -229,6 +229,11 @@ configured or deployed, so a minimal build shows no empty tiles.
   names ``osprey build && osprey up`` as the remedy. The agent's own graph
   tools report the same degraded states from the inside — see
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
+- ``pv_directory`` — appears when a ``pv_directory:`` section is configured.
+  One row per directory, alarm logger and put log, from each service's probe on
+  the current control target; a service with no source there is a ``skip``.
+  ``pv_directory_alarm_feed`` (``--full``) starts the alarm feed, waits up to
+  its deadline for catch-up and reports what the feed has read.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
   graph MCP server (the graph store), the Logbook panel and ARIEL MCP server
