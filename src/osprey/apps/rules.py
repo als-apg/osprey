@@ -79,9 +79,18 @@ APPROVED_TARGET = "approved_target"
 
 @dataclass(frozen=True)
 class AppSelection:
-    """One login's choice for one application: whether it is shown."""
+    """One login's choice for one application: whether it is shown, and to whom.
+
+    Attributes:
+        shown: Whether the login's card shows the application.
+        access: Who on the login sees and opens its panel, as the wire value of
+            the set the build resolved (``user:`` and ``domain:`` members only);
+            ``None`` when the entry spells no ``access:``, which is every user of
+            the login. It never decides a write: the tier does.
+    """
 
     shown: bool
+    access: str | None = None
 
 
 @dataclass(frozen=True)

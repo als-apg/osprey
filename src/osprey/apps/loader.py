@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -148,8 +148,11 @@ def check_deployment(root: Path) -> DeploymentApps:
     logins: dict[str, LoginSelection] = {}
     if manifests:
         cards = _shared_cards(host)
+        access = _access_resolver(host)
         logins = {
-            login: _login_selection(profile, manifests, cards.get(login, ()))
+            login: _login_selection(
+                profile, manifests, cards.get(login, ()), login=login, access=access
+            )
             for login, profile in profiles.items()
         }
         validate(manifests, logins=logins, reserved=_reserved(host, profiles.values()))
@@ -173,19 +176,95 @@ def check_deployment(root: Path) -> DeploymentApps:
 
 
 def _login_selection(
-    profile: BuildProfile, manifests: Iterable[AppManifest], shared_cards: Iterable[str]
+    profile: BuildProfile,
+    manifests: Iterable[AppManifest],
+    shared_cards: Iterable[str],
+    *,
+    login: str,
+    access: Callable[[Any, str, str], str],
 ) -> LoginSelection:
-    """One render's selection, read from its merged profile."""
+    """One render's selection, read from its merged profile.
+
+    *access* (:func:`_access_resolver`) resolves an entry's authored ``access:``
+    for *login*; an entry that spells none is every user of the login and
+    carries ``None``.
+    """
     from osprey.cli.build_profile_merge import _rendered_control_system
     from osprey_connectors.types import tier_writes
 
     cards = tuple(shared_cards)
+    entries = {m.name: profile.apps.get(m.name) for m in manifests}
     return LoginSelection(
         audience="shared" if cards else "person",
-        apps={m.name: AppSelection(shown=profile.app_shown(m.name)) for m in manifests},
+        apps={
+            name: AppSelection(
+                shown=profile.app_shown(name),
+                access=None
+                if entry is None or entry.access is None
+                else access(entry.access, login, name),
+            )
+            for name, entry in entries.items()
+        },
         tier=tier_writes(_rendered_control_system(profile.config)),
         shared_cards=cards,
     )
+
+
+def _access_resolver(host: BuildProfile) -> Callable[[Any, str, str], str]:
+    """How an ``apps.<name>.access`` value resolves for a login, at build.
+
+    Exactly as a shared card's set is expanded at render: parsed by the roster's
+    one parser, then every ``self``, ``roster`` and ``tier:`` member spelled out
+    to the identities the sidecar forwards, in their canonical spelling
+    (:func:`~osprey.deployment.web_terminals.roster.expand_login_principals`),
+    so the terminal compares a forwarded identity against ``user:`` and
+    ``domain:`` members alone and keeps no roster. A set no browser caller can
+    match is refused
+    (:func:`~osprey.deployment.web_terminals.roster.app_access_refusal`, the
+    predicate lint reports).
+
+    Returns:
+        ``(authored, login, app) -> wire value`` of the resolved set.
+
+    Raises:
+        BuildProfileError: From the returned callable, when the set admits no
+            browser caller.
+    """
+    from osprey.cli.build_profile_emit import effective_web_terminals
+    from osprey.deployment.web_terminals.render import _auth_tls_context
+    from osprey.deployment.web_terminals.roster import (
+        APP_ENTRY_KIND,
+        access_wire_value,
+        app_access_refusal,
+        expand_login_principals,
+        resolve_access_principals,
+        resolve_cards,
+    )
+    from osprey_connectors.errors import BuildProfileError
+
+    web_terminals = effective_web_terminals(host.config)
+    enabled = bool(web_terminals.get("enabled"))
+    cards = resolve_cards(web_terminals, {}, strict=False) if enabled else []
+    try:
+        context = _auth_tls_context(web_terminals) if enabled else None
+    except ValueError:
+        context = None
+    method = context["auth_method"] if context is not None else None
+    claim = context["auth_oidc_claim"] if context is not None else None
+
+    def resolve(authored: Any, login: str, app: str) -> str:
+        principals = resolve_access_principals(
+            {"kind": APP_ENTRY_KIND, "name": app, "login": login, "access": authored}
+        )
+        resolved = expand_login_principals(
+            principals, cards, login=login, method=method, claim=claim
+        )
+        refusal = app_access_refusal(resolved, login=login, app=app, method=method)
+        if refusal is not None:
+            raise BuildProfileError(refusal[1])
+        return access_wire_value(resolved)
+
+    return resolve
 
 
 def _shared_cards(host: BuildProfile) -> dict[str, list[str]]:

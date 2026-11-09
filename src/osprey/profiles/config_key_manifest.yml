@@ -1054,6 +1054,16 @@ keys:
       (`notes.application_families`).
     default: no-fallback
     default_note: only a login showing an application with a panel has one
+  web.panels.<app-panel>.access:
+    rendered: false
+    evidence: 'panel\["access"\] = _panel_access\('
+    note: >-
+      Who on the login sees and opens the panel, written only for a login whose
+      `apps.<name>.access` narrows it below every user of the login, which needs
+      an auth method that forwards an identity; the guard's fixture deployment
+      has none.
+    default: no-fallback
+    default_note: absent, every user of the login sees the panel
   web.panels.<app-panel>.agent_routes: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.app: {covered-by: web.panels.<app-panel>, default: n/a}
   web.panels.<app-panel>.enabled: {covered-by: web.panels.<app-panel>, default: n/a}

@@ -215,7 +215,8 @@ def project_login(
     audience, ``agent_routes`` lists every declared route and ``launch_token_env``
     names the panel's launch token when the manifest asks for one; on any other
     login ``agent_routes`` lists the safe-method routes only and no launch token
-    is named.
+    is named. ``access`` (who on the login sees and opens the panel, resolved at
+    build) is carried only when the login's entry spells one.
 
     Every shown application with ``tools:`` is projected as one facility server
     (``mcp_servers.<name>``, so its tools are ``mcp__<name>__<tool>``) running
@@ -281,6 +282,8 @@ def project_login(
             block["launch_token_env"] = launch_token_env(manifest.name)
         if "read_timeout_s" in panel.model_fields_set:
             block["read_timeout_s"] = panel.read_timeout_s
+        if shown.access is not None:
+            block["access"] = shown.access
         panels[panel.id] = block
     servers: dict[str, Any] = {}
     apps: dict[str, Any] = {}
