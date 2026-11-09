@@ -648,6 +648,60 @@ async def test_probes_name_every_configured_service(tmp_path: Path, record: _Rec
     await directory.aclose()
 
 
+_KAFKA = {
+    "type": "phoebus_alarm_server",
+    "settings": {"bootstrap_servers": "k:9092", "topic": "Accelerator"},
+}
+
+
+async def test_the_alarm_feed_probe_starts_the_feed_through_the_snapshot(tmp_path: Path) -> None:
+    directory = _service(
+        _config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": _KAFKA}), tmp_path
+    )
+
+    probes = await directory.probes(kinds=("alarm_state",))
+
+    assert set(probes) == {"alarm_state"}
+    assert probes["alarm_state"]["outcome"] == "found"
+    assert probes["alarm_state"]["evidence"] == "phoebus_alarm_server answered"
+    snapshot = await directory.snapshot()
+    assert snapshot is not None and snapshot._task is not None
+    await directory.aclose()
+    assert snapshot._task is None
+
+
+async def test_probes_of_other_kinds_start_no_feed(tmp_path: Path) -> None:
+    directory = _service(
+        _config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": _KAFKA}), tmp_path
+    )
+
+    probes = await directory.probes(kinds=("pv_directory", "alarm_log", "put_log"))
+
+    assert set(probes) == {"pv_directory"}
+    assert directory._snapshot is None
+    await directory.aclose()
+
+
+async def test_an_alarm_feed_that_cannot_be_built_carries_its_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def refuse(*_: Any, **__: Any) -> Any:
+        raise RuntimeError("no broker setting")
+
+    monkeypatch.setattr(ConnectorFactory, "create_alarm_state_connector", refuse)
+    directory = _service(
+        _config(tmp_path, LIVE_BUILD, {**FACILITY, "alarm_state": _KAFKA}), tmp_path
+    )
+
+    probes = await directory.probes(kinds=("alarm_state",))
+
+    assert probes["alarm_state"]["outcome"] == "unavailable"
+    assert probes["alarm_state"]["reason"] == (
+        "cannot build the alarm_state backend 'phoebus_alarm_server': no broker setting"
+    )
+    await directory.aclose()
+
+
 async def test_aclose_leaves_no_task(tmp_path: Path) -> None:
     section = {"alarm_state": {"replay_file": "demo:example-alarms"}}
     directory = _service(_config(tmp_path, VA_BUILD, section), tmp_path)
