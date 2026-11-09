@@ -6,7 +6,9 @@
   directory record, the alarm state, the alarm configuration, the alarm history
   and the put history. Each runs under its own deadline, and a section that has
   no answer says why (``unavailable`` with its reason); a section the
-  deployment did not configure is absent, never empty.
+  deployment did not configure is absent, never empty. :meth:`Facts.alarm_state`,
+  :meth:`Facts.alarm_config` and :meth:`Facts.history` answer one of those
+  sections alone, as the PV page shows it.
 * :meth:`Facts.ioc_facts` gives one IOC's host, ports, PV counts, engineer and
   the names of its IOC health PVs.
 
@@ -21,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -34,13 +37,15 @@ from osprey.services.pv_directory._connectors import (
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
 
-__all__ = ["Facts"]
+__all__ = ["Facts", "panel_link"]
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT_S = 6.0
-#: How many logged rows each history section shows.
+#: How many logged rows a history section shows unless the caller asks for another number.
 _HISTORY_LIMIT = 20
+#: The history kinds :meth:`Facts.history` reads.
+_HISTORY_KINDS = ("alarm_log", "put_log")
 _DEFAULT_ENGINEER_PROPERTY = "Engineer"
 _DEFAULT_HEALTH_SUFFIXES = ("HEARTBEAT", "UPTIME")
 #: The signals the simulator serves for each of its IOCs, ``<code>:SIM:<model>:<signal>``.
@@ -55,6 +60,7 @@ _NO_HEALTH_PVS = "no IOC health PVs listed for this IOC"
 _FEED_LOADING = "alarm feed still loading"
 _LIVE_CONFIGURATION = "live configuration"
 _LOGGED_CONFIGURATION = "last logged configuration"
+#: The panel that shows directory results; its deep-link routes are ``#/pv/`` and ``#/ioc/``.
 _PANEL = "/panel/channel-finder/"
 
 #: Each section after the directory, and the context key that configures it.
@@ -64,6 +70,11 @@ _SECTIONS = (
     ("alarm_history", "pv_directory_alarm_log"),
     ("put_history", "pv_directory_put_log"),
 )
+
+
+def panel_link(kind: str, name: str) -> dict[str, str]:
+    """``{"panel": url}`` opening *name* on the panel's ``pv`` or ``ioc`` page."""
+    return {"panel": f"{_PANEL}#/{kind}/{quote(name, safe='')}"}
 
 
 class _NoSource:
@@ -102,18 +113,49 @@ class Facts:
             "directory": self._directory,
             "alarm_state": self._alarm_state,
             "alarm_config": self._alarm_config,
-            "alarm_history": self._history("alarm_log"),
-            "put_history": self._history("put_log"),
+            "alarm_history": lambda pv, within: self._history("alarm_log", pv, within),
+            "put_history": lambda pv, within: self._history("put_log", pv, within),
         }
         keys = ("directory", *configured)
         answers = await asyncio.gather(*(_guarded(readers[key](name, deadline)) for key in keys))
         target = _target_of(answers[0]) or await self._target()
-        sections = []
-        for key, answer in zip(keys, answers, strict=True):
-            if isinstance(answer, _NoSource):
-                answer = {**unavailable_payload(answer.reason, target=target), **answer.fields}
-            sections.append({"section": key, **answer})
+        sections = [
+            {"section": key, **await self._finished(answer, target)}
+            for key, answer in zip(keys, answers, strict=True)
+        ]
         return {"name": name, "sections": sections}
+
+    async def alarm_state(self, name: str) -> dict[str, Any]:
+        """The alarm state section of the PV called *name*: ``{outcome, source, record, reason?}``."""
+        return await self._finished(await _guarded(self._alarm_state(name, self._timeout())))
+
+    async def alarm_config(self, name: str) -> dict[str, Any]:
+        """The alarm configuration section of the PV called *name*, with its ``label``."""
+        return await self._finished(await _guarded(self._alarm_config(name, self._timeout())))
+
+    async def history(
+        self,
+        kind: str,
+        name: str,
+        *,
+        since: datetime | None = None,
+        limit: int = _HISTORY_LIMIT,
+    ) -> dict[str, Any]:
+        """The ``alarm_log`` or ``put_log`` history section of the PV called *name*.
+
+        Args:
+            kind: ``"alarm_log"`` or ``"put_log"``.
+            name: The PV name.
+            since: Only rows logged at or after this moment; ``None`` reads the newest.
+            limit: The most rows the page holds.
+
+        Raises:
+            ValueError: *kind* is not a history kind.
+        """
+        if kind not in _HISTORY_KINDS:
+            raise ValueError(f"{kind!r} is not one of {_HISTORY_KINDS}")
+        read = self._history(kind, name, self._timeout(), since=since, limit=limit)
+        return await self._finished(await _guarded(read))
 
     async def _directory(self, name: str, deadline: float) -> dict[str, Any]:  # noqa: ARG002
         """The directory record; ``describe`` runs under the service's own deadline."""
@@ -166,18 +208,32 @@ class Facts:
             return _failed_config(log_source, _LOGGED_CONFIGURATION, answer.reason)
         return _config_section(log_source, answer)
 
-    def _history(self, kind: str) -> Callable[[str, float], Awaitable[Any]]:
-        async def read(name: str, deadline: float) -> Any:
-            backend, source, reason = await self._service.backend(kind)
-            if backend is None:
-                return _NoSource(reason or NO_SOURCE_REASON, rows=[])
-            answer = await _ask(backend.history(name, None, _HISTORY_LIMIT, deadline), deadline)
-            if _is_unavailable(answer):
-                return _section(source, "unavailable", rows=[], reason=answer.reason)
-            page = as_payload(answer)
-            return {key: value for key, value in page.items() if key != "reason" or value}
+    async def _history(
+        self,
+        kind: str,
+        name: str,
+        deadline: float,
+        *,
+        since: datetime | None = None,
+        limit: int = _HISTORY_LIMIT,
+    ) -> Any:
+        backend, source, reason = await self._service.backend(kind)
+        if backend is None:
+            return _NoSource(reason or NO_SOURCE_REASON, rows=[])
+        answer = await _ask(backend.history(name, since, limit, deadline), deadline)
+        if _is_unavailable(answer):
+            return _section(source, "unavailable", rows=[], reason=answer.reason)
+        page = as_payload(answer)
+        return {key: value for key, value in page.items() if key != "reason" or value}
 
-        return read
+    async def _finished(
+        self, answer: dict[str, Any] | _NoSource, target: str | None = None
+    ) -> dict[str, Any]:
+        """*answer* as a section payload: a missing source answers for *target*, else the current one."""
+        if not isinstance(answer, _NoSource):
+            return answer
+        payload = unavailable_payload(answer.reason, target=target or await self._target())
+        return {**payload, **answer.fields}
 
     def _detail_properties(self, record: Mapping[str, Any] | None) -> list[str]:
         """The properties the PV page shows first; every one when none are configured."""
@@ -192,7 +248,7 @@ class Facts:
 
     async def ioc_facts(self, ioc: str) -> dict[str, Any]:
         """The IOC called *ioc*, as the ``IocFacts`` payload."""
-        links = {"panel": f"{_PANEL}#/ioc/{quote(ioc, safe='')}"}
+        links = panel_link("ioc", ioc)
         empty: dict[str, Any] = {
             "ioc": ioc,
             "host": None,

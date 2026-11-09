@@ -23,12 +23,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
-from urllib.parse import quote
 
 from fastmcp import FastMCP
 
 from osprey.mcp_server.errors import make_error
 from osprey.services.pv_directory.facts import Facts
+from osprey.services.pv_directory.facts import panel_link as panel_link
 from osprey.services.pv_directory.resolve import SectionError, predicates, resolve_section
 from osprey.services.pv_directory.service import DirectoryService
 
@@ -44,9 +44,6 @@ mcp = FastMCP(
         "panel link that shows it."
     ),
 )
-
-#: The panel that shows directory results, and its deep-link routes.
-_PANEL = "/panel/channel-finder/"
 
 #: The error words a whole-call refusal uses (Contracts, Outcome).
 NOT_SUPPORTED = "not_supported"
@@ -155,11 +152,6 @@ def create_server() -> FastMCP:
 
     logger.info("PV directory MCP server initialised (gated tools: %s)", gated or "none")
     return mcp
-
-
-def panel_link(kind: str, name: str) -> dict[str, str]:
-    """``{"panel": url}`` opening *name* on the panel's ``pv`` or ``ioc`` page."""
-    return {"panel": f"{_PANEL}#/{kind}/{quote(name, safe='')}"}
 
 
 def refuse_unavailable(tool: str, answer: Mapping[str, Any]) -> NoReturn:
