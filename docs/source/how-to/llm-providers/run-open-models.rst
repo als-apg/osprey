@@ -88,9 +88,10 @@ Benchmark it yourself
 
 .. note::
 
-   This benchmark is young, not an exhaustive test of OSPREY with open or frontier
-   models. It will grow: more Tier 2 tasks, and facilities beyond the storage ring
-   such as a free-electron laser. Contributions are welcome: :doc:`/contributing/index`.
+   The benchmark covers an initial set of storage-ring tasks; it is not a complete
+   assessment of open or frontier models with OSPREY. Further Tier 2 tasks and
+   other facility types, such as free-electron lasers, are planned, and
+   :doc:`contributions </contributing/index>` are welcome.
 
 OSPREY ships the benchmark toolchain under
 ``scripts/benchmark/`` (see its `README
@@ -137,6 +138,12 @@ dashboard scores each test on its first attempt, without reruns:
    scripts/benchmark/build_board_images.sh   # the images a full run needs, once per revision
    scripts/benchmark/matrix.py --parallel 4
    scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
+
+.. admonition:: Benchmark results
+   :class: important
+
+   Results by model and test (pass rate, time and token use per task) will be
+   published here after the next full benchmark run.
 
 .. seealso::
 
