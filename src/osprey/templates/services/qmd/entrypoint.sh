@@ -112,6 +112,11 @@ HEALTH_TIMEOUT="${OSPREY_QMD_HEALTH_TIMEOUT:-900}"
 # Escape hatch: force the full rebuild path even when the embedder matches.
 FORCE_REINDEX="${OSPREY_QMD_FORCE_REINDEX:-0}"
 
+# `0`: the index is keyword-only. `qmd embed` never runs, at startup or on an
+# update, and a vector query on this corpus returns nothing. Set for a corpus
+# whose clients query BM25 alone; anything else embeds.
+EMBED="${OSPREY_QMD_EMBED:-1}"
+
 CONFIG_FILE="$STATE_DIR/.qmd/index.yml"
 DB_FILE="$STATE_DIR/.qmd/index.sqlite"
 IDENTITY_STAMP="$STATE_DIR/.qmd/osprey-embed-identity"
@@ -420,7 +425,11 @@ decide_build_mode() {
 
 announce_full_build() {
     log "FULL REINDEX required: $BUILD_REASON"
-    log "  Every document will be re-scanned and every embedding recomputed."
+    if [ "$EMBED" = 0 ]; then
+        log "  Every document will be re-scanned; embedding is off for this corpus."
+    else
+        log "  Every document will be re-scanned and every embedding recomputed."
+    fi
     log "  This is slow by nature: at ~135,000 documents it measured"
     log "  41 minutes -- 17 for the keyword index, 24 for the embeddings."
     log "  The search endpoint on port $PORT stays CLOSED until it finishes."
@@ -458,6 +467,16 @@ embed_until_done() {
     done
 }
 
+# The embedding step of a pass. With embedding off it only records how many
+# documents have no vectors, which for a keyword-only index is all of them.
+embed_pass() {
+    if [ "$EMBED" = 0 ]; then
+        EMBED_PENDING=$(status_field "$(qmd status 2>&1 || true)" Pending)
+        return 0
+    fi
+    embed_until_done
+}
+
 run_startup_pass() {
     decide_build_mode
 
@@ -487,11 +506,17 @@ run_startup_pass() {
 
     # `qmd update` deliberately does not embed -- it reports how many hashes
     # need vectors and leaves them pending. Without this step the index would
-    # serve keyword hits and silently return nothing for vector searches.
-    log "computing embeddings ('qmd embed')"
-    start_heartbeat "embedding"
-    embed_until_done
-    stop_heartbeat
+    # serve keyword hits and silently return nothing for vector searches,
+    # which is what a corpus with embedding off asks for.
+    if [ "$EMBED" = 0 ]; then
+        log "embedding off (OSPREY_QMD_EMBED=0): keyword index only"
+        embed_pass
+    else
+        log "computing embeddings ('qmd embed')"
+        start_heartbeat "embedding"
+        embed_pass
+        stop_heartbeat
+    fi
 
     _pass_elapsed=$(( $(date +%s) - _pass_t0 ))
     log "startup pass finished in $(fmt_duration "$_pass_elapsed")"
@@ -548,7 +573,7 @@ assert_index_populated() {
         die "index is empty after the startup pass; refusing to serve. Nothing would be findable, and a healthy-looking empty sidecar is worse than a sidecar that will not start. Check the collection paths above and the corpus mounts."
     fi
 
-    if [ "$BUILD_MODE" = full ] && [ "$_vectors" -eq 0 ]; then
+    if [ "$BUILD_MODE" = full ] && [ "$EMBED" != 0 ] && [ "$_vectors" -eq 0 ]; then
         die "full rebuild produced $_total document(s) but 0 embeddings; refusing to serve, because every vector search would return nothing. Check the 'qmd embed' output above."
     fi
 }
@@ -671,7 +696,7 @@ run_update() {
     _upd_t0=$(date +%s)
     log "update triggered by $_upd_reason"
     run_stage qmd update || log "WARNING: 'qmd update' exited non-zero; keeping the previous index and continuing"
-    embed_until_done
+    embed_pass
     log "update finished in $(fmt_duration "$(( $(date +%s) - _upd_t0 ))")"
 }
 
