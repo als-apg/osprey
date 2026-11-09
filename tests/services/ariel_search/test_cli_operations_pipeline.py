@@ -1342,6 +1342,297 @@ class TestRunEnhance:
 
 
 # ---------------------------------------------------------------------------
+# run_enhance --entry -- one module re-run for one failed or stale entry
+# ---------------------------------------------------------------------------
+
+_VISION = "vision-1"
+_EMBED = "fake-embed"
+
+
+def _entry_config() -> dict[str, Any]:
+    """image_caption under ``_VISION`` and text_embedding under ``_EMBED`` (build key ``r1``)."""
+    return {
+        "database": {"uri": "postgresql://fake/ariel"},
+        "enhancement_modules": {
+            "image_caption": {"enabled": True, "model": {"model_id": _VISION}},
+            "semantic_processor": {"enabled": False},
+            "text_embedding": {
+                "enabled": True,
+                "provider": {"name": "fake", "base_url": "http://fake-embeddings.invalid:11434"},
+                "models": [{"name": _EMBED, "dimension": 4}],
+            },
+            "image_embedding": {"enabled": False},
+        },
+    }
+
+
+class _EntryLocks:
+    """Fake ``try_advisory_lock`` recording each acquire and release in order."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, str]] = []
+
+    def __call__(self, conninfo: str, key: str, *, wait: bool = False):  # noqa: ARG002 - the faked signature
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def _held():
+            self.events.append(("acquire", key))
+            try:
+                yield True
+            finally:
+                self.events.append(("release", key))
+
+        return _held()
+
+
+class TestRunEnhanceOneEntry:
+    """``run_enhance(entry_id=...)``: refusals, the entry-scoped reset, and the one-entry drive."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_availability(self):
+        from osprey.services.ariel_search.enhancement import _offload, availability
+
+        availability.reset_availability()
+        _offload.reset_offload_state()
+        yield
+        availability.reset_availability()
+        _offload.reset_offload_state()
+
+    @staticmethod
+    def _harness(
+        monkeypatch,
+        repo,
+        entries: dict[str, dict[str, Any]],
+        *,
+        build_keys: dict[str, str] | None = None,
+        text: list[Any] = (),
+        images: list[Any] = (),
+    ) -> _EntryLocks:
+        import osprey.services.ariel_search.database.connection as connection_mod
+        import osprey.services.ariel_search.enhancement as enh
+
+        repo.pool.conninfo = "postgresql://fake/ariel"
+
+        async def _get_entry(entry_id: str):
+            found = entries.get(entry_id)
+            return None if found is None else dict(found)
+
+        repo.get_entry = AsyncMock(side_effect=_get_entry)
+        repo.schema_facts = AsyncMock(
+            return_value=SchemaFacts(has_v2_fts=True, has_copy_state=True)
+        )
+        repo.text_input_key_column = AsyncMock(return_value=True)
+        repo.get_text_build_keys = AsyncMock(return_value=dict(build_keys or {}))
+        repo.stamp_baseline_markers = AsyncMock()
+        repo.get_incomplete_entries = AsyncMock(
+            side_effect=AssertionError("a one-entry run never reads the to-do list")
+        )
+        repo.mark_image_module_complete_batch = AsyncMock(
+            side_effect=AssertionError("a one-entry run never batch-marks other entries")
+        )
+        _patch_service(monkeypatch, _StubService(repo))
+        locks = _EntryLocks()
+        monkeypatch.setattr(connection_mod, "try_advisory_lock", locks)
+
+        def _factory(config: Any, *, stage: str = "inline", names: Any = None) -> list[Any]:  # noqa: ARG001 - the faked signature
+            pool = list(text) if stage == "inline" else list(images)
+            return [m for m in pool if not names or m.name in names]
+
+        monkeypatch.setattr(enh, "create_enhancers_from_config", _factory)
+        return locks
+
+    @staticmethod
+    def _entry_params(repo) -> set[str]:
+        """Every ``entry_id`` a statement was bound to."""
+        return {
+            params["entry_id"]
+            for _sql, params in repo.pool.calls
+            if isinstance(params, dict) and "entry_id" in params
+        }
+
+    async def test_failed_text_entry_is_reset_then_records_a_new_attempt(
+        self, monkeypatch, mock_repository
+    ):
+        failed = {"text_embedding": {"status": "failed", "attempts": 3, "error": "boom"}}
+        entries = {
+            "E1": {"entry_id": "E1", "raw_text": "one", "enhancement_status": failed},
+            "E2": {"entry_id": "E2", "raw_text": "two", "enhancement_status": failed},
+        }
+        enhancer = _Enhancer("text_embedding", fails_on={"E1"})
+        locks = self._harness(
+            monkeypatch, mock_repository, entries, build_keys={"E1": "r1"}, text=[enhancer]
+        )
+        mock_repository.pool.recorder.rows_for = {"RETURNING entry_id": [("E1",)]}
+        mock_repository.mark_enhancement_failed = AsyncMock(return_value=1)
+
+        out = await ops.run_enhance(_entry_config(), "text_embedding", False, 100, entry_id="E1")
+
+        # The reset drops the attempt count of this entry only, so a re-failure
+        # is recorded as attempt 1 under a new failed_at.
+        ((reset_sql, reset_params),) = mock_repository.pool.recorder.matching("RETURNING entry_id")
+        assert "- 'attempts'" in reset_sql
+        assert "AND entry_id = %(entry_id)s" in reset_sql
+        assert reset_params["entry_id"] == "E1"
+        assert enhancer.seen == ["E1"]
+        mock_repository.mark_enhancement_failed.assert_awaited_once_with(
+            "E1", "text_embedding", "enhance failed on E1"
+        )
+        assert out.entries_processed == 1 and out.failed == 1
+        assert self._entry_params(mock_repository) == {"E1"}
+        # Retry and drive each take the module lock themselves; none spans both.
+        assert locks.events == [
+            ("acquire", "ariel_enhance:text_embedding"),
+            ("release", "ariel_enhance:text_embedding"),
+            ("acquire", "ariel_enhance:text_embedding"),
+            ("release", "ariel_enhance:text_embedding"),
+        ]
+
+    async def test_failed_text_entry_that_now_succeeds_is_marked_complete(
+        self, monkeypatch, mock_repository
+    ):
+        failed = {"text_embedding": {"status": "failed", "gave_up": True}}
+        entries = {"E1": {"entry_id": "E1", "raw_text": "one", "enhancement_status": failed}}
+        enhancer = _Enhancer("text_embedding")
+        self._harness(monkeypatch, mock_repository, entries, text=[enhancer])
+
+        out = await ops.run_enhance(_entry_config(), "text_embedding", False, 100, entry_id="E1")
+
+        assert enhancer.seen == ["E1"]
+        ((args, _kw),) = mock_repository.mark_enhancement_complete.await_args_list
+        assert args == ("E1", "text_embedding")
+        assert out.succeeded == 1
+
+    async def test_image_caption_entry_failed_by_an_error_caption_is_captioned_again(
+        self, monkeypatch, mock_repository
+    ):
+        from osprey.services.ariel_search.enhancement import image_driver
+        from osprey.services.ariel_search.enhancement.base import ImageEntryOutcome
+        from tests.services.ariel_search.test_availability import FakeModule
+
+        status = {
+            "image_caption": {"status": "failed", "gave_up": True, "marker": _VISION},
+            "text_embedding": {"status": "complete"},
+        }
+        attachments = [{"url": "file:///a.png", "filename": "a.png", "type": "image/png"}]
+        entries = {
+            "E1": {
+                "entry_id": "E1",
+                "raw_text": "one",
+                "attachments": attachments,
+                "has_images": True,
+                "enhancement_status": status,
+            },
+            "E2": {"entry_id": "E2", "has_images": True, "enhancement_status": status},
+        }
+        captioned: list[str] = []
+
+        def _caption(_mod, entry, _gate):
+            captioned.append(entry["entry_id"])
+            return ImageEntryOutcome.done()
+
+        module = FakeModule(_caption, name="image_caption", marker=_VISION)
+        self._harness(
+            monkeypatch, mock_repository, entries, build_keys={"E1": "r1"}, images=[module]
+        )
+
+        async def _viewable(_entry, _repository):
+            return ["a1"]
+
+        monkeypatch.setattr(image_driver, "viewable_in_list_order", _viewable)
+        error_caption = {"a1": {_VISION: {"error": "HTTP 400 bad image"}}}
+        mock_repository.pool.recorder.rows_for = {
+            "RETURNING entry_id": [("E1",)],
+            "c.per_model->%(model)s ? 'error'": [("E1", attachments)],
+            "FOR UPDATE": [(attachments, "the old picture text", error_caption)],
+        }
+
+        out = await ops.run_enhance(_entry_config(), "image_caption", False, 100, entry_id="E1")
+
+        recorder = mock_repository.pool.recorder
+        ((read_sql, read_params),) = recorder.matching("c.per_model->%(model)s ? 'error'")
+        assert "AND e.entry_id = %(entry_id)s" in read_sql
+        assert read_params["entry_id"] == "E1"
+        # The error caption is gone, so the driver captions the picture again.
+        ((_sql, update),) = recorder.matching("SET attachment_text = %(text)s")
+        assert update["captions"].obj == {}
+        assert captioned == ["E1"]
+        assert out.entries_processed == 1
+        # The one cascade: attachment_text changed, so its readers' keys are cleared.
+        cascade = recorder.matching("enhancement_status - %(keys)s::text[]")
+        assert [params["entry_id"] for _sql, params in cascade] == ["E1"]
+        assert "text_embedding" in cascade[0][1]["keys"]
+        # Nothing else is bound to any entry but E1.
+        assert self._entry_params(mock_repository) == {"E1"}
+
+    async def test_stale_picture_entry_has_only_its_key_cleared_then_runs(
+        self, monkeypatch, mock_repository
+    ):
+        from osprey.services.ariel_search.enhancement.base import ImageEntryOutcome
+        from tests.services.ariel_search.test_availability import FakeModule
+
+        stale = {"image_caption": {"status": "complete", "marker": "an-older-model"}}
+        entries = {"E1": {"entry_id": "E1", "has_images": True, "enhancement_status": stale}}
+        module = FakeModule(lambda *_: ImageEntryOutcome.done(), marker=_VISION)
+        self._harness(monkeypatch, mock_repository, entries, images=[module])
+
+        await ops.run_enhance(_entry_config(), "image_caption", False, 100, entry_id="E1")
+
+        recorder = mock_repository.pool.recorder
+        assert recorder.matching("RETURNING entry_id") == []
+        ((_sql, params),) = recorder.matching("enhancement_status - %(module)s")
+        assert params == {"entry_id": "E1", "module": "image_caption"}
+        assert module.run_calls == ["E1"]
+
+    async def test_complete_entry_is_refused_and_nothing_runs(self, monkeypatch, mock_repository):
+        done = {"image_caption": {"status": "complete", "marker": _VISION}}
+        entries = {"E1": {"entry_id": "E1", "has_images": True, "enhancement_status": done}}
+        locks = self._harness(monkeypatch, mock_repository, entries)
+
+        with pytest.raises(ops.EntryRerunRefused, match="complete"):
+            await ops.run_enhance(_entry_config(), "image_caption", False, 100, entry_id="E1")
+
+        assert locks.events == []
+        assert mock_repository.pool.calls == []
+
+    async def test_text_embedding_stale_is_refused_naming_reembed(
+        self, monkeypatch, mock_repository
+    ):
+        done = {"text_embedding": {"status": "complete"}}
+        entries = {"E1": {"entry_id": "E1", "raw_text": "one", "enhancement_status": done}}
+        enhancer = _Enhancer("text_embedding")
+        locks = self._harness(
+            monkeypatch, mock_repository, entries, build_keys={"E1": "an-old-key"}, text=[enhancer]
+        )
+
+        with pytest.raises(ops.EntryRerunRefused) as refused:
+            await ops.run_enhance(_entry_config(), "text_embedding", False, 100, entry_id="E1")
+
+        assert f"osprey ariel reembed --model {_EMBED} --dimension 4 --force" in str(refused.value)
+        assert enhancer.seen == []
+        assert locks.events == []
+
+    @pytest.mark.parametrize(
+        ("status", "named"),
+        [({}, "osprey ariel enhance --module text_embedding"), (None, "No entry")],
+    )
+    async def test_pending_or_missing_entry_is_refused_naming_the_way(
+        self, monkeypatch, mock_repository, status, named
+    ):
+        entries = {} if status is None else {"E1": {"entry_id": "E1", "enhancement_status": status}}
+        self._harness(monkeypatch, mock_repository, entries)
+
+        with pytest.raises(ops.EntryRerunRefused, match=named):
+            await ops.run_enhance(_entry_config(), "text_embedding", False, 100, entry_id="E1")
+
+    async def test_entry_without_a_module_is_refused(self, monkeypatch):
+        _forbid_service(monkeypatch)
+
+        with pytest.raises(ops.EntryRerunRefused, match="--entry needs --module"):
+            await ops.run_enhance(dict(_DB), None, False, 100, entry_id="E1")
+
+
+# ---------------------------------------------------------------------------
 # seed_logbook_entries -- progress branches
 # ---------------------------------------------------------------------------
 

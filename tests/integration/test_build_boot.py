@@ -51,7 +51,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # Presets shipped in src/osprey/profiles/presets that ship with this repo.
 # osprey-edu adds ``education`` via an additional parametrize entry on top of
 # this list; education-specific assertions live in osprey-edu's own test file.
-PRESETS = ["hello-world", "control-assistant"]
+PRESETS = ["hello-world", "demo"]
 
 
 # Hard-coded expected tools per logical .mcp.json server name. Subset

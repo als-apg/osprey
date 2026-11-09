@@ -365,13 +365,13 @@ class TestCollectAndRegisterArtifacts:
         assert len(ids) == 1
         entry = art_store.get_entry(ids[0])
         assert entry.filename.endswith("real.png")
-        assert entry.metadata == {"data_source": "abcdefabcdef"}
-        # No category given: the entry is neither categorized nor agent-tagged.
+        # first_ts is the store's own save stamp, not viz metadata.
+        viz_metadata = {k: v for k, v in entry.metadata.items() if k != "first_ts"}
+        assert viz_metadata == {"data_source": "abcdefabcdef"}
         assert entry.category == ""
-        assert entry.source_agent == ""
 
-    def test_category_named_in_save_artifact_wins_over_the_tools(self, art_store, tmp_path: Path):
-        """save_artifact(..., category=) in the code is the more specific claim."""
+    def test_a_category_named_in_save_artifact_is_dropped(self, art_store, tmp_path: Path):
+        """Categories are retired: save_artifact(..., category=) in the code is ignored."""
         from osprey.mcp_server.workspace.tools._viz_common import collect_and_register_artifacts
 
         png = tmp_path / "orbit.png"
@@ -379,29 +379,18 @@ class TestCollectAndRegisterArtifacts:
         result = self._exec_result(png)
         result.artifacts[0]["category"] = "lattice_analysis"
 
-        ids = collect_and_register_artifacts(
-            result, tool_source="create_static_plot", category="plot"
-        )
+        ids = collect_and_register_artifacts(result, tool_source="create_static_plot")
 
         entry = art_store.get_entry(ids[0])
-        assert entry.category == "lattice_analysis"
+        assert entry.category == ""
         assert entry.source_agent == "data-visualizer"
 
-    def test_tool_category_is_the_fallback(self, art_store, tmp_path: Path):
+    def test_category_is_not_a_parameter(self):
+        import inspect
+
         from osprey.mcp_server.workspace.tools._viz_common import collect_and_register_artifacts
 
-        png = tmp_path / "orbit.png"
-        png.write_bytes(b"\x89PNG fake")
-
-        ids = collect_and_register_artifacts(
-            self._exec_result(png),
-            tool_source="create_static_plot",
-            category="plot",
-        )
-
-        entry = art_store.get_entry(ids[0])
-        assert entry.category == "plot"
-        assert entry.source_agent == "data-visualizer"
+        assert "category" not in inspect.signature(collect_and_register_artifacts).parameters
 
 
 class TestBuildVizResponse:

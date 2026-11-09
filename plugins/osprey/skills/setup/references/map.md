@@ -8,7 +8,7 @@ that make a verdict actually land.
 
 Read the map from live sources, never from memory: the locked status quo, `osprey profile
 artifacts`, the emitted `profile.yml` (its commented blocks are the catalog of optional
-top-level features), and `src/osprey/profiles/presets/control-assistant.yml`, the
+top-level features), and `src/osprey/profiles/presets/demo.yml`, the
 reference example — it ships every config key it configures, each on the line that
 documents it, grouped under `# ── <Area> ──` headers inside `config:`.
 
@@ -87,7 +87,7 @@ area on the card.
 
 The areas, and where each one's components are read from at run time:
 
-| Area | Source it consumes | Components, read from `control-assistant.yml` |
+| Area | Source it consumes | Components, read from `demo.yml` |
 | --- | --- | --- |
 | LOGBOOK | a facility logbook | `# ── ARIEL logbook search` and `# ── Logbook composition` key groups; `services.postgresql.*`; `ariel` in `web_panels`; agent `logbook-deep-research`; app `logbook` (`apps/logbook.yml`, named under `shared:`); `data/facility/ariel/vocabulary.yml` |
 | KNOWLEDGE | documentation, an IOC database, a device list | `# ── Facility knowledge` group; `services.qmd.*` and `services.graphdb.*`; `okf` in `web_panels`; agents `facility-knowledge`, `facility-knowledge-graph`; app `knowledge` (`apps/knowledge.yml`, named under `shared:`); `data/facility/knowledge/`; the build's graph view |
@@ -112,12 +112,12 @@ Adopting an area later is a resume: the row flips and the feature port runs for 
 Every `adopt`, and every `port` verdict on a data path, lands through this sequence and
 no other. It is what keeps the profile complete and the data facility-owned.
 
-1. **Keys.** In `control-assistant.yml`, find the area's `# ── <Area> ──` group inside
+1. **Keys.** In `demo.yml`, find the area's `# ── <Area> ──` group inside
    `config:`. Copy the whole group into the emitted profile's `config:` block, comments
    included — after its last key, before the top-level `data:`. A repo that was already
    `osprey init`-ed from that preset carries the same keys in its own `profile.yml`, so
    copy from there when you have one. From a pip install, the preset sits at
-   `profiles/presets/control-assistant.yml` under the package root
+   `profiles/presets/demo.yml` under the package root
    (`references/osprey-map.md`, "Without a source checkout").
 2. **Values.** Replace every facility-specific value in the copied group with
    `osprey set config.<dotted key>=<value>`: paths, URLs, adapter names, the facility's
@@ -135,7 +135,7 @@ no other. It is what keeps the profile complete and the data facility-owned.
    `apps/<name>.yml` (`osprey scaffold apps`) and its name under `shared:` in the same
    step.
 6. **Data.** Land the area's data path: a skeleton via `osprey scaffold pull
-   control-assistant:<path>` (never `--with-content`), the facility's own file on a
+   demo:<path>` (never `--with-content`), the facility's own file on a
    `port` verdict, or a built file from the harvest (`references/knowledge-starter.md`).
    Then the wiring rule: set every config key that binds that path, from the group you
    copied in step 1. Files nothing points at are invisible to the build.
@@ -146,7 +146,7 @@ no other. It is what keeps the profile complete and the data facility-owned.
 Worked example, the facility knowledge bundle:
 
 ```
-osprey scaffold pull control-assistant:data/facility/knowledge
+osprey scaffold pull demo:data/facility/knowledge
 osprey set config.facility_knowledge.bundle_path=data/facility/knowledge
 ```
 
@@ -172,13 +172,13 @@ reference example's concepts.
 
 Multi-user web terminals are absent from hello-world's emission, so they are one feature
 port with extra steps: the tier files in the reference example are deltas against the
-control-assistant base, its app files are written for that base's services, and
+demo base, its app files are written for that base's services, and
 several of that base's facts leak out of the block.
 Copying only the `modules.web_terminals` block does not validate and does not build on
 a hello-world base. Run all seven steps, in order.
 
 1. `osprey init <name> --preset hello-world`.
-2. From `src/osprey/profiles/presets/control-assistant.yml`, copy the
+2. From `src/osprey/profiles/presets/demo.yml`, copy the
    `modules.web_terminals:` block **and** its two floor keys into `profile.yml`. They go
    inside `config:`, after its last key, before the top-level `data:`.
 
@@ -203,8 +203,8 @@ a hello-world base. Run all seven steps, in order.
      one as a `stated` file and points the key at it.
    - **The demo logins `alice`, `bob` and `carol`** under `users:`. This is the step where
      they leave; the rule is `references/knowledge-starter.md` §6.
-3. `osprey scaffold tiers --from control-assistant`, then
-   `osprey scaffold apps --from control-assistant`. The pasted block names a
+3. `osprey scaffold tiers --from demo`, then
+   `osprey scaffold apps --from demo`. The pasted block names a
    `default_tier`, the tiers its roster entries use and the apps under `shared:`, and
    until each has its file validate refuses and names the verb that writes it. The two
    verbs write `tiers/<name>.yml` for every tier the roster names and
@@ -257,7 +257,7 @@ end to end, so a step that stops working fails there rather than in a run.
 ## Base demo material
 
 hello-world emits two demo items of its own. Both are ledger rows from the first step.
-`osprey scaffold pull control-assistant --list` never surfaces the first, because it reads
+`osprey scaffold pull demo --list` never surfaces the first, because it reads
 the reference example, not what hello-world emitted; it does list the second, as the
 reference example's own copy — never pull it.
 

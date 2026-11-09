@@ -98,7 +98,7 @@ def base_venv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 def build(project_path: Path, profile: BuildProfile) -> dict:
     """Build into *project_path* and return the emitted record, parsed."""
     project_path.mkdir(parents=True, exist_ok=True)
-    _create_project_venv(project_path, _plan_project_venv(profile))
+    _create_project_venv(project_path, _plan_project_venv(profile, install=True))
     return tomllib.loads((project_path / "pyproject.toml").read_text(encoding="utf-8"))
 
 

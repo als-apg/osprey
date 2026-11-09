@@ -7,8 +7,6 @@ See 04_OSPREY_INTEGRATION.md Section 12.3.4 for test requirements.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 # xdist_group("docker"): pins every container-starting test file onto one worker, so
@@ -22,16 +20,6 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 class TestIngestionPipeline:
     """Test full ingestion pipeline from adapter to storage."""
-
-    @pytest.fixture
-    def sample_entries_path(self) -> Path:
-        """Path to sample ALS entries fixture file."""
-        return (
-            Path(__file__).parent.parent.parent.parent
-            / "fixtures"
-            / "ariel"
-            / "sample_als_entries.jsonl"
-        )
 
     async def test_full_pipeline_adapter_to_storage(
         self, repository, sample_entries_path, integration_ariel_config, seeded_prefixes
@@ -246,16 +234,6 @@ class TestIngestionPipeline:
 
 class TestIngestionWithTimeFilters:
     """Test ingestion adapter time filtering."""
-
-    @pytest.fixture
-    def sample_entries_path(self) -> Path:
-        """Path to sample ALS entries fixture file."""
-        return (
-            Path(__file__).parent.parent.parent.parent
-            / "fixtures"
-            / "ariel"
-            / "sample_als_entries.jsonl"
-        )
 
     async def test_adapter_respects_since_filter(
         self, sample_entries_path, integration_ariel_config

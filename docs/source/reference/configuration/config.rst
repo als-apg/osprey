@@ -11,13 +11,15 @@ authoring side, and this page catalogues what the rendered result means.
 The parts of that file gathered here are the models its simulator serves
 (``simulation:``), the
 diagnostic suite (``health:``), the browser UI's documentation and feedback
-settings (``web:``), the artifact gallery's own
-categories (``artifact_server:``), the Python sandbox's run ceiling
+settings (``web:``), the artifact gallery's
+extension types (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), where screenshots are written (``screen_capture:``), the
 links from an answer to a
-logbook entry (``ariel.entry_url_template``), how much of each logbook entry
-the agent reads (``ariel.entry_text``), whether the agent shows its
-thinking (``claude_code.thinking.display``), the Phoebus display bridge
+logbook entry (``ariel.entry_url_template``), the login the agent's SQL tool
+uses on a logbook database you run yourself (``ariel.database.readonly_uri``),
+how much of each logbook entry the agent reads (``ariel.entry_text``), whether
+the agent shows its thinking (``claude_code.thinking.display``), the Phoebus
+display bridge
 (``phoebus:``), and the deployment keys that decide which container image each
 service runs and how ``${VAR}`` placeholders in the compose files are filled
 in. Settings that only
@@ -58,10 +60,12 @@ the dotted form; the reason is under "Configuration overrides" in
      - The scenarios a deployment that has never chosen a set starts in, by
        name from the facility's scenarios. ``osprey up`` activates them
        the way ``osprey sim apply`` would, before it seeds the archive and the
-       logbook, and only while no set has been chosen. Absent, ``null`` or
-       ``[]`` starts in ``nominal`` alone, which is the default: the build
-       derives no start set. The control-assistant preset sets ``[rf-thermal]``;
-       the other presets leave it out. A value that is not a list of non-empty
+       logbook, and only while no set has been chosen. Absent, the build
+       derives it from the scenarios marked ``start: true``; with no mark,
+       absent, ``null`` or ``[]`` starts in ``nominal`` alone. The demo preset sets
+       ``[rf-thermal, demo-history]`` (an existing deployment gets
+       ``demo-history``'s sessions only from a fresh ``osprey init``); the other
+       presets leave it out. A value that is not a list of non-empty
        names, or a name that is not a scenario the facility serves (its own or
        the built-in ``still``), stops the
        build with a ``profile-invalid`` line naming the key (see
@@ -91,7 +95,7 @@ list, so a tier that sets the key there stops the build with
 ``osprey health`` always runs its built-in checks; a ``health:`` block adds a
 facility's own checks and tunes the suite's timing. Everything in the block is
 optional. For how to put these settings to work — the two recipes worth
-starting from, cost classes, and the ``SYSTEM`` dashboard — see
+starting from, cost classes, and the Health dashboard — see
 :doc:`/how-to/health-and-monitoring/configure-health-checks`; for the shape of
 the ``--json`` report, see :doc:`/reference/contracts/health-json`.
 
@@ -239,7 +243,7 @@ configured or deployed, so a minimal build shows no empty tiles.
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
-  graph MCP server (the graph store), the ARIEL panel and MCP server
+  graph MCP server (the graph store), the Logbook panel and ARIEL MCP server
   (Postgres), the Bluesky MCP server (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
   virtual-accelerator connector. One row per service, and the address it
   knocks on is the one **the client itself resolves** from this config, in the
@@ -693,8 +697,8 @@ reported in the log and ``true`` is used.
 Offering the terminal
 ~~~~~~~~~~~~~~~~~~~~~
 
-``web.terminal: false`` removes **Open terminal** from the Agent bar's **⋯**
-menu on every login the render serves, and ``/ws/terminal`` closes with code
+``web.terminal: false`` removes **Open terminal** from the Agent pane's session
+switcher on every login the render serves, and ``/ws/terminal`` closes with code
 ``4403`` before any process starts. The default is ``true``. A value that is
 not a boolean is reported in the log and ``true`` is used; a config file that
 cannot be read closes it. ``osprey build`` refuses a profile that still states
@@ -868,37 +872,37 @@ instead.
 
 .. _config-artifact-server:
 
-``artifact_server:`` — the workspace gallery's own categories
--------------------------------------------------------------
+``artifact_server:`` — the workspace gallery's extension types
+--------------------------------------------------------------
 
-Every artifact carries a **category**, and the category decides the badge the
-gallery draws on its card. OSPREY ships a general set — ``visualization``,
-``diagnostic_report``, ``lattice_analysis`` and the rest — which is a
-laboratory's vocabulary rather than yours. ``artifact_server.categories`` adds
-your own to it, from the build profile, one dotted line per category:
+The gallery and the sidebar group artifacts by base form: ``plots``,
+``trends``, ``tables``, ``documents``, ``dashboards``, ``images``, ``data``
+(``runs`` is the script-run group, not declarable).
+``artifact_server.extension_types`` adds your own kinds, one dotted line per
+type:
 
 .. code-block:: yaml
 
    # profile.yml, under config:
    config:
-     artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-     artifact_server.categories.rf_conditioning: {label: RF Conditioning, color: "#38bdf8"}
+     artifact_server.extension_types.beam_study: {label: Beam study, base_form: plots}
+     artifact_server.extension_types.rf_scan:
+       {label: RF scan, base_form: tables, viewer: viewers/rf_scan.mjs}
 
-Each entry takes a ``label`` (what the badge says) and a ``color`` (a
-``#RRGGBB`` hex value, and nothing else — a malformed entry is skipped with a
-warning rather than stopping the launch). The names are yours: nothing in
-OSPREY validates the vocabulary, and a category you do not declare here is
-simply not one the gallery knows.
+Each type takes a ``label`` (what the sidebar and gallery show), a
+``base_form`` it conforms to, and an optional ``viewer``: a ``.js`` or
+``.mjs`` path relative to the project root (see
+:ref:`profile-artifact-viewer`). An installed package declares types under the
+``osprey.artifact_types`` entry-point group, its viewer inside the package.
+``osprey build`` refuses an unknown base form, a key or label that collides
+with a base form or another type, and a missing or out-of-tree viewer; at
+runtime a bad type is logged and skipped, and a bad viewer is dropped. Types
+are read when the artifact server and the MCP workspace server start, so a new
+one arrives with ``osprey build`` and a restart.
 
-An artifact handed in under an undeclared category is still stored. What it
-loses is the badge — and the save logs ``Unregistered category ... declare it
-under artifact_server.categories``, which is the one place that mismatch shows
-up. The categories are read once, when the artifact server and the MCP
-workspace server start, so a new one arrives with ``osprey build`` and a
-restart.
-
-The four commented stanzas in the shipped presets have nothing to do but say
-this: a shipped value would be one facility's vocabulary handed to every other.
+The old ``categories`` block under ``artifact_server:`` is retired:
+``osprey build`` refuses it and says to declare
+``artifact_server.extension_types`` instead.
 
 Two other keys sit in this block. ``artifact_server.max_timeseries_file_mb``
 (default 200) is the largest timeseries data file the gallery will draw as a
@@ -977,13 +981,43 @@ When the key is set, every entry the ARIEL tools return carries an
 ``entries_by_ids``, the rows of ``sql_query`` that select ``entry_id``, and the
 result of ``entry_publish``. The id is URL-encoded before it is filled in. The
 agent is told to link that URL as given and never to build one, so with the key
-unset it shows plain entry IDs. An entry written by ``entry_create`` and not yet
-published gets no URL, because the logbook has no page for it.
+unset it shows plain entry IDs. An entry that exists only in ARIEL gets no URL,
+because the logbook has no page for it: one ``entry_create`` wrote directly
+(``source_system`` ``ARIEL MCP``) or one saved local-only (``metadata.sync_status``
+``local_only``, such as a Logbook web save or a publish the logbook did not take).
+A ``sql_query`` row also gets none when looking up the ``source_system`` or
+``metadata`` it does not select fails.
 
 A template that does not format (a misspelled placeholder, an unbalanced brace)
 is logged once as a warning and emits no URL; it never fails the read. The
 ARIEL server reads the key from the loaded configuration, so a change lands
 after ``osprey build`` and a restart of the stack.
+
+.. _config-ariel-database-readonly-uri:
+
+``ariel.database.readonly_uri`` — the SQL tool's login on your own database
+---------------------------------------------------------------------------
+
+The agent's ``sql_query`` tool connects to the logbook database as a
+SELECT-only login, never as the owner ingestion writes with. When OSPREY runs
+the database, it creates that login itself. When you name your own database
+with the ``uri`` key, name the read-only login beside it:
+
+.. code-block:: yaml
+
+   config:
+     ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+     ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
+
+Set, the key is used verbatim on any store; a derived store needs it only to
+replace the ``<username>_ro`` login OSPREY creates. Without it the SQL tool is
+not offered on a database named with the ``uri`` key: it is left out of the agent's tools and guidance, and a call that
+arrives anyway is refused with a message naming this key. Every other ARIEL
+tool keeps working.
+
+The login must be SELECT-only. The role is the boundary: OSPREY cannot check
+its grants on a database it did not provision. A value equal to the ingestion
+login is refused when the configuration loads.
 
 .. _config-ariel-entry-text:
 
@@ -1009,7 +1043,7 @@ the rest.
 
 Each value must be a positive whole number, and ``read_chars`` may not be below
 ``listing_chars``. Anything else is refused when the configuration is parsed:
-the ARIEL MCP server does not start, and the ARIEL panel reports the key. The
+the ARIEL MCP server does not start, and the Logbook panel reports the key. The
 keys are read at startup, so a change lands after ``osprey build`` and a
 restart. When choosing a value, the question is whether the part of an entry
 the agent needs routinely runs past 500 characters.
@@ -1193,6 +1227,10 @@ default. One row per image:
      - ``OSPREY_TEAMS_BRIDGE_IMAGE``
      - ``services.teams_bridge.image``
      - ``<project>-teams-bridge``
+   * - slack_bridge
+     - ``OSPREY_SLACK_BRIDGE_IMAGE``
+     - ``services.slack_bridge.image``
+     - ``<project>-slack-bridge``
    * - ariel_sync
      - ``OSPREY_WORKER_IMAGE``
      - ``services.ariel_sync.image``
@@ -1393,7 +1431,7 @@ the surface that refused it.
       Settings that arrive from the environment rather than from ``config.yml``.
 
    :doc:`/how-to/health-and-monitoring/configure-health-checks`
-      Putting the ``health:`` block to work, and the ``SYSTEM`` dashboard.
+      Putting the ``health:`` block to work, and the Health dashboard.
 
    :doc:`/how-to/web-terminal/operate`
       Running the terminal the ``web:`` settings render.

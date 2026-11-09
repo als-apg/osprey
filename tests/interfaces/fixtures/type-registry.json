@@ -1,0 +1,260 @@
+{
+  "artifact_types": {
+    "plot_html": {
+      "label": "Plotly",
+      "color": "#8b5cf6"
+    },
+    "plot_png": {
+      "label": "Matplotlib",
+      "color": "#e8c9a0"
+    },
+    "table_html": {
+      "label": "Table",
+      "color": "#22c55e"
+    },
+    "html": {
+      "label": "HTML",
+      "color": "#c084fc"
+    },
+    "markdown": {
+      "label": "Markdown",
+      "color": "#fbbf24"
+    },
+    "json": {
+      "label": "JSON",
+      "color": "#3b82f6"
+    },
+    "image": {
+      "label": "Image",
+      "color": "#a78bfa"
+    },
+    "text": {
+      "label": "Text",
+      "color": "#8b9ab5"
+    },
+    "file": {
+      "label": "File",
+      "color": "#506380"
+    },
+    "binary": {
+      "label": "Binary",
+      "color": "#64748b"
+    },
+    "notebook": {
+      "label": "Notebook",
+      "color": "#e879f9"
+    },
+    "dashboard_html": {
+      "label": "Dashboard",
+      "color": "#06b6d4"
+    }
+  },
+  "tool_types": {
+    "channel_read": {
+      "label": "Channel Read",
+      "color": "#4fd1c5"
+    },
+    "channel_write": {
+      "label": "Channel Write",
+      "color": "#e8c9a0"
+    },
+    "archiver_read": {
+      "label": "Archiver Read",
+      "color": "#3b82f6"
+    },
+    "execute": {
+      "label": "Python Execute",
+      "color": "#c084fc"
+    },
+    "channel_find": {
+      "label": "Channel Find",
+      "color": "#22c55e"
+    },
+    "ariel_search": {
+      "label": "ARIEL Search",
+      "color": "#e879f9"
+    },
+    "attachment_to_artifact": {
+      "label": "Logbook Picture",
+      "color": "#e879f9"
+    },
+    "screenshot_capture": {
+      "label": "Screenshot Capture",
+      "color": "#a78bfa"
+    },
+    "facility_description": {
+      "label": "Facility Description",
+      "color": "#fbbf24"
+    },
+    "artifact_register": {
+      "label": "Artifact Register",
+      "color": "#94a3b8"
+    },
+    "artifact_delete": {
+      "label": "Artifact Delete",
+      "color": "#94a3b8"
+    },
+    "artifact_export": {
+      "label": "Artifact Export",
+      "color": "#94a3b8"
+    },
+    "artifact_focus": {
+      "label": "Artifact Focus",
+      "color": "#60a5fa"
+    },
+    "submit_response": {
+      "label": "Submit Response",
+      "color": "#f472b6"
+    },
+    "channel-finder": {
+      "label": "Channel Finder",
+      "color": "#2dd4bf"
+    },
+    "logbook-deep-research": {
+      "label": "Logbook Deep Research",
+      "color": "#e879f9"
+    },
+    "logbook-search": {
+      "label": "Logbook Search",
+      "color": "#f0abfc"
+    },
+    "create_static_plot": {
+      "label": "Static Plot",
+      "color": "#fb923c"
+    },
+    "create_interactive_plot": {
+      "label": "Interactive Plot",
+      "color": "#38bdf8"
+    },
+    "create_dashboard": {
+      "label": "Dashboard",
+      "color": "#06b6d4"
+    },
+    "create_document": {
+      "label": "Document",
+      "color": "#a3e635"
+    }
+  },
+  "categories": {
+    "archiver_data": {
+      "label": "Archiver Data",
+      "color": "#2563eb"
+    },
+    "channel_values": {
+      "label": "Channel Values",
+      "color": "#14b8a6"
+    },
+    "write_results": {
+      "label": "Write Results",
+      "color": "#e8c9a0"
+    },
+    "code_output": {
+      "label": "Code Output",
+      "color": "#c084fc"
+    },
+    "visualization": {
+      "label": "Visualization",
+      "color": "#fb923c"
+    },
+    "dashboard": {
+      "label": "Dashboard",
+      "color": "#06b6d4"
+    },
+    "document": {
+      "label": "Document",
+      "color": "#a3e635"
+    },
+    "screenshot": {
+      "label": "Screenshot",
+      "color": "#a78bfa"
+    },
+    "agent_response": {
+      "label": "Uncategorized",
+      "color": "#f472b6"
+    },
+    "channel_addresses": {
+      "label": "Channel Addresses",
+      "color": "#2dd4bf"
+    },
+    "channel_finder": {
+      "label": "Channel Finder",
+      "color": "#10b981"
+    },
+    "logbook_research": {
+      "label": "Logbook Research",
+      "color": "#e879f9"
+    },
+    "search_results": {
+      "label": "Search Results",
+      "color": "#fb7185"
+    },
+    "notebook": {
+      "label": "Notebook",
+      "color": "#d946ef"
+    },
+    "user_artifact": {
+      "label": "User Artifact",
+      "color": "#94a3b8"
+    },
+    "diagnostic_report": {
+      "label": "Diagnostic Report",
+      "color": "#ef4444"
+    },
+    "lattice_analysis": {
+      "label": "Lattice Analysis",
+      "color": "#0ea5e9"
+    },
+    "facility_knowledge": {
+      "label": "Facility Knowledge",
+      "color": "#84cc16"
+    }
+  },
+  "base_forms": [
+    {
+      "key": "runs",
+      "label": "Runs"
+    },
+    {
+      "key": "plots",
+      "label": "Plots"
+    },
+    {
+      "key": "trends",
+      "label": "Trends"
+    },
+    {
+      "key": "tables",
+      "label": "Tables"
+    },
+    {
+      "key": "documents",
+      "label": "Documents"
+    },
+    {
+      "key": "dashboards",
+      "label": "Dashboards"
+    },
+    {
+      "key": "images",
+      "label": "Images"
+    },
+    {
+      "key": "data",
+      "label": "Data"
+    }
+  ],
+  "extension_types": [
+    {
+      "key": "beam_log",
+      "label": "Beam Log",
+      "base_form": "tables",
+      "viewer_url": "/viewers/beam_log.js"
+    },
+    {
+      "key": "orbit_fit",
+      "label": "Orbit Fit",
+      "base_form": "plots",
+      "viewer_url": null
+    }
+  ]
+}

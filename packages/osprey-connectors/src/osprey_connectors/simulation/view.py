@@ -31,8 +31,12 @@ __all__ = [
     "ADDRESSES_FILE",
     "ADDRESSES_SCHEMA",
     "DECKS_DIR",
+    "MONITOR",
     "NO_VIEW_MESSAGE",
+    "OUTPUT",
+    "PERIODIC",
     "PLANES",
+    "READBACK",
     "REFRESH",
     "ROLES",
     "SCENARIOS_DIR",
@@ -43,7 +47,7 @@ __all__ = [
     "SEEDS_SCHEMA",
     "SERVED_MODELS_FILE",
     "SERVED_MODELS_SCHEMA",
-    "TEXTURE",
+    "SETPOINT",
     "VARIABLES_FILE",
     "VARIABLES_SCHEMA",
     "VIEW_RELPATH",
@@ -86,15 +90,20 @@ SCHEMAS: Mapping[str, str] = MappingProxyType(
 )
 
 #: The engine of the model that serves every channel no physics model wires.
-TEXTURE = "texture"
+_TEXTURE = "texture"
 
+SETPOINT = "setpoint"
+READBACK = "readback"
+MONITOR = "monitor"
+OUTPUT = "output"
 #: The roles a wiring record's description names.
-ROLES = ("setpoint", "readback", "monitor", "output")
+ROLES = (SETPOINT, READBACK, MONITOR, OUTPUT)
 #: The planes a wiring record's description names; ``None`` is no plane.
 PLANES = ("x", "y")
+PERIODIC = "periodic"
 #: The refresh a wiring record's description names: ``pass`` with each
 #: write's solve, ``periodic`` with the periodic solve alone.
-REFRESH = ("pass", "periodic")
+REFRESH = ("pass", PERIODIC)
 
 #: The text a missing view reports.
 NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
@@ -396,7 +405,7 @@ class SimulatorView:
             settings=MappingProxyType(copy.deepcopy(entry.get("settings") or {})),
             deck=self.path / deck if deck else None,
             bindings=()
-            if engine == TEXTURE
+            if engine == _TEXTURE
             else tuple(Binding.from_record(name, record) for record in wiring),
         )
 
@@ -417,7 +426,7 @@ class SimulatorView:
 
     def physics_models(self) -> tuple[Model, ...]:
         """The served models whose engine is not ``texture``, sorted by name."""
-        return tuple(model for model in self.models() if model.served and model.engine != TEXTURE)
+        return tuple(model for model in self.models() if model.served and model.engine != _TEXTURE)
 
     def channels(self) -> tuple[str, ...]:
         """Every channel address of the facility file, sorted."""
@@ -486,7 +495,7 @@ class SimulatorView:
 
     def _all_bindings(self, served_only: bool) -> Iterator[Binding]:
         for model in self.models():
-            if model.engine == TEXTURE or (served_only and not model.served):
+            if model.engine == _TEXTURE or (served_only and not model.served):
                 continue
             yield from model.bindings
 

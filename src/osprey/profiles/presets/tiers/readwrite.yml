@@ -21,7 +21,7 @@
 # is `allowed`, which also offers the position that does not prompt, plus
 # deployment editing.
 
-name: Control Assistant (Read-Write)
+name: OSPREY Demo (Read-Write)
 
 # The write-oriented panels, added by name to the deployment's builtin set.
 # Each tab's URL, path and label are not spelled here: the deployment's build

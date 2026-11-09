@@ -81,7 +81,7 @@ beforeEach(async () => {
   bus = await import(`${DIR}/chat-events.js`);
   exportModule = await import(`${DIR}/chat-export.js`);
   renderer = render.createChatRenderer(messages);
-  exportModule.initChatExport({ bar, messages, getKey: () => KEY });
+  exportModule.initChatExport({ messages, getKey: () => KEY });
 });
 
 afterEach(() => {
@@ -392,7 +392,7 @@ describe('conversationMarkdown', () => {
   });
 });
 
-describe('export button', () => {
+describe('export conversation (the Agent tile menu row)', () => {
   beforeEach(() => {
     transport.fetchHistory.mockReset();
     // Stub the download's three steps so the file's text can be read back.
@@ -400,12 +400,9 @@ describe('export button', () => {
     URL.revokeObjectURL = vi.fn();
   });
 
-  test('is an icon button in the Agent bar, named Export', () => {
-    const button = /** @type {HTMLButtonElement} */ (bar.querySelector('.op-export'));
-    expect(button.classList.contains('osprey-icon-btn')).toBe(true);
-    expect(button.querySelector('svg.osprey-ic')).not.toBeNull();
-    expect(button.getAttribute('aria-label')).toBe('Export');
-    expect(button.title).toBeTruthy();
+  test('puts no button in the Agent bar: the tile menu is its one entry point', () => {
+    expect(bar.querySelector('.op-export')).toBeNull();
+    expect(bar.children).toHaveLength(0);
   });
 
   test('downloads the conversation read from the server, under the dated file name', async () => {
@@ -429,8 +426,7 @@ describe('export button', () => {
       }
     );
 
-    /** @type {HTMLButtonElement} */ (bar.querySelector('.op-export')).click();
-    await flush();
+    await exportModule.exportConversation();
 
     expect(transport.fetchHistory).toHaveBeenCalledWith(KEY);
     expect(names).toEqual(['osprey-conversation-2026-10-22-abcdef12.md']);
@@ -440,19 +436,18 @@ describe('export button', () => {
     click.mockRestore();
   });
 
-  test('a failed export says so in the log, publishes the notice, and leaves the button usable', async () => {
+  test('a failed export says so in the log, publishes the notice, and can be run again', async () => {
     transport.fetchHistory.mockRejectedValue(new Error('network down'));
-    const button = /** @type {HTMLButtonElement} */ (bar.querySelector('.op-export'));
     /** @type {string[]} */
     const published = [];
     bus.onChat('notice', ({ text }) => published.push(text));
 
-    button.click();
-    await flush();
+    await exportModule.exportConversation();
 
     const notice = messages.querySelector('.op-system')?.textContent ?? '';
     expect(notice).toMatch(/export/);
     expect(published).toEqual([notice]);
-    expect(button.disabled).toBe(false);
+    await exportModule.exportConversation();
+    expect(transport.fetchHistory).toHaveBeenCalledTimes(2);
   });
 });

@@ -138,84 +138,78 @@ describe('collapsible.js (the writer half of the sidebar-boot pair)', () => {
 describe('sidebar.js open lists', () => {
   const BASE = 'osprey-sidebar-open';
 
-  /** Mount the two disclosing rows and wire the sidebar. */
+  /** Mount the Agent row with its session tree and wire the sidebar. */
   function mountSidebar() {
     document.body.innerHTML = `
       <nav id="sidebar">
-        <div class="sidebar-row" id="sidebar-artifacts-row">
-          <button class="osprey-nav-row parent" type="button"></button>
-          <div class="sidebar-kids" id="sidebar-artifacts-kids"></div>
-        </div>
-        <div class="sidebar-row" id="sidebar-runs-row">
-          <button class="osprey-nav-row parent" id="sidebar-runs-toggle" type="button"></button>
-          <div class="sidebar-kids" id="sidebar-runs-kids"></div>
+        <div class="sidebar-row" id="sidebar-agent-wrap">
+          <button class="osprey-nav-row parent" id="sidebar-agent-row" type="button"></button>
+          <div class="sidebar-kids" id="sidebar-session-tree" data-session-tree></div>
         </div>
       </nav>`;
     initSidebar();
   }
 
-  /** @param {string} id @returns {boolean} whether that row's list shows */
-  function isOpen(id) {
-    const kids = document.getElementById(`sidebar-${id}-kids`);
-    if (!kids) throw new Error(`expected #sidebar-${id}-kids`);
-    return !kids.hidden;
+  /** @returns {boolean} whether the session tree shows */
+  function isOpen() {
+    const tree = document.getElementById('sidebar-session-tree');
+    if (!tree) throw new Error('expected #sidebar-session-tree');
+    return !tree.hidden;
   }
 
-  /** Toggle the Script runs list. */
-  function toggleRuns() {
-    document.getElementById('sidebar-runs-toggle')?.click();
+  /** Toggle the tree from the Agent row's keyboard: ArrowLeft closes it, ArrowRight opens it. */
+  function toggleTree() {
+    const key = isOpen() ? 'ArrowLeft' : 'ArrowRight';
+    document
+      .querySelector('#sidebar-agent-row')
+      ?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
   }
 
   test('the key is the one this block pins', () => {
     expect(OPEN_LISTS_STORAGE_KEY).toBe(BASE);
   });
 
-  test('opening a list is stored for bob, and only bob', () => {
+  test('closing the tree is stored for bob, and only bob', () => {
     serveAs('bob');
     mountSidebar();
 
-    toggleRuns();
+    toggleTree();
 
-    expect(JSON.parse(localStorage.getItem(`${BASE}--bob`) || 'null')).toEqual([
-      'artifacts',
-      'runs',
-    ]);
+    expect(JSON.parse(localStorage.getItem(`${BASE}--bob`) || 'null')).toEqual([]);
     expect(localStorage.getItem(BASE)).toBe(null);
   });
 
   test("another user's open lists are never read", () => {
-    localStorage.setItem(BASE, JSON.stringify(['runs']));
+    localStorage.setItem(BASE, JSON.stringify([]));
     serveAs('bob');
 
     mountSidebar();
 
     // bob has none of his own, so he gets the first-visit default.
-    expect(isOpen('artifacts')).toBe(true);
-    expect(isOpen('runs')).toBe(false);
+    expect(isOpen()).toBe(true);
   });
 
   test("bob's own open lists are", () => {
-    localStorage.setItem(`${BASE}--bob`, JSON.stringify(['runs']));
+    localStorage.setItem(`${BASE}--bob`, JSON.stringify([]));
     serveAs('bob');
 
     mountSidebar();
 
-    expect(isOpen('artifacts')).toBe(false);
-    expect(isOpen('runs')).toBe(true);
+    expect(isOpen()).toBe(false);
   });
 
   test('unscoped serving still reads and writes the legacy key', () => {
     localStorage.setItem(BASE, JSON.stringify([]));
     mountSidebar();
-    expect(isOpen('artifacts')).toBe(false);
+    expect(isOpen()).toBe(false);
 
-    toggleRuns();
+    toggleTree();
 
-    expect(JSON.parse(localStorage.getItem(BASE) || 'null')).toEqual(['runs']);
+    expect(JSON.parse(localStorage.getItem(BASE) || 'null')).toEqual(['agent']);
   });
 });
 
-describe('sidebar-artifacts.js grouping', () => {
+describe('sidebar-artifacts.js tree mode', () => {
   const BASE = 'osprey-sidebar-artifacts-view';
   const JS = '../../../../src/osprey/interfaces/web_terminal/static/js';
   /** The collaborators stubbed for this block only. */
@@ -223,15 +217,30 @@ describe('sidebar-artifacts.js grouping', () => {
     [`${JS}/api.js`]: () => ({
       withPrefix: (/** @type {string} */ path) => path,
       createEventSource: () => ({ stop() {} }),
+      apiRequest: async () => null,
     }),
-    [`${JS}/terminal.js`]: () => ({
-      getCurrentSessionId: () => 'sess-1',
-      onSessionChange: () => {},
+    [`${JS}/session-model.js`]: () => ({
+      initSessionModel: async () => {},
+      resetSessionModel: () => {},
+      subscribe: () => () => {},
+      rows: () => [],
+      pinnedRows: () => [],
+      activeRow: () => null,
+      pick: () => null,
+      setPick: () => {},
+      hasMore: () => false,
+      recordState: () => 'complete',
+      refresh: () => {},
+    }),
+    [`${JS}/dock-workspace.js`]: () => ({
+      isTerminalPanelOpen: () => true,
+      openTerminalPanel: () => {},
     }),
     [`${JS}/tile-header-contrib.js`]: () => ({ contributeLocal: () => {} }),
     [`${JS}/panel-iframe-sync.js`]: () => ({
       sendArtifactSelectToIframe: () => {},
       sendArtifactActionToIframe: () => {},
+      sendArtifactChangedToIframe: () => {},
     }),
     [`${JS}/panel-manager.js`]: () => ({ activateTab: () => {} }),
     [`${JS}/panel-placement.js`]: () => ({ hasDockedTile: () => true }),
@@ -245,7 +254,6 @@ describe('sidebar-artifacts.js grouping', () => {
   beforeEach(async () => {
     vi.resetModules();
     for (const [path, factory] of Object.entries(STUBBED)) vi.doMock(path, factory);
-    // Every listing request answers an empty page.
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({
@@ -254,80 +262,51 @@ describe('sidebar-artifacts.js grouping', () => {
         json: async () => ({ artifacts: [], total: 0, next_cursor: null }),
       }))
     );
-    document.documentElement.dataset.agentSurface = 'terminal';
-    document.body.innerHTML = `
-      <nav id="sidebar">
-        <div class="sidebar-row" id="sidebar-artifacts-row">
-          <button class="osprey-nav-row parent panel-rail-button" data-panel-id="artifacts"></button>
-          <div class="sidebar-kids" id="sidebar-artifacts-kids">
-            <div class="sidebar-kids-list" id="sidebar-artifacts-list" role="listbox"></div>
-          </div>
-        </div>
-        <div class="sidebar-row" id="sidebar-runs-row">
-          <button class="osprey-nav-row parent" id="sidebar-runs-toggle"></button>
-          <div class="sidebar-kids" id="sidebar-runs-kids">
-            <div class="sidebar-kids-list" id="sidebar-runs-list" role="listbox"></div>
-          </div>
-        </div>
-      </nav>
-      <div id="sidebar-artifacts-menu" role="menu" hidden></div>`;
+    document.body.innerHTML = `<div data-session-tree></div>`;
     mod = await import(`${JS}/sidebar-artifacts.js`);
   });
 
   afterEach(() => {
-    mod.teardownSidebarArtifacts();
+    mod.resetSidebarArtifacts();
     for (const path of Object.keys(STUBBED)) vi.doUnmock(path);
-    delete document.documentElement.dataset.agentSurface;
+    vi.unstubAllGlobals();
   });
 
-  /** @returns {string | null} the grouping the ⋯ menu shows as chosen */
-  function shownView() {
-    const checked = document.querySelector('[data-art-view][aria-checked="true"]');
-    return checked instanceof HTMLElement ? (checked.dataset.artView ?? null) : null;
-  }
-
-  /** Pick Activity grouping. */
-  function pickActivity() {
-    document
-      .querySelector('[data-art-view="activity"]')
-      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-  }
-
-  test('a grouping is stored for bob, and only bob', () => {
+  test('a mode is stored for bob, and only bob', () => {
     serveAs('bob');
     mod.initSidebarArtifacts();
 
-    pickActivity();
+    mod.setTreeView('kind');
 
-    expect(shownView()).toBe('activity');
-    expect(localStorage.getItem(`${BASE}--bob`)).toBe('activity');
+    expect(mod.treeView()).toBe('kind');
+    expect(localStorage.getItem(`${BASE}--bob`)).toBe('kind');
     expect(localStorage.getItem(BASE)).toBe(null);
   });
 
-  test("another user's grouping is never read", () => {
-    localStorage.setItem(BASE, 'activity');
+  test("another user's mode is never read", () => {
+    localStorage.setItem(BASE, 'kind');
     serveAs('bob');
 
     mod.initSidebarArtifacts();
 
-    expect(shownView()).toBe('types');
+    expect(mod.treeView()).toBe('activity');
   });
 
-  test("bob's own grouping is", () => {
-    localStorage.setItem(`${BASE}--bob`, 'activity');
+  test("bob's own mode is", () => {
+    localStorage.setItem(`${BASE}--bob`, 'kind');
     serveAs('bob');
 
     mod.initSidebarArtifacts();
 
-    expect(shownView()).toBe('activity');
+    expect(mod.treeView()).toBe('kind');
   });
 
   test('unscoped serving still writes the legacy key', () => {
     mod.initSidebarArtifacts();
 
-    pickActivity();
+    mod.setTreeView('kind');
 
-    expect(localStorage.getItem(BASE)).toBe('activity');
+    expect(localStorage.getItem(BASE)).toBe('kind');
   });
 });
 

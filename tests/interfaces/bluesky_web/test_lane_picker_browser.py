@@ -5,8 +5,8 @@ parsing, the ``?lane=`` spelling, the search-string rewrite. What only a real
 browser can prove is the composed behaviour this feature exists for: a panel
 document pinned to the second lane sends EVERY bridge-bound request — boot
 fetches and both SSE streams alike — to that lane's bridge and none to lane
-1's, the picker renders from the sidecar's roster with the current lane held
-down, and a single-lane deployment shows no picker at all.
+1's, the toolbar's lane picker renders from the sidecar's roster with the
+current lane selected, and a single-lane deployment shows no picker at all.
 
 Runs the composed sidecar for real (``bluesky_live_server``), then swaps in a
 two-lane world the way every suite in this directory swaps the bridge: a
@@ -110,8 +110,8 @@ def test_single_lane_deployment_shows_no_picker(
         page = chromium_browser.new_page()
         try:
             page.goto(f"{base_url}/bluesky/", wait_until="load")
-            expect(page.locator("#queue-state-badge")).to_be_visible(timeout=_PANEL_SETTLE_MS)
-            expect(page.locator("#lane-strip")).to_be_hidden()
+            expect(page.locator("#queue-state-chip")).to_be_visible(timeout=_PANEL_SETTLE_MS)
+            expect(page.locator("#lane-select")).to_be_hidden()
             expect(page.locator("#lane-banner")).to_be_hidden()
         finally:
             page.close()
@@ -133,17 +133,17 @@ def test_second_lane_document_routes_every_bridge_request_to_that_lane(
         try:
             page.goto(f"{base_url}/bluesky/?lane=bluesky_va", wait_until="load")
 
-            strip = page.locator("#lane-strip")
-            expect(strip).to_be_visible(timeout=_PANEL_SETTLE_MS)
-            buttons = strip.locator("button")
-            expect(buttons).to_have_count(2)
+            picker = page.locator("#lane-select")
+            expect(picker).to_be_visible(timeout=_PANEL_SETTLE_MS)
+            options = picker.locator("option")
+            expect(options).to_have_count(2)
             # Labelled by target — which machine, not which index.
-            expect(buttons.nth(0)).to_have_text("live")
-            expect(buttons.nth(1)).to_have_text("va")
-            expect(buttons.nth(1)).to_have_attribute("aria-pressed", "true")
+            expect(options.nth(0)).to_have_text("live")
+            expect(options.nth(1)).to_have_text("va")
+            expect(picker).to_have_value("bluesky_va")
             expect(page.locator("#lane-banner")).to_be_hidden()
 
-            # The boot fetches have long since landed once the strip rendered;
+            # The boot fetches have long since landed once the picker rendered;
             # the routing claim is over everything recorded.
             hosts = [host for _, host in pairs]
             assert hosts, "the panel booted without a single bridge fetch"
@@ -155,24 +155,22 @@ def test_second_lane_document_routes_every_bridge_request_to_that_lane(
 def test_picker_switches_back_to_lane_one_by_navigation(
     chromium_browser: Browser, bluesky_live_server, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Clicking the other lane is a navigation to a fresh document whose URL
+    """Picking the other lane is a navigation to a fresh document whose URL
     no longer names a lane — lane 1 stays off the wire, as it always was."""
     with bluesky_live_server() as base_url:
         pairs = _wire_two_lanes(monkeypatch)
         page = chromium_browser.new_page()
         try:
             page.goto(f"{base_url}/bluesky/?lane=bluesky_va", wait_until="load")
-            strip = page.locator("#lane-strip")
-            expect(strip).to_be_visible(timeout=_PANEL_SETTLE_MS)
+            picker = page.locator("#lane-select")
+            expect(picker).to_be_visible(timeout=_PANEL_SETTLE_MS)
 
             with page.expect_navigation(wait_until="load"):
-                strip.locator("button", has_text="live").click()
+                picker.select_option("bluesky")
 
             assert "lane=" not in page.url
-            expect(page.locator("#lane-strip")).to_be_visible(timeout=_PANEL_SETTLE_MS)
-            expect(page.locator("#lane-strip button", has_text="live")).to_have_attribute(
-                "aria-pressed", "true"
-            )
+            expect(page.locator("#lane-select")).to_be_visible(timeout=_PANEL_SETTLE_MS)
+            expect(page.locator("#lane-select")).to_have_value("bluesky")
             # Requests of either document may still land around the
             # navigation; each is held to the lane its own request names.
             assert all(lane != _NO_APP_REQUEST for lane, _ in pairs), pairs

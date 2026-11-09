@@ -14,15 +14,6 @@
  * @typedef {{ uri: string|null, ttl_filename: string|null }} GraphStoreInfo
  */
 
-/**
- * A view's contribution to the hub tile bar: the items it adds and the
- * handler their actions reach. See header-contrib.js for the item vocabulary.
- * @typedef {{
- *   items: import('/design-system/js/header-contrib.js').HeaderItem[],
- *   onAction: (id: string, value: string | undefined) => void,
- * }} ViewHeader
- */
-
 class ChannelFinderState {
   constructor() {
     /** @type {Record<string, StateListener[]>} */
@@ -48,12 +39,6 @@ class ChannelFinderState {
     // Current view
     /** @type {string} */
     this.activeView = 'explore';
-
-    // What the active view adds to the hub's tile bar, ahead of the
-    // Explore/Feedback switcher app.js always contributes, and the handler
-    // its actions route to. Null when the view adds nothing.
-    /** @type {ViewHeader|null} */
-    this.viewHeader = null;
   }
 
   // ---- Event Emitter ----
@@ -113,16 +98,6 @@ class ChannelFinderState {
   setGraphInfo(tools, graphStore) {
     this.tools = tools || [];
     this.graphStore = graphStore || null;
-  }
-
-  /**
-   * Set (or, with null, drop) the active view's own tile-bar items. app.js
-   * re-contributes the whole bar on every change.
-   * @param {ViewHeader|null} header
-   */
-  setViewHeader(header) {
-    this.viewHeader = header;
-    this.emit('viewHeaderChanged', header);
   }
 
   /**
