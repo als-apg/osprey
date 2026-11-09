@@ -51,6 +51,12 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.series.loss_refill_bound": (
         "the framework's archive rewrite reads the loss refill bound"
     ),
+    "osprey_connectors.write_authorization.MAX_LEASE_S": (
+        "an approval surface bounds the lease it asks for"
+    ),
+    "osprey_connectors.write_authorization.MAX_STEPS": (
+        "an approval surface bounds the step budget it asks for"
+    ),
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
 }
