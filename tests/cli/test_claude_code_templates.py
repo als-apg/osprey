@@ -42,7 +42,7 @@ def _build_ctx(tmp_path, *, writes_enabled: bool = True, claude_code_overrides: 
         manager,
         project_name=f"cc-templates-{_PROJECT_COUNTER}",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -175,7 +175,7 @@ def _render_at_tier(tmp_path, tier: str, template: str, *, bluesky: bool = False
         manager,
         project_name=f"cc-tier-{_PROJECT_COUNTER}",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     config = yaml.safe_load((project_dir / "config.yml").read_text())

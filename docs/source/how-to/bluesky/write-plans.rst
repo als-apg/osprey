@@ -141,28 +141,35 @@ mounts that file unchanged.
      - name: SR:MAG:HCM:01:CURRENT:SP
        setpoint: SR:MAG:HCM:01:CURRENT:SP
        readback: SR:MAG:HCM:01:CURRENT:RB
+       unit: A
+       setpoint_unit: A
    readables:
      - name: SR:MAG:HCM:01:CURRENT:RB
        pv: SR:MAG:HCM:01:CURRENT:RB
+       unit: A
      - name: SR:DIAG:BPM:01:POSITION:X
        pv: SR:DIAG:BPM:01:POSITION:X
+       unit: m
 
 **Settables** are devices a plan may drive: one per setpoint channel of the
 facility file, written to that channel and read back from the channel it is
 paired with. A setpoint the facility pairs with no readback reads its own
 setpoint. **Readables** are recorded and never written: one per readback
 channel. A device's name is its address, which is also the column heading in
-the run's data.
+the run's data. A device carries the ``unit`` its channel states in the
+facility file, and a settable with a separate readback carries its setpoint's
+as ``setpoint_unit``; every run records them, so ``get_run_data`` and the
+run's figure state each column's unit.
 
 The build rewrites the file every time, so it is not a file to edit: to change
 the device set, change the channels under ``data/facility/`` and build again.
 
 A plan the agent writes during a session names channels from this same set.
-``list_devices`` reads it, and the pre-enqueue check refuses a plan that names
-a device the file does not declare — validation builds a mock for whatever the
-sample arguments name, so it says nothing about what the worker has. The
-channel finder answers for the whole facility; this file answers for the queue
-worker, and a plan's channels come from here.
+``list_devices`` reads it. When the queue worker is running, validation refuses
+sample arguments that name a device the file does not declare, and the
+pre-enqueue check refuses a plan's own arguments on the same rule; both answer
+``unknown_device``. The channel finder answers for the whole facility; this
+file answers for the queue worker, and a plan's channels come from here.
 
 When a plan drives a settable, the move waits for its readback to come within
 a bound of the demand. The bound is the setpoint's ``tolerance`` in the

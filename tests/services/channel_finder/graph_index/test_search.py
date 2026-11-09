@@ -558,9 +558,9 @@ class TestDemoCorpusTiming:
 
     @pytest.fixture(scope="class")
     def demo_index_path(
-        self, built_control_assistant: BuiltProject, tmp_path_factory: pytest.TempPathFactory
+        self, built_demo: BuiltProject, tmp_path_factory: pytest.TempPathFactory
     ) -> Path:
-        view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+        view = built_demo.build_dir / "data" / "graph" / "facility.ttl"
         parsed = parse_corpus(view.read_text(encoding="utf-8"))
         return _write(parsed, tmp_path_factory.mktemp("demo") / "graph.duckdb")
 

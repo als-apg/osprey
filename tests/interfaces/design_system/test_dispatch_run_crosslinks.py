@@ -145,8 +145,10 @@ def _open_run(page: Page, base_url: str, run_id: str) -> None:
     """Load the dashboard, install a known state, and route to one run's detail.
 
     The state poll has no dispatcher behind it here, so ``state`` is assigned
-    directly and the router is driven the same way a click does it -- through
-    ``navigate()``, which is what repaints the screen.
+    directly and marked ``loaded`` (as a first poll answer does; otherwise the
+    panel keeps its connecting state over every view), and the router is driven
+    the same way a click does it -- through ``navigate()``, which is what
+    repaints the screen.
     """
     page.goto(f"{base_url}/", wait_until="domcontentloaded")
     page.wait_for_function("() => typeof navigate === 'function'", timeout=10_000)
@@ -154,6 +156,7 @@ def _open_run(page: Page, base_url: str, run_id: str) -> None:
         """([nextState, runId]) => {
             state.triggers = nextState.triggers;
             state.runs = nextState.runs;
+            loaded = true;
             navigate({ name: 'run', runId });
         }""",
         [STATE, run_id],

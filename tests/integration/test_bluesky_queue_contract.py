@@ -58,18 +58,20 @@ from osprey.services.bluesky_bridge.plan_fields import (
     READABLE_ROLE,
 )
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
-from osprey.services.bluesky_bridge.queue_backend import QueueBackend
+from osprey.services.bluesky_bridge.queue_backend import (
+    REASON_SESSION_PLAN_NOT_IN_NAMESPACE,
+    REASON_SESSION_PLAN_UNVALIDATED,
+    QueueBackend,
+)
 from osprey.services.bluesky_bridge.session_upload import (
-    REASON_NOT_IN_NAMESPACE,
-    REASON_UNVALIDATED,
     SESSION_PLAN_MODULE,
-    set_session_uploader,
     upload_after_validation,
 )
 from osprey.services.bluesky_bridge.validation_record import validation_records
 from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 from tests._control_system import IN_PROCESS, section_for
+from tests.services.bluesky_bridge._bridge_state import reset_bridge_state
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -419,10 +421,9 @@ class MockQueueServer:
 def _isolated_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """A bridge process with no inherited state: no backend, no draft, no records.
 
-    The backend singleton is cleared rather than left alone so a test that
-    forgets to install a mock gets a managerless (fail-closed) backend instead
-    of the previous test's. `validation_records` is a process-wide singleton
-    the whole suite shares, so its contents are saved and restored.
+    The bridge state is reset by the shared bridge reset, `reset_bridge_state`,
+    before and after each test. `validation_records` is a process-wide
+    singleton the whole suite shares, so its contents are saved and restored.
     """
     monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
     monkeypatch.delenv(_PLAN_MODULE_ENV, raising=False)
@@ -434,17 +435,9 @@ def _isolated_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterato
         saved_hashes = set(validation_records._passing_hashes)
         validation_records._passing_hashes.clear()
 
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    app_module.set_queue_backend(None)
-    set_session_uploader(None)
+    reset_bridge_state()
     yield
-    plan_loader.reset_facility_plans()
-    draft._clear()
-    queue._clear()
-    app_module.set_queue_backend(None)
-    set_session_uploader(None)
+    reset_bridge_state()
     with validation_records.lock:
         validation_records._passing_hashes.clear()
         validation_records._passing_hashes.update(saved_hashes)
@@ -835,6 +828,8 @@ def test_all_three_arming_routes_refuse_with_one_code(
         assert resp.status_code == expected_status, f"{route}: {resp.text}"
         detail = resp.json()["detail"]
         assert detail["code"] == expected_code, route
+        assert resp.status_code == qb.REFUSAL_REASONS[expected_code].status, route
+        assert detail["retryable"] is qb.REFUSAL_REASONS[expected_code].retryable, route
         assert isinstance(detail["detail"], str) and detail["detail"], route
 
     # None of the three arming actions reached the manager.
@@ -927,7 +922,9 @@ def test_an_aborted_run_reads_as_stopped_and_cannot_silently_re_run(
     refused = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
     assert refused.status_code == 409, refused.text
     detail = refused.json()["detail"]
-    assert detail["code"] == "interrupted_item_in_queue"
+    assert detail["code"] == qb.REASON_INTERRUPTED_ITEM_IN_QUEUE
+    assert refused.status_code == qb.REFUSAL_REASONS[detail["code"]].status
+    assert detail["retryable"] is qb.REFUSAL_REASONS[detail["code"]].retryable
     assert detail["exit_status"] == "aborted"
     # The load-bearing half: nothing was started.
     assert manager.manager_state == "idle"
@@ -1425,11 +1422,14 @@ async def test_the_event_stream_reports_a_manager_outage_without_dropping_the_st
 # ---------------------------------------------------------------------------
 
 _FAIL_CLOSED_CASES = [
-    pytest.param(qb.REASON_BROWSE_ONLY_CONNECTOR, 409, id="mock-connector"),
-    pytest.param(qb.REASON_UNSUPPORTED_CONNECTOR, 409, id="unsupported-connector"),
-    pytest.param(qb.REASON_CONFIG_UNREADABLE, 409, id="config-unreadable"),
-    pytest.param(qb.REASON_MANAGER_NOT_CONFIGURED, 503, id="manager-not-configured"),
-    pytest.param(qb.REASON_MANAGER_UNREACHABLE, 503, id="manager-unreachable"),
+    pytest.param(reason, qb.REFUSAL_REASONS[reason].status, id=case_id)
+    for reason, case_id in (
+        (qb.REASON_BROWSE_ONLY_CONNECTOR, "mock-connector"),
+        (qb.REASON_UNSUPPORTED_CONNECTOR, "unsupported-connector"),
+        (qb.REASON_CONFIG_UNREADABLE, "config-unreadable"),
+        (qb.REASON_MANAGER_NOT_CONFIGURED, "manager-not-configured"),
+        (qb.REASON_MANAGER_UNREACHABLE, "manager-unreachable"),
+    )
 ]
 
 
@@ -1438,9 +1438,10 @@ def _make_incapable(
 ) -> None:
     """Put the deployment into the state that yields *reason*.
 
-    The two manager-side reasons are retryable outages (deploy the manager,
-    bring it back); the three connector/config reasons are properties of the
-    deployment itself, where retrying changes nothing.
+    The refusal's status and retryability are the reason's row in
+    `REFUSAL_REASONS`: only an unanswering manager is worth retrying; the
+    other four are properties of the deployment, which only an operator
+    changes.
     """
     if reason == qb.REASON_BROWSE_ONLY_CONNECTOR:
         connector(IN_PROCESS)
@@ -1476,6 +1477,7 @@ def test_a_deployment_that_cannot_execute_refuses_to_hold_queue_items(
     assert resp.status_code == expected_status, resp.text
     detail = resp.json()["detail"]
     assert detail["code"] == reason
+    assert detail["retryable"] is qb.REFUSAL_REASONS[reason].retryable
     assert detail["capability"]["can_execute"] is False
     assert detail["capability"]["reason"] == reason
     assert isinstance(detail["capability"]["detail"], str) and detail["capability"]["detail"]
@@ -1607,7 +1609,7 @@ def test_enqueue_refuses_a_session_plan_missing_from_the_worker_namespace(
 
     assert refused.status_code == 409
     detail = refused.json()["detail"]
-    assert detail["code"] == REASON_NOT_IN_NAMESPACE
+    assert detail["code"] == REASON_SESSION_PLAN_NOT_IN_NAMESPACE
     # The error's native key rides along; "code" is the canonical duplicate the
     # whole queue surface branches on.
     assert detail["reason"] == detail["code"]
@@ -1634,7 +1636,7 @@ def test_starting_the_queue_refuses_an_unvalidated_session_plan(
 
     assert resp.status_code == 409
     detail = resp.json()["detail"]
-    assert detail["code"] == REASON_UNVALIDATED
+    assert detail["code"] == REASON_SESSION_PLAN_UNVALIDATED
     assert detail["plan"] == _SESSION_PLAN_NAME
     assert "queue_start" not in manager.method_names()
     assert manager.manager_state == "idle"
@@ -1665,7 +1667,7 @@ def test_enqueueing_an_edited_after_pass_session_plan_refuses_with_a_coded_body(
 
     assert refused.status_code == 409
     detail = refused.json()["detail"]
-    assert detail["code"] == REASON_UNVALIDATED
+    assert detail["code"] == REASON_SESSION_PLAN_UNVALIDATED
     assert detail["reason"] == detail["code"]
     assert detail["plan"] == _SESSION_PLAN_NAME
     assert "no passing validation record" in detail["detail"]
@@ -1703,7 +1705,9 @@ def test_a_retired_direct_execute_route_refuses_with_use_the_queue(
 
     assert resp.status_code == 410
     detail = resp.json()["detail"]
-    assert detail["code"] == "use_the_queue"
+    assert detail["code"] == qb.REASON_USE_THE_QUEUE
+    assert resp.status_code == qb.REFUSAL_REASONS[detail["code"]].status
+    assert detail["retryable"] is qb.REFUSAL_REASONS[detail["code"]].retryable
     assert replacement in detail["detail"]
     # A refusal that is a property of the deployment's shape, not its state:
     # nothing is asked of the manager, and no item is touched.
@@ -1782,7 +1786,9 @@ def test_a_start_naming_a_queue_that_has_moved_is_refused_with_the_current_uid(
 
     assert refused.status_code == 409
     detail = refused.json()["detail"]
-    assert detail["code"] == "queue_changed_since_approval"
+    assert detail["code"] == qb.REASON_QUEUE_CHANGED_SINCE_APPROVAL
+    assert refused.status_code == qb.REFUSAL_REASONS[detail["code"]].status
+    assert detail["retryable"] is qb.REFUSAL_REASONS[detail["code"]].retryable
     assert detail["plan_queue_uid"] == current_uid
     assert detail["expected_plan_queue_uid"] == approved_uid
     # The refusal armed nothing and drained nothing: the queue is exactly the

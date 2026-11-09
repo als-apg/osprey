@@ -59,7 +59,7 @@ def test_panel_spec_enabled(spec, expected) -> None:
 def test_every_block_is_told_whether_it_is_selected() -> None:
     """Selected → ``enabled: true``; every other block → ``enabled: false``.
 
-    The inherited ``lattice`` label and the url-backed ``events`` /
+    The inherited ``system-health`` label and the url-backed ``events`` /
     ``beam-viewer`` blocks are exactly the residue a render that excludes
     those tabs keeps carrying — and, before the projection, exactly the tabs
     it kept showing.
@@ -68,7 +68,7 @@ def test_every_block_is_told_whether_it_is_selected() -> None:
         "web": {
             "panels": {
                 "okf": {"enabled": True},
-                "lattice": {"label": "LATTICE"},
+                "system-health": {"label": "SYSTEM"},
                 "events": {
                     "label": "EVENTS",
                     "url": "http://localhost:10010",
@@ -80,7 +80,7 @@ def test_every_block_is_told_whether_it_is_selected() -> None:
     }
     assert panel_selection_overrides(["okf"], rendered) == {
         "okf": True,
-        "lattice": False,
+        "system-health": False,
         "events": False,
         "beam-viewer": False,
     }
@@ -181,10 +181,10 @@ def test_a_section_comment_after_the_panels_stays_after_them(tmp_path) -> None:
 
 
 def test_an_authored_enabled_true_for_an_unselected_panel_is_refused() -> None:
-    (error,) = panel_selection_errors({"web.panels.lattice.enabled": True}, ["okf"])
-    assert "web.panels.lattice.enabled: True" in error
+    (error,) = panel_selection_errors({"web.panels.system-health.enabled": True}, ["okf"])
+    assert "web.panels.system-health.enabled: True" in error
     assert "not in web_panels" in error
-    assert "lattice" in error
+    assert "system-health" in error
 
 
 def test_an_authored_enabled_false_for_a_selected_panel_is_refused() -> None:
@@ -196,22 +196,22 @@ def test_an_authored_enabled_false_for_a_selected_panel_is_refused() -> None:
 @pytest.mark.parametrize(
     "spelling",
     [
-        pytest.param({"web.panels.lattice.enabled": True}, id="dotted"),
-        pytest.param({"web.panels.lattice": {"enabled": True}}, id="prefix_over_mapping"),
-        pytest.param({"web": {"panels": {"lattice": {"enabled": True}}}}, id="nested"),
+        pytest.param({"web.panels.system-health.enabled": True}, id="dotted"),
+        pytest.param({"web.panels.system-health": {"enabled": True}}, id="prefix_over_mapping"),
+        pytest.param({"web": {"panels": {"system-health": {"enabled": True}}}}, id="nested"),
     ],
 )
 def test_every_spelling_of_a_contradiction_is_found(spelling) -> None:
     """Each is legal YAML for the same rendered leaf; a spelling missed here is
     a contradiction the projection would silently overwrite."""
     (error,) = panel_selection_errors(spelling, [])
-    assert "lattice" in error
+    assert "system-health" in error
 
 
 def test_an_agreeing_or_absent_enabled_is_allowed() -> None:
     assert panel_selection_errors({"web.panels.okf.enabled": True}, ["okf"]) == []
-    assert panel_selection_errors({"web.panels.lattice.enabled": False}, ["okf"]) == []
-    assert panel_selection_errors({"web.panels.lattice.label": "LATTICE"}, ["okf"]) == []
+    assert panel_selection_errors({"web.panels.system-health.enabled": False}, ["okf"]) == []
+    assert panel_selection_errors({"web.panels.system-health.label": "SYSTEM"}, ["okf"]) == []
     assert panel_selection_errors({}, ["okf"]) == []
     assert panel_selection_errors(None, ["okf"]) == []
 
@@ -353,7 +353,7 @@ def test_an_authored_enabled_on_a_dotted_id_is_judged_under_that_id() -> None:
 @pytest.mark.parametrize(
     "config",
     [
-        pytest.param({"web": {"panels.lattice.enabled": True}}, id="enabled"),
+        pytest.param({"web": {"panels.system-health.enabled": True}}, id="enabled"),
         pytest.param({"web": {"panels.überblick.url": "http://x:1"}}, id="url"),
     ],
 )

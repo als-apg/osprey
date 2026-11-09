@@ -32,6 +32,7 @@ from osprey.interfaces.opaque_origin import OPAQUE_CSP, document_headers
 from osprey.interfaces.web_terminal.agent_content_routes import (
     AGENT_CONTENT_ROUTES,
     SCANNED_PACKAGES,
+    SHELL_ASSET_ROUTES,
     RouteRef,
 )
 from osprey.interfaces.web_terminal.panel_discovery import DiscoveredPanel
@@ -666,17 +667,26 @@ class TestAgentContentRoutes:
     def test_every_non_json_get_route_is_enumerated_or_an_entry_page(self):
         scanned = _scan_non_json_get_routes()
         listed = {ref for row in AGENT_CONTENT_ROUTES for ref in row.routes}
-        classified = {
-            ref for ref in listed if _in_scanned_packages(ref)
-        } | _framework_entry_routes()
+        classified = (
+            {ref for ref in listed if _in_scanned_packages(ref)}
+            | _framework_entry_routes()
+            | set(SHELL_ASSET_ROUTES)
+        )
 
         unclassified = scanned - classified
         assert not unclassified, (
             "a companion-server GET route returns non-JSON bytes but is neither in "
-            f"AGENT_CONTENT_ROUTES nor an entry page: {sorted(unclassified, key=str)}"
+            "AGENT_CONTENT_ROUTES, SHELL_ASSET_ROUTES nor an entry page: "
+            f"{sorted(unclassified, key=str)}"
         )
         stale = classified - scanned
         assert not stale, f"enumerated routes no longer exist: {sorted(stale, key=str)}"
+
+    def test_a_shell_asset_is_neither_content_nor_an_entry_page(self):
+        listed = {ref for row in AGENT_CONTENT_ROUTES for ref in row.routes}
+        shell = set(SHELL_ASSET_ROUTES)
+        assert not shell & listed
+        assert not shell & _framework_entry_routes()
 
     def test_one_row_per_surface_kind(self):
         kinds = [row.kind for row in AGENT_CONTENT_ROUTES]

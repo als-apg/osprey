@@ -234,10 +234,24 @@ def test_settings_still_emit_declared_events_the_framework_does_not_wire():
 
 
 @pytest.fixture(autouse=True)
-def _no_ambient_terminal(monkeypatch):
-    """No inherited web-terminal environment: each test states what it wants."""
-    for name in (PORT_ENV, KEY_ENV, SURFACE_ENV, TOKEN_ENV):
+def _no_ambient_terminal(monkeypatch, tmp_path):
+    """No inherited web-terminal or CLI-launch environment: each test states what it wants.
+
+    Run from an ``osprey chat`` shell, the suite inherits a host-prefixed
+    ``OSPREY_TERMINAL_SESSION`` and an ``OSPREY_CLI_LAUNCH``, which would put
+    the hook on its CLI branch and write a real pointer. Both are deleted, and
+    the pointer root is aimed at ``tmp_path`` for any test that sets them.
+    """
+    for name in (
+        PORT_ENV,
+        KEY_ENV,
+        SURFACE_ENV,
+        TOKEN_ENV,
+        "OSPREY_TERMINAL_SESSION",
+        "OSPREY_CLI_LAUNCH",
+    ):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(turn_state, "_pointer_root", lambda _payload=None: str(tmp_path))
 
 
 @pytest.fixture
@@ -268,7 +282,9 @@ def turn_server():
             pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield server.server_address[1], received

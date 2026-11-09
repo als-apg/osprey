@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the control-assistant facility overview, booster and sector screens from the records.
+"""Generate the demo facility overview, booster and sector screens from the records.
 
 The ``write`` mode renders ``facility/overview``, ``br/overview``, the storage-ring
 sectors ``sr/sector-NN`` and their vacuum and absorber sub-screens from the example
@@ -226,13 +226,20 @@ class Records:
         return options.index(option)
 
 
+def _safe_load(text: str) -> Any:
+    """``yaml.safe_load`` of *text*, on libyaml's scanner when it is installed.
+
+    ``yaml.safe_load`` never reaches libyaml; the two loaders share the
+    constructor and resolver, so the records parse to the same objects.
+    """
+    return yaml.load(text, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader))
+
+
 def load_records(path: Path) -> Records:
     """The channel records at ``path`` and the device records beside them."""
-    rows = yaml.safe_load(path.read_text(encoding="utf-8"))
+    rows = _safe_load(path.read_text(encoding="utf-8"))
     devices_path = path.with_name(DEVICES_FILE)
-    devices = (
-        yaml.safe_load(devices_path.read_text(encoding="utf-8")) if devices_path.is_file() else []
-    )
+    devices = _safe_load(devices_path.read_text(encoding="utf-8")) if devices_path.is_file() else []
     return Records({row["id"]: row for row in rows}, {row["id"]: row for row in devices})
 
 
@@ -905,7 +912,7 @@ def facility_overview(records: Records) -> Screen:
     screen = Screen(
         OVERVIEW_ID,
         "Facility overview",
-        "The control-assistant facility at a glance: the plan of gun, linac, booster and "
+        "The demo facility at a glance: the plan of gun, linac, booster and "
         "storage ring with BPM status, each storage-ring sector and each other section "
         "opening its own screen, and the storage-ring status, RF, magnet supplies, injector "
         "and booster, and charge along the chain.",
@@ -1479,7 +1486,7 @@ def booster_overview(records: Records) -> Screen:
     screen = Screen(
         BOOSTER_ID,
         "Booster",
-        "The control-assistant booster: the ring with its BPM status, the dipole and "
+        "The demo booster: the ring with its BPM status, the dipole and "
         "quadrupole ramps, the injection and extraction septa and kicker, and the booster DCCT.",
         width,
         height,
@@ -1770,7 +1777,7 @@ class SectorDrawing:
         self.screen = Screen(
             sector_id(sector),
             f"SR sector {sector:02d}",
-            f"Storage-ring sector {sector:02d} of the control-assistant facility: straight "
+            f"Storage-ring sector {sector:02d} of the demo facility: straight "
             f"{sector:02d} and its arc in beam order with every magnet, corrector and BPM of "
             "the records, the straight's own devices, the vacuum (ion pumps, gauges, gate "
             "valves), insertion devices, front-end shutters, absorber temperatures, scrapers "
@@ -2952,7 +2959,7 @@ def detail_screen(records: Records, sector: int, kind: str) -> Screen:
     screen = Screen(
         screen_id,
         title,
-        f"Detail of storage-ring sector {sector:02d} of the control-assistant facility: {what}.",
+        f"Detail of storage-ring sector {sector:02d} of the demo facility: {what}.",
         1200,
         0,
     )

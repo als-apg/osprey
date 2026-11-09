@@ -1,11 +1,13 @@
 // @ts-check
 /**
- * Front-end proofs for the ARIEL vocabulary-expansion surface (Task 3.5):
+ * Front-end proofs for the ARIEL vocabulary-expansion surface, on the list
+ * pane (list.js):
  *
- *   - the degraded-configuration banners `initSearch(capabilities)` renders
- *     above the search form: blocking `#config-invalid-banner` (search controls
- *     disabled) on `configuration_invalid`, non-blocking `#config-warning-banner`
- *     on `configuration_warning`, nothing at all otherwise;
+ *   - the degraded-configuration banners `initList(root, {capabilities})`
+ *     renders above the list: blocking `#config-invalid-banner` (mode chip
+ *     disabled) on `configuration_invalid`, non-blocking
+ *     `#config-warning-banner` on `configuration_warning`, nothing at all
+ *     otherwise;
  *   - the query-expansion strip: ONE `.expansion-pair` per
  *     `expanded_terms` group, with a group's several canonicals comma-joined
  *     inside that single pair (`ts → troubleshoot, timing system`) — never one
@@ -15,54 +17,78 @@
  *   npx vitest run tests/interfaces/ariel/vocabulary-banner.test.mjs
  *
  * Runs under happy-dom (vitest.config.js). Only api.js is mocked (the network
- * boundary); components.js and search.js run for real so the actual render
- * sinks are exercised end-to-end.
+ * boundary); components.js, search.js and list.js run for real so the actual
+ * render sinks are exercised end-to-end.
  */
 
-import { test, expect, describe, beforeEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 vi.mock('../../../src/osprey/interfaces/ariel/static/js/api.js', async (importOriginal) => {
   const actual = /** @type {any} */ (await importOriginal());
   return {
     ...actual,
     searchApi: { ...actual.searchApi, search: vi.fn() },
+    entriesApi: { ...actual.entriesApi, list: vi.fn(), get: vi.fn() },
   };
 });
 
-import { searchApi } from '../../../src/osprey/interfaces/ariel/static/js/api.js';
-import {
-  initSearch,
-  performSearch,
-} from '../../../src/osprey/interfaces/ariel/static/js/search.js';
+const API_PATH = '../../../src/osprey/interfaces/ariel/static/js/api.js';
+const STORE_PATH = '../../../src/osprey/interfaces/ariel/static/js/store.js';
+const LIST_PATH = '../../../src/osprey/interfaces/ariel/static/js/list.js';
 
-/** The search view as index.html lays it out: the form container plus its controls. */
+/** @type {any} */
+let api;
+/** @type {any} */
+let store;
+
+/** The list pane root, as index.html provides it. */
 function mountFixture() {
-  document.body.innerHTML = `
-    <div class="search-form" id="search-form">
-      <div class="search-input-wrapper">
-        <input type="text" id="search-input" class="input">
-        <div class="search-input-actions">
-          <button id="search-btn" class="btn btn-primary">Search</button>
-        </div>
-      </div>
-    </div>
-    <div id="search-results"></div>
-  `;
+  document.body.innerHTML = '<section id="ariel-list"></section>';
+}
+
+/**
+ * Mount the list pane from a fresh module graph.
+ * @param {any} [capabilities]
+ */
+async function initList(capabilities) {
+  api = await import(API_PATH);
+  store = await import(STORE_PATH);
+  const list = await import(LIST_PATH);
+  vi.mocked(api.entriesApi.list).mockResolvedValue({
+    entries: [],
+    total: 0,
+    page: 1,
+    total_pages: 1,
+  });
+  list.initList(/** @type {HTMLElement} */ (document.getElementById('ariel-list')), {
+    capabilities,
+  });
+  await flush();
+}
+
+/**
+ * Run a query the way a hash navigation does, and let it paint.
+ * @param {string} query
+ */
+async function performSearch(query) {
+  store.setState({ query, rerank: 'now' }, { force: true });
+  await flush();
+  await flush();
+}
+
+/** Let every pending microtask (and the awaits chained behind it) run. */
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** @returns {HTMLElement} */
 function results() {
-  return /** @type {HTMLElement} */ (document.getElementById('search-results'));
+  return /** @type {HTMLElement} */ (document.getElementById('ariel-list-body'));
 }
 
 /** @returns {HTMLButtonElement} */
-function searchBtn() {
-  return /** @type {HTMLButtonElement} */ (document.getElementById('search-btn'));
-}
-
-/** @returns {HTMLInputElement} */
-function searchInput() {
-  return /** @type {HTMLInputElement} */ (document.getElementById('search-input'));
+function modeChip() {
+  return /** @type {HTMLButtonElement} */ (document.getElementById('ariel-mode-chip'));
 }
 
 /**
@@ -94,13 +120,19 @@ function searchResponse(expandedTerms) {
 }
 
 beforeEach(() => {
-  mountFixture();
+  vi.resetModules();
   vi.clearAllMocks();
+  history.replaceState(null, '', '/');
+  mountFixture();
 });
 
-describe('degraded-configuration banner (initSearch)', () => {
-  test('configuration_invalid blocks the form: banner + disabled controls', () => {
-    initSearch(
+afterEach(() => {
+  history.replaceState(null, '', '/');
+});
+
+describe('degraded-configuration banner (initList)', () => {
+  test('configuration_invalid blocks search: banner + disabled controls', async () => {
+    await initList(
       /** @type {any} */ ({
         status: 'configuration_invalid',
         config_errors: ['ariel.vocabulary.path: /x/vocabulary.yml — not found'],
@@ -121,17 +153,19 @@ describe('degraded-configuration banner (initSearch)', () => {
     expect(text(el)).toContain('ariel.vocabulary.path: /x/vocabulary.yml — not found');
     expect(text(el)).toContain('disable ariel.vocabulary.enabled');
 
-    // The banner is the form's first child; the button survives (disabled), so
-    // the browser tests can still see it.
-    const form = /** @type {HTMLElement} */ (document.getElementById('search-form'));
-    expect(form.firstElementChild).toBe(banner);
-    expect(searchBtn(), 'search button still in the DOM').not.toBeNull();
-    expect(searchBtn().disabled, 'search button disabled').toBe(true);
-    expect(searchInput().disabled, 'search input disabled').toBe(true);
+    // The banner sits in the list pane, above the rows; the controls survive
+    // (disabled), so the browser tests can still see them.
+    const pane = /** @type {HTMLElement} */ (document.getElementById('ariel-list'));
+    expect(pane.contains(/** @type {Node} */ (banner))).toBe(true);
+    expect(results().contains(/** @type {Node} */ (banner)), 'not wiped by a list paint').toBe(
+      false
+    );
+    expect(modeChip(), 'mode chip still in the DOM').not.toBeNull();
+    expect(modeChip().disabled, 'mode chip disabled').toBe(true);
   });
 
-  test('configuration_warning is non-blocking: banner rendered, controls live', () => {
-    initSearch(
+  test('configuration_warning is non-blocking: banner rendered, controls live', async () => {
+    await initList(
       /** @type {any} */ ({
         status: 'configuration_warning',
         config_errors: ['search_modules.semantic.model: not set'],
@@ -152,12 +186,11 @@ describe('degraded-configuration banner (initSearch)', () => {
     expect(text(el)).toContain('search_modules.semantic.model: not set');
     expect(text(el)).toContain('fix the named key in config.yml and restart');
 
-    expect(searchBtn().disabled, 'search button stays enabled').toBe(false);
-    expect(searchInput().disabled, 'search input stays enabled').toBe(false);
+    expect(modeChip().disabled, 'mode chip stays enabled').toBe(false);
   });
 
-  test('a healthy payload renders no banner', () => {
-    initSearch(
+  test('a healthy payload renders no banner', async () => {
+    await initList(
       /** @type {any} */ ({
         categories: { direct: { label: 'Direct', modes: [] } },
         default_mode: 'keyword',
@@ -167,38 +200,26 @@ describe('degraded-configuration banner (initSearch)', () => {
     );
 
     expect(document.querySelector('[data-testid="config-banner"]')).toBeNull();
-    expect(searchBtn().disabled).toBe(false);
   });
 
-  test('a failed capabilities fetch (null) renders no banner and does not throw', () => {
-    expect(() => initSearch(null)).not.toThrow();
-    expect(document.querySelector('[data-testid="config-banner"]')).toBeNull();
-    expect(searchBtn().disabled).toBe(false);
-  });
-
-  test('no argument at all keeps the pre-existing call site working', () => {
-    expect(() => initSearch()).not.toThrow();
+  test('a failed capabilities fetch (null) renders no banner and does not throw', async () => {
+    await expect(initList(null)).resolves.toBeUndefined();
     expect(document.querySelector('[data-testid="config-banner"]')).toBeNull();
   });
 
-  test('a missing #search-form (embedded/partial DOM) is a no-op, not a crash', () => {
-    document.body.innerHTML = '<div id="search-results"></div>';
-    expect(() =>
-      initSearch(
-        /** @type {any} */ ({
-          status: 'configuration_invalid',
-          config_errors: ['boom'],
-          remedy: null,
-        })
-      )
-    ).not.toThrow();
+  test('no capabilities at all keeps the call site working', async () => {
+    await expect(initList()).resolves.toBeUndefined();
     expect(document.querySelector('[data-testid="config-banner"]')).toBeNull();
   });
 });
 
 describe('query-expansion strip (results header)', () => {
+  beforeEach(async () => {
+    await initList(/** @type {any} */ (null));
+  });
+
   test('a group with several canonicals renders ONE comma-joined pair', async () => {
-    vi.mocked(searchApi.search).mockResolvedValueOnce(
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
       searchResponse([{ original: 'ts', alternatives: ['troubleshoot', 'timing system'] }])
     );
 
@@ -212,7 +233,7 @@ describe('query-expansion strip (results header)', () => {
   });
 
   test('two groups render two pairs', async () => {
-    vi.mocked(searchApi.search).mockResolvedValueOnce(
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
       searchResponse([
         { original: 'ts', alternatives: ['troubleshoot'] },
         { original: 'bpm', alternatives: ['beam position monitor'] },
@@ -228,7 +249,7 @@ describe('query-expansion strip (results header)', () => {
   });
 
   test('no banner when nothing expanded', async () => {
-    vi.mocked(searchApi.search).mockResolvedValueOnce(searchResponse([]));
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(searchResponse([]));
     await performSearch('nothing to expand');
     expect(results().querySelector('[data-testid="expansion-banner"]')).toBeNull();
   });
@@ -236,14 +257,14 @@ describe('query-expansion strip (results header)', () => {
   test('no banner when the response omits expanded_terms entirely', async () => {
     const response = searchResponse([]);
     delete response.expanded_terms;
-    vi.mocked(searchApi.search).mockResolvedValueOnce(response);
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(response);
     await performSearch('older backend');
     expect(results().querySelector('[data-testid="expansion-banner"]')).toBeNull();
   });
 
   test('hostile expansion terms are escaped, not parsed', async () => {
     const payload = "'><img src=x onerror=alert(1)>";
-    vi.mocked(searchApi.search).mockResolvedValueOnce(
+    vi.mocked(api.searchApi.search).mockResolvedValueOnce(
       searchResponse([{ original: payload, alternatives: [payload] }])
     );
 

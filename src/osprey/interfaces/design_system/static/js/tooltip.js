@@ -6,6 +6,11 @@
  * tooltips never show at once. It replaces native `title` tooltips where the
  * text must appear soon and in the theme's look.
  *
+ * A tip shows in its element's document, which may be a window of its own (the
+ * web terminal's detached panes): there is one layer per document, placement
+ * reads that window's viewport, and Escape and a press are heard on every document
+ * with a watched root, each until its last `initTooltips` stops.
+ *
  * `initTooltips(root, {mode})` watches `root` (the shell passes <body>) and
  * shows a tip for the nearest element that carries one of:
  *   - `data-tip`: a short label, the name of the control;
@@ -65,9 +70,11 @@ const PARKED_TITLE_ATTR = 'data-tip-title';
 /** Elements that can carry a tip. The parked title keeps a shown element matching. */
 const TIP_SELECTOR = `[data-tip], [title], [${PARKED_TITLE_ATTR}], [data-tip-detail]`;
 
-/** @type {HTMLDivElement | null} */
+/** @type {HTMLElement | null} the layer last shown, in whichever document */
 let layer = null;
-let documentBound = false;
+
+/** @type {Map<Document, {roots: number, stop: () => void}>} documents heard */
+const boundDocuments = new Map();
 
 /** @type {HTMLElement | null} the element whose tip the layer shows now */
 let current = null;
@@ -139,16 +146,20 @@ function releaseCurrent() {
   current = null;
 }
 
-/** @returns {HTMLDivElement} the shared layer, created on first use */
-function tooltipLayer() {
-  if (layer && layer.isConnected) return layer;
-  layer = document.createElement('div');
-  layer.id = LAYER_ID;
-  layer.className = 'osprey-tooltip';
-  layer.setAttribute('role', 'tooltip');
-  layer.hidden = true;
-  document.body.append(layer);
-  return layer;
+/**
+ * @param {Document} doc
+ * @returns {HTMLElement} that document's layer, created on first use
+ */
+function tooltipLayer(doc) {
+  const found = doc.getElementById(LAYER_ID);
+  if (found) return found;
+  const tip = doc.createElement('div');
+  tip.id = LAYER_ID;
+  tip.className = 'osprey-tooltip';
+  tip.setAttribute('role', 'tooltip');
+  tip.hidden = true;
+  doc.body.append(tip);
+  return tip;
 }
 
 /** Cancel a tip that is waiting for its delay. */
@@ -182,7 +193,7 @@ function dismissTooltip() {
 function controlsOpenPopover(el) {
   const id = el.getAttribute('aria-controls');
   if (!id) return false;
-  const controlled = document.getElementById(id);
+  const controlled = el.ownerDocument.getElementById(id);
   return !!controlled && controlled.classList.contains('osprey-popover') && !controlled.hidden;
 }
 
@@ -205,11 +216,12 @@ function tipText(el, mode) {
  * @param {DOMRect} rect
  * @param {{ width: number, height: number }} size
  * @param {string | undefined} place `right`, `below` or `above`
+ * @param {{ innerWidth: number, innerHeight: number }} view the window it shows in
  * @returns {{ left: number, top: number, side: 'right' | 'left' | 'below' | 'above' }}
  */
-function placeTip(rect, size, place) {
-  const maxLeft = window.innerWidth - MARGIN - size.width;
-  const maxTop = window.innerHeight - MARGIN - size.height;
+function placeTip(rect, size, place, view) {
+  const maxLeft = view.innerWidth - MARGIN - size.width;
+  const maxTop = view.innerHeight - MARGIN - size.height;
   /** @param {number} value @param {number} max */
   const clamp = (value, max) => Math.max(MARGIN, Math.min(value, max));
   const centreX = rect.left + rect.width / 2 - size.width / 2;
@@ -243,7 +255,11 @@ function placeTip(rect, size, place) {
  * @param {{ label: string, detail: string }} text
  */
 function presentTooltip(el, text) {
-  const tip = tooltipLayer();
+  const doc = el.ownerDocument;
+  const tip = tooltipLayer(doc);
+  // The tip last shown stands in another window: one tip at a time still.
+  if (layer && layer !== tip) layer.hidden = true;
+  layer = tip;
   if (current !== el) {
     releaseCurrent();
     current = el;
@@ -258,13 +274,13 @@ function presentTooltip(el, text) {
 
   tip.replaceChildren();
   if (text.label) {
-    const label = document.createElement('b');
+    const label = doc.createElement('b');
     label.className = 'osprey-tooltip-label';
     label.textContent = text.label;
     tip.append(label);
   }
   if (text.detail) {
-    const detail = document.createElement('span');
+    const detail = doc.createElement('span');
     detail.className = 'osprey-tooltip-detail';
     detail.textContent = text.detail;
     tip.append(detail);
@@ -277,7 +293,8 @@ function presentTooltip(el, text) {
   const where = placeTip(
     el.getBoundingClientRect(),
     { width: tip.offsetWidth, height: tip.offsetHeight },
-    el.dataset.tipPlace
+    el.dataset.tipPlace,
+    doc.defaultView ?? window
   );
   tip.style.left = `${where.left}px`;
   tip.style.top = `${where.top}px`;
@@ -312,7 +329,8 @@ export function initTooltips(root = document.body, { mode = () => 'label+detail'
   const tipTarget = (event) => {
     const target = /** @type {Element | null} */ (event.target);
     const el = target && target.closest ? target.closest(TIP_SELECTOR) : null;
-    return el instanceof HTMLElement && root.contains(el) ? el : null;
+    // Not `instanceof HTMLElement`: a node of a window's document is of its realm.
+    return el && root.contains(el) ? /** @type {HTMLElement} */ (el) : null;
   };
 
   /** @param {HTMLElement} el */
@@ -376,14 +394,7 @@ export function initTooltips(root = document.body, { mode = () => 'label+detail'
   root.addEventListener('focusin', onFocusIn);
   root.addEventListener('focusout', onFocusOut);
 
-  if (!documentBound) {
-    documentBound = true;
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') dismissTooltip();
-    });
-    // Capture phase: a press hides the tip even when the control stops the event.
-    document.addEventListener('pointerdown', dismissTooltip, true);
-  }
+  const unbind = bindDocument(root.ownerDocument ?? document);
 
   return () => {
     root.removeEventListener('pointerover', onPointerOver);
@@ -391,5 +402,43 @@ export function initTooltips(root = document.body, { mode = () => 'label+detail'
     root.removeEventListener('pointerleave', onLeave, true);
     root.removeEventListener('focusin', onFocusIn);
     root.removeEventListener('focusout', onFocusOut);
+    unbind();
+  };
+}
+
+/**
+ * Hear Escape and presses on `doc` for as long as a root there is watched.
+ * @param {Document} doc
+ * @returns {() => void} this root's release
+ */
+function bindDocument(doc) {
+  let bound = boundDocuments.get(doc);
+  if (!bound) {
+    /** @param {KeyboardEvent} event */
+    const onKey = (event) => {
+      if (event.key === 'Escape') dismissTooltip();
+    };
+    doc.addEventListener('keydown', onKey);
+    // Capture phase: a press hides the tip even when the control stops the event.
+    doc.addEventListener('pointerdown', dismissTooltip, true);
+    bound = {
+      roots: 0,
+      stop: () => {
+        doc.removeEventListener('keydown', onKey);
+        doc.removeEventListener('pointerdown', dismissTooltip, true);
+      },
+    };
+    boundDocuments.set(doc, bound);
+  }
+  const entry = bound;
+  entry.roots += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    entry.roots -= 1;
+    if (entry.roots > 0) return;
+    entry.stop();
+    boundDocuments.delete(doc);
   };
 }

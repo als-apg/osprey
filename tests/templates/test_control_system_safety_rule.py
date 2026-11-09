@@ -82,7 +82,7 @@ def _render_safety_rule(
     tmp_path,
     project_name: str,
     control_system_type: str | None,
-    bundle: str = "control_assistant",
+    bundle: str = "demo",
 ) -> str:
     """Scaffold a project, set ``control_system.type``, render the Claude Code
     integration files, and return the rendered safety-rule content."""
@@ -369,7 +369,7 @@ def test_routing_section_without_bluesky_leaves_the_form_to_the_agent(tmp_path):
     this is the shape a real queue-less deployment renders: the multi-setting
     case still appears, and it names both forms without forbidding either.
 
-    hello-world rather than control-assistant: the latter's preset arms the
+    hello-world rather than demo: the latter's preset arms the
     Bluesky lane, so a project built from it has a queue and cannot reach this
     branch.
     """

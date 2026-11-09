@@ -255,7 +255,6 @@ DENIED: tuple[Denied, ...] = (
                 # returns "ALS eLog": an expectation spelled any other way would
                 # assert a value no adapter produces.
                 "tests/services/ariel_search/conftest.py",
-                "tests/services/ariel_search/integration/test_cli.py",
                 "tests/services/ariel_search/integration/test_ingestion.py",
                 "tests/services/ariel_search/test_ingestion.py",
                 "tests/services/ariel_search/test_ingestion_branches.py",
@@ -444,7 +443,7 @@ def test_the_sweep_reaches_shipped_templates_and_docs() -> None:
     scanned = {str(path.relative_to(_REPO_ROOT)) for path in _sources(_REPO_ROOT, SHIPPED_ROOTS)}
     for required in (
         "src/osprey/templates/modules/web_terminals/docker-compose.web.yml.j2",
-        "src/osprey/profiles/presets/control-assistant.yml",
+        "src/osprey/profiles/presets/demo.yml",
         "docs/source/how-to/web-terminal/multi-user/login.rst",
         "src/osprey/templates/services/qmd/Dockerfile",
         "packages/osprey-connectors/src/osprey_connectors/factory.py",

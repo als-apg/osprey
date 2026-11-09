@@ -216,6 +216,34 @@ def test_initialize_refuses_a_malformed_entry_text_budget(tmp_path, monkeypatch)
         initialize_ariel_context()
 
 
+async def test_the_server_lifespan_shuts_the_context_down_on_exit():
+    """Leaving the ARIEL MCP server's lifespan shuts down its context, once."""
+    from fastmcp import Client
+
+    from osprey.mcp_server.ariel.server import mcp
+
+    context = AsyncMock(spec=ARIELContext)
+    with patch("osprey.mcp_server.ariel.server.get_ariel_context", return_value=context):
+        async with Client(mcp):
+            context.shutdown.assert_not_awaited()
+
+    context.shutdown.assert_awaited_once()
+
+
+async def test_the_server_lifespan_ignores_a_failing_shutdown():
+    """A server exit never raises because its context could not close."""
+    from fastmcp import Client
+
+    from osprey.mcp_server.ariel.server import mcp
+
+    with patch(
+        "osprey.mcp_server.ariel.server.get_ariel_context",
+        side_effect=RuntimeError("ARIEL MCP registry not initialized"),
+    ):
+        async with Client(mcp):
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Service open: a missing embedding table is refused, never cached
 # ---------------------------------------------------------------------------

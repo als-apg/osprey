@@ -83,6 +83,13 @@ let fetchMock;
 const FIXTURE = `
   <nav class="sidebar" id="sidebar" aria-label="Panels">
     <div class="sidebar-foot">
+      <a class="osprey-nav-row" id="panel-docs-link" href="https://docs.example/" target="_blank"
+         rel="noopener">
+        <span class="osprey-nav-label">Docs</span>
+      </a>
+      <button class="osprey-nav-row" id="panel-feedback-btn" type="button">
+        <span class="osprey-nav-label">Feedback</span>
+      </button>
       <button class="osprey-nav-row" id="more-btn" type="button" aria-label="More"
               aria-haspopup="menu" aria-expanded="false" aria-controls="more-menu" data-tip="More">
         <svg class="osprey-ic osprey-nav-icon" data-icon="menu" aria-hidden="true"></svg>
@@ -108,6 +115,9 @@ const FIXTURE = `
       <div class="osprey-popover-title" id="more-family-label">Theme family</div>
       <div data-theme-families></div>
     </div>
+    <div class="osprey-popover-sep" role="separator"></div>
+    <button class="osprey-popover-item" type="button" role="menuitemcheckbox" aria-checked="true"
+            data-more="tab-toggle">Tab shows or hides the sidebar</button>
     <div class="osprey-popover-sep" role="separator"></div>
     <button class="osprey-popover-item" id="more-settings" type="button" role="menuitem"
             data-drawer-trigger="settings-drawer">
@@ -346,6 +356,93 @@ describe('open and close', () => {
   });
 });
 
+/* ---- right-click on the sidebar footer ---------------------------------------- */
+
+/**
+ * Right-click `target` as a pointer would.
+ * @param {Element} target
+ * @param {{shiftKey?: boolean}} [opts]
+ * @returns {MouseEvent}
+ */
+function rightClick(target, { shiftKey = false } = {}) {
+  const event = new MouseEvent('contextmenu', {
+    bubbles: true,
+    cancelable: true,
+    button: 2,
+    clientX: 10,
+    clientY: 10,
+    shiftKey,
+  });
+  target.dispatchEvent(event);
+  return event;
+}
+
+const footer = () => qs(document, '.sidebar-foot');
+
+describe('right-click on the sidebar footer', () => {
+  test('opens ☰ More exactly as clicking it does, and claims the event', () => {
+    boot();
+    const event = rightClick(footer());
+    expect(event.defaultPrevented).toBe(true);
+    expect(menu().hidden).toBe(false);
+    // Anchored at ☰ More: the button is the opener it reports to.
+    expect(button().getAttribute('aria-expanded')).toBe('true');
+    expect(document.activeElement).toBe(row('[data-appearance="auto"]'));
+    // The radios are synced on open, as the click path does.
+    expect(checked('[data-appearance="auto"]')).toBe('true');
+  });
+
+  test('right-click on a footer row (☰ More, Feedback) opens the same menu', () => {
+    boot();
+    expect(rightClick(button()).defaultPrevented).toBe(true);
+    expect(menu().hidden).toBe(false);
+    pressOnFocused('Escape');
+    expect(menu().hidden).toBe(true);
+    expect(rightClick(byId('panel-feedback-btn')).defaultPrevented).toBe(true);
+    expect(menu().hidden).toBe(false);
+  });
+
+  test('a second right-click keeps the menu open rather than toggling it shut', () => {
+    boot();
+    rightClick(footer());
+    const event = rightClick(footer());
+    expect(event.defaultPrevented).toBe(true);
+    expect(menu().hidden).toBe(false);
+    expect(button().getAttribute('aria-expanded')).toBe('true');
+  });
+
+  test('Escape after a right-click open returns focus to ☰ More', () => {
+    boot();
+    rightClick(footer());
+    pressOnFocused('Escape');
+    expect(menu().hidden).toBe(true);
+    expect(document.activeElement).toBe(button());
+  });
+
+  test('the Docs link keeps the browser menu', () => {
+    boot();
+    const link = byId('panel-docs-link');
+    const inner = qs(link, '.osprey-nav-label');
+    expect(rightClick(link).defaultPrevented).toBe(false);
+    expect(rightClick(inner).defaultPrevented).toBe(false);
+    expect(menu().hidden).toBe(true);
+  });
+
+  test('Shift+right-click keeps the browser menu (declinesToBrowser)', () => {
+    boot();
+    const event = rightClick(footer(), { shiftKey: true });
+    expect(event.defaultPrevented).toBe(false);
+    expect(menu().hidden).toBe(true);
+  });
+
+  test('right-click outside the footer is not claimed', () => {
+    boot();
+    const event = rightClick(byId('sidebar'));
+    expect(event.defaultPrevented).toBe(false);
+    expect(menu().hidden).toBe(true);
+  });
+});
+
 /* ---- the rows that move the operator elsewhere ------------------------------ */
 
 describe('rows with their own owners', () => {
@@ -365,6 +462,19 @@ describe('rows with their own owners', () => {
     expect(mocks.openActivityLog).toHaveBeenCalledWith(getSessionId);
     expect(menu().hidden).toBe(true);
     expect(document.activeElement).toBe(button());
+  });
+
+  test('Tab shows or hides the sidebar: a checkbox that turns the Tab key off and on', () => {
+    boot();
+    openMenu();
+    const rowEl = row('[data-more="tab-toggle"]');
+    expect(rowEl.getAttribute('aria-checked')).toBe('true');
+    rowEl.click();
+    expect(rowEl.getAttribute('aria-checked')).toBe('false');
+    expect(localStorage.getItem('osprey-sidebar-tab-toggle')).toBe('off');
+    expect(menu().hidden).toBe(false);
+    rowEl.click();
+    expect(rowEl.getAttribute('aria-checked')).toBe('true');
   });
 
   test('Keyboard shortcuts opens beside the menu, which stays open', () => {

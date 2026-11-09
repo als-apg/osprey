@@ -1,11 +1,12 @@
 """Tests for ``POST /api/panel-layout`` and the layout half of ``GET /api/panels``.
 
 The layout report is how a browser's dock tells the server what the operator's
-workspace actually looks like: the dock layout tree (tiles, their tabs, the showing
-tab, the terminal) plus the page's ``client_id``. The server validates it with
-``dock_layout``, records the reporting client as the current one and mints a
-``rev`` that the ack returns. It is report-only: last-writer-wins, never broadcast,
-and content-deduped so an applied arrangement converges instead of ping-ponging.
+workspace actually looks like: the dock layout tree (its tiles, the panel each
+one shows, the terminal) plus the page's ``client_id``. The server validates it
+with ``dock_layout`` and OSPREY's one-panel-per-tile rule, records the reporting
+client as the current one and mints a ``rev`` that the ack returns. It is
+report-only: last-writer-wins, never broadcast, and content-deduped so an
+applied arrangement converges instead of ping-ponging.
 """
 
 from __future__ import annotations
@@ -23,7 +24,15 @@ LAYOUT = {
     "split": "row",
     "items": [
         {"tile": "1", "tabs": ["terminal"], "showing": "terminal", "size": 0.4},
-        {"tile": "2", "tabs": ["lattice", "ariel"], "showing": "ariel", "size": 0.6},
+        {"tile": "2", "tabs": ["ariel"], "showing": "ariel", "size": 0.6},
+    ],
+}
+#: LAYOUT with LATTICE in tile 2, in place of ARIEL.
+REPLACED = {
+    "split": "row",
+    "items": [
+        {"tile": "1", "tabs": ["terminal"], "showing": "terminal", "size": 0.4},
+        {"tile": "2", "tabs": ["lattice"], "showing": "lattice", "size": 0.6},
     ],
 }
 TERMINAL_ONLY = {"tile": "1", "tabs": ["terminal"], "showing": "terminal"}
@@ -73,9 +82,7 @@ class TestStore:
     def test_a_changed_layout_mints_a_higher_rev(self):
         client = _make_client()
         first = _report(client, LAYOUT).json()["rev"]
-        moved = copy.deepcopy(LAYOUT)
-        moved["items"][1]["showing"] = "lattice"
-        second = _report(client, moved).json()
+        second = _report(client, REPLACED).json()
         assert second["updated"] is True
         assert second["rev"] > first
 
@@ -125,9 +132,13 @@ class TestDockLessReportsUnknownLayout:
         client = _make_client()
         assert _report(client, LAYOUT, dock=False).json()["layout"] is None
 
-    def test_dock_true_requires_a_layout(self):
+    def test_dock_true_with_a_null_layout_is_an_empty_dock(self):
         client = _make_client()
-        assert _report(client, None, dock=True).status_code == 422
+        resp = _report(client, None, dock=True)
+        assert resp.status_code == 200
+        assert resp.json()["layout"] is None
+        assert client.app.state.layout_dock is True
+        assert client.app.state.dock_client_id == "page-a"
 
 
 class TestDedupe:
@@ -186,13 +197,11 @@ class TestDedupe:
         assert again["updated"] is True
         assert again["rev"] == first["rev"] + 1
 
-    def test_a_showing_tab_change_mints_a_rev(self):
+    def test_another_panel_in_a_tile_mints_a_rev(self):
         client = _make_client()
         first = _report(client, LAYOUT).json()
-        shown = copy.deepcopy(LAYOUT)
-        shown["items"][1]["showing"] = "lattice"
 
-        assert _report(client, shown).json()["rev"] == first["rev"] + 1
+        assert _report(client, REPLACED).json()["rev"] == first["rev"] + 1
 
     def test_a_dock_report_after_a_dock_less_one_is_news(self):
         client = _make_client()
@@ -204,13 +213,30 @@ class TestValidation:
     def test_unknown_key_is_rejected_and_lists_valid_ids(self):
         client = _make_client()
         bad = copy.deepcopy(LAYOUT)
-        bad["items"][1]["tabs"].append("nope")
+        bad["items"][1].update(tabs=["nope"], showing="nope")
         resp = _report(client, bad)
         assert resp.status_code == 422
         detail = resp.json()["detail"]
         assert "nope" in detail
         for valid in ("ariel", "lattice", "artifacts", "grafana"):
             assert valid in detail
+
+    def test_a_tile_holding_two_panels_is_refused_one_panel_per_tile(self):
+        """A valid tree by the engine's grammar, but OSPREY's dock shows one panel per tile."""
+        client = _make_client()
+        rev = _report(client, LAYOUT).json()["rev"]
+        crowded = copy.deepcopy(LAYOUT)
+        crowded["items"][1].update(tabs=["lattice", "ariel"], showing="ariel")
+
+        resp = _report(client, crowded)
+
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == (
+            "layout.items[1].tabs: one_panel_per_tile: a tile holds one panel; to show "
+            "several, put them side by side in tiles of their own"
+        )
+        assert client.app.state.dock_layout == LAYOUT
+        assert client.app.state.dock_layout_rev == rev
 
     def test_a_c_layout_refusal_names_the_reason(self):
         client = _make_client()
@@ -249,6 +275,68 @@ class TestValidation:
     def test_dock_and_client_id_are_required(self, body):
         client = _make_client()
         assert client.post("/api/panel-layout", json=body).status_code == 422
+
+
+def _report_popouts(client: TestClient, layout, popouts: list[str]):
+    return client.post(
+        "/api/panel-layout",
+        json={"layout": layout, "dock": True, "client_id": "page-a", "popouts": popouts},
+    )
+
+
+class TestPopouts:
+    """A pane in a window of its own: any service panel, and the Agent pane."""
+
+    def test_a_detached_service_panel_is_recorded_beside_the_layout(self):
+        client = _make_client()
+        body = _report_popouts(client, TERMINAL_ONLY, ["ariel"]).json()
+        assert body["popouts"] == ["ariel"]
+        assert client.app.state.dock_popouts == ["ariel"]
+
+    def test_the_agent_pane_may_be_detached(self):
+        client = _make_client()
+        only_ariel = {"tile": "2", "tabs": ["ariel"], "showing": "ariel"}
+        resp = _report_popouts(client, only_ariel, ["terminal"])
+        assert resp.status_code == 200
+        assert resp.json()["popouts"] == ["terminal"]
+
+    @pytest.mark.parametrize("key", ["ariel", "terminal"])
+    def test_a_pane_both_docked_and_detached_is_refused(self, key):
+        client = _make_client()
+        resp = _report_popouts(client, LAYOUT, [key])
+        assert resp.status_code == 422
+        assert "cannot also be in the layout" in resp.json()["detail"]
+
+    def test_an_unknown_pop_out_is_refused(self):
+        client = _make_client()
+        assert _report_popouts(client, TERMINAL_ONLY, ["nope"]).status_code == 422
+
+    def test_a_null_layout_with_the_agent_detached_is_an_empty_dock(self):
+        """Detaching the Agent pane from the default layout leaves the dock empty."""
+        client = _make_client()
+        resp = _report_popouts(client, None, ["terminal"])
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["layout"] is None
+        assert body["popouts"] == ["terminal"]
+        assert body["dock"] is True
+        assert client.app.state.dock_client_id == "page-a"
+        panels = _panels(client)
+        assert panels["layout"] is None
+        assert panels["layout_dock"] is True
+        assert panels["popouts"] == ["terminal"]
+
+    def test_the_last_detached_pane_going_clears_the_stored_pop_outs(self):
+        """Its window closed over an empty dock: the server must stop naming it."""
+        client = _make_client()
+        rev = _report_popouts(client, None, ["terminal"]).json()["rev"]
+        resp = _report_popouts(client, None, [])
+        assert resp.status_code == 200
+        assert resp.json()["rev"] == rev + 1
+        panels = _panels(client)
+        assert panels["layout"] is None
+        assert panels["popouts"] == []
+        assert panels["layout_dock"] is True
 
 
 class TestGetPanels:

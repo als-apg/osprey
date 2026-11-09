@@ -2,7 +2,7 @@
 
 The dispatch tutorial sweep, the allowlist-parity lane and the three chat-bridge
 lanes (Google Chat, Microsoft Teams, Nextcloud Talk) all run the same pair: a
-control-assistant repo built once with ``osprey init`` + ``osprey build``, then
+demo repo built once with ``osprey init`` + ``osprey build``, then
 ``python -m osprey.mcp_server.dispatch_worker`` and ``python -m osprey.dispatch``
 started with this interpreter, wired exactly as the compose templates wire the
 deployed services. Each binds port 0 and names the port it got in uvicorn's
@@ -93,7 +93,7 @@ def build_repo(
     timeout: int = 300,
     env: Mapping[str, str] | None = None,
 ) -> Path:
-    """Init + build a real control-assistant deployment repo at ``base / "proj"``.
+    """Init + build a real demo deployment repo at ``base / "proj"``.
 
     Two steps because the surface has two: ``init`` writes the repo's source zone
     from the preset, ``build`` renders ``build/`` from it. ``--skip-deps`` keeps it
@@ -120,7 +120,7 @@ def build_repo(
             "init",
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             "--set",
             f"provider={provider}",

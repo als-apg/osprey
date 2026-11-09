@@ -341,15 +341,18 @@ class TestMigrationSQLExecution:
                 ON CONFLICT (entry_id) DO NOTHING
             """)
 
-            # Test FTS search uses the index
-            result = await conn.execute("""
-                EXPLAIN SELECT * FROM enhanced_entries
-                WHERE to_tsvector('english', raw_text) @@ plainto_tsquery('english', 'beam current')
-            """)
-            plan = "\n".join([row[0] for row in await result.fetchall()])
-
-            # Clean up
-            await conn.execute("DELETE FROM enhanced_entries WHERE entry_id = 'test-fts-func-001'")
+            try:
+                # Test FTS search uses the index
+                result = await conn.execute("""
+                    EXPLAIN SELECT * FROM enhanced_entries
+                    WHERE to_tsvector('english', raw_text)
+                        @@ plainto_tsquery('english', 'beam current')
+                """)
+                plan = "\n".join([row[0] for row in await result.fetchall()])
+            finally:
+                await conn.execute(
+                    "DELETE FROM enhanced_entries WHERE entry_id = 'test-fts-func-001'"
+                )
 
         # The query plan should reference the core raw-text FTS index
         assert "idx_entries_raw_text_fts" in plan or "Seq Scan" in plan
@@ -580,16 +583,16 @@ class TestAttachmentTextColumnsMigration:
     async def test_busy_table_skips_without_queueing_or_blocking_readers(
         self, scratch_database, scratch_pool, scratch_config, monkeypatch
     ):
-        """An open reader makes migrate return busy after ``LOCK_ATTEMPTS`` NOWAIT attempts.
-
-        None of the attempts queues, and a reader started during the retries is served.
+        """An open reader makes migrate return busy while it still reads; a later reader never waits.
 
         The reader holds ACCESS SHARE on ``enhanced_entries`` for the whole run.
         A queued ACCESS EXCLUSIVE request would make the third session's read
-        wait behind it; the NOWAIT retries never queue, so it returns at once.
+        wait behind it; the NOWAIT retries never queue, so it returns within its statement_timeout.
+        Postgres itself attests the no-queue: a session sampling ``pg_locks`` for the whole
+        run never sees an ungranted request on the table, while a third session reads in a
+        loop until migrate returns, so a read falls inside the retry window by construction.
         """
         import asyncio
-        import types
 
         import psycopg
 
@@ -602,50 +605,72 @@ class TestAttachmentTextColumnsMigration:
         assert await migrations.run_migrations(scratch_pool, scratch_config) == ["core_schema"]
         monkeypatch.setattr(migrations, "KNOWN_MIGRATIONS", both)
 
+        # A hang ceiling: k times the retry budget the busy skip is bounded by.
+        ceiling_s = 6 * migrations.LOCK_ATTEMPTS * migrations.LOCK_RETRY_DELAY_S
+
         holder = await psycopg.AsyncConnection.connect(scratch_database)
         third = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)
-        observer = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)
-        real_sleep = asyncio.sleep
-        first_pause = asyncio.Event()
-        ungranted: list[int] = []
-
-        async def pause(delay: float) -> None:
-            first_pause.set()
-            waiting = await observer.execute(
-                "SELECT count(*) FROM pg_locks WHERE NOT granted AND database = "
-                "(SELECT oid FROM pg_database WHERE datname = current_database())"
-            )
-            ungranted.append((await waiting.fetchone())[0])
-            await real_sleep(delay)
-
-        # Only the product's retry pause is observed; the event loop keeps its own sleep.
-        monkeypatch.setattr(migrations, "asyncio", types.SimpleNamespace(sleep=pause))
+        sampler = await psycopg.AsyncConnection.connect(scratch_database, autocommit=True)
+        migrated = asyncio.Event()
         try:
             await holder.execute("SELECT count(*) FROM enhanced_entries")  # opens a txn
+            await third.execute("SET statement_timeout = '3s'")
 
-            async def late_reader() -> None:
-                await first_pause.wait()
-                await third.execute("SET statement_timeout = '3s'")
-                await third.execute("SELECT count(*) FROM enhanced_entries")
+            async def read_until_migrated() -> int:
+                reads = 0
+                while True:
+                    await third.execute("SELECT count(*) FROM enhanced_entries")
+                    reads += 1
+                    if migrated.is_set():
+                        return reads
 
-            result, _ = await asyncio.wait_for(
+            async def sample_queued_requests() -> int:
+                most = 0
+                while True:
+                    queued = await sampler.execute(
+                        """
+                        SELECT count(*) FROM pg_locks
+                        WHERE relation = 'enhanced_entries'::regclass AND NOT granted
+                        """
+                    )
+                    most = max(most, (await queued.fetchone())[0])
+                    if migrated.is_set():
+                        return most
+                    await asyncio.sleep(0)
+
+            async def migrate_and_see_the_lock():
+                try:
+                    outcome = await migrations.run_migrations_detailed(scratch_pool, scratch_config)
+                finally:
+                    migrated.set()
+                async with scratch_pool.connection() as conn:
+                    held = await conn.execute(
+                        """
+                        SELECT count(*) FROM pg_locks
+                        WHERE pid = %s AND relation = 'enhanced_entries'::regclass
+                        AND mode = 'AccessShareLock' AND granted
+                        """,
+                        [holder.info.backend_pid],
+                    )
+                    return outcome, (await held.fetchone())[0] == 1
+
+            (result, lock_still_held), reads, most_queued = await asyncio.wait_for(
                 asyncio.gather(
-                    migrations.run_migrations_detailed(scratch_pool, scratch_config),
-                    late_reader(),
+                    migrate_and_see_the_lock(), read_until_migrated(), sample_queued_requests()
                 ),
-                timeout=30,
+                timeout=ceiling_s,
             )
         finally:
             await holder.rollback()
             await holder.close()
             await third.close()
-            await observer.close()
+            await sampler.close()
 
-        pauses = len(ungranted)
+        assert most_queued == 0, "a request queued on enhanced_entries"
+        assert reads >= 1, "every read returned"
         assert result.applied == []
         assert result.busy_skipped == [self.MIGRATION]
-        assert pauses + 1 == migrations.LOCK_ATTEMPTS
-        assert ungranted == [0] * pauses
+        assert lock_still_held, "migrate returned only after the reader let go of the table"
 
         async with scratch_pool.connection() as conn:
             result_cols = await conn.execute("""
@@ -1253,10 +1278,7 @@ class TestV2SearchIndexMigrations:
 
     @pytest.mark.usefixtures("store")
     async def test_v2_share_lock_holder_does_not_block_readers(self, scratch_database):
-        """While a session holds SHARE (as a v2 build does), a reader is served.
-
-        The reader's ``statement_timeout`` fails a read that queues behind the lock.
-        """
+        """While a session holds SHARE (as a v2 build does), a reader returns within its statement_timeout."""
         import psycopg
 
         builder = await psycopg.AsyncConnection.connect(scratch_database)
