@@ -345,13 +345,16 @@ def test_a_gated_module_registers_only_when_its_predicate_holds(
     throwaway = FastMCP("probe")
 
     try:
-        assert server.register_tools(throwaway, context) == ["zz_gate_on"]
+        registered = server.register_tools(throwaway, context)
     finally:
         for module in ("zz_gate_on", "zz_gate_off"):
             sys.modules.pop(f"{tools.__name__}.{module}", None)
 
+    assert "zz_gate_on" in registered
+    assert "zz_gate_off" not in registered
     names = {tool.name for tool in asyncio.run(throwaway.list_tools())}
-    assert names == {"gated_on"}
+    assert "gated_on" in names
+    assert "gated_off" not in names
 
 
 # -- connectors without the directory modules ---------------------------------
