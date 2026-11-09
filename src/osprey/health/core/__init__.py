@@ -41,7 +41,7 @@ declares ``runtime`` is refused with an ``error`` row saying to make it
 
 Lazy resolution
 ----------------
-``CORE_CATEGORIES`` is a lazy mapping: iterating it yields the nineteen canonical
+``CORE_CATEGORIES`` is a lazy mapping: iterating it yields the twenty-five canonical
 names without importing anything, and indexing a name imports only that one
 sibling module on demand. Sibling category modules are authored independently
 and must never edit this file; a not-yet-written or import-failing module
@@ -67,7 +67,7 @@ CategoryCallable = Callable[..., "list[CheckResult] | Awaitable[list[CheckResult
 CategoryFactory = Callable[..., CategoryCallable]
 
 # Canonical category name -> (sibling module name, factory attribute) within
-# this package. Static so the nineteen valid names are known without importing any
+# this package. Static so the twenty-five valid names are known without importing any
 # sibling module; resolution imports the module lazily on first access.
 _CORE_CATEGORY_SPECS: dict[str, tuple[str, str]] = {
     "configuration": ("configuration", "configuration"),
@@ -89,6 +89,12 @@ _CORE_CATEGORY_SPECS: dict[str, tuple[str, str]] = {
     "archive": ("archive", "archive"),
     "agent_record": ("agent_record", "agent_record"),
     "simulator": ("simulator", "simulator"),
+    "safety_chain": ("safety_chain", "safety_chain"),
+    "rendered": ("rendered", "rendered"),
+    "versions": ("versions", "versions"),
+    "dispatch": ("dispatch", "dispatch"),
+    "service_capabilities": ("service_capabilities", "service_capabilities"),
+    "ariel_modules": ("ariel_modules", "ariel_modules"),
 }
 
 
@@ -120,7 +126,7 @@ class _LazyCoreCategoryRegistry(Mapping[str, CategoryFactory]):
 
 CORE_CATEGORIES: Mapping[str, CategoryFactory] = _LazyCoreCategoryRegistry()
 
-# The nineteen canonical core category names, without importing any sibling module.
+# The twenty-five canonical core category names, without importing any sibling module.
 CORE_CATEGORY_NAMES: tuple[str, ...] = tuple(_CORE_CATEGORY_SPECS)
 
 

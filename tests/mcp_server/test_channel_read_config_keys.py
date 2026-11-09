@@ -1,17 +1,13 @@
-"""The two channel_read sizing knobs: code defaults and rendered-config presence.
+"""The channel_read sizing knob: code default and rendered-config presence.
 
-``channel_read`` decides inline-vs-artifact from two numbers, and both are
-deployment-tunable:
-
-* ``control_system.read_inline_max_elements`` (default 2000) — the per-value
-  element budget, times four for one call's aggregate budget;
-* ``control_system.channel_read_artifact_retention`` (default 20) — the
-  per-channel rolling window of unpinned read artifacts, 0 = keep everything.
+``channel_read`` decides inline-vs-artifact from
+``control_system.read_inline_max_elements`` (default 2000) — the per-value
+element budget, times four for one call's aggregate budget.
 
 Two halves here. The first pins the accessors: defaults when config says
 nothing, configured values honoured, and unusable values degrading to the
 default rather than taking down a read the hardware already answered. The second
-pins that every preset carrying a control system actually writes those keys.
+pins that every preset carrying a control system actually writes the key.
 
 The presets are where they live now: the framework template renders no
 ``control_system`` block at all, so a deployment's sizing knobs come from its
@@ -42,7 +38,6 @@ from osprey.services.bluesky_bridge.figure import DEFAULT_MAX_POINTS
 CONFIG_TARGET = "osprey_connectors.config.get_config_value"
 
 INLINE_KEY = "control_system.read_inline_max_elements"
-RETENTION_KEY = "control_system.channel_read_artifact_retention"
 
 
 def _fake_config(values: dict):
@@ -60,10 +55,10 @@ def _boom(_path, _default=None, _config_path=None):
 
 
 #: The bundled presets that ship a control system, and so size channel_read.
-_PRESETS = ["hello-world", "control-assistant"]
+_PRESETS = ["hello-world", "demo"]
 
 #: The preset that ships the EPICS connector block, and so documents PVA routing.
-_EPICS_PRESETS = ["control-assistant"]
+_EPICS_PRESETS = ["demo"]
 
 
 def _source(preset: str) -> str:
@@ -86,7 +81,6 @@ def _cfg(preset: str) -> dict:
 def test_documented_defaults_are_the_module_constants():
     """The defaults the templates document are the ones the code falls back to."""
     assert channel_read.DEFAULT_READ_INLINE_MAX_ELEMENTS == 2000
-    assert channel_read.DEFAULT_CHANNEL_READ_ARTIFACT_RETENTION == 20
     assert channel_read.AGGREGATE_BUDGET_FACTOR == 4
 
 
@@ -94,7 +88,6 @@ def test_accessors_return_defaults_when_keys_absent():
     """An unconfigured deployment gets the documented defaults."""
     with patch(CONFIG_TARGET, _fake_config({})):
         assert channel_read.get_read_inline_max_elements() == 2000
-        assert channel_read.get_channel_read_artifact_retention() == 20
         assert channel_read.get_read_aggregate_max_elements() == 8000
 
 
@@ -106,7 +99,6 @@ def test_accessors_return_defaults_when_config_unavailable():
     """
     with patch(CONFIG_TARGET, _boom):
         assert channel_read.get_read_inline_max_elements() == 2000
-        assert channel_read.get_channel_read_artifact_retention() == 20
         assert channel_read.get_read_aggregate_max_elements() == 8000
 
 
@@ -116,10 +108,9 @@ def test_accessors_return_defaults_when_config_unavailable():
 
 
 def test_accessors_honor_configured_values():
-    """config.yml overrides both knobs."""
-    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: 500, RETENTION_KEY: 3})):
+    """config.yml overrides the knob."""
+    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: 500})):
         assert channel_read.get_read_inline_max_elements() == 500
-        assert channel_read.get_channel_read_artifact_retention() == 3
 
 
 def test_aggregate_budget_follows_the_configured_threshold():
@@ -128,25 +119,17 @@ def test_aggregate_budget_follows_the_configured_threshold():
         assert channel_read.get_read_aggregate_max_elements() == 2000
 
 
-def test_retention_zero_is_honored_not_treated_as_unset():
-    """0 means "keep everything" — it must not fall back to the default of 20."""
-    with patch(CONFIG_TARGET, _fake_config({RETENTION_KEY: 0})):
-        assert channel_read.get_channel_read_artifact_retention() == 0
-
-
 def test_string_values_are_coerced():
     """YAML/env round-trips can hand these through as strings."""
-    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: "128", RETENTION_KEY: "5"})):
+    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: "128"})):
         assert channel_read.get_read_inline_max_elements() == 128
-        assert channel_read.get_channel_read_artifact_retention() == 5
 
 
 @pytest.mark.parametrize("bad", ["not-a-number", None, -1, [2000], True, False])
 def test_unusable_values_degrade_to_defaults(bad):
     """A mistyped knob is ignored, not fatal, and not silently negative."""
-    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: bad, RETENTION_KEY: bad})):
+    with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: bad})):
         assert channel_read.get_read_inline_max_elements() == 2000
-        assert channel_read.get_channel_read_artifact_retention() == 20
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +138,8 @@ def test_unusable_values_degrade_to_defaults(bad):
 
 
 @pytest.mark.parametrize("preset", _PRESETS)
-def test_presets_carry_both_keys_nested_under_control_system(preset):
-    """Every control-system preset writes both knobs at their documented defaults."""
+def test_presets_carry_the_key_nested_under_control_system(preset):
+    """Every control-system preset writes the knob at its documented default."""
     cfg = _cfg(preset)
     control_system = cfg.get("control_system")
     assert isinstance(control_system, dict), f"{preset}: no control_system block"
@@ -164,8 +147,8 @@ def test_presets_carry_both_keys_nested_under_control_system(preset):
     assert control_system.get("read_inline_max_elements") == 2000, (
         f"{preset}: read_inline_max_elements missing or not at its documented default"
     )
-    assert control_system.get("channel_read_artifact_retention") == 20, (
-        f"{preset}: channel_read_artifact_retention missing or not at its default"
+    assert "channel_read_artifact_retention" not in control_system, (
+        f"{preset}: OSPREY no longer deletes channel readings; the retention key is gone"
     )
 
 

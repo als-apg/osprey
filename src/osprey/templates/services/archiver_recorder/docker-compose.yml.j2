@@ -13,6 +13,9 @@
     way. With none declared it emits nothing and this file renders exactly
     as it did before the axis existed. -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- A CA file's read-only bind, by the shared macro so every container
+    that reads one mounts it alike. -#}
+{%- import "services/_ca_bundles.j2" as ca -%}
 # The archiver-recorder service samples the live control system over Channel
 # Access and writes what it reads into the archiver store (see
 # src/osprey/services/archiver_recorder/). It is what makes deployed history
@@ -196,12 +199,7 @@ services:
       - ./build/data/simulator:/data/simulator:ro
       {#- The CA file `archiver.mongodb_archiver.tls.ca_bundle` names, read-only
           at the same path, so the key names one file here and on the host. #}
-{%- for ca_bundle in connection_ca_bundles | default([]) %}
-      - type: bind
-        source: {{ ca_bundle | replace("$", "$$") | tojson }}
-        target: {{ ca_bundle | replace("$", "$$") | tojson }}
-        read_only: true
-{%- endfor %}
+{{- ca.mounts(connection_ca_bundles) }}
     networks:
       - osprey-network
 

@@ -262,7 +262,6 @@ describe('implementation change set', () => {
       'ariel.json',
       'artifacts.json',
       'channel_finder.json',
-      'lattice_dashboard.json',
       'web_terminal.json',
     ]) {
       expect(markdown, `change set never mentions ${file}`).toContain(file);

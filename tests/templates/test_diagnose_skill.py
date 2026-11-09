@@ -8,7 +8,7 @@ state a failure reason only from the status value. ``osprey sim status`` is the
 operator's terminal equivalent; the agent cannot run it, because the rendered
 ``settings.json`` denies ``Bash``.
 
-The assertions run against the real control-assistant build, so they read the
+The assertions run against the real demo build, so they read the
 skill and the deny list exactly as a deployed agent receives them.
 """
 
@@ -33,13 +33,13 @@ _CALL = re.compile(r"`([a-z_]+)\(")
 
 
 @pytest.fixture(scope="module")
-def skill_text(built_control_assistant: BuiltProject) -> str:
-    return (built_control_assistant.build_dir / SKILL).read_text(encoding="utf-8")
+def skill_text(built_demo: BuiltProject) -> str:
+    return (built_demo.build_dir / SKILL).read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
-def deny(built_control_assistant: BuiltProject) -> list[str]:
-    settings = json.loads((built_control_assistant.build_dir / SETTINGS).read_text("utf-8"))
+def deny(built_demo: BuiltProject) -> list[str]:
+    settings = json.loads((built_demo.build_dir / SETTINGS).read_text("utf-8"))
     entries: list[str] = settings["permissions"]["deny"]
     return entries
 

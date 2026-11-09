@@ -351,14 +351,14 @@ _LEFT_OUT_NOTE = "channels in no family left out"
 
 @pytest.fixture(scope="module")
 def facility_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo selecting the middle-layer index, with one ungrouped device.
+    """A demo repo selecting the middle-layer index, with one ungrouped device.
 
     The render writes the middle-layer view, which counts the channels it
     leaves out in a note on stderr. Never edited after it is made.
     """
     import yaml
 
-    repo = init_project(tmp_path_factory.mktemp("facility"), "control-assistant", "demo")
+    repo = init_project(tmp_path_factory.mktemp("facility"), "demo", "demo")
     profile = repo / "profile.yml"
     lines = profile.read_text(encoding="utf-8").splitlines()
     lines = [line for line in lines if not line.startswith("channel_finder_mode:")]
@@ -564,12 +564,12 @@ _PYAML_OMITTED_NOTES = tuple(
 
 @pytest.fixture(scope="module")
 def pyaml_omitted_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo whose served deck models have no measurement file.
+    """A demo repo whose served deck models have no measurement file.
 
     The render carries no pyAML view and names each model in a note on stderr.
     Never edited after it is made.
     """
-    repo = init_project(tmp_path_factory.mktemp("pyaml-omitted"), "control-assistant", "demo")
+    repo = init_project(tmp_path_factory.mktemp("pyaml-omitted"), "demo", "demo")
     for model in _DECK_MODELS:
         (repo / "data" / "facility" / "measurement" / f"{model}.yaml").unlink()
     return repo

@@ -88,6 +88,11 @@ _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 
+def _names(body: dict[str, Any]) -> list[str]:
+    """The column names a data body states, in row order."""
+    return [column["name"] for column in body["columns"]]
+
+
 # =========================================================================
 # Fakes for the `tiled.client.from_uri` boundary
 # =========================================================================
@@ -180,8 +185,11 @@ class _FakeCompositeClient:
         "the base Container client using `.base['{key}']` instead."
     )
 
-    def __init__(self, base: _FakeBaseContainer) -> None:
+    def __init__(self, base: _FakeBaseContainer, descriptors: list[dict] | None = None) -> None:
         self.base = base
+        # `BlueskyEventStream.descriptors`: the stream's descriptor documents,
+        # rebuilt from the `data_keys` its node's metadata stores.
+        self.descriptors = list(descriptors or [])
 
     @property
     def _flat_keys(self) -> list[str]:
@@ -340,6 +348,7 @@ def _run_node_with_events(
     stopped: bool = True,
     row_order: list[int] | None = None,
     extra_parts: dict | None = None,
+    descriptors: list[dict] | None = None,
 ) -> _FakeRunNode:
     """A run container whose `"primary"` composite wraps `TiledWriter`-shaped parts."""
     metadata: dict[str, Any] = {"start": {"uid": run_uid, "osprey_run_id": run_id}}
@@ -348,7 +357,7 @@ def _run_node_with_events(
 
     parts: dict[str, Any] = {"internal": _FakeTablePart(_internal_frame(rows, row_order=row_order))}
     parts.update(extra_parts or {})
-    primary = _FakeCompositeClient(base=_FakeBaseContainer(parts))
+    primary = _FakeCompositeClient(base=_FakeBaseContainer(parts), descriptors=descriptors)
     return _FakeRunNode(metadata=metadata, streams={"primary": primary})
 
 
@@ -438,14 +447,103 @@ def test_matching_run_projects_away_seq_num_time_and_ts_columns(
 
     assert result is not None
     assert result["run_uid"] == "bluesky-uid-1"
-    assert set(result["columns"]) == {"motor", "det"}
-    assert "seq_num" not in result["columns"]
-    assert "time" not in result["columns"]
-    assert not any(c.startswith("ts_") for c in result["columns"])
+    assert set(_names(result)) == {"motor", "det"}
+    assert "seq_num" not in _names(result)
+    assert "time" not in _names(result)
+    assert not any(c.startswith("ts_") for c in _names(result))
     assert result["row_count"] == 3
     assert len(result["rows"]) == 3
     assert result["truncated"] is False
     assert "partial" not in result  # this run's stop document landed
+
+
+def _descriptor(data_keys: dict) -> dict:
+    """A stored descriptor document carrying *data_keys*."""
+    return {"uid": "desc", "name": "primary", "run_start": "uid", "data_keys": data_keys}
+
+
+def test_the_snapshot_carries_the_units_the_stored_descriptors_declare(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Units come off the stream's descriptors, projected onto the served columns:
+    a column no descriptor gives a unit has none, and a declared key that is not a
+    served column is not reported."""
+    first = {"motor": {"dtype": "number", "units": "u-motor"}, "det": {"dtype": "number"}}
+    later = {"det": {"dtype": "number", "units": "u-det"}, "gone": {"units": "u-gone"}}
+    run_node = _run_node_with_events(
+        run_uid="bluesky-uid-u",
+        run_id="run-u",
+        rows=[{"motor": 1.0, "det": 10, "flag": 0}],
+        descriptors=[_descriptor(first), _descriptor(later)],
+    )
+    _configured(monkeypatch, "run-u", run_node)
+
+    snapshot = app_module._tiled_run_snapshot("run-u")
+
+    assert snapshot is not None
+    assert snapshot["units"] == {
+        "motor": first["motor"]["units"],
+        "det": later["det"]["units"],
+    }
+
+
+def test_the_data_body_carries_the_declared_units_of_its_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each served column is one ``{"name", "unit"}`` record carrying the unit
+    the run declared for it, or null, whatever window of rows the read asked for."""
+    declared = {"motor": {"units": "u-motor"}, "det": {"dtype": "number"}}
+    rows = [{"motor": float(i), "det": i} for i in range(5)]
+    run_node = _run_node_with_events(
+        "bluesky-uid-b", "run-b", rows, descriptors=[_descriptor(declared)]
+    )
+    _configured(monkeypatch, "run-b", run_node)
+
+    whole = app_module._from_tiled("run-b", max_rows=100, offset=None, tail=False)
+    page = app_module._from_tiled("run-b", max_rows=1, offset=2, tail=False)
+
+    expected = [{"name": name, "unit": declared[name].get("units")} for name in _names(whole)]
+    assert sorted(_names(whole)) == sorted(declared)
+    assert whole["columns"] == page["columns"] == expected
+    assert "units" not in whole
+
+
+def test_the_live_data_body_carries_the_declared_units_of_its_columns() -> None:
+    from fastapi.testclient import TestClient
+
+    from osprey.services.bluesky_bridge import live_rows
+    from osprey.services.bluesky_bridge.app import app
+    from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
+
+    declared = {"motor": {"units": "u-motor"}, "det": {"dtype": "number"}}
+    live_rows._clear()
+    try:
+        recorder = LiveRowRecorder(key="run-live-units")
+        recorder("start", {"uid": "uid"})
+        recorder("descriptor", _descriptor(declared))
+        recorder("event", {"data": {"motor": 1.0, "det": 2}})
+
+        body = TestClient(app).get("/runs/run-live-units/data").json()
+    finally:
+        live_rows._clear()
+
+    assert body["columns"] == [
+        {"name": name, "unit": declared[name].get("units")} for name in _names(body)
+    ]
+    assert sorted(_names(body)) == sorted(declared)
+    assert "units" not in body
+
+
+def test_a_run_with_no_primary_stream_declares_no_units(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_node = _FakeRunNode(
+        metadata={"start": {"uid": "bluesky-uid-n", "osprey_run_id": "run-n"}}, streams={}
+    )
+    _configured(monkeypatch, "run-n", run_node)
+
+    snapshot = app_module._tiled_run_snapshot("run-n")
+
+    assert snapshot is not None
+    assert snapshot["units"] == {}
 
 
 def test_matching_run_pagination_delegates_to_window(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -539,7 +637,7 @@ def test_real_tiled_column_set_projects_to_the_live_buffer_columns(
     result = app_module._from_tiled("repro-run-id-123", max_rows=100, offset=None, tail=False)
 
     assert result is not None
-    assert result["columns"] == ["det1-value"]
+    assert _names(result) == ["det1-value"]
     assert result["rows"] == [[1.0], [2.0], [3.0]]
     assert result["row_count"] == 3
 
@@ -665,7 +763,7 @@ def test_data_and_figure_routes_read_one_snapshot(monkeypatch: pytest.MonkeyPatc
     windowed = app_module._from_tiled("run-parity", max_rows=100, offset=None, tail=False)
 
     assert snapshot is not None
-    assert windowed["columns"] == snapshot["columns"]
+    assert _names(windowed) == snapshot["columns"]
     assert windowed["rows"] == snapshot["rows"]
     assert windowed["row_count"] == snapshot["total_seen"]
     assert windowed["partial"] is snapshot["partial"] is True
@@ -694,7 +792,7 @@ def test_external_array_parts_are_never_fetched(monkeypatch: pytest.MonkeyPatch)
     result = app_module._from_tiled("run-waveform", max_rows=100, offset=None, tail=False)
 
     assert frames.read_count == 0, "the image part was downloaded only to be discarded"
-    assert result["columns"] == ["motor"]
+    assert _names(result) == ["motor"]
     assert result["rows"] == [[1.0], [2.0], [3.0]]
 
 
@@ -726,7 +824,7 @@ def test_parts_of_differing_length_still_serve_their_rows(
 
     result = app_module._from_tiled("run-ragged", max_rows=100, offset=None, tail=False)
 
-    assert result["columns"] == ["motor"], "the run's own columns collapsed away"
+    assert _names(result) == ["motor"], "the run's own columns collapsed away"
     assert result["rows"] == [[1.0], [2.0], [3.0]]
     assert result["row_count"] == 3
 
@@ -786,7 +884,7 @@ def test_served_column_order_follows_the_stored_table(monkeypatch: pytest.Monkey
 
     result = app_module._from_tiled("run-order", max_rows=100, offset=None, tail=False)
 
-    assert result["columns"] == columns
+    assert _names(result) == columns
 
 
 # =========================================================================
@@ -834,7 +932,7 @@ def test_a_waveform_cell_is_served_as_a_json_array_of_numbers(
 
     result = app_module._from_tiled("run-wave", max_rows=100, offset=None, tail=False)
 
-    assert result["columns"] == ["motor", "det_wave"]
+    assert _names(result) == ["motor", "det_wave"]
     assert result["rows"] == [[1.0, [0.0, 1.0, 2.0]], [2.0, [10.0, 11.0, 12.0]]]
 
     wave_cell = result["rows"][0][1]

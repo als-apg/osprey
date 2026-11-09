@@ -220,12 +220,16 @@ class TestHostNetworkBindScan:
         bridge = _write_service_compose(
             tmp_path, "teams_bridge", {"teams-bridge": {"network_mode": "host"}}
         )
+        slack = _write_service_compose(
+            tmp_path, "slack_bridge", {"slack-bridge": {"network_mode": "host"}}
+        )
         archive = _write_service_compose(tmp_path, "archive", {"archive": {"network_mode": "host"}})
         services = _services(
             teams_bridge={"network": "host", "listens": False},
+            slack_bridge={"network": "host", "listens": False},
             archive={"network": "host", "listens": False},
         )
-        assert _host_network_bound_off_host([bridge, archive], services) == []
+        assert _host_network_bound_off_host([bridge, slack, archive], services) == []
 
     def test_a_file_no_block_renders_is_undeclared(self, tmp_path):
         compose = _write_service_compose(
@@ -333,11 +337,15 @@ class TestReconcileExposure:
             _write_service_compose(
                 tmp_path, "teams_bridge", {"teams-bridge": {"network_mode": "host"}}
             ),
+            _write_service_compose(
+                tmp_path, "slack_bridge", {"slack-bridge": {"network_mode": "host"}}
+            ),
         ]
         config = {
             "services": _services(
                 archive={"network": "host", "listens": False},
                 teams_bridge={"network": "host", "listens": False},
+                slack_bridge={"network": "host", "listens": False},
             )
         }
         assert _reconcile_exposure(config, files) is False

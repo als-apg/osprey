@@ -1,0 +1,1 @@
+ARIEL's embedding migrations now check the pgvector version, not only its presence: on pgvector older than 0.5, which has no HNSW index, they skip with a message naming the version found and the 0.5.0 floor (and `ALTER EXTENSION vector UPDATE` when the extension is installed), instead of failing with a raw `CREATE INDEX ... USING hnsw` error.

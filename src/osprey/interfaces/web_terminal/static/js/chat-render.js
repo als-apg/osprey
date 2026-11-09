@@ -211,6 +211,9 @@ export function createChatRenderer(container, options = {}) {
    * @param {Node} node
    */
   function append(node) {
+    // Entries take focus (on click, see chat-menus.js) so the menu key reaches them.
+    const el = /** @type {any} */ (node);
+    if (el.nodeType === 1 && el.classList.contains('op-entry')) el.setAttribute('tabindex', '-1');
     container.appendChild(node);
     if (loader?.el.isConnected) container.appendChild(loader.el);
   }
@@ -305,7 +308,8 @@ export function createChatRenderer(container, options = {}) {
     }
     cards.set(id, card);
     // A live card takes focus, but never from the composer's text box, and never while history is redrawn.
-    const typing = document.activeElement;
+    // The card's own document: the console may live in an attached window.
+    const typing = card.el.ownerDocument.activeElement;
     if (!replaying && !(typing instanceof HTMLTextAreaElement && !typing.disabled)) card.focus();
   }
 

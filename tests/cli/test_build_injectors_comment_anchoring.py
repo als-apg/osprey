@@ -71,7 +71,7 @@ def test_init_set_pva_port_stays_in_the_virtual_accelerator_section() -> None:
     from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 
     text = emit_standalone_profile_yaml(
-        "control-assistant",
+        "demo",
         ("virtual_accelerator.pva_port=5175",),
         "demo",
         project_name="demo",

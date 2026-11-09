@@ -13,7 +13,7 @@ context.
 To change a rule, see `Changing a rule`_.
 
 
-What the ``control-assistant`` preset ships
+What the ``demo`` preset ships
 ===========================================
 
 .. list-table::
@@ -48,7 +48,7 @@ What the ``control-assistant`` preset ships
 
 Some rules render conditionally: ``data-visualization.md`` is generated only
 when the ``data-visualizer`` agent is *not* enabled (the agent carries its own
-plotting guidance, and the ``control-assistant`` preset enables it — so a
+plotting guidance, and the ``demo`` preset enables it — so a
 default project has no such rule file), and ``timezone.md`` only appears when
 ``system.timezone`` is set.
 
@@ -59,7 +59,7 @@ loads unconditionally at session start.
 Test IOC port isolation
 =======================
 
-``test-ioc-safety`` is a packaged rule the ``control-assistant`` preset selects
+``test-ioc-safety`` is a packaged rule the ``demo`` preset selects
 by default (it renders only where the deployment's connector speaks Channel
 Access). For other profiles, add it to the ``rules:`` list when the project runs
 an EPICS soft IOC for testing:

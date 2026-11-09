@@ -22,7 +22,7 @@ from osprey.agent_record.contract import RECORD_OFF_ENV, SPOOL_DIR_ENV, TELEMETR
 from osprey.agent_runner import primitives
 from osprey.agent_runner import runner as runner_module
 from osprey.agent_runner.errors import AgentCliUnavailableError
-from osprey.agent_runner.primitives import SDKWorkflowResult, ToolTrace
+from osprey.agent_runner.primitives import NO_SESSION_PERSISTENCE_FLAG, SDKWorkflowResult, ToolTrace
 from osprey.agent_runner.tool_names import READ_ONLY_DENIED_BUILTINS
 from osprey.services.code_review import review
 from osprey.services.code_review.contract import (
@@ -167,6 +167,7 @@ async def test_the_runner_gets_exactly_the_capped_options(repo: Path, render_dir
         "max_turns": 1,
         "max_budget_usd": 1.0,
         "model": None,
+        "persist_session": False,
     }
     assert cwd.parent == repo / REVIEW_STATE_DIR
     assert stub.cwd_existed
@@ -271,6 +272,20 @@ async def test_an_arbitrary_otel_variable_is_blanked_in_the_built_options(
     assert options.tools == []
     assert options.max_turns == 1
     assert options.max_budget_usd == 1.0
+
+
+async def test_the_reviewers_transcript_is_never_written(
+    repo: Path, render_dir: Path, built_options: list
+) -> None:
+    """A review runs under the operator's ``CLAUDE_CONFIG_DIR``, whose ``projects/``
+    the record's transcript tailer reads: a transcript written there would enter
+    the record as one of the operator's sessions, whatever the env overrides say.
+    """
+    outcome = await review_code(REQUEST, SETTINGS, repo_root=repo, render_dir=render_dir)
+
+    assert built_options, outcome.result
+    [options] = built_options
+    assert NO_SESSION_PERSISTENCE_FLAG in options.extra_args
 
 
 async def test_a_telemetry_block_from_the_routed_env_ends_switched_off(

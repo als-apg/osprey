@@ -44,7 +44,7 @@ osprey init <dir> --preset <name>
 ```
 
 `--preset` is required; pick one from `osprey profile presets`. By rule, a build starts
-from `--preset hello-world`; `control-assistant` is the reference example BUILD reads
+from `--preset hello-world`; `demo` is the reference example BUILD reads
 key groups and skeletons from, and is never initialized (`references/map.md`, the
 feature port). It refuses to re-materialize an existing repo's source zone unless
 `--force` is given. `--set KEY=VALUE` bakes overrides into the written profile.
@@ -102,7 +102,7 @@ roster.
 | What | Where |
 | --- | --- |
 | Bundled presets (what `extends:` resolves to) | `src/osprey/profiles/presets/` |
-| Canonical example | the `control-assistant` family in that directory |
+| Canonical example | the `demo` family in that directory |
 | The `deploy:` block's shape and rules | `src/osprey/cli/build_profile_deploy.py` |
 | Selectable model providers | `src/osprey/profiles/providers.yml` — the packaged catalog `osprey init` copies into the repo as `providers.yml`; `provider:` names one of its entries |
 | Every config key the framework reads, and its default | `osprey config --defaults` (packaged ledger: `src/osprey/profiles/config_key_manifest.yml`) |

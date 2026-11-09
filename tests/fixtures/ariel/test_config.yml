@@ -26,7 +26,7 @@ models:
     provider: als-apg
     model_id: claude-haiku-4-5-20251001
 
-# ARIEL configuration (matches my-control-assistant)
+# ARIEL configuration (matches osprey-demo)
 # Provider credentials are defined in api.providers above.
 # ARIEL references providers by name.
 ariel:

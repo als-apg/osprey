@@ -29,13 +29,13 @@ SR_MONITORS = 144
 
 
 @pytest.fixture(scope="module")
-def demo(built_control_assistant: Any) -> dict[str, Any]:
+def demo(built_demo: Any) -> dict[str, Any]:
     """The SR model of the built demo: its wiring entries, deck and settings."""
-    facility = built_control_assistant.facility
+    facility = built_demo.facility
     (model,) = [entry for entry in facility["models"] if entry["name"] == MODEL]
     return {
         "wiring": simulator_wiring(FacilityRecords(facility), MODEL),
-        "deck": built_control_assistant.facility_dir / model["deck"],
+        "deck": built_demo.facility_dir / model["deck"],
         "settings": model.get("settings"),
     }
 

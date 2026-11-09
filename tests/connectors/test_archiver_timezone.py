@@ -2,7 +2,7 @@
 at the facility wall-clock, independent of the deploy host's ``$TZ``.
 
 Drives the full ``MockArchiverConnector.get_data`` -> archive composite path over
-the control-assistant build's ``vacuum-burst`` scenario (SR07 pressure spike at
+the demo build's ``vacuum-burst`` scenario (SR07 pressure spike at
 14:32:08) and asserts the spike materializes at 14:32 — and lands at the *same*
 wall-clock whether the box runs UTC or a wildly different zone. No LLM involved;
 this locks the regression that broke the benchmark on non-UTC boxes.
@@ -22,14 +22,14 @@ from tests.facility.served_tree import in_process_config
 SR07 = "SR:VAC:GAUGE:SR07:PRESSURE:RB"
 
 
-def _vacuum_burst_view(built_control_assistant, tmp_path: Path) -> Path:
-    """The control-assistant build's simulator view, copied and pinned to ``vacuum-burst``.
+def _vacuum_burst_view(built_demo, tmp_path: Path) -> Path:
+    """The demo build's simulator view, copied and pinned to ``vacuum-burst``.
 
     The copy sits at ``build/data/simulator`` under ``tmp_path`` with no
     rendered config beside it, so its scenario state lives under ``tmp_path``.
     """
     view = tmp_path / "build" / "data" / "simulator"
-    shutil.copytree(built_control_assistant.build_dir / "data" / "simulator", view)
+    shutil.copytree(built_demo.build_dir / "data" / "simulator", view)
     state_dir = simulation_state_dir(view)
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "active_scenarios").write_text("nominal\nvacuum-burst\n")
@@ -75,13 +75,11 @@ def _assert_spike_at_center(df, center: datetime, box: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_archiver_spike_is_at_facility_wall_clock_whatever_the_box_tz(
-    built_control_assistant, tmp_path
-):
+async def test_archiver_spike_is_at_facility_wall_clock_whatever_the_box_tz(built_demo, tmp_path):
     """Same window, same facility zone (UTC) → the burst is there, at 14:32:08,
     whether the host ``$TZ`` is UTC or UTC+14. Before the fix the spike shifted
     with the box zone."""
-    view = _vacuum_burst_view(built_control_assistant, tmp_path)
+    view = _vacuum_burst_view(built_demo, tmp_path)
 
     df_utc, center_utc = await _sr07_window(view)
 

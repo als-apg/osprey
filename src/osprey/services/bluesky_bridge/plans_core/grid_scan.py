@@ -32,6 +32,7 @@ from bluesky import plans as bp
 from pydantic import BaseModel, Field, model_validator
 
 from osprey.services.bluesky_bridge.figure import (
+    Columns,
     Figure,
     HeatmapMark,
     LinesMark,
@@ -269,6 +270,8 @@ def _one_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
                 title=f"{readback} vs {axis.setpoint}",
                 x_label=axis.setpoint,
                 y_label=readback,
+                x_columns=Columns([axis_column]),
+                y_columns=Columns([readable_column]),
                 annotations=annotations,
                 mark=_lines_mark([Series(label=readback, **kept._asdict())]),
             )
@@ -328,12 +331,15 @@ def _two_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel]:
                 title=f"{readback} over the {outer.setpoint} × {inner.setpoint} grid",
                 x_label=inner.setpoint,
                 y_label=outer.setpoint,
+                x_columns=Columns([inner_column]),
+                y_columns=Columns([outer_column]),
                 annotations=annotations,
                 mark=HeatmapMark(
                     x_labels=x_labels,
                     y_labels=y_labels,
                     values=values,
                     value_label=readback,
+                    value_columns=Columns([readable_column]),
                     source_points=len(cells),
                 ),
             )
@@ -423,6 +429,8 @@ def _multi_axis_panels(rows: list[dict[str, Any]], params: PARAMS) -> list[Panel
                 title=f"{readback} vs {inner.setpoint}",
                 x_label=inner.setpoint,
                 y_label=readback,
+                x_columns=Columns([inner_column]),
+                y_columns=Columns([readable_column]),
                 annotations=annotations,
                 mark=_lines_mark(series),
             )

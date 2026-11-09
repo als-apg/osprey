@@ -153,7 +153,9 @@ def _serving(
     if wrap is not None:
         wrap(httpd)
     server.url = f"{scheme}://127.0.0.1:{httpd.server_address[1]}"
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=httpd.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield server
