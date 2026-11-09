@@ -123,6 +123,35 @@ def test_a_projected_panels_grant_follows_each_users_own_render(tmp_path: Path) 
     }
 
 
+def test_a_shared_card_whose_render_shows_the_panel_is_granted_as_itself(tmp_path: Path) -> None:
+    """A shared login's card proxies the panel with the secret its own container holds.
+
+    Its terminal acts as the card's name, so the gate names the card's request by
+    that name, the owner whose record the application reads.
+    """
+    config = _deployment(tmp_path, {"operator": ("knob-demo",)})
+    web_terminals = config["modules"]["web_terminals"]
+    for login, panels in (("radiation", ("knob-demo",)), ("logbook", ())):
+        project = tmp_path / "build" / f"demo-{login}"
+        project.mkdir(parents=True)
+        declared = {pid: {"url": "http://localhost:1"} for pid in panels}
+        (project / "config.yml").write_text(
+            yaml.safe_dump({"web": {"panels": declared}}), encoding="utf-8"
+        )
+        web_terminals["renders"][login] = tier_render(
+            login, f"demo-{login}", project_path=f"build/demo-{login}"
+        )
+    web_terminals["shared"] = ["radiation", {"name": "logbook", "access": "any"}]
+    alice, card = terminal_secret_var("alice"), terminal_secret_var("radiation")
+
+    grant = service_panel_grant(config, tmp_path, "knob-demo")
+
+    assert grant["credentials"] == [
+        {"var": var, "source": var, "owner": name, "required": False}
+        for name, var in (("alice", alice), ("radiation", card))
+    ]
+
+
 def test_every_other_service_gets_the_empty_grant(tmp_path: Path) -> None:
     config = _deployment(tmp_path, {"operator": ("knob-demo", BLUESKY_PANEL_ID)})
     empty = {"credentials": []}
