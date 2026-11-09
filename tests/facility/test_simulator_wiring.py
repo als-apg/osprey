@@ -104,7 +104,7 @@ def test_value_range_appears_exactly_where_the_limits_record_bounds_the_channel(
     }
     ranged = {entry["address"]: entry["value_range"] for entry in sr if "value_range" in entry}
     assert ranged == {address: span for address, span in bounded.items() if address in ranged}
-    assert len(ranged) == 2
+    assert len(ranged) == 145  # the 144 SR correctors and the RF cavity
     assert all(entry["address"] not in bounded for entry in sr if "value_range" not in entry)
 
 

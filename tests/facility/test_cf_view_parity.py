@@ -462,8 +462,9 @@ def test_limits_name_only_setpoints_of_the_fingerprint() -> None:
     golden = load_golden("limits.json")
     channels = golden["channels"]
     assert "defaults" not in golden
-    assert golden["count"] == len(channels) == 3
-    setpoints = {row["address"] for row in fingerprint_rows() if row["role"] == "setpoint"}
+    assert golden["count"] == len(channels) == 193
+    rows = fingerprint_rows() + load_golden("demo_fingerprint_additions.json")["rows"]
+    setpoints = {row["address"] for row in rows if row["role"] == "setpoint"}
     assert set(channels) <= setpoints
     assert all(
         list(record) == ["min_value", "max_value", "max_step", "writable", "confirm"]

@@ -11,10 +11,10 @@ wiring, never by a device name written down here:
   ``aioca.caput`` at all, so a rejected write can never move the record over
   CA. That is also why these legs leave ``test_orbit_response.py``'s ownership
   of slot 0 undisturbed: nothing is ever written there.
-- slot 1 carries no record. Under the ``optional`` mode a channel with no
-  record is written as is, so the in-limits leg writes it and reads it back.
+- slot 1 carries a +-10 A record. The in-limits leg writes a value inside it
+  and reads it back.
 
-Only min/max is exercised: the record carries no ``max_step``.
+Only min/max is exercised: neither record carries a ``max_step``.
 """
 
 from __future__ import annotations
@@ -27,14 +27,14 @@ from tests.facility.served_tree import assert_unmoved, assert_write_visible
 from tests.va._collection import assert_module_collected
 from tests.va.e2e import conftest as e2e_conftest
 
-#: The corrector slot whose setpoint carries a limits record, and the slot whose
-#: setpoint carries none. Slot 0 is ``test_orbit_response.py``'s for the life
+#: The corrector slot this lane sends out-of-limits writes to, and the slot it
+#: writes inside its limits. Slot 0 is ``test_orbit_response.py``'s for the life
 #: of the session container; this lane only ever sends it writes the limits
 #: check refuses before any caput.
 _BANDED_SLOT = 0
-_UNLIMITED_SLOT = 1
+_IN_LIMITS_SLOT = 1
 
-IN_LIMITS_CURRENT = 10.0
+IN_LIMITS_CURRENT = 5.0  # inside slot 1's +-10A window
 OUT_OF_LIMITS_HIGH = 15.0  # the record's window is +-12A
 OUT_OF_LIMITS_LOW = -14.0
 
@@ -76,9 +76,9 @@ def banded_rb(banded: e2e_conftest.Corrector) -> str:
 
 
 @pytest.fixture(scope="module")
-def unlimited_sp() -> str:
-    """The address with no limits record this lane writes a demand to."""
-    return e2e_conftest.corrector_at_slot(_UNLIMITED_SLOT).setpoint_address
+def in_limits_sp() -> str:
+    """The address this lane writes a demand inside its limits to."""
+    return e2e_conftest.corrector_at_slot(_IN_LIMITS_SLOT).setpoint_address
 
 
 class TestLimitsEnforcement:
@@ -119,20 +119,20 @@ class TestLimitsEnforcement:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("va_container", "va_switch_on")
-    async def test_unlimited_write_succeeds(self, unlimited_sp):
+    async def test_in_limits_write_succeeds(self, in_limits_sp):
         with e2e_conftest.patched_config(**LIMITS_OVERRIDES):
             connector = await e2e_conftest.connect_va()
 
-            result = await connector.write_channel(unlimited_sp, IN_LIMITS_CURRENT)
+            result = await connector.write_channel(in_limits_sp, IN_LIMITS_CURRENT)
             assert result.outcome is WriteOutcome.CONFIRMED, (
                 f"write {result.outcome}: {result.error_message or result.notes}"
             )
 
-            sp_after = (await connector.read_channel(unlimited_sp)).value
+            sp_after = (await connector.read_channel(in_limits_sp)).value
             assert sp_after == pytest.approx(IN_LIMITS_CURRENT)
 
             # Leave this lane's corrector at a known state.
-            reset = await connector.write_channel(unlimited_sp, 0.0)
+            reset = await connector.write_channel(in_limits_sp, 0.0)
             assert reset.outcome is WriteOutcome.CONFIRMED
 
 

@@ -1,7 +1,8 @@
 """The demo's committed ``limits.yaml`` and ``measurement/SR.yaml``.
 
-The demo limits three setpoints, each record teaching one shape, and leaves
-every other channel to the deployment's limits mode. Its measurement file
+The demo's first three records each teach one shape; one record per corrector
+setpoint follows, and every other channel is left to the deployment's limits
+mode. Its measurement file
 names the deck machine's family groups and instruments and pyAML's step and
 settle keys. These tests read both files back as the facility loader parses
 them and hold them to the committed records and the limits golden.
@@ -61,6 +62,17 @@ RESOLVED_ROWS = {
         "confirm": True,
     },
 }
+
+
+def corrector_band(address: str) -> dict[str, float]:
+    """The band, in A, of a corrector setpoint other than the teaching one.
+
+    The storage ring's is the [-12, 12] its readback seeds clamp at; every
+    other line's seeds declare no two-sided clamp, and its band is [-10, 10].
+    """
+    bound = 12.0 if address.startswith("SR:") else 10.0
+    return {"min_value": -bound, "max_value": bound}
+
 
 #: The deck's RF frequency, in MHz, that the wired cavity's band surrounds.
 CAVITY_OPERATING_MHZ = 500.417
@@ -127,22 +139,56 @@ def measurement() -> dict[str, Any]:
 # --- limits ----------------------------------------------------------------------
 
 
-def test_limits_hold_exactly_the_three_teaching_records() -> None:
-    assert committed("limits.yaml") == {"records": TEACHING_RECORDS}
+def corrector_setpoints() -> list[str]:
+    """Every horizontal and vertical corrector setpoint the facility declares."""
+    return [
+        address
+        for address, channel in records_by_id("channel").items()
+        if channel.get("role") == "setpoint"
+        and address.split(":")[1:3] in (["MAG", "HCM"], ["MAG", "VCM"])
+        and address.endswith(":CURRENT:SP")
+    ]
 
 
-def test_each_limits_record_sits_under_its_comment() -> None:
+def test_limits_open_with_the_three_teaching_records() -> None:
+    assert committed("limits.yaml")["records"][:3] == TEACHING_RECORDS
+
+
+def test_every_corrector_setpoint_has_one_record() -> None:
+    records = committed("limits.yaml")["records"]
+    addresses = [record["address"] for record in records]
+    assert len(addresses) == len(set(addresses))
+    correctors = corrector_setpoints()
+    assert len(correctors) == 191
+    assert set(addresses) == set(correctors) | {r["address"] for r in TEACHING_RECORDS}
+    for record in records[3:]:
+        assert record == {"address": record["address"], **corrector_band(record["address"])}
+
+
+def test_a_corrector_band_is_its_readback_clamp_where_the_seeds_declare_one() -> None:
+    channels = records_by_id("channel")
+    seeds = committed("seeds.yaml")
+    for record in committed("limits.yaml")["records"]:
+        clamp = (seeds.get(channels[record["address"]].get("pair")) or {}).get("clamp")
+        if clamp is not None and None not in clamp:
+            assert [record["min_value"], record["max_value"]] == clamp, record["address"]
+
+
+def test_each_teaching_record_and_the_corrector_block_sit_under_a_comment() -> None:
     lines = committed_files()["limits.yaml"].splitlines()
     starts = [index for index, line in enumerate(lines) if line.startswith("- address: ")]
     assert len(starts) == 3
     for start, record in zip(starts, TEACHING_RECORDS, strict=True):
         assert lines[start] == f"- address: {record['address']}"
         assert lines[start - 1].startswith("# ")
+    first_corrector = lines.index(next(line for line in lines if line.startswith("- {address: ")))
+    assert lines[first_corrector - 1].startswith("# ")
+    assert sum(line.startswith("#") for line in lines[first_corrector:]) == 0
 
 
 def test_every_limited_address_is_a_setpoint() -> None:
     channels = records_by_id("channel")
-    for record in TEACHING_RECORDS:
+    for record in committed("limits.yaml")["records"]:
         assert channels[record["address"]].get("role") == "setpoint"
 
 
@@ -151,11 +197,20 @@ def test_cavity_band_holds_the_deck_operating_point() -> None:
     assert cavity["min_value"] < CAVITY_OPERATING_MHZ < cavity["max_value"]
 
 
-def test_limits_golden_holds_the_three_resolved_rows() -> None:
+def test_limits_golden_holds_the_resolved_rows() -> None:
     golden = load_golden("limits.json")
     assert "defaults" not in golden
-    assert golden["count"] == 3
-    assert golden["channels"] == RESOLVED_ROWS
+    assert golden["count"] == len(golden["channels"]) == 193
+    for address, row in RESOLVED_ROWS.items():
+        assert golden["channels"][address] == row
+    for address in corrector_setpoints():
+        if address not in RESOLVED_ROWS:
+            assert golden["channels"][address] == {
+                **corrector_band(address),
+                "max_step": None,
+                "writable": True,
+                "confirm": True,
+            }
 
 
 def test_limits_golden_resolves_the_committed_records() -> None:
