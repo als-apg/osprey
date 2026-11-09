@@ -672,7 +672,7 @@ describe('outbound channels', () => {
         docs_url: DOCS_URL,
         feedback_trackers: [GH_TRACKER],
         feedback_deployment: {
-          Preset: 'control-assistant (a3f91c7d2e8b4f6a1c9…)',
+          Preset: 'demo (a3f91c7d2e8b4f6a1c9…)',
           'Channel finder': 'hierarchical',
         },
       },
@@ -685,7 +685,7 @@ describe('outbound channels', () => {
     qs(document, '.feedback-open-channel').click();
 
     const body = decodeURIComponent(booted.windowOpen.mock.calls[0][0]);
-    expect(body).toContain('control-assistant (a3f91c7d2e8b4f6a1c9…)');
+    expect(body).toContain('demo (a3f91c7d2e8b4f6a1c9…)');
     expect(body).toContain('hierarchical');
   });
 

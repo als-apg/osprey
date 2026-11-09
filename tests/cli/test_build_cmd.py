@@ -38,7 +38,7 @@ def _create_project(manager, **kwargs) -> Path:
     render straight from a bundle rather than from a profile, so they name the
     tree that bundle packages.
     """
-    kwargs.setdefault("data_bundle", "control_assistant")
+    kwargs.setdefault("data_bundle", "demo")
     kwargs.setdefault("data_root", bundle_data_root(kwargs["data_bundle"]))
     return manager.create_project(**kwargs)
 
@@ -60,7 +60,7 @@ def _stamp_bundle_selection(manager, project: Path, name: str, bundle: str) -> N
     )
 
 
-def materialize_data(profile_dir: Path, bundle: str = "control_assistant") -> Path:
+def materialize_data(profile_dir: Path, bundle: str = "demo") -> Path:
     """Copy *bundle*'s packaged data tree to ``profile_dir/data``, as init does.
 
     For a test that builds through the real verb: the render stages channel
@@ -1245,7 +1245,18 @@ class TestLifecyclePhaseRunner:
 
 
 class TestCreateProjectVenv:
-    """Tests for _create_project_venv() — creates venv and installs deps."""
+    """Tests for _create_project_venv() — creates venv and installs deps.
+
+    The lock constraints a source checkout adds are switched off here (the
+    suite runs from one) so these pin the command shape alone;
+    ``TestSourceLockConstraints`` below covers them.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_lock_constraints(self, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.cli.build_environment.source_lock_constraints", lambda spec: None
+        )
 
     def _make_profile(self, deps: list[str], osprey_install: str = "local") -> BuildProfile:
         return BuildProfile(
@@ -1356,6 +1367,95 @@ class TestCreateProjectVenv:
             _create_project_venv(
                 tmp_path, _plan_project_venv(self._make_profile(["nonexistent-xyz"]), install=True)
             )
+
+
+class TestSourceLockConstraints:
+    """A venv installing an osprey source checkout is held to that checkout's uv.lock."""
+
+    LOCK = "numpy==2.3.0\ntorch==2.13.0+cpu ; sys_platform != 'darwin'\n"
+
+    @staticmethod
+    def _checkout(tmp_path: Path, *, lock: bool = True) -> Path:
+        root = tmp_path / "osprey-checkout"
+        root.mkdir()
+        (root / "pyproject.toml").write_text("[project]\nname = 'osprey-framework'\n")
+        if lock:
+            (root / "uv.lock").write_text("version = 1\n")
+        return root
+
+    @pytest.mark.parametrize(
+        "spec", ["osprey-framework==2026.6.2", "osprey-framework", "git+https://x/osprey.git"]
+    )
+    def test_a_spec_that_is_not_a_checkout_is_not_constrained(self, spec):
+        from osprey.cli.build_environment import source_lock_constraints
+
+        assert source_lock_constraints(spec) is None
+
+    def test_a_checkout_without_a_lock_is_not_constrained(self, tmp_path):
+        from osprey.cli.build_environment import source_lock_constraints
+
+        assert source_lock_constraints(str(self._checkout(tmp_path, lock=False))) is None
+
+    def test_a_checkout_with_a_lock_is_held_to_its_export(self, monkeypatch, tmp_path):
+        from osprey.cli.build_environment import source_lock_constraints
+        from osprey.deployment import lock_constraints
+
+        root = self._checkout(tmp_path)
+        exported = []
+
+        def _export(at):
+            exported.append(at)
+            return self.LOCK
+
+        monkeypatch.setattr(lock_constraints, "export_lock_constraints", _export)
+
+        assert source_lock_constraints(str(root)) == self.LOCK
+        assert exported == [root.resolve()]
+
+    def test_a_stale_lock_stops_the_build(self, monkeypatch, tmp_path):
+        from osprey.cli.build_environment import source_lock_constraints
+        from osprey.deployment import lock_constraints
+
+        def _stale(_at):
+            raise lock_constraints.LockExportError("uv could not export", "run `uv lock`")
+
+        monkeypatch.setattr(lock_constraints, "export_lock_constraints", _stale)
+
+        with pytest.raises(BuildProfileError, match="uv lock"):
+            source_lock_constraints(str(self._checkout(tmp_path)))
+
+    @pytest.mark.parametrize("installer", ["uv", "pip"])
+    def test_both_installers_install_under_the_lock(self, monkeypatch, tmp_path, installer):
+        from osprey.cli.build_cmd import _create_project_venv, _plan_project_venv
+
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("osprey.cli.build_environment.subprocess.run", fake_run)
+        monkeypatch.setattr(
+            "osprey.cli.build_environment.source_lock_constraints", lambda spec: self.LOCK
+        )
+        if installer == "uv":
+            monkeypatch.setenv("UV", "/usr/bin/uv")
+        else:
+            monkeypatch.delenv("UV", raising=False)
+            monkeypatch.setattr("shutil.which", lambda name: None)
+            monkeypatch.setattr(
+                "osprey.cli.build_environment._pip_member_requirements", lambda spec: []
+            )
+        profile = BuildProfile(name="test", dependencies=["pandas"], osprey_install="local")
+
+        _create_project_venv(tmp_path, _plan_project_venv(profile, install=True))
+
+        lock_file = tmp_path / ".venv" / "osprey-lock-constraints.txt"
+        install = calls[-1]
+        at = install.index("-c")
+        assert install[at + 1] == str(lock_file)
+        assert at < install.index("pandas"), "the constraint must precede the requirements"
+        assert lock_file.read_text() == self.LOCK
 
 
 # ---------------------------------------------------------------------------
@@ -1846,7 +1946,7 @@ def _build_for_web_panels(
     overrides: dict | None = None,
     default_panel: str | None = None,
 ) -> Path:
-    """Build a minimal control_assistant project, optionally with web_panels,
+    """Build a minimal demo project, optionally with web_panels,
     a default_panel pin, and config overrides, and return the rendered
     config.yml path.
 
@@ -1865,7 +1965,7 @@ def _build_for_web_panels(
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
-        # Ship the memory-guard hook the real control_assistant preset ships:
+        # Ship the memory-guard hook the real demo preset ships:
         # without it the built profile leaves Write/NotebookEdit
         # ungated and the build-time write-tool lint (correctly) refuses it.
         "hooks": ["memory-guard"],
@@ -2052,7 +2152,7 @@ _PARADIGM_DATABASE_FILENAMES: frozenset[str] = frozenset(
 
 @pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
 def test_build_renders_each_index_as_its_view(tmp_path: Path, paradigm: str) -> None:
-    """A control-assistant render carries the index views and no staging tree.
+    """A demo render carries the index views and no staging tree.
 
     - rendered config.yml names the index the build writes at
       ``data/channel_finder/<paradigm>.json``, and the file is there.
@@ -3181,7 +3281,7 @@ def test_graph_mode_renders_its_search_index_and_no_paradigm_database(tmp_path: 
         [
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             *_set_args({"channel_finder_mode": "graph"}),
         ],

@@ -7,6 +7,8 @@ import { askAboutStartedCommands } from './started-commands.js';
 import { hideHandoffOverlay, showHandoffPending, showHandoffRefused } from './terminal-handoff.js';
 import { monoFontStack, subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 import { queryAllDocuments } from './attached-window.js';
+import { matcherFor } from './key-bindings.js';
+import { installTerminalMenu } from './terminal-menu.js';
 
 /** @type {any} */
 let term = null;
@@ -17,6 +19,8 @@ let wsConnection = null;
 let hasConnectedBefore = false;
 /** @type {string|null} */
 let currentSessionId = null;
+/** Removes the terminal body's context menu (terminal-menu.js). */
+let uninstallTerminalMenu = () => {};
 
 // Every connection gets a 'session_info' confirmation from
 // routes/websocket.py carrying the id ACTUALLY attached. A resume of an id
@@ -153,6 +157,9 @@ function agentClipboardProvider() {
  * whether or not anything is selected: xterm would otherwise encode it as ^C
  * and interrupt the agent.
  *
+ * The chord is the `terminal-copy` entry of key-bindings.js, which also
+ * holds the hint a menu row prints for it.
+ *
  * Returning `false` tells xterm the event is handled; anything else returns
  * `true` and is processed as usual.
  *
@@ -160,9 +167,7 @@ function agentClipboardProvider() {
  * @returns {boolean}
  */
 function copyKeyHandler(event) {
-  if (event.type !== 'keydown') return true;
-  if (!(event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey)) return true;
-  if (event.key !== 'c' && event.key !== 'C') return true;
+  if (!matcherFor('terminal-copy')(event)) return true;
 
   if (term && term.hasSelection()) {
     // A refusal surfaces in the console rather than as a pasted ^C.
@@ -220,7 +225,23 @@ export function initTerminal(containerId) {
   term.loadAddon(fitAddon);
   term.loadAddon(webLinksAddon);
   term.loadAddon(clipboardAddon);
-  term.attachCustomKeyEventHandler(copyKeyHandler);
+  // The terminal body's context menu. xterm keeps ONE custom key handler (a
+  // second attach replaces the first and would drop Ctrl+Shift+C), so the
+  // menu key is composed into it here rather than attached by the menu.
+  uninstallTerminalMenu();
+  const menu = installTerminalMenu({
+    container,
+    term,
+    onRestart: async () => {
+      await restartTerminal();
+      startTerminal();
+    },
+    onSwitchToChat: showChatSurface,
+  });
+  uninstallTerminalMenu = menu.uninstall;
+  term.attachCustomKeyEventHandler((/** @type {KeyboardEvent} */ event) =>
+    menu.handleKey(event) ? false : copyKeyHandler(event)
+  );
   term.open(container);
 
   // Initial fit — run once now and again after fonts finish loading, since
@@ -378,8 +399,6 @@ export function startTerminal(
           const msg = JSON.parse(e.data);
           if (msg.type === 'exit') {
             term.write(`\r\n\x1b[33m[Process exited with code ${msg.code}]\x1b[0m\r\n`);
-            const led = document.getElementById('session-led');
-            if (led) led.classList.remove('active');
 
             // If this was our page-load auto-resume attempt, treat the exit
             // as the resume having failed: drop the dead id and fall back to
@@ -733,16 +752,12 @@ export function stopTerminal() {
 }
 
 /**
- * Single owner of the connection-status indicators: the header LED
- * (`#session-led`) and the terminal-body glow track PTY WebSocket
- * connectedness together. (The process-exit branch in onMessage
- * deliberately dims only the LED — the chrome keeps its glow until the
- * connection itself closes.)
+ * Single owner of the connection-status indicator: the terminal-body glow
+ * tracks PTY WebSocket connectedness. (A process exit leaves it on: the glow
+ * goes when the connection itself closes.)
  * @param {boolean} connected
  */
 function setConnectionIndicator(connected) {
-  const led = document.getElementById('session-led');
-  if (led) led.classList.toggle('active', connected);
   const body = queryAllDocuments('.terminal-body')[0];
   if (body) body.classList.toggle('active', connected);
 }

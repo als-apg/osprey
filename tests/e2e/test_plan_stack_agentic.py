@@ -56,7 +56,7 @@ live test can be satisfied by another class's run.
 **The launch step.** The trace has to show the plan being sent toward the
 machine, and which call does that depends on the queue's posture. On a
 stopped queue ``queue_add`` moves nothing and only a successful
-``queue_start`` drains it. On an armed queue — the shipped control-assistant
+``queue_start`` drains it. On an armed queue — the shipped demo
 posture, ``bluesky.queue_autostart`` — the add itself is the launch, and the
 bridge says so in the add's own answer (``armed: true``); a start there is
 refused as busy while the plan runs, and is a no-op re-arm once it has
@@ -3194,7 +3194,7 @@ IMAGES_STAMP = Path(tempfile.gettempdir()) / f"osprey-{PROJECT_NAME}.images-revi
 #:   place.
 #: - ``bluesky.tiled_port`` / ``bluesky_web.port`` / ``va_archiver.port_host``
 #:   are BUILD-PROFILE keys
-#:   (see ``profiles/presets/control-assistant.yml``). Their ``services.*``
+#:   (see ``profiles/presets/demo.yml``). Their ``services.*``
 #:   entries are synthesized by the build injectors AFTER the config overlay
 #:   runs, so a dotted ``config:`` key for either is silently discarded — no
 #:   error, no stray key, just the default port. They must be set at profile
@@ -3434,7 +3434,7 @@ def deployed_scan_stack(
 
     The provider is pinned explicitly rather than left to the preset's own
     default — this project has no default provider, and an omitted one would
-    silently run the agent under whatever the control-assistant preset happens
+    silently run the agent under whatever the demo preset happens
     to declare. The MODEL is deliberately not pinned at build time: each live
     test chooses its own at ``run_sdk_query``, and the profile's tier map (what
     ``sdk_helpers._default_opus_model`` reads) is written regardless.

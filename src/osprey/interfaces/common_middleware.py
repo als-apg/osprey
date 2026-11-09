@@ -126,7 +126,9 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     aggressively — they never change without a filename bump, but only for a
     200: an error or redirect on a vendor path is uncached, so it cannot
     outlive the deploy that produced it. All other
-    static/API paths are uncached to avoid stale code after updates.
+    static/API paths are uncached to avoid stale code after updates; the
+    design system's modules among them, since a page's own scripts import
+    names from them and a stale copy breaks the page at load.
     """
 
     async def dispatch(self, request: Request, call_next):
@@ -137,7 +139,7 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             else:
                 response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        elif path.startswith(("/static/", "/api/")):
+        elif path.startswith(("/static/", "/api/", "/design-system/")):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
         return response
 

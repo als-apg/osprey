@@ -50,9 +50,9 @@ may touch.
      - The scenarios a deployment that has never chosen a set starts in, by
        name from the facility's scenarios. ``osprey up`` activates them
        the way ``osprey sim apply`` would, before it seeds the archive and the
-       logbook, and only while no set has been chosen. Absent, ``null`` or
-       ``[]`` starts in ``nominal`` alone, which is the default: the build
-       derives no start set. The control-assistant preset sets
+       logbook, and only while no set has been chosen. Absent, the build
+       derives it from the scenarios marked ``start: true``; with no mark,
+       absent, ``null`` or ``[]`` starts in ``nominal`` alone. The demo preset sets
        ``[rf-thermal, demo-history]`` (an existing deployment gets
        ``demo-history``'s sessions only from a fresh ``osprey init``); the other
        presets leave it out. A value that is not a list of non-empty
@@ -673,8 +673,8 @@ reported in the log and ``true`` is used.
 Offering the terminal
 ~~~~~~~~~~~~~~~~~~~~~
 
-``web.terminal: false`` removes **Open terminal** from the Agent bar's **⋯**
-menu on every login the render serves, and ``/ws/terminal`` closes with code
+``web.terminal: false`` removes **Open terminal** from the Agent pane's session
+switcher on every login the render serves, and ``/ws/terminal`` closes with code
 ``4403`` before any process starts. The default is ``true``. A value that is
 not a boolean is reported in the log and ``true`` is used; a config file that
 cannot be read closes it. ``osprey build`` refuses a profile that still states
@@ -1192,6 +1192,10 @@ default. One row per image:
      - ``OSPREY_TEAMS_BRIDGE_IMAGE``
      - ``services.teams_bridge.image``
      - ``<project>-teams-bridge``
+   * - slack_bridge
+     - ``OSPREY_SLACK_BRIDGE_IMAGE``
+     - ``services.slack_bridge.image``
+     - ``<project>-slack-bridge``
    * - ariel_sync
      - ``OSPREY_WORKER_IMAGE``
      - ``services.ariel_sync.image``

@@ -7,7 +7,7 @@
  * machine, and a dot whose colour says how much a write there matters and
  * whose shape says who is holding writes back. On the hub it is the button of
  * the sidebar's control-system block (sidebar-target.js lays it out); on a
- * popped-out JupyterLab page it is a 28 px chip in the Lab menu bar
+ * JupyterLab page in its own window it is a 28 px chip in the Lab menu bar
  * (control-target-lab-bar.js). The popover behind it
  * (control-target-popover.js) lists every configured target and owns every
  * gesture that CHANGES something; this module owns the chip, the read, and the

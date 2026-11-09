@@ -25,7 +25,7 @@ def create_project_with_manifest(manager: TemplateManager, **kwargs) -> Path:
     selection, and the write-gate lint rightly refuses the result.
     """
     project = manager.create_project(**kwargs)
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    bundle = kwargs.setdefault("data_bundle", "demo")
     manager.generate_manifest(
         project,
         kwargs["project_name"],

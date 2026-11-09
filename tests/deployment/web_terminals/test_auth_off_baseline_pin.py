@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly eleven
+byte-for-byte what it rendered before this feature, with exactly twelve
 exceptions:
 
   1. **the identity emitter** — ``OSPREY_AUDIT_IDENTITY``, which names the
@@ -107,6 +107,10 @@ exceptions:
       nginx and every per-user container, so no process in them gains a
       privilege through a setuid binary. It renders the same under every
       method and carries no account, role or claim.
+  12. **the tab icon** — one ``<link rel="icon">`` in the landing page's head,
+      the OSPREY mark inlined as a data URI, so the page's tab is not blank.
+      It renders the same under every method and carries no account, role or
+      claim.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -218,6 +222,7 @@ from osprey.deployment.web_terminals.render import (
     _DEFAULT_NGINX_IMAGE,
     render_web_terminals,
 )
+from osprey.interfaces.design_system.favicon import favicon_data_uri
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX
@@ -713,6 +718,8 @@ _ALLOWED_LANDING_LINES: Counter[str] = Counter(
         # The render badge — exception 9: one per user card, naming the
         # default tier EXAMPLE_CONFIG's roster runs.
         '            <span class="landing-card-sublabel">assistant</span>': 2,
+        # The tab icon — exception 12: the page's one icon link.
+        f'  <link rel="icon" type="image/svg+xml" href="{favicon_data_uri()}">': 1,
     }
 )
 

@@ -6,7 +6,8 @@ registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
 ``BlueskyWebConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
-``GChatBridgeProfileConfig``, ``TeamsBridgeProfileConfig``) plus
+``GChatBridgeProfileConfig``, ``TeamsBridgeProfileConfig``,
+``SlackBridgeProfileConfig``) plus
 ``VAArchiverConfig``, whose block lives in
 :mod:`osprey.cli.build_profile_archiver`.
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
@@ -58,6 +59,7 @@ if TYPE_CHECKING:
         GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
         OptimizerConfig,
+        SlackBridgeProfileConfig,
         TeamsBridgeProfileConfig,
         VAConfig,
     )
@@ -2101,6 +2103,109 @@ def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: P
         "    Images:     `osprey up` builds the teams-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_TEAMS_BRIDGE_IMAGE to use a published image."
+    )
+
+
+def _inject_slack_bridge(slack_bridge: SlackBridgeProfileConfig, project_path: Path) -> None:
+    """Wire the Slack bridge service into a built project.
+
+    1. Copy the bundled ``templates/services/slack_bridge/`` compose template
+       into ``<project>/services/slack_bridge/``.
+    2. Write ``services.slack_bridge`` config + register it in
+       ``deployed_services`` (so ``find_service_config`` resolves it,
+       mirroring :func:`_inject_teams_bridge`).
+    3. Print a post-build hint naming the Slack tokens the operator must
+       supply, and the one deployment rule the compose file cannot enforce
+       (one bridge per Slack app).
+
+    Structurally a thin mirror of :func:`_inject_teams_bridge` — down to the
+    single ``trigger`` key the template reads with no ``| default`` — minus
+    the relay: Socket Mode is an outbound connection the bridge opens itself,
+    so nothing travels beside the compose file. Like the other chat bridges,
+    this must run *after* :func:`_inject_dispatch`, which is what puts
+    ``event_dispatcher`` / ``dispatch_worker`` into ``deployed_services``; the
+    compose template gates both its ``depends_on`` and its in-network
+    ``DISPATCHER_URL``/``WORKER_URL`` on their presence there.
+
+    Args:
+        slack_bridge: Validated bridge configuration from the build profile.
+            ``BuildProfile.validate`` has already established that a
+            ``dispatch:`` block exists and that ``trigger`` names a trigger
+            declared in the resolved triggers file.
+        project_path: Root of the built project.
+    """
+
+    # 1. Copy the bundled compose template (located the same way as service templates).
+    pkg_services = bundled_services_dir()
+
+    src_dir = pkg_services / "slack_bridge"
+    if not src_dir.is_dir():
+        logger.warning("No package template for slack_bridge service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
+    dest_dir = dest_services_root / "slack_bridge"
+    _refresh_service_dir(src_dir, dest_dir, "slack_bridge", _user_owned_services(project_path))
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found. Skipping the slack_bridge config registration.")
+        return
+
+    config = load_config_document(config_path)
+
+    # ``trigger`` is the one key the compose template reads with NO ``| default``
+    # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
+    # break the render loudly rather than silently firing another facility's
+    # trigger. No ``image`` key: the service builds the local
+    # <project>-slack-bridge image on first ``osprey up`` (the template's own
+    # ``| default`` supplies that tag). Override with
+    # OSPREY_SLACK_BRIDGE_IMAGE, or set ``services.slack_bridge.image`` here, to
+    # use a prebuilt/published image. ``mentions`` is written on every build, so
+    # the template always has a value.
+    config.setdefault("services", {})
+    anchored_put(
+        config["services"],
+        "slack_bridge",
+        _carry_authored_keys(
+            config["services"],
+            "slack_bridge",
+            {
+                "path": "./services/slack_bridge",
+                "trigger": slack_bridge.trigger,
+                "mentions": slack_bridge.mentions,
+            },
+        ),
+    )
+    deployed = config.get("deployed_services", []) or []
+    if "slack_bridge" not in [str(s) for s in deployed]:
+        anchored_append(deployed, "slack_bridge")
+    config["deployed_services"] = deployed
+
+    save_config_document(config_path, config)
+
+    # 3. Post-build hint.
+    logger.debug("  ✓ Injected Slack bridge (trigger %r)", slack_bridge.trigger)
+    logger.debug(
+        "    Credentials: set SLACK_BOT_TOKEN (xoxb-) and SLACK_APP_TOKEN (xapp-, "
+        "connections:write) in the project .env before `osprey up`. These are "
+        "user-supplied. Unlike the dispatch tokens, deploy does not mint them, "
+        "and the bridge aborts at boot naming whichever is missing."
+    )
+    logger.debug(
+        "    App:         deploy exactly ONE bridge per Slack app. Socket Mode "
+        "spreads an app's events across every open connection, so a second "
+        "deployment on the same app token does not duplicate events. It silently "
+        "splits them, and each half answers only what it received. Give every "
+        "deployment its own app."
+    )
+    logger.debug(
+        "    Images:     `osprey up` builds the slack-bridge image locally "
+        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
+        "set OSPREY_SLACK_BRIDGE_IMAGE to use a published image."
     )
 
 

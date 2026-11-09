@@ -155,6 +155,11 @@ def read_timeline(
     return SessionRead(session_id, nodes)
 
 
+def took_part(row: Mapping[str, Any], identity: str) -> bool:
+    """Whether a ``list_sessions`` row names *identity* among its identities or persons."""
+    return identity in (row.get("identities") or []) or identity in (row.get("persons") or [])
+
+
 def own_sessions(
     identity: str | None = None,
     *,
@@ -181,11 +186,7 @@ def own_sessions(
     rows = answer.data if answer.available and isinstance(answer.data, list) else []
     rows = [r for r in rows if isinstance(r, dict) and r.get("session_id")]
     if identity:
-        rows = [
-            r
-            for r in rows
-            if identity in (r.get("identities") or []) or identity in (r.get("persons") or [])
-        ]
+        rows = [r for r in rows if took_part(r, identity)]
     return rows, answer
 
 

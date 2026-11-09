@@ -126,7 +126,7 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
     repo = init_project(
         tmp_path,
         "vacuum_burst_demo",
-        template="control_assistant",
+        template="demo",
         provider="als-apg",
         model="claude-haiku-5-5",
     )
@@ -139,7 +139,7 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
     activate_scenarios(repo, "vacuum-burst")
     cf_server = _channel_finder_server_name(repo)
     if cf_server is None:
-        pytest.skip("control-assistant preset has no channel-finder server")
+        pytest.skip("demo preset has no channel-finder server")
 
     judge = LLMJudge(provider="als-apg")
     # Operator prompt: exactly what someone on shift would type. No PV

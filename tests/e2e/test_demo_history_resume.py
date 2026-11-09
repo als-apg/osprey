@@ -143,7 +143,7 @@ async def test_demo_history_resume_runs_a_turn_on_a_seeded_session(
     repo = init_project(
         tmp_path,
         "demo_history_resume",
-        template="control_assistant",
+        template="demo",
         provider="als-apg",
         model="claude-haiku-5-5",
     )

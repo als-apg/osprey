@@ -12,7 +12,7 @@ handed. Two kinds of test here read that declaration and nothing else:
   without one fails here, which is the point: the registry is only a single
   source of truth while it is complete.
 * **The seams, on a real built stack.** For every render the
-  control-assistant preset builds: each consumer the render switches on
+  demo preset builds: each consumer the render switches on
   resolves an endpoint; each credential its gate grants is a line in that
   render's compose ``environment:``; each shared path its gate entitles is a
   mount in that render's compose ``volumes:``. One walk over the registry,
@@ -501,9 +501,9 @@ def test_a_target_that_does_not_resolve_carries_no_consumer():
 
 
 @pytest.fixture(scope="module")
-def built_stack(built_control_assistant) -> Path:
-    """The shipped control assistant: the run's shared, read-only build (``tests/_builds.py``)."""
-    return built_control_assistant.repo
+def built_stack(built_demo) -> Path:
+    """The shipped demo: the run's shared, read-only build (``tests/_builds.py``)."""
+    return built_demo.repo
 
 
 @pytest.fixture(scope="module")

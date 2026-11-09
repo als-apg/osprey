@@ -189,7 +189,7 @@ def _canopy_profile() -> _Profile:
         default_panel="canopy",
         skills=["canopy-operator", "canopy-screens", "canopy-panel-builder", "logbook"],
     )
-    profile.inherited_preset = "control-assistant"  # type: ignore[attr-defined]
+    profile.inherited_preset = "demo"  # type: ignore[attr-defined]
     return profile
 
 
@@ -208,7 +208,7 @@ def test_naming_no_payload_takes_the_panel_its_default_and_its_skills_out(tmp_pa
     assert kept.web_panels == ["artifacts"]
     assert kept.default_panel is None
     assert kept.skills == ["logbook"]
-    assert kept.inherited_preset == "control-assistant"
+    assert kept.inherited_preset == "demo"
     assert profile.web_panels == ["artifacts", "canopy"], "the input is not edited"
 
 
@@ -243,7 +243,7 @@ def test_a_profile_without_the_panel_is_returned_as_is(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------- #
-# CLI half — the shipped control-assistant preset and its tiers
+# CLI half — the shipped demo preset and its tiers
 # --------------------------------------------------------------------------- #
 
 ANCHOR = "  web.panels.canopy.vole_bytes_max: 268435456\n"
@@ -252,9 +252,9 @@ TIER_ANCHOR = "\nconfig:\n"
 
 @pytest.fixture(scope="module")
 def materialized(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """One real control-assistant materialization to edit copies of."""
+    """One real demo materialization to edit copies of."""
     root = tmp_path_factory.mktemp("home-screen") / "demo"
-    result = CliRunner().invoke(init, [str(root), "--preset", "control-assistant", "--no-git"])
+    result = CliRunner().invoke(init, [str(root), "--preset", "demo", "--no-git"])
     assert result.exit_code == 0, result.output
     return root
 

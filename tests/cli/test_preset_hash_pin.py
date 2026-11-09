@@ -35,13 +35,11 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # A digest moves whenever its preset's resolved content does, and the commit
     # that moves it says why. A comment is not resolved content, and neither is
     # a key the hash pops before digesting, so editing either moves nothing.
-    "control-assistant": (
-        "sha256:72b13e696318a3fcf2872d48098253fd035a86f38715fa7e509aef23f8499561"
-    ),
-    "hello-world": ("sha256:64e800d50fa5250991e06c374a10282f0728f3daa77dfb6db748bf8306dc576f"),
-    "tiers/admin": ("sha256:dc41dc870db1340a707c9bf6e475ed0998b37e0db3f635a77c80115106d1f106"),
-    "tiers/readonly": ("sha256:9cfce627f4df87aac7f8d212cce4819d487471e2ce4b386c4b6da3f127f41605"),
-    "tiers/readwrite": ("sha256:787e5efd355a84b81c1d9c8cd9d6fa6252dda5e0d7d096ea417a0e8805ceb3bd"),
+    "demo": ("sha256:1b2c403a0194f58349912818f50faead5da58cb18a9e5f957f4eb1a591a2ec8f"),
+    "hello-world": ("sha256:93890612a70173a6dde7f0a912b929738732a61b157186262377da32d869f9cf"),
+    "tiers/admin": ("sha256:197ef2a65251887b0af8a2a03dac1494b366d2bb3fdabe42c5f8227fdc729736"),
+    "tiers/readonly": ("sha256:8d24dbff3b01876824e3fc10ac61595d9e841feddf632064894ceef7e5031a81"),
+    "tiers/readwrite": ("sha256:b9d4b4bbc15d569649062636055ae0a9997948679b7ec84228991e287b7df2a3"),
     "apps/channel-finder": (
         "sha256:2e35415afcd9927741408391f7f40a2fe2635f3c39c193463e4c2998d9ab0094"
     ),

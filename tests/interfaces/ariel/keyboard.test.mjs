@@ -1,26 +1,19 @@
 // @ts-check
 /**
  * Unit tests for the ARIEL keyboard shortcuts (keyboard.js): j/k through the
- * rendered rows, Enter opens the reader, `/` focuses search standalone only,
+ * rendered rows, Enter opens the reader, `/` is left to the host,
  * `[` toggles the rail, `c` opens a new entry and `r` a follow-up of the
  * selection, and `Esc` closes exactly one layer — skipping events that were
  * defaultPrevented or arrived while a popover or drawer was open.
  *
  *   npx vitest run tests/interfaces/ariel/keyboard.test.mjs
  *
- * list.js is mocked to a `focusSearch` spy; popovers and drawers are plain
+ * Popovers and drawers are plain
  * elements with the design system's open markers, and a document-level
  * bubble listener stands in for the design system closing them on Escape.
  */
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
-
-const { focusSearch } = vi.hoisted(() => ({ focusSearch: vi.fn() }));
-
-vi.mock('../../../src/osprey/interfaces/ariel/static/js/list.js', () => ({
-  focusSearch,
-  default: { focusSearch },
-}));
 
 /** @typedef {typeof import('../../../src/osprey/interfaces/ariel/static/js/store.js')} StoreMod */
 /** @typedef {typeof import('../../../src/osprey/interfaces/ariel/static/js/keyboard.js')} KeyboardMod */
@@ -72,16 +65,14 @@ function press(key, target = document.body, init = {}) {
   return event;
 }
 
-/** @param {{embedded?: boolean}} [options] */
-async function boot(options = { embedded: false }) {
+async function boot() {
   vi.resetModules();
   store = await import('../../../src/osprey/interfaces/ariel/static/js/store.js');
   keyboard = await import('../../../src/osprey/interfaces/ariel/static/js/keyboard.js');
-  api = keyboard.initKeyboard(document, options);
+  api = keyboard.initKeyboard(document);
 }
 
 beforeEach(async () => {
-  focusSearch.mockClear();
   mountFixture();
   await boot();
 });
@@ -185,23 +176,9 @@ describe('Enter', () => {
 });
 
 describe('/', () => {
-  test('standalone: focuses the search box and swallows the slash', () => {
+  test("is unbound: it stays the host's", () => {
     const e = press('/');
-    expect(focusSearch).toHaveBeenCalledTimes(1);
-    expect(e.defaultPrevented).toBe(true);
-  });
-
-  test('embedded: unbound', async () => {
-    api?.destroy();
-    await boot({ embedded: true });
-    const e = press('/');
-    expect(focusSearch).not.toHaveBeenCalled();
     expect(e.defaultPrevented).toBe(false);
-  });
-
-  test('typing a slash into an input is not a shortcut', () => {
-    press('/', /** @type {HTMLElement} */ (document.getElementById('search')));
-    expect(focusSearch).not.toHaveBeenCalled();
   });
 });
 

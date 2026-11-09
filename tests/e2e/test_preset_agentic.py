@@ -171,16 +171,16 @@ async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     passes_if="a channel-finder tool runs and the answer names a channel",
 )
 @pytest.mark.asyncio
-async def test_control_assistant_channel_finder_flow(tmp_path: Path) -> None:
-    """Control-assistant preset: agent uses the channel-finder pipeline.
+async def test_demo_channel_finder_flow(tmp_path: Path) -> None:
+    """Demo preset: agent uses the channel-finder pipeline.
 
     Soft assertion (the channel-finder backend differs by preset config) —
     we only require that *some* ``mcp__channel-finder__*`` tool was used.
     """
-    repo = init_project(tmp_path, "ca_demo", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "ca_demo", template="demo", provider="als-apg")
     cf_server = _channel_finder_server_name(repo)
     if cf_server is None:
-        pytest.skip("control-assistant preset has no channel-finder server")
+        pytest.skip("demo preset has no channel-finder server")
 
     judge = LLMJudge(provider="als-apg")
     query = "Help me find the address of a beam-position-monitor channel for sector 5."
@@ -230,9 +230,9 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
 
 @pytest.mark.harness_benchmark
 @pytest.mark.asyncio
-async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) -> None:
-    """Control-assistant write probe: same contract on the heavier preset."""
-    repo = init_project(tmp_path, "ca_write", template="control_assistant", provider="als-apg")
+async def test_demo_write_triggers_approval_hook(tmp_path: Path) -> None:
+    """Demo write probe: same contract on the heavier preset."""
+    repo = init_project(tmp_path, "ca_write", template="demo", provider="als-apg")
     enable_writes_in_project(repo)
     channel, value = bounded_setpoint(repo_view(repo))
     await _assert_approval_hook_fires(

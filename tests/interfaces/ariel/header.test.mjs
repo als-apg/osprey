@@ -1,11 +1,10 @@
 // @ts-check
 /**
- * Unit tests for the ARIEL embedded tile-bar header (header.js): the
+ * Unit tests for the ARIEL tile-bar header (header.js): the
  * `[search, compose, ⋯]` contribution, whole re-sends on state change,
  * re-keying the search item on a panel-set query, the omitted search item on
  * invalid configuration, the header-action round trip into the store, search
- * operators lifted from successive partial reports (and at the settle point),
- * and the standalone no-op.
+ * operators lifted from successive partial reports (and at the settle point).
  *
  *   npx vitest run tests/interfaces/ariel/header.test.mjs
  *
@@ -59,11 +58,11 @@ function hubAction(id, value) {
 }
 
 /**
- * @param {{embedded?: boolean, capabilities?: any}} [opts]
+ * @param {{capabilities?: any}} [opts]
  */
-async function boot({ embedded = true, capabilities = { status: 'ok' } } = {}) {
-  history.replaceState(null, '', embedded ? '/?embedded=true' : '/');
-  document.body.className = embedded ? 'embedded' : '';
+async function boot({ capabilities = { status: 'ok' } } = {}) {
+  history.replaceState(null, '', '/?embedded=true');
+  document.body.className = 'embedded';
   vi.resetModules();
   store = await import('../../../src/osprey/interfaces/ariel/static/js/store.js');
   header = await import('../../../src/osprey/interfaces/ariel/static/js/header.js');
@@ -89,7 +88,7 @@ afterEach(() => {
 });
 
 describe('contribution', () => {
-  test('embedded init contributes search, compose and the ⋯ menu in that order', async () => {
+  test('init contributes search, compose and the ⋯ menu in that order', async () => {
     await boot();
     expect(window.parent).not.toBe(window);
     const items = latest();
@@ -259,18 +258,6 @@ describe('header actions', () => {
   });
 });
 
-describe('standalone', () => {
-  test('contributes nothing and ignores actions', async () => {
-    await boot({ embedded: false });
-    store.setState({ query: 'q', rerank: 'now' });
-    store.setState({ railCollapsed: true });
-    hubAction('ariel-compose');
-    header.handleHeaderAction('ariel-compose', undefined);
-    expect(postMessage).not.toHaveBeenCalled();
-    expect(store.getState().compose).toBeNull();
-  });
-});
-
 describe('search operators', () => {
   const CAPS = {
     status: 'ok',
@@ -409,7 +396,7 @@ describe('⋯ menu Badges entry', () => {
     expect(stripEntry().checked).toBe(true);
   });
 
-  test('narrow embedded defaults it off, and the stacked flip re-sends', async () => {
+  test('narrow defaults it off, and the stacked flip re-sends', async () => {
     await boot();
     store.setState({ stacked: true });
     expect(stripEntry().checked).toBe(false);

@@ -18,13 +18,6 @@
   outline-offset: 2px;
 }
 
-/* The terminal header's label is a mono uppercase tag; a session title reads
-   as a name, so it keeps its own case. */
-.terminal-label.session-switcher {
-  text-transform: none;
-  letter-spacing: normal;
-}
-
 .session-switcher-title {
   min-width: 0;
   overflow: hidden;

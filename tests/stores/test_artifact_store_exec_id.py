@@ -229,14 +229,6 @@ class TestCategoryDeprecation:
             _save(store)
             store.save_channel_reading(b"p", b"n", title="T", metadata={"channel": "C"})
 
-    def test_channel_readings_still_prune_without_a_category(self, store):
-        ids = [
-            store.save_channel_reading(b"p", b"n", title=f"T{i}", metadata={"channel": "C"}).id
-            for i in range(3)
-        ]
-        pruned = store.prune_channel_readings("C", keep=1)
-        assert [e.id for e in pruned] == ids[:2]
-
     def test_the_in_script_save_artifact_warns_and_drops_it(self, tmp_path):
         from osprey.stores.artifact_manifest import SAVE_ARTIFACT_SOURCE
 
@@ -275,7 +267,7 @@ class TestMergeEntryMetadata:
 
     def test_update_entry_metadata_stays_an_attribute_setter(self, store):
         entry = _save(store)
-        assert store.update_entry_metadata(entry.id, pinned=True).pinned is True
+        assert store.update_entry_metadata(entry.id, title="Renamed").title == "Renamed"
         with pytest.raises(AttributeError):
             store.update_entry_metadata(entry.id, settled="ran")
 

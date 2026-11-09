@@ -34,8 +34,8 @@ CHANNEL = "BR:DIAG:BPM:01:POSITION:X"
 
 @pytest.fixture(scope="module")
 def initialised(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant repo, initialised once for this module and never edited."""
-    return init_project(tmp_path_factory.mktemp("ca"), "control-assistant", "demo")
+    """A demo repo, initialised once for this module and never edited."""
+    return init_project(tmp_path_factory.mktemp("ca"), "demo", "demo")
 
 
 @pytest.fixture
@@ -48,10 +48,10 @@ def repo(initialised: Path, tmp_path: Path) -> Iterator[Path]:
 
 @pytest.fixture(scope="module")
 def _pristine_built(tmp_path_factory: pytest.TempPathFactory) -> Restorable:
-    """The control-assistant repo after one ``osprey build --skip-deps``, made once."""
+    """The demo repo after one ``osprey build --skip-deps``, made once."""
 
     def make(parent: Path) -> tuple[Path, Result]:
-        repo = init_project(parent, "control-assistant", "demo")
+        repo = init_project(parent, "demo", "demo")
         return repo, run_build(repo)
 
     return Restorable(tmp_path_factory.mktemp("ca-built"), make)

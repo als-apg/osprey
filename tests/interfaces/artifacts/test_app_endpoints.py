@@ -3,11 +3,11 @@
 Covers:
   - GET/DELETE /api/artifacts/{id} (single-entry fetch and deletion)
   - GET/POST /api/focus (focus state, stale-focus fallback, fullscreen flag)
-  - the focus_state.txt file the CLI hook reads (pin/unpin/focus lifecycle)
+  - the focus_state.txt file the CLI hook reads (focus lifecycle)
   - GET /files/{id}/{filename} for HTML artifacts (Plotly injection, offline
     CDN rewriting, missing-file 404s)
   - the _SSEBroadcaster queue bookkeeping
-  - config.yml priming in create_app and run_server's uvicorn handoff
+  - config.yml priming in create_app
 """
 
 import asyncio
@@ -22,7 +22,6 @@ from osprey.interfaces.artifacts.app import (
     _inject_html_snippet,
     _SSEBroadcaster,
     create_app,
-    run_server,
 )
 from osprey.interfaces.opaque_origin import INERT_TYPES, OPAQUE_CSP
 
@@ -261,24 +260,6 @@ class TestFocus:
             f'[Gallery Focus]\n  artifact: "Survivor" (id={survivor.id}) (session={t_survivor})\n'
         )
 
-    def test_focus_file_carries_no_pins(self, app_client, tmp_path):
-        """Pins leave the focus file (the hook reads them from the index): a
-        pin or unpin writes no line and leaves a focus line as it was."""
-        entry = _save_text_artifact(app_client.app.state.artifact_store, title="Both")
-        focus_file = tmp_path / "focus_state.txt"
-        transcript = "66666666-6666-4666-8666-666666666666"
-
-        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": True})
-        assert focus_file.read_text() == ""
-
-        app_client.post("/api/focus", json={"artifact_id": entry.id, "transcript_id": transcript})
-        text = focus_file.read_text()
-        assert text == (
-            f'[Gallery Focus]\n  artifact: "Both" (id={entry.id}) (session={transcript})\n'
-        )
-        app_client.post(f"/api/artifacts/{entry.id}/pin", json={"pinned": False})
-        assert focus_file.read_text() == text
-
     def test_delete_clears_focus_only_for_the_focused_artifact(self, tmp_path):
         """With the lifespan listeners registered, deleting another artifact
         must not disturb the focus; deleting the focused one clears the focus
@@ -406,15 +387,6 @@ class TestRunRecordVerdict:
         assert fallback["focused"] is False
         assert fallback["artifact"]["id"] == result.id
         assert fallback["artifact"]["run_record"] is False
-
-    def test_the_pin_frame_carries_the_verdict(self, app_client):
-        run = _save_run_record(app_client.app.state.artifact_store)
-        with patch.object(_SSEBroadcaster, "broadcast") as broadcast:
-            app_client.post(f"/api/artifacts/{run.id}/pin", json={"pinned": True})
-        (event,), _ = broadcast.call_args
-        assert event["type"] == "artifact_updated"
-        assert event["id"] == run.id
-        assert event["run_record"] is True
 
     def test_the_saved_frame_carries_the_verdict(self, tmp_path):
         """The lifespan registers the saved listener; a save then broadcasts its frame."""
@@ -717,7 +689,7 @@ def test_sse_broadcaster_queue_bookkeeping():
 
 
 class TestAppLifecycle:
-    """create_app config priming and run_server's uvicorn handoff."""
+    """create_app config priming."""
 
     def test_config_yml_priming_is_best_effort(self, tmp_path, monkeypatch):
         """A config.yml in the workspace root is loaded at app construction
@@ -755,22 +727,6 @@ class TestAppLifecycle:
 
         assert client.post("/api/focus", json={"artifact_id": entry.id}).status_code == 200
         assert (shared / "focus_state.txt").is_file()
-
-    def test_run_server_builds_app_and_hands_it_to_uvicorn(self, tmp_path, monkeypatch):
-        import uvicorn
-
-        calls = {}
-
-        def fake_run(app, **kwargs):
-            calls["app"] = app
-            calls.update(kwargs)
-
-        monkeypatch.setattr(uvicorn, "run", fake_run)
-        run_server(host="127.0.0.1", port=59999, workspace_root=tmp_path)
-
-        assert calls["host"] == "127.0.0.1"
-        assert calls["port"] == 59999
-        assert calls["app"].title == "OSPREY Artifact Gallery"
 
 
 class TestIndexPlotlyVendorMeta:

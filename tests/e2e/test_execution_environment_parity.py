@@ -478,8 +478,8 @@ def built_image(built_render):
     """
     from osprey.deployment.errors import DevModeUnavailableError
     from osprey.deployment.wheel_build import (
-        LOCAL_REQUIREMENTS_FILENAME,
         _copy_local_framework_for_override,
+        _staged_dev_artifact_paths,
         preflight_dev_mode,
     )
 
@@ -494,9 +494,13 @@ def built_image(built_render):
     context = container_image_context(built_render.parent, PROJECT_NAME)
     # Staged at the CONTEXT root, which is where the Dockerfile's wheel-drop
     # layer looks: `COPY .dockerignore *.wh[l]` is context-root relative.
+    before = _staged_dev_artifact_paths(str(context))
     _copy_local_framework_for_override(str(context))
 
-    staged = [context / LOCAL_REQUIREMENTS_FILENAME, *context.glob("*.whl")]
+    # Everything staging added — wheels, manifests and the lock constraints,
+    # whose presence alone would put a later build of this context on the
+    # lock-driven install.
+    staged = sorted(_staged_dev_artifact_paths(str(context)) - before)
     tag = f"osprey-parity-e2e:{uuid.uuid4().hex[:8]}"
     try:
         build = subprocess.run(

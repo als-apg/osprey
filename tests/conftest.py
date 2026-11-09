@@ -52,8 +52,8 @@ from osprey_connectors_tests._harness._ports import port_reserver
 from tests import _canopy_contract, _scoped_temp, _wallclock_files
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
-    built_control_assistant,
-    built_control_assistant_watchdog_on,
+    built_demo,
+    built_demo_watchdog_on,
     offline_build_env,
 )
 from tests.e2e import provider_refusal
@@ -75,7 +75,7 @@ GATEWAY_BASE_URL = "https://gateway.example.org/v1"
 
 # import-time required because every xdist worker must hold this default
 # before it collects a module.
-# The control-assistant preset's `canopy-payload` pre_build step stages a
+# The demo preset's `canopy-payload` pre_build step stages a
 # prebuilt CANOPY payload no test host is expected to have, and a build that
 # names none leaves the panel out. Skipping the step renders the finished
 # preset; the tests of the staging module turn the check back on. setdefault
@@ -1453,7 +1453,7 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
 
     ``osprey build`` derives a graph-mode project's channel search index from
     the Turtle corpus the render staged, which is an rdflib parse of the whole
-    file — about a second and a half for the corpus the control-assistant
+    file — about a second and a half for the corpus the demo
     preset ships. The suite renders that preset over and over, in the build
     tests, the deployment tests and every exemplar render, and each of those
     renders parses the identical bytes again.

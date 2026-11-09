@@ -30,7 +30,7 @@ import pytest
 
 from osprey.deployment import container_lifecycle
 
-PROJECT = "my-control-assistant"
+PROJECT = "osprey-demo"
 
 
 class FakeRuntime:

@@ -1,29 +1,22 @@
 // @ts-check
 /**
  * ARIEL display preferences: whether list rows show the enhancement badge
- * strip. Stored per frame kind under `scopedStorageKey('ariel-strip-<frame>')`.
- * With nothing stored the strip is on standalone and, embedded, on unless the
- * panel is narrow (store `stacked`).
+ * strip. Stored under `scopedStorageKey('ariel-strip-embedded')`; the key keeps
+ * its suffix so an operator's stored choice survives. With nothing stored the
+ * strip is on unless the panel is narrow (store `stacked`).
  *
- * Store keys: reads `stacked` (the embedded default); writes nothing.
+ * Store keys: reads `stacked` (the default); writes nothing.
  *
  * `onStripPrefChange(cb)` fires on every effective change: a `setStripPref`,
- * or a `stacked` flip while the default applies. `bindStripSwitch(button)`
- * wires the standalone `[role=switch]` projected into `<osprey-display-menu>`.
+ * or a `stacked` flip while the default applies.
  */
 
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
-import { isEmbedded } from '/design-system/js/frame-params.js';
 import { getState, subscribe } from './store.js';
-
-/** @returns {'embedded'|'standalone'} */
-function frameKind() {
-  return isEmbedded() ? 'embedded' : 'standalone';
-}
 
 /** @returns {string} */
 export function stripStorageKey() {
-  return scopedStorageKey(`ariel-strip-${frameKind()}`);
+  return scopedStorageKey('ariel-strip-embedded');
 }
 
 /** @returns {boolean|null} The stored choice, or null when none is stored. */
@@ -40,7 +33,7 @@ function readStored() {
 
 /** @returns {boolean} The default with nothing stored. */
 function defaultPref() {
-  return !isEmbedded() || !getState().stacked;
+  return !getState().stacked;
 }
 
 /**
@@ -80,29 +73,10 @@ export function setStripPref(on) {
 export function onStripPrefChange(cb) {
   listeners.add(cb);
   const offStacked = subscribe((next, _prev, changed) => {
-    if (changed.has('stacked') && isEmbedded() && readStored() === null) cb(getStripPref());
+    if (changed.has('stacked') && readStored() === null) cb(getStripPref());
   });
   return () => {
     listeners.delete(cb);
     offStacked();
-  };
-}
-
-/**
- * Wire the standalone strip switch: `aria-checked` follows the preference and
- * a click flips it.
- * @param {HTMLElement|null} button - A `[role=switch]` element
- * @returns {() => void} Unbind
- */
-export function bindStripSwitch(button) {
-  if (!button) return () => {};
-  const paint = () => button.setAttribute('aria-checked', String(getStripPref()));
-  const onClick = () => setStripPref(!getStripPref());
-  button.addEventListener('click', onClick);
-  const off = onStripPrefChange(paint);
-  paint();
-  return () => {
-    button.removeEventListener('click', onClick);
-    off();
   };
 }

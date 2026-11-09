@@ -8,11 +8,12 @@
  * platform's key hints, the labels toggle (collapsible.js, under the scoped
  * `osprey-sidebar` key sidebar-boot.js reads), the Agent row's session-tree
  * disclosure (kept under the scoped `osprey-sidebar-open` key), the collapsed
- * sidebar's sessions flyout, the Agent row's waiting badge, and the fades of
- * a group that scrolls.
+ * sidebar's sessions flyout, the Agent row's waiting badge, the fades of
+ * a group that scrolls, and the header's menu.
  *
  * The fixture is the sidebar block and the flyout from index.html, copied with
- * the one Jinja expression (the brand's href) written out. Nothing is mocked:
+ * the one Jinja expression (the brand's href) written out. Only
+ * dock-workspace.js's Reset layout is mocked (its module graph is the dock's);
  * icons.js, collapsible.js, popover.js and the chat bus (chat-events.js) are
  * the real modules. Module state (the open lists, the waiting count, the
  * popover registry) is isolated by vi.resetModules() + dynamic import per test.
@@ -23,6 +24,9 @@ import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 import { byId, qs } from '../_support/dom.mjs';
 
 const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
+
+const dock = vi.hoisted(() => ({ resetDockLayout: vi.fn() }));
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js', () => dock);
 
 /** @type {typeof import('../../../src/osprey/interfaces/web_terminal/static/js/sidebar.js')} */
 let sidebar;
@@ -67,10 +71,10 @@ const SIDEBAR_HTML = `
 
           <div class="sidebar-row" id="sidebar-agent-wrap">
             <button class="osprey-nav-row parent panel-rail-button disabled" id="sidebar-agent-row"
-                    data-panel-id="terminal" type="button" aria-label="Agent" title="Agent" data-tip="Agent"
+                    data-panel-id="terminal" type="button" aria-label="Sessions" title="Sessions" data-tip="Sessions"
                     aria-expanded="true" aria-controls="sidebar-session-tree">
               <svg class="osprey-ic osprey-nav-icon" data-icon="agent" aria-hidden="true"></svg>
-              <span class="osprey-nav-label">Agent</span>
+              <span class="osprey-nav-label">Sessions</span>
               <span class="sidebar-open-hint" aria-hidden="true">Open</span>
               <span class="osprey-nav-badge" data-agent-badge hidden></span>
             </button>
@@ -81,7 +85,7 @@ const SIDEBAR_HTML = `
 
         <div class="sidebar-group" data-group="tools" role="listitem" aria-labelledby="sidebar-tools-label">
           <div class="osprey-section-label sidebar-group-head">
-            <span class="sidebar-group-name" id="sidebar-tools-label">Tools</span>
+            <span class="sidebar-group-name" id="sidebar-tools-label">Apps</span>
           </div>
           <button class="osprey-nav-row add" id="panel-add-btn" type="button" aria-label="Add panel"
                   aria-haspopup="dialog" aria-expanded="false" aria-controls="panel-add-menu" data-tip="Add panel"
@@ -271,6 +275,65 @@ describe('labels toggle', () => {
     collapse();
     expect(window.localStorage.getItem('osprey-sidebar')).toBe('collapsed');
   });
+
+  // The chord comes from key-bindings.js's sidebar-toggle entry: Ctrl+\\ (and
+  // Cmd+\\) still flips the labels, and the toggle's title names it.
+  test.each([
+    ['Ctrl+\\', { ctrlKey: true }],
+    ['Cmd+\\', { metaKey: true }],
+  ])('%s still toggles the labels', async (_name, mods) => {
+    await boot();
+    const before = document.documentElement.getAttribute('data-sidebar');
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '\\', bubbles: true, cancelable: true, ...mods })
+    );
+    expect(document.documentElement.getAttribute('data-sidebar')).not.toBe(before);
+    expect(document.documentElement.getAttribute('data-sidebar')).toMatch(/collapsed|expanded/);
+    expect(byId('sidebar-toggle').title).toContain('Ctrl+\\');
+  });
+});
+
+describe('setSidebarCollapsed / isSidebarCollapsed', () => {
+  test('sets the labels state, stores it, and reads it back', async () => {
+    document.documentElement.setAttribute(SCOPE_ATTR, 'alice');
+    const wired = await boot();
+    sidebar.setSidebarCollapsed(true);
+    expect(document.documentElement.getAttribute('data-sidebar')).toBe('collapsed');
+    expect(sidebar.isSidebarCollapsed()).toBe(true);
+    expect(wired.isCollapsed()).toBe(true);
+    expect(window.localStorage.getItem(`${sidebar.SIDEBAR_STORAGE_KEY}--alice`)).toBe('collapsed');
+
+    sidebar.setSidebarCollapsed(false);
+    expect(document.documentElement.getAttribute('data-sidebar')).toBe('expanded');
+    expect(sidebar.isSidebarCollapsed()).toBe(false);
+    expect(window.localStorage.getItem(`${sidebar.SIDEBAR_STORAGE_KEY}--alice`)).toBe('expanded');
+  });
+
+  test('is idempotent: setting the held state fires no change', async () => {
+    await boot();
+    sidebar.setSidebarCollapsed(true);
+    const seen = vi.fn();
+    document.addEventListener('osprey-collapsible-change', seen);
+    sidebar.setSidebarCollapsed(true);
+    expect(seen).not.toHaveBeenCalled();
+    sidebar.setSidebarCollapsed(false);
+    expect(seen).toHaveBeenCalledTimes(1);
+    document.removeEventListener('osprey-collapsible-change', seen);
+  });
+
+  test('tracks the toggle button too', async () => {
+    await boot();
+    expect(sidebar.isSidebarCollapsed()).toBe(false);
+    collapse();
+    expect(sidebar.isSidebarCollapsed()).toBe(true);
+  });
+
+  test('is a no-op before initSidebar', async () => {
+    await load();
+    expect(() => sidebar.setSidebarCollapsed(true)).not.toThrow();
+    expect(document.documentElement.getAttribute('data-sidebar')).not.toBe('collapsed');
+    expect(sidebar.isSidebarCollapsed()).toBe(false);
+  });
 });
 
 /* ---- disclosure ---------------------------------------------------------- */
@@ -423,9 +486,9 @@ describe('collapsed', () => {
   });
 });
 
-/* ---- the Agent row ------------------------------------------------------- */
+/* ---- the Sessions row ---------------------------------------------------- */
 
-describe('the Agent row', () => {
+describe('the Sessions row', () => {
   /** @param {'open'|'closed'} state */
   function agentPane(state) {
     document.documentElement.setAttribute('data-agent', state);
@@ -439,7 +502,7 @@ describe('the Agent row', () => {
 
     expect(agentBadge().hidden).toBe(true);
     expect(agentBadge().textContent).toBe('');
-    expect(agentRow().dataset.tip).toBe('Agent');
+    expect(agentRow().dataset.tip).toBe('Sessions');
     expect(agentRow().hasAttribute('aria-description')).toBe(false);
   });
 
@@ -450,7 +513,7 @@ describe('the Agent row', () => {
 
     expect(agentBadge().hidden).toBe(false);
     expect(agentBadge().textContent).toBe('2');
-    expect(agentRow().dataset.tip).toBe('Agent · 2 waiting — click to open');
+    expect(agentRow().dataset.tip).toBe('Sessions · 2 waiting — click to open');
     expect(agentRow().getAttribute('aria-description')).toBe(
       'The Agent pane is closed and 2 cards wait on you; activate to open it'
     );
@@ -469,7 +532,7 @@ describe('the Agent row', () => {
     chatEvents.emitChat('attention', { waiting: 0 });
 
     expect(agentBadge().hidden).toBe(true);
-    expect(agentRow().dataset.tip).toBe('Agent · closed — click to open');
+    expect(agentRow().dataset.tip).toBe('Sessions · Agent pane closed — click to open');
     expect(agentRow().getAttribute('aria-description')).toBe(
       'The Agent pane is closed; activate to open it'
     );
@@ -483,7 +546,7 @@ describe('the Agent row', () => {
 
     agentPane('open');
     expect(agentBadge().hidden).toBe(true);
-    expect(agentRow().dataset.tip).toBe('Agent');
+    expect(agentRow().dataset.tip).toBe('Sessions');
     expect(agentRow().hasAttribute('aria-description')).toBe(false);
   });
 
@@ -510,9 +573,9 @@ describe('the Agent row', () => {
     document.documentElement.setAttribute('data-agent', 'closed');
     chatEvents.emitChat('attention', { waiting: 2 });
     // panel-rail.js re-labels the row on every render.
-    agentRow().dataset.tip = 'Agent';
+    agentRow().dataset.tip = 'Sessions';
     document.dispatchEvent(new CustomEvent('osprey-sidebar-rendered'));
-    expect(agentRow().dataset.tip).toBe('Agent · 2 waiting — click to open');
+    expect(agentRow().dataset.tip).toBe('Sessions · 2 waiting — click to open');
   });
 });
 
@@ -556,5 +619,99 @@ describe('fades', () => {
     scrollMetrics(added, { scrollHeight: 300, clientHeight: 100, scrollTop: 0 });
     added.dispatchEvent(new Event('scroll'));
     expect(added.classList.contains('fade')).toBe(true);
+  });
+});
+
+/* ---- header menu --------------------------------------------------------- */
+
+describe('the header menu', () => {
+  const head = () => qs(document, '#sidebar .sidebar-head');
+  const menuLabels = () =>
+    [...document.querySelectorAll('.rail-context-item .rail-context-label')].map(
+      (n) => n.textContent
+    );
+  /** @param {string} label @returns {HTMLElement} */
+  const menuRow = (label) => {
+    const row = [...document.querySelectorAll('.rail-context-item')].find(
+      (r) => r.querySelector('.rail-context-label')?.textContent === label
+    );
+    if (!(row instanceof HTMLElement)) throw new Error(`no menu row ${label}`);
+    return row;
+  };
+  /** @param {Element} el @param {MouseEventInit} [init] */
+  const rightClick = (el, init = {}) => {
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, ...init });
+    el.dispatchEvent(ev);
+    return ev;
+  };
+
+  afterEach(() => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    dock.resetDockLayout.mockClear();
+  });
+
+  test('a right-click on the header: Collapse sidebar, New group…, then Reset layout', async () => {
+    await boot();
+    const { hintFor } = await import(`${JS}/key-bindings.js`);
+    expect(rightClick(head()).defaultPrevented).toBe(true);
+    expect(menuLabels()).toEqual(['Collapse sidebar', 'New group…', 'Reset layout']);
+    const menu = qs(document, '.rail-context-menu');
+    expect(menu.getAttribute('aria-label')).toBe('Sidebar');
+    expect(qs(menuRow('Collapse sidebar'), '.rail-context-hint').textContent).toBe(
+      hintFor('sidebar-toggle')
+    );
+    expect(menuRow('Reset layout').classList.contains('danger')).toBe(true);
+    expect(menuRow('Reset layout').previousElementSibling?.getAttribute('role')).toBe('separator');
+  });
+
+  test('Reset layout runs the dock layout reset', async () => {
+    await boot();
+    rightClick(byId('sidebar-toggle'));
+    menuRow('Reset layout').click();
+    await vi.waitFor(() => expect(dock.resetDockLayout).toHaveBeenCalledOnce());
+  });
+
+  test('Collapse sidebar collapses; collapsed, the menu offers Expand sidebar only', async () => {
+    await boot();
+    rightClick(head());
+    menuRow('Collapse sidebar').click();
+    expect(sidebar.isSidebarCollapsed()).toBe(true);
+
+    rightClick(head());
+    expect(menuLabels()).toEqual(['Expand sidebar']);
+    menuRow('Expand sidebar').click();
+    expect(sidebar.isSidebarCollapsed()).toBe(false);
+  });
+
+  test('New group… adds a group at the end', async () => {
+    await boot();
+    const groups = await import(`${JS}/sidebar-groups.js`);
+    rightClick(head());
+    menuRow('New group…').click();
+    const model = groups.loadGroups().groups;
+    expect(model.at(-1)?.label).toBe(groups.NEW_GROUP_LABEL);
+  });
+
+  test('the brand link and a Shift+right-click keep the browser menu', async () => {
+    await boot();
+    expect(rightClick(qs(document, '.sidebar-brand-word')).defaultPrevented).toBe(false);
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 60_000);
+    const ev = rightClick(head(), { shiftKey: true, button: 2 });
+    now.mockRestore();
+    expect(ev.defaultPrevented).toBe(false);
+    expect(document.querySelector('.rail-context-menu')).toBeNull();
+  });
+
+  test('Shift+F10 on the focused labels toggle opens the menu', async () => {
+    await boot();
+    const ev = new KeyboardEvent('keydown', {
+      key: 'F10',
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    byId('sidebar-toggle').dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(menuLabels()).toEqual(['Collapse sidebar', 'New group…', 'Reset layout']);
   });
 });

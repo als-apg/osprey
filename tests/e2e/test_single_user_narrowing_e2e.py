@@ -140,7 +140,7 @@ WORKER_TIER = "readwrite"
 #: ``osprey init <repo>`` arguments this module's stack is built from.
 INIT_PRESET_ARGS = [
     "--preset",
-    "control-assistant",
+    "demo",
     "--no-git",
     *e2e_scenario_pin(),
     *set_pairs(
@@ -354,7 +354,7 @@ def _narrow_the_build_account(repo: Path) -> Path:
 
 @pytest.fixture(scope="module")
 def single_user_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """Init + build + ``osprey up`` a SINGLE-USER control-assistant stack."""
+    """Init + build + ``osprey up`` a SINGLE-USER demo stack."""
     if not os.environ.get("ALS_APG_API_KEY"):
         pytest.skip("ALS_APG_API_KEY not set")
 

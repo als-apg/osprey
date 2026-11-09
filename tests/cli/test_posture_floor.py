@@ -59,7 +59,7 @@ from tests.cli._lifecycle_build import rendered_config
 #: The presets the feature converts, and the ones the floor has to leave alone.
 PRESETS: tuple[str, ...] = (
     "hello-world",
-    "control-assistant",
+    "demo",
 )
 
 #: Deployment directory name for every built cell. Becomes ``project_name``.

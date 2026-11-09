@@ -1,6 +1,6 @@
 """The built search index carries the graph view's places and positions.
 
-A control-assistant render seeds its store from the graph view the build
+A demo render seeds its store from the graph view the build
 writes, and its search index is derived from that same file: the index's
 ``corpus_sha256`` is the view's digest, and the beam position monitors under
 ``SR/`` in section ``SECT1``, ordered by ``s_position_m``, are BPM01 to BPM06
@@ -56,30 +56,30 @@ def _read(built: BuiltProject, sql: str, params: list[object] | None = None) -> 
 
 
 def test_the_render_seeds_its_store_from_the_graph_view(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     import yaml
 
-    config = yaml.safe_load((built_control_assistant.build_dir / "config.yml").read_text())
+    config = yaml.safe_load((built_demo.build_dir / "config.yml").read_text())
 
     assert config["services"]["graphdb"]["ttl_path"] == CORPUS
 
 
-def test_the_index_digest_is_the_graph_views(built_control_assistant: BuiltProject) -> None:
+def test_the_index_digest_is_the_graph_views(built_demo: BuiltProject) -> None:
     from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
 
-    corpus = built_control_assistant.build_dir / CORPUS
+    corpus = built_demo.build_dir / CORPUS
     expected = ttl_sha256(corpus.read_text(encoding="utf-8"))
 
-    assert _read(built_control_assistant, "SELECT corpus_sha256 FROM meta") == [(expected,)]
+    assert _read(built_demo, "SELECT corpus_sha256 FROM meta") == [(expected,)]
 
 
-def test_the_first_sector_bpms_by_position(built_control_assistant: BuiltProject) -> None:
+def test_the_first_sector_bpms_by_position(built_demo: BuiltProject) -> None:
     from osprey.facility.views.graph_iri import decode
 
-    code = str(built_control_assistant.facility["identity"]["code"])
+    code = str(built_demo.facility["identity"]["code"])
 
-    rows = _read(built_control_assistant, SECTOR_QUERY, [BPM_CLASS])
+    rows = _read(built_demo, SECTOR_QUERY, [BPM_CLASS])
 
     assert [decode(uri, code) for uri, _ in rows] == [bpm for bpm, _ in SECTOR_BPMS]
     assert [s for _, s in rows] == pytest.approx([s for _, s in SECTOR_BPMS], abs=1e-3)

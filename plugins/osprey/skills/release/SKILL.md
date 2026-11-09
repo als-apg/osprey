@@ -333,7 +333,7 @@ whether or not the UI looks changed, and watches every take. It is never a CI
 job and never skipped: a release whose videos were not watched does not get
 tagged. A beta is a release here too.
 
-Each take builds a fresh control-assistant stack and runs a live agent, so it
+Each take builds a fresh demo stack and runs a live agent, so it
 needs a container runtime, the provider keys the run uses (the
 `OSPREY_DOCSHOTS_PROVIDER` override when the default provider's key is over
 budget), any key a video names in `needs_env`,

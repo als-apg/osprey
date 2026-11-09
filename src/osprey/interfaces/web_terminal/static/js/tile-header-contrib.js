@@ -25,13 +25,25 @@
  * claimed in the payload, so one panel cannot inject controls into another
  * tile's bar. All rendering uses textContent (no innerHTML).
  *
- * Narrow tiles run an overflow LADDER (re-measured on every render and host
- * resize) in which nothing silently vanishes: text ellipsizes via CSS, then
- * a search field collapses to its magnifier (click/Enter re-expands it while
- * focused), then remaining controls fold lowest-priority-first into a
- * bar-owned ⋯ menu that keeps every folded control reachable. Text
- * (subtitle), the breadcrumb and separators never fold — text truncates —
- * and search never folds either: it collapses.
+ * THE TILE ⋯ IS THE FOLD TARGET. A tile has exactly one ⋯ menu (dock-tab.js
+ * builds the button; panel-menu-policy.js composes the menu), and its "This
+ * panel" section is fed from here by {@link panelMenuRows}: every `menu`
+ * item's entries, always, plus whatever the fold ladder took out of the bar.
+ * The bar renders no ⋯ of its own, for a contributed menu or for overflow.
+ *
+ * Narrow tiles run a fold LADDER (re-measured on every render and host
+ * resize) in which nothing silently vanishes:
+ *
+ *   1. panel icons (`icon`) beyond the three the slot holds fold, and when
+ *      the tile is crowded the rest follow, lowest priority first;
+ *   2. the legacy ladder: a search field collapses to its magnifier
+ *      (click/Enter re-expands it while focused), then the remaining legacy
+ *      controls fold lowest-priority-first.
+ *
+ * The breadcrumb and separators never fold, and search never folds either:
+ * it collapses. A folded control
+ * keeps its element (`.contrib-hidden`), so a widened tile gets it back
+ * without a rebuild and the ⋯ rows derive from the live contribution.
  *
  * Rendering is a keyed reconcile, not a rebuild. Items are matched on
  * `kind:id`; a survivor is patched in place and never detached, because a
@@ -40,8 +52,7 @@
  */
 
 import { sendHeaderActionToIframe } from './panel-iframe-sync.js';
-import { createItem, disposeItem, patchItem, toggleOverflowMenu } from './tile-header-items.js';
-import { svgIcon } from './svg-icons.js';
+import { createItem, patchItem } from './tile-header-items.js';
 import { ICON_NAMES } from '/design-system/js/icons.js';
 import { queryAllDocuments } from './attached-window.js';
 
@@ -49,9 +60,14 @@ import { queryAllDocuments } from './attached-window.js';
 const MAX_ITEMS = 12;
 const MAX_TEXT = 120;
 
+/** How many panel icons the bar's slot holds; the rest fold into ⋯. */
+export const MAX_PANEL_ICONS = 3;
+
 /**
  * @typedef {import('./tile-header-items.js').HeaderItem} HeaderItem
+ * @typedef {import('/design-system/js/header-contrib.js').HeaderMenuEntry} HeaderMenuEntry
  * @typedef {import('./tile-header-items.js').Dispatch} Dispatch
+ * @typedef {import('./tile-menu.js').PanelRow} PanelRow
  */
 
 /** @type {Map<string, HeaderItem[]>} last valid contribution per panel id */
@@ -60,8 +76,12 @@ const contributions = new Map();
 const localDispatch = new Map();
 /** @type {Map<string, HTMLElement>} live contribution region per panel id */
 const hosts = new Map();
+/** @type {Map<string, AbortController>} what stops a host's own listeners */
+const hostListeners = new Map();
 /** @type {Map<string, ResizeObserver>} per-host overflow re-measurers */
 const observers = new Map();
+/** @type {Map<string, Set<string>>} contribKeys the ladder folded, per panel id */
+const foldedKeys = new Map();
 
 let wired = false;
 
@@ -107,7 +127,11 @@ function panelIdForSource(source) {
   return null;
 }
 
-/** @param {string} panelId @returns {HTMLIFrameElement | null} */
+/**
+ * The live iframe of a panel, or null while it has none, in this document or
+ * an attached window.
+ * @param {string} panelId @returns {HTMLIFrameElement | null}
+ */
 function iframeForPanel(panelId) {
   for (const el of queryAllDocuments('iframe.panel-iframe')) {
     const iframe = /** @type {HTMLIFrameElement} */ (el);
@@ -138,8 +162,21 @@ function sanitizeItems(raw) {
     if (seen.has(key)) continue;
     seen.add(key);
     const base = { id: it.id, priority: typeof it.priority === 'number' ? it.priority : 0 };
-    if (it.kind === 'text' && typeof it.text === 'string') {
-      out.push({ ...base, kind: 'text', text: clip(it.text) });
+    // No `text`: the bar shows no subtitle, so a retired text item drops
+    // like any unknown kind.
+    if (it.kind === 'icon') {
+      // An icon button is named by its title alone, so one without a title
+      // would be nameless; an unknown icon name is dropped because icon()
+      // throws on one.
+      if (!knownIcon(it.icon) || typeof it.title !== 'string' || it.title === '') continue;
+      out.push({
+        ...base,
+        kind: 'icon',
+        icon: it.icon,
+        title: clip(it.title),
+        disabled: it.disabled === true,
+        ...(typeof it.pressed === 'boolean' ? { pressed: it.pressed } : {}),
+      });
     } else if (it.kind === 'search') {
       out.push({
         ...base,
@@ -160,6 +197,8 @@ function sanitizeItems(raw) {
           // action and must not render as an unticked checkbox.
           ...(typeof n.checked === 'boolean' ? { checked: n.checked } : {}),
           disabled: n.disabled === true,
+          danger: n.danger === true,
+          separator: n.separator === true,
         }));
       if (entries.length) {
         out.push({
@@ -170,9 +209,7 @@ function sanitizeItems(raw) {
         });
       }
     } else if (it.kind === 'button') {
-      // An unknown icon name is dropped from the item: icon() throws on one.
-      const icon =
-        typeof it.icon === 'string' && ICON_NAMES.includes(it.icon) ? it.icon : undefined;
+      const icon = knownIcon(it.icon) ? it.icon : undefined;
       const label = typeof it.label === 'string' ? clip(it.label) : undefined;
       const title = typeof it.title === 'string' ? clip(it.title) : undefined;
       // Every button needs an accessible name: its label, or for an icon
@@ -214,6 +251,11 @@ function sanitizeItems(raw) {
   return out;
 }
 
+/** @param {unknown} name @returns {name is string} */
+function knownIcon(name) {
+  return typeof name === 'string' && ICON_NAMES.includes(name);
+}
+
 /** @param {string} s @returns {string} */
 function clip(s) {
   return String(s).slice(0, MAX_TEXT);
@@ -244,31 +286,54 @@ export function contributeLocal(panelId, items, dispatch) {
  * @param {HTMLElement} host
  */
 export function registerContribHost(panelId, host) {
+  // The host this one replaces (a rebuilt tile, or a move into the pane's window)
+  // stops being watched; its tab may not be disposed until later, or at all.
+  releaseHost(panelId);
   hosts.set(panelId, host);
+  const listening = new AbortController();
+  hostListeners.set(panelId, listening);
+  const { signal } = listening;
   // A collapsed search expands (and re-collapses on blur) via delegation on
   // the host: the wrap elements come and go with every reconcile, while the
   // host lives as long as its TileTab — one listener each, never stacked.
-  host.addEventListener('click', (e) => {
-    const wrap = e.target instanceof Element ? e.target.closest('.contrib-search-collapsed') : null;
-    if (wrap instanceof HTMLElement) expandSearch(wrap);
-  });
-  host.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    const wrap = e.target instanceof Element ? e.target.closest('.contrib-search-collapsed') : null;
-    if (wrap instanceof HTMLElement) {
-      e.preventDefault();
-      expandSearch(wrap);
-    }
-  });
-  host.addEventListener('focusout', (e) => {
-    const wrap = e.target instanceof Element ? e.target.closest('.contrib-search') : null;
-    if (wrap instanceof HTMLElement && wrap.dataset.searchPinned) {
-      delete wrap.dataset.searchPinned;
-      applyOverflowLadder(panelId, host);
-    }
-  });
+  host.addEventListener(
+    'click',
+    (e) => {
+      const wrap =
+        e.target instanceof Element ? e.target.closest('.contrib-search-collapsed') : null;
+      if (wrap instanceof HTMLElement) expandSearch(wrap);
+    },
+    { signal }
+  );
+  host.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const wrap =
+        e.target instanceof Element ? e.target.closest('.contrib-search-collapsed') : null;
+      if (wrap instanceof HTMLElement) {
+        e.preventDefault();
+        expandSearch(wrap);
+      }
+    },
+    { signal }
+  );
+  host.addEventListener(
+    'focusout',
+    (e) => {
+      const wrap = e.target instanceof Element ? e.target.closest('.contrib-search') : null;
+      if (wrap instanceof HTMLElement && wrap.dataset.searchPinned) {
+        delete wrap.dataset.searchPinned;
+        applyOverflowLadder(panelId, host);
+      }
+    },
+    { signal }
+  );
   render(panelId, host);
-  const ro = new ResizeObserver(() => applyOverflowLadder(panelId, host));
+  // From the host's realm: an observer only hears the rendering of its own
+  // window, and a pane's window is not the hub's.
+  const Observer = host.ownerDocument.defaultView?.ResizeObserver ?? ResizeObserver;
+  const ro = new Observer(() => applyOverflowLadder(panelId, host));
   ro.observe(host);
   observers.set(panelId, ro);
 }
@@ -297,10 +362,19 @@ function expandSearch(wrap) {
 export function unregisterContribHost(panelId, host) {
   if (hosts.get(panelId) !== host) return;
   hosts.delete(panelId);
+  foldedKeys.delete(panelId);
+  releaseHost(panelId);
+}
+
+/**
+ * Stop watching the panel's registered host: its observer and its listeners.
+ * @param {string} panelId
+ */
+function releaseHost(panelId) {
   observers.get(panelId)?.disconnect();
   observers.delete(panelId);
-  // A menu popover lives on document.body, so it would outlive its button.
-  for (const node of host.children) disposeItem(/** @type {HTMLElement} */ (node));
+  hostListeners.get(panelId)?.abort();
+  hostListeners.delete(panelId);
 }
 
 /**
@@ -345,10 +419,7 @@ function render(panelId, host) {
     ordered.push(el);
   }
 
-  for (const stale of live.values()) {
-    disposeItem(stale);
-    stale.remove();
-  }
+  for (const stale of live.values()) stale.remove();
 
   // Place in contribution order WITHOUT touching elements already in the
   // right slot: re-inserting a node detaches it first, which would blur a
@@ -377,28 +448,34 @@ function dispatchAction(panelId, id, value) {
   else local(id, value);
 }
 
+/** Interactive items that a fold can take out of the bar (the kinds of elements, by class). */
+const NEVER_FOLDS = ['contrib-search', 'osprey-crumb', 'osprey-head-sep'];
+
+/** @param {HTMLElement} el @returns {boolean} a contributed control that can fold */
+function isFoldable(el) {
+  return (
+    Boolean(el.dataset.contribKey) &&
+    !el.hidden &&
+    !NEVER_FOLDS.some((c) => el.classList.contains(c))
+  );
+}
+
+/** Ascending priority, ties in DOM order (stable sort), so the leftmost folds first. */
+/** @param {HTMLElement[]} els @returns {HTMLElement[]} */
+function byPriority(els) {
+  return [...els].sort((a, b) => Number(a.dataset.priority) - Number(b.dataset.priority));
+}
+
 /**
- * The overflow ladder: reset to the full arrangement (so a widened tile gets
- * everything back), then give way in identity-preserving order —
- *
- *   1. the search field collapses to its magnifier (still clickable; the
- *      pin set by expandSearch exempts one being typed in), then
- *   2. remaining CONTROLS fold lowest-priority-first into a bar-owned
- *      ⋯ menu, so nothing becomes unreachable on a narrow tile.
- *
- * Text (subtitle), the breadcrumb and separators never fold — text
- * truncates via CSS — and search never folds past its magnifier. The ⋯
- * button is appended before the fold loop measures, so the space it
- * consumes is part of what the loop solves for.
+ * The fold ladder (module doc): reset to the full arrangement, so a widened
+ * tile gets everything back, then give way in identity-preserving order —
+ * panel icons, then the legacy ladder — until the region fits.
+ * Every fold is `.contrib-hidden` on the element; the keys of the folded
+ * contributions are recorded for {@link panelMenuRows}.
  * @param {string} panelId
  * @param {HTMLElement} host
  */
 function applyOverflowLadder(panelId, host) {
-  const prev = host.querySelector('.contrib-overflow-btn');
-  if (prev instanceof HTMLElement) {
-    disposeItem(prev); // closes the popover if it is the open one
-    prev.remove();
-  }
   const children = /** @type {HTMLElement[]} */ ([...host.children]);
   for (const c of children) {
     c.classList.remove('contrib-hidden');
@@ -410,107 +487,100 @@ function applyOverflowLadder(panelId, host) {
     }
   }
 
+  /** @type {Set<string>} */
+  const folded = new Set();
+  /** @param {HTMLElement} victim */
+  const fold = (victim) => {
+    victim.classList.add('contrib-hidden');
+    if (victim.dataset.contribKey) folded.add(victim.dataset.contribKey);
+  };
   const crowded = () => host.scrollWidth > host.clientWidth + 1;
-  if (!crowded()) return;
 
+  // 1. Panel icons: the slot holds three; the rest fold whatever the width.
+  const icons = byPriority(children.filter((c) => c.classList.contains('contrib-icon')));
+  let visibleIcons = icons.length;
+  for (const victim of icons) {
+    if (visibleIcons <= MAX_PANEL_ICONS && !crowded()) break;
+    fold(victim);
+    visibleIcons -= 1;
+  }
+
+  // 2. The legacy ladder: search collapses, then controls fold.
   const search = children.find(
     (c) => c.classList.contains('contrib-search') && !c.dataset.searchPinned
   );
-  if (search) {
+  if (search && crowded()) {
     search.classList.add('contrib-search-collapsed');
     // Collapsed, the wrap is itself the "open search" control.
     search.setAttribute('role', 'button');
     search.setAttribute('tabindex', '0');
     search.setAttribute('aria-label', search.querySelector('input')?.placeholder || 'Search');
-    if (!crowded()) return;
   }
-
-  const foldable = children.filter(
-    (c) =>
-      c.dataset.contribKey &&
-      !c.classList.contains('contrib-search') &&
-      !c.classList.contains('contrib-text') &&
-      !c.classList.contains('osprey-crumb') &&
-      !c.classList.contains('osprey-head-sep')
+  const legacy = byPriority(
+    children.filter((c) => isFoldable(c) && !c.classList.contains('contrib-icon'))
   );
-  if (!foldable.length) return;
-
-  const btn = buildOverflowButton(panelId);
-  host.appendChild(btn);
-  const byPriority = [...foldable].sort(
-    (a, b) => Number(a.dataset.priority) - Number(b.dataset.priority)
-  );
-  /** @type {string[]} */
-  const foldedKeys = [];
-  for (const victim of byPriority) {
+  for (const victim of legacy) {
     if (!crowded()) break;
-    victim.classList.add('contrib-hidden');
-    if (victim.dataset.contribKey) foldedKeys.push(victim.dataset.contribKey);
+    fold(victim);
   }
-  if (!foldedKeys.length) {
-    btn.remove();
-    return;
-  }
-  btn.dataset.foldedKeys = foldedKeys.join('\n');
+
+  foldedKeys.set(panelId, folded);
 }
 
 /**
- * The bar-owned ⋯ button holding whatever the fold loop took. Rows are
- * derived at CLICK time from the panel's current contribution, so a
- * re-contribution between fold and click can never show stale entries.
+ * The "This panel" rows of a tile's ⋯ menu that come from the panel's
+ * contribution: every `menu` item's entries (the hub renders no button for a
+ * contributed menu), then the controls the fold ladder took out of the bar
+ * — a folded icon or button is one row, a folded nav one row per view with
+ * the active one checked — in contribution order, so the list does not
+ * reshuffle as the tile narrows. Derived at CALL time from the current
+ * contribution, so a re-contribution between fold and click can never show
+ * stale entries. Each row dispatches exactly what the control would have.
  * @param {string} panelId
- * @returns {HTMLButtonElement}
+ * @returns {PanelRow[]}
  */
-function buildOverflowButton(panelId) {
-  const btn = document.createElement('button');
-  btn.type = 'button';
-  btn.className = 'contrib-menu-btn contrib-overflow-btn';
-  btn.appendChild(svgIcon('ellipsis'));
-  btn.title = 'More controls';
-  btn.setAttribute('aria-label', 'More controls');
-  btn.setAttribute('aria-haspopup', 'menu');
-  btn.setAttribute('aria-expanded', 'false');
-  btn.addEventListener('click', () => {
-    const keys = btn.dataset.foldedKeys ? btn.dataset.foldedKeys.split('\n') : [];
-    toggleOverflowMenu(btn, overflowRows(panelId, keys));
-  });
-  return btn;
-}
-
-/**
- * Flatten the folded controls into menu rows. A folded button is one row; a
- * folded nav contributes a row per view (active = checked); a folded menu's
- * entries are inlined. Each row dispatches exactly what the unfolded control
- * would have.
- * @param {string} panelId
- * @param {string[]} keys  contribKeys (`kind:id`) in folded order
- * @returns {import('./tile-header-items.js').OverflowRow[]}
- */
-function overflowRows(panelId, keys) {
+export function panelMenuRows(panelId) {
   const items = contributions.get(panelId) ?? [];
-  /** @type {import('./tile-header-items.js').OverflowRow[]} */
+  const folded = foldedKeys.get(panelId) ?? new Set();
+  /** @type {PanelRow[]} */
   const rows = [];
-  for (const key of keys) {
-    const item = /** @type {any} */ (items.find((it) => `${it.kind}:${it.id}` === key));
-    if (!item) continue;
-    if (item.kind === 'button') {
+  for (const item of items) {
+    if (item.kind !== 'menu') continue;
+    for (const entry of /** @type {HeaderMenuEntry[]} */ (item.items ?? [])) {
+      rows.push({
+        label: entry.label,
+        ...(typeof entry.checked === 'boolean' ? { checked: entry.checked } : {}),
+        disabled: entry.disabled === true,
+        danger: entry.danger === true,
+        separator: entry.separator === true,
+        run: () => dispatchAction(panelId, item.id, entry.id),
+      });
+    }
+  }
+  for (const item of items) {
+    if (!folded.has(`${item.kind}:${item.id}`)) continue;
+    if (item.kind === 'icon') {
+      rows.push({
+        label: item.title ?? item.id,
+        ...(typeof item.pressed === 'boolean' ? { checked: item.pressed } : {}),
+        disabled: item.disabled === true,
+        run: () => dispatchAction(panelId, item.id),
+      });
+    } else if (item.kind === 'button') {
       rows.push({
         // An icon-only button has no label; its title is its name.
         label: item.label || item.title || item.id,
         disabled: item.disabled === true,
-        pick: () => dispatchAction(panelId, item.id),
+        run: () => dispatchAction(panelId, item.id),
       });
-    } else if (item.kind === 'nav' || item.kind === 'menu') {
-      for (const entry of item.items ?? []) {
+    } else if (item.kind === 'nav') {
+      for (const entry of /** @type {{id: string, label: string, active?: boolean}[]} */ (
+        item.items ?? []
+      )) {
         rows.push({
           label: entry.label,
-          ...(item.kind === 'nav'
-            ? { checked: entry.active === true }
-            : typeof entry.checked === 'boolean'
-              ? { checked: entry.checked }
-              : {}),
-          disabled: entry.disabled === true,
-          pick: () => dispatchAction(panelId, item.id, entry.id),
+          checked: entry.active === true,
+          run: () => dispatchAction(panelId, item.id, entry.id),
         });
       }
     }

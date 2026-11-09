@@ -3,7 +3,7 @@
 A case (:class:`PictureCase`) names the plot, the target entry's text, the
 text-only entries seeded beside it, the operator's question, and the answer
 only the plot carries. :func:`run_picture_case` runs it as one agent session
-against a deployment built from the control-assistant preset unchanged, and
+against a deployment built from the demo preset unchanged, and
 asserts the same chain for every case: the agent delegates to the
 ``logbook-search`` subagent, that subagent views the plot with
 ``attachment_view``, the answer names what only the plot shows, and a follow-up
@@ -382,7 +382,7 @@ async def run_picture_case(
     db_uri = _start_logbook_db(request)
     # init_project pins ariel.database.uri to this and checks the render names it.
     monkeypatch.setenv("OSPREY_ARIEL_DB_URI", db_uri)
-    repo = init_project(tmp_path, "picture_demo", template="control_assistant", provider=provider)
+    repo = init_project(tmp_path, "picture_demo", template="demo", provider=provider)
 
     ariel = _rendered_ariel(repo)
     modules = ariel.get("enhancement_modules") or {}

@@ -53,8 +53,8 @@ const { stream, calls, spies, dock } = vi.hoisted(() => {
       postPanelOpResult: vi.fn(),
       reportLayoutNow: vi.fn(),
       noteReported: vi.fn(),
-      focusPopout: vi.fn(),
-      popoutWindow: vi.fn(),
+      focusWindow: vi.fn(),
+      closeDetached: vi.fn(),
       badgePanelActivity: vi.fn(),
       record,
     },
@@ -104,9 +104,9 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-placement.j
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/panel-commands.js', () => ({
   postPanelOpResult: spies.postPanelOpResult,
 }));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
-  focusPopout: spies.focusPopout,
-  popoutWindow: spies.popoutWindow,
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/pane-window.js', () => ({
+  focusWindow: spies.focusWindow,
+  closeDetached: spies.closeDetached,
 }));
 
 /** @param {string} id @param {string[]} tabs @param {string} [showing] */
@@ -183,13 +183,11 @@ beforeEach(async () => {
     spies.postPanelOpResult,
     spies.reportLayoutNow,
     spies.noteReported,
-    spies.focusPopout,
-    spies.popoutWindow,
+    spies.focusWindow,
     spies.badgePanelActivity,
   ]) {
     spy.mockReset();
   }
-  spies.popoutWindow.mockReturnValue(null);
   spies.badgePanelActivity.mockReturnValue(true);
   document.body.replaceChildren();
   spies.ensureRailMembership.mockImplementation(spies.record('member'));
@@ -481,7 +479,7 @@ describe('an op the holder took is answered with its layout, whatever fails afte
       result: { layout: BEFORE, changed: false },
       popout: 'b',
     }));
-    spies.focusPopout.mockImplementation(() => {
+    spies.focusWindow.mockImplementation(() => {
       throw new Error('window gone');
     });
     deliver(opFrame());
@@ -593,6 +591,12 @@ describe('panel_visibility hide — the view falls back, and no other tile chang
   /** @param {string} panel */
   const hide = (panel) => deliver({ type: 'panel_visibility', panel, visible: false });
 
+  test('a hide of a panel in its window closes the window', () => {
+    seedView({ s1: 'lattice' }, ['ariel', 'lattice']);
+    hide('ariel');
+    expect(spies.closeDetached).toHaveBeenCalledExactlyOnceWith('ariel');
+  });
+
   test('a hide of the panel on view hands the view to the panel still on screen: nothing opens, nothing is replaced', () => {
     // artifacts, first in the catalog, is a healthy member with no tile:
     // activating it would replace lattice.
@@ -673,7 +677,7 @@ describe('a panel in its own window', () => {
     }));
     deliver(opFrame({ args: { member: 'b', url: '/x' } }));
     await settle();
-    expect(spies.focusPopout).toHaveBeenCalledExactlyOnceWith('b');
+    expect(spies.focusWindow).toHaveBeenCalledExactlyOnceWith('b');
     expect(calls).toContain('navigate:b,/x');
     expect(calls).toContain('glow:b');
     expect(deps.activate).not.toHaveBeenCalled();
@@ -736,12 +740,6 @@ describe('agent activity reaches the panel it names', () => {
     return vi.spyOn(win, 'postMessage').mockImplementation(() => {});
   }
 
-  /** A stand-in pop-out window. */
-  function popout() {
-    const postMessage = vi.fn();
-    return { win: /** @type {Window} */ (/** @type {unknown} */ ({ postMessage })), postMessage };
-  }
-
   test("a panel-targeted frame reaches that panel's iframe only, and the badge is still applied", () => {
     const ariel = mount('ariel');
     const other = mount('artifacts');
@@ -750,28 +748,6 @@ describe('agent activity reaches the panel it names', () => {
     expect(ariel).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
     expect(other).not.toHaveBeenCalled();
     expect(deps.reportActivity).not.toHaveBeenCalled();
-  });
-
-  test("a popped-out panel's frame reaches its window", () => {
-    const { win, postMessage } = popout();
-    spies.popoutWindow.mockImplementation((/** @type {string} */ id) =>
-      id === 'ariel' ? win : null
-    );
-    const other = mount('artifacts');
-    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
-    expect(spies.popoutWindow).toHaveBeenCalledWith('ariel');
-    expect(postMessage).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
-    expect(other).not.toHaveBeenCalled();
-    expect(spies.badgePanelActivity).toHaveBeenCalledExactlyOnceWith('ariel', 1730668800.25);
-  });
-
-  test('a panel with both a tile iframe and a pop-out gets the notice in each', () => {
-    const tileFrame = mount('ariel');
-    const { win, postMessage } = popout();
-    spies.popoutWindow.mockReturnValue(win);
-    deliver(activityFrame({ kind: 'panel', panel: 'ariel', detail: 'e-42' }));
-    expect(tileFrame).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
-    expect(postMessage).toHaveBeenCalledExactlyOnceWith(RELAYED, window.location.origin);
   });
 
   test('a frame without a detail relays none', () => {
@@ -803,12 +779,9 @@ describe('agent activity reaches the panel it names', () => {
 
   test('a non-panel target posts nothing', () => {
     const ariel = mount('ariel');
-    const { win, postMessage } = popout();
-    spies.popoutWindow.mockReturnValue(win);
     const frame = activityFrame({ kind: 'channel', detail: 'SR:BPM:1' });
     deliver(frame);
     expect(ariel).not.toHaveBeenCalled();
-    expect(postMessage).not.toHaveBeenCalled();
     expect(spies.badgePanelActivity).not.toHaveBeenCalled();
     expect(deps.reportActivity).toHaveBeenCalledExactlyOnceWith(frame);
   });

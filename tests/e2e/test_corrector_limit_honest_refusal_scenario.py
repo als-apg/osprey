@@ -157,7 +157,7 @@ async def test_corrector_limit_honest_refusal(tmp_path: Path) -> None:
     repo = init_project(
         tmp_path,
         "honest_refusal_demo",
-        template="control_assistant",
+        template="demo",
         provider="als-apg",
         model="claude-haiku-5-5",
     )

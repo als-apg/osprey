@@ -2,12 +2,12 @@
 /* OSPREY Web Terminal — the sidebar's panel rows (DOM renderer)
  *
  * The labelled sidebar lists the panels inside `#panel-rail`, sorted into the
- * operator's groups (sidebar-groups.js): the headless `Sessions` and `Tools` to begin
+ * operator's groups (sidebar-groups.js): the headless `Sessions` and `Apps` to begin
  * with, then renamed, reordered or joined by groups of the operator's own.
  * The Agent row is always the first row of the first group. Every other row
  * sits in the group the model places it in, and within a group the rows keep
  * the server's rail order, so a group filters the rail and never reorders
- * it. `+ Add panel` is always the last row of Tools (the last group when Tools is
+ * it. `+ Add panel` is always the last row of Apps (the last group when Apps is
  * not shown). This module
  * builds and places those rows and exposes small imperative mutators — set
  * active, enable, attention, append, remove — so `panel-manager.js`'s state
@@ -21,7 +21,8 @@
  * that answered before but has stopped is `.unreachable` (dimmed, still
  * clickable, its tooltip saying since when). The one status a row names is a
  * sidecar that failed to start: its row is `.failed` and carries the server's
- * sentence as its tooltip, because a click on it is the retry.
+ * sentence as its tooltip, because a click on it is the retry (its menu offers
+ * Retry start and Remove from rail).
  *
  * The rows are a curated MEMBERSHIP list: a panel has a row iff it is a rail
  * member. Which member holds the workspace tile is per-client layout state,
@@ -81,10 +82,12 @@
  * A row's tooltip detail (`data-tip-detail`) is the panel's sentence from
  * panel-catalog.js; a panel without one has none.
  *
- * Beyond activation, a row's verbs (open in a new tile, pop out, move to another
- * group, remove) live in the caller's right-click context menu — the rail
- * only forwards the contextmenu event through `onContextMenu` and suppresses
- * the browser menu when the caller reports it handled. A caller-supplied
+ * Beyond activation, a row's verbs (the panel's own rows, focus or open its
+ * tile, open in a new window, move to another group, remove) live in the
+ * caller's right-click context menu — the rail only forwards the contextmenu
+ * event through `onContextMenu` and suppresses the browser menu when the
+ * caller reports it handled. A Shift+right-click is never forwarded: it is the
+ * way to the browser's own menu. A caller-supplied
  * `panel.hint` is appended to the tooltip so the menu is advertised.
  *
  * That menu is reachable from the keyboard, and explicitly so: a focused row
@@ -99,13 +102,14 @@
  * to put it directly above the row it was dropped on (`onReorder`); dropped
  * into another group, it moves to that group first (sidebar-groups.js
  * moveToGroup) and then takes the same position there. The Agent row never
- * moves.
+ * moves. A group's heading drags the whole group among the others
+ * (sidebar-group-drag.js, wired with the rail).
  *
  * State classes on a row: `.active` (surfaced panel), `.disabled` (backend
  * never answered), `.unreachable` (backend stopped answering), `.failed` (a
  * sidecar that failed to start; dimmed but clickable), `.agent-attention`
  * (the agent touched the panel and the operator has not looked yet; drawn as
- * an `.osprey-nav-badge` dot inside the row), `.popped-out` (the panel runs
+ * an `.osprey-nav-badge` dot inside the row), `.detached` (the panel runs
  * in its own window; drawn as a trailing `maximize` glyph). While a badge
  * time, an unreachable notice or a status message owns the tooltip, the row
  * carries a transient `data-title-base` holding the tooltip it borrowed;
@@ -113,6 +117,7 @@
  */
 
 import { icon } from '/design-system/js/icons.js';
+import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import { TERMINAL_RAIL_ID, describePanel } from './panel-catalog.js';
 import { BUTTON_SELECTOR, getEntry, parked, rowOf, writeRowTips } from './rail-row-state.js';
 import {
@@ -123,6 +128,7 @@ import {
   onGroupsChange,
   paintGroupHeading,
 } from './sidebar-groups.js';
+import { wireGroupDrag } from './sidebar-group-drag.js';
 
 // ---- Types ----
 
@@ -178,9 +184,11 @@ export {
   setActive,
   setEntryAttention,
   setEntryEnabled,
-  setEntryPoppedOut,
+  setEntryDetached,
   setEntryReachable,
   setEntryStatus,
+  DETACHED_DETAIL,
+  DETACHED_TRAIL_ATTR,
 } from './rail-row-state.js';
 
 /** The event dispatched on `document` after a render. */
@@ -197,7 +205,7 @@ const PAGE_ROWS = /** @type {Readonly<Record<string, string>>} */ ({
 /** The panel that never gets a rail entry (its artifacts are in the session tree). */
 export const OFF_RAIL_IDS = Object.freeze(['artifacts']);
 
-/** The `+ Add panel` row: page-owned, the last row of the Tools group, or of the last group when Tools is not shown. */
+/** The `+ Add panel` row: page-owned, the last row of the Apps group, or of the last group when Apps is not shown. */
 const ADD_BUTTON_ID = 'panel-add-btn';
 
 /** Marks a group's empty line. */
@@ -358,8 +366,8 @@ function reconcile(parent, kids) {
 /**
  * Put every group and row where the model and the rail order say. Each group
  * holds its heading and its empty line, then its rows in rail order: the
- * Agent row first in the first group. `+ Add panel` closes Tools (the last
- * group if Tools is not shown). Nodes are moved, never rebuilt, and only where they are out of
+ * Agent row first in the first group. `+ Add panel` closes Apps (the last
+ * group if Apps is not shown). Nodes are moved, never rebuilt, and only where they are out of
  * place, so every row keeps its live state and a node that stays put keeps
  * its focus.
  * @param {HTMLElement} railEl
@@ -414,7 +422,7 @@ function announceRender() {
 /**
  * Give a row its identity: label, accessible name, tooltips. The tooltip's
  * explanatory line is the panel's sentence (panel-catalog.js), written so a
- * popped-out mark or a borrowed title keeps showing (rail-row-state.js).
+ * detached mark or a borrowed title keeps showing (rail-row-state.js).
  * @param {HTMLElement} btn
  * @param {RailPanel} panel
  */
@@ -474,8 +482,10 @@ function wireButton(railEl, btn, id, rowOptions) {
 
   // Right-click → the caller's context menu. The caller decides per-row
   // whether a menu exists (returns true); declining leaves the event alone so
-  // the browser menu shows.
+  // the browser menu shows. A Shift+right-click is the operator asking for
+  // the browser's own menu, so it never reaches the caller.
   btn.addEventListener('contextmenu', (e) => {
+    if (declinesToBrowser(e)) return;
     const onContextMenu = options().onContextMenu;
     if (onContextMenu?.(id, e)) e.preventDefault();
   });
@@ -697,6 +707,7 @@ const wiredRails = new WeakSet();
 function wireRail(railEl) {
   if (wiredRails.has(railEl)) return;
   wiredRails.add(railEl);
+  wireGroupDrag(railEl);
   const stop = onGroupsChange(() => {
     if (!railEl.isConnected) {
       stop();

@@ -339,24 +339,6 @@ class TestResolveServers:
         matchers = {rule["matcher"] for rule in workspace["hooks_pre"]}
         assert {f"mcp__osprey_workspace__{tool}" for tool in gated} <= matchers
 
-    def test_workspace_read_back_tools_are_auto_approved(self):
-        """The artifact read-backs resolve to silent-allow.
-
-        ``artifact_pin`` was unclassified — in neither list — so nothing pinned
-        which side of the split it lands on, and the disjointness assertion
-        above stays green either way. It reads back state the agent just
-        produced and reaches no hardware, so a prompt per call would buy
-        nothing.
-        """
-        ctx = _base_ctx()
-        servers = resolve_servers({}, ctx)
-        workspace = [s for s in servers if s["name"] == "osprey_workspace"][0]
-        allow = set(workspace["permissions_allow"])
-        ask = set(workspace["permissions_ask"])
-        read_back = {"artifact_pin"}
-        assert read_back <= allow
-        assert ask.isdisjoint(read_back)
-
     def test_health_server_entry(self):
         """The health server is an opt-in, read-only server.
 
@@ -382,7 +364,7 @@ class TestResolveServers:
         assert [r["matcher"] for r in health["hooks_post"]] == ["mcp__health__.*"]
 
     def test_health_server_enabled_via_config_override(self):
-        """control-assistant opts the health server in via the dotted override
+        """demo opts the health server in via the dotted override
         ``claude_code.servers.health.enabled: true`` (renders to this config).
 
         Mirrors the bluesky enablement pattern: the preset's ``claude_code``

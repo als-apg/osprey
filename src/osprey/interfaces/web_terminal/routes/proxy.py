@@ -1381,14 +1381,14 @@ async def proxy_panel_terminal_static(
 #:
 #: The notebook panel is a page an operator runs code from, so it is the one
 #: panel where "which machine does this land on, and may it write?" has to be
-#: answerable on the page itself once the page is on its own — popped out of
-#: the hub, or opened at its own address. Every other panel's HTML is relayed
-#: untouched.
+#: answerable on the page itself once the pane is out in a window of its own.
+#: Every other panel's HTML is relayed untouched.
 #:
-#: The tag goes in regardless of how the page is opened; the bar module mounts
-#: only when its document is a top-level window, so a Lab page framed inside
-#: the hub keeps the header chip as its one picker. That test is the page's to
-#: make: a request does not say whether it came from a frame.
+#: The tag goes in regardless of how the page is opened. The module sends a page
+#: opened at its own address to the hub, and mounts the bar only where the page
+#: has no other picker, so a Lab page framed inside the hub keeps the sidebar's
+#: chip as its one picker. That test is the page's to make: a request does not
+#: say whether it came from a frame.
 _LAB_BAR_PANEL_ID = "jupyter"
 
 #: The bar's entry module, relative to the terminal-static route's root.
@@ -1457,9 +1457,9 @@ def _control_target_bar_markup(
        of ``/panel/jupyter`` would aim every read at JupyterLab, which answers
        none of them.
     2. **A scoped import map**, for the root-absolute module specifiers in the
-       bar's import closure, both under ``/design-system/`` (``confirm-skip.js``
-       imports ``storage-scope.js``, ``lab-theme-follow.js`` imports
-       ``tokens.js``). The hub's own page retargets that prefix with a
+       bar's import closure, all under ``/design-system/`` (the bar imports
+       ``frame-params.js``, ``confirm-skip.js`` imports ``storage-scope.js``,
+       ``lab-theme-follow.js`` imports ``tokens.js``). The hub's own page retargets that prefix with a
        document-wide import map; here the mapping is confined to a
        ``scopes`` entry keyed on the bar's own directory, so nothing the panel
        itself imports can be redirected by it. With an empty prefix the mapping

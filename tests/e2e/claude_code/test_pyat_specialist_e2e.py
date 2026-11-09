@@ -129,7 +129,7 @@ async def test_pyat_specialist_delegation(tmp_path: Path) -> None:
       would mean the readonly pin was ignored and would risk a write-approval
       block in headless mode.
     """
-    repo = init_project(tmp_path, "pyat_del", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "pyat_del", template="demo", provider="als-apg")
     prompt = (
         "For the storage ring, compute the horizontal and vertical beta "
         "functions at every beam position monitor and report the fractional "
@@ -328,7 +328,7 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     wrong or missing number fails as readily as a missing provenance statement,
     which the judge model grades on its own.
     """
-    repo = init_project(tmp_path, "pyat_grd", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "pyat_grd", template="demo", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     prompt = (
         "For the storage ring, compute and report the fractional betatron "

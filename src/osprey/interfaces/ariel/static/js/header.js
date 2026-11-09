@@ -1,9 +1,7 @@
 // @ts-check
 /**
- * ARIEL embedded tile-bar header: when the panel runs inside the web-terminal
- * hub, its own `.header` is hidden and the panel contributes
- * `[search, compose button, ⋯ menu]` to the hub's tile bar instead
- * (header-contrib.js). A no-op standalone.
+ * ARIEL tile-bar header: the panel contributes `[search, compose button, ⋯ menu]`
+ * to the web-terminal hub's tile bar (header-contrib.js).
  *
  * Store keys:
  * - reads `query` and `rerank`: a `query` change carrying `rerank:'when-stable'`
@@ -31,7 +29,6 @@
  * (the list pane shows the config banner instead).
  */
 
-import { isEmbedded } from '/design-system/js/frame-params.js';
 import { contributeHeader, onHeaderAction } from '/design-system/js/header-contrib.js';
 import { getState, setState, subscribe } from './store.js';
 import { promptSaveSearch } from './rail.js';
@@ -176,7 +173,7 @@ export function handleHeaderAction(id, value) {
 }
 
 /**
- * Start contributing the tile-bar header. No-op standalone.
+ * Start contributing the tile-bar header.
  * @param {{capabilities?: {status?: string, filter_dimensions?: Array<{name: string}>|null}|null}} [options]
  * @returns {{destroy(): void}}
  */
@@ -186,7 +183,6 @@ export function initHeader({ capabilities = null } = {}) {
     clearSettle(mounted);
   }
   mounted = null;
-  if (!isEmbedded()) return { destroy() {} };
 
   /** @type {HeaderMount} */
   const mount = {

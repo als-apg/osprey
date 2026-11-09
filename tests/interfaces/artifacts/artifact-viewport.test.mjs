@@ -314,6 +314,27 @@ describe('mountArtifactViewport: post-mount renderers', () => {
 
     expect(() => mountArtifactViewport(container, artifact, {})).not.toThrow();
   });
+
+  test('a plot, a table and a note get the content strip; other types and a timeseries chart do not', () => {
+    for (const [type, label] of [
+      ['plot_html', 'Plot controls'],
+      ['table_html', 'Table controls'],
+      ['markdown', 'Note controls'],
+    ]) {
+      const container = mount(makeArtifact({ artifact_type: type, filename: 'x.html' }));
+      const strip = container.querySelector('.osprey-content-strip');
+      expect(strip?.getAttribute('aria-label')).toBe(label);
+    }
+
+    for (const artifact of [
+      makeArtifact(),
+      makeArtifact({ artifact_type: 'html' }),
+      makeArtifact({ artifact_type: 'json' }),
+      makeArtifact({ artifact_type: 'plot_html', tool_source: 'archiver_read', data_file: 'y.pq' }),
+    ]) {
+      expect(mount(artifact).querySelector('.osprey-content-strip')).toBeNull();
+    }
+  });
 });
 
 describe('mountArtifactViewport: container scoping', () => {

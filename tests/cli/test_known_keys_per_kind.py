@@ -39,6 +39,7 @@ _DEPLOYMENT_KEYS = frozenset(
     {
         "extends",
         "data",
+        "machine",
         "project_name",
         "deploy",
         "deploy_services",

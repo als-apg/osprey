@@ -257,6 +257,48 @@ class TestPlanJudgesBeforeAnythingIsWritten:
 
         assert calls == []
 
+    @pytest.fixture
+    def unreleased_wheel_install(self, monkeypatch) -> None:
+        """Run as a non-editable install of a development build, as from committed wheels."""
+
+        class _Dist:
+            def read_text(self, _name):
+                return None
+
+        monkeypatch.setattr(build_environment, "distribution", lambda _name: _Dist())
+        monkeypatch.setattr("osprey.version.is_release", lambda: False)
+        monkeypatch.setattr(
+            "osprey.version.unreleased_pin_reason",
+            lambda: "running 2026.5.0.post783+g83fda5e60 is not a released version.",
+        )
+
+    @pytest.mark.usefixtures("with_uv", "unreleased_wheel_install")
+    def test_a_plan_that_installs_nothing_never_pins_the_running_osprey(self, calls):
+        """A `--skip-deps` render installs no osprey, so an unreleased one is no refusal."""
+        plan = _plan_project_venv(
+            _profile(osprey_install="local", dependencies=["pandas"]), install=False
+        )
+
+        assert plan.osprey_spec is None
+        assert plan.lock_constraints is None
+        assert plan.extra_deps == ["pandas"]
+        assert calls == []
+
+    @pytest.mark.usefixtures("with_uv", "unreleased_wheel_install")
+    def test_an_installing_plan_refuses_to_pin_an_unreleased_osprey(self, calls):
+        with pytest.raises(BuildProfileError, match="not a released version"):
+            _plan_project_venv(_profile(osprey_install="local"), install=True)
+
+        assert calls == []
+
+    def test_a_venv_is_never_written_from_a_plan_that_installs_nothing(self, calls, tmp_path):
+        plan = _plan_project_venv(_profile(), install=False)
+
+        with pytest.raises(ValueError, match="install=True"):
+            _create_project_venv(tmp_path, plan)
+
+        assert calls == []
+
 
 class TestWorkspaceMembersFromSource:
     """A source-tree osprey spec carries its workspace members on the pip path.

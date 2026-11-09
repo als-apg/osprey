@@ -7,7 +7,6 @@
   "entry_id": "str",
   "focused": "bool",
   "gallery_url": "str",
-  "pinned": "bool",
   "size_bytes": "int",
   "status": "str",
   "title": "str"

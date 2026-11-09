@@ -417,7 +417,7 @@ def test_init_names_the_facility_description_it_seeds_by_its_path(tmp_path: Path
 
     repo = tmp_path / "fresh"
     with preserved_environ():
-        made = CliRunner().invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+        made = CliRunner().invoke(init, [str(repo), "--preset", "demo", "--no-git"])
     assert made.exit_code == 0, made.output
     assert (repo / "rules" / "facility.md").is_file()
     for rel in ("profile.yml", *(f"apps/{p.name}" for p in (repo / "apps").glob("*.yml"))):

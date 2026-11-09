@@ -1,6 +1,6 @@
-"""SC7 acceptance: default-config-check for a scaffolded Control Assistant.
+"""SC7 acceptance: default-config-check for a scaffolded Demo.
 
-A freshly scaffolded Control Assistant project must:
+A freshly scaffolded Demo project must:
   1. Start on the live stand-in (the preset declares
      ``virtual_accelerator.live_standin``, so a second copy of the soft IOC is
      deployed as the deployment's own third control target and is the baseline
@@ -42,7 +42,7 @@ from tests._builds import BuiltProject, copy_build
 from tests.cli._lifecycle_build import invoke_build, rendered_config
 from tests.facility.served_tree import in_process_config
 
-# The epics block a scaffolded Control Assistant renders: the app template's
+# The epics block a scaffolded Demo renders: the app template's
 # own values, verbatim, and the same block
 # tests/templates/test_preset_va_block.py pins on the raw render as
 # SHIPPED_EPICS_BLOCK. The stand-in has its own connector block —
@@ -65,15 +65,15 @@ def _build(repo: Path) -> None:
 
 
 @pytest.fixture
-def scaffolded_repo(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
-    """A copy of the run's shared control-assistant build, for a test that edits it."""
-    return copy_build(built_control_assistant.repo, tmp_path)
+def scaffolded_repo(built_demo: BuiltProject, tmp_path: Path) -> Path:
+    """A copy of the run's shared demo build, for a test that edits it."""
+    return copy_build(built_demo.repo, tmp_path)
 
 
 @pytest.fixture
-def stock_repo(built_control_assistant: BuiltProject) -> Path:
-    """The run's shared build of the stock Control Assistant preset, which tests only read."""
-    return built_control_assistant.repo
+def stock_repo(built_demo: BuiltProject) -> Path:
+    """The run's shared build of the stock Demo preset, which tests only read."""
+    return built_demo.repo
 
 
 #: The documented flip to the simulator in process.
@@ -98,14 +98,14 @@ def _load_config(repo: Path) -> dict:
 
 @pytest.fixture(scope="module")
 def served_in_process_repo(
-    built_control_assistant: BuiltProject, tmp_path_factory: pytest.TempPathFactory
+    built_demo: BuiltProject, tmp_path_factory: pytest.TempPathFactory
 ) -> Path:
     """A copy of the shared build after the documented flip, which tests only read.
 
     Module-scoped: every case reads the same set and re-build, and driving that
     sequence again per case would say nothing the first run did not.
     """
-    repo = copy_build(built_control_assistant.repo, tmp_path_factory.mktemp("served-in-process"))
+    repo = copy_build(built_demo.repo, tmp_path_factory.mktemp("served-in-process"))
     _serve_in_process(CliRunner(), repo)
     return repo
 

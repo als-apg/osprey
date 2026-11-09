@@ -204,7 +204,7 @@ VA_BOOT_TIMEOUT_S = 180.0
 VA_POLL_INTERVAL_S = 2.0
 
 #: Bounds on the two ``osprey`` verbs. ``build`` renders the whole
-#: control-assistant bundle, including a 2908-channel limits database.
+#: demo bundle, including a 2908-channel limits database.
 INIT_TIMEOUT_S = 300
 BUILD_TIMEOUT_S = 600
 
@@ -589,7 +589,7 @@ def _init_and_build(workspace: Path, *, bench_port: int, va_port: int) -> Path:
         [
             str(repo),
             "--preset",
-            "control-assistant",
+            "demo",
             "--no-git",
             "--set",
             f"provider={build_provider('als-apg')}",
@@ -988,7 +988,7 @@ def test_the_build_renders_one_project_and_no_renders(
 ) -> None:
     """One render, not four.
 
-    The control-assistant preset declares three layers, and a build that
+    The demo preset declares three layers, and a build that
     honours them emits a sibling project tree per render. This module's overlay
     turns web terminals off precisely to prevent that: the scenarios read the
     control-target state file under the BASE render, and a build littered with

@@ -394,7 +394,7 @@ def rendered_project(tmp_path_factory: pytest.TempPathFactory) -> tuple[str, _Ca
                 TemplateManager(),
                 project_name="quiet-render",
                 output_dir=tmp_path_factory.mktemp("render"),
-                data_bundle="control_assistant",
+                data_bundle="demo",
                 context={"channel_finder_mode": "hierarchical"},
             )
     finally:
@@ -455,7 +455,7 @@ class TestStdoutDataCopyQuiet:
                 tmp_path / "templates",
                 project,
                 package_name="quiet_project",
-                data_bundle="control_assistant",
+                data_bundle="demo",
                 ctx={},
                 data_root=data_root,
             )

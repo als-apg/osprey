@@ -6,12 +6,11 @@
  *   j / k   move `sel` through the rendered list rows, clearing `att` (the
  *           reader follows)
  *   Enter   open the selection in the reader (`narrowView:'reader'`)
- *   /       focus the search box (standalone only; embedded it is the host's)
  *   [       toggle `railCollapsed`
  *   c       open the compose sheet on a new entry (`compose:{draft:null}`)
  *   r       open the compose sheet on a follow-up of the selection
  *           (`compose:{draft:null, followsUp:sel}`); nothing without a `sel`
- *   a       embedded only: cite the shown entry in the host's assistant prompt
+ *   a       cite the shown entry in the host's assistant prompt
  *           (`ask-agent.js`, a reader-seam key routed by `app.js`, not here)
  *   e       open the reader's "Enhancements" tab (`inspector.js`, a reader-seam
  *           tab key routed by `app.js`, not here)
@@ -30,8 +29,6 @@
  * handled: an embedded host owns `Esc` inside its search box.
  */
 
-import { isEmbedded } from '/design-system/js/frame-params.js';
-import { focusSearch } from './list.js';
 import { getState, setState } from './store.js';
 
 const ROW_SELECTOR = '#ariel-list [data-entry-id]';
@@ -91,11 +88,9 @@ function closeOneLayer() {
 /**
  * Install the panel's keyboard shortcuts.
  * @param {Document} [doc] the panel document
- * @param {{embedded?: boolean}} [options] `embedded` defaults to `isEmbedded()`
  * @returns {{destroy(): void}}
  */
-export function initKeyboard(doc = document, options = {}) {
-  const embedded = options.embedded ?? isEmbedded();
+export function initKeyboard(doc = document) {
   const win = doc.defaultView;
   if (!win) return { destroy() {} };
 
@@ -136,11 +131,6 @@ export function initKeyboard(doc = document, options = {}) {
         event.preventDefault();
         break;
       }
-      case '/':
-        if (embedded) return;
-        event.preventDefault();
-        focusSearch();
-        break;
       case '[':
         setState({ railCollapsed: !getState().railCollapsed });
         event.preventDefault();

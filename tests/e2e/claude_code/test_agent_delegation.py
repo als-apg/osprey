@@ -3,7 +3,7 @@
 Tests the full pipeline: user prompt → main agent → sub-agent delegation →
 MCP tool calls → (optionally) submit_response.
 
-Covers the in-core sub-agents shipped by the ``control_assistant`` preset:
+Covers the in-core sub-agents shipped by the ``demo`` preset:
 
 - logbook-search (ARIEL/PostgreSQL)
 - logbook-deep-research (ARIEL/PostgreSQL)
@@ -81,7 +81,7 @@ pytestmark = [
 def delegation_project(tmp_path_factory):
     """Module-scoped deployment repo for delegation tests.
 
-    Builds a control_assistant deployment once and reuses it across all tests.
+    Builds a demo deployment once and reuses it across all tests.
     These agents are read-only search agents — no state leaks between tests.
     """
     tmp = tmp_path_factory.mktemp("delegation")
@@ -319,7 +319,7 @@ class TestAgentDelegation:
         Delegation contract under test: a "create a plot of …" request must
         flow orchestrator → ``Task`` → data-visualizer subagent → workspace
         viz MCP tool. The forcing function is **prompt-level steering** in
-        the control_assistant preset's ``CLAUDE.md`` — an explicit
+        the demo preset's ``CLAUDE.md`` — an explicit
         "delegate ALL viz to data-visualizer; do NOT generate plots
         yourself" block. SDK-level ``--disallowedTools`` is deliberately
         NOT used here: it propagates to the subagent and blocks the very

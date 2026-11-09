@@ -44,7 +44,7 @@ _HOST = {
     "model": "opus",
     "env": {"defaults": {"FACILITY": "test"}},
     "dispatch": {"max_turns": 5},
-    "provenance": {"preset": "control-assistant"},
+    "provenance": {"preset": "demo"},
     "channel_finder_mode": "graph",
     "default_panel": "events",
     "claude_md_template": "CLAUDE.md.j2",
@@ -144,8 +144,8 @@ def _admin_tier_lift() -> dict:
 
 @pytest.fixture(scope="module")
 def flagship_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """A control-assistant deployment with every bundled app materialized."""
-    return _materialized_repo(tmp_path_factory.mktemp("flagship") / "repo", "control-assistant")
+    """A demo deployment with every bundled app materialized."""
+    return _materialized_repo(tmp_path_factory.mktemp("flagship") / "repo", "demo")
 
 
 @pytest.fixture(scope="module", params=["floor", "lifting"])
@@ -154,9 +154,7 @@ def host_shape_repo(
 ) -> Path:
     """The flagship host, and the same host carrying the admin tier's floor lift."""
     lift = _admin_tier_lift() if request.param == "lifting" else None
-    return _materialized_repo(
-        tmp_path_factory.mktemp("host") / "repo", "control-assistant", host_config=lift
-    )
+    return _materialized_repo(tmp_path_factory.mktemp("host") / "repo", "demo", host_config=lift)
 
 
 def _targets(config: dict) -> list[str]:
@@ -239,7 +237,7 @@ def test_an_app_model_replaces_the_hosts_and_keeps_the_hosts_provider(tmp_path: 
 
 
 def test_a_bundled_app_given_a_model_loads_with_it(tmp_path: Path) -> None:
-    repo = _materialized_repo(tmp_path / "repo", "control-assistant")
+    repo = _materialized_repo(tmp_path / "repo", "demo")
     host = load_profile(repo / "profile.yml")
     app_path = repo / "apps" / "logbook.yml"
     app_path.write_text(
@@ -302,13 +300,13 @@ def test_a_tier_model_still_replaces_the_hosts(tmp_path: Path) -> None:
 
 def test_provenance_is_the_hosts(tmp_path: Path) -> None:
     raw = _resolve(_repo(tmp_path, _APP))
-    assert raw["provenance"] == {"preset": "control-assistant"}
+    assert raw["provenance"] == {"preset": "demo"}
 
 
 def test_app_without_provenance_keeps_the_hosts(tmp_path: Path) -> None:
     app = {k: v for k, v in _APP.items() if k != "provenance"}
     raw = _resolve(_repo(tmp_path, app))
-    assert raw["provenance"] == {"preset": "control-assistant"}
+    assert raw["provenance"] == {"preset": "demo"}
 
 
 def test_attachment_facts_still_hold(tmp_path: Path) -> None:
@@ -610,7 +608,7 @@ def test_logbook_render_servers(flagship_repo: Path) -> None:
 def test_logbook_render_keeps_the_host_provenance(flagship_repo: Path) -> None:
     raw = yaml.safe_load((flagship_repo / "apps" / "logbook.yml").read_text(encoding="utf-8"))
     document = resolve_profile_document(raw, flagship_repo / "apps" / "logbook.yml", warn=False)
-    assert document.inherited_preset == "control-assistant"
+    assert document.inherited_preset == "demo"
     assert document.raw["channel_finder_mode"] is None
 
 
@@ -624,7 +622,7 @@ def test_preset_data_bundle_refuses_an_app(name: str) -> None:
 
 
 def test_preset_data_bundle_still_answers_for_a_deployment() -> None:
-    assert preset_data_bundle("control-assistant") == preset_data_bundle("control_assistant")
+    assert preset_data_bundle("demo") == preset_data_bundle("demo")
     assert isinstance(preset_data_bundle(None), str)
 
 
