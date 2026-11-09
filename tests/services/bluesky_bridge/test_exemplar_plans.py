@@ -97,7 +97,7 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
         {
             "correctors": ["hcm1", "hcm2"],
             "readbacks": ["bpm1", "bpm2"],
-            "span_a": 2.0,
+            "span": 2.0,
             "num": 3,
         },
         devices=orm_devices,
@@ -106,7 +106,7 @@ def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None
 
     buf = live_rows.get(run_uid)
     assert buf is not None
-    # 2 correctors x 3 points each = one event (row) per (corrector, current).
+    # 2 correctors x 3 points each = one event (row) per (corrector, setpoint).
     assert buf["total_seen"] == 6
     assert len(buf["rows"]) == 6
     for row in buf["rows"]:

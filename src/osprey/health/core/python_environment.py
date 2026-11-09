@@ -19,7 +19,7 @@ import importlib.util
 import sys
 from typing import TYPE_CHECKING, Any
 
-from osprey.health.derive import _in_container
+from osprey.health.derive import in_container
 from osprey.health.models import CheckResult, Status
 
 if TYPE_CHECKING:
@@ -90,7 +90,7 @@ def _check_virtual_environment() -> CheckResult:
     )
     if in_venv:
         return CheckResult("virtual_environment", CATEGORY, Status.OK, "Virtual environment active")
-    if _in_container():
+    if in_container():
         return CheckResult(
             "virtual_environment",
             CATEGORY,

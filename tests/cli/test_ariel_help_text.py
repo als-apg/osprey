@@ -16,7 +16,7 @@ from osprey.cli.ariel import ariel_group
 _SOURCE_LINE = re.compile(r"\.py:\d+")
 
 
-@pytest.mark.parametrize("name", sorted(ariel_group.commands))
+@pytest.mark.parametrize("name", sorted(n for n, c in ariel_group.commands.items() if not c.hidden))
 def test_no_ariel_command_help_cites_a_source_line(name: str) -> None:
     result = CliRunner().invoke(ariel_group, [name, "--help"])
 

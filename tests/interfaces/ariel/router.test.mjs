@@ -1,0 +1,901 @@
+// @ts-check
+/**
+ * Hash contract: router.js maps the location hash onto the store and writes
+ * the canonical hash back.
+ *
+ * Run: npx vitest run tests/interfaces/ariel/router.test.mjs
+ */
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
+
+const STORE = '../../../src/osprey/interfaces/ariel/static/js/store.js';
+const ROUTER = '../../../src/osprey/interfaces/ariel/static/js/router.js';
+const SAVED = '../../../src/osprey/interfaces/ariel/static/js/saved-searches.js';
+const FILTER = '../../../src/osprey/interfaces/ariel/static/js/filter-state.js';
+
+/** @type {typeof import('../../../src/osprey/interfaces/ariel/static/js/store.js')} */
+let store;
+/** @type {typeof import('../../../src/osprey/interfaces/ariel/static/js/router.js')} */
+let router;
+/** @type {typeof import('../../../src/osprey/interfaces/ariel/static/js/saved-searches.js')} */
+let saved;
+/** @type {typeof import('../../../src/osprey/interfaces/ariel/static/js/filter-state.js')} */
+let filterState;
+
+/** @param {string} url */
+function go(url) {
+  history.replaceState(null, '', url);
+}
+
+/** Fire the event the browser fires when only the fragment changes. */
+function hashchange() {
+  window.dispatchEvent(new Event('hashchange'));
+}
+
+/** Listeners each test's router adds to the shared window; removed after the test. */
+/** @type {Array<[string, EventListenerOrEventListenerObject]>} */
+let added = [];
+const realAdd = window.addEventListener.bind(window);
+
+beforeEach(async () => {
+  go('/');
+  localStorage.clear();
+  added = [];
+  vi.spyOn(window, 'addEventListener').mockImplementation((type, fn, opts) => {
+    added.push([type, fn]);
+    realAdd(type, fn, opts);
+  });
+  vi.resetModules();
+  store = await import(STORE);
+  router = await import(ROUTER);
+  saved = await import(SAVED);
+  filterState = await import(FILTER);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  for (const [type, fn] of added) window.removeEventListener(type, fn);
+});
+
+const LIST = {
+  query: '',
+  mailbox: 'all',
+  sel: null,
+  att: null,
+  compose: null,
+  drawer: null,
+  narrowView: 'list',
+  rerank: 'now',
+};
+
+describe('serializeState', () => {
+  test('writes every canonical key, URL-encoded, in contract order', () => {
+    const s = {
+      ...store.getState(),
+      query: 'beam dump & rf',
+      mode: 'keyword',
+      mailbox: /** @type {const} */ ({ saved: 'my search' }),
+      filter: { source_system: ['ops'], author: ['x y'] },
+      sel: 'e/1',
+      att: 'a 2',
+    };
+    expect(router.serializeState(s)).toBe(
+      '#q=beam%20dump%20%26%20rf&mode=keyword&box=saved%3Amy%20search' +
+        `&f=${encodeURIComponent('{"author":["x y"],"source_system":["ops"]}')}` +
+        '&sel=e%2F1&att=a%202'
+    );
+  });
+
+  test('f is the normalized filter: sorted keys and values, empties dropped', () => {
+    const s = {
+      ...store.getState(),
+      filter: { tags: ['b', 'A', 'a'], author: [], time: { start: '2026-01-01', end: null } },
+    };
+    expect(router.serializeState(s)).toBe(
+      `#box=all&f=${encodeURIComponent('{"tags":["A","b"],"time":{"start":"2026-01-01","end":null}}')}`
+    );
+  });
+
+  test('under a saved box q and f are written even when empty', () => {
+    expect(router.serializeState({ ...store.getState(), mailbox: { saved: 'x' } })).toBe(
+      '#q=&box=saved%3Ax&f=%7B%7D'
+    );
+  });
+
+  test('omits empty keys', () => {
+    expect(router.serializeState(store.getState())).toBe('#box=all');
+    expect(router.serializeState({ ...store.getState(), mailbox: 'drafts', sel: 'x' })).toBe(
+      '#box=drafts&sel=x'
+    );
+  });
+});
+
+describe('parseHash: canonical', () => {
+  test('canonical round-trip reproduces the canonical keys', () => {
+    const s = {
+      ...store.getState(),
+      query: 'vacuum + leak?',
+      mode: 'semantic',
+      mailbox: /** @type {const} */ ({ saved: 'a:b' }),
+      filter: { author: ['Bob & Eve'], time: { start: null, end: '2026-02-01' } },
+      sel: 'id=7',
+      att: 'att&1',
+    };
+    const hash = router.serializeState(s);
+    const patch = router.parseHash(hash);
+    expect(patch).toMatchObject({
+      query: s.query,
+      mode: s.mode,
+      mailbox: s.mailbox,
+      filter: s.filter,
+      sel: s.sel,
+      att: s.att,
+    });
+    expect(router.serializeState({ ...store.getState(), ...patch })).toBe(hash);
+  });
+
+  test('every mailbox value round-trips', () => {
+    for (const mailbox of ['all', 'drafts', 'mine', { saved: 'x y' }]) {
+      const hash = router.serializeState({
+        ...store.getState(),
+        mailbox: /** @type {any} */ (mailbox),
+      });
+      expect(router.parseHash(hash).mailbox).toEqual(mailbox);
+    }
+  });
+
+  test('applying any canonical hash writes rerank now; a sel also opens the reader', () => {
+    expect(router.parseHash('#q=x')).toMatchObject({ query: 'x', rerank: 'now' });
+    expect(router.parseHash('#q=x').narrowView).toBeUndefined();
+    expect(router.parseHash('#sel=E1')).toMatchObject({
+      sel: 'E1',
+      narrowView: 'reader',
+      rerank: 'now',
+    });
+  });
+
+  test('omitted canonical keys fall back to empty', () => {
+    expect(router.parseHash('#q=x')).toEqual({
+      query: 'x',
+      mode: null,
+      mailbox: 'all',
+      filter: {},
+      notice: null,
+      sel: null,
+      att: null,
+      rerank: 'now',
+    });
+  });
+
+  test('an empty hash is no patch', () => {
+    expect(router.parseHash('')).toEqual({});
+    expect(router.parseHash('#')).toEqual({});
+  });
+});
+
+describe('parseHash: aliases', () => {
+  test('#entry?id&attachment selects and opens the reader, decoding ids', () => {
+    expect(router.parseHash('#entry?id=a%2Fb&attachment=att%201')).toEqual({
+      sel: 'a/b',
+      att: 'att 1',
+      narrowView: 'reader',
+      rerank: 'now',
+    });
+    expect(router.parseHash('#entry?id=E1')).toEqual({
+      sel: 'E1',
+      att: null,
+      narrowView: 'reader',
+      rerank: 'now',
+    });
+  });
+
+  test('#create and #create?draft open compose without writing narrowView', () => {
+    expect(router.parseHash('#create')).toEqual({
+      compose: { draft: null },
+      rerank: 'now',
+    });
+    expect(router.parseHash('#create?draft=D%201')).toEqual({
+      compose: { draft: 'D 1' },
+      rerank: 'now',
+    });
+  });
+
+  test('#create?draft= with an empty value is a new entry', () => {
+    expect(router.parseHash('#create?draft=')).toEqual({
+      compose: { draft: null },
+      rerank: 'now',
+    });
+  });
+
+  test('#search and #browse show the list with an empty query', () => {
+    expect(router.parseHash('#search')).toEqual(LIST);
+    expect(router.parseHash('#browse')).toEqual(LIST);
+  });
+
+  test('#status shows the list', () => {
+    expect(router.parseHash('#status')).toEqual(LIST);
+  });
+
+  test('an unknown alias shows the list', () => {
+    expect(router.parseHash('#nowhere')).toEqual(LIST);
+  });
+});
+
+/**
+ * One row per alias: the hash, and the state it must leave.
+ * @type {Array<[string, Record<string, unknown>]>}
+ */
+const ALIASES = [
+  ['#entry?id=E1&attachment=A1', { sel: 'E1', att: 'A1', narrowView: 'reader' }],
+  ['#entry?id=E1', { sel: 'E1', att: null, narrowView: 'reader' }],
+  ['#create', { compose: { draft: null } }],
+  ['#create?draft=D1', { compose: { draft: 'D1' } }],
+  ['#search', { query: '', sel: null, compose: null, narrowView: 'list' }],
+  ['#browse', { query: '', sel: null, compose: null, narrowView: 'list' }],
+  ['#status', { drawer: null, query: '', sel: null, narrowView: 'list' }],
+];
+
+describe('initRouter: aliases', () => {
+  for (const [hash, expected] of ALIASES) {
+    test(`${hash} applied at init`, () => {
+      store.setState({ query: 'old', sel: 'S0', compose: null });
+      go(`/?embedded=true${hash}`);
+      router.initRouter();
+      expect(store.getState()).toMatchObject({ ...expected, rerank: 'now' });
+    });
+
+    test(`${hash} applied on hashchange, with force, and re-applied when repeated`, () => {
+      router.initRouter();
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
+
+      go(`/?embedded=true${hash}`);
+      hashchange();
+      expect(store.getState()).toMatchObject(expected);
+      expect(changed).toHaveBeenCalledTimes(1);
+      // Forced: every patch key reported, even ones already at that value.
+      const keys = Object.keys(router.parseHash(hash));
+      expect(new Set(changed.mock.calls[0][0])).toEqual(new Set(keys));
+
+      // The alias was replaced by the canonical hash ...
+      expect(window.location.hash).not.toBe(hash);
+      expect(window.location.hash).toBe(router.serializeState(store.getState()));
+
+      // ... so following the same link again changes the fragment and re-applies.
+      go(`/?embedded=true${hash}`);
+      hashchange();
+      expect(changed).toHaveBeenCalledTimes(2);
+      expect(store.getState()).toMatchObject(expected);
+    });
+  }
+});
+
+describe('initRouter: canonical hash and write-back', () => {
+  test('a canonical hash at init is applied', () => {
+    go('/#q=rf%20trip&mode=keyword&box=mine&sel=E9');
+    router.initRouter();
+    expect(store.getState()).toMatchObject({
+      query: 'rf trip',
+      mode: 'keyword',
+      mailbox: 'mine',
+      sel: 'E9',
+      narrowView: 'reader',
+      rerank: 'now',
+    });
+  });
+
+  test('a canonical hashchange is applied without force', () => {
+    router.initRouter();
+    const changed = vi.fn();
+    store.subscribe((_s, _p, c) => changed([...c]));
+    go(router.serializeState(store.getState()));
+    hashchange();
+    expect(changed).not.toHaveBeenCalled();
+    go('/#q=new&box=drafts');
+    hashchange();
+    expect(changed).toHaveBeenCalledTimes(1);
+    expect(store.getState()).toMatchObject({ query: 'new', mailbox: 'drafts' });
+  });
+
+  test('store changes write the canonical hash with replaceState', () => {
+    go('/?embedded=true');
+    router.initRouter();
+    const replace = vi.spyOn(history, 'replaceState');
+    const assignHash = vi.spyOn(window, 'dispatchEvent');
+    store.setState({ query: 'beam', mailbox: { saved: 'mine2' }, rerank: 'now' });
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(window.location.hash).toBe('#q=beam&box=saved%3Amine2&f=%7B%7D');
+    expect(window.location.search).toBe('?embedded=true');
+    expect(assignHash).not.toHaveBeenCalled();
+  });
+
+  test('a store change that leaves the canonical hash unchanged writes nothing', () => {
+    router.initRouter();
+    const replace = vi.spyOn(history, 'replaceState');
+    store.setState({ railCollapsed: true, drawer: 'settings' });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  test('applying a hash writes the canonical hash back exactly once', () => {
+    router.initRouter();
+    // A subscriber reacting to the hash write must not cause a second write-back.
+    store.subscribe((_s, _p, changed) => {
+      if (changed.has('sel')) store.setState({ narrowView: 'reader', mode: 'keyword' });
+    });
+    go('/#entry?id=E5');
+    const replace = vi.spyOn(history, 'replaceState');
+    hashchange();
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(window.location.hash).toBe('#mode=keyword&box=all&sel=E5');
+  });
+
+  test('initRouter twice does not double-apply hashchange', () => {
+    router.initRouter();
+    router.initRouter();
+    const changed = vi.fn();
+    store.subscribe(changed);
+    go('/#create');
+    hashchange();
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('compose in the hash (C-HASH)', () => {
+  test('P2 canonical hashes are unchanged', () => {
+    const base = store.getState();
+    const cases = /** @type {Array<[any, string]>} */ ([
+      [base, '#box=all'],
+      [{ ...base, mailbox: 'drafts', sel: 'x' }, '#box=drafts&sel=x'],
+      [{ ...base, mailbox: { saved: 'x' } }, '#q=&box=saved%3Ax&f=%7B%7D'],
+      [
+        { ...base, query: 'rf', mode: 'keyword', mailbox: 'mine', sel: 'E9', att: 'A1' },
+        '#q=rf&mode=keyword&box=mine&sel=E9&att=A1',
+      ],
+      [{ ...base, filter: { tags: ['t'] } }, `#box=all&f=${encodeURIComponent('{"tags":["t"]}')}`],
+    ]);
+    for (const [state, hash] of cases) {
+      expect(router.serializeState(/** @type {any} */ (state))).toBe(hash);
+      // A new-entry or follow-up sheet never reaches the hash.
+      for (const compose of [{ draft: null }, { draft: null, followsUp: 'E1' }]) {
+        expect(router.serializeState(/** @type {any} */ ({ ...state, compose }))).toBe(hash);
+      }
+      expect('compose' in router.parseHash(hash)).toBe(false);
+    }
+  });
+
+  test('a draft is serialised last, as compose=draft:<id>, URL-encoded', () => {
+    const s = {
+      ...store.getState(),
+      sel: 'E1',
+      att: 'A1',
+      compose: { draft: 'draft-0123456789ab' },
+    };
+    expect(router.serializeState(s)).toBe(
+      '#box=all&sel=E1&att=A1&compose=draft%3Adraft-0123456789ab'
+    );
+  });
+
+  test('a non-draft-<hex> id such as D1 round-trips', () => {
+    for (const draft of ['D1', 'a b&c=d', 'draft:x']) {
+      const hash = router.serializeState({ ...store.getState(), compose: { draft } });
+      const patch = router.parseHash(hash);
+      expect(patch.compose).toEqual({ draft });
+      expect(router.serializeState({ ...store.getState(), ...patch })).toBe(hash);
+    }
+    expect(router.parseHash('#compose=draft:D1').compose).toEqual({ draft: 'D1' });
+  });
+
+  test('a malformed compose value is ignored', () => {
+    for (const hash of [
+      '#box=all&compose=D1',
+      '#box=all&compose=draft%3A',
+      '#compose=',
+      '#compose=Draft:D1',
+    ]) {
+      expect('compose' in router.parseHash(hash)).toBe(false);
+    }
+  });
+
+  test('a canonical hash without compose leaves an open new-entry or follow-up sheet', () => {
+    router.initRouter();
+    for (const compose of [{ draft: null }, { draft: null, followsUp: 'E1' }]) {
+      store.setState({ compose });
+      go('/#q=other&box=all');
+      hashchange();
+      expect(store.getState()).toMatchObject({ query: 'other', compose });
+      go('/#q=again&box=drafts');
+      hashchange();
+      expect(store.getState().compose).toEqual(compose);
+      store.setState({ compose: null, query: '' });
+    }
+  });
+
+  test('a draft hash opens the draft at init without writing narrowView', () => {
+    go('/#box=drafts&compose=draft%3AD1');
+    router.initRouter();
+    expect(store.getState()).toMatchObject({ compose: { draft: 'D1' }, narrowView: 'list' });
+    expect(window.location.hash).toBe('#box=drafts&compose=draft%3AD1');
+  });
+
+  test('Back/Forward away from a compose=draft hash closes the sheet', () => {
+    go('/#box=all&compose=draft%3AD1');
+    router.initRouter();
+    expect(store.getState().compose).toEqual({ draft: 'D1' });
+    go('/#box=all');
+    hashchange();
+    expect(store.getState().compose).toBeNull();
+    expect(window.location.hash).toBe('#box=all');
+    // ... and forward again reopens it.
+    go('/#box=all&compose=draft%3AD1');
+    hashchange();
+    expect(store.getState().compose).toEqual({ draft: 'D1' });
+  });
+
+  test('Back/Forward from one draft hash to another switches drafts', () => {
+    go('/#compose=draft%3AD1');
+    router.initRouter();
+    go('/#box=all&compose=draft%3AD2');
+    hashchange();
+    expect(store.getState().compose).toEqual({ draft: 'D2' });
+  });
+
+  test('closing a draft in the store drops compose from the hash, and a later hashchange keeps a new sheet', () => {
+    go('/#compose=draft%3AD1');
+    router.initRouter();
+    store.setState({ compose: { draft: null } });
+    expect(window.location.hash).toBe('#box=all');
+    go('/#q=x&box=all');
+    hashchange();
+    expect(store.getState().compose).toEqual({ draft: null });
+  });
+
+  test('#create?draft canonicalises to compose=draft and keeps the pane', () => {
+    store.setState({ sel: 'E1', narrowView: 'reader' });
+    router.initRouter();
+    go('/#create?draft=D1');
+    hashchange();
+    expect(store.getState()).toMatchObject({ compose: { draft: 'D1' }, narrowView: 'reader' });
+    expect(window.location.hash).toBe('#box=all&sel=E1&compose=draft%3AD1');
+  });
+});
+
+/** @param {Record<string, unknown>} f */
+function fParam(f) {
+  return encodeURIComponent(JSON.stringify(f));
+}
+
+describe('parseHash: filter', () => {
+  test('an unreadable f is no filter', () => {
+    expect(router.parseHash('#f=%7Bnope').filter).toEqual({});
+    expect(router.parseHash('#f=%5B1%5D').filter).toEqual({});
+  });
+
+  test('box=mine clears filter.author in the same patch', () => {
+    const patch = router.parseHash(`#box=mine&f=${fParam({ author: ['x'], tags: ['t'] })}`);
+    expect(patch).toMatchObject({ mailbox: 'mine', filter: { tags: ['t'] } });
+  });
+
+  test('#entry?id= is unchanged: no filter, no notice', () => {
+    expect(router.parseHash('#entry?id=E1')).toEqual({
+      sel: 'E1',
+      att: null,
+      narrowView: 'reader',
+      rerank: 'now',
+    });
+  });
+});
+
+describe('parseHash: saved box', () => {
+  beforeEach(() => {
+    saved.saveSearch({
+      name: 'K',
+      query: 'kicker',
+      mode: 'semantic',
+      filter: { author: ['Bob'], time: { start: '2026-01-01', end: null } },
+      filters: { max_results: 3 },
+    });
+  });
+
+  test('saved:x alone restores its filter, query, mode and knobs', () => {
+    expect(router.parseHash('#box=saved%3AK')).toMatchObject({
+      mailbox: { saved: 'K' },
+      query: 'kicker',
+      mode: 'semantic',
+      filter: { author: ['Bob'], time: { start: '2026-01-01', end: null } },
+      filters: { max_results: 3 },
+    });
+  });
+
+  test('saved:x plus f: the hash f wins; knobs still restored', () => {
+    const patch = router.parseHash(`#box=saved%3AK&f=${fParam({ tags: ['vac'] })}`);
+    expect(patch.filter).toEqual({ tags: ['vac'] });
+    expect(patch.query).toBe('kicker');
+    expect(patch.filters).toEqual({ max_results: 3 });
+  });
+
+  test('clearing the query or the filter under a saved box survives a reload', () => {
+    const cleared = router.serializeState({
+      ...store.getState(),
+      mailbox: { saved: 'K' },
+      query: '',
+      mode: 'semantic',
+      filter: {},
+    });
+    expect(cleared).toBe('#q=&mode=semantic&box=saved%3AK&f=%7B%7D');
+    expect(router.parseHash(cleared)).toMatchObject({ query: '', filter: {} });
+  });
+
+  test('saved:<unknown> restores nothing and leaves the knobs alone', () => {
+    const patch = router.parseHash('#box=saved%3Anope');
+    expect(patch).toMatchObject({ query: '', mode: null, filter: {} });
+    expect('filters' in patch).toBe(false);
+  });
+
+  test('a search saved under Mine lists only that author after reload', () => {
+    store.setState({ mailbox: 'mine', mineAuthor: 'Jane', filter: { tags: ['rf'] } });
+    const state = store.getState();
+    saved.saveSearch({
+      name: 'My RF',
+      query: state.query,
+      mode: state.mode,
+      filter: filterState.requestFilter(state) ?? {},
+      filters: state.filters,
+    });
+    go(`/#box=${encodeURIComponent('saved:My RF')}`);
+    router.initRouter();
+    expect(store.getState().filter).toEqual({ author: ['Jane'], tags: ['rf'] });
+    expect(window.location.hash).toBe(
+      `#q=&box=saved%3AMy%20RF&f=${fParam({ author: ['Jane'], tags: ['rf'] })}`
+    );
+  });
+
+  test('a P1 record is migrated on restore', () => {
+    localStorage.setItem(
+      saved.SAVED_KEY,
+      JSON.stringify([
+        { name: 'Old', query: 'q', mode: null, filters: { author: 'Bob', max_results: 5 } },
+      ])
+    );
+    expect(router.parseHash('#box=saved%3AOld')).toMatchObject({
+      filter: { author: ['Bob'] },
+      filters: { max_results: 5 },
+    });
+  });
+
+  test('save, reload, restore keeps the filter', () => {
+    store.setState({ query: 'dump', filter: { source_system: ['ops'] } });
+    const state = store.getState();
+    saved.saveSearch({
+      name: 'Dumps',
+      query: state.query,
+      mode: state.mode,
+      filter: filterState.requestFilter(state) ?? {},
+      filters: state.filters,
+    });
+    store.setState({ query: '', filter: {} });
+    go('/#box=saved%3ADumps');
+    router.initRouter();
+    expect(store.getState()).toMatchObject({ query: 'dump', filter: { source_system: ['ops'] } });
+  });
+});
+
+describe('initRouter: dimensions', () => {
+  const DIMS = [{ name: 'author' }, { name: 'source_system' }];
+
+  test('a dropped dimension produces a notice naming it; time is kept', () => {
+    go(
+      `/#f=${fParam({ author: ['a'], tags: ['t'], logbook: ['l'], time: { start: '2026-01-01' } })}`
+    );
+    router.initRouter({ dimensions: DIMS });
+    const s = store.getState();
+    expect(s.filter).toEqual({ author: ['a'], time: { start: '2026-01-01', end: null } });
+    expect(s.notice).toContain('tags');
+    expect(s.notice).toContain('logbook');
+    expect(window.location.hash).toBe(
+      `#box=all&f=${fParam({ author: ['a'], time: { start: '2026-01-01', end: null } })}`
+    );
+  });
+
+  test('a saved record is sanitized too', () => {
+    saved.saveSearch({ name: 'T', query: '', mode: null, filter: { tags: ['t'] }, filters: {} });
+    go('/#box=saved%3AT');
+    router.initRouter({ dimensions: DIMS });
+    expect(store.getState().filter).toEqual({});
+    expect(store.getState().notice).toContain('tags');
+  });
+
+  test('no drop, no notice; a later clean hash clears the notice', () => {
+    go(`/#f=${fParam({ tags: ['t'] })}`);
+    router.initRouter({ dimensions: DIMS });
+    expect(store.getState().notice).not.toBeNull();
+    go(`/#f=${fParam({ author: ['a'] })}`);
+    hashchange();
+    expect(store.getState().notice).toBeNull();
+  });
+
+  test('without capabilities every dimension is kept', () => {
+    go(`/#f=${fParam({ tags: ['t'] })}`);
+    router.initRouter({ dimensions: null });
+    expect(store.getState()).toMatchObject({ filter: { tags: ['t'] }, notice: null });
+  });
+});
+
+describe('canopy-host-navigate (A12)', () => {
+  /** @type {import('vitest').Mock} */
+  let postMessage;
+  /** @type {{postMessage: import('vitest').Mock}} */
+  let parentStub;
+  const MOUNT = '/panel/ariel/';
+
+  beforeEach(() => {
+    postMessage = vi.fn();
+    parentStub = { postMessage };
+    vi.stubGlobal('parent', parentStub);
+    document.body.innerHTML = '';
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.body.innerHTML = '';
+  });
+
+  /**
+   * Deliver a message as the hub would: same origin, from `window.parent`.
+   * @param {any} data
+   * @param {{source?: any, origin?: string}} [opts]
+   */
+  function deliver(data, opts = {}) {
+    const ev = new MessageEvent('message', {
+      data,
+      origin: opts.origin ?? window.location.origin,
+    });
+    Object.defineProperty(ev, 'source', {
+      value: 'source' in opts ? opts.source : window.parent,
+    });
+    window.dispatchEvent(ev);
+  }
+
+  /** @param {string} hash */
+  function navigate(hash, path = MOUNT) {
+    deliver({ type: 'canopy-host-navigate', url: `${path}${hash}` });
+  }
+
+  /** The ready messages posted to the parent. */
+  function readies() {
+    return postMessage.mock.calls.filter(([m]) => m?.type === 'canopy-host-navigate-ready');
+  }
+
+  /** Boot embedded at the mount with `hash`, after seeding a search state. */
+  function boot(hash = '') {
+    go(`${MOUNT}?embedded=true${hash}`);
+    router.initRouter();
+  }
+
+  /** A painted list with rows for `ids`. @param {string[]} ids */
+  function paintList(ids) {
+    const list = document.createElement('div');
+    list.id = 'ariel-list';
+    for (const id of ids) {
+      const row = document.createElement('div');
+      row.dataset.entryId = id;
+      row.scrollIntoView = vi.fn();
+      list.appendChild(row);
+    }
+    document.body.appendChild(list);
+    return list;
+  }
+
+  /** The text of every toast on screen. */
+  function toasts() {
+    return Array.from(document.querySelectorAll('.osprey-toast-host *'))
+      .map((el) => el.textContent ?? '')
+      .join(' ');
+  }
+
+  const SEARCH = `#q=beam&mode=keyword&box=drafts&f=${encodeURIComponent('{"author":["x"]}')}`;
+
+  describe('ready', () => {
+    test('embedded: ready is sent once, unsolicited, to the parent, same origin', () => {
+      boot();
+      expect(readies()).toHaveLength(1);
+      expect(readies()[0][1]).toBe(window.location.origin);
+    });
+
+    test('every probe from the parent earns another ready', () => {
+      boot();
+      deliver({ type: 'canopy-host-navigate-probe' });
+      deliver({ type: 'canopy-host-navigate-probe' });
+      expect(readies()).toHaveLength(3);
+    });
+
+    test('a probe that arrives before the router starts still ends in ready', () => {
+      go(`${MOUNT}?embedded=true`);
+      deliver({ type: 'canopy-host-navigate-probe' });
+      expect(readies()).toHaveLength(0);
+      router.initRouter();
+      expect(readies()).toHaveLength(1);
+    });
+
+    test('a probe from anything but the parent, or another origin, is not answered', () => {
+      boot();
+      deliver({ type: 'canopy-host-navigate-probe' }, { source: window });
+      deliver({ type: 'canopy-host-navigate-probe' }, { origin: 'http://evil.example' });
+      expect(readies()).toHaveLength(1);
+    });
+
+    test('initRouter twice sends no second ready', () => {
+      boot();
+      router.initRouter();
+      expect(readies()).toHaveLength(1);
+    });
+  });
+
+  describe('intent', () => {
+    test('an intent keeps q/mode/box/f, selects forced and opens the reader', () => {
+      boot(SEARCH);
+      paintList(['E1']);
+      const before = store.getState();
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
+      navigate('#sel=E1&att=A1');
+      const s = store.getState();
+      expect(s).toMatchObject({
+        query: 'beam',
+        mode: 'keyword',
+        mailbox: 'drafts',
+        filter: before.filter,
+        sel: 'E1',
+        att: 'A1',
+        narrowView: 'reader',
+      });
+      expect(changed).toHaveBeenCalledTimes(1);
+      expect(new Set(changed.mock.calls[0][0])).toEqual(new Set(['sel', 'att', 'narrowView']));
+      expect(window.location.hash).toBe(router.serializeState(s));
+      expect(window.location.hash).toContain('q=beam');
+      expect(window.location.hash).toContain('sel=E1');
+    });
+
+    test('the same intent twice re-selects', () => {
+      boot(SEARCH);
+      paintList(['E1']);
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
+      navigate('#sel=E1');
+      navigate('#sel=E1');
+      expect(changed).toHaveBeenCalledTimes(2);
+      expect(changed.mock.calls[1][0]).toContain('sel');
+      expect(store.getState()).toMatchObject({ query: 'beam', sel: 'E1', att: null });
+    });
+
+    test('an intent flashes and scrolls the painted row, with no toast', () => {
+      boot(SEARCH);
+      const list = paintList(['E0', 'E1']);
+      navigate('#sel=E1');
+      const row = /** @type {HTMLElement} */ (list.querySelector('[data-entry-id="E1"]'));
+      expect(row.classList.contains('agent-flash')).toBe(true);
+      expect(row.scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' });
+      expect(toasts()).not.toContain('not shown in the list');
+    });
+
+    test('an intent with no painted row opens the reader and toasts "not shown in the list"', () => {
+      boot(SEARCH);
+      paintList(['E0']);
+      navigate('#sel=E9');
+      expect(store.getState()).toMatchObject({ sel: 'E9', narrowView: 'reader', query: 'beam' });
+      expect(toasts()).toContain('not shown in the list');
+    });
+
+    test('an intent keeps an open compose sheet', () => {
+      boot(SEARCH);
+      store.setState({ compose: { draft: 'D1' } });
+      navigate('#sel=E1');
+      expect(store.getState().compose).toEqual({ draft: 'D1' });
+    });
+
+    test('selectEntry is exported and applies the same intent', () => {
+      boot(SEARCH);
+      paintList(['E1']);
+      router.selectEntry({ sel: 'E1', att: null });
+      expect(store.getState()).toMatchObject({ query: 'beam', mailbox: 'drafts', sel: 'E1' });
+    });
+  });
+
+  describe('other hashes', () => {
+    test('#create?draft= keeps q/box/f and opens the draft', () => {
+      boot(SEARCH);
+      navigate('#create?draft=D7');
+      expect(store.getState()).toMatchObject({
+        query: 'beam',
+        mailbox: 'drafts',
+        compose: { draft: 'D7' },
+      });
+      expect(store.getState().filter).toEqual({ author: ['x'] });
+    });
+
+    test('an #entry alias keeps its alias meaning, forced', () => {
+      boot(SEARCH);
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
+      navigate('#entry?id=E2&attachment=A2');
+      expect(store.getState()).toMatchObject({ query: 'beam', sel: 'E2', att: 'A2' });
+      navigate('#entry?id=E2&attachment=A2');
+      expect(changed).toHaveBeenCalledTimes(2);
+    });
+
+    test('a list alias applies its list state', () => {
+      boot(SEARCH);
+      navigate('#search');
+      expect(store.getState()).toMatchObject({ query: '', mailbox: 'all', sel: null });
+    });
+
+    test('a canonical non-sel hash applies its full state, forced', () => {
+      boot(SEARCH);
+      const changed = vi.fn();
+      store.subscribe((_s, _p, c) => changed([...c]));
+      navigate('#q=other&box=all');
+      expect(store.getState()).toMatchObject({ query: 'other', mailbox: 'all', filter: {} });
+      navigate('#q=other&box=all');
+      expect(changed).toHaveBeenCalledTimes(2);
+      expect(window.location.hash).toBe('#q=other&box=all');
+    });
+
+    test('a different path under the mount reloads there, keeping location.search', () => {
+      boot(SEARCH);
+      const assign = vi.fn();
+      vi.stubGlobal('location', {
+        origin: window.location.origin,
+        href: window.location.href,
+        pathname: window.location.pathname,
+        search: window.location.search,
+        hash: window.location.hash,
+        assign,
+      });
+      const before = store.getState();
+      deliver({ type: 'canopy-host-navigate', url: '/panel/ariel/other?x=1#sel=E1' });
+      expect(assign).toHaveBeenCalledWith('/panel/ariel/other?embedded=true#sel=E1');
+      expect(store.getState()).toBe(before);
+    });
+
+    test('the mount path with or without a trailing slash, or a query, is the current path', () => {
+      boot(SEARCH);
+      paintList(['E1']);
+      deliver({ type: 'canopy-host-navigate', url: '/panel/ariel?embedded=true#sel=E1' });
+      expect(store.getState()).toMatchObject({ query: 'beam', sel: 'E1' });
+    });
+
+    test('a url outside the mount, from another source or origin, is ignored', () => {
+      boot(SEARCH);
+      const before = store.getState();
+      deliver({ type: 'canopy-host-navigate', url: '/panel/other/#sel=E1' });
+      deliver({ type: 'canopy-host-navigate', url: 'http://evil.example/panel/ariel/#sel=E1' });
+      deliver({ type: 'canopy-host-navigate', url: '/panel/arielx/#sel=E1' });
+      deliver({ type: 'canopy-host-navigate', url: `${MOUNT}#sel=E1` }, { source: window });
+      deliver(
+        { type: 'canopy-host-navigate', url: `${MOUNT}#sel=E1` },
+        { origin: 'http://evil.example' }
+      );
+      deliver({ type: 'canopy-host-navigate', url: 42 });
+      expect(store.getState()).toBe(before);
+    });
+  });
+
+  describe('unchanged paths', () => {
+    test('a fresh load of a canonical sel link gives the full canonical state', () => {
+      store.setState({ query: 'old' });
+      boot('#sel=E1&att=A1');
+      expect(store.getState()).toMatchObject({
+        query: '',
+        mailbox: 'all',
+        sel: 'E1',
+        att: 'A1',
+        narrowView: 'reader',
+      });
+    });
+
+    test('a hashchange to a sel-only hash is still the full canonical state', () => {
+      boot(SEARCH);
+      go(`${MOUNT}?embedded=true#sel=E1`);
+      hashchange();
+      expect(store.getState()).toMatchObject({ query: '', mailbox: 'all', sel: 'E1' });
+    });
+  });
+});

@@ -5,7 +5,7 @@
  * dock-sync carries the REVERSE half of the panel-state loop: it turns a human's
  * dockview FOCUS gestures back into the same server POST an agent MCP call would
  * make, WITHOUT letting the server's own SSE echo bounce back out again. A human
- * tab CLOSE is deliberately NOT a server change (tile occupancy is per-client
+ * tile CLOSE is deliberately NOT a server change (tile occupancy is per-client
  * layout state under the launcher-rail model) — it routes to a locally-registered
  * vacate handler instead. The forward half (server → dock application, and the
  * chat layout synthesis) lives in dock-workspace.js / panel-manager.js and
@@ -14,11 +14,13 @@
  *
  *   - the ECHO GUARD — a genuine human focus POSTs exactly once, a server-applied
  *     (echo) focus POSTs never;
- *   - the human tab-CLOSE click fires the registered tile-close handler, never a
+ *   - the human tile-CLOSE click fires the registered tile-close handler, never a
  *     POST;
  *   - the LAYOUT REPORT reads the layout holder (never dockview's toJSON), sends
  *     the page's client_id and the pop-outs beside the layout, and hands the
- *     ack's rev back to the holder;
+ *     ack's rev back to the holder; a lost report is resent with a capped
+ *     backoff, a 4xx is logged and held back until the layout changes, and a
+ *     forced report (reportLayoutNow) goes out even when unchanged;
  *   - dockPanelBesideActive and dockPanelAt run one engine op on the layout
  *     holder, which applies it under the same guard;
  *   - the listeners wire idempotently and tolerate late DockviewApi arrival.
@@ -58,7 +60,7 @@ const {
   setPanelFocus: vi.fn(),
   setPanelVisibility: vi.fn(),
   // The layout-report route: (layout, popouts, dock) -> the server's
-  // acknowledgement, or null for a report that did not land.
+  // acknowledgement, null for a server error (503), or httpError(...).
   serverReport: vi.fn(),
 }));
 // getDockApi reads the mutable holder so a test can swap the live api in place.
@@ -93,24 +95,17 @@ vi.mock(
     getLayoutHolder: () => state.holder,
   })
 );
-// The one question dock-sync asks the pop-out seam: whether a panel lives in
-// its own window. The seam's own behaviour is popout.test.mjs's contract.
-const { isPoppedOut, popoutListeners } = vi.hoisted(() => ({
-  isPoppedOut: vi.fn(/** @type {(id: string) => boolean} */ (() => false)),
-  /** The pop-out change listeners dock-sync registered. @type {Function[]} */
-  popoutListeners: /** @type {Function[]} */ ([]),
-}));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
-  isPoppedOut,
-  onPopoutChange: (/** @type {Function} */ fn) => {
-    popoutListeners.push(fn);
-  },
-}));
-
 /** Every body POSTed to /api/panel-layout, in order. @type {any[]} */
 let fetchBodies = [];
-/** Flip `ok` to false to model the route refusing a report. */
-const fetchStatus = { ok: true };
+
+/** Marks a serverReport answer as an HTTP error of the route, not an ack. */
+const HTTP_STATUS = Symbol('http status');
+
+/**
+ * The route answering a report with HTTP `status` and FastAPI's `{detail}` body.
+ * @param {number} status @param {unknown} [detail]
+ */
+const httpError = (status, detail = 'refused') => ({ [HTTP_STATUS]: status, detail });
 
 beforeEach(() => {
   vi.resetModules();
@@ -128,16 +123,24 @@ beforeEach(() => {
       Promise.resolve({ status: 'ok', layout, popouts, dock, rev: ++rev, updated: true })
   );
   fetchBodies = [];
-  fetchStatus.ok = true;
-  popoutListeners.length = 0;
   vi.stubGlobal(
     'fetch',
     vi.fn(async (/** @type {string} */ _url, /** @type {any} */ opts) => {
       const body = JSON.parse(opts.body);
       fetchBodies.push(body);
-      const ack = await serverReport(body.layout, body.popouts, body.dock);
-      if (!fetchStatus.ok || ack === null) return { ok: false, json: async () => null };
-      return { ok: true, json: async () => ack };
+      // A request the page gives up on (its signal aborts) rejects, as fetch does.
+      const abandoned = new Promise((_resolve, reject) =>
+        opts.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      );
+      const ack = await Promise.race([
+        serverReport(body.layout, body.popouts, body.dock),
+        abandoned,
+      ]);
+      if (ack === null) return { ok: false, status: 503, json: async () => ({ detail: 'down' }) };
+      if (ack?.[HTTP_STATUS]) {
+        return { ok: false, status: ack[HTTP_STATUS], json: async () => ({ detail: ack.detail }) };
+      }
+      return { ok: true, status: 200, json: async () => ack };
     })
   );
   state.api = null;
@@ -267,7 +270,14 @@ function buildGroup(root, api, panelIds) {
  */
 function makeHolder(layout, popouts = []) {
   /** @type {any} */
-  const holder = { layout, popouts, dirty: true, ackedRev: null };
+  const holder = { layout, popouts, dirty: true, ackedRev: null, detached: [] };
+  /** The detached-set listeners dock-sync registered. @type {Function[]} */
+  holder.detachedListeners = [];
+  holder.detachedKeys = () => [...holder.detached];
+  holder.onDetachedChange = (/** @type {Function} */ fn) => {
+    holder.detachedListeners.push(fn);
+    return () => {};
+  };
   holder.ack = vi.fn((/** @type {number} */ rev) => {
     holder.ackedRev = rev;
     holder.dirty = false;
@@ -314,8 +324,8 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     vi.useRealTimers();
   });
 
-  test('reports the holder layout — tabs, showing tab and terminal — with the client id', async () => {
-    const layout = row(['terminal'], ['ariel', 'okf'], ['bluesky']);
+  test('reports the holder layout — its tiles, the panel each shows, the terminal — with the client id', async () => {
+    const layout = row(['terminal'], ['ariel'], ['bluesky']);
     await wireReporting(layout);
     await vi.advanceTimersByTimeAsync(SETTLE);
 
@@ -324,7 +334,7 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     expect(Object.keys(body).sort()).toEqual(['client_id', 'dock', 'layout', 'popouts']);
     expect(body.layout.items[1]).toEqual({
       tile: '2',
-      tabs: ['ariel', 'okf'],
+      tabs: ['ariel'],
       showing: 'ariel',
     });
     expect(typeof body.client_id).toBe('string');
@@ -406,10 +416,10 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
   });
 
   test('a dirty holder whose layout equals the acked one settles without a POST', async () => {
-    const { api, holder } = await wireReporting(row(['terminal'], ['ariel', 'okf']));
+    const { api, holder } = await wireReporting(row(['terminal'], ['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
     const ackedRev = holder.ackedRev;
-    change(api, row(['terminal'], ['ariel', 'okf']));
+    change(api, row(['terminal'], ['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(1);
     expect(holder.dirty).toBe(false);
@@ -473,16 +483,36 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     expect(serverReport).toHaveBeenCalledExactlyOnceWith(row(['okf']), [], true);
   });
 
-  test('switching the showing tab is a change, not a duplicate', async () => {
-    const { api } = await wireReporting(row(['terminal'], ['ariel', 'okf']));
+  test('the same tiles at the same sizes are no news; another panel in a tile, or new sizes, are', async () => {
+    const shown = {
+      split: 'row',
+      items: [
+        { tile: '1', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+        { tile: '2', tabs: ['ariel'], showing: 'ariel', size: 0.6 },
+      ],
+    };
+    const { api, holder } = await wireReporting(shown);
     await vi.advanceTimersByTimeAsync(SETTLE);
-    const shown = row(['terminal'], ['ariel', 'okf']);
-    shown.items[1].showing = 'okf';
-    change(api, shown);
-    api.fireActive();
+    // The same tree read again (a focus move, a rebuild): deduped, and settled.
+    change(api, structuredClone(shown));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    expect(holder.dirty).toBe(false);
+    // The open rule replaced ariel in tile 2: the same tiles, another panel.
+    const replaced = structuredClone(shown);
+    replaced.items[1] = { ...replaced.items[1], tabs: ['okf'], showing: 'okf' };
+    change(api, replaced);
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(2);
-    expect(serverReport).toHaveBeenLastCalledWith(shown, [], true);
+    expect(serverReport).toHaveBeenLastCalledWith(replaced, [], true);
+    // A sash drag beyond dockview's rounding is news too.
+    const resized = structuredClone(replaced);
+    resized.items[0].size = 0.5;
+    resized.items[1].size = 0.5;
+    change(api, resized);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    expect(serverReport).toHaveBeenLastCalledWith(resized, [], true);
   });
 
   test('closing the last service tab reports the terminal-only layout', async () => {
@@ -582,12 +612,13 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     const { api, mod } = await wireReporting(before);
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(1);
-    // An agent opens bluesky: the holder moves and the op's answer (not this
-    // module's report) is what the server acknowledged.
-    const opened = row(['ariel', 'bluesky'], ['terminal']);
+    // An agent opens bluesky, which replaces ariel in its tile: the holder
+    // moves and the op's answer (not this module's report) is what the
+    // server acknowledged.
+    const opened = row(['bluesky'], ['terminal']);
     state.holder.layout = opened;
     mod.noteReported({ layout: opened, popouts: [] });
-    // The person closes it again: back to the layout this module last sent,
+    // The person opens ariel again: back to the layout this module last sent,
     // which the server no longer holds. It must go out, not dedupe away.
     change(api, before);
     await vi.advanceTimersByTimeAsync(SETTLE);
@@ -598,7 +629,7 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
   test('a layout equal to one acknowledged through noteReported is not re-reported', async () => {
     const { api, mod } = await wireReporting(row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    const opened = row(['ariel', 'bluesky'], ['terminal']);
+    const opened = row(['bluesky'], ['terminal']);
     mod.noteReported({ layout: opened, popouts: [] });
     change(api, opened);
     await vi.advanceTimersByTimeAsync(SETTLE);
@@ -608,27 +639,51 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
   test('a read-back differing only by size rounding from the acknowledged layout is not re-reported', async () => {
     const { api, mod } = await wireReporting(row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    const planned = row(['ariel', 'bluesky'], ['terminal']);
+    const planned = {
+      split: 'row',
+      items: [
+        { tile: '1', tabs: ['bluesky'], showing: 'bluesky', size: 0.6 },
+        { tile: '2', tabs: ['terminal'], showing: 'terminal', size: 0.4 },
+      ],
+    };
     mod.noteReported({ layout: planned, popouts: [] });
     // dockview reads the applied tree back a pixel's fraction off.
     const measured = structuredClone(planned);
-    measured.items[0].size = planned.items[0].size + 0.0002;
-    measured.items[1].size = planned.items[1].size - 0.0002;
+    measured.items[0].size = 0.6002;
+    measured.items[1].size = 0.3998;
     change(api, measured);
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(1);
+  });
+
+  test('an op answer the server took after a newer report is followed by a report of the screen', async () => {
+    // A person's newer layout was reported and acked; then the op's answer,
+    // built before that change, landed last (an answer the dock sent late). The
+    // server holds the older layout now, so the one on screen goes out again.
+    const { api, mod, holder } = await wireReporting(row(['ariel'], ['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    const newer = row(['ariel', 'okf'], ['terminal']);
+    change(api, newer);
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(holder.dirty).toBe(false);
+
+    mod.noteReported({ layout: row(['okf'], ['terminal']), popouts: [] });
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    expect(serverReport).toHaveBeenLastCalledWith(newer, [], true);
   });
 
   test('a panel leaving for its own window is reported, with the pop-outs beside the layout', async () => {
     const { api, holder } = await wireReporting(row(['ariel'], ['terminal']));
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(1);
-    // popout.js vacates the tile (the holder's layout moves) and tells the
-    // holder; dock-sync hears the change and reports both.
+    // The pane's tile leaves the holder's layout and the holder says so;
+    // dock-sync hears the change and reports both.
     holder.layout = row(['terminal']);
     holder.popouts = ['ariel'];
     holder.dirty = true;
-    for (const fn of popoutListeners) fn('ariel', true);
+    for (const fn of holder.detachedListeners) fn();
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenLastCalledWith(row(['terminal']), ['ariel'], true);
     expect(fetchBodies.at(-1).popouts).toEqual(['ariel']);
@@ -636,11 +691,58 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     holder.layout = row(['ariel'], ['terminal']);
     holder.popouts = [];
     holder.dirty = true;
-    for (const fn of popoutListeners) fn('ariel', false);
+    for (const fn of holder.detachedListeners) fn();
     api.fireLayout();
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(3);
     expect(serverReport).toHaveBeenLastCalledWith(row(['ariel'], ['terminal']), [], true);
+  });
+
+  test('a null layout with a detached Agent pane is reported, with the pop-outs', async () => {
+    const { holder } = await wireReporting(row(['terminal']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    // The Agent pane leaves the default layout for its window: the dock is empty.
+    holder.layout = null;
+    holder.detached = ['terminal'];
+    holder.popouts = ['terminal'];
+    holder.dirty = true;
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(null, ['terminal'], true);
+    expect(fetchBodies.at(-1)).toMatchObject({ layout: null, popouts: ['terminal'], dock: true });
+    expect(holder.ack).toHaveBeenLastCalledWith(2);
+  });
+
+  test('the last detached pane going reports the empty dock, once, and acks the holder', async () => {
+    const { holder } = await wireReporting(null);
+    holder.detached = ['terminal'];
+    holder.popouts = ['terminal'];
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledExactlyOnceWith(null, ['terminal'], true);
+    // Its window closes: the server still names the pop-out until it is told.
+    holder.detached = [];
+    holder.popouts = [];
+    holder.dirty = true;
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(null, [], true);
+    expect(holder.dirty).toBe(false);
+    // Acknowledged: nothing further goes out for the same empty dock.
+    for (const fn of holder.detachedListeners) fn();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+  });
+
+  test('a null layout with nothing detached still reports nothing', async () => {
+    const { api, holder } = await wireReporting(null);
+    holder.popouts = ['ariel'];
+    api.fireLayout();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).not.toHaveBeenCalled();
   });
 
   test('a report that never LANDED is retried, not remembered as sent', async () => {
@@ -666,16 +768,168 @@ describe('layout reporter — from the holder, settle debounce, content dedupe, 
     expect(serverReport).toHaveBeenCalledTimes(3);
   });
 
-  test('a refused report (HTTP error) is not acked and is retried', async () => {
-    fetchStatus.ok = false;
-    const { api, holder } = await wireReporting(row(['ariel']));
+  test.each([
+    ['a network error', () => Promise.reject(new Error('network down'))],
+    ['a 503', () => Promise.resolve(null)],
+    ['a 500', () => Promise.resolve(httpError(500))],
+    ['a request timeout (408)', () => Promise.resolve(httpError(408))],
+    ['too many requests (429)', () => Promise.resolve(httpError(429))],
+  ])('a report lost to %s is resent with backoff, the layout unchanged', async (_name, fail) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    serverReport.mockImplementation(fail);
+    const { holder } = await wireReporting(row(['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
-    expect(holder.ack).not.toHaveBeenCalled();
-    fetchStatus.ok = true;
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+
+    serverReport.mockImplementation((/** @type {any} */ layout) =>
+      Promise.resolve({ status: 'ok', layout, rev: 4, updated: true })
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    expect(holder.ack).toHaveBeenCalledExactlyOnceWith(4);
+    expect(holder.dirty).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    // One warning for the run of failures, not one per attempt.
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test('the backoff doubles up to 30 s: a server down for minutes is asked twice a minute', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { api } = await wireReporting(row(['ariel']));
+    // Past the boot deadline, whose backstop report would land mid-backoff.
+    await vi.advanceTimersByTimeAsync(10_000);
+    /** @type {number[]} */
+    const at = [];
+    serverReport.mockImplementation(() => {
+      at.push(Date.now());
+      return Promise.resolve(null);
+    });
+    change(api, row(['ariel'], ['okf']));
+    await vi.advanceTimersByTimeAsync(SETTLE + 200_000);
+    const gaps = at.slice(1).map((t, i) => t - at[i]);
+    expect(gaps.slice(0, 7)).toEqual([500, 1000, 2000, 4000, 8000, 16000, 30000]);
+    expect(gaps.length).toBeGreaterThan(8);
+    expect(gaps.slice(7).every((gap) => gap === 30000)).toBe(true);
+    warn.mockRestore();
+  });
+
+  test('a report with no answer in 30 s is given up and sent again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    serverReport.mockImplementationOnce(() => new Promise(() => {}));
+    const { holder } = await wireReporting(row(['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1 + 500);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(holder.dirty).toBe(false);
+    warn.mockRestore();
+  });
+
+  test('a lasting refusal (4xx) is logged with the server detail and not sent again until the layout changes', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    serverReport.mockImplementationOnce(() =>
+      Promise.resolve(httpError(422, "Unknown panel ids: ['gone']"))
+    );
+    const { api, holder } = await wireReporting(row(['gone']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    const logged = error.mock.calls.flat().map(String).join(' ');
+    expect(logged).toContain('422');
+    expect(logged).toContain("Unknown panel ids: ['gone']");
+
     api.fireLayout();
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    expect(holder.ack).not.toHaveBeenCalled();
+    expect(holder.dirty).toBe(true);
+    expect(error).toHaveBeenCalledTimes(1);
+
+    change(api, row(['ariel']));
     await vi.advanceTimersByTimeAsync(SETTLE);
     expect(serverReport).toHaveBeenCalledTimes(2);
-    expect(holder.ack).toHaveBeenCalledTimes(1);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel']), [], true);
+    expect(holder.dirty).toBe(false);
+    error.mockRestore();
+  });
+
+  test('a forced report goes out at once, unchanged layout and pop-outs included, and is acked', async () => {
+    const { mod, holder } = await wireReporting(row(['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+    holder.popouts = ['okf'];
+    holder.dirty = true;
+    mod.noteReported({ layout: row(['ariel']), popouts: ['okf'] });
+
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel']), ['okf'], true);
+    expect(holder.ackedRev).toBe(2);
+    expect(holder.dirty).toBe(false);
+  });
+
+  test('a forced report that does not land is sent again', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { mod } = await wireReporting(row(['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    serverReport.mockImplementationOnce(() => Promise.resolve(null));
+
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel']), [], true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(serverReport).toHaveBeenCalledTimes(3);
+    warn.mockRestore();
+  });
+
+  test('a forced report asked for while a report is in flight goes out after it', async () => {
+    // The report in flight may have reached the server before the request was
+    // sent, so only a report sent after the request answers it.
+    /** @type {(() => void)[]} */
+    const pending = [];
+    serverReport.mockImplementation(
+      (/** @type {any} */ layout) =>
+        new Promise((resolve) =>
+          pending.push(() => resolve({ status: 'ok', layout, rev: pending.length, updated: true }))
+        )
+    );
+    const { mod } = await wireReporting(row(['ariel']));
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(SETTLE * 4);
+    expect(serverReport).toHaveBeenCalledTimes(1);
+
+    pending[0]();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+    expect(serverReport).toHaveBeenLastCalledWith(row(['ariel']), [], true);
+    pending[1]();
+    await vi.advanceTimersByTimeAsync(SETTLE * 4);
+    expect(serverReport).toHaveBeenCalledTimes(2);
+  });
+
+  test('a forced report with no holder, or no layout yet, sends nothing', async () => {
+    const { mod } = await wireReporting(null);
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).not.toHaveBeenCalled();
+    state.holder = null;
+    mod.reportLayoutNow();
+    await vi.advanceTimersByTimeAsync(SETTLE);
+    expect(serverReport).not.toHaveBeenCalled();
   });
 
   test('a fetch that throws does not strand the in-flight flag and kill reporting', async () => {
@@ -1145,8 +1399,8 @@ describe('dockPanelAt — placement at an explicit dock position (rail drag / dr
   test('a panel living in its own pop-out window never gets a placeholder, by any placement verb', async () => {
     const api = makeApi();
     const { mod } = await wire(api);
-    const holder = await seedHolder(api, row(['terminal'], ['bluesky']), '2');
-    isPoppedOut.mockImplementation((/** @type {string} */ id) => id === 'okf');
+    const holder = await seedHolder(api, row(['terminal'], ['bluesky'], ['okf']), '2');
+    expect(holder.detach('okf', null)).toBe(true);
 
     mod.dockPanelAt('okf', 'KNOWLEDGE', { referenceGroup: { id: '2' }, direction: 'right' });
     mod.dockPanelBesideActive('okf', 'KNOWLEDGE');
@@ -1156,7 +1410,6 @@ describe('dockPanelAt — placement at an explicit dock position (rail drag / dr
       split: 'row',
       items: [['terminal'], ['bluesky'], ['ariel']],
     });
-    isPoppedOut.mockImplementation(() => false);
   });
 });
 

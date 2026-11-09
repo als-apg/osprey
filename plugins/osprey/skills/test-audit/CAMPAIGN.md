@@ -14,10 +14,10 @@ Keep ledgers, lane plans and notes out of tracked files.
 ## 1. Baseline
 
 Record the subsystem's test and support line counts and every test file's
-pass/fail state at a pinned `main` SHA, serially and under
-`-n 4 --dist loadgroup`. Keep baseline failures in their own list, split into
-real failures and parallel-only failures (triage the latter with "If a new
-test flakes under `-n 4`" in tests/README.md §7): a baseline failure is a
+pass/fail state at a pinned `main` SHA, serially and in the parallel sweep.
+Keep baseline failures in their own list, split into real failures and
+parallel-only failures (triage the latter with "If a new test flakes in the
+parallel sweep" in tests/README.md §7): a baseline failure is a
 product-bug suspect, not a stale test.
 
 Done when every in-scope test file has a recorded baseline result.

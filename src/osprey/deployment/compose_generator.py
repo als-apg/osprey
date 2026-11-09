@@ -59,6 +59,7 @@ from osprey.deployment.subprocess_capture import run_captured
 # and conftest keep patching / importing it from this module's namespace.
 from osprey.deployment.wheel_build import (
     _copy_local_framework_for_override,
+    _staged_dev_artifact_paths,
     preflight_dev_mode,
 )
 from osprey.deployment.wheel_build import (
@@ -1677,6 +1678,7 @@ _OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
     "gchat_bridge": "-gchat-bridge",
     "nextcloud_bridge": "-nextcloud-bridge",
     "teams_bridge": "-teams-bridge",
+    "slack_bridge": "-slack-bridge",
 }
 
 #: Tag those images carry when nothing sets the tag axis — the one ``osprey up``
@@ -2052,9 +2054,38 @@ def write_labels_override(out_base, compose_files, config):
     return target
 
 
+#: Plain scalars a YAML 1.2 reader (compose) resolves to something other than a
+#: string, by the 1.2 core schema. PyYAML resolves by YAML 1.1, so it leaves some
+#: of these unquoted: a repo-id digest such as ``096780950e46`` reached compose as
+#: the float ``9.678095e+53``.
+_YAML12_NON_STRING = re.compile(
+    r"[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+"
+    r"|[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?"
+    r"|[-+]?\.(inf|Inf|INF)|\.(nan|NaN|NAN)"
+    r"|true|True|TRUE|false|False|FALSE|null|Null|NULL|~|"
+)
+
+
+class _OverrideDumper(yaml.SafeDumper):
+    """Quotes every string compose would otherwise read as a number, bool or null."""
+
+
+def _represent_override_str(dumper, value):
+    style = '"' if _YAML12_NON_STRING.fullmatch(value) else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value, style=style)
+
+
+_OverrideDumper.add_representer(str, _represent_override_str)
+
+
 def _dump_override(document):
-    return yaml.safe_dump(
-        document, sort_keys=False, default_flow_style=False, allow_unicode=True, width=4096
+    return yaml.dump(
+        document,
+        Dumper=_OverrideDumper,
+        sort_keys=False,
+        default_flow_style=False,
+        allow_unicode=True,
+        width=4096,
     )
 
 
@@ -2887,6 +2918,20 @@ def _site_image_args_for_context(config, out_dir):
 #: connectors wheel), not the framework's.
 _DEV_WHEEL_MEMBERS = {"optimizer": "packages/osprey-optimizer"}
 
+#: Build contexts whose image installs extras of its primary wheel (the
+#: framework's, or the member's named in :data:`_DEV_WHEEL_MEMBERS`) before the
+#: wheel layer, keyed by context directory name, mapped to those extras. Their
+#: dev builds are handed the extras' third-party requirements
+#: (``osprey-extra-requirements.txt``), which the image installs under the lock
+#: constraints instead of fetching ``<distribution>[<extra>]`` from the index.
+#: ``test_service_dockerfiles`` holds this to the recipes' own extras.
+_DEV_WHEEL_EXTRAS = {
+    "gchat_bridge": ("gchat",),
+    "optimizer": ("service",),
+    "teams_bridge": ("teams",),
+    "virtual_accelerator": ("virtual-accelerator",),
+}
+
 
 def _stage_dev_wheel_for_context(out_dir, dev_mode):
     """Stage the local dev wheel into a service build context; report success.
@@ -2910,6 +2955,14 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     :return: True iff a wheel was successfully staged into ``out_dir``
     :rtype: bool
     """
+    if os.path.isfile(os.path.join(out_dir, "Dockerfile")):
+        # A context that outlives a deploy (the incremental refresh, a render
+        # in place) may still hold an earlier --dev run's artifacts. The lock
+        # constraints file is the one that matters: its presence alone puts the
+        # Dockerfile on the lock-driven install, so a stale copy would turn this
+        # build into a lock-pinned one whatever mode it was asked for.
+        for artifact in _staged_dev_artifact_paths(out_dir):
+            artifact.unlink()
     if not dev_mode:
         # DEBUG, not INFO — fires once per service build context on every
         # production build, restating a flag the operator already passed.
@@ -2927,8 +2980,11 @@ def _stage_dev_wheel_for_context(out_dir, dev_mode):
     # Raises DevModeUnavailableError rather than returning False when --dev
     # cannot be honored; the deploy stops instead of silently deploying the
     # pinned PyPI release under a flag that means "run my local code".
+    context_name = os.path.basename(out_dir)
     _copy_local_framework_for_override(
-        out_dir, member=_DEV_WHEEL_MEMBERS.get(os.path.basename(out_dir))
+        out_dir,
+        member=_DEV_WHEEL_MEMBERS.get(context_name),
+        extras=_DEV_WHEEL_EXTRAS.get(context_name, ()),
     )
     logger.debug("Development mode: Osprey override prepared")
     return True

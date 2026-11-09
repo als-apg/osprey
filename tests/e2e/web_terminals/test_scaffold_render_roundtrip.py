@@ -37,7 +37,7 @@ from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import resolve_port_base
 from tests._renders import tier_render
 
-pytestmark = [pytest.mark.e2e, pytest.mark.model_free]
+pytestmark = [pytest.mark.model_free]
 
 # The generator's full family set — web plus one family per registry companion
 # server, derived exactly the way the render derives it (a newly registered

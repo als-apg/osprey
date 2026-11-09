@@ -503,9 +503,9 @@ class TestImportIsolation:
 
 class TestDemoCorpus:
     @pytest.fixture(scope="class")
-    def demo(self, built_control_assistant: BuiltProject) -> ParsedCorpus:
-        """The graph view the control-assistant build writes, parsed."""
-        view = built_control_assistant.build_dir / "data" / "graph" / "facility.ttl"
+    def demo(self, built_demo: BuiltProject) -> ParsedCorpus:
+        """The graph view the demo build writes, parsed."""
+        view = built_demo.build_dir / "data" / "graph" / "facility.ttl"
         return parse_corpus(view.read_text(encoding="utf-8"))
 
     def test_the_shipped_corpus_writes_every_row(self, demo: ParsedCorpus, tmp_path: Path):

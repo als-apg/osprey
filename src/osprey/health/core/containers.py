@@ -14,7 +14,8 @@ Three whole-category shortcuts replace those rows:
 
 * **No record** → a single ``warning`` row ``container_runtime`` carrying
   :data:`~osprey.deployment.deployment_record.NOTHING_DEPLOYED`; no runtime is
-  asked.
+  asked. Inside a container the same row is a ``skip`` ("n/a in container"):
+  the record and the runtime belong to the host.
 * **Unreadable record** → a single ``warning`` row ``container_runtime`` naming
   the record unreadable, with the path in its details; no runtime is asked.
 * **Degraded mode** (``config is None`` — the project's ``config.yml`` did not
@@ -39,7 +40,8 @@ from typing import TYPE_CHECKING, Any, cast
 from osprey.deployment.compose_generator import resolve_repo_root
 from osprey.deployment.deployment_record import NOTHING_DEPLOYED, read_deployment_record
 from osprey.deployment.errors import DeploymentRecordError
-from osprey.health.models import CheckResult, Status
+from osprey.health.derive import in_container
+from osprey.health.models import N_A_IN_CONTAINER, CheckResult, Status
 from osprey.health.probes import ProbeContext
 from osprey.health.probes.container import run as container_probe
 
@@ -92,6 +94,18 @@ def containers(
                 )
             ]
         if record is None:
+            if in_container():
+                # The deployment record and the runtime that started this
+                # container are the host's; nothing in here deploys anything.
+                return [
+                    CheckResult(
+                        "container_runtime",
+                        CATEGORY,
+                        Status.SKIP,
+                        "the container runtime is the host's",
+                        value=N_A_IN_CONTAINER,
+                    )
+                ]
             return [CheckResult("container_runtime", CATEGORY, Status.WARNING, NOTHING_DEPLOYED)]
 
         runtime = record.runtime

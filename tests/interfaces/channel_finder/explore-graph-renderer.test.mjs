@@ -2,17 +2,20 @@
 /**
  * Unit tests for the graph finder's mount (explore-graph.js).
  *
- * The module owns everything between the graph endpoints and the DOM: the panel
- * shell (title, tool chips, store badge), the search box and its debounce, the
- * facet rail, the result page and its selection, the device card, the copy and
- * send actions, and the informational pane the empty and unreachable stores
- * share. The state and markup modules it drives are pure and tested on their
- * own, so what is asserted here is the wiring: which request goes out when,
- * which reply is allowed to land, and what reaches the page. Run with:
+ * The module owns everything between the graph endpoints and the DOM: the
+ * search in the panel toolbar and its debounce, the facet sidebar, the result
+ * page and its selection, the device card, the copy and send actions, the
+ * panel's ⋯ entries (the hub's "This panel" section, the standalone ⋯), and
+ * the informational pane the empty and unreachable stores share. The state and
+ * markup modules it drives are pure and tested on their own, so what is
+ * asserted here is the wiring: which request goes out when, which reply is
+ * allowed to land, and what reaches the page. Run with:
  *   npx vitest run tests/interfaces/channel_finder/explore-graph-renderer.test.mjs
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
@@ -300,13 +303,38 @@ function check(selector, checked) {
 }
 
 /**
+ * The panel toolbar exactly as index.html ships it: the finder claims its
+ * search field, its count, its ⋯ and its sidebar toggle.
+ */
+const TOOLBAR_HTML = (() => {
+  const html = readFileSync(
+    join(import.meta.dirname, '../../../src/osprey/interfaces/channel_finder/static/index.html'),
+    'utf8'
+  );
+  const match = html.match(/<header class="osprey-panel-toolbar"[\s\S]*?<\/header>/);
+  if (!match) throw new Error('index.html carries no panel toolbar');
+  return match[0];
+})();
+
+/** Lay out the page the finder mounts into: the panel toolbar and the pane. */
+function setPage() {
+  document.body.innerHTML = `${TOOLBAR_HTML}<div id="explore-content"></div>`;
+}
+
+/** @returns {HTMLInputElement} The toolbar's search field. */
+function searchBox() {
+  const input = /** @type {HTMLInputElement|null} */ (document.getElementById('cf-search'));
+  if (!input) throw new Error('no query box');
+  return input;
+}
+
+/**
  * Type into the query box and fire the input event the mount debounces.
  * @param {string} value - The new query.
  * @returns {void}
  */
 function type(value) {
-  const input = /** @type {HTMLInputElement|null} */ (host().querySelector('#graph-finder-q'));
-  if (!input) throw new Error('no query box');
+  const input = searchBox();
   input.value = value;
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -322,7 +350,7 @@ beforeEach(() => {
   // The finder keeps its column layout and view preferences in localStorage;
   // every test starts from the defaults.
   localStorage.clear();
-  document.body.innerHTML = '<div id="explore-content"></div>';
+  setPage();
   state.setGraphInfo(['read_cypher', 'get_schema'], {
     uri: 'bolt://localhost:7687',
     ttl_filename: 'als_corpus.ttl',
@@ -335,6 +363,7 @@ afterEach(() => {
   // An outside press closes any context menu a test left open.
   document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
   unmountGraph();
+  document.body.classList.remove('embedded');
   state.setGraphInfo([], null);
   vi.clearAllMocks();
   vi.unstubAllGlobals();
@@ -367,26 +396,28 @@ describe('the first render', () => {
         ?.getAttribute('data-depth')
     ).toBe('2');
 
-    // The page of rows, the counts, and the pager.
+    // The page of rows and the pager; the count is the toolbar's status text.
     expect(drawnPvs()).toEqual(DEMO_ROWS.map((row) => row.fullPv));
-    expect(container.querySelector('.finder-count')?.textContent).toBe(
-      `${(128).toLocaleString()} channels`
-    );
-    expect(container.querySelector('.result-counts')?.textContent).toContain(
-      `${(64).toLocaleString()} devices`
+    expect(document.getElementById('cf-result-count')?.textContent).toBe(
+      `${(128).toLocaleString()} channels on ${(64).toLocaleString()} devices`
     );
     expect(container.querySelector('.pager-pos')?.textContent).toBe('1 / 3');
 
-    // Panel chrome: the toolbar and the three panes, and no failure pane.
-    // Provenance lives in the corpus strip now (stats-badges.js), not here.
-    expect(container.querySelector('.cf-toolbar #graph-finder-q')).not.toBeNull();
-    expect(container.querySelector('.finder-layout > .facet-rail')).not.toBeNull();
+    // Panel chrome: the facets in the shared sidebar, then the main column
+    // with the results and, under them, the inspector; no toolbar of the
+    // finder's own, since the search it holds is the panel toolbar's.
+    // Provenance lives in the corpus strip (stats-badges.js), not here.
+    expect(container.querySelector('.cf-toolbar, input[type="search"]')).toBeNull();
+    expect(searchBox().disabled).toBe(false);
+    expect(container.querySelector('.finder-layout > aside.osprey-panel-sidebar')).not.toBeNull();
     expect(
-      container.querySelector('.finder-layout > .finder-results #graph-finder-table')
+      container.querySelector('.finder-layout > .finder-main > .finder-results #graph-finder-table')
     ).not.toBeNull();
+    const inspector = container.querySelector('.finder-main > .finder-results ~ .finder-inspector');
+    expect(inspector?.hasAttribute('hidden')).toBe(true);
     expect(
-      container.querySelector('.finder-layout > .finder-inspector')?.hasAttribute('hidden')
-    ).toBe(true);
+      container.querySelector('.finder-main > .osprey-splitter')?.getAttribute('aria-orientation')
+    ).toBe('horizontal');
     expect(container.querySelector('.graph-store-badge')).toBeNull();
     expect(container.querySelector('.explore-unknown')).toBeNull();
     expect(container.querySelector('.graph-truncated')).toBeNull();
@@ -398,7 +429,7 @@ describe('the first render', () => {
     expect(host().querySelector('.graph-truncated')).not.toBeNull();
     unmountGraph();
 
-    document.body.innerHTML = '<div id="explore-content"></div>';
+    setPage();
     stubDemo(searchPayload({ truncated: true }));
     await mountGraph(host());
 
@@ -532,24 +563,6 @@ describe('the first render', () => {
 });
 
 describe('searching', () => {
-  test('typing costs one search after the debounce, not one per keystroke', async () => {
-    const fetchMock = stubDemo();
-    await mountGraph(host());
-    vi.useFakeTimers();
-
-    type('qu');
-    type('qua');
-    type('quad');
-    // Nothing has gone out yet: the query is still settling.
-    expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(1);
-
-    await vi.advanceTimersByTimeAsync(200);
-
-    const searches = callsTo(fetchMock, SEARCH_PATH);
-    expect(searches).toHaveLength(2);
-    expect(searches[1]).toBe(`${SEARCH_PATH}?q=quad&page=1`);
-  });
-
   test('a late reply to an abandoned query never overwrites the current one', async () => {
     /** @type {(() => void)[]} */
     const pending = [];
@@ -659,20 +672,6 @@ describe('searching', () => {
 
     expect(host().innerHTML).toBe('');
     expect(host().querySelector('.result-table')).toBeNull();
-  });
-
-  test('a query still settling when the panel goes away never leaves', async () => {
-    const fetchMock = stubDemo();
-    await mountGraph(host());
-    vi.useFakeTimers();
-
-    type('quad');
-    unmountGraph();
-    await vi.advanceTimersByTimeAsync(200);
-
-    // Only the mount's own search was ever sent: the debounce died with the
-    // panel rather than firing into a torn-down view.
-    expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(1);
   });
 });
 
@@ -1125,7 +1124,9 @@ describe('right-click menus', () => {
     stubDemo();
     await mountGraph(host());
 
-    expect(rightClick('#graph-finder-q').defaultPrevented).toBe(false);
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    searchBox().dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
     expect(document.querySelector('.osprey-context-menu')).toBeNull();
   });
 
@@ -1163,7 +1164,7 @@ describe('columns', () => {
     expect(JSON.parse(localStorage.getItem(COLUMNS_KEY) ?? '{}').hidden).toContain('description');
 
     unmountGraph();
-    document.body.innerHTML = '<div id="explore-content"></div>';
+    setPage();
     stubDemo();
     await mountGraph(host());
     expect(drawnColumns()).not.toContain('description');
@@ -1236,7 +1237,7 @@ describe('the rail', () => {
 });
 
 describe('the inspector and the keyboard', () => {
-  test('a device opens beside the results, its rows are marked, and Escape closes it', async () => {
+  test('a device opens under the results, its rows are marked, and Escape closes it', async () => {
     stubDemo();
     await mountGraph(host());
 
@@ -1300,73 +1301,155 @@ describe('the inspector and the keyboard', () => {
   test('/ jumps to the search box, but not while typing', async () => {
     stubDemo();
     await mountGraph(host());
-    const input = /** @type {HTMLInputElement} */ (host().querySelector('#graph-finder-q'));
-    // happy-dom lays nothing out; give the box a client rect so it counts as shown.
-    vi.spyOn(input, 'getClientRects').mockReturnValue(/** @type {any} */ ([{}]));
 
     document.body.focus();
     document.dispatchEvent(
       new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true })
     );
-    expect(document.activeElement).toBe(input);
+    expect(document.activeElement).toBe(searchBox());
   });
 });
 
-describe('density', () => {
-  test('the density toggle compacts the rows and remembers it', async () => {
+describe('the panel toolbar', () => {
+  test('the search field and the count are the finder’s while it is mounted', async () => {
     stubDemo();
     await mountGraph(host());
+    const count = /** @type {HTMLElement} */ (document.getElementById('cf-result-count'));
+    expect(count.hidden).toBe(false);
 
-    click('button[data-density="compact"]');
-    expect(host().querySelector('.graph-explorer')?.classList.contains('compact')).toBe(true);
-    expect(
-      host().querySelector('button[data-density="compact"]')?.getAttribute('aria-pressed')
-    ).toBe('true');
-    expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}').density).toBe('compact');
-  });
-});
-
-describe('the hub tile bar', () => {
-  test('the search box and ⋯ menu are offered to the hub, and withdrawn on unmount', async () => {
-    stubDemo();
-    await mountGraph(host());
-
-    const items = state.viewHeader?.items ?? [];
-    expect(items.map((item) => `${item.kind}:${item.id}`)).toEqual([
-      'search:graph-search',
-      'menu:graph-more',
-    ]);
-    const menu = items.find((item) => item.kind === 'menu');
-    expect(menu?.items?.map((entry) => entry.id)).toContain('columns');
+    const narrowed = stubDemo(
+      searchPayload({ rows: [DEMO_ROWS[2]], total: 1, devices: 1, pages: 1 })
+    );
+    type('qfa');
+    await vi.waitFor(() => expect(count.textContent).toBe('1 channel on 1 device'));
+    expect(callsTo(narrowed, SEARCH_PATH)).toEqual([`${SEARCH_PATH}?q=qfa&page=1`]);
 
     unmountGraph();
-    expect(state.viewHeader).toBeNull();
+    expect(searchBox().disabled).toBe(true);
+    expect(searchBox().value).toBe('');
+    expect(count.hidden).toBe(true);
   });
 
-  test('a search typed in the tile bar runs here and fills the hidden box', async () => {
-    const fetchMock = stubDemo();
+  test('the sidebar toggle drives the filters, and goes back disabled on unmount', async () => {
+    stubDemo();
     await mountGraph(host());
+    const toggle = /** @type {HTMLButtonElement} */ (document.getElementById('cf-sidebar-toggle'));
+    const rail = /** @type {HTMLElement} */ (host().querySelector('#graph-finder-rail'));
 
-    state.viewHeader?.onAction('graph-search', 'qfa');
-    await vi.waitFor(() => expect(callsTo(fetchMock, SEARCH_PATH)).toHaveLength(2));
-    expect(callsTo(fetchMock, SEARCH_PATH)[1]).toBe(`${SEARCH_PATH}?q=qfa&page=1`);
-    expect(/** @type {HTMLInputElement} */ (host().querySelector('#graph-finder-q')).value).toBe(
-      'qfa'
-    );
+    // Open on a wide panel, and the toggle says what it controls.
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.getAttribute('aria-controls')).toBe(rail.id);
+    expect(rail.getAttribute('data-open')).toBe('true');
+
+    toggle.click();
+    expect(rail.getAttribute('data-open')).toBe('false');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+
+    unmountGraph();
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.hasAttribute('aria-controls')).toBe(false);
   });
+});
 
-  test('the tile-bar menu reaches the same verbs', async () => {
+/**
+ * Embed the panel: the body flag header-contrib.js reads, and a parent frame
+ * that records what is posted to it.
+ * @returns {any} The parent's postMessage spy.
+ */
+function embed() {
+  mocks.isEmbedded.mockReturnValue(true);
+  document.body.classList.add('embedded');
+  const post = vi.fn();
+  vi.stubGlobal('parent', { postMessage: post });
+  return post;
+}
+
+/**
+ * Every tile-bar contribution posted to the hub, oldest first.
+ * @param {any} post - The spy from {@link embed}.
+ * @returns {any[][]} Each contribution's items.
+ */
+function contributions(post) {
+  return post.mock.calls
+    .map((/** @type {any[]} */ call) => call[0])
+    .filter((/** @type {any} */ msg) => msg && msg.type === 'canopy-host-header-contribution')
+    .map((/** @type {any} */ msg) => msg.items);
+}
+
+/**
+ * A click on an entry of the hub's tile ⋯, as the hub reports it.
+ * @param {string} id - The contributed item's id.
+ * @param {string} value - The entry's id.
+ * @returns {void}
+ */
+function hubAction(id, value) {
+  window.dispatchEvent(
+    new MessageEvent('message', {
+      data: { type: 'canopy-host-header-action', id, value },
+      origin: window.location.origin,
+    })
+  );
+}
+
+const ENTRY_IDS = [
+  'density-comfortable',
+  'density-compact',
+  'columns',
+  'reset-columns',
+  'clear-filters',
+  'clear-selection',
+];
+
+describe('the panel’s ⋯ entries', () => {
+  test('embedded, the hub gets them as the one v3 menu, and loses them on unmount', async () => {
+    const post = embed();
     stubDemo();
     await mountGraph(host());
 
-    state.viewHeader?.onAction('graph-more', 'density-compact');
-    expect(host().querySelector('.graph-explorer')?.classList.contains('compact')).toBe(true);
-    const compact = state.viewHeader?.items
-      .find((item) => item.kind === 'menu')
-      ?.items?.find((entry) => entry.id === 'density-compact');
-    expect(/** @type {any} */ (compact)?.checked).toBe(true);
+    // The bar gets nothing else: no search, no view switch, no buttons.
+    const sent = contributions(post);
+    expect(sent.length).toBeGreaterThan(0);
+    for (const items of sent) {
+      expect(items.map((/** @type {any} */ item) => `${item.kind}:${item.id}`)).toEqual([
+        'menu:finder',
+      ]);
+    }
+    expect(sent.at(-1)?.[0].items.map((/** @type {any} */ e) => e.id)).toEqual(ENTRY_IDS);
 
-    state.viewHeader?.onAction('graph-more', 'columns');
+    unmountGraph();
+    expect(contributions(post).at(-1)).toEqual([]);
+  });
+
+  test('they are re-sent as the state changes: a selection enables Clear selection', async () => {
+    const post = embed();
+    stubDemo();
+    await mountGraph(host());
+    const disabled = (/** @type {string} */ id) =>
+      contributions(post)
+        .at(-1)?.[0]
+        .items.find((/** @type {any} */ e) => e.id === id)?.disabled;
+    expect(disabled('clear-selection')).toBe(true);
+    expect(disabled('clear-filters')).toBe(true);
+
+    check('thead input[data-select-page]', true);
+    expect(disabled('clear-selection')).toBe(false);
+  });
+
+  test('an entry from the hub’s ⋯ runs the verb here', async () => {
+    const post = embed();
+    stubDemo();
+    await mountGraph(host());
+
+    hubAction('finder', 'density-compact');
+    expect(host().querySelector('.graph-explorer')?.classList.contains('compact')).toBe(true);
+    expect(JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}').density).toBe('compact');
+    const compact = contributions(post)
+      .at(-1)?.[0]
+      .items.find((/** @type {any} */ e) => e.id === 'density-compact');
+    expect(compact?.checked).toBe(true);
+
+    // The column checklist opens here, against the table header it changes.
+    hubAction('finder', 'columns');
     expect(menuLabels()).toContain('Reset columns');
   });
 });

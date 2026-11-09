@@ -24,6 +24,7 @@ from osprey.services.bluesky_bridge.figure import (
     Figure,
     LinesMark,
     RowWindow,
+    bind_units,
     default_figure,
     rows_from_columnar,
 )
@@ -658,3 +659,31 @@ def test_an_empty_window_over_a_nonempty_run_still_draws_nothing_and_says_so():
     # to qualify -- but the envelope still reports partial/source/reason.
     assert figure.panels == []
     assert figure.partial is True
+
+
+# --- Units -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("movable", [(), ("motor1",)], ids=["row-index", "movable-x"])
+def test_each_axis_states_the_unit_its_column_declares(movable: tuple[str, ...]):
+    columns = ["motor1", "det1", "det2"]
+    units = {column: f"u:{column}" for column in columns}
+    window = rows_from_columnar(columns, [[0.0, 1.0, 2.0], [1.0, 3.0, 4.0]], 2, units)
+
+    figure = bind_units(
+        default_figure(
+            window, reason=REASON_NO_RENDER, partial=False, source="live", movable=movable
+        ),
+        window,
+    )
+
+    assert figure.panels
+    for panel in figure.panels:
+        assert panel.y_columns is not None
+        assert panel.y_columns.names == [panel.title]
+        assert panel.y_units == window.units[panel.title]
+        if movable:
+            assert panel.x_columns is not None and panel.x_columns.names == list(movable)
+            assert panel.x_units == window.units[movable[0]]
+        else:
+            assert (panel.x_columns, panel.x_units) == (None, None)

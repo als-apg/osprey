@@ -1,6 +1,6 @@
 # PyAT Virtual Accelerator — full image
 
-A single-container EPICS server for OSPREY's Control Assistant Tutorial: the
+A single-container EPICS server for OSPREY's Demo Tutorial: the
 simulator view a build writes, served through one composite (PyAT physics for
 the lattice-backed models, the texture for every other channel) on the
 `lume-pva-apg` serving stack. Selected via

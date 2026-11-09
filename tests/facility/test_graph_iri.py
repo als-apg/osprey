@@ -124,8 +124,8 @@ def test_an_unknown_kind_is_refused() -> None:
 
 
 @pytest.mark.slow
-def test_every_demo_iri_decodes_to_its_raw_id(built_control_assistant: BuiltProject) -> None:
-    facility = built_control_assistant.facility
+def test_every_demo_iri_decodes_to_its_raw_id(built_demo: BuiltProject) -> None:
+    facility = built_demo.facility
     code = facility["identity"]["code"]
 
     minted: dict[str, tuple[str, str]] = {}

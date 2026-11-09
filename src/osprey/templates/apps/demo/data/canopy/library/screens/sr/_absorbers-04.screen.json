@@ -1,0 +1,442 @@
+{
+  "schemaVersion": "1.1",
+  "kind": "screen",
+  "id": "sr/_absorbers-04",
+  "metadata": {
+    "title": "SR straight 04 \u00b7 absorbers",
+    "source": {
+      "type": "native"
+    },
+    "size": {
+      "width": 1200,
+      "height": 224
+    },
+    "description": "Detail of storage-ring sector 04 of the demo facility: every absorber thermocouple's temperature, limit and over-temperature flag."
+  },
+  "macros": [],
+  "formulas": [],
+  "root": {
+    "id": "w-001",
+    "type": "absolute-canvas",
+    "props": {
+      "width": 1200,
+      "height": 224,
+      "backgroundColor": {
+        "$role": "Page_Background",
+        "fallback": "#f4f5f5",
+        "fallbackDark": "#111217"
+      }
+    },
+    "geometry": {
+      "x": 0,
+      "y": 0,
+      "width": 1200,
+      "height": 224
+    },
+    "children": [
+      {
+        "id": "w-002",
+        "type": "text-label",
+        "props": {
+          "text": "SR straight 04 \u00b7 absorbers",
+          "fontSize": 22,
+          "align": "left",
+          "foregroundColor": {
+            "$role": "Page_Text",
+            "fallback": "#24292e",
+            "fallbackDark": "#ccccdc"
+          },
+          "backgroundColor": {
+            "$role": "Page_Background",
+            "fallback": "#f4f5f5",
+            "fallbackDark": "#111217"
+          }
+        },
+        "geometry": {
+          "x": 16,
+          "y": 10,
+          "width": 520,
+          "height": 30
+        }
+      },
+      {
+        "id": "w-003",
+        "type": "text-label",
+        "props": {
+          "text": "SR sector 04 \u203a",
+          "fontSize": 12,
+          "align": "right",
+          "foregroundColor": {
+            "$role": "Beam",
+            "fallback": "#1f62c4",
+            "fallbackDark": "#6e9fff"
+          },
+          "backgroundColor": {
+            "$role": "Page_Background",
+            "fallback": "#f4f5f5",
+            "fallbackDark": "#111217"
+          }
+        },
+        "geometry": {
+          "x": 900,
+          "y": 16,
+          "width": 280,
+          "height": 20
+        }
+      },
+      {
+        "id": "w-004",
+        "type": "rectangle",
+        "props": {
+          "lineColor": {
+            "$role": "Page_Background",
+            "fallback": "#f4f5f5",
+            "fallbackDark": "#111217"
+          },
+          "lineWidth": 0,
+          "fill": false,
+          "hoverLabel": "Open SR sector 04",
+          "actions": [
+            {
+              "type": "open_display",
+              "file": "../sr/sector-04.screen.json",
+              "target": "tab"
+            }
+          ]
+        },
+        "geometry": {
+          "x": 900,
+          "y": 16,
+          "width": 280,
+          "height": 20
+        }
+      },
+      {
+        "id": "w-005",
+        "type": "group-box",
+        "props": {
+          "title": "Upper row"
+        },
+        "geometry": {
+          "x": 16,
+          "y": 60,
+          "width": 1168,
+          "height": 148
+        },
+        "children": [
+          {
+            "id": "w-006",
+            "type": "text-label",
+            "props": {
+              "text": "Upper row",
+              "fontSize": 15,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 16,
+              "y": 64,
+              "width": 1168,
+              "height": 24
+            }
+          },
+          {
+            "id": "w-008",
+            "type": "text-label",
+            "props": {
+              "text": "T degC",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 30,
+              "y": 122,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-009",
+            "type": "text-label",
+            "props": {
+              "text": "Limit degC",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 30,
+              "y": 148,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-010",
+            "type": "text-label",
+            "props": {
+              "text": "Over",
+              "fontSize": 12,
+              "align": "left",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 30,
+              "y": 174,
+              "width": 110,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-011",
+            "type": "rectangle",
+            "props": {
+              "lineColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              },
+              "lineWidth": 1,
+              "fill": true,
+              "fillColor": {
+                "$role": "DISCONNECTED",
+                "fallback": "#86878f",
+                "fallbackDark": "#6e6e77"
+              },
+              "tooltip": "SR/TC04U01"
+            },
+            "geometry": {
+              "x": 148,
+              "y": 100,
+              "width": 100,
+              "height": 14
+            },
+            "rules": [
+              {
+                "id": "r-001",
+                "name": "tc 04U01 heat",
+                "targetProperty": "fillColor",
+                "pvs": [
+                  {
+                    "name": "SR:VAC:TC:04U01:TEMPERATURE:RB",
+                    "trigger": true
+                  }
+                ],
+                "conditions": [
+                  {
+                    "expression": "{0} < 50",
+                    "value": {
+                      "$role": "OK",
+                      "fallback": "#56a64b",
+                      "fallbackDark": "#73bf69"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 65",
+                    "value": {
+                      "$role": "MINOR",
+                      "fallback": "#e0b400",
+                      "fallbackDark": "#f2cc0c"
+                    }
+                  },
+                  {
+                    "expression": "{0} < 80",
+                    "value": {
+                      "$role": "Dipole",
+                      "fallback": "#e08e00",
+                      "fallbackDark": "#f5b73d"
+                    }
+                  },
+                  {
+                    "expression": "{0} >= 80",
+                    "value": {
+                      "$role": "MAJOR",
+                      "fallback": "#c4162a",
+                      "fallbackDark": "#e05454"
+                    }
+                  }
+                ],
+                "default": {
+                  "$role": "DISCONNECTED",
+                  "fallback": "#86878f",
+                  "fallbackDark": "#6e6e77"
+                }
+              }
+            ]
+          },
+          {
+            "id": "w-012",
+            "type": "text-label",
+            "props": {
+              "text": "01",
+              "fontSize": 9,
+              "align": "center",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Page_Background",
+                "fallback": "#f4f5f5",
+                "fallbackDark": "#111217"
+              }
+            },
+            "geometry": {
+              "x": 146,
+              "y": 94,
+              "width": 104,
+              "height": 14
+            }
+          },
+          {
+            "id": "w-013",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:04U01:TEMPERATURE:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 148,
+              "y": 122,
+              "width": 100,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-014",
+            "type": "pv-label",
+            "props": {
+              "pv": "SR:VAC:TC:04U01:LIMIT:RB",
+              "showUnits": false,
+              "alarmSensitive": true,
+              "alarmBorder": true,
+              "precision": 2,
+              "align": "right",
+              "foregroundColor": {
+                "$role": "Page_Text",
+                "fallback": "#24292e",
+                "fallbackDark": "#ccccdc"
+              },
+              "backgroundColor": {
+                "$role": "Field_Background",
+                "fallback": "#fafbfc",
+                "fallbackDark": "#181b1f"
+              }
+            },
+            "geometry": {
+              "x": 148,
+              "y": 148,
+              "width": 100,
+              "height": 22
+            }
+          },
+          {
+            "id": "w-015",
+            "type": "pv-led",
+            "props": {
+              "pv": "SR:VAC:TC:04U01:STATUS:OVERTEMP",
+              "onColor": {
+                "$role": "Led_On",
+                "fallback": "#56a64b",
+                "fallbackDark": "#73bf69"
+              },
+              "offColor": {
+                "$role": "Led_Off",
+                "fallback": "#ecedef",
+                "fallbackDark": "#22252b"
+              }
+            },
+            "geometry": {
+              "x": 191,
+              "y": 178,
+              "width": 14,
+              "height": 14
+            }
+          }
+        ]
+      },
+      {
+        "id": "w-007",
+        "type": "line",
+        "props": {
+          "lineColor": {
+            "$role": "Box_Border",
+            "fallback": "#d8d9da",
+            "fallbackDark": "#2c3235"
+          },
+          "lineWidth": 1,
+          "points": [
+            {
+              "x": 2,
+              "y": 2
+            },
+            {
+              "x": 1170,
+              "y": 2
+            }
+          ],
+          "arrowStart": false,
+          "arrowEnd": false
+        },
+        "geometry": {
+          "x": 14,
+          "y": 89,
+          "width": 1172,
+          "height": 4
+        }
+      }
+    ]
+  }
+}

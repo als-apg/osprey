@@ -43,7 +43,6 @@ _NGINX_PORT = default_port("nginx", base=_MOVED_BASE)
 _WEB_BASE_PORT = _NGINX_PORT + 1
 _ARTIFACT_BASE_PORT = default_port("artifact", base=_MOVED_BASE) + 1
 _ARIEL_BASE_PORT = default_port("ariel", base=_MOVED_BASE) + 1
-_LATTICE_BASE_PORT = default_port("lattice", base=_MOVED_BASE) + 1
 #: A web base UNDER the front door, for the ordering test below.
 _BELOW_NGINX_WEB_BASE = _NGINX_PORT - 1000
 #: A TLS listener a rootless nginx can bind, for the non-default-`tls.port`
@@ -70,7 +69,6 @@ def _config(users: list[str], **auth: object) -> dict:
         "web_base_port": _WEB_BASE_PORT,
         "artifact_base_port": _ARTIFACT_BASE_PORT,
         "ariel_base_port": _ARIEL_BASE_PORT,
-        "lattice_base_port": _LATTICE_BASE_PORT,
         "users": users,
         "default_tier": "assistant",
         "renders": {"assistant": tier_render("assistant", "demo-assistant")},
@@ -147,7 +145,7 @@ def test_open_posture_denies_nginx_and_every_roster_web_port() -> None:
 
 
 def test_deny_list_excludes_companion_panel_ports() -> None:
-    """Companion families (artifact, ariel, lattice) are NOT denied.
+    """Companion families (artifact, ariel) are NOT denied.
 
     They are not what the injected secret opens; the in-container panel proxy
     addresses them legitimately, and none of them fronts a terminal, an agent
@@ -163,7 +161,7 @@ def test_deny_list_excludes_companion_panel_ports() -> None:
 
     # Assert
     assert denied == f"{_NGINX_PORT},{_WEB_BASE_PORT}"
-    for companion_base in (_ARTIFACT_BASE_PORT, _ARIEL_BASE_PORT, _LATTICE_BASE_PORT):
+    for companion_base in (_ARTIFACT_BASE_PORT, _ARIEL_BASE_PORT):
         assert str(companion_base) not in denied.split(",")
 
 

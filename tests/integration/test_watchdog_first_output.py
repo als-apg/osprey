@@ -57,7 +57,7 @@ class _SleepingAgent(_FakeSDKClient):
 
 
 def _decision_watchdog() -> WatchdogDefinition:
-    document = yaml.safe_load((PRESET_DIR / "control-assistant.yml").read_text(encoding="utf-8"))
+    document = yaml.safe_load((PRESET_DIR / "demo.yml").read_text(encoding="utf-8"))
     definitions = parse_watchdogs_block(document["watchdogs"], base_dir=PRESET_DIR)
     by_name = {definition.name: definition for definition in definitions}
     return replace(by_name[PRESET_WATCHDOG], enabled=True)

@@ -43,8 +43,8 @@ def test_a_corrector_gain_is_its_setpoint_calibration() -> None:
     assert faults["SR:MAG:HCM:01:CURRENT:SP"] == {"cal_factor": 0.5}
 
 
-def test_the_demo_build_carries_every_scenario_verbatim(built_control_assistant: Any) -> None:
-    built = {s["name"]: s for s in built_control_assistant.facility["scenarios"]}
+def test_the_demo_build_carries_every_scenario_verbatim(built_demo: Any) -> None:
+    built = {s["name"]: s for s in built_demo.facility["scenarios"]}
     for path in sorted((FACILITY / "scenarios").glob("*.yaml")):
         source = yaml.safe_load(path.read_text(encoding="utf-8"))
         assert built[path.stem] == {"name": path.stem, **source}

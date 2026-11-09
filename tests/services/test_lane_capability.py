@@ -41,7 +41,15 @@ from tests._control_system import IN_PROCESS, section_for
 # The wire keys the capability object carries. Pinned as a set because every
 # consumer branches on these names: the JS panel client, the MCP queue tools,
 # and `/health` itself.
-_WIRE_KEYS = {"can_execute", "reason", "detail", "lane", "lane_target", "lane_degraded"}
+_WIRE_KEYS = {
+    "can_execute",
+    "reason",
+    "detail",
+    "lane",
+    "lane_target",
+    "lane_degraded",
+    "retryable",
+}
 
 
 class _ExplodingBackend:
@@ -242,6 +250,7 @@ def test_to_dict_round_trips_the_lane_fields() -> None:
         "lane": "bluesky_va",
         "lane_target": "va",
         "lane_degraded": None,
+        "retryable": False,
     }
 
 
@@ -268,12 +277,12 @@ async def test_every_refusal_carries_the_lane_identity(
 
 
 def test_the_health_fallback_dict_matches_the_record(deployment) -> None:
-    """`/health`'s hand-built fallback is the one path that skips `to_dict`.
+    """`/health`'s fallback for a probe that raises carries every record key.
 
-    It exists because a capability probe that raises must still answer 200 with
-    a cannot-execute record — and that record has to carry the same keys as
-    every other, or a consumer parsing the fallback finds a different object
-    than the one it was written against.
+    A capability probe that raises must still answer 200 with a cannot-execute
+    record, and that record has to carry the same keys as every other, or a
+    consumer parsing the fallback finds a different object than the one it was
+    written against.
     """
     from fastapi.testclient import TestClient
 

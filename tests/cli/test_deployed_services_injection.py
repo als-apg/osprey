@@ -19,7 +19,7 @@ successor of the app template's ``{% if deploy_services %} … {% else %}``
 branch, which this feature deletes. The suppression has to happen in the build
 rather than in a template because a profile flips ``deploy_services``
 independently of the preset it extends: every preset spells the deploying
-shape, and the five control-assistant renders are attached renders of exactly
+shape, and the five demo renders are attached renders of exactly
 those presets.
 
 Leaving that out is not a cosmetic difference. A non-empty ``deployed_services``
@@ -28,7 +28,7 @@ deploying render, so an attached render carrying the preset's list is refused
 for every consumer that list omits — on the one render whose whole point is
 that it dials someone else's ports.
 
-The control-assistant preset is the only shipped one whose build injects
+The demo preset is the only shipped one whose build injects
 anything, so the end-to-end cells here use it. Each is a real ``osprey init`` +
 ``osprey build`` (``slow``, tens of seconds), built once per module and shared;
 the rest are unit tests of the two merges and cost nothing.
@@ -58,9 +58,9 @@ from tests.fixtures.explicit_config.freeze import (
     collect_rendered_configs,
 )
 
-#: The cell built end to end. ``graph`` is the frozen control-assistant mode
+#: The cell built end to end. ``graph`` is the frozen demo mode
 #: whose baseline ``deployed_services`` this module pins against.
-PRESET = "control-assistant"
+PRESET = "demo"
 MODE = "graph"
 
 #: The external graph store the attached-profile cell names. Unroutable on
@@ -281,7 +281,7 @@ def test_injection_appends_to_what_the_profile_declared(
 
     assert deployed[: len(declared)] == declared
     injected = deployed[len(declared) :]
-    assert injected, "the control-assistant build injects services; none reached deployed_services"
+    assert injected, "the demo build injects services; none reached deployed_services"
     assert len(set(deployed)) == len(deployed), f"a service is listed twice: {deployed}"
 
 
@@ -331,7 +331,7 @@ def test_attached_renders_deploy_nothing(rendered: dict[str, dict[str, Any]]) ->
     profile's.
     """
     renders = {name: document for name, document in rendered.items() if name != "root"}
-    assert renders, "the control-assistant build renders no tier or app; none were captured"
+    assert renders, "the demo build renders no tier or app; none were captured"
     assert {name: document.get("deployed_services") for name, document in renders.items()} == {
         name: [] for name in renders
     }
@@ -375,7 +375,7 @@ def test_attached_renders_ship_the_corpus_they_stage_and_the_index_built_from_it
 
     corpus = rendered["root"]["services"]["graphdb"]["ttl_path"]
     renders = {name: document for name, document in rendered.items() if name != "root"}
-    assert renders, "the control-assistant build renders no tier or app; none were captured"
+    assert renders, "the demo build renders no tier or app; none were captured"
 
     stated = {
         name: document["services"]["graphdb"].get("ttl_path") for name, document in renders.items()

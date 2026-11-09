@@ -141,7 +141,7 @@ def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Served]:
     """The example facility's deployment, built and served asking nobody."""
     from tests._builds import init_project
 
-    repo = init_project(tmp_path_factory.mktemp("check-b-example"), "control-assistant", "example")
+    repo = init_project(tmp_path_factory.mktemp("check-b-example"), "demo", "example")
     with gm.deployed(
         repo,
         lambda port, pva_port: gm.isolation_settings(port, pva_port, EXAMPLE_PROBE, approval=False),

@@ -184,8 +184,8 @@ class TestRunFilter:
         assert "legacy" not in titles
 
     def test_empty_run_filter_matches_nothing(self, store):
-        # Symmetric foot-gun guard: an empty run tag must NOT match untagged
-        # artifacts (unlike session_filter's OR-empty clause).
+        # Foot-gun guard: an empty run tag must NOT match untagged artifacts;
+        # the run boundary is strict.
         assert store.list_entries(run_filter="") == []
 
     def test_none_run_filter_returns_all(self, store):
