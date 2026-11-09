@@ -30,12 +30,18 @@ From the panel
 dropdown lists the ring models with a closed-orbit model. The chip beside it
 shows the state of the model's orbit response matrix (ORM).
 
-**2. Pick the BPMs.** Click a BPM on the strip, or add one by name. BPMs the
-ORM cannot solve are listed as not selectable.
+**2. Pick the BPMs.** Drag across the dots on the strip to add every BPM in
+the range; click a dot to toggle it, ⇧-click to extend from the last one
+picked. Or type in the picker: ``22``, ``21-23`` (a range by ring position),
+``2*`` (a prefix). ⇧-drag, the wheel and a double-click zoom; ⌥-drag pans.
+Right-click the strip for the same verbs; the ☰ menu lists the gestures.
 
-**3. Type the offsets.** Each target is an offset **from golden**, in the
+**3. Set the offsets.** Each target is an offset **from golden**, in the
 facility's BPM unit — not an absolute position and not a change from the
-current reading.
+current reading. Set them with the amplitude and shape (*flat*, *peak*,
+*cosine*) over the bump BPMs, by dragging a ◆ handle or the bump's grip
+(moves every target), with ↑/↓ on a focused handle or row (⇧ ×10), or by
+typing in the table. The nudge step (1, 10, 100 µm) is in the ☰ menu.
 
 **4. Choose the corrector rule.**
 
@@ -45,20 +51,24 @@ current reading.
 
    * - Rule
      - Correctors
-   * - ``auto · N+2``
+   * - ``auto``
      - one upstream of the first BPM, every corrector between the BPMs, two
        downstream of the last
-   * - ``[-1 1]``, ``[-2 -1 1 2]``, ``[-3 -1 1 3]``
-     - MML signed-index rules, relative to the bump BPMs
+   * - ``tight``
+     - the MML signed-index rule ``[-1 1]``, relative to the bump BPMs
    * - ``manual``
      - the correctors you click on the strip
 
 **5. Compute.** Compute writes nothing. It replaces your current plan with a
-new one and draws the predicted orbit. A bump BPM that cannot be read, or reads
+new one and draws the predicted orbit and each corrector's step under the
+strip. Editing the bump afterwards marks it *edited · not computed* and
+holds Apply until the next Compute. A bump BPM that cannot be read, or reads
 a non-finite value, blocks compute and is named.
 
-**6. Read the card.** The card shows ``Plan <id> · <status>`` and one row per
-corrector: channel, ``now``, ``new``, delta, the limit verdict, and a note.
+**6. Read the card.** The Correctors card has one row per corrector: ``now``,
+delta, ``new`` and the limit verdict; a row's note is its tooltip, and the
+closure line is the tooltip of the card's title. The confirmation shows all of
+it, with the channel each row writes.
 
 - Verdict: the declared limit range, ``no declared limit``, ``limits checking
   off``, or a refusal with the overshoot (``over by …``). Nothing is clamped.
@@ -69,14 +79,15 @@ corrector: channel, ``now``, ``new``, delta, the limit verdict, and a note.
   at the leakage BPMs, dropped leakage BPMs, and BPMs skipped because the ORM
   could not solve them.
 
-**7. Apply.** *Apply…* is enabled only on a ``ready`` plan with writes on. It
+**7. Apply.** *Apply…* is enabled only on a ``ready``, unedited plan with
+writes on. It
 opens a confirmation with the setpoints and the closure line; *Confirm* writes
 the rows once, in plan order.
 
 **8. Iterate.** After a full apply the plan is ``applied``, the orbit is
-re-read, and the card shows ``residual after`` at the bump BPMs. To refine,
-compute again on the re-read orbit and apply the new plan. Every write is on a
-confirmed or approved plan.
+re-read, and the Correctors title's tooltip shows ``residual after`` at the
+bump BPMs. To refine, compute again on the re-read orbit and apply the new
+plan. Every write is on a confirmed or approved plan.
 
 **Recompute** on the ORM chip rebuilds the orbit response matrix from the
 model; nothing is measured. A new ORM discards the plans on that model not yet
