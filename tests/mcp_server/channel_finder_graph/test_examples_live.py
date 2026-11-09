@@ -113,11 +113,11 @@ def examples_store_uri(graphdb_plugin_dir: Path) -> Iterator[str]:
 
 
 @pytest.fixture(scope="module")
-def demo_ttl(built_control_assistant: BuiltProject) -> str:
-    """The graph view the control-assistant build writes."""
+def demo_ttl(built_demo: BuiltProject) -> str:
+    """The graph view the demo build writes."""
     from osprey.facility.views.graph import GRAPH_FILE
 
-    path = built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE
+    path = built_demo.build_dir / "data" / "graph" / GRAPH_FILE
     return path.read_text(encoding="utf-8")
 
 

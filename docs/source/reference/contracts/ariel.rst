@@ -50,7 +50,10 @@ OSPREY agent selects the appropriate tool based on the user's query.
      - Keyword and semantic ranking combined, with optional query expansion
        and reranking (offered when the hybrid module is enabled)
    * - ``sql_query``
-     - Direct SQL queries against the logbook database
+     - Direct SQL queries against the logbook database, as its SELECT-only
+       login (not offered when the ``uri`` key names the database and
+       ``ariel.database.readonly_uri`` is unset; see
+       :ref:`config-ariel-database-readonly-uri`)
    * - ``browse``
      - Browse entries with pagination and filters
    * - ``filter_options``
@@ -133,14 +136,16 @@ for the agent. With it off:
 The web panel's attachment display does not depend on this setting.
 
 ``entry_open`` takes an ``entry_id`` and an optional ``attachment_id`` and asks
-the web terminal to bring the ARIEL panel forward at
-``#entry?id=<entry_id>``, with ``&attachment=<attachment_id>`` when that
-attachment is one of the entry's and is viewable. It returns ``entry_id``,
+the web terminal to bring the Logbook panel forward at
+``#sel=<entry_id>``, with ``&att=<attachment_id>`` when that attachment is
+one of the entry's and is viewable. It returns ``entry_id``,
 ``attachment_id``, ``opened`` (``entry`` or ``entry_and_picture``), the panel
 ``url`` and a ``message``; without a web terminal the ``url`` is the link to
 follow. An unknown entry, or an attachment that is not the entry's, is
-``not_found``. The panel route also works in a browser on the standalone ARIEL
-web page.
+``not_found``. Followed in a browser, the ``url`` opens the web terminal with
+ARIEL on that route. The web terminal relays each ARIEL tool call to the
+panel's iframe as ``osprey-agent-activity`` ``{tool, detail, ts}``; on
+``entry_create`` and ``entry_publish`` the list refreshes or counts the new row.
 
 ``attachment_to_artifact`` takes the ``attachment_id`` of a viewable attachment
 and saves its display rendition, never the original upload, to the artifact
@@ -238,6 +243,8 @@ take their values as a ``fields`` object keyed by field name.
    * - ``depends_on``
      - Present when non-empty: the static fields whose values decide a
        ``dynamic_select``'s choices
+   * - ``facet``
+     - Present (``true``) when the field is a filter dimension
 
 The list is empty when no ingestion adapter is configured or the adapter
 declares no fields. When the declarations are broken, ``entry_fields`` is
@@ -296,6 +303,10 @@ agent:
    * - ``diagnostics``
      - ``tuple[SearchDiagnostic, ...]``
      - Structured diagnostics (level, source, message) from search execution
+   * - ``total``, ``total_exact``, ``has_more``
+     - ``int | None``, ``bool``, ``bool``
+     - Matches across all pages (capped at 1000), whether that count is
+       exact, and whether a later page exists
 
 
 Service Factory
@@ -315,10 +326,12 @@ The ``get_ariel_search_service()`` function provides a singleton
 
 **Lifecycle:** The singleton is created once per process. In the web
 interface, the ``create_app()`` factory manages its own service instance
-through the FastAPI lifespan. The web lifespan, the MCP server's shutdown and
-``close_ariel_service()`` all end the service with ``ARIELSearchService.aclose()``,
-which ends its search-call threads and closes its connection pools.
-``reset_ariel_service()`` drops the singleton without closing it.
+through the FastAPI lifespan. For cleanup in tests, use
+``close_ariel_service()`` (closes the service — its database pools and its
+search threads) or ``reset_ariel_service()`` (resets without closing).
+``await service.aclose()`` is the service's one close; ``async with`` calls it.
+It ends every search thread within twice the query-embedding timeout and logs
+the name of any still running past it.
 
 **Source:** :file:`src/osprey/services/ariel_search/capability.py`
 
@@ -327,8 +340,6 @@ Capabilities API
 ================
 
 The web interface discovers its search modes and tunable parameters dynamically at startup by calling ``GET /api/capabilities``.
-
-The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether the panel embedded in the web terminal offers its Search view and opens on it. A page that cannot read it treats it as false, so embedded it opens on Browse; the standalone page offers Search either way.
 
 **The "add a module, get a UI knob for free" pattern:** When you register a custom search module with ``get_parameter_descriptors()``, its parameters automatically appear in the web interface's advanced options panel. The ``ParameterDescriptor`` dataclass supports types ``int``, ``float``, ``bool``, ``text``, ``date``, ``select``, and ``dynamic_select`` (which fetches options from an API endpoint). Parameters are grouped by ``section`` for visual organization.
 
@@ -362,10 +373,16 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
               - Get distinct values for a filterable field (``authors``, ``source_systems``)
             * - POST
               - ``/api/search``
-              - Execute a search query (body: :class:`~osprey.interfaces.ariel.api.schemas.SearchRequest`)
+              - Execute a search query (body: :class:`~osprey.interfaces.ariel.api.schemas.SearchRequest`;
+                ``filters``, ``offset`` and ``view`` as below)
             * - GET
               - ``/api/entries``
-              - List entries with pagination and filtering
+              - List entries newest first: ``filters``, ``view``, and ``cursor``
+                (or the legacy ``page``) with ``page_size``
+            * - GET
+              - ``/api/facets``
+              - Value counts per filter dimension and a day histogram for
+                ``q``, ``mode``, ``filters`` and ``advanced_params``
             * - GET
               - ``/api/entries/{entry_id}``
               - Get a single entry by ID
@@ -380,7 +397,7 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
               - Download an attachment binary
             * - GET
               - ``/api/status``
-              - Service health, module status, and statistics
+              - Service health, module status, statistics and ``enhancement_coverage``
             * - GET
               - ``/api/config``
               - Read the current ARIEL configuration block
@@ -400,11 +417,33 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
               - ``/api/drafts``
               - Create a draft entry (pre-fill data for the web form)
             * - GET
+              - ``/api/drafts``
+              - List unexpired drafts, newest first
+            * - GET
               - ``/api/drafts/{draft_id}``
-              - Read a draft entry
+              - Read a draft entry (422 when its file is not a readable draft)
+            * - DELETE
+              - ``/api/drafts/{draft_id}``
+              - Discard a draft (204); its staged attachments are kept
             * - GET
               - ``/api/drafts/{draft_id}/attachments/{filename}``
               - Download a draft's attachment
+            * - GET
+              - ``/api/entries/{entry_id}/thread``
+              - ``{parent_id, parent, children, truncated}``: the parent and the
+                newest 200 follow-ups as rows, oldest first; ``parent`` null when
+                ARIEL does not hold it; ``truncated`` true, else omitted, when
+                older follow-ups were left out
+            * - GET
+              - ``/api/entries/{entry_id}/enhancements``
+              - ``{entry_id, modules}``: one card per enabled module in execution
+                order, with its ``state``, stored status fields, ``detail`` and,
+                when failed or stale, the re-run ``command`` (404 for an unknown entry)
+            * - GET
+              - ``/api/entries/{entry_id}/related``
+              - ``{state, entries}``: up to ``limit`` (default 5, at most 10)
+                nearest rows by text embedding, never the entry itself;
+                ``state`` is ``ok``, ``no_embedding`` or ``disabled``
 
          **Entry fields.** ``GET /api/publish-info`` returns
          ``{supports_write, requires_auth, source_system, entry_fields}``.
@@ -423,7 +462,17 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
          anything is written; the adapter receives the declared values only,
          and undeclared metadata stays in ARIEL's copy of the entry. A draft
          read from ``GET /api/drafts/{draft_id}`` carries the values an agent
-         stored as ``fields``; ``POST /api/drafts`` does not accept them.
+         stored as ``fields``; ``POST /api/drafts`` does not accept them. A
+         draft id that is not ``draft-<12 hex>`` is 422.
+
+         **Follow-ups.** ``metadata.follows_up`` names the entry this one
+         follows up, on ``POST /api/entries`` and ``/upload`` and in the draft
+         that ``entry_publish`` publishes. It must be an entry ARIEL holds and not the
+         entry itself; otherwise the refusal names ``follows_up`` (REST:
+         ``invalid_entry_field``; MCP: ``validation_error``). ``follows_up`` is
+         reserved: an adapter cannot declare it. Both create endpoints return
+         ``attachments_published``: null without attachments, ``false`` when
+         the logbook did not take them and they stayed in ARIEL only.
 
          An entry-field failure on any of these endpoints returns one of three
          envelopes:
@@ -449,6 +498,33 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
 
          is 500: the adapter declares its fields wrongly, and only a change to
          the adapter fixes it.
+
+         **Filters and paging.** ``filters`` is a JSON object
+         ``{"<dimension>": [values], "time": {"start": ..., "end": ...}}``: OR
+         within a dimension, AND across, exact match ignoring case. The
+         dimensions are ``author``, ``source_system``, ``tags``, each entry field
+         declared ``facet: true``, and ``enhancement`` (enabled enhancement
+         modules); ``capabilities.filter_dimensions`` lists them. On
+         ``/api/search`` the filter is ANDed with the legacy author, source and
+         date fields. ``/api/entries`` pages by an opaque ``cursor``: each page
+         returns ``next_cursor``, null on the last; ``page`` keeps offset paging
+         and returns no cursor. ``/api/search`` pages by ``offset`` with
+         ``max_results`` as the page size and returns ``total``, ``total_exact``
+         and ``has_more`` (``total_results`` equals ``total``). A refused
+         filter or cursor, or ``page`` with ``cursor``, is 422
+         ``{"detail": {"field": ..., "reason": ...}}``. ``/api/facets`` counts
+         over the filter alone when ``q`` is blank, else over the mode's
+         matches; it returns ``{available, dimensions, histogram, exact, tier}``
+         and ``available: false`` when it cannot count.
+
+         **Entry shapes.** An entry carries ``subject``, ``entry_url`` (null for
+         an entry that exists only in ARIEL, or with no
+         ``ariel.entry_url_template``) and ``enhancement_status``, where each
+         enabled module also gets a ``state`` of ``pending``, ``stale``,
+         ``failed``, ``complete`` or ``n/a``. ``view=row`` returns list rows
+         instead (:class:`~osprey.interfaces.ariel.api.schemas.RowResponse`):
+         no ``raw_text``, a ``snippet``, the entry's ``facets`` values and its
+         ``enhancements`` states.
 
          ``GET /health`` at the root level is the one route the sign-in gate leaves open. It
          reports ``status`` (``healthy`` or ``degraded``), a fixed ``message``, ``config_status``,
@@ -494,6 +570,9 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
               ],
               "search_modes_used": ["keyword", "semantic"],
               "total_results": 1,
+              "total": 1,
+              "total_exact": true,
+              "has_more": false,
               "execution_time_ms": 340
             }
 
@@ -513,8 +592,17 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
               "enabled_search_modules": ["keyword", "semantic"],
               "enabled_enhancement_modules": ["text_embedding", "semantic_processor"],
               "last_ingestion": "2025-01-15T06:00:00Z",
-              "errors": []
+              "errors": [],
+              "enhancement_coverage": {
+                "text_embedding": {"label": "Text embedding", "complete": 15102, "pending": 120, "stale": 0, "failed": 8, "n/a": 0}
+              }
             }
+
+         ``enhancement_coverage`` counts, per enabled module, the entries in each
+         state; ``osprey ariel status --json`` reports it as ``coverage``. A
+         failed or stale card's ``command`` is
+         ``osprey ariel enhance --module <name> --entry <entry_id>``, or the
+         ``osprey ariel reembed`` line for a stale ``text_embedding``.
 
          See :mod:`osprey.interfaces.ariel.api.schemas` for the full Pydantic model definitions.
 
@@ -558,6 +646,12 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
                 {"name": "author", "type": "text"},
                 {"name": "source_system", "type": "dynamic_select",
                  "options_endpoint": "/api/filter-options/source_systems"}
+              ],
+              "filter_dimensions": [
+                {"name": "author", "label": "Author", "kind": "builtin"}
+              ],
+              "enhancement_modules": [
+                {"name": "image_caption", "label": "Image caption"}
               ]
             }
 
@@ -607,42 +701,52 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
             * - Module
               - Responsibility
             * - ``app.js``
-              - Application initialization and hash-based routing
+              - Boot: capabilities, theme, then every pane; the router starts last
+            * - ``store.js``, ``router.js``
+              - One state object, and its two-way mapping to the address hash
+            * - ``layout.js``
+              - Rail and list splitters, stacked mode, drawers, gear menu
+            * - ``rail.js``, ``list.js``, ``reader.js``
+              - The three panes: mailboxes and saved searches, the entry list
+                with search box and mode chip, the entry and picture viewer
+            * - ``facets.js``, ``paging.js``
+              - The rail's facet counts and day histogram; Load more
+            * - ``filter-state.js``, ``query-ops.js``
+              - The filter object, and ``dim:value`` operators in the search box
+            * - ``saved-searches.js``, ``display-prefs.js``
+              - Saved searches in browser storage; the badge-strip preference
+            * - ``keyboard.js``, ``header.js``
+              - Key bindings; the embedded tile-bar contribution
             * - ``api.js``
               - REST client wrapping ``fetch()`` for all API endpoints
             * - ``search.js``
-              - Search form, query submission, results rendering
+              - Search driver: runs a (two-phase) search and reports results
             * - ``advanced-options.js``
-              - Capabilities-driven advanced options panel (dynamic parameter controls)
-            * - ``entries.js``, ``entries-detail.js``, ``entries-form.js``, ``entries-helpers.js``
-              - Browse view with pagination, entry detail view, and the new
-                entry form (split across the four modules)
+              - Capabilities-driven filters panel (dynamic parameter controls)
+            * - ``entries.js``, ``entries-form.js``, ``entries-helpers.js``
+              - The compose sheet and its draft loading and submission
+            * - ``compose-autosave.js``, ``compose-lifecycle.js``, ``drafts-list.js``
+              - Browser-local compose autosave; the Drafts mailbox
             * - ``entry-fields.js``
               - The new entry form's facility-declared field sections: renders
                 them from ``/api/publish-info``, refetches a ``dynamic_select``'s
                 choices when a field it depends on changes, and marks the input
                 a 422 response names
             * - ``dashboard.js``
-              - Status dashboard rendering and periodic health refresh
+              - Status drawer rendering and periodic health refresh
             * - ``components.js``
-              - Shared UI components (entry cards, loading states, error messages)
+              - Shared UI components (list rows, banners, loading and error states)
             * - ``utils.js``
               - Small shared helpers
             * - ``settings.js``
               - Settings UI: read/write ARIEL config block via ``/api/config``
 
-         Side-drawer behavior (filters, advanced options, settings panels) comes
+         Side-drawer behavior (the Status and Settings drawers) comes
          from the shared ``<osprey-drawer>`` design-system component rather than
-         a page-local module. The header's display-preferences popover is the
-         shared ``<osprey-display-menu>`` component in the same way: ARIEL
-         mounts the element and passes it the settings drawer's id, and the
-         component supplies the trigger, the card, the Appearance/View/Theme
-         rows, and the hiding-when-embedded rule.
+         a page-local module.
 
-         Theming role: standalone, ARIEL is the *hub* --- the display menu is
-         the operator's control and its pick is the one that gets remembered.
-         Embedded, it is a *follower*: the web terminal owns the pick and
-         broadcasts it, and ARIEL applies what it is sent.
+         Theming role: ARIEL is a *follower*: the web terminal owns the theme
+         pick and broadcasts it, and ARIEL applies what it is sent.
 
          **CSS architecture:**
 
@@ -655,9 +759,9 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
             * - ``base.css``
               - Reset, typography, form elements
             * - ``components.css``
-              - Cards, buttons, badges, modals, search results
+              - Cards, buttons, badges, chips, search results
             * - ``layout.css``
-              - Header, navigation, main content, responsive grid
+              - Header, rail | list | reader panes, stacked mode
             * - ``drawer.css``
               - Page-level styling around the shared drawer component
             * - ``settings.css``
@@ -667,8 +771,14 @@ The payload's ``embedded_search`` boolean is ``ariel.embedded_search``: whether 
          defined per page — they come from the shared design system's
          ``/design-system/css/tokens.css``.
 
-         **Routing:** The app uses ``window.location.hash`` for navigation. The ``app.js`` module listens for ``hashchange`` events and shows/hides view sections (``#search``, ``#browse``, ``#create``, ``#status``). No page reloads occur during navigation.
-
+         **Routing:** The hash is the screen's state, ``#q=&mode=&box=&f=&sel=&att=&compose=``
+         (empty keys omitted; ``box`` is ``all``, ``drafts``, ``mine`` or
+         ``saved:<name>``; ``f`` is the filter as JSON; ``compose`` is
+         ``draft:<id>`` for an open draft only), kept in step with ``history.replaceState``. Legacy
+         aliases are applied and then rewritten canonical: ``#entry?id=&attachment=``
+         selects the entry and opens the picture, ``#create[?draft=]`` opens
+         the compose sheet, ``#status`` opens the Status drawer (embedded: the list), and
+         ``#search``, ``#browse`` or an unknown hash show the list.
 
 .. _`database`:
 
@@ -709,6 +819,9 @@ Core Tables
    * - ``raw_text``
      - ``TEXT``
      - Full entry text as the source wrote it (subject + details)
+   * - ``subject``
+     - ``TEXT``
+     - Subject line derived from the entry (``''`` when it has none)
    * - ``facility_refs``
      - ``JSONB``
      - The channel addresses and device ids the text quotes, as ``{start, end, target, kinds}``; ``start`` and ``end`` are Unicode code-point offsets into ``raw_text``. ``NULL`` = not checked against a facility file
@@ -776,7 +889,7 @@ Core Tables
 Migration System
 ----------------
 
-Migrations are run via ``osprey ariel migrate`` and managed by the ``run_migrations()`` function in ``database/migrations.py``. When ``text_embedding`` is enabled, ``migrate`` creates an embedding table for each model listed in ``enhancement_modules.text_embedding.models`` (falling back to ``nomic-embed-text``, 768, if none is configured); ``osprey ariel reembed`` (re)creates and backfills a single model's table on demand.
+Migrations are run via ``osprey ariel migrate`` and managed by the ``run_migrations()`` function in ``database/migrations.py``. When ``text_embedding`` is enabled, ``migrate`` creates an embedding table for each model listed in ``enhancement_modules.text_embedding.models`` (falling back to ``nomic-embed-text``, 768, if none is configured); ``osprey ariel reembed`` (re)creates and backfills a single model's table on demand. ``migrate`` also adds the ``subject`` column and fills it for existing entries.
 
 .. admonition:: Schema Evolution
    :class: outreach

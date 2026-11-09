@@ -152,7 +152,6 @@ def _small_tree() -> TokenTree:
         ("wt-crt.scanline-opacity", "--wt-crt-scanline-opacity"),
         ("art-violet.base", "--art-violet-base"),
         ("ariel-score.high", "--ariel-score-high"),
-        ("lat-led.ready", "--lat-led-ready"),
         ("cf-font-pv", "--cf-font-pv"),
     ],
 )

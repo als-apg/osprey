@@ -277,10 +277,10 @@ def description_gaps(
 
 
 @pytest.fixture(scope="module")
-def recorder_set(built_control_assistant: BuiltProject, tmp_path_factory) -> ChannelSet:
+def recorder_set(built_demo: BuiltProject, tmp_path_factory) -> ChannelSet:
     """The channel set the recorder resolves from the build's simulator view."""
     root = tmp_path_factory.mktemp("surface") / "simulator"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith(SIMULATOR_PREFIX):
             target = root / name[len(SIMULATOR_PREFIX) :]
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -298,21 +298,21 @@ SECTION_IDS = list(SECTIONS)
 
 @pytest.mark.parametrize("section", SECTION_IDS)
 def test_the_recorder_records_the_sections_scalars_and_traces_its_waveforms(
-    section: str, recorder_set: ChannelSet, built_control_assistant: BuiltProject
+    section: str, recorder_set: ChannelSet, built_demo: BuiltProject
 ) -> None:
-    gaps = recorder_gaps(section, SECTIONS[section], recorder_set, built_control_assistant.facility)
+    gaps = recorder_gaps(section, SECTIONS[section], recorder_set, built_demo.facility)
     assert gaps == {}, f"{section}: {gaps}"
 
 
 @pytest.mark.parametrize("section", SECTION_IDS)
 def test_the_sections_benchmark_targets_exist_and_its_added_queries_match(
-    section: str, built_control_assistant: BuiltProject
+    section: str, built_demo: BuiltProject
 ) -> None:
     gaps = benchmark_gaps(
         section,
         SECTIONS[section],
         pre_line_queries(),
-        built_control_assistant.facility,
+        built_demo.facility,
         addition_addresses(),
     )
     assert gaps == {}, f"{section}: {gaps}"
@@ -320,10 +320,10 @@ def test_the_sections_benchmark_targets_exist_and_its_added_queries_match(
 
 @pytest.mark.parametrize("section", SECTION_IDS)
 def test_every_class_place_and_family_of_the_section_has_a_description(
-    section: str, built_control_assistant: BuiltProject
+    section: str, built_demo: BuiltProject
 ) -> None:
     gaps = description_gaps(
-        section, SECTIONS[section], built_control_assistant.facility, vocabulary()["classes"]
+        section, SECTIONS[section], built_demo.facility, vocabulary()["classes"]
     )
     assert gaps == {}, f"{section}: {gaps}"
 
@@ -334,52 +334,50 @@ def test_every_class_place_and_family_of_the_section_has_a_description(
 
 
 def test_a_waveform_missing_from_the_recorders_trace_set_is_reported(
-    recorder_set: ChannelSet, built_control_assistant: BuiltProject
+    recorder_set: ChannelSet, built_demo: BuiltProject
 ) -> None:
     untraced = ChannelSet(
         list(recorder_set), [a for a in recorder_set.waveforms if a != SEK_WAVEFORM]
     )
-    gaps = recorder_gaps("SR", SECTIONS["SR"], untraced, built_control_assistant.facility)
+    gaps = recorder_gaps("SR", SECTIONS["SR"], untraced, built_demo.facility)
     assert gaps["waveforms not recorded as traces"] == [SEK_WAVEFORM]
     assert gaps["recorded as scalars but not scalar channels"] == [SEK_WAVEFORM]
 
 
-def test_an_absent_benchmark_target_is_reported(built_control_assistant: BuiltProject) -> None:
-    facility = copy.deepcopy(built_control_assistant.facility)
+def test_an_absent_benchmark_target_is_reported(built_demo: BuiltProject) -> None:
+    facility = copy.deepcopy(built_demo.facility)
     facility["channels"] = [c for c in facility["channels"] if c["id"] != SEK_WAVEFORM]
     queries = [*pre_line_queries(), {"user_query": "the SEK trace", "targeted_pv": [SEK_WAVEFORM]}]
     gaps = benchmark_gaps("SR", SECTIONS["SR"], queries, facility, addition_addresses())
     assert gaps["targets the facility lacks"] == [f"the SEK trace: {SEK_WAVEFORM}"]
 
 
-def test_a_dropped_added_query_is_reported(built_control_assistant: BuiltProject) -> None:
+def test_a_dropped_added_query_is_reported(built_demo: BuiltProject) -> None:
     additions = addition_addresses()
     queries = [
         q
         for q in pre_line_queries()
         if not any(t in additions and address_section(t) == "SR" for t in q["targeted_pv"])
     ]
-    gaps = benchmark_gaps(
-        "SR", SECTIONS["SR"], queries, built_control_assistant.facility, additions
-    )
+    gaps = benchmark_gaps("SR", SECTIONS["SR"], queries, built_demo.facility, additions)
     assert gaps == {"added queries": {"expected": 1, "found": 0}}
 
 
 def test_a_septum_class_without_a_description_is_reported(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     class_rows = copy.deepcopy(vocabulary()["classes"])
     for row in class_rows:
         if row["name"] == "Septum":
             row["description"] = ""
-    gaps = description_gaps("SR", SECTIONS["SR"], built_control_assistant.facility, class_rows)
+    gaps = description_gaps("SR", SECTIONS["SR"], built_demo.facility, class_rows)
     assert gaps == {"classes without a description": ["Septum"]}
 
 
 def test_a_new_family_without_a_description_is_reported(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    facility = copy.deepcopy(built_control_assistant.facility)
+    facility = copy.deepcopy(built_demo.facility)
     for group in facility["groups"]:
         if group["id"] == "SR/SEPTUM":
             del group["description"]

@@ -112,8 +112,8 @@ requires_provider_or_fail = _gated(
 
 
 def _preset_decision_definition() -> WatchdogDefinition:
-    """The decision watchdog the control-assistant preset ships, switched on."""
-    document = yaml.safe_load((PRESET_DIR / "control-assistant.yml").read_text(encoding="utf-8"))
+    """The decision watchdog the demo preset ships, switched on."""
+    document = yaml.safe_load((PRESET_DIR / "demo.yml").read_text(encoding="utf-8"))
     definitions = parse_watchdogs_block(document["watchdogs"], base_dir=PRESET_DIR)
     by_name = {defn.name: defn for defn in definitions}
     return replace(by_name[PRESET_WATCHDOG], enabled=True)

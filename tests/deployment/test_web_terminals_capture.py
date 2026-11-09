@@ -2,7 +2,7 @@
 
 `deploy_up` returns through `deploy_up_web_terminals` for every
 `modules.web_terminals` deployment, which makes this the path an operator of
-the control-assistant preset actually watches. Every inherited-stdio child on
+the demo preset actually watches. Every inherited-stdio child on
 it — the render and auth-sidecar image builds, both compose stacks' `rm`,
 `build`, `pull`, `up` and the post-`up` recreate/restart — now runs through
 `run_captured`, and each reports itself as one phase sub-step instead of

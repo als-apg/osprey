@@ -1,4 +1,4 @@
-"""Tabs in the tile header and the engine's drop rules, through the real web terminal.
+"""One panel per tile and the engine's drop rules, through the real web terminal.
 
 Every test runs against a live web terminal with four live custom services
 (``svc-a`` .. ``svc-d``), each a tiny page with an ``<input id="probe">`` so a
@@ -7,31 +7,40 @@ chat composer is the terminal-side input.
 
 How a drag is made. Playwright's mouse does not raise HTML5 drag-and-drop over
 these iframes, so a drag is dispatched in the page with a real
-``DataTransfer``: ``dragstart`` on the real source element (a header tab
-item, a tile's header bar, or a sidebar row), then ``dragenter``/``dragover``
-on whatever element really is at the target point, then ``drop`` there and
-``dragend`` on the source. Nothing raises the drag shield by hand: every test
-asserts that the source's own ``dragstart`` raised it
-(``.main-container.dock-dragging``, every service iframe ``pointer-events:
+``DataTransfer``: ``dragstart`` on the real source element (a tile's header
+bar, found by its panel or by its tile id, or a sidebar row), then
+``dragenter``/``dragover`` on whatever element really is at the target point,
+then ``drop`` there and ``dragend`` on the source. Nothing raises the drag
+shield by hand: every test asserts that the source's own ``dragstart`` raised
+it (``.main-container.dock-dragging``, every service iframe ``pointer-events:
 none``) and that it is down again afterwards. A sash resize is a real
 Playwright pointer gesture.
 
 How a start state is made. Services are opened from the sidebar as a person
-would; the exact start arrangement (A | B | C at 50/30/20, a two-tab tile,
-...) is then put in the layout holder with ``restore`` — the same entry a
-saved dock takes on reload — and every service tab is shown once so its iframe
-exists. After every gesture the test waits for the holder to be idle and the
-DOM to show exactly the holder's tiles and tabs.
+would (each row click replaces the panel of the service tile used last, so
+each service gets its iframe); the exact start arrangement (A | B | C at
+50/30/20, A over B beside C, ...) is then put in the layout holder with
+``restore`` — the same entry a saved dock takes on reload — and every tile's
+panel is shown once so its iframe is on screen. After every gesture the test
+waits for the holder to be idle and the DOM to show exactly the holder's tiles.
 
-What is read back. The holder's layout as a shape (``row[a,[*b|c],terminal]``:
-a tile with one tab is its key, a tile with several lists them with ``*``
-before the showing one), and each tile's on-screen rectangle. The drop
-highlight is read during the drag (its kind class and rectangle) and compared
-with the resulting tile's rectangle after the drop (within 2 px).
+What is read back. The holder's layout as a shape (``row[a,column[b,c],terminal]``:
+a tile is the key of the one panel it shows), and each tile's on-screen
+rectangle. The drop highlight is read during the drag (its kind class and
+rectangle) and compared with the resulting tile's rectangle after the drop
+(within 2 px). A tile's header and centre are no drop target: a drag there
+paints nothing and drops nothing.
 
 The open rule is pinned at the end: a sidebar row click and the agent's open
-land as a tab in front of the service tile used last, and a reload brings the
-stored arrangement back whole.
+replace the panel of the service tile used last (the replaced panel keeps its
+row and its iframe), a docked panel is focused where it is, a reload brings
+the stored arrangement back whole, and a stored tile holding several panels
+comes back with the one it showed. Last, the two narrow-tile defects of the
+tab release: removing a panel from the rail leaves the other tiles alone, and
+a narrow artifacts tile keeps its bar and a working overflow menu. Maximize /
+Restore closes the file: a maximized tile's iframe fills the dock with every
+other iframe hidden, Restore gives every tile its rectangle back, a maximize is
+never stored, and a layout applied whole ends it.
 
 Run:
 
@@ -107,10 +116,11 @@ FOUR_TASKS_START = _split(
     _tile("t3", "c", size=0.2),
 )
 
-#: The drop matrix's start: a two-tab tile, a one-tab tile and the terminal's tile.
+#: The drop matrix's start: A over B, then C, then the terminal's tile. C's
+#: and the terminal's tiles sit where they did when B was a tab behind A.
 MATRIX_START = _split(
     "row",
-    _tile("t1", "a", "b", showing="a", size=0.4),
+    _split("column", _tile("t1", "a", size=0.5), _tile("t4", "b", size=0.5), size=0.4),
     _tile("t2", "c", size=0.3),
     _tile("t3", TERMINAL, size=0.3),
 )
@@ -146,7 +156,9 @@ def _service(key: str) -> Iterator[str]:
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     server.daemon_threads = True
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
@@ -194,9 +206,10 @@ def _open(browser, hub: Hub) -> Page:
 # In-page reads
 # ---------------------------------------------------------------------------
 
-#: The holder's layout and, per tile, what its header shows: the showing
-#: panel's bar (the hidden siblings' bars are not on screen), its tabs from
-#: the strip's items (or the lone title), and their rects.
+#: The holder's layout and, per tile, what its header shows: the tile's bar
+#: and the one panel it carries (its ``data-panel-key``), with their rects. A
+#: holder tile listing several panels (which the policy forbids) shows in the
+#: shape as ``[*a|b]`` so a regression reads plainly.
 _STATE_JS = """
 async () => {
   const { getLayoutHolder } = await import('/static/js/dock-apply.js');
@@ -216,25 +229,18 @@ async () => {
   const root = document.querySelector('#dock-root');
   const tiles = {};
   for (const bar of root.querySelectorAll('.tile-tab[data-tile]')) {
-    if (!bar.isConnected || bar.parentElement?.classList.contains('dv-inactive-tab')) continue;
+    if (!bar.isConnected) continue;
     const group = bar.closest('.dv-groupview');
     if (!group) continue;
     const content = group.querySelector('.dv-content-container');
-    const strip = bar.querySelector('.tile-tab-tabs');
-    const items = strip && !strip.hidden ? [...bar.querySelectorAll('.tile-tab-item')] : [];
-    const title = bar.querySelector('.tile-tab-title');
     const own = bar.getAttribute('data-panel-key');
-    const tabEls = items.length ? items : (title && !title.hidden ? [title] : []);
     tiles[bar.dataset.tile] = {
       rect: r(group),
       content: content ? r(content) : null,
       bar: r(bar),
       row: r(bar.closest('.dv-tabs-and-actions-container') ?? bar),
-      tabs: items.length ? items.map((t) => t.getAttribute('data-panel-key')) : [own],
-      tabRects: tabEls.map(r),
-      showing: items.length
-        ? (bar.querySelector('.tile-tab-item--showing')?.getAttribute('data-panel-key') ?? null)
-        : own,
+      tabs: [own],
+      showing: own,
     };
   }
   const shielded = [...document.querySelectorAll('.dock-iframe-overlay iframe')]
@@ -253,9 +259,8 @@ async () => {
 }
 """
 
-#: Put a layout in the holder, then show every service tab once (the hidden
-#: ones first, the showing one last) so each has its iframe and the showing
-#: ones are visible, as they would be after a person opened them.
+#: Put a layout in the holder, then show every tile's panel once so each has
+#: its iframe on screen, as it would be after a person opened it.
 _RESTORE_JS = """
 async (layout) => {
   const { getLayoutHolder } = await import('/static/js/dock-apply.js');
@@ -266,34 +271,24 @@ async (layout) => {
   const tiles = [];
   const walk = (n) => { if ('tile' in n) tiles.push(n); else n.items.forEach(walk); };
   walk(layout);
-  for (const tile of tiles) {
-    const order = [...tile.tabs.filter((k) => k !== tile.showing), tile.showing];
-    for (const key of order) if (key !== 'terminal') focusPanel(key);
-  }
+  for (const tile of tiles) if (tile.showing !== 'terminal') focusPanel(tile.showing);
   return 'ok';
 }
 """
 
 #: One drag, dispatched in the page with a real DataTransfer. The source's own
-#: dragstart raises the shield; nothing here touches it. A `tab` source is a
-#: strip item; a `tile` source is the tile's header (dockview's own tab drag,
-#: which the bridge reads as the tile); a `rail` source is the sidebar row.
+#: dragstart raises the shield; nothing here touches it. A `tab` source is the
+#: bar of the tile showing that panel and a `tile` source the bar of that tile:
+#: both are dockview's own header drag, which the bridge reads as the tile. A
+#: `rail` source is the sidebar row.
 _DRAG_JS = r"""
 async ({ source, points, drop, leave }) => {
   const sleep = (t) => new Promise((r) => setTimeout(r, t));
   const frame = () => new Promise((r) => requestAnimationFrame(() => r(null)));
   const root = document.querySelector('#dock-root');
-  const barOf = (tile) => [...root.querySelectorAll(`.tile-tab[data-tile="${CSS.escape(tile)}"]`)]
-    .find((b) => !b.parentElement?.classList.contains('dv-inactive-tab')) ?? null;
   let el = null;
-  const shown = (sel) => [...root.querySelectorAll(sel)]
-    .find((n) => !n.closest('.dv-tab')?.classList.contains('dv-inactive-tab')) ?? null;
-  if (source.tab) {
-    // A lone tab has no strip item: its header is the tab, dragged as the tile.
-    el = shown(`.tile-tab-item[data-panel-key="${CSS.escape(source.tab)}"]`)
-      ?? shown(`.tile-tab[data-panel-key="${CSS.escape(source.tab)}"]`)?.closest('.dv-tab') ?? null;
-  }
-  else if (source.tile) el = barOf(source.tile)?.closest('.dv-tab') ?? null;
+  if (source.tab) el = root.querySelector(`.tile-tab[data-panel-key="${CSS.escape(source.tab)}"]`)?.closest('.dv-tab') ?? null;
+  else if (source.tile) el = root.querySelector(`.tile-tab[data-tile="${CSS.escape(source.tile)}"]`)?.closest('.dv-tab') ?? null;
   else if (source.rail) el = document.querySelector(`button.panel-rail-button[data-panel-id="${CSS.escape(source.rail)}"]`);
   if (!el) return { error: `no source element for ${JSON.stringify(source)}` };
   const dataTransfer = new DataTransfer();
@@ -348,12 +343,10 @@ async ({ source, points, drop, leave }) => {
       const kind = [...box.classList].find((c) => c.startsWith('dock-drop-preview__rect--'))?.slice(25) ?? null;
       const ph = box.querySelector('.dock-drop-preview__placeholder');
       const cs = ph ? getComputedStyle(ph) : null;
-      const marker = document.querySelector('.dock-drop-preview__marker');
       preview = {
         kind,
         rect: { x: b.x, y: b.y, width: b.width, height: b.height },
         look: cs ? [cs.borderTopStyle, cs.borderTopWidth, cs.top, cs.left].join(' ') : null,
-        marker: marker ? (() => { const m = marker.getBoundingClientRect(); return { x: m.x, y: m.y, height: m.height }; })() : null,
         above: paintsAboveIframes(box.parentElement),
       };
     } else {
@@ -451,6 +444,41 @@ def _restore(page: Page, layout: dict) -> dict:
     return _settle(page)
 
 
+#: Whether the stored layout is the holder's: the same tiles, tabs and showing
+#: tabs, and the same sizes up to the holder's own tolerance (dock-apply.js's
+#: sameShape and sameSizes). With what was stored and what is held, for the
+#: assertion message.
+_STORED_JS = """
+async () => {
+  const { getLayoutHolder, sameShape, sameSizes } = await import('/static/js/dock-apply.js');
+  const live = getLayoutHolder()?.layout ?? null;
+  const showing = (n) => ('tile' in n ? [n.showing] : n.items.flatMap(showing));
+  const values = Object.keys(localStorage)
+    .filter((k) => k.includes('osprey-dock-layout-'))
+    .map((k) => {
+      try { return JSON.parse(localStorage.getItem(k))?.layout ?? null; } catch { return null; }
+    });
+  const matches = (stored) => !!live && !!stored && sameShape(live, stored)
+    && sameSizes(live, stored) && showing(live).join() === showing(stored).join();
+  return { stored: values.some(matches), live, values };
+}
+"""
+
+
+def _wait_until_stored(page: Page) -> None:
+    """Wait until the stored layout is the one on screen, sizes included.
+
+    A reload restores what was stored, and the store is written a debounce after
+    a change: a reload taken before that write brings back the older sizes.
+    """
+    deadline = time.monotonic() + _SETTLE_S
+    seen = page.evaluate(_STORED_JS)
+    while not seen["stored"] and time.monotonic() < deadline:
+        page.wait_for_timeout(100)
+        seen = page.evaluate(_STORED_JS)
+    assert seen["stored"], f"the stored layout never caught up with the one on screen: {seen}"
+
+
 def _drag(
     page: Page, source: dict, points: list[dict], *, drop: bool = True, leave: bool = False
 ) -> dict:
@@ -477,7 +505,12 @@ def _probe(page: Page, key: str):
 
 
 def _open_services(page: Page, *letters: str) -> None:
-    """Open each service from its sidebar row, as a person does, so it has an iframe."""
+    """Open each service from its sidebar row, as a person does, so it has an iframe.
+
+    Each row click replaces the panel of the service tile used last, so only
+    the last one stays docked; the others keep their (hidden) iframes for the
+    start layout a test restores next.
+    """
     for letter in letters:
         key = S(letter)
         rail_entry(page, key, enabled_only=True).click()
@@ -486,6 +519,11 @@ def _open_services(page: Page, *letters: str) -> None:
 
 
 # --- geometry -----------------------------------------------------------------
+
+
+def _docked(state: dict) -> set[str]:
+    """Every key the holder's layout shows, the terminal's included."""
+    return {key for tile in state["held"] for key in tile["tabs"]}
 
 
 def _tile_of(state: dict, key: str) -> str:
@@ -530,18 +568,12 @@ def _edge(state: dict, key: str, side: str) -> dict:
     return {"x": c["x"] + c["width"] - inset_x, "y": cy}
 
 
-def _tab_gap(state: dict, key: str, index: int) -> dict:
-    """A point on `key`'s tile header that inserts at `index` among its tabs."""
-    tile = state["tiles"][_tile_of(state, key)]
-    bar, tabs = tile["bar"], tile["tabRects"]
-    y = bar["y"] + bar["height"] / 2
-    if not tabs:
-        # The agent pane's header: no tabs, so any point on the bar.
-        return {"x": bar["x"] + 24, "y": y}
-    if index < len(tabs):
-        return {"x": tabs[index]["x"] + 2, "y": y}
-    last = tabs[-1]
-    return {"x": min(last["x"] + last["width"] + 6, bar["x"] + bar["width"] - 2), "y": y}
+def _on_bar(state: dict, key: str, at: float = 24) -> dict:
+    """A point on the header row of `key`'s tile: `at` px from its left end, or
+    from its right end when negative (over the tile's actions)."""
+    row = state["tiles"][_tile_of(state, key)]["row"]
+    x = row["x"] + at if at >= 0 else row["x"] + row["width"] + at
+    return {"x": x, "y": row["y"] + row["height"] / 2}
 
 
 def _near_split(state: dict, left: str, right: str) -> dict:
@@ -611,11 +643,15 @@ def _refused(page: Page, source: dict, point: dict, start: dict) -> None:
     assert after["shape"] == start["shape"], (start["shape"], after["shape"])
 
 
-def _item(page: Page, key: str):
-    """The strip item of `key` on the bar on screen (a hidden sibling's bar has one too)."""
-    return page.locator(
-        f'#dock-root .dv-tab:not(.dv-inactive-tab) .tile-tab-item[data-panel-key="{key}"]'
-    )
+def _bar(page: Page, key: str):
+    """The header bar of the tile showing `key`."""
+    return page.locator(f'#dock-root .tile-tab[data-panel-key="{key}"]')
+
+
+def _focus_tile(page: Page, key: str) -> dict:
+    """Click the title of `key`'s tile — the focus gesture — and settle."""
+    _bar(page, key).locator(".tile-tab-title").click()
+    return _settle(page)
 
 
 # --- input --------------------------------------------------------------------
@@ -680,8 +716,8 @@ def test_four_tasks_each_in_the_stated_number_of_drops(tmp_path, chromium_browse
         assert _close(rd, _half(_rect(start, b), "bottom"), 2 * PX), (rd, _rect(start, b))
         assert _close(drag["preview"]["rect"], rd), (drag["preview"], rd)
 
-        # T2: D onto B's centre: a sidebar row makes a new tile, never a tab —
-        # no highlight, nothing changes.
+        # T2: D onto B's centre: a tile holds one panel, so its centre is no
+        # target — no highlight, nothing changes.
         start = _restore(page, FOUR_TASKS_START)
         _refused(page, {"rail": d}, _centre(start, b), start)
 
@@ -707,35 +743,30 @@ def test_four_tasks_each_in_the_stated_number_of_drops(tmp_path, chromium_browse
 # Every drop type x every source
 # ---------------------------------------------------------------------------
 
-#: (source, target, expected shape) from MATRIX_START: row[[*a|b], c, terminal].
-#: Targets are on C's tile — a service tile, which takes a tab from a tab or a
-#: tile and never from a sidebar row (None: no target) — or beside it: the
-#: split line just left of the C|terminal line, and the dock side is the dock's
-#: bottom under C; both are edges of C.
+#: (source, target, expected shape) from MATRIX_START: row[column[a,b], c, terminal].
+#: Targets are on C's tile — whose header and centre take nothing from any
+#: source (None: no target), since a tile holds one panel — or beside it: C's
+#: bottom edge, the split line just left of the C|terminal line and the dock
+#: side, the dock's bottom under C; the first two are edges of C. A `tab`
+#: source is B's bar, a `tile` source A's tile (t1) by its bar, a `rail` source
+#: D's sidebar row.
 _MATRIX = [
-    ("tab", "centre", "row[a,[c|*b],terminal]"),
-    ("tab", "tabbar", "row[a,[*b|c],terminal]"),
+    ("tab", "centre", None),
+    ("tab", "tabbar", None),
     ("tab", "edge", "row[a,column[c,b],terminal]"),
     ("tab", "split line", "row[a,c,b,terminal]"),
     ("tab", "dock side", "column[row[a,c,terminal],b]"),
-    ("tile", "centre", "row[[c|*a|b],terminal]"),
-    ("tile", "tabbar", "row[[*a|b|c],terminal]"),
-    ("tile", "edge", "row[column[c,[*a|b]],terminal]"),
-    ("tile", "split line", "row[c,[*a|b],terminal]"),
-    ("tile", "dock side", "column[row[c,terminal],[*a|b]]"),
+    ("tile", "centre", None),
+    ("tile", "tabbar", None),
+    ("tile", "edge", "row[b,column[c,a],terminal]"),
+    ("tile", "split line", "row[b,c,a,terminal]"),
+    ("tile", "dock side", "column[row[b,c,terminal],a]"),
     ("rail", "centre", None),
     ("rail", "tabbar", None),
-    ("rail", "edge", "row[[*a|b],column[c,d],terminal]"),
-    ("rail", "split line", "row[[*a|b],c,d,terminal]"),
-    ("rail", "dock side", "column[row[[*a|b],c,terminal],d]"),
+    ("rail", "edge", "row[column[a,b],column[c,d],terminal]"),
+    ("rail", "split line", "row[column[a,b],c,d,terminal]"),
+    ("rail", "dock side", "column[row[column[a,b],c,terminal],d]"),
 ]
-_KIND = {
-    "centre": "tab",
-    "tabbar": "tab",
-    "edge": "split",
-    "split line": "split",
-    "dock side": "split",
-}
 #: The placeholder every highlight paints: a 2 px solid stroke, inset 4 px.
 _PLACEHOLDER = "solid 2px 4px 4px"
 
@@ -743,12 +774,13 @@ _PLACEHOLDER = "solid 2px 4px 4px"
 def test_every_drop_type_for_every_source(tmp_path, chromium_browser):
     """Centre, tab bar, edge, split line and dock side, for a tab, a tile and a sidebar row.
 
-    The highlight outlines the result within 2 px (a moved tile, whose own
-    space goes to a neighbour first, can land wider), every highlight is the same
-    placeholder, none stays painted after the drop, the shield goes down, and a
-    moved tile keeps its tabs and showing tab. A row dropped on a header or a
-    centre shows nothing and changes nothing. A self-drop shows nothing and
-    changes nothing; a drag that leaves the dock leaves no highlight behind.
+    A tile's header and centre are no target for any source: nothing is
+    painted and nothing changes. Every other drop splits: the highlight
+    outlines the result within 2 px (a moved tile, whose own space goes to a
+    neighbour first, can land wider), every highlight is the same placeholder,
+    none stays painted after the drop, the shield goes down, and a moved tile
+    keeps its id. A self-drop shows nothing and changes nothing; a drag that
+    leaves the dock leaves no highlight behind.
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
@@ -757,13 +789,13 @@ def test_every_drop_type_for_every_source(tmp_path, chromium_browser):
         looks: set[str] = set()
         for source_kind, target, want in _MATRIX:
             start = _restore(page, MATRIX_START)
-            assert start["shape"] == S("row[[*a|b],c,terminal]")
+            assert start["shape"] == S("row[column[a,b],c,terminal]")
             source = {"tab": {"tab": b}, "tile": {"tile": "t1"}, "rail": {"rail": d}}[source_kind]
             moved = {"tab": b, "tile": a, "rail": d}[source_kind]
             if target == "centre":
                 point = _centre(start, c)
             elif target == "tabbar":
-                point = _tab_gap(start, c, 0)
+                point = _on_bar(start, c)
             elif target == "edge":
                 point = _edge(start, c, "bottom")
             elif target == "split line":
@@ -774,38 +806,34 @@ def test_every_drop_type_for_every_source(tmp_path, chromium_browser):
             if want is None:
                 _refused(page, source, point, start)
                 continue
-            drag, after = _drop(page, source, point, kind=_KIND[target])
+            drag, after = _drop(page, source, point, kind="split")
             assert after["shape"] == S(want), f"{case}: {after['shape']} != {S(want)}"
             # A moved tile's own space goes to a neighbour first, so the result
-            # can be wider than the highlight; a tab's and a row's match it.
+            # can be wider than the highlight. B's leaves only A's column, and
+            # a row's takes none, so theirs match it.
             if source_kind != "tile":
                 assert _close(drag["preview"]["rect"], _rect(after, moved)), (
                     f"{case}: highlight {drag['preview']['rect']} != result {_rect(after, moved)}"
                 )
-            if target == "tabbar":
-                marker = drag["preview"]["marker"]
-                assert marker is not None, f"{case}: no insertion marker"
-                first = start["tiles"][_tile_of(start, c)]["tabRects"][0]
-                assert abs(marker["x"] - first["x"]) <= PX, (case, marker, first)
             if source_kind == "tile":
-                moved_tile = after["tiles"][_tile_of(after, a)]
-                assert moved_tile["showing"] == a, f"{case}: the moved tile changed its showing tab"
+                assert _tile_of(after, a) == "t1", f"{case}: the moved tile changed its id"
             looks.add(drag["preview"]["look"])
             assert after["previews"] == 0 and not after["shielded"]
 
         # Every highlight is the one placeholder.
         assert looks == {_PLACEHOLDER}, looks
 
-        # A self-drop (a tile on its own centre) shows nothing and changes nothing.
+        # A self-drop (a tile on its own edge) shows nothing and changes nothing.
         start = _restore(page, MATRIX_START)
-        drag = _drag(page, {"tile": "t2"}, [_centre(start, c)])
+        drag = _drag(page, {"tile": "t2"}, [_edge(start, c, "bottom")])
         assert drag["preview"] is None, drag
         after = _settle(page)
         assert after["shape"] == start["shape"]
-        _assert_same_rects(start, after, [a, c, TERMINAL])
+        _assert_same_rects(start, after, [a, b, c, TERMINAL])
 
         # A drag that leaves the dock leaves no highlight, and a cancelled drag changes nothing.
-        drag = _drag(page, {"tab": b}, [_centre(start, c)], drop=False, leave=True)
+        drag = _drag(page, {"tab": b}, [_edge(start, c, "bottom")], drop=False, leave=True)
+        assert drag["preview"] is not None, "the edge painted no highlight before the leave"
         assert drag["previewAfterLeave"] == 0, "a highlight stayed painted after leaving the dock"
         after = _settle(page)
         assert after["shape"] == start["shape"] and after["previews"] == 0
@@ -813,18 +841,18 @@ def test_every_drop_type_for_every_source(tmp_path, chromium_browser):
 
 
 def test_the_agent_pane_is_always_its_own_tile(tmp_path, chromium_browser):
-    """Nothing tabs into the agent pane's tile and it never tabs into another; its edges split."""
+    """Nothing drops into the agent pane's tile and it drops into no other; its edges split."""
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
         a, b, c, d = (S(x) for x in "abcd")
         start = _restore(page, MATRIX_START)
 
-        # Onto the agent pane: a tab, a tile and a row have no target on its
-        # header or centre.
+        # Onto the agent pane: a panel's bar, a tile and a row have no target
+        # on its header or centre.
         for source in ({"tab": b}, {"tile": "t2"}, {"rail": d}):
             _refused(page, source, _centre(start, TERMINAL), start)
-            _refused(page, source, _tab_gap(start, TERMINAL, 0), start)
+            _refused(page, source, _on_bar(start, TERMINAL), start)
         # Its edge splits it, the dropped item on that side.
         drag, after = _drop(page, {"tab": b}, _edge(start, TERMINAL, "bottom"), kind="split")
         assert after["shape"] == S("row[a,c,column[terminal,b]]")
@@ -836,46 +864,35 @@ def test_the_agent_pane_is_always_its_own_tile(tmp_path, chromium_browser):
         start = _restore(page, MATRIX_START)
         agent_tile = _tile_of(start, TERMINAL)
         _refused(page, {"tile": agent_tile}, _centre(start, c), start)
-        _refused(page, {"tile": agent_tile}, _tab_gap(start, c, 0), start)
+        _refused(page, {"tile": agent_tile}, _on_bar(start, c), start)
         _, after = _drop(page, {"tile": agent_tile}, _edge(start, c, "bottom"), kind="split")
-        assert after["shape"] == S("row[[*a|b],column[c,terminal]]")
+        assert after["shape"] == S("row[column[a,b],column[c,terminal]]")
         _assert_terminal_shown(page, after)
         assert hub.errors == []
 
 
 # ---------------------------------------------------------------------------
-# Tab bars, the strip below a top bar, sashes, the clamp
+# Headers, the strip below a top bar, sashes, the clamp
 # ---------------------------------------------------------------------------
 
 
-def test_tab_bar_position_and_just_below_a_top_bar_is_the_dock_top(tmp_path, chromium_browser):
+def test_just_below_a_top_bar_is_the_dock_top(tmp_path, chromium_browser):
+    """A tile's top edge splits it; the pixels just under a top-row bar are the dock's top strip."""
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
-        a, b, c, d = (S(x) for x in "abcd")
+        a, c, d = (S(x) for x in "acd")
         three = _split(
             "row",
-            _tile("t1", "a", "b", showing="a", size=0.6),
+            _tile("t1", "a", size=0.6),
             _tile("t2", "c", size=0.2),
             _tile("t3", TERMINAL, size=0.2),
         )
 
-        # A tab dropped between two tabs lands there and is shown.
-        start = _restore(page, three)
-        drag, after = _drop(page, {"tab": c}, _tab_gap(start, a, 1), kind="tab")
-        assert after["shape"] == S("row[[a|*c|b],terminal]")
-        tabs = start["tiles"]["t1"]["tabRects"]
-        assert abs(drag["preview"]["marker"]["x"] - tabs[1]["x"]) <= PX, drag["preview"]
-
-        # Reordering within the bar: b to the front.
-        start = _restore(page, three)
-        _, after = _drop(page, {"tab": b}, _tab_gap(start, a, 0), kind="tab")
-        assert after["shape"] == S("row[[*b|a],c,terminal]")
-
         # A tile's top edge, below the dock's top strip: its top half.
         start = _restore(page, three)
         drag, after = _drop(page, {"rail": d}, _edge(start, a, "top"), kind="split")
-        assert after["shape"] == S("row[column[d,[*a|b]],c,terminal]")
+        assert after["shape"] == S("row[column[d,a],c,terminal]")
         rd = _rect(after, d)
         assert _close(rd, _half(_rect(start, a), "top"), 2 * PX), (rd, _rect(start, a))
         assert _close(drag["preview"]["rect"], rd)
@@ -883,29 +900,33 @@ def test_tab_bar_position_and_just_below_a_top_bar_is_the_dock_top(tmp_path, chr
         # Just below a top-row bar is the dock's top strip: a row across the dock.
         start = _restore(page, three)
         drag, after = _drop(page, {"rail": d}, _below_bar(start, a), kind="split")
-        assert after["shape"] == S("column[d,row[[*a|b],c,terminal]]")
+        assert after["shape"] == S("column[d,row[a,c,terminal]]")
         assert _close(drag["preview"]["rect"], _rect(after, d))
 
-        # The same below the terminal's bar.
+        # The same below the terminal's bar, for a panel's bar.
         start = _restore(page, three)
-        _, after = _drop(page, {"tab": b}, _below_bar(start, TERMINAL), kind="split")
-        assert after["shape"] == S("column[b,row[a,c,terminal]]")
+        _, after = _drop(page, {"tab": c}, _below_bar(start, TERMINAL), kind="split")
+        assert after["shape"] == S("column[c,row[a,terminal]]")
         assert hub.errors == []
 
 
-def test_the_whole_header_row_takes_a_tab(tmp_path, chromium_browser):
-    """Right of the last tab, over the header's free space and actions, a drop adds a tab."""
+def test_no_point_on_a_tile_header_is_a_target(tmp_path, chromium_browser):
+    """The title, the free space and the actions of a service tile's header take nothing.
+
+    A tile holds one panel, so its whole header row is no target for a
+    panel's bar, a tile or a sidebar row: nothing is painted, nothing changes.
+    """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
-        a, b, c = (S(x) for x in "abc")
+        b, c, d = (S(x) for x in "bcd")
         start = _restore(page, MATRIX_START)
-        row = start["tiles"]["t1"]["row"]
-        last = start["tiles"]["t1"]["tabRects"][-1]
-        assert row["x"] + row["width"] - 8 > last["x"] + last["width"] + 40, (row, last)
-        point = {"x": row["x"] + row["width"] - 8, "y": row["y"] + row["height"] / 2}
-        _, after = _drop(page, {"tab": c}, point, kind="tab")
-        assert after["shape"] == S("row[[a|b|*c],terminal]")
+        row = start["tiles"][_tile_of(start, c)]["row"]
+        assert row["width"] > 200, row
+        points = [_on_bar(start, c), _on_bar(start, c, row["width"] / 2), _on_bar(start, c, -8)]
+        for source in ({"tab": b}, {"tile": "t1"}, {"rail": d}):
+            for point in points:
+                _refused(page, source, point, start)
         assert hub.errors == []
 
 
@@ -970,10 +991,10 @@ def test_sash_resize_then_t3_keeps_the_resized_ratio(tmp_path, chromium_browser)
         assert hub.errors == []
 
 
-def test_a_tile_too_narrow_to_halve_takes_a_tab(tmp_path, chromium_browser):
+def test_a_tile_too_narrow_to_halve_is_no_target(tmp_path, chromium_browser):
     """B is 60 px wide: halves of 30 px are under 40, so its sides are its centre.
 
-    The drop adds C as a tab of B, and nothing else moves.
+    A tile's centre is no target, so the drop paints nothing and nothing moves.
     """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
@@ -995,23 +1016,29 @@ def test_a_tile_too_narrow_to_halve_takes_a_tab(tmp_path, chromium_browser):
         assert 50 <= rb["width"] < 80, rb
         # B's left side, at mid-height: clear of its top and bottom edges.
         point = {"x": cb["x"] + 8, "y": cb["y"] + cb["height"] / 2}
-        drag, after = _drop(page, {"tile": "t3"}, point, kind="tab")
-        assert after["shape"] == S("row[a,[b|*c]]")
-        _assert_same_rects(start, after, [a])
-        assert _close(drag["preview"]["rect"], _rect(start, b)), (drag["preview"], rb)
+        _refused(page, {"tile": "t3"}, point, start)
+        _assert_same_rects(start, _settle(page), [a, b, c])
         assert hub.errors == []
 
 
 # ---------------------------------------------------------------------------
-# Input after drags and tab switches
+# Input after drags and sidebar switches
 # ---------------------------------------------------------------------------
 
 
-def test_services_and_terminal_take_input_after_a_drag_and_a_tab_switch(tmp_path, chromium_browser):
+def test_services_and_terminal_take_input_after_a_drag_and_a_panel_switch(
+    tmp_path, chromium_browser
+):
+    """Keys reach the services and the terminal after a drop and after a sidebar switch.
+
+    The switch is the sidebar's: D's row puts D in the tile C showed, and C's
+    row puts C back there with what was typed into it before — its iframe was
+    kept, not reloaded.
+    """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
-        a, b, c = (S(x) for x in "abc")
+        a, c, d = (S(x) for x in "acd")
         start = _restore(page, MATRIX_START)
 
         _drop(page, {"tile": _tile_of(start, c)}, _edge(start, a, "bottom"), kind="split")
@@ -1019,59 +1046,42 @@ def test_services_and_terminal_take_input_after_a_drag_and_a_tab_switch(tmp_path
         _type_in_service(page, c, "after-drag-c")
         _type_in_terminal(page, "afterdrag1")
 
-        # A tab hidden behind another, shown again by a click on its item.
-        _item(page, b).click()
-        state = _settle(page)
-        assert state["tiles"][_tile_of(state, b)]["showing"] == b
-        _type_in_service(page, b, "shown-b")
-        _item(page, a).click()
-        _settle(page)
-        expect(_iframe(page, b)).to_be_hidden()
-        _item(page, b).click()
-        _settle(page)
-        _type_in_service(page, b, "shown-again-b")
+        # C's tile is used last: D's row replaces C there.
+        c_tile = _tile_of(_focus_tile(page, c), c)
+        rail_entry(page, d, enabled_only=True).click()
+        state = _settle_until(page, lambda s: d in _docked(s))
+        assert _tile_of(state, d) == c_tile and c not in _docked(state), state["shape"]
+        expect(_iframe(page, c)).to_be_hidden(timeout=5_000)
+        _type_in_service(page, d, "shown-d")
+
+        # C's row brings C back into the same tile, its text intact.
+        rail_entry(page, c, enabled_only=True).click()
+        state = _settle_until(page, lambda s: c in _docked(s))
+        assert _tile_of(state, c) == c_tile and d not in _docked(state), state["shape"]
+        expect(_iframe(page, d)).to_be_hidden(timeout=5_000)
+        expect(_probe(page, c)).to_have_value("after-drag-c", timeout=5_000)
+        _type_in_service(page, c, "shown-again-c")
         _type_in_terminal(page, "afterswitch2")
         assert hub.errors == []
 
 
-def test_a_tab_click_then_a_drop_elsewhere_keeps_that_tab_showing(tmp_path, chromium_browser):
+def test_a_replaced_panel_stays_off_screen_after_a_drop_elsewhere(tmp_path, chromium_browser):
+    """D replaces A in A's tile; a later drop re-lays the dock and A stays hidden under D."""
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
-        a, b, c = (S(x) for x in "abc")
+        a, c, d = (S(x) for x in "acd")
         start = _restore(page, MATRIX_START)
-        _item(page, b).click()
-        shown = _settle(page)
-        assert shown["shape"] == S("row[[a|*b],c,terminal]")
+        _focus_tile(page, a)
+        rail_entry(page, d, enabled_only=True).click()
+        shown = _settle_until(page, lambda s: d in _docked(s))
+        assert shown["shape"] == S("row[column[d,b],c,terminal]")
         _drop(page, {"tile": _tile_of(start, c)}, _edge(start, TERMINAL, "bottom"), kind="split")
         after = _settle(page)
-        assert after["shape"] == S("row[[a|*b],column[terminal,c]]")
-        expect(_iframe(page, b)).to_be_visible()
+        assert after["shape"] == S("row[column[d,b],column[terminal,c]]")
+        expect(_iframe(page, d)).to_be_visible()
         expect(_iframe(page, a)).to_be_hidden()
-        _type_in_service(page, b, "still-b")
-        assert hub.errors == []
-
-
-def test_the_strip_moves_the_showing_tab_from_the_keyboard(tmp_path, chromium_browser):
-    """Arrow keys on the focused strip switch tabs; Delete closes the one in front."""
-    with _hub(tmp_path) as hub:
-        page = _open(chromium_browser, hub)
-        _open_services(page, "a", "b", "c")
-        a, b, c = (S(x) for x in "abc")
-        _restore(page, MATRIX_START)
-        strip = page.locator('#dock-root .tile-tab[data-tile="t1"]:visible .tile-tab-tabs')
-        strip.focus()
-        page.keyboard.press("ArrowRight")
-        state = _settle(page)
-        assert state["shape"] == S("row[[a|*b],c,terminal]")
-        expect(_iframe(page, b)).to_be_visible()
-        # The strip of the bar now showing keeps the keyboard.
-        expect(
-            page.locator('#dock-root .tile-tab[data-tile="t1"]:visible .tile-tab-tabs')
-        ).to_be_focused()
-        page.keyboard.press("Delete")
-        state = _settle(page)
-        assert state["shape"] == S("row[a,c,terminal]")
+        _type_in_service(page, d, "still-d")
         assert hub.errors == []
 
 
@@ -1081,47 +1091,47 @@ def test_the_strip_moves_the_showing_tab_from_the_keyboard(tmp_path, chromium_br
 
 
 def test_close_and_the_way_back_through_the_sidebar_row(tmp_path, chromium_browser):
+    """A tile's × closes it, one neighbour takes its space, and the panel's row brings it back."""
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
         a, b, c = (S(x) for x in "abc")
         start = _restore(page, MATRIX_START)
 
-        def close_showing(tile: str) -> dict:
-            bar = page.locator(f'#dock-root .tile-tab[data-tile="{tile}"]:visible')
+        def close_tile(key: str) -> dict:
+            bar = _bar(page, key)
             bar.hover()
             bar.locator(".tile-tab-close").click()
-            return _settle(page)
+            return _settle_until(page, lambda s: key not in _docked(s))
 
-        # A tab: shown, closed, then back from its sidebar row.
-        _item(page, b).click()
-        _settle(page)
-        state = close_showing("t1")
+        # B's tile, under A's: A takes the column back, C and the terminal stay.
+        state = close_tile(b)
         assert state["shape"] == S("row[a,c,terminal]")
-        _assert_same_rects(start, state, [a, c, TERMINAL])
+        _assert_same_rects(start, state, [c, TERMINAL])
+        assert _rect(state, a)["height"] > _rect(start, a)["height"] + 100, state["tiles"]
         rail_entry(page, b, enabled_only=True).click()
-        state = _settle(page)
-        assert b in [k for t in state["held"] for k in t["tabs"]], state["shape"]
+        state = _settle_until(page, lambda s: b in _docked(s))
+        assert b in _docked(state), state["shape"]
         _type_in_service(page, b, "back-b")
 
-        # A tile (its last tab): one neighbour grows, then back from the sidebar.
+        # C's tile: one neighbour grows, then back from the sidebar.
         before = _restore(page, MATRIX_START)
-        state = close_showing("t2")
-        assert state["shape"] == S("row[[*a|b],terminal]")
+        state = close_tile(c)
+        assert state["shape"] == S("row[column[a,b],terminal]")
         grew = [k for k in (a, TERMINAL) if not _close(_rect(before, k), _rect(state, k))]
         assert len(grew) == 1, (before["tiles"], state["tiles"])
         rail_entry(page, c, enabled_only=True).click()
-        state = _settle(page)
-        assert c in [k for t in state["held"] for k in t["tabs"]], state["shape"]
+        state = _settle_until(page, lambda s: c in _docked(s))
+        assert c in _docked(state), state["shape"]
         _type_in_service(page, c, "back-c")
 
         # The agent pane: closed, then back from its sidebar row, and it takes keys.
         _restore(page, MATRIX_START)
-        state = close_showing("t3")
-        assert TERMINAL not in [k for t in state["held"] for k in t["tabs"]], state["shape"]
+        state = close_tile(TERMINAL)
+        assert TERMINAL not in _docked(state), state["shape"]
         rail_entry(page, TERMINAL).click()
-        state = _settle(page)
-        assert TERMINAL in [k for t in state["held"] for k in t["tabs"]], state["shape"]
+        state = _settle_until(page, lambda s: TERMINAL in _docked(s))
+        assert TERMINAL in _docked(state), state["shape"]
         _assert_terminal_shown(page, state)
         _type_in_terminal(page, "terminalback")
         assert hub.errors == []
@@ -1163,68 +1173,89 @@ def test_closing_a_split_tile_gives_its_space_back_to_the_tile_it_split_from(
 # ---------------------------------------------------------------------------
 
 
-def test_an_open_lands_as_a_tab_in_front_of_the_service_tile_used_last(tmp_path, chromium_browser):
-    """A row click and the agent's open add a tab in front; nothing resizes."""
+def test_an_open_replaces_the_panel_in_the_service_tile_used_last(tmp_path, chromium_browser):
+    """A row click and the agent's open replace what the service tile used last shows.
+
+    Nothing resizes and the Agent pane is never the target. The replaced
+    panel keeps its row, which brings it back the same way with the state its
+    iframe held; a row click on a docked panel focuses it where it is, so the
+    next open replaces that one.
+    """
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
         a, b, c, d = (S(x) for x in "abcd")
         start = _restore(page, MATRIX_START)
+        _type_in_service(page, c, "kept-c")
 
-        # C's tile is the one used last: D's row lands D in front of C there.
-        page.locator('#dock-root .tile-tab[data-tile="t2"]:visible .tile-tab-title').click()
-        _settle(page)
+        # C's tile is the one used last, then the operator types in the Agent
+        # pane: D's row replaces C in C's tile, never the Agent pane.
+        _focus_tile(page, c)
+        _type_in_terminal(page, "beforeopen")
         rail_entry(page, d, enabled_only=True).click()
-        after = _settle(page)
-        assert after["shape"] == S("row[[*a|b],[c|*d],terminal]")
-        _assert_same_rects(start, after, [a, c, TERMINAL])
+        after = _settle_until(page, lambda s: d in _docked(s))
+        assert after["shape"] == S("row[column[a,b],d,terminal]")
+        assert _tile_of(after, d) == "t2", after["held"]
+        _assert_same_rects(start, after, [a, b, TERMINAL])
+        assert _close(_rect(after, d), _rect(start, c)), (_rect(start, c), _rect(after, d))
         expect(_iframe(page, d)).to_be_visible(timeout=5_000)
         expect(_iframe(page, c)).to_be_hidden(timeout=5_000)
-        _type_in_service(page, d, "tab-d")
+        expect(rail_entry(page, c)).to_have_count(1)
+        _type_in_service(page, d, "open-d")
 
-        # A covered panel's row brings it forward where it is.
-        rail_entry(page, b, enabled_only=True).click()
+        # C's row brings C back the same way, with what was typed into it.
+        rail_entry(page, c, enabled_only=True).click()
+        after = _settle_until(page, lambda s: c in _docked(s))
+        assert after["shape"] == S("row[column[a,b],c,terminal]")
+        assert _tile_of(after, c) == "t2", after["held"]
+        expect(_probe(page, c)).to_have_value("kept-c", timeout=5_000)
+
+        # A docked panel's row focuses it where it is: nothing moves, and the
+        # next open replaces it rather than C.
+        rail_entry(page, a, enabled_only=True).click()
         after = _settle(page)
-        assert after["shape"] == S("row[[a|*b],[c|*d],terminal]")
-        _assert_same_rects(start, after, [a, c, TERMINAL])
+        assert after["shape"] == S("row[column[a,b],c,terminal]")
+        _assert_same_rects(start, after, [a, b, c, TERMINAL])
+        rail_entry(page, d, enabled_only=True).click()
+        after = _settle_until(page, lambda s: d in _docked(s))
+        assert after["shape"] == S("row[column[d,b],c,terminal]")
+        assert _tile_of(after, d) == "t1", after["held"]
 
-        # The agent's open lands the same way as the row click.
+        # The agent's open asked to replace lands by the same rule as the row
+        # click (its default is a new tile).
         start = _restore(page, MATRIX_START)
+        _focus_tile(page, c)
         r = requests.post(
             f"{hub.base_url}/api/panel-op/open",
-            json={"request_id": "tiles-open-1", "member": d},
+            json={"request_id": "tiles-open-1", "member": d, "place": "replace"},
             timeout=10,
         )
         assert r.status_code == 200, r.text
-        expect(_item(page, d)).to_have_count(1, timeout=10_000)
+        expect(_bar(page, d)).to_have_count(1, timeout=10_000)
         after = _settle(page)
-        assert after["shape"] == S("row[[*a|b],[c|*d],terminal]")
-        _assert_same_rects(start, after, [a, c, TERMINAL])
+        assert after["shape"] == S("row[column[a,b],d,terminal]")
+        _assert_same_rects(start, after, [a, b, TERMINAL])
         _type_in_service(page, d, "agent-d")
         assert hub.errors == []
 
 
 def test_a_reload_brings_the_stored_layout_back_whole(tmp_path, chromium_browser):
-    """Tiles, tabs, the tab in front and the sizes come back as they were saved."""
+    """Tiles, the panel each shows and the sizes come back as they were saved."""
     with _hub(tmp_path) as hub:
         page = _open(chromium_browser, hub)
         _open_services(page, "a", "b", "c")
         a, b, c = (S(x) for x in "abc")
-        before = _restore(page, MATRIX_START)
-        # The debounced persist has written the three-tile arrangement.
-        page.wait_for_function(
-            """() => Object.keys(localStorage).some((k) => {
-                 if (!k.includes('osprey-dock-layout-')) return false;
-                 try {
-                   return JSON.parse(localStorage.getItem(k)).layout?.items?.length === 3;
-                 } catch { return false; }
-               })""",
-            timeout=5_000,
-        )
+        _restore(page, MATRIX_START)
+        # The reload brings back what was stored, so the stored layout must be
+        # the one on screen first, sizes included: the persist is debounced, and
+        # a reload taken before its last write restores older sizes. The state
+        # the reload must bring back is read once the store has caught up.
+        _wait_until_stored(page)
+        before = _settle(page)
 
         page.reload()
         wait_for_dock_settled(page)
-        for key in (a, c):
+        for key in (a, b, c):
             expect(_iframe(page, key)).to_be_visible(timeout=10_000)
         # The stored sizes are applied after the boot layout; under load the dock
         # can be still at an intermediate size for a moment, so wait on the
@@ -1235,17 +1266,462 @@ def test_a_reload_brings_the_stored_layout_back_whole(tmp_path, chromium_browser
                 state["shape"] == before["shape"]
                 and all(
                     _close(_rect(before, key), _rect(state, key), 2 * PX)
-                    for key in (a, c, TERMINAL)
+                    for key in (a, b, c, TERMINAL)
                 )
             ),
         )
-        assert after["shape"] == S("row[[*a|b],c,terminal]") == before["shape"]
-        for key in (a, c, TERMINAL):
+        assert after["shape"] == S("row[column[a,b],c,terminal]") == before["shape"]
+        for key in (a, b, c, TERMINAL):
             assert _close(_rect(before, key), _rect(after, key), 2 * PX), (
                 key,
                 _rect(before, key),
                 _rect(after, key),
             )
-        assert b in after["tiles"][_tile_of(after, a)]["tabs"]
         _type_in_service(page, a, "after-reload")
+        assert hub.errors == []
+
+
+#: Replace the persisted layout's tree with `layout`, keeping the stored value's
+#: version and panel records: what a dock saved by an earlier release reads as.
+_STORE_LAYOUT_JS = """(layout) => {
+  const key = Object.keys(localStorage).find((k) => k.includes('osprey-dock-layout-'));
+  if (!key) return null;
+  const value = JSON.parse(localStorage.getItem(key));
+  value.layout = layout;
+  localStorage.setItem(key, JSON.stringify(value));
+  return key;
+}"""
+
+
+def test_a_stored_tile_holding_several_panels_comes_back_with_the_one_it_showed(
+    tmp_path, chromium_browser
+):
+    """A dock saved with A and B in one tile, B in front, reloads with B alone in that tile.
+
+    A leaves the dock and keeps its sidebar row; C and the terminal come back
+    as they were.
+    """
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        _restore(page, MATRIX_START)
+        _wait_until_stored(page)
+        # Let any trailing persist land before the stored value is rewritten.
+        page.wait_for_timeout(400)
+        crowded = _split(
+            "row",
+            _tile("t1", "a", "b", showing="b", size=0.4),
+            _tile("t2", "c", size=0.3),
+            _tile("t3", TERMINAL, size=0.3),
+        )
+        assert page.evaluate(_STORE_LAYOUT_JS, crowded), "no stored layout to rewrite"
+
+        page.reload()
+        wait_for_dock_settled(page)
+        for key in (b, c):
+            expect(_iframe(page, key)).to_be_visible(timeout=10_000)
+        after = _settle_until(page, lambda s: s["shape"] == S("row[b,c,terminal]"))
+        assert after["shape"] == S("row[b,c,terminal]"), after["shape"]
+        assert _tile_of(after, b) == "t1", after["held"]
+        expect(_iframe(page, a)).to_be_hidden()
+        expect(rail_entry(page, a)).to_have_count(1)
+        _type_in_service(page, b, "migrated-b")
+        assert hub.errors == []
+
+
+# ---------------------------------------------------------------------------
+# The narrow-tile defects of the tab release
+# ---------------------------------------------------------------------------
+
+
+def test_removing_a_panel_from_the_rail_leaves_the_other_tiles_alone(tmp_path, chromium_browser):
+    """ "Remove from rail" on a docked panel's rail entry closes its tile and touches no other.
+
+    A docked member's tile menu carries Reveal in sidebar, not the rail
+    membership row; the membership verb lives on the panel's sidebar row.
+
+    The tab release's defect: removing the panel the operator was on handed
+    the view to a fallback panel opened INTO a tile that still showed one, and
+    that tile's header collapsed. Now C's tile closes (its space goes to the
+    tile it split from, the terminal's), the view goes to a panel already on
+    screen, and A's and B's tiles keep their panel, their visible iframe and
+    their rectangle; no other panel (artifacts) is opened.
+    """
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        start = _restore(
+            page,
+            _split(
+                "row",
+                _tile("t1", "a", size=0.25),
+                _tile("t2", "b", size=0.25),
+                {**_tile("t3", "c", size=0.2), "from": "t4"},
+                _tile("t4", TERMINAL, size=0.3),
+            ),
+        )
+        assert start["shape"] == S("row[a,b,c,terminal]")
+        # C is the panel the operator is on.
+        _focus_tile(page, c)
+        expect(page.locator(f'button.panel-rail-button[data-panel-id="{c}"].active')).to_have_count(
+            1, timeout=5_000
+        )
+
+        rail_entry(page, c).click(button="right")
+        menu = page.locator(".rail-context-menu")
+        expect(menu).to_have_count(1, timeout=5_000)
+        menu.locator(".rail-context-item", has_text="Remove from rail").click()
+
+        expect(rail_entry(page, c)).to_have_count(0, timeout=10_000)
+        after = _settle_until(page, lambda s: c not in _docked(s))
+        assert after["shape"] == S("row[a,b,terminal]"), after["shape"]
+        _assert_same_rects(start, after, [a, b])
+        for key in (a, b):
+            expect(_iframe(page, key)).to_be_visible(timeout=5_000)
+            assert _iframe(page, key).evaluate("(f) => f.style.display") != "none", key
+        expect(_iframe(page, c)).to_be_hidden()
+        # The view went to a panel already on screen, in place.
+        page.wait_for_timeout(500)
+        later = _settle(page)
+        assert later["shape"] == after["shape"], later["shape"]
+        _assert_same_rects(start, later, [a, b])
+        _type_in_service(page, a, "after-remove-a")
+        assert hub.errors == []
+
+
+#: Contribute a hub-drawn header that has to fold: a crumb, a pager and two
+#: labelled buttons. Every action it dispatches is recorded.
+_ARTIFACTS_HEADER_JS = """async (title) => {
+  const { contributeLocal } = await import('/static/js/tile-header-contrib.js');
+  const { headerItems } = await import('/static/js/artifacts-pane-header.js');
+  const shown = { id: 'x', filename: 'plot.png', title };
+  window.__picked = [];
+  contributeLocal('artifacts', headerItems(shown), (id) => { window.__picked.push(id); });
+}"""
+
+#: The tile ⋯ row for each panel icon the artifacts header can fold (an icon's
+#: row is named by its title).
+_ARTIFACT_FOLD_LABELS = {
+    "icon:info": "Artifact details",
+    "icon:download": "Download",
+}
+
+
+def test_a_narrow_artifacts_tile_keeps_its_bar_and_a_working_tile_menu(tmp_path, chromium_browser):
+    """In a narrow tile the artifacts bar spans its tile and the tile ⋯ holds what folded.
+
+    The tab release's defect: the artifacts header collapsed the header of a
+    tile holding several panels to nothing and folded every control away, and
+    the menu that held them closed itself as the clipped region scrolled to
+    the focused button. With one panel per tile the bar is the tile's whole
+    header. The panel icons the width cannot hold (Info, Download) take class
+    `contrib-hidden` and are rows under the tile menu's "This panel" heading,
+    a real click on ⋯ keeps the menu open, and a row runs the control it
+    stands for.
+    """
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        # Artifacts has no rail entry; the boot layout docks it.
+        expect(_iframe(page, "artifacts")).to_be_visible(timeout=10_000)
+        _open_services(page, "a")
+        _restore(
+            page,
+            _split(
+                "row",
+                _tile("t1", "artifacts", size=0.12),
+                _tile("t2", "a", size=0.58),
+                _tile("t3", TERMINAL, size=0.3),
+            ),
+        )
+        # The sidebar's own artifacts header has landed before this one replaces it.
+        page.wait_for_timeout(500)
+        title = "A fairly long artifact name"
+        page.evaluate(_ARTIFACTS_HEADER_JS, title)
+        bar = _bar(page, "artifacts")
+        expect(bar.locator("[data-contrib-key='icon:info']")).to_be_attached(timeout=5_000)
+
+        state = _settle(page)
+        tile = state["tiles"][_tile_of(state, "artifacts")]
+        assert abs(tile["bar"]["width"] - tile["row"]["width"]) <= PX, tile
+
+        folded = bar.locator("[data-contrib-key].contrib-hidden")
+        expect(folded.first).to_be_attached(timeout=5_000)
+        keys = folded.evaluate_all("els => els.map(e => e.dataset.contribKey)")
+        assert keys and all(key in _ARTIFACT_FOLD_LABELS for key in keys), keys
+
+        bar.locator(".tile-tab-more").click()
+        page.wait_for_timeout(300)
+        menu = page.locator(".rail-context-menu")
+        expect(menu).to_have_count(1)
+        expect(menu.locator(".rail-context-heading", has_text="This panel")).to_have_count(1)
+        rows = menu.locator(".rail-context-item")
+        labels = [text.strip() for text in menu.locator(".rail-context-label").all_inner_texts()]
+        for key in keys:
+            assert _ARTIFACT_FOLD_LABELS[key] in labels, (labels, keys)
+
+        key = keys[0]
+        row = rows.filter(
+            has=page.locator(".rail-context-label", has_text=_ARTIFACT_FOLD_LABELS[key])
+        )
+        expect(row).to_have_count(1)
+        expect(row).not_to_have_attribute("aria-disabled", "true")
+        row.click()
+        expect(menu).to_have_count(0, timeout=5_000)
+        assert page.evaluate("() => window.__picked") == [key.split(":", 1)[1]]
+        assert hub.errors == []
+
+
+# ---------------------------------------------------------------------------
+# Maximize / Restore
+# ---------------------------------------------------------------------------
+
+#: Maximize the tile showing `key`, restore, or read which tile is maximized,
+#: through dock-workspace.js's wrappers over dockview's group maximize.
+_MAXIMIZE_JS = """
+async ({ action, key }) => {
+  const dock = await import('/static/js/dock-workspace.js');
+  if (action === 'maximize') return dock.maximizeTile(key);
+  if (action === 'restore') return dock.restoreTile();
+  return dock.maximizedTileKey();
+}
+"""
+
+#: The maximized tile's key and content rectangle, the dock's rectangle, every
+#: overlay iframe's display and rectangle, how many overlay siblings (notices,
+#: body states) are on screen besides the maximized panel's, and, for each
+#: point asked about, the panel whose iframe is the topmost element there
+#: ("terminal" for the terminal's tile, null for anything else).
+_MAXIMIZED_JS = """
+async (points) => {
+  const { getDockApi, maximizedTileKey } = await import('/static/js/dock-workspace.js');
+  const api = getDockApi();
+  const r = (el) => {
+    const b = el.getBoundingClientRect();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  };
+  const key = maximizedTileKey();
+  const group = api.groups.find((g) => g.api.isMaximized()) ?? null;
+  const content = group?.element.querySelector('.dv-content-container') ?? null;
+  const frames = {};
+  for (const f of document.querySelectorAll('.dock-iframe-overlay iframe[data-panel-id]')) {
+    frames[f.dataset.panelId] = { display: f.style.display, rect: r(f) };
+  }
+  const siblings = [...document.querySelectorAll('.dock-iframe-overlay > :not(iframe)')]
+    .filter((el) => el.style.display !== 'none' && getComputedStyle(el).display !== 'none')
+    .map(r);
+  const hits = points.map((p) => {
+    const el = document.elementFromPoint(p.x, p.y);
+    if (!el) return null;
+    if (el instanceof HTMLIFrameElement) return el.dataset.panelId ?? null;
+    if (el.closest('.dv-groupview')?.querySelector('.tile-tab-terminal')) return 'terminal';
+    return null;
+  });
+  return {
+    key,
+    has: api.hasMaximizedGroup(),
+    content: content ? r(content) : null,
+    dock: r(document.querySelector('#dock-root')),
+    frames,
+    siblings,
+    hits,
+  };
+}
+"""
+
+
+def _maximize(page: Page, key: str) -> None:
+    assert page.evaluate(_MAXIMIZE_JS, {"action": "maximize", "key": key}) is True, key
+
+
+def _restore_tile(page: Page) -> None:
+    page.evaluate(_MAXIMIZE_JS, {"action": "restore", "key": None})
+
+
+def _maximized(page: Page, points: list[dict] | None = None) -> dict:
+    return page.evaluate(_MAXIMIZED_JS, points or [])
+
+
+def _settle_maximized(page: Page, key: str, points: list[dict]) -> dict:
+    """Wait until `key`'s tile is maximized and its iframe fills it, stable for two reads."""
+    deadline = time.monotonic() + _SETTLE_S
+    previous = None
+    seen = _maximized(page, points)
+    while time.monotonic() < deadline:
+        seen = _maximized(page, points)
+        frame = seen["frames"].get(key)
+        ready = (
+            seen["key"] == key
+            and seen["content"] is not None
+            and (key == TERMINAL or (frame and _close(frame["rect"], seen["content"])))
+        )
+        if ready:
+            snapshot = json.dumps(seen, sort_keys=True)
+            if snapshot == previous:
+                return seen
+            previous = snapshot
+        else:
+            previous = None
+        page.wait_for_timeout(100)
+    raise AssertionError(f"{key} never settled maximized: {json.dumps(seen)[:2000]}")
+
+
+def _assert_fills_the_dock(seen: dict, start: dict) -> None:
+    """The maximized tile's body spans the area every tile of `start` shared."""
+    content = seen["content"]
+    tiles = [t["rect"] for t in start["tiles"].values()]
+    left = min(t["x"] for t in tiles)
+    right = max(t["x"] + t["width"] for t in tiles)
+    bottom = max(t["y"] + t["height"] for t in tiles)
+    top = min(t["y"] for t in tiles)
+    assert abs(content["x"] - left) <= PX, (content, tiles)
+    assert abs(content["x"] + content["width"] - right) <= PX, (content, tiles)
+    assert abs(content["y"] + content["height"] - bottom) <= PX, (content, tiles)
+    # Below the tile's own bar, at the top of the grid.
+    assert top < content["y"] <= top + 60, (content, tiles)
+
+
+def _assert_frames_follow_their_tiles(page: Page, state: dict, keys: list[str]) -> None:
+    seen = _maximized(page)
+    assert seen["key"] is None and not seen["has"], seen
+    for key in keys:
+        frame = seen["frames"][key]
+        assert frame["display"] != "none", (key, frame)
+        assert _close(frame["rect"], _content(state, key)), (key, frame, _content(state, key))
+
+
+def test_maximize_fills_the_dock_and_nothing_shows_through_then_restore(tmp_path, chromium_browser):
+    """A maximized tile's iframe fills the dock alone; Restore puts every tile back.
+
+    B sits under A beside C and the terminal. Maximizing B hides every other
+    overlay iframe outright (its tile is only squeezed to nothing by dockview,
+    so its frame would otherwise linger), and at each other tile's old centre
+    the topmost element is B's iframe. Restore gives every tile its old
+    rectangle and every iframe its tile's body again.
+    """
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        start = _restore(page, MATRIX_START)
+        assert start["shape"] == S("row[column[a,b],c,terminal]")
+        others = [a, c, TERMINAL]
+        points = [_centre(start, key) for key in others]
+
+        _maximize(page, b)
+        seen = _settle_maximized(page, b, points)
+        _assert_fills_the_dock(seen, start)
+        assert seen["frames"][b]["display"] != "none", seen["frames"][b]
+        for key in (a, c):
+            assert seen["frames"][key]["display"] == "none", (key, seen["frames"][key])
+        assert seen["hits"] == [b, b, b], seen["hits"]
+        for sibling in seen["siblings"]:
+            assert _close(sibling, seen["content"]), (sibling, seen["content"])
+        _type_in_service(page, b, "while-maximized")
+
+        _restore_tile(page)
+        after = _settle(page)
+        assert after["shape"] == start["shape"], after["shape"]
+        _assert_same_rects(start, after, [a, b, c, TERMINAL])
+        _assert_frames_follow_their_tiles(page, after, [a, b, c])
+        _type_in_service(page, c, "after-restore")
+        assert hub.errors == []
+
+
+def test_maximize_the_terminal_hides_every_service_iframe(tmp_path, chromium_browser):
+    """The terminal's tile maximized: no service iframe shows over it."""
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        start = _restore(page, MATRIX_START)
+        points = [_centre(start, key) for key in (a, b, c)]
+
+        _maximize(page, TERMINAL)
+        seen = _settle_maximized(page, TERMINAL, points)
+        _assert_fills_the_dock(seen, start)
+        for key in (a, b, c):
+            assert seen["frames"][key]["display"] == "none", (key, seen["frames"][key])
+        assert seen["siblings"] == [], seen["siblings"]
+        assert seen["hits"] == [TERMINAL] * 3, seen["hits"]
+
+        _restore_tile(page)
+        after = _settle(page)
+        _assert_same_rects(start, after, [a, b, c, TERMINAL])
+        _assert_frames_follow_their_tiles(page, after, [a, b, c])
+        assert hub.errors == []
+
+
+#: The holder's layout and whether its sizes are those of `before`.
+_HELD_SIZES_JS = """
+async (before) => {
+  const { getLayoutHolder, sameShape, sameSizes } = await import('/static/js/dock-apply.js');
+  const live = getLayoutHolder()?.layout ?? null;
+  return !!live && sameShape(live, before) && sameSizes(live, before);
+}
+"""
+
+
+def test_maximize_is_not_stored_and_a_reload_comes_back_restored(tmp_path, chromium_browser):
+    """A maximize is view state: the stored layout keeps the tiles' own sizes.
+
+    While A is maximized the holder's layout and the stored value stay the
+    arrangement (A over B, C, the terminal) at its sizes, and a reload taken then opens that
+    arrangement with no tile maximized.
+    """
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        start = _restore(page, MATRIX_START)
+        _wait_until_stored(page)
+
+        _maximize(page, a)
+        _settle_maximized(page, a, [])
+        # Past the persist debounce: whatever a maximize would store is stored.
+        page.wait_for_timeout(600)
+        assert page.evaluate(_HELD_SIZES_JS, start["layout"]), "the maximize reached the holder"
+        _wait_until_stored(page)
+        stored = page.evaluate(_STORED_JS)["values"]
+        assert stored and all("maximized" not in json.dumps(v).lower() for v in stored), stored
+
+        page.reload()
+        wait_for_dock_settled(page)
+        for key in (a, b, c):
+            expect(_iframe(page, key)).to_be_visible(timeout=10_000)
+        after = _settle_until(
+            page,
+            lambda state: (
+                state["shape"] == start["shape"]
+                and all(
+                    _close(_rect(start, k), _rect(state, k), 2 * PX) for k in (a, b, c, TERMINAL)
+                )
+            ),
+        )
+        assert after["shape"] == start["shape"], after["shape"]
+        for key in (a, b, c, TERMINAL):
+            assert _close(_rect(start, key), _rect(after, key), 2 * PX), key
+        assert page.evaluate(_MAXIMIZE_JS, {"action": "read", "key": None}) is None
+        assert hub.errors == []
+
+
+def test_a_layout_applied_whole_ends_a_maximize(tmp_path, chromium_browser):
+    """A holder apply while A is maximized shows the applied layout, nothing maximized."""
+    with _hub(tmp_path) as hub:
+        page = _open(chromium_browser, hub)
+        _open_services(page, "a", "b", "c")
+        a, b, c = (S(x) for x in "abc")
+        _restore(page, FOUR_TASKS_START)
+        _maximize(page, a)
+        _settle_maximized(page, a, [])
+
+        after = _restore(page, MATRIX_START)
+        assert after["shape"] == S("row[column[a,b],c,terminal]"), after["shape"]
+        assert page.evaluate(_MAXIMIZE_JS, {"action": "read", "key": None}) is None
+        _assert_frames_follow_their_tiles(page, after, [a, b, c])
+        # Restore with nothing maximized changes nothing.
+        _restore_tile(page)
+        again = _settle(page)
+        _assert_same_rects(after, again, [a, b, c, TERMINAL])
         assert hub.errors == []

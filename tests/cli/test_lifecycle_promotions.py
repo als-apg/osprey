@@ -1272,6 +1272,9 @@ def _stub_a_successful_wheel_build(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(subprocess, "run", _fake_build)
     monkeypatch.setattr(wheel_build, "_wheel_base_requirements", lambda path: [])
+    # The lock export is uv's, not the build's; the stub above answers only
+    # `python -m build`.
+    monkeypatch.setattr(wheel_build, "export_lock_constraints", lambda root: "")
 
 
 def _rendered_project(tmp_path: Path, name: str) -> Path:

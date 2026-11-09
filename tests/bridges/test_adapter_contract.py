@@ -22,12 +22,16 @@ from osprey.bridges.google_chat import require_boot as google_chat_require_boot
 from osprey.bridges.google_chat.ops import GoogleChatOps
 from osprey.bridges.nextcloud_talk import NextcloudBridgeConfig
 from osprey.bridges.nextcloud_talk.ops import NextcloudTalkOps
+from osprey.bridges.slack import SlackBridgeConfig
+from osprey.bridges.slack import require_boot as slack_require_boot
+from osprey.bridges.slack.ops import SlackOps
 from osprey.bridges.teams import TeamsBridgeConfig
 from osprey.bridges.teams import require_boot as teams_require_boot
 from osprey.bridges.teams.ops import TeamsOps
 from osprey.port_layout import default_port
 from tests.bridges.google_chat.test_config import COMPLETE_ENV as GOOGLE_CHAT_ENV
 from tests.bridges.nextcloud.test_config import COMPLETE_ENV as NEXTCLOUD_ENV
+from tests.bridges.slack.test_config import COMPLETE_ENV as SLACK_ENV
 from tests.bridges.teams.test_config import COMPLETE_ENV as TEAMS_ENV
 from tests.bridges.test_ports import PROTOCOL_MEMBERS
 
@@ -68,8 +72,11 @@ GOOGLE_CHAT = Adapter(
 NEXTCLOUD = Adapter(
     "nextcloud", NextcloudBridgeConfig, NEXTCLOUD_ENV, "NEXTCLOUD_MENTIONS", NextcloudTalkOps
 )
+SLACK = Adapter(
+    "slack", SlackBridgeConfig, SLACK_ENV, "SLACK_MENTIONS", SlackOps, slack_require_boot
+)
 
-ADAPTERS = (TEAMS, GOOGLE_CHAT, NEXTCLOUD)
+ADAPTERS = (TEAMS, GOOGLE_CHAT, NEXTCLOUD, SLACK)
 BOOTED = tuple(adapter for adapter in ADAPTERS if adapter.require_boot is not None)
 
 # What require_boot checks on top of require_startup. Bare in compose, so an unset one

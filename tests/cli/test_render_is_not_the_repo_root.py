@@ -174,7 +174,7 @@ def test_naming_the_repo_root_does_not_cost_the_render_its_own_venv(tmp_path) ->
         TemplateManager(),
         project_name=BUILD_DIR_NAME,
         output_dir=repo,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     venv_python = render / ".venv" / "bin" / "python"

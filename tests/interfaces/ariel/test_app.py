@@ -9,8 +9,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.port_layout import default_port
-
 
 @pytest.fixture
 def mock_ariel_config():
@@ -59,7 +57,7 @@ def test_create_app_basic():
             app = create_app()
 
             assert isinstance(app, FastAPI)
-            assert app.title == "ARIEL Search Interface"
+            assert app.title == "Logbook Search Interface"
             assert app.version == "1.0.0"
 
 
@@ -193,32 +191,3 @@ async def test_app_with_lifespan(mock_ariel_config, mock_ariel_service, tmp_path
                 # Check root endpoint
                 response = client.get("/")
                 assert response.status_code == 200
-
-
-def test_run_web_basic():
-    """Test run_web function."""
-    from osprey.interfaces.ariel import run_web
-
-    with patch("uvicorn.run") as mock_run:
-        run_web(host="0.0.0.0", port=8080, reload=False)
-
-        # Check uvicorn.run was called
-        mock_run.assert_called_once()
-        # In non-reload mode, app instance is passed directly
-        assert not isinstance(mock_run.call_args.args[0], str)
-
-
-def test_run_web_reload_mode():
-    """Test run_web in reload mode."""
-    from osprey.interfaces.ariel import run_web
-
-    with patch("uvicorn.run") as mock_run:
-        run_web(host="127.0.0.1", port=default_port("ariel"), reload=True)
-
-        # Check uvicorn.run was called with string reference
-        mock_run.assert_called_once()
-        call_kwargs = mock_run.call_args.kwargs
-        assert call_kwargs["factory"] is True
-        assert call_kwargs["reload"] is True
-        assert call_kwargs["host"] == "127.0.0.1"
-        assert call_kwargs["port"] == default_port("ariel")

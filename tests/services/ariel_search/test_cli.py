@@ -805,6 +805,104 @@ class TestEnhanceCommand:
         assert "--retry-failed needs --module" in result.output
         assert calls == []
 
+    def test_entry_is_passed_through_with_its_module(self, runner, monkeypatch):
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(
+            ariel_group, ["enhance", "--module", "text_embedding", "--entry", "E 1"]
+        )
+
+        assert result.exit_code == 0, result.output
+        ((args, kwargs),) = calls
+        assert args[1] == "text_embedding"
+        assert kwargs["entry_id"] == "E 1"
+
+    def test_without_entry_the_entry_id_is_none(self, runner, monkeypatch):
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(ariel_group, ["enhance", "--module", "text_embedding"])
+
+        assert result.exit_code == 0, result.output
+        ((_args, kwargs),) = calls
+        assert kwargs["entry_id"] is None
+
+    def test_entry_without_a_module_is_refused(self, runner, monkeypatch):
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(ariel_group, ["enhance", "--entry", "E1"])
+
+        assert result.exit_code == 1
+        assert "--entry needs --module" in result.output
+        assert calls == []
+
+    @pytest.mark.parametrize(
+        ("extra", "named"),
+        [
+            (["--force"], "--force"),
+            (["--limit", "5"], "--limit"),
+            (["--limit", "100"], "--limit"),
+            (["--retry-failed"], "--retry-failed"),
+            (["--refresh-stale"], "--refresh-stale"),
+        ],
+    )
+    def test_entry_refuses_the_pass_wide_flags(self, runner, monkeypatch, extra, named):
+        calls = self._patched(monkeypatch)
+
+        result = runner.invoke(
+            ariel_group, ["enhance", "--module", "image_caption", "--entry", "E1", *extra]
+        )
+
+        assert result.exit_code == 1
+        assert "--entry runs one entry and cannot be combined with" in flat(result.output)
+        assert named in result.output
+        assert calls == []
+
+    def test_entry_refusal_from_the_store_exits_one_with_its_sentence(self, runner, monkeypatch):
+        from osprey.services.ariel_search import cli_operations
+
+        self._patched(monkeypatch)
+
+        async def refuse(*_args, **_kwargs):
+            raise cli_operations.EntryRerunRefused(
+                "text_embedding on entry E1 is stale against the table's build key, which only "
+                "a rebuild of the whole table clears: run osprey ariel reembed --model m "
+                "--dimension 4 --force"
+            )
+
+        monkeypatch.setattr(cli_operations, "run_enhance", refuse)
+
+        result = runner.invoke(
+            ariel_group, ["enhance", "--module", "text_embedding", "--entry", "E1"]
+        )
+
+        assert result.exit_code == 1
+        assert "osprey ariel reembed --model m --dimension 4 --force" in flat(result.output)
+        assert "Traceback" not in result.output
+
+    @pytest.mark.parametrize("module", ["image_caption", "semantic_processor", "text_embedding"])
+    @pytest.mark.parametrize("entry_id", ["E1", "2024-05-01 10:00 'shift' $HOME;x"])
+    def test_rerun_command_entry_line_parses_with_this_cli(
+        self, runner, monkeypatch, module, entry_id
+    ):
+        import shlex
+
+        from osprey.services.ariel_search.enhancement.status import (
+            EnhancementContext,
+            rerun_command,
+        )
+
+        calls = self._patched(monkeypatch)
+        command = rerun_command(module, entry_id, "failed", EnhancementContext())
+        argv = shlex.split(command)
+        assert argv[:3] == ["osprey", "ariel", "enhance"]
+
+        result = runner.invoke(ariel_group, argv[2:])
+
+        assert result.exit_code == 0, result.output
+        ((args, kwargs),) = calls
+        assert args[1] == module
+        assert kwargs["entry_id"] == entry_id
+
 
 class TestSearchResultRendering:
     """Direct (non-RAG) search modes must surface found entries to the CLI user.

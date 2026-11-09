@@ -5,10 +5,11 @@ Written to ``<render>/data/bluesky_devices.yml``::
     schema: osprey.facility.bluesky_devices/1
     # generated-file header
     settables:
-      - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, settle_tolerance: <x>}
+      - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, settle_tolerance: <x>,
+         unit: <pair's unit>, setpoint_unit: <setpoint's unit>}
       - {name: <setpoint>, setpoint: <setpoint>, readback: <pair>, motion_band: <band>}
     readables:
-      - {name: <readback>, pv: <readback>}
+      - {name: <readback>, pv: <readback>, unit: <unit>}
 
 One settable per setpoint channel, whose ``readback`` is the channel's ``pair``
 when the pair is another channel and is absent otherwise; one readable per
@@ -20,6 +21,12 @@ back declares motion in its ``simulation`` seed: the envelope
 :func:`osprey_connectors.simulation.envelope.motion_envelope` derives from that
 seed, which only a simulated lane settles within. A settable with neither
 settles within the profile's floor.
+
+A device carries ``unit`` when the channel it reports under its name states a
+non-empty ``unit``: a paired settable's readback, an unpaired settable's
+setpoint, a readable's channel. A paired settable whose setpoint states one
+also carries ``setpoint_unit``. A device whose channel states no unit carries
+no unit key.
 
 Writing the view warns, once per build, of each scenario that moves a
 toleranced readback beyond its tolerance, and, per lane that does not serve
@@ -89,6 +96,15 @@ def _motion_bands(records: FacilityRecords) -> dict[str, float]:
     }
 
 
+def _units(records: FacilityRecords) -> dict[str, str]:
+    """Each channel's declared ``unit``, by address, for channels that state one."""
+    return {
+        channel["id"]: channel["unit"]
+        for channel in records.of_kind("channel")
+        if isinstance(channel.get("unit"), str) and channel["unit"]
+    }
+
+
 def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]]:
     """The device document of one facility file.
 
@@ -101,7 +117,10 @@ def bluesky_document(records: FacilityRecords) -> dict[str, list[dict[str, Any]]
     from osprey.services.bluesky_bridge.substrate_devices import devices_document
 
     return devices_document(
-        _records(records, Path(FACILITY_FILE)), _tolerances(records), _motion_bands(records)
+        _records(records, Path(FACILITY_FILE)),
+        _tolerances(records),
+        _motion_bands(records),
+        _units(records),
     )
 
 
@@ -185,6 +204,7 @@ def write_bluesky_view(root: Path, inputs: ViewInputs) -> list[Path]:
         schema=BLUESKY_DEVICES_SCHEMA,
         tolerances=_tolerances(inputs.records),
         motion_bands=_motion_bands(inputs.records),
+        units=_units(inputs.records),
     )
     for warning in tolerance_warnings(inputs.records.document, _lanes(inputs)):
         _warn_once(inputs, warning)

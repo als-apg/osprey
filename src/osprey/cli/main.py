@@ -191,7 +191,7 @@ def cli(ctx, verbose):
     Examples:
 
     \b
-      osprey init my-agent --preset control-assistant
+      osprey init my-agent --preset demo
                                        Create a deployment repo from a preset
       osprey set connector=epics       Edit profile.yml
       osprey validate                  Check profile.yml without building

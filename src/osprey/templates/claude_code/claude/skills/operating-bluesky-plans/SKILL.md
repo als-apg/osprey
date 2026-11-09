@@ -34,11 +34,11 @@ it.
 
 ## A multi-point measurement is a plan, whatever the operator called it
 
-Operators ask for measurements in physics prose, not in tool names. "Step one
-of the correctors across a few settings inside its allowed range and record
-where the beam sits", "sweep this setpoint and read the response back", "take
-a few readings at different settings" — none of those sentences contains the
-word *plan*, *scan* or *queue*, and every one of them is this skill's job.
+Operators ask for measurements in physics prose, not in tool names. "Show me
+how that readback follows as you turn this setting up and down", "sweep this
+setpoint and read the response back", "take a few readings at different
+settings" — none of those sentences contains the word *plan*, *scan* or
+*queue*, and every one of them is this skill's job.
 
 **The rule: if reaching the answer needs more than one setting, it goes through
 the queue.** Stage it in the draft, add it, start it. The alternative — a run
@@ -64,6 +64,24 @@ If no registered plan fits the measurement, that is a `list_plans()` finding to
 report — and possibly a job for `writing-bluesky-plans` — not a licence to
 hand-step. Say which plan you are using and why, or say that none fits.
 
+**A limits record is optional, and most channels have none.** That is normal —
+never a gap to report, a reason to leave a channel out of the measurement, or
+something to ask the operator for. Size the excursion from the span the
+operator gave; when they gave none, read the channel's present value and step a
+small excursion around it, and say in the report what you chose and why. Where
+a record exists, stay inside it. Where the deployment's limits mode refuses
+unrecorded channels, the write is refused on its own — that refusal is the
+answer, not a reason to hold back beforehand.
+
+---
+
+## Take the clearly best reading
+
+When what you can read — the request, the queue, the run history, the draft —
+makes one reading of a request clearly the best, take it, say which you took
+and why, and carry on. Ask the operator when two readings are each defensible
+and would do different things to the machine.
+
 ---
 
 ## Ask first whether this deployment can run anything
@@ -73,7 +91,7 @@ this deployment run plans at all? It reaches no hardware.
 
 It returns `{status, capability}`. `status` is bridge liveness and is
 deliberately independent of capability — `"ok"` never implies a deployment can
-run a plan. `capability` is `{can_execute, reason, detail}`:
+run a plan. `capability` is `{can_execute, reason, detail, retryable}`:
 
 - `can_execute: true` (`reason: "executable"`) — plans can run here.
 - `can_execute: false` — they cannot. `reason` is the machine-readable code
@@ -81,7 +99,12 @@ run a plan. `capability` is `{can_execute, reason, detail}`:
   `manager_not_configured`, `manager_unreachable`) and `detail` is the
   operator-facing sentence, which for a browse-only deployment names the exact
   command that flips it. **Relay `detail` to the human verbatim** rather than
-  paraphrasing it — the command in it is the answer they need.
+  paraphrasing it — the command in it is the answer they need. `retryable`
+  says whether the reason can clear on its own.
+- `manager_not_configured` — this deployment has no queue server. Hand it to
+  the operator; never retry.
+- `manager_unreachable` — the queue server did not answer. Check again later
+  only when `retryable` is true.
 
 A browse-only deployment is still fully useful: plans can be listed, authored,
 validated and staged into the draft. What it cannot do is run them, and the
@@ -364,10 +387,11 @@ on the code and relay the bridge's sentence to the operator as written.
 - **`browse_only_connector` / `unsupported_connector` / `config_unreadable`** —
   this deployment cannot run plans, so the queue holds none.
   `details.capability.detail` names the flip; relay it verbatim.
-- **`manager_not_configured` / `manager_unreachable` / `environment_unavailable`** —
-  the manager or its worker environment is not available. `manager_unreachable`
-  may just be a starting deployment, so a short retry is reasonable; a
-  persistent failure needs an operator.
+- **`manager_not_configured`** — this deployment has no queue server. Hand it
+  to the operator; never retry.
+- **`manager_unreachable` / `environment_unavailable`** — the manager or its
+  worker environment is not available. Retry only when `details.retryable` is
+  true; a persistent failure needs an operator.
 - **`queue_request_rejected`** — the manager answered and refused; the detail
   says what it objected to.
 
@@ -378,15 +402,26 @@ Never re-pin a stale revision hoping it takes — always add a revision that
 
 ## Watch the run
 
-A running queue is live hardware — never fire-and-forget. Watch it:
+A running queue is live hardware. A run you launched is watched until it
+reaches a final state (`completed`, `stopped` or `error`) before you report on
+it:
 
 - **`queue_list()`** — the queue's own progress: what is pending, what is
   running, what the manager is doing.
-- **`get_run(run_id)`** — one run's lifecycle: `pending`, `running`,
-  `completed`, `stopped`, or `error`. `run_uid` is absent while pending or
-  running (it does not exist until the worker starts the plan — read that as
-  "not yet", never "unknown"), and `progress` is absent until the run starts.
-  `"stopped"` means a human stopped it, by any route.
+- **`get_run(run_id, wait_s=...)`** — one run's lifecycle: `pending`,
+  `running`, `completed`, `stopped`, or `error`. With `wait_s` it waits for you
+  and answers as soon as the status changes; waiting this way costs one call,
+  so repeat it rather than polling with no wait. `run_uid` is absent while
+  pending or running (it does not exist until the worker starts the plan —
+  read that as "not yet", never "unknown"), and `progress` is absent until the
+  run starts. `"stopped"` means a human stopped it, by any route.
+  - From the first progress reading, work out how long the run needs
+    (`progress.remaining_s`, or the points left divided by `points_per_s`) and
+    say so to the operator.
+  - When the run will outlast what this session can wait, say that plainly:
+    where it stands (points so far of the total), how long it still needs, its
+    run id, and that `get_run_data` reads it back once it ends. Never present
+    a run still in progress as the measurement.
 - **`get_run_data(run_id, max_rows=..., tail=...)`** — a bounded window of the
   run's rows; `partial: true` means the run is still producing data. Never
   returns an unbounded table. A run rotated out of the manager's history still
@@ -396,7 +431,10 @@ A running queue is live hardware — never fire-and-forget. Watch it:
   settles. Read `available` first: when it is `false`, `reason` says why in one
   word and that is the honest answer, not a failure. Never estimate any of
   those numbers off a figure's plotted points, and never state one that came
-  back `null`.
+  back `null`. Each entry of `columns` is `{name, unit}`, in the order a row's
+  values follow. A value's unit is the one the run declares for its column
+  (that `unit` here, a panel's units on the figure); where none is declared,
+  say the unit is not stated, never assume one.
 - **`get_run_figure(run_id)`** — the run's figure: the plan's own view of what
   it measured, as data rather than pixels. It comes back as panels, each with a
   title, axis labels and units, `annotations` worth relaying, and exactly one
@@ -446,9 +484,11 @@ rather than guessing at it.
 
 The rest of the reading rules:
 
-- **`source_unavailable` is the one reason that comes with empty panels**, and
-  it means "the rows could not be read", never "the run recorded nothing".
-  Offer `get_run_data` as the second opinion.
+- **Rows that cannot be read come back as a `service_unavailable` error**
+  from `get_run_figure`, not as a figure; its `details.reason` is
+  `source_unavailable`. It means "the rows could not be read", never "the run
+  recorded nothing": read it again shortly, and offer `get_run_data` as the
+  second opinion.
 - **`partial: true` means the run was still producing rows** when the figure
   was drawn — read it again rather than calling it final.
 - **`source` says which store answered** — `live` (the bridge's own buffer) or
@@ -556,8 +596,8 @@ know why it was requested.
   repeat run.
 - **Never** call `queue_start` without reading `queue_list` first — start
   drains the whole queue, including items you did not add.
-- **Never** treat a started queue as fire-and-forget — it drives real
-  hardware; watch it with `queue_list`/`get_run`/`get_run_data`/`get_run_figure`.
+- **Never** report on a launched run before it reaches a final state, and
+  never leave a still-running run without saying how long it still needs.
 - **Never** analyse or report on a run you launched without first reading its
   rows with `get_run_data` — `get_run`'s status and a figure's points are not
   the measurement.

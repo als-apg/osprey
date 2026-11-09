@@ -890,7 +890,7 @@ def test_a_host_web_session_records_without_a_container(dep, tmp_path, web_port)
 
             listed = browser.get("/api/sessions").json()
             assert listed.get("record") == "complete", listed
-            assert session in [s["session_id"] for s in listed["sessions"]], listed
+            assert session in [s["transcript_id"] for s in listed["sessions"]], listed
 
             chat = browser.get(
                 "/api/session-chat", params={"session_id": session, "events": "1"}

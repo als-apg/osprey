@@ -119,7 +119,7 @@ from tests.e2e.profile_edits import set_pairs
 # be --ignore'd in the shared e2e-tests lane AND given its own job. Without the
 # marker this file would be swept into that lane's glob over tests/e2e/ and the
 # expensive sidecar build would run twice per PR.
-pytestmark = [pytest.mark.e2e, pytest.mark.dockerbuild]
+pytestmark = [pytest.mark.dockerbuild]
 
 # The repo DIRECTORY name, which is the deployment name: the rendered
 # config.yml's project_name, the compose project, and the com.osprey.project
@@ -143,7 +143,6 @@ BASE_PORTS = {
     "web": 19191,
     "artifact": 19291,
     "ariel": 19391,
-    "lattice": 19491,
     "channel_finder": 19591,
     # Every family is pinned: one left out defaults into the live default
     # block, where a developer's own deployment already binds it.
@@ -280,7 +279,6 @@ def _profile_edits() -> dict[str, Any]:
                 "web_base_port": BASE_PORTS["web"],
                 "artifact_base_port": BASE_PORTS["artifact"],
                 "ariel_base_port": BASE_PORTS["ariel"],
-                "lattice_base_port": BASE_PORTS["lattice"],
                 "channel_finder_base_port": BASE_PORTS["channel_finder"],
                 "okf_base_port": BASE_PORTS["okf"],
                 "system_health_base_port": BASE_PORTS["system_health"],

@@ -34,13 +34,13 @@ Themes come in **families**. OSPREY ships four:
 
 In the terminal, click **☰ More** at the bottom of the sidebar. It holds the
 light/dark switch and the theme family picker, as pictured below. Every
-panel opened as its own page (ARIEL, the workspace, Channel Finder, the
-lattice dashboard, the knowledge panel) has a sliders button in its own
+panel opened as its own page (the Logbook, the workspace, Channel Finder, the
+the knowledge panel) has a sliders button in its own
 header. It opens the display menu, which has the same display controls.
 
 A pick made on any of those pages is remembered by your browser and becomes
 your preference for every OSPREY page served from the same address — set a
-theme in ARIEL and the terminal comes up in it the next time you load it.
+theme in the Logbook and the terminal comes up in it the next time you load it.
 Until you pick Light or Dark, pages follow your operating system's light/dark
 preference.
 
@@ -94,10 +94,9 @@ the same image — so they all read the same ``web.theme``. To start a particula
 user somewhere else, add ``theme`` to their entry in the user list. The snippet
 shows only the keys this section is about; the deployment also carries
 ``default_tier`` and each user's ``tier`` from the multi-user page (see the
-worked example in :ref:`multi-user-registry-images`). The snippet goes in
-``profile.yml``, under ``config:``. Merge its keys into the
-``modules.web_terminals:`` entry already there; a second copy of that key
-silently replaces the first.
+worked example in :ref:`multi-user-registry-images`). Merge its keys into the
+``modules.web_terminals:`` entry under ``config:`` in ``profile.yml``; a second
+copy of that key silently replaces the first.
 
 .. code-block:: yaml
 

@@ -181,7 +181,7 @@ def test_a_writes_off_render_does_not_deny_the_switch_tool(tmp_path) -> None:
         manager,
         project_name="target-switch-deny",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     config_update_fields(project_dir / "config.yml", {"control_system.writes": "never"})
@@ -523,7 +523,7 @@ def standin_settings_renders(tmp_path_factory) -> dict:
         manager,
         project_name="standin-settings-render",
         output_dir=tmp_path_factory.mktemp("standin-settings-render"),
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     base = yaml.safe_load((project_dir / "config.yml").read_text())

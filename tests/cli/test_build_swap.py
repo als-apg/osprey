@@ -60,67 +60,63 @@ class TestAFailedRenderPreservesThePreviousBuild:
         return marker
 
     def test_a_render_that_raises_leaves_the_previous_build_intact(
-        self, runner, lifecycle_repo, monkeypatch
+        self, runner, built_lifecycle_repo, monkeypatch
     ):
-        assert _build(runner, lifecycle_repo).exit_code == 0
-        marker = self._mark(lifecycle_repo)
-        before = (lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8")
+        marker = self._mark(built_lifecycle_repo)
+        before = (built_lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8")
 
         def explode(*args, **kwargs):
             raise RuntimeError("render failed")
 
         monkeypatch.setattr(build_cmd, "_apply_conventions", explode)
-        result = _build(runner, lifecycle_repo)
+        result = _build(runner, built_lifecycle_repo)
 
         assert result.exit_code != 0
         assert marker.is_file(), "the previous render was replaced by a failed build"
-        assert (lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8") == before
-        assert not (lifecycle_repo / "build" / ".tmp").exists()
+        assert (built_lifecycle_repo / "build" / "config.yml").read_text(encoding="utf-8") == before
+        assert not (built_lifecycle_repo / "build" / ".tmp").exists()
 
     def test_an_interrupt_leaves_the_previous_build_intact(
-        self, runner, lifecycle_repo, monkeypatch
+        self, runner, built_lifecycle_repo, monkeypatch
     ):
         """Ctrl-C is not an exception the build catches — the guarantee is structural."""
-        assert _build(runner, lifecycle_repo).exit_code == 0
-        marker = self._mark(lifecycle_repo)
+        marker = self._mark(built_lifecycle_repo)
 
         def interrupt(*args, **kwargs):
             raise KeyboardInterrupt
 
         monkeypatch.setattr(build_cmd, "_render_compose_files", interrupt)
-        result = _build(runner, lifecycle_repo)
+        result = _build(runner, built_lifecycle_repo)
 
         assert result.exit_code != 0
         assert marker.is_file()
-        assert not (lifecycle_repo / "build" / ".tmp").exists()
+        assert not (built_lifecycle_repo / "build" / ".tmp").exists()
 
     def test_a_profile_that_no_longer_validates_cannot_replace_a_good_build(
-        self, runner, lifecycle_repo
+        self, runner, built_lifecycle_repo
     ):
-        assert _build(runner, lifecycle_repo).exit_code == 0
-        marker = self._mark(lifecycle_repo)
+        marker = self._mark(built_lifecycle_repo)
 
-        profile = lifecycle_repo / "profile.yml"
+        profile = built_lifecycle_repo / "profile.yml"
         profile.write_text(
             profile.read_text(encoding="utf-8").replace(
                 "provider: anthropic", "provider: nonexistent-provider"
             ),
             encoding="utf-8",
         )
-        result = _build(runner, lifecycle_repo)
+        result = _build(runner, built_lifecycle_repo)
 
         assert result.exit_code != 0
         assert marker.is_file()
 
-    def test_the_second_build_replaces_the_first_wholesale(self, runner, lifecycle_repo):
-        assert _build(runner, lifecycle_repo).exit_code == 0
-        stale = lifecycle_repo / "build" / "left-over-from-the-last-render.txt"
+    def test_the_second_build_replaces_the_first_wholesale(self, runner, built_lifecycle_repo):
+        stale = built_lifecycle_repo / "build" / "left-over-from-the-last-render.txt"
         stale.write_text("gone next time", encoding="utf-8")
 
-        assert _build(runner, lifecycle_repo).exit_code == 0
+        assert _build(runner, built_lifecycle_repo).exit_code == 0
 
         assert not stale.exists()
-        assert (lifecycle_repo / "build" / "config.yml").is_file()
+        assert (built_lifecycle_repo / "build" / "config.yml").is_file()
 
 
 # A tree holding this file refuses to be deleted, for the whole of a test that
@@ -221,7 +217,7 @@ class TestSwapRecovery:
         assert (aside[0] / _UNDELETABLE_MARKER).is_file(), "the tree was not carried across intact"
 
     def test_a_build_recovers_from_a_leftover_that_cannot_be_deleted(
-        self, runner, lifecycle_repo, monkeypatch
+        self, runner, built_lifecycle_repo, monkeypatch
     ):
         """The shipped failure: one undeletable leftover broke EVERY later build.
 
@@ -230,17 +226,16 @@ class TestSwapRecovery:
         lines later, and on every build from then on — as a bare ENOTEMPTY
         naming neither the path nor the reason.
         """
-        assert _build(runner, lifecycle_repo).exit_code == 0
-        zones = build_cmd._render_zones(lifecycle_repo, "als-exemplar")
+        zones = build_cmd._render_zones(built_lifecycle_repo, "als-exemplar")
         zones.outgoing.mkdir(parents=True)
         (zones.outgoing / _UNDELETABLE_MARKER).write_text("", encoding="utf-8")
         _refuse_to_delete_marked_trees(monkeypatch, silently=True)
 
-        result = _build(runner, lifecycle_repo)
+        result = _build(runner, built_lifecycle_repo)
 
         assert result.exit_code == 0, result.output
-        assert (lifecycle_repo / "build" / "config.yml").is_file()
-        assert len(_held_aside(lifecycle_repo, zones.outgoing)) == 1
+        assert (built_lifecycle_repo / "build" / "config.yml").is_file()
+        assert len(_held_aside(built_lifecycle_repo, zones.outgoing)) == 1
 
     def test_a_leftover_that_cannot_even_be_moved_names_the_path_and_the_reason(
         self, lifecycle_repo, monkeypatch
@@ -289,30 +284,28 @@ class TestServedFilesSurviveABuild:
             )
         }
 
-    def test_the_served_files_are_intact_after_a_build(self, runner, lifecycle_repo):
-        assert _build(runner, lifecycle_repo).exit_code == 0
-        served = self._serve(lifecycle_repo)
+    def test_the_served_files_are_intact_after_a_build(self, runner, built_lifecycle_repo):
+        served = self._serve(built_lifecycle_repo)
 
-        result = _build(runner, lifecycle_repo)
+        result = _build(runner, built_lifecycle_repo)
 
         assert result.exit_code == 0, result.output
         for path, (content, inode) in served.items():
-            assert path.exists(), f"the build removed {path.relative_to(lifecycle_repo)}"
+            assert path.exists(), f"the build removed {path.relative_to(built_lifecycle_repo)}"
             assert path.stat().st_ino == inode, "the mounted file was replaced, not carried over"
             if path.is_file():
                 assert path.read_text(encoding="utf-8") == content
 
     def test_the_served_files_are_there_while_the_old_render_is_replaced(
-        self, runner, lifecycle_repo, monkeypatch
+        self, runner, built_lifecycle_repo, monkeypatch
     ):
         """Checked at the swap's last rename, where the old tree is about to go."""
-        assert _build(runner, lifecycle_repo).exit_code == 0
-        self._serve(lifecycle_repo)
+        self._serve(built_lifecycle_repo)
         real_replace = os.replace
         seen: list[bool] = []
 
         def replace(src, dst):
-            if Path(dst) == lifecycle_repo / "build" and Path(src).name == (
+            if Path(dst) == built_lifecycle_repo / "build" and Path(src).name == (
                 build_cmd._INCOMING_DIRNAME
             ):
                 seen.append((Path(src) / "nginx" / "landing.html").is_file())
@@ -320,17 +313,16 @@ class TestServedFilesSurviveABuild:
 
         monkeypatch.setattr(build_cmd.os, "replace", replace)
 
-        assert _build(runner, lifecycle_repo).exit_code == 0
+        assert _build(runner, built_lifecycle_repo).exit_code == 0
         assert seen == [True]
 
-    def test_a_first_build_has_nothing_to_carry(self, runner, lifecycle_repo):
-        assert _build(runner, lifecycle_repo).exit_code == 0
-        assert not (lifecycle_repo / "build" / "nginx").exists()
+    def test_a_first_build_has_nothing_to_carry(self, built_lifecycle_repo):
+        assert not (built_lifecycle_repo / "build" / "nginx").exists()
 
 
 @pytest.mark.slow
 def test_a_killed_build_leaves_a_build_that_can_still_stop_the_stack(
-    runner, lifecycle_repo, tmp_path
+    built_lifecycle_repo, tmp_path
 ):
     """The acceptance gate, run for real: SIGKILL mid-render, previous build/ survives.
 
@@ -339,11 +331,11 @@ def test_a_killed_build_leaves_a_build_that_can_still_stop_the_stack(
     a sleep, so the process dies at a known point in the middle of the render
     rather than at whatever point a timer happens to land on.
     """
-    assert _build(runner, lifecycle_repo).exit_code == 0
-    marker = lifecycle_repo / "build" / "previous-render.marker"
+    marker = built_lifecycle_repo / "build" / "previous-render.marker"
     marker.write_text("first build", encoding="utf-8")
     compose_before = sorted(
-        str(path.relative_to(lifecycle_repo)) for path in lifecycle_repo.rglob("docker-compose.yml")
+        str(path.relative_to(built_lifecycle_repo))
+        for path in built_lifecycle_repo.rglob("docker-compose.yml")
     )
 
     script = tmp_path / "killed_build.py"
@@ -357,7 +349,7 @@ def test_a_killed_build_leaves_a_build_that_can_still_stop_the_stack(
                 os.kill(os.getpid(), signal.SIGKILL)
 
             build_cmd._apply_conventions = die
-            os.chdir({str(lifecycle_repo)!r})
+            os.chdir({str(built_lifecycle_repo)!r})
             build_cmd._build_repo(
                 None, stream=False, skip_lifecycle=True, skip_deps=True, runtime_root=None
             )
@@ -371,11 +363,11 @@ def test_a_killed_build_leaves_a_build_that_can_still_stop_the_stack(
 
     assert completed.returncode == -signal.SIGKILL, completed.stderr
     assert marker.is_file(), "SIGKILL mid-render destroyed the previous build"
-    assert (lifecycle_repo / "build" / "config.yml").is_file()
+    assert (built_lifecycle_repo / "build" / "config.yml").is_file()
     assert (
         sorted(
-            str(path.relative_to(lifecycle_repo))
-            for path in lifecycle_repo.rglob("docker-compose.yml")
+            str(path.relative_to(built_lifecycle_repo))
+            for path in built_lifecycle_repo.rglob("docker-compose.yml")
         )
         == compose_before
     ), "the compose files `osprey down` reads did not survive"
@@ -397,7 +389,9 @@ class TestTheVenvRidesTheSwap:
             (bin_dir / "python").write_text("#!/bin/sh\n", encoding="utf-8")
             (Path(project_path) / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
 
-        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
+        monkeypatch.setattr(
+            build_cmd, "_plan_project_venv", lambda _profile, *, install: _EMPTY_PLAN
+        )
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         result = _build(runner, lifecycle_repo, flags=["--skip-lifecycle"])
 
@@ -416,7 +410,9 @@ class TestTheVenvRidesTheSwap:
                 "#!/bin/sh\n", encoding="utf-8"
             )
 
-        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
+        monkeypatch.setattr(
+            build_cmd, "_plan_project_venv", lambda _profile, *, install: _EMPTY_PLAN
+        )
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code == 0
 
@@ -440,13 +436,15 @@ class TestTheVenvRidesTheSwap:
                 "#!/bin/sh\n", encoding="utf-8"
             )
 
-        monkeypatch.setattr(build_cmd, "_plan_project_venv", lambda _profile: _EMPTY_PLAN)
+        monkeypatch.setattr(
+            build_cmd, "_plan_project_venv", lambda _profile, *, install: _EMPTY_PLAN
+        )
         monkeypatch.setattr(build_cmd, "_create_project_venv", fake_venv)
         assert _build(runner, lifecycle_repo, flags=["--skip-lifecycle"]).exit_code == 0
         python = lifecycle_repo / "build" / ".venv" / "bin" / "python"
         before = (python.read_bytes(), python.stat().st_mtime_ns)
 
-        def refuse(_profile):
+        def refuse(_profile, *, install):  # noqa: ARG001
             raise BuildProfileError("probe")
 
         created: list[Path] = []

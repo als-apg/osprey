@@ -2,7 +2,7 @@
 
 A reader pastes these snippets into ``profile.yml``. The pages say how: each
 goes under ``config:`` and its keys merge into the ``modules.web_terminals:``
-(and ``agent_record:``) entries ``osprey init --preset control-assistant``
+(and ``agent_record:``) entries ``osprey init --preset demo``
 already wrote. This module does exactly that for every profile snippet on
 ``login.rst`` and ``multi-user/index.rst``, resolves the result through the
 profile model, and runs the web-stack checks ``osprey profile validate`` and
@@ -40,8 +40,8 @@ from osprey.cli.build_profile_schema import login_tiers_key_errors
 from osprey.deployment.web_terminals.lint import _nest_dotted, lint_profile_config
 from tests.docs.test_web_terminal_quoted_strings import _LOGIN, _MULTI_USER, _block_with, _blocks
 
-_PRESET = "control-assistant"
-_PROJECT = "control-assistant"  # `osprey init control-assistant --preset control-assistant`
+_PRESET = "demo"
+_PROJECT = "demo"  # `osprey init demo --preset demo`
 
 
 @dataclass(frozen=True)
