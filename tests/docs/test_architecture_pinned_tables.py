@@ -146,7 +146,9 @@ def test_the_method_table_quotes_the_record_and_link_kind_orders() -> None:
 
 
 def test_a_row_the_class_lacks_or_a_member_the_page_lacks_is_reported() -> None:
-    page = _method_table(_FACILITY_FILE_PAGE.read_text(encoding="utf-8"))
+    # Planted on the code's own surface, so a member the page has not caught up
+    # with yet does not show here; the test above reports that.
+    page = _public_members(FacilityRecords)
 
     def nearest(self: FacilityRecords, address: str) -> None: ...
 

@@ -81,6 +81,10 @@ filters the file's own channel records and names a model or a place.
      - The mapping it was built from, read-only.
      -
      -
+   * - ``facility_bytes()``
+     - The bytes of ``facility.json`` for the document it was built from, serialised by ``osprey.facility.render.facility_bytes`` (two-space indent, one final newline), so the renders of one build share one serialisation.
+     - Sorted keys.
+     -
    * - ``record(kind, id)``
      - The one record of that kind and id.
      -
