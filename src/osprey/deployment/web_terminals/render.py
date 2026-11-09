@@ -83,6 +83,7 @@ from osprey.deployment.web_terminals.roster import (
     effective_image_source,
     entry_is_shared,
     expand_tier_principals,
+    image_tag_problem,
     is_app_entry,
     resolve_access_principals,
     resolve_cards,
@@ -1102,7 +1103,9 @@ def render_web_terminals(
             ``per_container_stdio`` (see :func:`_check_mcp_topology`), or if
             the deployment is in registry mode (``image_source`` unset or
             ``registry``) with no ``registry.url``, catalog or not, because
-            every terminal image is named under it, or if
+            every terminal image is named under it, or if registry mode's
+            ``image_tag`` expands to an empty tag or tag part (see
+            :func:`osprey.deployment.web_terminals.roster.image_tag_problem`), or if
             ``terminal_secrets`` is supplied and a roster user has no non-blank
             secret in it, or a roster name is not usable as one snippet filename
             (both :func:`_terminal_secret_artifacts`), or if
@@ -1125,6 +1128,8 @@ def render_web_terminals(
         registry
     ):
         raise ValueError(REGISTRY_MODE_MISSING_URL)
+    if (problem := image_tag_problem(web_terminals)) is not None:
+        raise ValueError(problem)
 
     resolved_users = resolve_cards(
         web_terminals, registry, strict=True, project_name=project_name, app_titles=app_titles

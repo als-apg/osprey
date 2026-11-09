@@ -257,6 +257,36 @@ def test_render_in_local_mode_needs_no_registry_url() -> None:
     assert "image: dls_controls-assistant:local" in artifacts["docker-compose.web.yml"]
 
 
+def test_render_refuses_registry_mode_with_an_unset_image_tag_variable(monkeypatch) -> None:
+    """Registry mode bakes the tag into every pulled ref, so a tag whose
+    variable is unset is refused before anything is rendered."""
+    # Arrange
+    monkeypatch.delenv("OSPREY_IMAGE_TAG", raising=False)
+    config = _config(["alice"])
+    config["modules"]["web_terminals"]["image_tag"] = "${OSPREY_IMAGE_TAG}"
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=r"OSPREY_IMAGE_TAG is not set"):
+        render_web_terminals(config)
+
+
+def test_render_in_local_mode_ignores_an_unset_image_tag_variable(monkeypatch) -> None:
+    """Local mode builds `:local` images and never reads image_tag."""
+    # Arrange
+    monkeypatch.delenv("OSPREY_IMAGE_TAG", raising=False)
+    config = _config(["alice"])
+    del config["registry"]
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["image_source"] = "local"
+    web_terminals["image_tag"] = "${OSPREY_IMAGE_TAG}"
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert
+    assert "image: dls_controls-assistant:local" in artifacts["docker-compose.web.yml"]
+
+
 def test_render_returns_exactly_three_artifacts() -> None:
     """render_web_terminals() produces the compose overlay, nginx fragment, and landing page."""
     # Arrange
