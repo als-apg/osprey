@@ -272,3 +272,125 @@ def test_solve_output_is_deterministic():
     assert np.array_equal(first.delta, second.delta)
     assert np.array_equal(first.predicted, second.predicted)
     assert (first.sigma_kept, first.sigma_total) == (second.sigma_kept, second.sigma_total)
+
+
+# -- limits, priority, the aim of the leakage rows ----------------------------------
+
+
+def _wide_problem(seed=11):
+    """Ten BPMs, four correctors: three bump rows and six leakage rows, row 9 free."""
+    rng = np.random.default_rng(seed)
+    orm = rng.normal(size=(10, 4))
+    now = rng.normal(scale=0.1, size=10)
+    goal = now.copy()
+    goal[[0, 1, 2]] += [0.4, 0.5, 0.3]
+    return orm, now, goal, [0, 1, 2], [3, 4, 5, 6, 7, 8]
+
+
+def test_solve_bounds_that_no_delta_reaches_leave_the_svd_solution_unchanged():
+    orm, now, goal, bump, leak = _wide_problem()
+    free = solve_bump(orm, now, goal, bump, leak)
+    reach = np.abs(free.delta).max()
+    held = solve_bump(
+        orm, now, goal, bump, leak, lower=np.full(4, -2 * reach), upper=np.full(4, 2 * reach)
+    )
+    assert np.array_equal(held.delta, free.delta)
+    assert np.array_equal(held.predicted, free.predicted)
+    assert (held.sigma_kept, held.sigma_total) == (free.sigma_kept, free.sigma_total)
+    assert held.bounded == [] == free.bounded
+
+
+def test_solve_an_active_bound_is_respected_and_listed():
+    orm, now, goal, bump, leak = _wide_problem()
+    free = solve_bump(orm, now, goal, bump, leak)
+    worst = int(np.argmax(np.abs(free.delta)))
+    cap = 0.5 * abs(free.delta[worst])
+    lower, upper = np.full(4, -np.inf), np.full(4, np.inf)
+    lower[worst], upper[worst] = -cap, cap
+    held = solve_bump(orm, now, goal, bump, leak, lower=lower, upper=upper)
+    assert np.all(held.delta >= lower - 1e-12) and np.all(held.delta <= upper + 1e-12)
+    assert held.bounded == [worst]
+    assert abs(held.delta[worst]) == pytest.approx(cap)
+    np.testing.assert_allclose(held.predicted, now + orm @ held.delta)
+    # The bounded answer is the weighted least squares within the box: no box point fits better.
+    w = np.r_[np.full(3, 0.5 * 6 / 3), np.ones(6)]
+    rows = bump + leak
+    target = goal[rows] - now[rows]
+
+    def cost(d):
+        return float(np.sum((w * (orm[rows] @ d - target)) ** 2))
+
+    rng = np.random.default_rng(0)
+    for _ in range(50):
+        probe = np.clip(held.delta + rng.normal(scale=0.05, size=4), lower, upper)
+        assert cost(held.delta) <= cost(probe) + 1e-12
+
+
+def test_solve_a_bound_held_at_zero_width_fixes_that_delta():
+    orm, now, goal, bump, leak = _wide_problem()
+    lower, upper = np.full(4, -np.inf), np.full(4, np.inf)
+    lower[1] = upper[1] = 0.0
+    held = solve_bump(orm, now, goal, bump, leak, lower=lower, upper=upper)
+    assert held.delta[1] == 0.0
+    assert 1 in held.bounded
+
+
+def test_solve_the_targets_priority_hits_targets_the_closure_priority_trades_away():
+    orm, now, goal, bump, leak = _wide_problem()
+    closure = solve_bump(orm, now, goal, bump, leak)
+    targets = solve_bump(orm, now, goal, bump, leak, priority="targets")
+    assert np.abs(closure.predicted[bump] - goal[bump]).max() > 1e-3
+    np.testing.assert_allclose(targets.predicted[bump], goal[bump], atol=1e-12)
+    # Among the exact solutions it holds the leakage rows best: one free direction is left.
+    null = np.linalg.svd(orm[bump])[2][3:].T
+    z, *_ = np.linalg.lstsq(
+        orm[leak] @ null, goal[leak] - now[leak] - orm[leak] @ targets.delta, rcond=None
+    )
+    np.testing.assert_allclose(z, 0.0, atol=1e-12)
+    assert (targets.sigma_kept, targets.sigma_total) == (4, 4)
+
+
+def test_solve_the_targets_priority_falls_back_to_the_closest_fit():
+    orm = np.array([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0], [0.5, 1.0]])
+    now = np.zeros(4)
+    goal = np.array([1.0, 3.0, 0.0, 0.0])  # rows 0 and 1 see column 0 alike: no exact fit
+    result = solve_bump(orm, now, goal, [0, 1], [2, 3], priority="targets")
+    assert result.delta[0] == pytest.approx(2.0)
+    assert np.all(np.isfinite(result.delta))
+
+
+def test_solve_the_targets_priority_respects_a_bound():
+    orm, now, goal, bump, leak = _wide_problem()
+    free = solve_bump(orm, now, goal, bump, leak, priority="targets")
+    cap = 0.5 * np.abs(free.delta).max()
+    held = solve_bump(
+        orm,
+        now,
+        goal,
+        bump,
+        leak,
+        lower=np.full(4, -cap),
+        upper=np.full(4, cap),
+        priority="targets",
+    )
+    assert np.all(np.abs(held.delta) <= cap + 1e-12)
+    assert held.bounded
+
+
+def test_solve_leakage_rows_aim_at_goal():
+    orm = _closable_orm()
+    now = np.zeros(8)
+    # Aim every row, leakage rows too, at an orbit the three correctors can reach.
+    goal = orm @ np.array([0.1, -0.2, 0.05])
+    result = solve_bump(orm, now, goal, [0], list(range(1, 8)))
+    np.testing.assert_allclose(result.predicted, goal, atol=1e-10)
+
+
+def test_solve_refuses_an_unknown_priority_and_mismatched_bounds():
+    orm = _closable_orm()
+    with pytest.raises(ValueError, match="priority"):
+        solve_bump(orm, np.zeros(8), np.ones(8), [0], [1, 2], priority="both")
+    with pytest.raises(ValueError, match="bound"):
+        solve_bump(orm, np.zeros(8), np.ones(8), [0], [1, 2], lower=np.zeros(2))
+    with pytest.raises(ValueError, match="bound"):
+        solve_bump(orm, np.zeros(8), np.ones(8), [0], [1, 2], lower=np.ones(3), upper=np.zeros(3))

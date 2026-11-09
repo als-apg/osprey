@@ -7,9 +7,10 @@ position ``c`` the c-th corrector of that plane; both wrap at the ring end.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
+from scipy.optimize import lsq_linear
 
 #: The rule that picks one corrector upstream of the bump and two downstream.
 AUTO = "auto"
@@ -163,14 +164,31 @@ def split_rows(bpm_idx: list[int], selected_cor_idx: list[int], n: int) -> Split
     return SplitResult(span_rows=span, leak_rows=leak)
 
 
+#: Close the bump first: bump rows weigh ``0.5 · n_leak / n_bump`` against leakage rows.
+CLOSURE = "closure"
+#: Hit the bump BPMs exactly when the correctors can, then hold the leakage rows.
+TARGETS = "targets"
+#: The solve priorities, the default first.
+PRIORITIES = (CLOSURE, TARGETS)
+#: A bump row's weight against a leakage row when a limit turns the targets priority's
+#: equality into a penalty.
+TARGETS_WEIGHT = 1e4
+#: How close to a limit, relative to the limit's size, a delta counts as at it.
+_AT_LIMIT = 1e-9
+
+
 @dataclass(frozen=True)
 class SolveResult:
-    """Corrector deltas, the predicted orbit at every BPM, and the singular values used."""
+    """Corrector deltas, the predicted orbit at every BPM, and the singular values used.
+
+    ``bounded`` lists the columns whose delta sits at one of its limits.
+    """
 
     delta: np.ndarray
     predicted: np.ndarray
     sigma_kept: int
     sigma_total: int
+    bounded: list[int] = field(default_factory=list)
 
 
 def solve_bump(
@@ -180,49 +198,159 @@ def solve_bump(
     bump_rows: list[int],
     leak_rows: list[int],
     sigma_cut: float = 1e-4,
+    *,
+    lower: np.ndarray | None = None,
+    upper: np.ndarray | None = None,
+    priority: str = CLOSURE,
 ) -> SolveResult:
-    """Solve the corrector deltas that move ``bump_rows`` to ``goal`` and hold ``leak_rows``.
+    """Solve the corrector deltas that move ``bump_rows`` and ``leak_rows`` to ``goal``.
 
     ``orm`` is the response of every BPM of the plane (rows) to each selected corrector
-    (columns); ``now`` and ``goal`` are orbits at every BPM. The fit uses the bump rows,
-    aimed at ``goal``, and the leakage rows, aimed at ``now``; span rows that are not
-    bump rows stay free. Bump rows weigh ``0.5 · n_leak / n_bump``, leakage rows 1.
+    (columns); ``now`` and ``goal`` are orbits at every BPM. A caller holds the leakage
+    rows by aiming them at ``now``; span rows that are neither stay free.
+
+    ``closure``: bump rows weigh ``0.5 · n_leak / n_bump``, leakage rows 1, and
     ``delta = V Σ⁻¹ Uᵀ W (goal − now)`` from the SVD of ``W·R``, keeping the singular
-    values above ``sigma_cut`` times the largest. ``predicted = now + orm · delta``.
+    values above ``sigma_cut`` times the largest. ``targets``: the bump rows are met
+    exactly when the columns can, and the leakage rows are fitted in what freedom is
+    left; ``sigma_kept`` counts the directions both steps keep.
+
+    ``lower`` and ``upper`` bound each delta (``±inf`` or ``None`` for none). When the
+    unbounded delta breaks one, the same weighted system is solved as a bounded least
+    squares (``targets`` weighs its bump rows ``TARGETS_WEIGHT``); ``bounded`` names the
+    columns left at a limit. ``predicted = now + orm · delta``.
 
     Raises:
-        ValueError: on no bump row, no leakage row, mismatched shapes, or a delta that
-            is not finite.
+        ValueError: on no bump row, no leakage row, mismatched shapes, an unknown
+            priority, or a delta that is not finite.
     """
     orm = np.asarray(orm, dtype=float)
     now = np.asarray(now, dtype=float)
     goal = np.asarray(goal, dtype=float)
     if orm.ndim != 2:
         raise ValueError(f"the response matrix must be 2-D, not shape {orm.shape}")
-    n_bpm = orm.shape[0]
+    n_bpm, n_cor = orm.shape
     if now.shape != (n_bpm,) or goal.shape != (n_bpm,):
         raise ValueError(
             f"orbit shape mismatch: the response matrix has {n_bpm} BPM rows, "
             f"now has shape {now.shape} and goal {goal.shape}"
         )
+    if priority not in PRIORITIES:
+        raise ValueError(f"unknown priority {priority!r}; one of {', '.join(PRIORITIES)}")
     if not bump_rows:
         raise ValueError("a bump needs at least one bump row")
     if not leak_rows:
         raise ValueError("no leakage BPM is left outside the bump to hold the orbit closed")
+    lo, hi = _limits(lower, upper, n_cor)
     rows = list(bump_rows) + list(leak_rows)
-    weights = np.concatenate(
-        [np.full(len(bump_rows), 0.5 * len(leak_rows) / len(bump_rows)), np.ones(len(leak_rows))]
-    )
-    target = np.concatenate([goal[bump_rows] - now[bump_rows], np.zeros(len(leak_rows))])
-    weighted = weights[:, None] * orm[rows]
-    u, s, vt = np.linalg.svd(weighted, full_matrices=False)
-    keep = s > sigma_cut * s[0] if s.size else np.zeros(0, dtype=bool)
-    delta = vt[keep].T @ ((u[:, keep].T @ (weights * target)) / s[keep])
+    target = goal[rows] - now[rows]
+    if priority == CLOSURE:
+        bump_weight = 0.5 * len(leak_rows) / len(bump_rows)
+        delta, kept, total = _svd_solve(
+            np.concatenate([np.full(len(bump_rows), bump_weight), np.ones(len(leak_rows))]),
+            orm[rows],
+            target,
+            sigma_cut,
+        )
+    else:
+        bump_weight = TARGETS_WEIGHT
+        delta, kept, total = _exact_then_closed(
+            orm[bump_rows],
+            target[: len(bump_rows)],
+            orm[leak_rows],
+            target[len(bump_rows) :],
+            sigma_cut,
+        )
+    bounded: list[int] = []
+    if np.any(delta < lo) or np.any(delta > hi):
+        weights = np.concatenate([np.full(len(bump_rows), bump_weight), np.ones(len(leak_rows))])
+        delta = _bounded_solve(weights[:, None] * orm[rows], weights * target, lo, hi)
+        bounded = _at_limit(delta, lo, hi)
     if not np.all(np.isfinite(delta)):
         raise ValueError("the solve gave a corrector delta that is not finite")
     return SolveResult(
         delta=delta,
         predicted=now + orm @ delta,
-        sigma_kept=int(np.count_nonzero(keep)),
-        sigma_total=int(s.size),
+        sigma_kept=kept,
+        sigma_total=total,
+        bounded=bounded,
     )
+
+
+def _limits(
+    lower: np.ndarray | None, upper: np.ndarray | None, n_cor: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """The delta bounds as two arrays, open where none is given."""
+    lo = np.full(n_cor, -np.inf) if lower is None else np.asarray(lower, dtype=float)
+    hi = np.full(n_cor, np.inf) if upper is None else np.asarray(upper, dtype=float)
+    if lo.shape != (n_cor,) or hi.shape != (n_cor,):
+        raise ValueError(
+            f"bound shape mismatch: {n_cor} correctors, lower has shape {lo.shape} "
+            f"and upper {hi.shape}"
+        )
+    if np.any(np.isnan(lo)) or np.any(np.isnan(hi)) or np.any(lo > hi):
+        raise ValueError("a corrector's lower bound is above its upper bound or not a number")
+    return lo, hi
+
+
+def _svd_solve(
+    weights: np.ndarray, matrix: np.ndarray, target: np.ndarray, sigma_cut: float
+) -> tuple[np.ndarray, int, int]:
+    """The truncated-SVD solution of ``W·matrix·delta = W·target``, kept and total σ."""
+    u, s, vt = np.linalg.svd(weights[:, None] * matrix, full_matrices=False)
+    keep = s > sigma_cut * s[0] if s.size else np.zeros(0, dtype=bool)
+    delta = vt[keep].T @ ((u[:, keep].T @ (weights * target)) / s[keep])
+    return delta, int(np.count_nonzero(keep)), int(s.size)
+
+
+def _exact_then_closed(
+    bump: np.ndarray,
+    bump_target: np.ndarray,
+    leak: np.ndarray,
+    leak_target: np.ndarray,
+    sigma_cut: float,
+) -> tuple[np.ndarray, int, int]:
+    """Meet the bump rows (closest fit when they cannot be met), then fit the leakage
+    rows in the null space the bump rows leave."""
+    n_cor = bump.shape[1]
+    u, s, vt = np.linalg.svd(bump, full_matrices=True)
+    rank = int(np.count_nonzero(s > sigma_cut * s[0])) if s.size else 0
+    delta = vt[:rank].T @ ((u[:, :rank].T @ bump_target) / s[:rank])
+    free = vt[rank:].T
+    kept = rank
+    if free.shape[1]:
+        reduced = leak @ free
+        z, _res, leak_rank, _s = np.linalg.lstsq(
+            reduced, leak_target - leak @ delta, rcond=sigma_cut
+        )
+        delta = delta + free @ z
+        kept += int(leak_rank)
+    return delta, kept, n_cor
+
+
+def _bounded_solve(
+    matrix: np.ndarray, target: np.ndarray, lo: np.ndarray, hi: np.ndarray
+) -> np.ndarray:
+    """The bounded least-squares solution of ``matrix·delta = target``.
+
+    A column whose two bounds meet is fixed at them and left out of the fit.
+    """
+    fixed = hi - lo <= 0
+    delta = np.where(fixed, lo, 0.0)
+    loose = ~fixed
+    if np.any(loose):
+        rest = target - matrix[:, fixed] @ delta[fixed]
+        found = lsq_linear(matrix[:, loose], rest, bounds=(lo[loose], hi[loose]), method="bvls")
+        delta[loose] = found.x
+    return delta
+
+
+def _at_limit(delta: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> list[int]:
+    """The columns whose delta sits at one of its finite bounds."""
+    hit = []
+    for c, (d, low, high) in enumerate(zip(delta, lo, hi, strict=True)):
+        for bound in (low, high):
+            if np.isfinite(bound) and abs(d - bound) <= _AT_LIMIT * max(1.0, abs(bound)):
+                hit.append(c)
+                break
+    return hit

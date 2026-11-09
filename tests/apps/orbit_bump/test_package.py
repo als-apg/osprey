@@ -81,4 +81,4 @@ def test_a_build_with_no_route_to_an_index_makes_the_wheel(
         for line in zipfile.ZipFile(wheel).read(metadata).decode().splitlines()
         if line.startswith("Requires-Dist: ")
     ]
-    assert requires == ["numpy"]
+    assert requires == ["numpy", "scipy"]
