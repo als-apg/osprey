@@ -276,3 +276,89 @@ class TestGetMcpServersCached:
             clear_cache()
             await get_mcp_servers_cached(mcp_file, str(tmp_path))
             assert mock_introspect.call_count == 2
+
+
+# --------------------------------------------------------------------------- #
+# A real stdio server: what initialize and tools/list report reaches the result
+# --------------------------------------------------------------------------- #
+
+_TINY_SERVER = """
+from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+
+mcp = FastMCP("tiny", instructions="Answers one question")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+def read_value(channel: str, count: int = 1) -> str:
+    '''Read a value.'''
+    return channel
+
+
+mcp.run()
+"""
+
+
+def _tiny_entry(tmp_path):
+    import sys
+
+    script = tmp_path / "tiny_server.py"
+    script.write_text(_TINY_SERVER)
+    return {"command": sys.executable, "args": [str(script)]}
+
+
+class TestRealServer:
+    @pytest.mark.asyncio
+    async def test_initialize_and_tools_list_facts(self, tmp_path):
+        info = await introspect_server("tiny", _tiny_entry(tmp_path), str(tmp_path), timeout=30)
+
+        assert info["error"] is None
+        assert info["transport"] == "stdio"
+        assert info["server_name"] == "tiny"
+        assert info["instructions"] == "Answers one question"
+        assert info["protocol"]
+        assert info["init_ms"] >= 0 and info["list_ms"] >= 0
+        (tool,) = info["tools"]
+        assert tool["name"] == "read_value"
+        assert tool["description"] == "Read a value."
+        assert tool["inputSchema"]["required"] == ["channel"]
+        assert tool["annotations"]["readOnlyHint"] is True
+
+    @pytest.mark.asyncio
+    async def test_an_http_entry_is_listed_not_spawned(self, tmp_path):
+        info = await introspect_server(
+            "canopy", {"type": "http", "url": "http://h:1/mcp"}, str(tmp_path)
+        )
+        assert info["transport"] == "http"
+        assert info["url"] == "http://h:1/mcp"
+        assert info["tools"] is None
+        assert info["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_refresh_one_server_keeps_the_others_and_peek_never_spawns(self, tmp_path):
+        import json
+
+        from osprey.mcp_server.introspect import peek_mcp_servers
+
+        clear_cache()
+        mcp_json = tmp_path / ".mcp.json"
+        mcp_json.write_text(json.dumps({"mcpServers": {"a": {}, "b": {}}}))
+        assert peek_mcp_servers(mcp_json) == (None, None)
+
+        calls: list[str] = []
+
+        async def fake(name, _config, _cwd, *, timeout):  # noqa: ARG001 - introspect_server's signature
+            calls.append(name)
+            return {"name": name, "tools": [], "n": len(calls)}
+
+        with patch("osprey.mcp_server.introspect.introspect_server", side_effect=fake):
+            first = await get_mcp_servers_cached(mcp_json, str(tmp_path))
+            again = await get_mcp_servers_cached(mcp_json, str(tmp_path), refresh=True, server="b")
+
+        assert sorted(calls[:2]) == ["a", "b"]
+        assert calls[2:] == ["b"]
+        assert [s["name"] for s in again] == ["a", "b"]
+        assert again[0] is first[0]
+        servers, probed_at = peek_mcp_servers(mcp_json)
+        assert servers == again and probed_at is not None
+        clear_cache()

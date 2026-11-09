@@ -69,8 +69,8 @@ def dangling_links(facility_dir: Path, doc: Mapping[str, Any]) -> list[DanglingL
     """Name every knowledge-page link the facility file does not resolve.
 
     Args:
-        facility_dir: The ``data/facility`` directory; its ``knowledge``
-            directory may be missing.
+        facility_dir: The content root, ``data/facility``, where the
+            deployment's ``knowledge`` directory sits; it may be missing.
         doc: The facility file.
 
     Returns:
@@ -114,7 +114,7 @@ def check_knowledge_links(validated: Validated) -> list[FacilityBuildError]:
         RuntimeError: The stage ran before S2 produced the document.
     """
     document: dict[str, Any] = need(validated.document)
-    for link in dangling_links(validated.facility_dir, document):
+    for link in dangling_links(validated.content_root, document):
         if link.where == "frontmatter":
             named = f"device {link.target}"
             remedy = f"set {LINK_KEY} to a device id of the facility file, or remove the key"

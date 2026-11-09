@@ -10,7 +10,7 @@ always carried an explicit closing contract; the other agents ended on
 ``**Results** (artifact_id: 5): ...``, and a small model fills that ellipsis
 with the whole artifact.
 
-Two claims, rendered on ``control_assistant`` in the graph paradigm so every
+Two claims, rendered on ``demo`` in the graph paradigm so every
 agent template is exercised:
 
 1. **Every agent whose frontmatter carries ``submit_response`` ships the shared
@@ -45,7 +45,7 @@ def rendered_project(tmp_path_factory) -> Path:
         facility_views=True,
         project_name="handback-contract",
         output_dir=tmp_path_factory.mktemp("render"),
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "graph"},
     )
 
@@ -94,3 +94,23 @@ def test_orchestrator_focuses_a_handed_back_artifact(rendered_project):
     tail = rule.split("## Subagent Hand-Backs", 1)[1]
     assert "artifact_focus" in tail
     assert "artifact_read" in tail
+
+
+def test_diagnose_reads_every_session_and_the_cited_artifacts(rendered_project):
+    skill = (rendered_project / ".claude" / "skills" / "diagnose" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    state = skill.split("### 2c. Workspace State", 1)[1].split("###", 1)[0]
+    assert 'artifact_list(scope="all")' in state
+    assert "artifact_read(artifact_id)" in state
+    assert "different agent" not in state
+
+
+def test_reuse_first_lists_this_conversation_and_widens_on_request(rendered_project):
+    rule = (rendered_project / ".claude" / "rules" / "artifacts.md").read_text(encoding="utf-8")
+    reuse = rule.split("## Reuse First", 1)[1].split("##", 1)[0]
+    assert "`artifact_list()`" in reuse
+    assert 'scope="all"' in reuse
+    assert "`artifact_read`" in reuse, "a dispatched run reads the ids it was given"
+    assert "`artifact_delete_all`" in reuse
+    assert "[Gallery Focus]" in rule

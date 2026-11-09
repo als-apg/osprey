@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import json
 import logging
 import math
 import threading
@@ -860,3 +861,140 @@ def test_every_caller_resolves_the_same_image_table(dimensions):
     assert module.completion_marker() == expected
     assert lane.table == expected
     assert ops.image_embedding_current_table(config) == expected
+
+
+# ---------------------------------------------------------------------------
+# Tests of inspect()
+# ---------------------------------------------------------------------------
+
+_INSPECT_SELECT = "SELECT attachment_id, vector_dims(embedding)"
+
+
+class _InspectConn(_Conn):
+    async def execute(self, sql: str, params: dict[str, Any]) -> FakeCursor:
+        repo = self._repo
+        if sql.startswith(_INSPECT_SELECT):
+            repo.statements.append(sql)
+            assert f"FROM {TABLE} WHERE attachment_id = ANY(%(ids)s)" in sql
+            rows = []
+            for a in params["ids"]:
+                row = repo.vectors.get(a)
+                if row is None:
+                    continue
+                vector = row["embedding"]
+                rows.append(
+                    (
+                        a,
+                        None if vector is None else len(vector),
+                        row["skip_reason"],
+                        row["model_ref"],
+                        row["created_at"],
+                    )
+                )
+            return FakeCursor(rows)
+        return await super().execute(sql, params)
+
+
+class _InspectPool(_Pool):
+    def connection(self) -> contextlib.nullcontext[_Conn]:
+        return contextlib.nullcontext(_InspectConn(self._repo))
+
+
+class _InspectRepo(FakeRepo):
+    """FakeRepo with ``get_entry`` and the inspector's per-picture read."""
+
+    def __init__(self, *, table: bool = True) -> None:
+        super().__init__(table=table)
+        self.pool = _InspectPool(self)
+
+    async def get_entry(self, entry_id: str) -> dict[str, Any] | None:
+        entry = self.entries.get(entry_id)
+        return dict(entry) if entry is not None else None
+
+
+class TestInspect:
+    async def test_inspect_reports_table_and_per_picture_rows_without_vectors(self):
+        from datetime import UTC, datetime
+
+        repo = _InspectRepo()
+        ids = repo.add_entry("e1", 3)
+        stamp = datetime(2026, 11, 3, 12, 0, tzinfo=UTC)
+        repo.vectors[ids[0]] = {
+            "embedding": [0.125] * DIMS,
+            "skip_reason": None,
+            "model_ref": MODEL,
+            "created_at": stamp,
+        }
+        repo.vectors[ids[1]] = {
+            "embedding": None,
+            "skip_reason": "degenerate_vector",
+            "model_ref": MODEL,
+            "created_at": stamp,
+        }
+        module = _module(_refused_url(9))
+
+        detail = await module.inspect("e1", repo)
+
+        assert detail == {
+            "table": TABLE,
+            "model": MODEL,
+            "dimensions": DIMS,
+            "table_exists": True,
+            "rows": [
+                {
+                    "attachment_id": ids[0],
+                    "stored": True,
+                    "dimensions": DIMS,
+                    "skip_reason": None,
+                    "model_ref": MODEL,
+                    "created_at": stamp.isoformat(),
+                },
+                {
+                    "attachment_id": ids[1],
+                    "stored": True,
+                    "dimensions": None,
+                    "skip_reason": "degenerate_vector",
+                    "model_ref": MODEL,
+                    "created_at": stamp.isoformat(),
+                },
+                {"attachment_id": ids[2], "stored": False},
+            ],
+        }
+        text = json.dumps(detail)
+        assert "0.125" not in text  # never a vector
+        select = next(s for s in repo.statements if s.startswith(_INSPECT_SELECT))
+        columns = select.split(" FROM ")[0]
+        assert "*" not in columns
+        assert [c.strip() for c in columns.removeprefix("SELECT").split(",")] == [
+            "attachment_id",
+            "vector_dims(embedding)",
+            "skip_reason",
+            "model_ref",
+            "created_at",
+        ]
+
+    async def test_inspect_picture_less_entry_returns_none(self):
+        repo = _InspectRepo()
+        repo.add_entry("e1", 0)
+
+        assert await _module(_refused_url(9)).inspect("e1", repo) is None
+        assert not any(s.startswith(_INSPECT_SELECT) for s in repo.statements)
+
+    async def test_inspect_unknown_entry_returns_none(self):
+        assert await _module(_refused_url(9)).inspect("missing", _InspectRepo()) is None
+
+    async def test_inspect_missing_table_lists_pictures_unstored(self):
+        repo = _InspectRepo(table=False)
+        ids = repo.add_entry("e1", 1)
+
+        detail = await _module(_refused_url(9)).inspect("e1", repo)
+
+        assert detail["table_exists"] is False
+        assert detail["rows"] == [{"attachment_id": ids[0], "stored": False}]
+        assert not any(s.startswith(_INSPECT_SELECT) for s in repo.statements)
+
+    async def test_inspect_unconfigured_module_returns_none(self):
+        repo = _InspectRepo()
+        repo.add_entry("e1", 1)
+
+        assert await ImageEmbeddingModule().inspect("e1", repo) is None

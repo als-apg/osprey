@@ -333,9 +333,9 @@ _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
     # volume is stale for exactly the reason the owner password above is.
     #
     # NOT blocking, and this is the entry the field exists for. A volume older
-    # than the role has no `_ro` login to mismatch: the agent's SQL tool runs on
-    # the ingestion connection it always ran on, and says so once at start-up,
-    # pointing at the how-to section that adopts the role by hand. Refusing
+    # than the role has no `_ro` login to mismatch: the agent starts, its SQL
+    # tool refuses every query, and it says so once at start-up, pointing at
+    # the how-to section that adopts the role by hand. Refusing
     # would stop every deployment that predates the role on its next start and
     # offer it nothing but discarding the logbook. Listed all the same, so that `--reuse-stores` restores this
     # credential along with the owner password whenever it adopts the volume —
@@ -1252,7 +1252,7 @@ def _refuse_invented_history(config: dict) -> None:
         f"process (`control_system.connector.virtual_accelerator.serving: in_process`), "
         f"whose synthesized archive claims nothing it cannot back up. To have "
         f"the stack deploy its own store, rebuild from a profile carrying a "
-        f"`va_archiver:` block — the control-assistant preset ships one, and "
+        f"`va_archiver:` block — the demo preset ships one, and "
         f"`osprey up` then brings up the store and its recorder beside the "
         f"machine this deployment stands up."
     )

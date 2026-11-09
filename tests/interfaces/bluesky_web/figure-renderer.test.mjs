@@ -120,6 +120,7 @@ function heatmapMark(xLabels, yLabels, values, extra = {}) {
     values,
     value_label: extra.value_label ?? 'response',
     value_units: extra.value_units ?? null,
+    value_columns: null,
     decimated: extra.decimated ?? false,
     source_points: extra.source_points ?? cells,
   };
@@ -154,6 +155,8 @@ function panel(mark, extra = {}) {
     y_label: extra.y_label ?? 'orbit',
     x_units: extra.x_units ?? null,
     y_units: extra.y_units ?? null,
+    x_columns: null,
+    y_columns: null,
     annotations: extra.annotations ?? [],
     mark,
     section: extra.section ?? null,

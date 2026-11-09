@@ -22,7 +22,7 @@ from osprey.services.ariel_search.search.base import (
 )
 from osprey.services.ariel_search.vocabulary import expand_query, load_vocabulary
 
-CONTROL_ASSISTANT_VOCABULARY = """
+DEMO_VOCABULARY = """
 concepts:
   - canonical: troubleshoot
     kind: shorthand
@@ -259,7 +259,7 @@ class TestRealVocabulary:
     def test_expand_query_output_drives_the_builder(self, tmp_path: Path):
         """A loaded vocabulary + `expand_query` reproduce the pinned `ts bpm undulator` shape."""
         path = tmp_path / "vocabulary.yml"
-        path.write_text(CONTROL_ASSISTANT_VOCABULARY, encoding="utf-8")
+        path.write_text(DEMO_VOCABULARY, encoding="utf-8")
         vocabulary, errors, _warnings = load_vocabulary(
             path, canonical_to_acronym=True, canonical_to_shorthand=False
         )
@@ -281,7 +281,7 @@ class TestRealVocabulary:
     def test_slash_form_stays_one_token(self, tmp_path: Path):
         """`t/s` survives normalization as a single token and locates in `search_text`."""
         path = tmp_path / "vocabulary.yml"
-        path.write_text(CONTROL_ASSISTANT_VOCABULARY, encoding="utf-8")
+        path.write_text(DEMO_VOCABULARY, encoding="utf-8")
         vocabulary, errors, _warnings = load_vocabulary(
             path, canonical_to_acronym=True, canonical_to_shorthand=False
         )
@@ -305,7 +305,7 @@ class TestPunctuatedQueries:
     @staticmethod
     def _resolve(tmp_path: Path, text: str) -> QueryExpansion:
         path = tmp_path / "vocabulary.yml"
-        path.write_text(CONTROL_ASSISTANT_VOCABULARY + RF_CONCEPT, encoding="utf-8")
+        path.write_text(DEMO_VOCABULARY + RF_CONCEPT, encoding="utf-8")
         vocabulary, errors, _warnings = load_vocabulary(
             path, canonical_to_acronym=True, canonical_to_shorthand=False
         )

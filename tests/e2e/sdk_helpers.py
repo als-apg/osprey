@@ -44,7 +44,7 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.types import WRITES_KEY, baseline_target
 from osprey_connectors_tests._harness import ci_diagnostics
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import build_model, build_provider
 
 # SDK imports — skip entire module if not installed
@@ -337,7 +337,7 @@ def e2e_port_base() -> int:
 def init_project(
     tmp_path: Path,
     name: str,
-    template: str = "control_assistant",
+    template: str = "demo",
     *,
     provider: str,
     model: str | None = None,
@@ -362,7 +362,7 @@ def init_project(
     ``git init`` is pure latency here.
 
     ``connector`` is pinned to the simulator served in process rather than
-    inherited from the preset: the control-assistant preset baselines on its
+    inherited from the preset: the demo preset baselines on its
     live stand-in, a deployed soft IOC that has to answer Channel Access — this
     harness runs projects without their containers, so the preset's production
     default would turn every channel read/write into a connection timeout.
@@ -381,7 +381,7 @@ def init_project(
     that want recorded history deploy a store of their own.
 
     ``virtual_accelerator.live_standin`` is nulled as the third of those pins,
-    for presets that declare a virtual accelerator at all. The control-assistant
+    for presets that declare a virtual accelerator at all. The demo
     preset ships a live stand-in on, which is a second VA container this
     harness never starts — and, before any read of it times out, the build
     derives the posture that container is meant to be met with: the ``epics``
@@ -450,6 +450,7 @@ def init_project(
         "--preset",
         template.replace("_", "-"),
         "--no-git",
+        *e2e_scenario_pin(template.replace("_", "-")),
         "--set",
         f"provider={provider}",
         "--set",

@@ -141,10 +141,10 @@ def test_every_service_image_is_reported_once(cold_build):
     _, finished, _ = cold_build
 
     assert finished == [
-        "my-control-assistant-va:local",
-        "my-control-assistant-dispatch:local",
-        "my-control-assistant-bluesky-bridge:local",
-        "my-control-assistant-bluesky-web:local",
+        "osprey-demo-va:local",
+        "osprey-demo-dispatch:local",
+        "osprey-demo-bluesky-bridge:local",
+        "osprey-demo-bluesky-web:local",
     ]
 
 
@@ -154,10 +154,10 @@ def test_each_image_lands_on_the_service_that_built_it(cold_build):
     model, _, _ = cold_build
 
     rows = rows_by_service(model)
-    assert rows["virtual-accelerator"].finished == "my-control-assistant-va:local"
-    assert rows["event-dispatcher"].finished == "my-control-assistant-dispatch:local"
-    assert rows["bluesky-bridge"].finished == "my-control-assistant-bluesky-bridge:local"
-    assert rows["bluesky-web"].finished == "my-control-assistant-bluesky-web:local"
+    assert rows["virtual-accelerator"].finished == "osprey-demo-va:local"
+    assert rows["event-dispatcher"].finished == "osprey-demo-dispatch:local"
+    assert rows["bluesky-bridge"].finished == "osprey-demo-bluesky-bridge:local"
+    assert rows["bluesky-web"].finished == "osprey-demo-bluesky-web:local"
 
 
 def test_each_service_walks_its_own_dockerfile_steps(cold_build):
@@ -346,7 +346,7 @@ def test_a_status_echo_alone_opens_no_row():
 @pytest.fixture
 def project_image() -> tuple[BuildModel, list[str], list[dict[str, str | None]]]:
     finished: list[str] = []
-    model = BuildModel("my-control-assistant", on_finished_image=finished.append)
+    model = BuildModel("osprey-demo", on_finished_image=finished.append)
     return model, finished, replay(PROJECT_IMAGE, model)
 
 
@@ -355,7 +355,7 @@ def test_a_single_image_build_is_one_row_under_its_label(project_image):
     a service, so the label is the only thing that can name this row."""
     model, _, _ = project_image
 
-    assert [row.service for row in model.snapshot()] == ["my-control-assistant"]
+    assert [row.service for row in model.snapshot()] == ["osprey-demo"]
 
 
 def test_a_nameless_header_does_not_invent_a_service(project_image):
@@ -371,8 +371,8 @@ def test_a_nameless_header_does_not_invent_a_service(project_image):
 def test_the_single_image_reports_once_under_its_label(project_image):
     model, finished, _ = project_image
 
-    assert finished == ["my-control-assistant:local"]
-    assert model.snapshot()[0].finished == "my-control-assistant:local"
+    assert finished == ["osprey-demo:local"]
+    assert model.snapshot()[0].finished == "osprey-demo:local"
 
 
 def test_nameless_step_indices_bind_to_the_label(project_image):
@@ -381,7 +381,7 @@ def test_nameless_step_indices_bind_to_the_label(project_image):
     _, _, seen = project_image
 
     steps = steps_per_service(seen)
-    assert steps["my-control-assistant"] == {f"{n}/13" for n in range(1, 14)} | {
+    assert steps["osprey-demo"] == {f"{n}/13" for n in range(1, 14)} | {
         "auth",
         "internal",
         "exporting",

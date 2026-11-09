@@ -45,9 +45,17 @@ Profile YAML reference
      - *required*
      - Facility data tree, relative to the profile directory (``data`` in a
        materialized profile). It is the only source of the project's ``data/``
-       tree, so a profile that names none is refused. May resolve outside the
-       profile directory; only existence and shape are checked
-       (see :ref:`profile-self-contained`).
+       tree, so a profile that names none is refused. Must resolve inside the
+       repository; a path outside it is refused (see :ref:`profile-self-contained`).
+   * - ``machine``
+     - string
+     - ``None``
+     - The facility directory of a mounted machine repository, relative to the
+       profile directory (e.g. ``vendor/example-machine/data/facility``). The
+       machine facts then come from there, and the deployment's ``data/facility/``
+       keeps only ``knowledge/``, ``ariel/`` and ``benchmarks/``. Resolved and
+       folded into the profile hash like ``data``; only the root profile may
+       state it (see :doc:`/how-to/control-systems/machine-repository`).
    * - ``extends``
      - string
      - ``None``
@@ -95,7 +103,7 @@ Profile YAML reference
    * - ``web_panels``
      - list
      - ``[]``
-     - Panel tabs the web workspace offers beside the terminal. A framework
+     - Panels the web workspace offers beside the terminal. A framework
        panel is named by its id; your own is a list entry plus its address
        under ``config:`` (``web.panels.<id>.url`` and its siblings).
    * - ``default_panel``
@@ -108,8 +116,10 @@ Profile YAML reference
      - mapping
      - ``{}``
      - Named web-terminal layouts, as label to dock layout: a tile
-       ``{tabs: [<panel id>, ...], showing?, size?}`` or a split
-       ``{split: row|column, items: [...]}``, never naming the terminal. The
+       ``{tabs: [<panel id>], size?}`` or a split
+       ``{split: row|column, items: [...]}``, never naming the terminal. A tile
+       holds one panel, so ``showing`` may be omitted, and a tile naming several
+       fails the build. The
        ``label: [ids]`` list form fails the build with the layout to write.
        Renders ``web.presets``.
    * - ``claude_md_template``
@@ -195,20 +205,20 @@ Profile YAML reference
      - absent
      - Deploys the optimizer service and its Redis job store
        (see :ref:`profile-optimizer`).
-   * - ``nextcloud_bridge`` / ``gchat_bridge`` / ``teams_bridge``
+   * - ``nextcloud_bridge`` / ``gchat_bridge`` / ``teams_bridge`` / ``slack_bridge``
      - mapping
      - absent
      - Deploys one chat bridge, which hands messages to the event dispatcher,
        so it needs a ``dispatch:`` block. Keys: ``trigger``, a trigger the
        ``dispatch.triggers`` file declares (default ``nextcloud-question``,
-       ``gchat-question`` or ``teams-question``), and ``mentions`` (default
-       ``true``). Credentials are runtime variables, never profile keys (see
-       :ref:`how-to-chat-bridges`).
+       ``gchat-question``, ``teams-question`` or ``slack-question``), and
+       ``mentions`` (default ``true``). Credentials are runtime variables,
+       never profile keys (see :ref:`how-to-chat-bridges`).
    * - ``artifact_server``
      - mapping
      - ``{}``
      - Overrides merged into the rendered ``artifact_server`` block of
-       ``config.yml``: ``host``, ``port``, ``auto_launch`` and ``categories``
+       ``config.yml``: ``host``, ``port``, ``auto_launch`` and ``extension_types``
        (see :ref:`config-artifact-server`).
    * - ``agent_record``
      - mapping
@@ -230,7 +240,7 @@ Profile YAML reference
    * - ``env``
      - mapping
      - ``{}``
-     - Variables the deployment needs: ``required``, ``defaults``, ``file``,
+     - Variables the deployment needs: ``required``, ``defaults``,
        ``pinned``. ``env.pinned`` lists variables ``.env.shared`` decides and a
        host may not override; a deploy refuses rather than start on a
        contradicting value (see :ref:`deployment-pinned-env`). Same name pattern
@@ -328,7 +338,7 @@ the framework reads and what it falls back to when no line spells it.
      approval.enabled: true
      approval.default_policy: always
 
-That is the shape ``osprey init --preset control-assistant`` writes, with the
+That is the shape ``osprey init --preset demo`` writes, with the
 timezone changed and a per-type limits block added. Pointing the same deployment at a real machine
 (``control_system.type: epics``) is a larger edit than the one line, because
 the ``va_archiver:`` block the preset ships records a machine the deployment
@@ -578,7 +588,7 @@ level. Such a profile is refused, naming that key and the verb that fixes it:
 .. code-block:: bash
 
    osprey init --revalidate                            # preset from provenance:
-   osprey init --revalidate --preset control-assistant # or name it
+   osprey init --revalidate --preset demo              # or name it
 
 It writes every key the preset documents and the profile lacks into the
 profile's own ``config:`` block, each under the comment the preset documents it
@@ -874,7 +884,7 @@ the requirement is "this tier can never move anything".
    keep the approval prompt, and strip that prompt away. ``deny`` is
    subtractable per tier, which is the direction a floor has to work in.
 
-   The bundled ``control-assistant`` preset is built exactly this way: its
+   The bundled ``demo`` preset is built exactly this way: its
    base denies the agent's own deployment-editing tool, and the ``admin``
    tier is the single delta that removes that deny. Writing the floor is
    not only a convention. A web terminal served without a login by a tier
@@ -904,9 +914,11 @@ alongside OSPREY's built-in ones.
          port: 8108
          api_key: "${TYPESENSE_API_KEY}"
 
-The ``template`` directory must contain at least ``docker-compose.yml.j2``. It is
-copied into the project's ``services/`` tree, and the service is registered in
-``config.yml``. Optional ``config`` values land under ``services.<name>``.
+The ``template`` directory must contain at least ``docker-compose.yml.j2``. A
+profile-relative template must resolve inside the repository (one outside is
+refused, see :ref:`profile-self-contained`), and its contents are folded into the
+profile hash. It is copied into the project's ``services/`` tree, and the
+service is registered in ``config.yml``. Optional ``config`` values land under ``services.<name>``.
 
 A service directory placed in the profile's ``services/`` convention directory is
 carried across the same way and marked as yours — that is what
@@ -1063,7 +1075,7 @@ profile ships no channel-database inputs. What it does need is a
 comes in.
 
 A deployment that runs its own store already has one.
-``osprey init --preset control-assistant`` writes the ``services.graphdb.*``
+``osprey init --preset demo`` writes the ``services.graphdb.*``
 keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
 ``config:`` block, and ``osprey up`` starts, bootstraps and seeds it — see
 :doc:`/how-to/deploy-project/index`. That profile reads, in outline:
@@ -1123,7 +1135,7 @@ answers, see :doc:`/how-to/use-channel-finder`; for the corpus behind them,
 :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 The qmd sidecar behind hybrid logbook search is guarded the same way. The
-``control-assistant`` preset switches
+``demo`` preset switches
 ``ariel.search_modules.hybrid`` on and deploys the ``services.qmd`` sidecar that
 answers it, but an attached project renders ``services: {}`` — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
@@ -1442,9 +1454,10 @@ Lifecycle commands
 
 Lifecycle commands run shell commands at three phases of the build:
 
-- **pre_build** — before rendering (cwd: profile directory)
-- **post_build** — after git init (cwd: project directory)
-- **validate** — advisory checks that warn but don't abort (cwd: project directory)
+- **pre_build** — before the project venv exists (cwd: the repository root)
+- **post_build** — after the render, on the project venv (cwd: the built project)
+- **validate** — advisory checks that warn but don't abort, on the project venv
+  (cwd: the built project)
 
 .. code-block:: yaml
 
@@ -1463,9 +1476,15 @@ Each step requires ``name`` and ``run``. Optional: ``cwd`` (relative to the phas
 default), ``timeout`` (seconds, default 120), and ``stream`` (print output live;
 also available for all steps via ``--stream``).
 
-``{project_root}`` is replaced with the built project's absolute path. The
-project venv's ``bin/`` is prepended to ``PATH``, so ``python`` and ``pytest``
-resolve to the project's own Python.
+``{project_root}`` is replaced with the built project's absolute path.
+
+In ``post_build`` and ``validate`` the project venv's ``bin/`` leads ``PATH``, so
+``python`` and ``pytest`` resolve to the project's own Python. ``pre_build`` runs
+before that venv exists, and under ``--skip-deps`` no step gets one: those steps
+see the shell's ``PATH``.
+
+``post_build`` and ``validate`` steps see the repository's env chain, ``.env``
+over ``.env.shared``, secrets in ``.env`` included; so do ``pre_build`` steps.
 
 A step that writes JUnit XML to ``{project_root}/check_results.xml`` has its
 tests printed as an **Integration Test Results** table when it finishes: each
@@ -1512,7 +1531,7 @@ the profile starts with them in force. Seeding is append-only: a value already
 in the file — set by the operator, or minted by a deploy — always wins, and
 later ``init`` runs never rewrite one. Declare a default only for a value the
 profile's author can honestly choose for every deployment (the
-``control-assistant`` preset's demo login passwords, say); values a *site*
+``demo`` preset's login passwords, say); values a *site*
 should share across hosts belong in ``.env.shared``, which is committed with
 the repository and read by every host (see :ref:`deployment-env-chain`).
 
@@ -1537,7 +1556,8 @@ installed into the project venv and recorded in its generated ``pyproject.toml``
    uv sync               # rebuilds it from pyproject.toml
 
 Builds run with ``--skip-deps`` create no environment and no ``pyproject.toml``;
-install dependencies yourself in that mode.
+install dependencies yourself in that mode. The generated Dockerfile still
+installs every declared requirement.
 
 .. _profile-environment:
 

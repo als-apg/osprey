@@ -1025,19 +1025,29 @@ def test_stdin_is_never_read(tmp_path, hook_runner_raw, monkeypatch, stdin):
 _HOOK_CONFIG_TEMPLATE = "claude_code/claude/hooks/hook_config.json.j2"
 
 
-def _render(tmp_path, *, writes: str):
-    """Render a control-assistant project's hook_config and deny at ``writes``.
+@pytest.fixture(scope="module")
+def built_project(tmp_path_factory):
+    """One demo project with its facility views; each cell edits a copy."""
+    from tests.cli.test_killswitch_on_tier import _build
 
-    The servers are a declaring facility server, a list-less writes_check one
-    (with and without approval) and Bluesky; the project also appends a
-    ``control_system.write_tools`` entry. Returns the paths of config.yml and of
-    the rendered hook_config.json and settings.json.
+    return _build(tmp_path_factory.mktemp("killswitch-built"))
+
+
+def _render(built_project, tmp_path, *, writes: str):
+    """Render a demo project's hook_config and deny at ``writes``.
+
+    The project is a copy of ``built_project``. The servers are a declaring
+    facility server, a list-less writes_check one (with and without approval)
+    and Bluesky; the project also appends a ``control_system.write_tools``
+    entry. Returns the paths of config.yml and of the rendered hook_config.json
+    and settings.json.
     """
     from osprey.cli.templates import claude_code
-    from tests.cli.test_killswitch_on_tier import _FACILITY, _project
+    from tests._builds import copy_build
+    from tests.cli.test_killswitch_on_tier import _FACILITY, _configure
 
-    manager, project_dir, _config = _project(
-        tmp_path,
+    manager, project_dir, _config = _configure(
+        copy_build(built_project, tmp_path),
         writes=writes,
         servers=_FACILITY,
         write_tools=["mcp__plc__get_value"],
@@ -1069,7 +1079,9 @@ def _render(tmp_path, *, writes: str):
     ],
     ids=["never-to-allowed", "never-to-asked", "asked-to-never", "allowed-to-never"],
 )
-def test_the_compared_set_matches_the_rendered_kill_switch(tmp_path, writes, edited, fragment):
+def test_the_compared_set_matches_the_rendered_kill_switch(
+    built_project, tmp_path, writes, edited, fragment
+):
     """A real render agrees with the hook in every tier — never a partial overlap.
 
     On ``never`` every tool the hook compares is in the rendered deny, and on
@@ -1079,7 +1091,9 @@ def test_the_compared_set_matches_the_rendered_kill_switch(tmp_path, writes, edi
     Then the #244 case end to end on the same render: a hand-edited tier warns.
     """
     hook = _hook()
-    config_path, hook_config_path, settings_path, ctx = _render(tmp_path, writes=writes)
+    config_path, hook_config_path, settings_path, ctx = _render(
+        built_project, tmp_path, writes=writes
+    )
     tools = hook._kill_switch_tools(hook_config_path)
 
     assert "mcp__controls__channel_write" in tools

@@ -2,7 +2,7 @@
 /* OSPREY Web Terminal — the Undo notice
  *
  * One short-lived line at the foot of the page that says what a one-click
- * removal just did — "Clock removed · Undo", "SYSTEM removed from the rail ·
+ * removal just did — "Clock removed · Undo", "Health removed from the rail ·
  * Undo" — or why it was refused. Every surface that removes something on a
  * single right-click reports through here, so a removal from the header, the
  * status bar, the rail, a tile header or the rail's utility row reads the same

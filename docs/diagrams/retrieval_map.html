@@ -163,9 +163,9 @@
        Figure 1: the full retrieval & embedding surface
        ════════════════════════════════════════════════════════════════════ -->
   <figure id="fig-retrieval-map">
-    <svg viewBox="0 0 1280 908" role="img" aria-labelledby="retrieval-map-title retrieval-map-desc">
+    <svg viewBox="0 0 1280 1124" role="img" aria-labelledby="retrieval-map-title retrieval-map-desc">
     <title id="retrieval-map-title">Search architecture — every retrieval path</title>
-    <desc id="retrieval-map-desc">The three retrieval stacks — the ARIEL Postgres stack with its enhancement pipeline and query modes, the qmd sidecar sharing one hybrid index between ARIEL and facility knowledge, and the embedding-free channel finder — each feeding MCP tools the OSPREY agent calls.</desc>
+    <desc id="retrieval-map-desc">The four retrieval stacks — the ARIEL Postgres stack with its enhancement pipeline and query modes, the qmd sidecar sharing one hybrid index between ARIEL and facility knowledge, the embedding-free channel finder, and the facility knowledge graph, whose Neo4j store and search index are written from the facility file and read by two subagents — each feeding MCP tools the OSPREY agent calls.</desc>
     <defs>
       <marker id="arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
         <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -179,6 +179,8 @@
     <text class="te" x="56" y="404">QMD SIDECAR · SHARED HYBRID INDEX</text>
     <rect class="zone" x="40" y="688" width="1048" height="156" rx="8"/>
     <text class="te" x="56" y="706">CHANNEL FINDER · NO EMBEDDINGS ANYWHERE</text>
+    <rect class="zone" x="40" y="860" width="1048" height="196" rx="8"/>
+    <text class="te" x="56" y="878">FACILITY KNOWLEDGE GRAPH · NO EMBEDDINGS ANYWHERE</text>
 
     <!-- ── lane 1 edges ── -->
     <line class="e" x1="232" y1="116" x2="288" y2="116" marker-end="url(#arr)"/>
@@ -240,6 +242,25 @@
     <line class="e" x1="800" y1="750" x2="864" y2="750" marker-end="url(#arr)"/>
     <line class="e" x1="800" y1="806" x2="864" y2="806" marker-end="url(#arr)"/>
     <line class="e" x1="1056" y1="772" x2="1120" y2="772" marker-end="url(#arr)"/>
+
+    <!-- ── lane 4 edges ── -->
+    <line class="e" x1="232" y1="964" x2="288" y2="964" marker-end="url(#arr)"/>
+    <rect class="mask" x="238" y="944" width="44" height="12" rx="2"/>
+    <text class="ta" x="260" y="953" text-anchor="middle">BUILD</text>
+
+    <path class="e" d="M512,950 H536 Q544,950 544,942 V932 Q544,924 552,924 H576" marker-end="url(#arr)"/>
+    <rect class="mask" x="518" y="904" width="30" height="12" rx="2"/>
+    <text class="ta" x="533" y="913" text-anchor="middle">SEED</text>
+
+    <path class="e" d="M512,978 H536 Q544,978 544,986 V1004 Q544,1012 552,1012 H576" marker-end="url(#arr)"/>
+    <rect class="mask" x="514" y="1022" width="38" height="12" rx="2"/>
+    <text class="ta" x="533" y="1031" text-anchor="middle">INDEX</text>
+
+    <line class="e" x1="800" y1="916" x2="864" y2="916" marker-end="url(#arr)"/>
+    <path class="e" d="M800,940 H824 Q832,940 832,948 V984 Q832,992 840,992 H864" marker-end="url(#arr)"/>
+    <line class="e" x1="800" y1="1020" x2="864" y2="1020" marker-end="url(#arr)"/>
+    <line class="e" x1="1056" y1="924" x2="1120" y2="924" marker-end="url(#arr)"/>
+    <line class="e" x1="1056" y1="1008" x2="1120" y2="1008" marker-end="url(#arr)"/>
 
     <!-- ── lane 1 nodes ── -->
     <rect class="mask" x="64" y="88" width="168" height="56" rx="6"/>
@@ -307,7 +328,7 @@
     <rect class="mask" x="64" y="424" width="168" height="56" rx="6"/>
     <rect class="nb-ext" x="64" y="424" width="168" height="56" rx="6"/>
     <text class="tn" x="148" y="448" text-anchor="middle">OKF bundle</text>
-    <text class="ts" x="148" y="464" text-anchor="middle">facility knowledge .md</text>
+    <text class="ts" x="148" y="464" text-anchor="middle">data/facility/knowledge/</text>
 
     <rect class="mask" x="576" y="488" width="224" height="164" rx="8"/>
     <rect class="nb" x="576" y="488" width="224" height="164" rx="8"/>
@@ -346,27 +367,61 @@
     <text class="tn" x="960" y="768" text-anchor="middle">CF MCP tools</text>
     <text class="ts" x="960" y="784" text-anchor="middle">run_sql · list_* · navigate</text>
 
+    <!-- ── lane 4 nodes ── -->
+    <rect class="mask" x="64" y="928" width="168" height="72" rx="6"/>
+    <rect class="nb-ext" x="64" y="928" width="168" height="72" rx="6"/>
+    <text class="tn" x="148" y="960" text-anchor="middle">facility file</text>
+    <text class="ts" x="148" y="976" text-anchor="middle">data/facility/ · records</text>
+
+    <rect class="mask" x="288" y="932" width="224" height="64" rx="6"/>
+    <rect class="nb-st" x="288" y="932" width="224" height="64" rx="6"/>
+    <text class="tn" x="400" y="958" text-anchor="middle">graph view</text>
+    <text class="ts" x="400" y="974" text-anchor="middle">data/graph/facility.ttl</text>
+
+    <rect class="mask" x="576" y="892" width="224" height="64" rx="6"/>
+    <rect class="nb" x="576" y="892" width="224" height="64" rx="6"/>
+    <text class="tn" x="688" y="918" text-anchor="middle">Neo4j graphdb</text>
+    <text class="ts" x="688" y="934" text-anchor="middle">devices · classes · channels</text>
+
+    <rect class="mask" x="576" y="984" width="224" height="56" rx="6"/>
+    <rect class="nb" x="576" y="984" width="224" height="56" rx="6"/>
+    <text class="tn" x="688" y="1006" text-anchor="middle">DuckDB search index</text>
+    <text class="ts" x="688" y="1022" text-anchor="middle">graph.duckdb · substring</text>
+
+    <rect class="mask" x="864" y="892" width="192" height="64" rx="6"/>
+    <rect class="nb" x="864" y="892" width="192" height="64" rx="6"/>
+    <text class="tn" x="960" y="914" text-anchor="middle">graph MCP tools</text>
+    <text class="ts" x="960" y="930" text-anchor="middle">read_cypher · get_schema</text>
+    <text class="ts" x="960" y="944" text-anchor="middle">facility-knowledge-graph agent</text>
+
+    <rect class="mask" x="864" y="976" width="192" height="64" rx="6"/>
+    <rect class="nb" x="864" y="976" width="192" height="64" rx="6"/>
+    <text class="tn" x="960" y="998" text-anchor="middle">CF graph mode tools</text>
+    <text class="ts" x="960" y="1014" text-anchor="middle">search_channels · read_cypher</text>
+    <text class="ts" x="960" y="1028" text-anchor="middle">channel-finder agent</text>
+
     <!-- agent rail -->
-    <rect class="mask" x="1120" y="88" width="120" height="728" rx="8"/>
-    <rect class="nb nb-strong" x="1120" y="88" width="120" height="728" rx="8"/>
-    <text class="tn" x="1180" y="444" text-anchor="middle">OSPREY agent</text>
-    <text class="ts" x="1180" y="460" text-anchor="middle">via MCP tools</text>
+    <rect class="mask" x="1120" y="88" width="120" height="952" rx="8"/>
+    <rect class="nb nb-strong" x="1120" y="88" width="120" height="952" rx="8"/>
+    <text class="tn" x="1180" y="556" text-anchor="middle">OSPREY agent</text>
+    <text class="ts" x="1180" y="572" text-anchor="middle">via MCP tools</text>
 
     <!-- legend -->
-    <line class="lg-rule" x1="40" y1="868" x2="1240" y2="868"/>
-    <text class="te" x="40" y="884">LEGEND</text>
-    <rect class="lg-swatch" x="120" y="876" width="10" height="10" fill="var(--accent)"/>
-    <text class="ta" x="136" y="884">embedding vectors</text>
-    <rect class="lg-swatch" x="256" y="876" width="10" height="10" fill="var(--warn)"/>
-    <text class="ta" x="272" y="884">model inference in the query path</text>
-    <line class="e e-dash" x1="470" y1="880" x2="494" y2="880"/>
-    <text class="ta" x="502" y="884">fallback</text>
+    <line class="lg-rule" x1="40" y1="1084" x2="1240" y2="1084"/>
+    <text class="te" x="40" y="1100">LEGEND</text>
+    <rect class="lg-swatch" x="120" y="1092" width="10" height="10" fill="var(--accent)"/>
+    <text class="ta" x="136" y="1100">embedding vectors</text>
+    <rect class="lg-swatch" x="256" y="1092" width="10" height="10" fill="var(--warn)"/>
+    <text class="ta" x="272" y="1100">model inference in the query path</text>
+    <line class="e e-dash" x1="470" y1="1096" x2="494" y2="1096"/>
+    <text class="ta" x="502" y="1100">fallback</text>
   </svg>
   </figure>
   <p class="caption">
     Figure 1 — every retrieval path, left to right: sources → ingest-time
     processing → indexes → query paths → the agent. The hybrid module and OKF
-    search share the one qmd sidecar — the only cross-stack connection.
+    search share the one qmd sidecar — the only cross-stack connection at query
+    time.
   </p>
 
   <!-- ════════════════════════════════════════════════════════════════════

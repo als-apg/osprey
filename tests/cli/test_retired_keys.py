@@ -184,7 +184,7 @@ def _repo(tmp_path: Path, config: dict[str, Any]) -> Path:
             default_flow_style=False,
         )
     )
-    shutil.copytree(bundle_data_root("control_assistant"), repo / "data")
+    shutil.copytree(bundle_data_root("demo"), repo / "data")
     (repo / "data" / "facility" / "knowledge").mkdir(parents=True, exist_ok=True)
     return repo
 

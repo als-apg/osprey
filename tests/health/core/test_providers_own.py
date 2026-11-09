@@ -29,6 +29,7 @@ async def test_the_deployments_own_provider_failing_is_an_error() -> None:
     )
     config = {
         "claude_code": {"provider": "own"},
+        "models": {"helper": {"provider": "other"}},
         "api": {"providers": {"own": {"api_key": "k"}, "other": {"api_key": "k"}}},
     }
     by_name = {r.name: r for r in await _run(config, registry)}
@@ -69,7 +70,11 @@ async def test_the_deployments_own_provider_passing_is_plain_ok() -> None:
 
 async def test_without_a_claude_code_provider_every_failure_stays_advisory() -> None:
     registry = StubRegistry({"p": fake_provider((False, "auth failed"))})
-    rows = await _run({"api": {"providers": {"p": {"api_key": "k"}}}}, registry)
+    config = {
+        "models": {"helper": {"provider": "p"}},
+        "api": {"providers": {"p": {"api_key": "k"}}},
+    }
+    rows = await _run(config, registry)
 
     assert rows[0].status is Status.WARNING
 

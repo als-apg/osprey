@@ -40,7 +40,7 @@ def rendered_safety_rule(tmp_path_factory) -> str:
         manager,
         project_name="safety-verification-guidance",
         output_dir=tmp_path_factory.mktemp("safety-md"),
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     rule = project_dir / ".claude" / "rules" / "safety.md"

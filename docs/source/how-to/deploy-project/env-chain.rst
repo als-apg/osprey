@@ -29,6 +29,28 @@ Setting a key in ``.env`` is how one host departs from a shared default, and
 there is nothing else to do about it — unless the profile has declared that
 variable the shared file's to decide (see :ref:`deployment-pinned-env`).
 
+.. _deployment-env-launch-variables:
+
+**Launch variables come from the shell only.** ``PATH``, ``HOME``, ``SHELL``,
+the variables that point a shell at its start-up files or run a command at its
+prompt, ``PS4``, ``IFS``, ``SHELLOPTS``, ``BASHOPTS``, the Python, Node, Perl,
+Ruby and Java start-up and load-path variables, the glibc variables
+``GCONV_PATH``, ``GLIBC_TUNABLES``, ``LOCPATH``, ``NLSPATH`` and
+``HOSTALIASES``, ``OPENSSL_CONF``, ``OPENSSL_MODULES``, ``OPENSSL_ENGINES``,
+``XDG_CONFIG_HOME``, ``XDG_CONFIG_DIRS``, ``XDG_CACHE_HOME``,
+``XDG_DATA_HOME``, the compilers ``CC``, ``CXX`` and ``LDSHARED`` and their
+flag and include-path variables, ``DOCKER_HOST``, ``DOCKER_CONFIG``,
+``DOCKER_CONTEXT``, ``CLAUDE_CONFIG_DIR``, ``CLAUDE_CODE_SHELL``,
+``CLAUDE_CODE_SHELL_PREFIX``, ``CLAUDE_CODE_GIT_BASH_PATH``,
+``CLAUDE_ENV_FILE``, the askpass helpers, ``PAGER``, ``MANPAGER``,
+``LESSOPEN``, ``LESSCLOSE``, ``EDITOR``, ``VISUAL``, ``BROWSER``, and every
+``LD_``, ``DYLD_``, ``BASH_FUNC_``, ``GIT_``, ``NPM_CONFIG_``, ``UV_``,
+``PIP_`` or ``COMPOSE_`` variable are never taken from either file:
+they decide which program runs, what code it loads, or what code an installer
+fetches. Names match in any case, so ``path`` is refused like ``PATH``. OSPREY
+ignores such a line and warns, naming the variables. Export them in your shell
+instead.
+
 Both files stay on the host. Neither ever enters a container image: they are
 read at run time and handed to the container runtime, which uses them to fill
 in the ``${VAR}`` placeholders in the rendered compose files. A variable reaches

@@ -1,4 +1,8 @@
-"""Tests for PTY manager: real children behind ``PtySession`` and ``PtyRegistry``."""
+"""Tests for PTY manager: real children behind ``PtySession`` and ``PtyRegistry``.
+
+The Python children are stdlib-only test code started with ``-S``, so they do not start
+coverage (see ``_pty_child``).
+"""
 
 from __future__ import annotations
 
@@ -29,6 +33,8 @@ from tests.interfaces.web_terminal._pty_child import (
     wait_for_report,
 )
 
+pytestmark = pytest.mark.usefixtures("short_process_waits")
+
 
 def _stubborn_child_script(pid_file, grandchild) -> str:
     """Return the source of a PTY child that ignores SIGHUP and SIGTERM.
@@ -42,7 +48,7 @@ import os, signal, subprocess, sys, time
 for signum in (signal.SIGHUP, signal.SIGTERM):
     signal.signal(signum, signal.SIG_IGN)
 proc = subprocess.Popen(
-    [sys.executable, {str(grandchild)!r}],
+    [sys.executable, "-S", {str(grandchild)!r}],
     start_new_session=False,
     stdin=subprocess.DEVNULL,
     stdout=subprocess.PIPE,
@@ -60,7 +66,7 @@ def _stubborn_session(tmp_path) -> tuple[PtySession, list[int]]:
     """Start a PTY child whose own group ignores the hang-up and SIGTERM; return its pids."""
     pid_file = tmp_path / "pids"
     grandchild = sleeper_script(tmp_path, "mcp_helper.py", ignore=(signal.SIGHUP, signal.SIGTERM))
-    session = PtySession([sys.executable, "-c", _stubborn_child_script(pid_file, grandchild)])
+    session = PtySession([sys.executable, "-S", "-c", _stubborn_child_script(pid_file, grandchild)])
     session.start()
     return session, wait_for_pids(session, pid_file, 2)
 
@@ -156,7 +162,7 @@ class TestPtySession:
                     return out
                 out += chunk
 
-        session = PtySession([sys.executable, "-c", child_script])
+        session = PtySession([sys.executable, "-S", "-c", child_script])
         session.start()
         try:
 
@@ -203,7 +209,7 @@ class TestPtySession:
             sleeper_script(tmp_path, "orbit_poll.py"),
         ]
         session = PtySession(
-            [sys.executable, "-c", detaching_child_script(pid_file, scripts=scripts)]
+            [sys.executable, "-S", "-c", detaching_child_script(pid_file, scripts=scripts)]
         )
         session.start()
         pids: list[int] = []
@@ -230,7 +236,7 @@ class TestPtySession:
     def test_terminate_ends_a_helper_that_outlives_the_hang_up(self, tmp_path):
         pid_file = tmp_path / "pids"
         source = detaching_child_script(pid_file, scripts=[], helper_ignores_hup=True)
-        session = PtySession([sys.executable, "-c", source])
+        session = PtySession([sys.executable, "-S", "-c", source])
         session.start()
         pids: list[int] = []
         try:
@@ -247,7 +253,7 @@ class TestPtySession:
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGTERM, signal.SIGHUP))
         session = PtySession(
-            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+            [sys.executable, "-S", "-c", detaching_child_script(pid_file, scripts=[script])]
         )
         session.start()
         pids: list[int] = []
@@ -267,7 +273,7 @@ class TestPtySession:
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGHUP,))
         session = PtySession(
-            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+            [sys.executable, "-S", "-c", detaching_child_script(pid_file, scripts=[script])]
         )
         session.start()
         pids: list[int] = []
@@ -299,7 +305,7 @@ class TestPtySession:
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGHUP,))
         session = PtySession(
-            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+            [sys.executable, "-S", "-c", detaching_child_script(pid_file, scripts=[script])]
         )
         session.start()
         pids: list[int] = []
@@ -348,7 +354,7 @@ class TestPtySession:
         assert session.exit_code == 0
 
     def test_is_alive_never_reaps_the_child(self):
-        session = PtySession([sys.executable, "-c", "pass"])
+        session = PtySession([sys.executable, "-S", "-c", "pass"])
         session.start()
         try:
             assert wait_for_exit(session) == 0
@@ -434,7 +440,7 @@ class TestPtySession:
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py", ignore=(signal.SIGHUP,))
         session = PtySession(
-            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+            [sys.executable, "-S", "-c", detaching_child_script(pid_file, scripts=[script])]
         )
         session.start()
         pids: list[int] = []
@@ -480,7 +486,7 @@ class TestPtySession:
         pid_file = tmp_path / "pids"
         script = sleeper_script(tmp_path, "magnet_scan.py")
         session = PtySession(
-            [sys.executable, "-c", detaching_child_script(pid_file, scripts=[script])]
+            [sys.executable, "-S", "-c", detaching_child_script(pid_file, scripts=[script])]
         )
         session.start()
         pids: list[int] = []
@@ -581,7 +587,7 @@ class TestPtyChildWaits:
             session.terminate()
 
     async def test_wait_gone_returns_once_every_pid_has_exited(self):
-        procs = [subprocess.Popen([sys.executable, "-c", "pass"]) for _ in range(2)]
+        procs = [subprocess.Popen([sys.executable, "-S", "-c", "pass"]) for _ in range(2)]
         try:
             # Unreaped on purpose: an exited process nobody has waited for counts as gone.
             await wait_gone([proc.pid for proc in procs], within=CHILD_HANG_CEILING)
@@ -591,7 +597,7 @@ class TestPtyChildWaits:
                 proc.wait(timeout=30)
 
     async def test_wait_gone_fails_naming_the_pid_still_running(self):
-        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        proc = subprocess.Popen([sys.executable, "-S", "-c", "import time; time.sleep(120)"])
         try:
             with pytest.raises(
                 AssertionError, match=rf"pid {proc.pid} \(ps state '\S+'\) is still"
@@ -695,7 +701,7 @@ class TestPtyRegistry:
         registry = PtyRegistry(max_background=1)
         pids: list[int] = []
         try:
-            session, _ = registry.get_or_create_session("a", [sys.executable, "-c", script])
+            session, _ = registry.get_or_create_session("a", [sys.executable, "-S", "-c", script])
             pids = wait_for_pids(session, pid_file, 2)
             registry.get_or_create_session("b", "/bin/sh")
             assert registry.get_session("a") is None
@@ -717,7 +723,9 @@ class TestPtyRegistry:
                 script = detaching_child_script(
                     pid_file, scripts=[sleeper_script(directory, "magnet_scan.py")]
                 )
-                session, _ = registry.get_or_create_session(key, [sys.executable, "-c", script])
+                session, _ = registry.get_or_create_session(
+                    key, [sys.executable, "-S", "-c", script]
+                )
                 pids += wait_for_pids(session, pid_file, 2)
             registry.cleanup_all()
             grandchildren = pids[0::2]

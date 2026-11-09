@@ -51,9 +51,8 @@ wins:
 #. **The environment variable**, for the panels that have one. It is meant for
    a single run -- the container the build renders sets it from the config, and
    setting it by hand overrides that container's port for as long as it lives.
-#. **The** ``--port`` **flag**, on the commands that take one (``osprey web``,
-   ``osprey ariel web``, ``osprey artifacts``, ``osprey channel-finder``). It
-   moves that one run and nothing else.
+#. **The** ``--port`` **flag** of ``osprey web``. It moves that one run and
+   nothing else.
 #. **The service's own key** in the rendered ``config.yml`` -- the **Override
    key** column. The value is an absolute port, not an offset, so a service
    pinned this way stays where it is put when ``port_base`` moves. Set it in

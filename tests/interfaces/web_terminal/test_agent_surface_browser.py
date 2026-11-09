@@ -28,7 +28,7 @@ pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 _CHAT = "#operator-container"
 _TERMINAL = "#terminal-container"
-_ENTRY = ".op-surface-row"
+_ENTRY = ".session-switcher-surface"
 
 
 def _open(opener, base_url: str) -> tuple[Page, list[str]]:
@@ -76,7 +76,8 @@ def test_the_entry_opens_the_terminal_and_back_to_chat_returns(tmp_path, chromiu
         open_terminal(page)
         _on_terminal(page)
         expect(page.locator("#terminal-container .xterm")).to_be_visible(timeout=10_000)
-        page.wait_for_function("() => document.querySelector('#session-led.active') !== null")
+        # The terminal body glows while its socket is open (terminal.js).
+        page.wait_for_function("() => document.querySelector('.terminal-body.active') !== null")
         # The chat's key has no transcript yet, so the terminal may start its own
         # session after asking for that one; either way it opened only on the click.
         assert sockets, sockets
@@ -111,8 +112,8 @@ def test_web_terminal_false_leaves_no_entry(tmp_path, chromium_browser):
         page, sockets = _open(chromium_browser, base_url)
         expect(page.locator("html")).to_have_attribute("data-terminal", "off")
 
-        page.locator(".op-session-more").click()
-        expect(page.locator("#agent-conversations-menu")).to_be_visible()
+        page.locator("span.op-session-label").click()
+        expect(page.locator("#session-switcher-menu")).to_be_visible()
         expect(page.locator(_ENTRY)).to_have_count(0)
         assert sockets == []
         page.close()

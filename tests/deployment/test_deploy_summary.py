@@ -664,8 +664,8 @@ def test_a_service_the_layout_does_not_name_is_shown_under_the_facility_band(tmp
     assert ("facility", "beamline-gateway", "127.0.0.1:10900") in entries
 
 
-def _control_assistant_compose(path, base):
-    """A compose file publishing a control-assistant-shaped stack at ``base``.
+def _demo_compose(path, base):
+    """A compose file publishing a demo-shaped stack at ``base``.
 
     Every port comes from :func:`~osprey.port_layout.layout_ports`, so moving a
     slot moves this fixture with it rather than leaving a stale literal that
@@ -713,7 +713,7 @@ def test_a_whole_deployment_prints_as_its_own_block(tmp_path, base):
     and every framework port inside that block — except the one the layout says
     is outside it.
     """
-    compose = _control_assistant_compose(tmp_path / f"docker-compose.{base}.yml", base)
+    compose = _demo_compose(tmp_path / f"docker-compose.{base}.yml", base)
     config = {
         "project_name": "demo",
         "deployment": {"port_base": base},
@@ -748,7 +748,7 @@ def test_a_whole_deployment_prints_as_its_own_block(tmp_path, base):
 @pytest.mark.parametrize("base", [DEFAULT_PORT_BASE, 20000])
 def test_the_whole_block_moves_with_one_key(tmp_path, base):
     """Nothing is described in the default block's numbers when it is elsewhere."""
-    compose = _control_assistant_compose(tmp_path / f"docker-compose.{base}.yml", base)
+    compose = _demo_compose(tmp_path / f"docker-compose.{base}.yml", base)
     config = {"project_name": "demo", "deployment": {"port_base": base}}
 
     entries = deploy_summary.endpoint_entries(config, [compose])
@@ -781,7 +781,7 @@ def test_a_single_user_deployment_shows_every_panel_band(tmp_path, base):
     They publish nothing a compose file records — the containers run on the host
     namespace — and their ports live under ``modules.web_terminals`` rather than
     ``services.<name>``, so neither binding source can see them. Without a third
-    derivation the seven largest bands of the block are simply missing from
+    derivation the six largest bands of the block are simply missing from
     ``osprey up`` and ``osprey status``.
 
     EVERY band, deliberately: this roster names no render, so nothing on disk
@@ -807,7 +807,6 @@ def test_a_single_user_deployment_shows_every_panel_band(tmp_path, base):
             "web",
             "artifact",
             "ariel",
-            "lattice",
             "channel_finder",
             "okf",
             "system_health",
@@ -819,8 +818,8 @@ def test_a_single_user_deployment_shows_every_panel_band(tmp_path, base):
 def test_a_roster_shows_each_family_as_one_band_not_one_row_per_user(tmp_path, base):
     """One row per FAMILY, covering the roster — never one per family and user.
 
-    A family IS a band, and the band is the fact. Four users across seven
-    families would otherwise contribute twenty-eight rows to a list whose whole
+    A family IS a band, and the band is the fact. Four users across six
+    families would otherwise contribute twenty-four rows to a list whose whole
     point is to show the shape of the block at a glance.
 
     No ``http://`` on a range: the renderer linkifies a whitespace-delimited
@@ -843,7 +842,7 @@ def test_a_roster_shows_each_family_as_one_band_not_one_row_per_user(tmp_path, b
     panels = _panel_rows(entries)
 
     ports = layout_ports(base)
-    assert len(panels) == 7
+    assert len(panels) == 6
     assert panels["web"] == f"127.0.0.1:{ports['web']}-{ports['web'] + 2}  (alice, bob, carol)"
     assert panels["okf"] == f"127.0.0.1:{ports['okf']}-{ports['okf'] + 2}  (alice, bob, carol)"
     assert "http://" not in panels["web"]
@@ -950,7 +949,7 @@ def _render_deployment(tmp_path, renders, users, base=DEFAULT_PORT_BASE):
 
 #: The two-render roster every test below shares: alice runs a render whose
 #: project declares only the ARIEL panel, bob one that declares the channel
-#: finder and the health dashboard. Neither declares LATTICE or KNOWLEDGE.
+#: finder and the health dashboard. Neither declares KNOWLEDGE.
 _SPLIT_RENDERS = {"ariel": ["ariel"], "readonly": ["channel-finder", "system-health"]}
 _SPLIT_ROSTER = [
     {"name": "alice", "index": 0, "tier": "ariel"},
@@ -989,8 +988,8 @@ def test_a_band_lists_only_the_users_whose_render_serves_it(tmp_path, base):
 def test_a_family_no_render_serves_prints_no_band_at_all(tmp_path):
     """A band nothing listens on is not a quieter row — it is not a row.
 
-    LATTICE and KNOWLEDGE are reserved by the layout for every deployment, and
-    neither render here declares them. Printing their bands with a hedge
+    KNOWLEDGE is reserved by the layout for every deployment, and neither
+    render here declares it. Printing its band with a hedge
     beside them would be the same claim in smaller type: the address would
     still be there to copy, and nothing answers at it.
     """
@@ -998,16 +997,15 @@ def test_a_family_no_render_serves_prints_no_band_at_all(tmp_path):
 
     panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
 
-    assert "lattice" not in panels
     assert "okf" not in panels
-    assert str(layout_ports(DEFAULT_PORT_BASE)["lattice"]) not in "".join(panels.values())
+    assert str(layout_ports(DEFAULT_PORT_BASE)["okf"]) not in "".join(panels.values())
 
 
 def test_the_reserved_but_unserved_bands_are_one_note_not_a_row_each(tmp_path):
     """Said once, at the end of the tier: the block still reserves them.
 
-    An operator who reads six families where the layout has seven needs to know
-    the seventh was not lost — but a per-family row for each would re-introduce
+    An operator who reads five families where the layout has six needs to know
+    the sixth was not lost — but a per-family row for each would re-introduce
     exactly the addresses the rows above deliberately dropped.
     """
     config, compose = _render_deployment(tmp_path, _SPLIT_RENDERS, _SPLIT_ROSTER)
@@ -1020,7 +1018,7 @@ def test_the_reserved_but_unserved_bands_are_one_note_not_a_row_each(tmp_path):
     ]
 
     assert len(notes) == 1
-    assert notes[0].startswith("lattice, okf ")
+    assert notes[0].startswith("okf ")
     # Last in its tier, so it reads as a footnote to the bands above it rather
     # than as a band between them.
     panel_services = [service for tier, service, _address in entries if tier == "panels"]
@@ -1029,7 +1027,7 @@ def test_the_reserved_but_unserved_bands_are_one_note_not_a_row_each(tmp_path):
 
 def test_a_deployment_every_render_serves_carries_no_note(tmp_path):
     """Nothing reserved-and-unserved is nothing to say; a note would be noise."""
-    every_panel = ["ariel", "channel-finder", "lattice", "okf", "system-health"]
+    every_panel = ["ariel", "channel-finder", "okf", "system-health"]
     config, compose = _render_deployment(
         tmp_path,
         {"admin": every_panel},
@@ -1040,7 +1038,7 @@ def test_a_deployment_every_render_serves_carries_no_note(tmp_path):
     panels = _panel_rows(entries)
 
     assert deploy_summary.RESERVED_BANDS_LABEL not in panels
-    assert len(panels) == 7
+    assert len(panels) == 6
 
 
 def test_an_unbuilt_render_project_degrades_to_the_whole_roster(tmp_path):
@@ -1057,8 +1055,8 @@ def test_an_unbuilt_render_project_degrades_to_the_whole_roster(tmp_path):
     panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
 
     ports = layout_ports(DEFAULT_PORT_BASE)
-    assert len(panels) == 7
-    assert panels["lattice"] == f"127.0.0.1:{ports['lattice']}-{ports['lattice'] + 1}  (alice, bob)"
+    assert len(panels) == 6
+    assert panels["okf"] == f"127.0.0.1:{ports['okf']}-{ports['okf'] + 1}  (alice, bob)"
     assert deploy_summary.RESERVED_BANDS_LABEL not in panels
 
 
@@ -1123,7 +1121,7 @@ def test_the_narrowing_reaches_status_through_the_entries_it_shares(tmp_path):
 
     ports = layout_ports(DEFAULT_PORT_BASE)
     assert rows["  ariel"] == f"http://127.0.0.1:{ports['ariel']}  (alice)"
-    assert "  lattice" not in rows
+    assert "  okf" not in rows
 
 
 def test_a_root_in_hand_beats_the_one_the_config_declares(tmp_path):
@@ -1143,7 +1141,7 @@ def test_a_root_in_hand_beats_the_one_the_config_declares(tmp_path):
 
     ports = layout_ports(DEFAULT_PORT_BASE)
     assert panels["ariel"] == f"http://127.0.0.1:{ports['ariel']}  (alice)"
-    assert "lattice" not in panels
+    assert "okf" not in panels
 
 
 def test_a_roster_user_the_catalog_cannot_place_degrades_the_whole_tier(tmp_path):
@@ -1162,10 +1160,8 @@ def test_a_roster_user_the_catalog_cannot_place_degrades_the_whole_tier(tmp_path
     panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
 
     ports = layout_ports(DEFAULT_PORT_BASE)
-    assert len(panels) == 7
-    assert panels["lattice"] == (
-        f"127.0.0.1:{ports['lattice']}-{ports['lattice'] + 2}  (alice, bob, carol)"
-    )
+    assert len(panels) == 6
+    assert panels["okf"] == (f"127.0.0.1:{ports['okf']}-{ports['okf'] + 2}  (alice, bob, carol)")
 
 
 def _unparseable_render_config(tmp_path, _config):
@@ -1222,9 +1218,9 @@ def test_anything_that_cannot_be_read_degrades_the_tier_rather_than_narrowing(tm
     panels = _panel_rows(deploy_summary.endpoint_entries(config, [compose]))
 
     ports = layout_ports(DEFAULT_PORT_BASE)
-    assert len(panels) == 7
+    assert len(panels) == 6
     assert deploy_summary.RESERVED_BANDS_LABEL not in panels
-    assert panels["lattice"] == f"127.0.0.1:{ports['lattice']}-{ports['lattice'] + 1}  (alice, bob)"
+    assert panels["okf"] == f"127.0.0.1:{ports['okf']}-{ports['okf'] + 1}  (alice, bob)"
 
 
 def test_a_roster_entry_that_is_not_a_user_reaches_no_caller_as_an_exception(tmp_path):
@@ -1246,8 +1242,8 @@ def test_a_roster_entry_that_is_not_a_user_reaches_no_caller_as_an_exception(tmp
 
     ports = layout_ports(DEFAULT_PORT_BASE)
     # Degraded, and degraded to something that still says where the block is.
-    assert f"127.0.0.1:{ports['lattice']}-{ports['lattice'] + 1}  (alice, bob)" in text
-    assert len(_panel_rows(card_rows)) == 7
+    assert f"127.0.0.1:{ports['okf']}-{ports['okf'] + 1}  (alice, bob)" in text
+    assert len(_panel_rows(card_rows)) == 6
 
 
 def test_a_render_project_with_no_web_block_serves_the_universal_bands(tmp_path):
@@ -1256,8 +1252,8 @@ def test_a_render_project_with_no_web_block_serves_the_universal_bands(tmp_path)
     ``web:`` missing entirely is what a rendered project without any panel
     configuration looks like, and the terminal's own reading of that is
     unambiguous: it starts the WORKSPACE panel and nothing else. So this narrows
-    to two bands rather than degrading to seven — degrading here would report
-    five addresses that this deployment genuinely does not answer on.
+    to two bands rather than degrading to six — degrading here would report
+    four addresses that this deployment genuinely does not answer on.
     """
     config, compose = _render_deployment(
         tmp_path, {"minimal": []}, [{"name": "alice", "index": 0, "tier": "minimal"}]

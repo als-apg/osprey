@@ -164,17 +164,15 @@ if hasattr(data, 'shape'):
 def collect_and_register_artifacts(
     exec_result,
     tool_source: str,
-    category: str = "",
     code: str = "",
     stdout: str = "",
     data_source: str | None = None,
 ) -> list[str]:
     """Save exec_result.artifacts to the artifact store, return artifact IDs.
 
-    Each artifact is tagged with the category its ``save_artifact()`` call
-    named, or with ``category`` when it named none, and visualization metadata
-    (code, stdout, data_source) is embedded in the artifact's ``metadata``
-    dict — no separate JSON blob is created.
+    Each artifact is attributed to the data-visualizer agent, and visualization
+    metadata (code, stdout, data_source) is embedded in the artifact's
+    ``metadata`` dict — no separate JSON blob is created.
     """
     from osprey.stores.artifact_manifest import read_collected_file
     from osprey.stores.artifact_store import get_artifact_store
@@ -192,9 +190,6 @@ def collect_and_register_artifacts(
             if data_source:
                 viz_metadata["data_source"] = data_source
 
-            # A category the code passed to save_artifact() wins; the tool's
-            # own category is the fallback for artifacts saved without one.
-            art_category = art.get("category") or category
             art_entry = store.save_file(
                 file_content=read_collected_file(art["path"]),
                 filename=art["path"].name,
@@ -204,11 +199,8 @@ def collect_and_register_artifacts(
                 mime_type=art["mime_type"],
                 tool_source=tool_source,
                 metadata=viz_metadata or None,
-                category=art_category,
             )
-
-            if art_category:
-                store.update_entry_metadata(art_entry.id, source_agent="data-visualizer")
+            store.update_entry_metadata(art_entry.id, source_agent="data-visualizer")
 
             artifact_ids.append(art_entry.id)
         except Exception:

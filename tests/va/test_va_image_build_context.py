@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -158,6 +159,50 @@ def install_plan(containerfile: Path) -> InstallPlan:
         elif instr.keyword == "RUN" and _installs_project(instr.args):
             return InstallPlan(index, instr.args, workdir, frozenset(copied))
     raise AssertionError(f"{containerfile}: no RUN installs the project")
+
+
+def context_sources(containerfile: Path) -> set[str]:
+    """Build-context paths the Containerfile COPYs, in any stage."""
+    sources: set[str] = set()
+    for instr in _instructions(containerfile):
+        if instr.keyword != "COPY" or "--from=" in instr.args:
+            continue
+        *paths, _dest = [t for t in shlex.split(instr.args) if not t.startswith("--")]
+        sources |= {path.rstrip("/") for path in paths}
+    return sources
+
+
+ACTION = REPO_ROOT / ".github/actions/build-virtual-accelerator-image/action.yml"
+
+
+def action_staged_paths() -> set[str]:
+    """Repo paths the CI action's build step copies into its staging directory."""
+    steps = yaml.safe_load(ACTION.read_text())["runs"]["steps"]
+    (script,) = [s["run"] for s in steps if "osprey-va-full:latest" in s.get("run", "")]
+    staged: set[str] = set()
+    for line in _logical_lines(script):
+        if line.startswith("cp "):
+            *paths, _dest = [t for t in shlex.split(line)[1:] if not t.startswith("-")]
+            staged |= {path.removesuffix("/.") for path in paths}
+    return staged
+
+
+@pytest.mark.parametrize(
+    "stager",
+    [
+        pytest.param(lambda: staged_paths(REPO_ROOT / IMAGE_BUILDS[0].script), id="script"),
+        pytest.param(action_staged_paths, id="ci-action"),
+    ],
+)
+def test_both_stagers_carry_everything_the_containerfile_copies(stager) -> None:
+    """The local gate and the CI action stage the context separately, so each
+    must carry every path the Containerfile COPYs -- uv.lock among them, since
+    the image's third-party install is the lock's export. A path one of them
+    leaves out fails only that build, at its COPY."""
+    needed = context_sources(REPO_ROOT / IMAGE_BUILDS[0].containerfile)
+    assert {"pyproject.toml", "uv.lock", "README.md", "src", "packages"} <= needed, needed
+    missing = sorted(needed - stager())
+    assert not missing, f"the build context lacks {missing}, which the Containerfile COPYs"
 
 
 @pytest.fixture(scope="module")

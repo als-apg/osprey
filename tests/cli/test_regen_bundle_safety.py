@@ -13,7 +13,7 @@ visits files under ``.claude/`` that originate from the template's ``claude/``
 directory, plus the root-level ``CLAUDE.md`` and ``.mcp.json``.
 
 Bundle location: ``{project_dir}/data/facility/knowledge/`` — matching the
-value shipped in the control-assistant ``config.yml.j2``
+value shipped in the demo ``config.yml.j2``
 (``facility_knowledge.bundle_path: data/facility/knowledge``).  The bundle
 is structurally outside the regen output set.
 
@@ -43,10 +43,10 @@ from osprey.cli.templates.manager import TemplateManager
 from tests._preset_data import create_project_as_built
 
 # ---------------------------------------------------------------------------
-# Constants — canonical bundle path (matches control-assistant config.yml.j2)
+# Constants — canonical bundle path (matches demo config.yml.j2)
 # ---------------------------------------------------------------------------
 
-#: Relative bundle path shipped in control-assistant config.yml.j2.
+#: Relative bundle path shipped in demo config.yml.j2.
 BUNDLE_REL_PATH = "data/facility/knowledge"
 
 #: Top-level directory prefix regen is allowed to write inside.
@@ -72,7 +72,7 @@ def _make_project_with_bundle(tmp_path: Path) -> tuple[Path, Path, TemplateManag
     """Create a minimal OSPREY project and populate a facility knowledge bundle.
 
     The bundle is placed at ``{project_dir}/data/facility/knowledge/`` to match
-    the shipping control-assistant ``config.yml.j2`` default.  The config is
+    the shipping demo ``config.yml.j2`` default.  The config is
     updated to declare ``facility_knowledge.bundle_path: data/facility/knowledge``.
 
     Args:
@@ -86,7 +86,7 @@ def _make_project_with_bundle(tmp_path: Path) -> tuple[Path, Path, TemplateManag
         manager,
         project_name="bundle-regen-test",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
 
