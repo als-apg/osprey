@@ -1,16 +1,6 @@
 # End-to-End (E2E) Tests
 
-## 🚨 CRITICAL: How to Run These Tests
-
-```bash
-# ✅ CORRECT: Always use direct path
-pytest tests/e2e/ -v
-
-# ❌ WRONG: Do NOT use -m e2e marker
-pytest -m e2e  # This causes test collection issues and failures!
-```
-
-**Why?** Using `-m e2e` causes pytest to collect tests in the wrong order, leading to registry initialization failures and mysterious "Registry contains no nodes" errors. Always run e2e tests using the direct path `pytest tests/e2e/`.
+The suite is run by path, `pytest tests/e2e/`; it has no suite-wide marker.
 
 ---
 
@@ -90,8 +80,7 @@ directory; the tests run on demand in the `tier2-model-benchmark` job
 (`gh workflow run ci.yml -f run_benchmarks=true`) and in the model matrix. They
 carry no rerun marker: a benchmark scores every attempt. Tier 2 sits between the
 build-and-boot checks (Tier 1) and the per-preset agentic lanes (Tier 3) in the CI
-pyramid; the benchmark dashboard's own "Tier 0/1" labels for the two matrix lanes
-are a separate numbering.
+pyramid.
 
 Tier 2 tests may deploy the real stack when the task needs it. `tier2/test_chart_value_reading.py`
 measures reading a value off a chart: it brings up the virtual accelerator, the MongoDB
@@ -172,13 +161,13 @@ relevant service via the OSPREY ``docker-compose`` services tree
 
 ## Scenario tests & the simulation engine
 
-The control_assistant scenario tests (``test_vacuum_burst_scenario.py`` and
+The demo scenario tests (``test_vacuum_burst_scenario.py`` and
 ``test_rf_cavity_correlation_scenario.py``) get
 their archiver ground truth from the **data-driven simulation engine**, not from
 hard-coded connector code. Scenarios are the facility's scenario files under
 ``data/facility/scenarios/<name>.yaml`` — each owns its telemetry overlay and,
 optionally, its logbook narrative (its ``logbook`` block).
-Each test builds a project from the ``control_assistant`` preset and calls
+Each test builds a project from the ``demo`` preset and calls
 ``activate_scenarios(project, "<name>"...)`` to compose and apply one or more
 fault bundles (``vacuum-burst`` / ``rf-thermal``) before running the operator
 prompt. They build at **tier 3** so every simulated channel is discoverable
@@ -341,9 +330,10 @@ uv run pytest tests/e2e/ -m model_free -v
 
 The marked set equals the selection of the two model-free CI lanes —
 `e2e-no-model`, and `agent-record-e2e`, which runs the agent record's replay
-(`test_agent_record_e2e.py`) on its own because it deploys two stacks in turn
-(hello-world on the embedded record, control-assistant on ClickHouse) and
-waits out a stopped source twice. A wiring test in
+(`test_agent_record_e2e.py`) on its own because each of its two cases
+deploys a whole stack and waits out a stopped source (hello-world on the
+embedded record, demo on ClickHouse; one matrix cell, and one
+runner, per case). A wiring test in
 `tests/deployment/test_ci_workflow_wiring.py` holds the two sets equal. Adding
 a model-free module therefore means marking it and naming it in one of those
 lanes in one change.
@@ -421,7 +411,6 @@ pytest tests/e2e/ --e2e-verbose
 ```python
 import pytest
 
-@pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.requires_als_apg
 @pytest.mark.asyncio
@@ -430,7 +419,7 @@ async def test_my_workflow(e2e_project_factory):
     # Create test project
     project = await e2e_project_factory(
         name="test-my-feature",
-        template="control_assistant",
+        template="demo",
         registry_style="extend"
     )
 
@@ -458,7 +447,7 @@ async def test_my_workflow(e2e_project_factory):
    dry-verify both halves offline — the floor against hand-built traces, the
    judge against one passing conclusion plus one failing control per criterion —
    before you spend a live run. See `test_plan_stack_agentic.py`.
-3. **Mark appropriately** - use `@pytest.mark.e2e`, `@pytest.mark.slow`, `@pytest.mark.requires_*`.
+3. **Mark appropriately** - use `@pytest.mark.slow`, `@pytest.mark.requires_*`.
    Which credential marker depends on what the test builds with: `requires_e2e_provider`
    when it builds with `e2e_provider()` and therefore follows the run, the
    gateway-specific marker (`requires_als_apg`, `requires_cborg`, …) when the test
@@ -477,7 +466,7 @@ jobs:
   unit-tests:
     runs-on: ubuntu-latest
     steps:
-      - run: pytest tests/ -m "not e2e" -v
+      - run: pytest tests/ --ignore=tests/e2e -v
 
   e2e-tests:
     runs-on: ubuntu-latest

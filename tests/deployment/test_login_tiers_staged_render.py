@@ -403,7 +403,7 @@ def _assert_staged_maps(repo: Path, staged_root: Path, case: Case) -> None:
 
     build = repo / "build"
     services = _tree_bound_services(build / "services")
-    # The control-assistant build runs both tree-bound containers; a test that
+    # The demo build runs both tree-bound containers; a test that
     # found neither would pass on nothing.
     assert {"bluesky", "dispatch_worker"} <= set(services), services
 
@@ -499,23 +499,20 @@ def _assert_no_other_render_carries_a_map(repo: Path, *output_trees: Path) -> No
 # -- the cases ------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="module", params=CASES, ids=[case.id for case in CASES])
-def built(request, tmp_path_factory) -> tuple[Path, Case]:
-    case: Case = request.param
-    return _build(tmp_path_factory.mktemp(f"lt-{case.id}"), case), case
-
-
-def test_staged_maps_on_the_build(built: tuple[Path, Case]) -> None:
-    repo, case = built
-    _assert_staged_maps(repo, repo / "build", case)
-    _assert_no_other_render_carries_a_map(repo, repo / "build")
-
-
 @pytest.mark.parametrize("case", CASES, ids=[case.id for case in CASES])
-def test_staged_maps_after_redeploy(case: Case, tmp_path: Path) -> None:
-    """``prepare_compose_files`` alone, into its own output tree and in place."""
+def test_staged_maps_on_the_build_and_after_redeploy(case: Case, tmp_path: Path) -> None:
+    """The build's staged maps, then ``prepare_compose_files`` alone over that same
+    build, into its own output tree and in place.
+
+    One build serves both halves: the build half only reads, so the redeploy
+    half starts from the tree the build left, exactly as ``deploy`` would.
+    """
     repo = _build(tmp_path, case)
     build = repo / "build"
+
+    # On the build.
+    _assert_staged_maps(repo, build, case)
+    _assert_no_other_render_carries_a_map(repo, build)
 
     # Into a fresh output tree (``deploy restart``'s call, no output root).
     _redeploy(repo, case)

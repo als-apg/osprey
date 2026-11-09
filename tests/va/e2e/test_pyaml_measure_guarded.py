@@ -1,6 +1,6 @@
 """``pyaml_measure`` on a served machine: every write under the run lock, under approval.
 
-A real build of the control-assistant deployment, whose one control target is
+A real build of the demo deployment, whose one control target is
 the virtual accelerator on loopback, is served by a container over the build's
 own data root, and ``pyaml_measure`` is driven the way a session drives it:
 the build's rendered approval hook answers the PreToolUse call, and an
@@ -76,10 +76,10 @@ PROBE = e2e_conftest.READINESS_ADDRESS
 
 
 def _repo(parent: Path, name: str) -> Path:
-    """The control-assistant deployment, initialised, with every measurement step settling."""
+    """The demo deployment, initialised, with every measurement step settling."""
     from tests._builds import init_project
 
-    repo = init_project(parent, "control-assistant", name)
+    repo = init_project(parent, "demo", name)
     gm.set_measurement(repo, MODEL, sleep_between_step=gm.SETTLE_S)
     return repo
 

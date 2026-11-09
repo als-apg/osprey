@@ -7,10 +7,10 @@ shape, every reason on the ladder, and the two things the gate renders: the
 worker's capped trajectory and this process's own reading of what channels the
 plan declared it would move and read.
 
-Driven through a REAL `QueueBackend` over a scripted manager (the stand-in
-shape `test_devices_route.py` uses), so what is exercised is the whole path —
-the two-step submit-and-poll the backend hides, the route's error mapping, and
-the response — rather than a stub of the middle of it. The plan catalog is
+Driven through a REAL `QueueBackend` over the shared scripted manager, so what
+is exercised is the whole path — the two-step submit-and-poll the backend
+hides, the route's error mapping, and the response — rather than a stub of the
+middle of it. The plan catalog is
 faked by monkeypatching `plan_loader.get_facility_plans`, which is where the
 route reads it from, so each declaration under test is constructed exactly.
 """
@@ -26,14 +26,14 @@ from pydantic import BaseModel
 
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import plan_loader
+from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import (
     PREVIEW_REASON_CATALOG_UNAVAILABLE,
     PREVIEW_REASON_FAILED,
     PREVIEW_REASON_PLAN_ERROR,
-    PREVIEW_REASON_QUEUE_UNREACHABLE,
-    PREVIEW_REASON_REFUSED,
-    PREVIEW_REASON_TIMED_OUT,
     PREVIEW_REASON_UNKNOWN_PLAN,
+    PREVIEW_REASONS,
+    _preview_unavailable,
     app,
 )
 from osprey.services.bluesky_bridge.plan_fields import (
@@ -44,6 +44,7 @@ from osprey.services.bluesky_bridge.plan_fields import (
 from osprey.services.bluesky_bridge.plan_loader import FacilityPlans
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
+from tests.services.bluesky_bridge._queue_fakes import FakeManager
 
 TASK_UID = "task-0001"
 
@@ -95,38 +96,6 @@ _PARAMS = {"axes": [{"setpoint": "COR1"}, {"setpoint": "COR2"}], "monitors": ["B
 # ---------------------------------------------------------------------------
 # The manager behind the queue
 # ---------------------------------------------------------------------------
-
-
-class _ScriptedManager:
-    """The smallest `REManagerAPI` stand-in the pre-flight needs.
-
-    Only ``function_execute`` and ``task_result`` are ever called on this path;
-    anything else reaching here is the route doing more than it should. Either
-    reply may be an exception, which the manager raises instead of answering,
-    and ``task_replies`` is walked one per poll with the last entry repeating —
-    so a task that never completes is scripted as a single ``running`` reply.
-    """
-
-    def __init__(self, submit: Any, task_replies: list[Any] | None = None) -> None:
-        self._submit = submit
-        self._task_replies = task_replies or []
-        self.items: list[Any] = []
-        self.background: list[Any] = []
-        self.task_calls: list[str] = []
-
-    async def function_execute(self, *, item: Any, run_in_background: Any = None) -> Any:
-        self.items.append(item)
-        self.background.append(run_in_background)
-        if isinstance(self._submit, Exception):
-            raise self._submit
-        return self._submit
-
-    async def task_result(self, *, task_uid: str) -> Any:
-        self.task_calls.append(task_uid)
-        reply = self._task_replies[min(len(self.task_calls) - 1, len(self._task_replies) - 1)]
-        if isinstance(reply, Exception):
-            raise reply
-        return reply
 
 
 def _refused(msg: str) -> RequestFailedError:
@@ -203,13 +172,24 @@ def bridge():
     """A `TestClient` on the bridge, with a scripted manager behind the queue."""
 
     def _build(submit: Any, task_replies: list[Any] | None = None) -> Any:
-        manager = _ScriptedManager(submit, task_replies)
+        replies = {"task_result": list(task_replies)} if task_replies else {}
+        manager = FakeManager(function_execute=submit, **replies)
         app_module.set_queue_backend(
             QueueBackend(manager, function_timeout=0.2, function_poll_interval=0.01)
         )
         return TestClient(app), manager
 
     return _build
+
+
+def _items(manager: FakeManager) -> list[Any]:
+    """The items the pre-flight submitted to the manager, in order."""
+    return [call["item"] for call in manager.kwargs_for("function_execute")]
+
+
+def _task_calls(manager: FakeManager) -> list[str]:
+    """The task ids the pre-flight polled for, one per poll."""
+    return [call["task_uid"] for call in manager.kwargs_for("task_result")]
 
 
 def _preview(client: TestClient, name: str = "grid_scan", params: Any = _PARAMS) -> Any:
@@ -227,6 +207,7 @@ def _preview(client: TestClient, name: str = "grid_scan", params: Any = _PARAMS)
         "move_cap",
         "reason",
         "detail",
+        "retryable",
     }
     return body
 
@@ -244,6 +225,7 @@ def test_a_summary_carries_the_trajectory_and_the_declared_channels(bridge) -> N
     assert body["ok"] is True
     assert body["plan"] == "grid_scan"
     assert body["reason"] is None and body["detail"] is None
+    assert body["retryable"] is False
     # The worker's trajectory, relayed in the order the run would make it.
     assert body["moves"] == [
         {"channel": "COR1", "target": 0.5},
@@ -290,7 +272,7 @@ def test_the_plan_name_and_its_parameters_reach_the_worker_verbatim(bridge) -> N
 
     _preview(client)
 
-    assert manager.items == [
+    assert _items(manager) == [
         {
             "item_type": "function",
             "name": "preview_plan",
@@ -300,8 +282,10 @@ def test_the_plan_name_and_its_parameters_reach_the_worker_verbatim(bridge) -> N
     ]
     # In the background, which is what lets an operator ask for a summary while
     # the queue is draining.
-    assert manager.background == [True]
-    assert manager.task_calls == [TASK_UID]
+    assert [c["run_in_background"] for c in manager.kwargs_for("function_execute")] == [True]
+    assert _task_calls(manager) == [TASK_UID]
+    # Submit and poll are the whole conversation with the manager.
+    assert set(manager.method_names()) == {"function_execute", "task_result"}
 
 
 def test_an_empty_body_previews_the_plan_with_no_parameters(bridge) -> None:
@@ -310,7 +294,7 @@ def test_an_empty_body_previews_the_plan_with_no_parameters(bridge) -> None:
     response = client.post("/plans/grid_scan/preview")
 
     assert response.status_code == 200
-    assert manager.items[0]["args"] == ["grid_scan", {}]
+    assert _items(manager)[0]["args"] == ["grid_scan", {}]
 
 
 def test_a_capped_trajectory_reports_the_exact_total_it_walked(bridge) -> None:
@@ -338,7 +322,7 @@ def test_a_slow_pre_flight_is_polled_until_it_answers(bridge) -> None:
     body = _preview(client)
 
     assert body["ok"] is True
-    assert len(manager.task_calls) == 3
+    assert len(_task_calls(manager)) == 3
 
 
 # ---------------------------------------------------------------------------
@@ -353,10 +337,11 @@ def test_an_unknown_plan_is_a_reason_not_an_error(bridge) -> None:
 
     assert body["ok"] is False
     assert body["reason"] == PREVIEW_REASON_UNKNOWN_PLAN
+    assert body["retryable"] is False
     assert "no_such_plan" in body["detail"]
     assert body["channels"] == []
     # Nothing was asked of the worker for a plan that does not exist.
-    assert manager.items == []
+    assert _items(manager) == []
 
 
 def test_an_unreadable_plan_registry_is_a_reason(bridge, monkeypatch) -> None:
@@ -370,24 +355,26 @@ def test_an_unreadable_plan_registry_is_a_reason(bridge, monkeypatch) -> None:
 
     assert body["ok"] is False
     assert body["reason"] == PREVIEW_REASON_CATALOG_UNAVAILABLE
+    assert body["retryable"] is False
     assert "plan directory is gone" in body["detail"]
-    assert manager.items == []
+    assert _items(manager) == []
 
 
-def test_a_queue_server_that_does_not_answer_is_a_reason(bridge) -> None:
+def test_a_queue_server_that_does_not_answer_is_named_unreachable(bridge) -> None:
     client, _manager = bridge(_unreachable())
 
     body = _preview(client)
 
     assert body["ok"] is False
-    assert body["reason"] == PREVIEW_REASON_QUEUE_UNREACHABLE
+    assert body["reason"] == qb.REASON_MANAGER_UNREACHABLE
+    assert body["retryable"] is True
 
 
-def test_a_queue_connection_that_cannot_be_built_is_the_same_reason(monkeypatch) -> None:
+def test_a_queue_connection_that_cannot_be_built_names_no_cause(monkeypatch) -> None:
     # The backend is constructed lazily from the environment, so a deployment
     # whose queue settings are malformed fails BEFORE any of `queue_backend`'s
     # typed failures exist to describe it — upstream raises whatever it raises.
-    # That is still "no queue server could be asked", not a 500 in an
+    # Its own text is relayed and no cause is claimed for it, never a 500 in an
     # approver's face.
     def _explode() -> Any:
         raise ValueError("Invalid key 'garbage-key': the key must be a 40 byte z85 string")
@@ -397,13 +384,15 @@ def test_a_queue_connection_that_cannot_be_built_is_the_same_reason(monkeypatch)
     body = _preview(TestClient(app))
 
     assert body["ok"] is False
-    assert body["reason"] == PREVIEW_REASON_QUEUE_UNREACHABLE
+    assert body["reason"] == PREVIEW_REASON_FAILED
     assert "garbage-key" in body["detail"]
+    assert "could not be reached" not in body["detail"]
+    assert body["retryable"] is False
     # The plan is known, so what it declares is still reported.
     assert body["channels"][0] == {"channel": "COR1", "role": "movable"}
 
 
-def test_a_deployment_with_no_queue_server_is_the_same_reason() -> None:
+def test_a_deployment_with_no_queue_server_is_named_not_configured() -> None:
     # A browse-only deployment holds no manager at all; the pre-flight is one
     # more thing it cannot do, reported rather than raised.
     app_module.set_queue_backend(QueueBackend(None))
@@ -411,7 +400,8 @@ def test_a_deployment_with_no_queue_server_is_the_same_reason() -> None:
     body = _preview(TestClient(app))
 
     assert body["ok"] is False
-    assert body["reason"] == PREVIEW_REASON_QUEUE_UNREACHABLE
+    assert body["reason"] == qb.REASON_MANAGER_NOT_CONFIGURED
+    assert body["retryable"] is False
 
 
 @pytest.mark.parametrize(
@@ -429,7 +419,8 @@ def test_a_refused_pre_flight_relays_the_queue_servers_own_sentence(bridge, msg:
     body = _preview(client)
 
     assert body["ok"] is False
-    assert body["reason"] == PREVIEW_REASON_REFUSED
+    assert body["reason"] == qb.REASON_QUEUE_REQUEST_REJECTED
+    assert body["retryable"] is False
     # The queue server does not tell a denial from a busy worker in anything
     # this process could read, so its own sentence is what the operator gets.
     assert msg in body["detail"]
@@ -443,10 +434,11 @@ def test_a_pre_flight_that_never_finishes_is_a_reason(bridge) -> None:
     body = _preview(client)
 
     assert body["ok"] is False
-    assert body["reason"] == PREVIEW_REASON_TIMED_OUT
+    assert body["reason"] == qb.REASON_FUNCTION_TIMEOUT
+    assert body["retryable"] is False
     assert body["moves"] == [] and body["total_moves"] == 0
     # Bounded: the budget closed the poll loop rather than the loop running on.
-    assert 1 <= len(manager.task_calls) < 200
+    assert 1 <= len(_task_calls(manager)) < 200
 
 
 def test_a_failed_task_is_a_reason(bridge) -> None:
@@ -458,8 +450,9 @@ def test_a_failed_task_is_a_reason(bridge) -> None:
     body = _preview(client)
 
     assert body["ok"] is False
-    assert body["reason"] == PREVIEW_REASON_FAILED
+    assert body["reason"] == qb.REASON_FUNCTION_FAILED
     assert "Traceback" in body["detail"]
+    assert body["retryable"] is False
 
 
 def test_a_result_the_queue_server_no_longer_holds_is_a_reason(bridge) -> None:
@@ -468,7 +461,8 @@ def test_a_result_the_queue_server_no_longer_holds_is_a_reason(bridge) -> None:
     body = _preview(client)
 
     assert body["ok"] is False
-    assert body["reason"] == PREVIEW_REASON_FAILED
+    assert body["reason"] == qb.REASON_FUNCTION_FAILED
+    assert body["retryable"] is False
 
 
 @pytest.mark.parametrize(
@@ -481,9 +475,10 @@ def test_an_acceptance_naming_no_task_is_a_failure_not_a_refusal(bridge, submit)
 
     assert body["ok"] is False
     # The queue server said yes and then left nowhere to read the result from.
-    # Reporting that as `preview_refused` would send an operator looking for a
+    # Reporting that as a rejection would send an operator looking for a
     # permission problem that does not exist.
-    assert body["reason"] == PREVIEW_REASON_FAILED
+    assert body["reason"] == qb.REASON_FUNCTION_FAILED
+    assert body["retryable"] is False
 
 
 @pytest.mark.parametrize("return_value", ["not a summary", None, 17, []])
@@ -494,6 +489,7 @@ def test_an_answer_that_is_not_a_summary_is_a_reason(bridge, return_value: Any) 
 
     assert body["ok"] is False
     assert body["reason"] == PREVIEW_REASON_FAILED
+    assert body["retryable"] is False
 
 
 @pytest.mark.parametrize(
@@ -512,6 +508,7 @@ def test_a_summary_missing_its_moves_is_a_reason(bridge, payload: dict[str, Any]
 
     assert body["ok"] is False
     assert body["reason"] == PREVIEW_REASON_FAILED
+    assert body["retryable"] is False
 
 
 def test_a_plan_that_does_not_build_carries_the_workers_own_reason(bridge) -> None:
@@ -530,6 +527,7 @@ def test_a_plan_that_does_not_build_carries_the_workers_own_reason(bridge) -> No
     # The plan is what failed, not the pre-flight — and the reason is the same
     # one a launch would have failed with.
     assert body["reason"] == PREVIEW_REASON_PLAN_ERROR
+    assert body["retryable"] is False
     assert body["detail"] == "ValidationError: axes.0.setpoint - Field required"
 
 
@@ -541,7 +539,75 @@ def test_a_worker_reason_is_bounded_before_it_reaches_an_approver(bridge) -> Non
     body = _preview(client)
 
     assert body["reason"] == PREVIEW_REASON_PLAN_ERROR
+    assert body["retryable"] is False
     assert len(body["detail"]) == 2000
+
+
+# ---------------------------------------------------------------------------
+# The reason vocabulary
+# ---------------------------------------------------------------------------
+
+
+def test_own_words_and_backend_reasons_are_disjoint() -> None:
+    # The pre-flight's own words name causes that are its own; a word shared
+    # with the backend's vocabulary would carry two status and retry answers.
+    assert PREVIEW_REASONS.isdisjoint(qb.REFUSAL_REASONS)
+
+
+def test_an_undeclared_reason_fails_where_it_is_made() -> None:
+    with pytest.raises(ValueError, match="not_a_declared_reason"):
+        _preview_unavailable("grid_scan", [], "not_a_declared_reason", "detail")
+
+
+class _RaisingBackend:
+    """A queue backend whose pre-flight call raises one backend failure."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    async def function_execute(self, *_call: Any) -> Any:
+        raise self._exc
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        qb.QueueUnavailableError,
+        qb.ManagerNotConfiguredError,
+        qb.QueueRequestRejectedError,
+        qb.FunctionTimeoutError,
+        qb.FunctionFailedError,
+    ],
+)
+def test_a_backend_failure_relays_its_own_reason_and_retryable(
+    monkeypatch, error_type: type[qb.QueueBackendError]
+) -> None:
+    monkeypatch.setattr(
+        app_module, "get_queue_backend", lambda: _RaisingBackend(error_type("the backend's text"))
+    )
+
+    body = _preview(TestClient(app))
+
+    assert body["ok"] is False
+    assert body["reason"] == error_type.reason
+    assert body["retryable"] is qb.REFUSAL_REASONS[error_type.reason].retryable
+    assert body["detail"] == "the backend's text"
+    assert body["channels"][0] == {"channel": "COR1", "role": "movable"}
+
+
+@pytest.mark.parametrize("reason", sorted(qb.REFUSAL_REASONS))
+def test_every_declared_backend_reason_is_relayed_unchanged(monkeypatch, reason: str) -> None:
+    # Whatever reason a backend failure carries, the pre-flight relays that
+    # code and its row's retryable, never a word of its own for it.
+    error = qb.QueueBackendError("the backend's text")
+    error.reason = reason
+    monkeypatch.setattr(app_module, "get_queue_backend", lambda: _RaisingBackend(error))
+
+    body = _preview(TestClient(app))
+
+    assert body["reason"] == reason
+    assert body["retryable"] is qb.REFUSAL_REASONS[reason].retryable
+    assert body["detail"] == "the backend's text"
 
 
 # ---------------------------------------------------------------------------
@@ -575,6 +641,7 @@ def test_no_failure_is_ever_a_server_error(bridge, submit, task_replies, plan) -
     assert body["ok"] is False
     assert isinstance(body["reason"], str) and body["reason"]
     assert isinstance(body["detail"], str) and body["detail"]
+    assert isinstance(body["retryable"], bool)
     assert body["moves"] == []
     assert body["total_moves"] == 0
     assert body["truncated"] is False
@@ -613,11 +680,12 @@ def test_a_body_that_is_not_parameters_is_a_reason_not_a_422(
     body = response.json()
     assert body["ok"] is False
     assert body["reason"] == PREVIEW_REASON_PLAN_ERROR
+    assert body["retryable"] is False
     assert "JSON object" in body["detail"]
     assert body["moves"] == [] and body["total_moves"] == 0
     assert body["truncated"] is False and body["move_cap"] is None
     # Nothing was asked of the worker for a request that carries no parameters.
-    assert manager.items == []
+    assert _items(manager) == []
 
 
 @pytest.mark.parametrize("content", ["", "null"])
@@ -632,4 +700,4 @@ def test_a_body_carrying_nothing_previews_the_plan_with_no_parameters(bridge, co
 
     assert response.status_code == 200, response.text
     assert response.json()["ok"] is True
-    assert manager.items[0]["args"] == ["grid_scan", {}]
+    assert _items(manager)[0]["args"] == ["grid_scan", {}]

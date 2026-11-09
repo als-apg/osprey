@@ -11,7 +11,7 @@ asks the operator to stop or continue. :ref:`Safety watchdogs
 what it does not cover.
 
 The steps here enable ``guard-circumvention``, the example the
-``control-assistant`` preset ships. The second half of the page shows how to
+``demo`` preset ships. The second half of the page shows how to
 write your own.
 
 Each watchdog runs on one of two engines:
@@ -37,7 +37,7 @@ The example below uses the classifier. :ref:`Choosing an engine
             alt="The web terminal with the dialog of the guard-circumvention watchdog.">
      </video>
      <p class="osprey-demo-note" id="osprey-watchdog-note">
-       One session on the control-assistant demo; the wait for the verdict is sped up
+       One session on the demo; the wait for the verdict is sped up
        (marked ⏩). Its first exchange happened before recording started.
      </p>
      <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
@@ -53,7 +53,7 @@ The example below uses the classifier. :ref:`Choosing an engine
 Enable the example
 ==================
 
-``osprey init --preset control-assistant`` writes the watchdog, turned off, into
+``osprey init --preset demo`` writes the watchdog, turned off, into
 your deployment. Its entry goes in ``profile.yml`` and its instructions in
 ``watchdogs/guard-circumvention/instructions.md``. It flags an operator who
 pushes the agent around OSPREY's own guards, for instance by asking it to edit
@@ -371,6 +371,6 @@ The switch has these limits:
 
 .. note::
 
-   The control-assistant preset's readonly dispatch tier refuses
+   The demo preset's readonly dispatch tier refuses
    ``web.config_panel.enabled``, so no terminal there can move the switch yet
    (`#2278 <https://github.com/als-apg/osprey/issues/2278>`__).

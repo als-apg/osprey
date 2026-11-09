@@ -16,7 +16,7 @@ on them; :ref:`cli-osprey-sim` has their options.
 The scenarios the demo ships
 ============================
 
-The control-assistant preset ships six scenarios in
+The demo preset ships seven scenarios in
 ``data/facility/scenarios/``:
 
 .. list-table::
@@ -51,10 +51,18 @@ The control-assistant preset ships six scenarios in
    * - ``orm-dual-fault``
      - The BPM 17 inversion and corrector HCM01 at half its nominal gain at
        once, both visible only through an orbit-response measurement.
+   * - ``demo-history``
+     - Three past agent sessions (a sector-7 beam loss, an approved corrector
+       nudge, an orbit review), with the archive events and logbook entries
+       behind them.
 
-A fresh deployment of the preset starts in ``rf-thermal``. The profile key
-``simulation.default_scenarios`` names it (see
+The preset starts a fresh deployment in ``rf-thermal`` and ``demo-history``,
+as the profile key ``simulation.default_scenarios`` names (see
 :doc:`/reference/configuration/config`).
+
+A scenario's sessions are laid down only by a deployment's first deploy, from
+its default set. ``osprey sim apply`` never adds or removes sessions: a set
+without ``demo-history`` drops its archive events and logbook entries only.
 
 Apply a scenario
 ================
@@ -91,7 +99,9 @@ commands in order:
 
 Several scenarios apply together only when no two of them write the same
 target, a channel or a model's fault. A set that breaks this rule is refused
-before anything is written, and the refusal names the target.
+before anything is written, and the refusal names the target. Archive events
+are not a target: events of several scenarios on one channel combine, so
+``[vacuum-burst, rf-thermal]`` composes.
 
 Hold readings still
 -------------------
@@ -194,6 +204,16 @@ To add a scenario to your facility:
        `Select readings to still`_). While the scenario is active, those
        readings serve without drift, couplings or noise; readout faults
        still apply.
+   * - ``sessions``
+     - Past agent sessions, ``[{slug, title, when, parts}]``. Each part has
+       a ``title`` and ``turns``; a ``/clear`` starts the next part. A turn
+       has ``prompt`` and ``steps`` (``{tool: {server, name}, input, result,
+       approved?}`` or ``{answer}``), and optionally ``at_offset_s``,
+       ``channels``, ``logbook_ids`` and ``artifacts``. ``channels`` must be
+       facility channels, and ``logbook_ids`` entries of ``nominal`` or the
+       scenario itself, or the build stops. The scenario must also state the
+       events its sessions tell of, under ``archiver`` and ``logbook``. A
+       resumed session that reads the archive then sees the same story.
 
 Archive events
 --------------
@@ -206,6 +226,11 @@ The ``shape`` is one of these:
 - ``step``, with ``to``.
 - ``ramp``, with ``to``.
 - ``spike``, with ``amplitude`` and ``width``, a Gaussian sigma in seconds.
+- ``burst``, with ``amplitude``, reached at the event and then decaying
+  exponentially over ``decay_s``. An optional slower tail ``tail_decay_s``
+  carries ``tail_share`` of it.
+- ``loss``, with ``amount``, dropped at the event. Only the channel's top-off
+  refills it.
 
 The position is one of these:
 
@@ -215,7 +240,7 @@ The position is one of these:
 - ``at_when``: ``{days_ago, time}``. It places the event at the instant a
   logbook entry's ``when`` names.
 
-``at_time`` and ``at_when`` take ``step`` and ``spike`` only.
+``at_time`` and ``at_when`` take every shape but ``ramp``.
 
 A ``step`` on a float channel may end with ``until``, ``until_offset`` or
 ``until_when``. The end must match the step's position and come later than it.

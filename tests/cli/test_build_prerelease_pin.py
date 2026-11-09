@@ -40,7 +40,7 @@ def _build(project_path: Path, osprey_install: str) -> dict:
     profile = BuildProfile(
         name="test", osprey_install=osprey_install, environment=EnvironmentConfig()
     )
-    _create_project_venv(project_path, _plan_project_venv(profile))
+    _create_project_venv(project_path, _plan_project_venv(profile, install=True))
     return tomllib.loads((project_path / "pyproject.toml").read_text(encoding="utf-8"))
 
 

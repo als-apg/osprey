@@ -4,6 +4,7 @@ This module provides the database migration for the text embedding
 enhancement module.
 """
 
+import re
 from typing import TYPE_CHECKING
 
 from osprey.services.ariel_search.database.migrations import (
@@ -38,17 +39,68 @@ def create_vector_index_sql(table_name: str) -> str:
     )
 
 
-async def pgvector_available(conn: "AsyncConnection") -> bool:
-    """Report whether the pgvector extension can be installed on this server.
+#: The first pgvector release with the HNSW access method every embedding
+#: index here is built with.
+HNSW_MIN_PGVECTOR = (0, 5, 0)
 
-    Returns:
-        True if pgvector is available for installation
+
+def _version_key(version: str) -> tuple[int, ...]:
+    """``"0.4.4"`` → ``(0, 4, 4)``; a non-numeric tail (``"0.5.0-dev"``) is ignored."""
+    parts: list[int] = []
+    for part in version.split("."):
+        digits = re.match(r"\d+", part)
+        if digits is None:
+            break
+        parts.append(int(digits.group()))
+    return tuple(parts)
+
+
+async def require_pgvector_hnsw(conn: "AsyncConnection", unavailable: str) -> None:
+    """Refuse, as a skip, unless pgvector is available at a version with HNSW.
+
+    The version judged is the installed one, else the one ``CREATE EXTENSION``
+    would install. Below 0.5 the ``CREATE INDEX ... USING hnsw`` would fail
+    with a bare "access method does not exist"; the skip names the version
+    instead, and the migration retries once pgvector is upgraded.
+
+    Args:
+        conn: The migration's connection.
+        unavailable: The skip message for a server with no pgvector at all.
+
+    Raises:
+        MigrationSkippedError: With `unavailable` when pgvector is absent, or
+            naming the version found and the one needed when it is too old.
     """
     result = await conn.execute(
-        "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')"
+        "SELECT installed_version, default_version FROM pg_available_extensions "
+        "WHERE name = 'vector'"
     )
     row = await result.fetchone()
-    return bool(row and row[0])
+    if not row:
+        raise MigrationSkippedError(unavailable)
+    installed, default = row[0], row[1]
+    version = installed or default
+    if isinstance(version, str) and _version_key(version) < HNSW_MIN_PGVECTOR:
+        needed = ".".join(str(n) for n in HNSW_MIN_PGVECTOR)
+        how = (
+            "upgrade the pgvector package, then run ALTER EXTENSION vector UPDATE"
+            if installed
+            else "upgrade the pgvector package"
+        )
+        raise MigrationSkippedError(
+            f"pgvector {version} is {'installed' if installed else 'available'} in this "
+            f"PostgreSQL installation, but ARIEL's embedding indexes use HNSW, which "
+            f"needs pgvector {needed} or newer: {how}. Until then ARIEL falls back to "
+            "keyword-only search."
+        )
+
+
+#: The skip message of a text-embedding migration on a server without pgvector.
+PGVECTOR_UNAVAILABLE_MESSAGE = (
+    "pgvector extension is not available in this PostgreSQL installation. "
+    "Install pgvector to enable semantic search. "
+    "ARIEL will fall back to keyword-only search."
+)
 
 
 class TextEmbeddingMigration(BaseMigration):
@@ -93,12 +145,7 @@ class TextEmbeddingMigration(BaseMigration):
 
     async def up(self, conn: "AsyncConnection") -> None:
         """Apply the text embedding migration."""
-        if not await pgvector_available(conn):
-            raise MigrationSkippedError(
-                "pgvector extension is not available in this PostgreSQL installation. "
-                "Install pgvector to enable semantic search. "
-                "ARIEL will fall back to keyword-only search."
-            )
+        await require_pgvector_hnsw(conn, PGVECTOR_UNAVAILABLE_MESSAGE)
 
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
 

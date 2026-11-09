@@ -625,7 +625,8 @@ class TestSchemaFactOnRealStores:
                 await conn.execute(
                     "ALTER TABLE enhanced_entries "
                     "DROP COLUMN attachment_text CASCADE, "
-                    "DROP COLUMN IF EXISTS attachment_captions CASCADE"
+                    "DROP COLUMN IF EXISTS attachment_captions CASCADE, "
+                    "DROP COLUMN IF EXISTS subject CASCADE"
                 )
                 await conn.execute(
                     "ALTER TABLE attachment_files DROP COLUMN IF EXISTS copy_status CASCADE"

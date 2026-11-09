@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
@@ -42,7 +42,7 @@ from pydantic import BaseModel
 
 from osprey.agent_runner import HAS_SDK, AgentRunError
 from osprey.audit.envelope import POSTURE_SOURCE_PROCESS
-from osprey.interfaces.web_terminal import transcript_map
+from osprey.interfaces.web_terminal import session_meta, transcript_map
 from osprey.interfaces.web_terminal.chat_session_pool import ChatSessionTerminatedError
 from osprey.interfaces.web_terminal.operator_session import (
     POSTURE_SOURCE_LIVE,
@@ -149,6 +149,37 @@ def clip_input(value: Any, depth: int = 0) -> Any:
     return value
 
 
+#: The fields the chat client receives, per frame type the wire reduces: what
+#: the chat renders and nothing else. ``seq`` rides every frame (the follower
+#: notices a gap by it). A ``system`` frame keeps what ``chat-system.js`` reads,
+#: so the child's conversation id (``session_id`` on init) reaches the chat on
+#: no frame; the browser learns it only from the hand-off door. Cost and turn
+#: counts on ``result``, and the breakdowns of a ``context`` reading, are never
+#: sent.
+_CHAT_FRAME_FIELDS: dict[str, frozenset[str]] = {
+    "result": frozenset({"type", "seq", "is_error", "duration_ms"}),
+    "context": frozenset({"type", "seq", "used_tokens", "window_tokens", "percent"}),
+    "system": frozenset(
+        {
+            "type",
+            "seq",
+            "subtype",
+            # agent_done
+            "tool_use_id",
+            "status",
+            "summary",
+            # compact_boundary
+            "trigger",
+            "pre_tokens",
+            # api_retry
+            "attempt",
+            "max_retries",
+            "error_status",
+        }
+    ),
+}
+
+
 def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
     """Return a wire-hygiene copy of *event* for the chat API client.
 
@@ -157,14 +188,10 @@ def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
 
     - ``tool_use`` / ``permission_request``  ``input`` with long strings clipped.
     - ``tool_result``  only the clipped ``preview`` the stream already carries.
-    - ``result``  reduce to ``{"type", "is_error"}`` plus ``duration_ms`` and
-                  ``seq`` when the frame carries them — cost and turn counts
-                  never reach the chat client.
-    - ``context``  reduce to the window's occupancy: ``used_tokens``,
-                   ``window_tokens`` and ``percent``.
-    - every other type (``text``, ``thinking``, ``system``, ``error``,
-      ``session_reset``, the ``watchdog_*`` change notices, …) passes through
-      unchanged.
+    - ``result`` / ``context`` / ``system``  reduced to the fields
+      ``_CHAT_FRAME_FIELDS`` declares for the type.
+    - every other type (``text``, ``thinking``, ``error``, ``session_reset``,
+      the ``watchdog_*`` change notices, …) passes through unchanged.
 
     The input event is never mutated; a new dict is returned whenever a change
     applies (and the same object may be returned for pass-through types).
@@ -175,20 +202,9 @@ def _strip_for_chat(event: dict[str, Any]) -> dict[str, Any]:
         return {**event, "input": clip_input(event["input"])}
     if etype == "tool_result":
         return {k: v for k, v in event.items() if k != "content"}
-    if etype == "result":
-        return {
-            "type": "result",
-            "is_error": event.get("is_error"),
-            **{k: event[k] for k in ("duration_ms", "seq") if k in event},
-        }
-    if etype == "context":
-        return {
-            "type": "context",
-            "used_tokens": event.get("used_tokens"),
-            "window_tokens": event.get("window_tokens"),
-            "percent": event.get("percent"),
-            "seq": event.get("seq"),
-        }
+    allowed = _CHAT_FRAME_FIELDS.get(etype) if isinstance(etype, str) else None
+    if allowed is not None:
+        return {k: v for k, v in event.items() if k in allowed}
 
     return event
 
@@ -366,13 +382,15 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
         # The client hung up while the session key was being handed over.
         # Nothing is left holding anything; there is simply nobody to answer.
         return Response(status_code=204)
-    # The prompt is accepted: the files it carries are the conversation's now.
-    mark_sent(request.app, body.chat_id, prompt)
+    # The prompt is accepted: the files it carries are the conversation's now,
+    # and each new one is an artifact of this chat. File and index I/O, so off
+    # the loop. The ids go to the turn-end record.
+    upload_ids = await asyncio.to_thread(mark_sent, request.app, body.chat_id, prompt)
 
     turn_timeout_s = _turn_timeout_s(request)
 
     def follow_transcript() -> None:
-        _record_transcript(request.app, body.chat_id, session)
+        _record_transcript(request.app, body.chat_id, session, upload_ids)
 
     if not stream:
         return await _buffered_response(
@@ -397,10 +415,18 @@ async def chat(request: Request, body: ChatRequest, stream: bool = True):
     )
 
 
-def _record_transcript(app, key: str, session: OperatorSession) -> None:
+def _record_transcript(
+    app,
+    key: str,
+    session: OperatorSession,
+    upload_ids: Mapping[str, str] | None = None,
+) -> None:
     """Point *key* at the transcript its live child is on, once a turn has run.
 
-    The expert view's child reports every turn through the agent-turn hook,
+    *upload_ids* are the artifacts :func:`mark_sent` saved for this turn's
+    uploads, by stored name.
+
+    The terminal's child reports every turn through the agent-turn hook,
     which writes the same map; the chat child runs with no such hook, so the
     route is where its transcript follows the key. Written after every turn,
     unconditionally, for the same reason the hook route writes
@@ -408,11 +434,36 @@ def _record_transcript(app, key: str, session: OperatorSession) -> None:
     pointer rather than keeping one to a conversation it has left. The map
     holds only canonical session UUIDs, so an embedder-chosen key or an id
     that is not one is left alone, as the hook route leaves them.
+
+    The same move is appended to the session ledger (one ``session_transcript``
+    frame when a row is written, none for a repeat), and the turn's uploads are
+    stamped with ``metadata.transcript_id`` — the transcript the turn ended on,
+    so an upload sent with a ``/clear`` belongs to the conversation it started.
+    A failed stamp is logged: the upload then falls back to the key's ledger
+    history, never fails the turn.
     """
     transcript_id = session.transcript_id
     if not transcript_id or not is_posture_key(key) or not is_posture_key(transcript_id):
         return
     transcript_map.set(app, key, transcript_id)
+    session_meta.record_transcript_move(app, key, transcript_id)
+    if upload_ids:
+        _stamp_uploads(app, upload_ids.values(), transcript_id)
+
+
+def _stamp_uploads(app, artifact_ids, transcript_id: str) -> None:
+    """Merge ``metadata.transcript_id`` into each upload artifact; failures are logged."""
+    root = getattr(app.state, "panel_status_root", None)
+    ids = [aid for aid in artifact_ids if aid]
+    if root is None or not ids:
+        return
+    try:
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=Path(root), auto_launch=False)
+        store.merge_entry_metadata({aid: {"transcript_id": transcript_id} for aid in ids})
+    except Exception:
+        logger.warning("Could not stamp the turn's uploads with their transcript", exc_info=True)
 
 
 async def _stream_events(
@@ -462,6 +513,20 @@ async def _stream_events(
         session.end_consumer(token)
         if on_turn_end is not None:
             on_turn_end()
+
+
+def _error_text(event: dict[str, Any]) -> str | None:
+    """The reason a terminal ``error`` frame gives, or ``None`` when it gives none.
+
+    The frame's own message when it has one, else the error's type (an exception
+    raised with no text still names its class). Never a placeholder: a reason the
+    frame does not carry is left out, and the response says only that it failed.
+    """
+    for key in ("message", "error_type"):
+        value = event.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def _timeout_event() -> dict[str, Any]:
@@ -515,7 +580,7 @@ async def _buffered_response(
             elif etype == "result":
                 is_error = bool(event.get("is_error"))
             elif etype == "error" and is_terminal_event(event):
-                is_error, error_msg, status_code = True, event.get("message", "Unknown error"), 500
+                is_error, error_msg, status_code = True, _error_text(event), 500
     except TurnSilenceTimeout:
         is_error, error_msg, status_code = True, "Timeout waiting for response", 504
     except asyncio.CancelledError:

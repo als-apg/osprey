@@ -77,9 +77,9 @@ export function mountExplore(container) {
        </label>`
     : '';
 
-  // Graph mode is a full-height finder with its own toolbar: the page header
-  // (or the hub's tile bar) already names the panel, and the corpus strip
-  // names the store, so it draws no section header of its own.
+  // Graph mode is a full-height finder under the panel toolbar, which carries
+  // its search, and the corpus strip names the store, so it draws no section
+  // header of its own.
   if (pt === 'graph') {
     container.innerHTML = '<div id="explore-content" class="explore-content-graph"></div>';
     const graphContent = document.getElementById('explore-content');

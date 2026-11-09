@@ -19,7 +19,7 @@
  * 2. **The bar mounts into the wrong place, or twice.** JupyterLab owns
  *    `#main`'s layout and reflows what it finds there; the chip needs a host
  *    that is stable across its own re-renders. Both are asserted below.
- * 3. **The bar drifts from the chip.** A popped-out Lab page must say what the
+ * 3. **The bar drifts from the chip.** A Lab page in its own window must say what the
  *    sidebar chip says and do what it does: the kind and the three state
  *    words (off, asked, allowed), the three-option control, the widening
  *    confirm and its sentence, all-off, the stamped-retry rule, the
@@ -423,6 +423,42 @@ describe('framed inside the hub', () => {
     expect(barModule.isEmbedded(strict)).toBe(true);
   });
 
+  test('barBelongsHere: its own document, or a parent that is a detached window', () => {
+    const same = {};
+    expect(barModule.barBelongsHere({ self: same, top: same })).toBe(true);
+
+    const parentWith = (/** @type {boolean} */ marker) => ({
+      document: { querySelector: () => (marker ? {} : null) },
+    });
+    expect(barModule.barBelongsHere({ self: same, top: {}, parent: parentWith(true) })).toBe(true);
+    expect(barModule.barBelongsHere({ self: same, top: {}, parent: parentWith(false) })).toBe(
+      false
+    );
+    const crossOrigin = {
+      get document() {
+        throw new Error('blocked');
+      },
+    };
+    expect(barModule.barBelongsHere({ self: same, top: {}, parent: crossOrigin })).toBe(false);
+  });
+
+  test('framed by a detached window, the self-boot mounts the bar', async () => {
+    barModule.teardownControlTargetLabBar();
+    vi.resetModules();
+    vi.stubGlobal('top', {});
+    vi.stubGlobal('parent', {
+      document: {
+        querySelector: (/** @type {string} */ selector) =>
+          selector === '[data-osprey-detached]' ? {} : null,
+      },
+    });
+    barModule = await import(MODULE);
+    await flush();
+
+    expect(barEl()).not.toBeNull();
+    expect(chipEl()).not.toBeNull();
+  });
+
   test('the self-boot mounts nothing: no bar, no styles, no read, no stream', async () => {
     await bootFramed();
 
@@ -462,6 +498,49 @@ describe('framed inside the hub', () => {
       document.body.removeAttribute('data-jp-theme-name');
       window.history.replaceState({}, '', '/');
     }
+  });
+});
+
+/* ---- a direct visit ----------------------------------------------------- */
+
+describe('a Lab page opened at its own address', () => {
+  /** @param {string} path */
+  async function bootAt(path) {
+    barModule.teardownControlTargetLabBar();
+    fetchCalls.length = 0;
+    FakeEventSource.opened = [];
+    vi.resetModules();
+    window.history.replaceState({}, '', path);
+    barModule = await import(MODULE);
+    await flush();
+  }
+
+  const replace = vi.fn();
+  beforeEach(() => {
+    replace.mockReset();
+    vi.spyOn(window.location, 'replace').mockImplementation(replace);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    window.history.replaceState({}, '', '/');
+  });
+
+  test('leaves for the hub with Jupyter on that path, and mounts nothing', async () => {
+    await bootAt('/u/alice/panel/jupyter/lab/tree/a.ipynb?reset#x');
+
+    expect(replace).toHaveBeenCalledWith(
+      `/u/alice/?open=jupyter&at=${encodeURIComponent('/u/alice/panel/jupyter/lab/tree/a.ipynb?reset#x')}`
+    );
+    expect(barEl()).toBeNull();
+    expect(getCount()).toBe(0);
+    expect(FakeEventSource.opened).toHaveLength(0);
+  });
+
+  test('stays with embedded=true, and the bar mounts', async () => {
+    await bootAt('/panel/jupyter/lab?embedded=true');
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(barEl()).not.toBeNull();
   });
 });
 
@@ -538,7 +617,7 @@ describe('reads', () => {
   });
 });
 
-/* ---- the chip's words and gestures, on a popped-out Lab page -------------- */
+/* ---- the chip's words and gestures, on a Lab page in its own window -------------- */
 
 describe("the chip's words and gestures", () => {
   const posts = () => fetchCalls.filter((c) => c.method === 'POST');

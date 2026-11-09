@@ -1,8 +1,8 @@
 """The author's per-service axes must survive the injector that rewrites their block.
 
-Eight deploy-time services are wired by a *dedicated* injector — bluesky,
-bluesky_web, gchat_bridge, nextcloud_bridge, teams_bridge, virtual_accelerator,
-mongodb and archiver_recorder. Each builds its ``services.<name>`` block from its own
+Nine deploy-time services are wired by a *dedicated* injector — bluesky,
+bluesky_web, gchat_bridge, nextcloud_bridge, teams_bridge, slack_bridge,
+virtual_accelerator, mongodb and archiver_recorder. Each builds its ``services.<name>`` block from its own
 profile block and installs it with a whole-VALUE assignment, which runs AFTER
 both spellings of an author's per-service key have already landed in ``config.yml``:
 
@@ -18,7 +18,7 @@ and then silently dropped a few steps later, with no error and no effect.
 
 What these tests pin:
 
-* every one of the eight carries a declared ``env:`` list and a ``network:``
+* every one of the nine carries a declared ``env:`` list and a ``network:``
   through its injector, in both spellings and in author order;
 * the keys the injector *derives* (a port, a trigger, a path) are still
   regenerated — carrying the authored key must not turn the block into an
@@ -44,6 +44,7 @@ from osprey.cli.build_injectors import (
     _inject_gchat_bridge,
     _inject_nextcloud_bridge,
     _inject_profile_services,
+    _inject_slack_bridge,
     _inject_teams_bridge,
     _inject_va,
     _inject_va_archiver,
@@ -55,6 +56,7 @@ from osprey.cli.build_profile_schema import (
     GChatBridgeProfileConfig,
     NextcloudBridgeProfileConfig,
     ServiceDef,
+    SlackBridgeProfileConfig,
     TeamsBridgeProfileConfig,
     VAConfig,
 )
@@ -91,6 +93,11 @@ _INJECTORS: tuple[tuple[str, Any, str], ...] = (
     (
         "teams_bridge",
         lambda path: _inject_teams_bridge(TeamsBridgeProfileConfig(), path),
+        "trigger",
+    ),
+    (
+        "slack_bridge",
+        lambda path: _inject_slack_bridge(SlackBridgeProfileConfig(), path),
         "trigger",
     ),
     ("mongodb", lambda path: _inject_va_archiver(VAArchiverConfig(), path), "port_host"),

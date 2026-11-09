@@ -139,15 +139,12 @@ def _load_project_env(dotenv_paths: list[Path]) -> None:
     The chain is the source of truth for API keys and facility settings, so it
     overrides any pre-existing process environment — walked in ascending
     precedence (``.env.shared`` before ``.env``) so the local file wins. A
-    missing file or a missing ``python-dotenv`` is silently ignored.
+    missing file is skipped, and the shell-only launch variables are never
+    applied.
     """
-    try:
-        from dotenv import load_dotenv
-    except ImportError:
-        return
-    for dotenv_path in dotenv_paths:
-        if dotenv_path.exists():
-            load_dotenv(dotenv_path, override=True)
+    from osprey_connectors.config import apply_env_chain
+
+    apply_env_chain(os.environ, dotenv_paths)
 
 
 def _validate_categories(
@@ -234,7 +231,7 @@ async def _run_suite(
 @click.option(
     "--full",
     is_flag=True,
-    help="Also run on_demand categories (live model chat, pinned CLI download).",
+    help="Also run on_demand categories (live model chat, pinned CLI download, ARIEL module checks).",
 )
 @click.option("--basic", "-b", is_flag=True, hidden=True)
 def health(
@@ -251,7 +248,7 @@ def health(
     Python environment, container infrastructure, agent record, API
     providers, and the agent CLI — grouped into categories. Cheap poll-class
     categories run by default; costly on_demand categories (live model chat
-    completions, pinned-CLI verification) run only with --full.
+    completions, pinned-CLI verification, ARIEL module checks) run only with --full.
 
     With no --project, the report covers the deployment repo enclosing the
     working directory, found the same way every other verb finds it — so any

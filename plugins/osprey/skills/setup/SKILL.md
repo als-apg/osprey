@@ -179,7 +179,7 @@ Read `references/map.md`. It carries the closed verdict vocabulary (`port`, `nat
 `placeholder`, `obsolete`, `gap`, `unknown`), the porting-map card, and the rule that `?`
 rows render first. Every element of the locked status quo gets exactly one verdict, read
 live from that card, `osprey profile artifacts`, the emitted `profile.yml`, and the
-`control-assistant` preset. A `gap` verdict becomes an upstream candidate under the rules
+`demo` preset. A `gap` verdict becomes an upstream candidate under the rules
 above. A `placeholder` verdict is answered `refresh` or `localize` on the card itself.
 Each agent model pin is one element: `port` when the `models` list of the provider the
 deployment will run carries its id, landing as
@@ -200,7 +200,7 @@ ships `code:` only.
 ### 3. BUILD
 
 1. `osprey init <name> --preset hello-world`, hello-world by rule, not by choice.
-   `control-assistant` is the reference example this phase reads from. It is never
+   `demo` is the reference example this phase reads from. It is never
    initialized and never pulled with `--with-content`: its data bundle is the reference
    facility's, and a deployment half adapted and half demo is the failure this rule
    prevents.
@@ -220,7 +220,7 @@ ships `code:` only.
    follow that recipe in full. Nothing enters the profile any other way.
    - Profile scalars: `osprey set config.<dotted key>=<value>`.
    - Optional top-level blocks the emitted profile carries commented: uncomment them.
-   - Data and context files: skeletons via `osprey scaffold pull control-assistant:<path>`,
+   - Data and context files: skeletons via `osprey scaffold pull demo:<path>`,
      or, on a `port` verdict, the facility's own file copied unchanged.
    - Custom code: the matching convention directory, with the rest recorded under
      Deferred. Never write a custom component mid-run.

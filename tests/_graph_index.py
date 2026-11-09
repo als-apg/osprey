@@ -21,7 +21,7 @@ Two rules keep the helper honest about where the index goes:
   ``index_path`` key.
 
 Parsing a corpus is the expensive half of a build (about a second and a half
-for the graph view the control-assistant build writes), so each distinct corpus is
+for the graph view the demo build writes), so each distinct corpus is
 built once per process and copied into place afterwards, keyed on its bytes and
 its filename -- the two things the index records about the corpus it came from.
 
@@ -91,11 +91,11 @@ def build_index_from_ttl(
 
 @contextmanager
 def demo_corpus_path(built: BuiltProject) -> Iterator[Path]:
-    """Yield the path of the graph view the control-assistant build writes.
+    """Yield the path of the graph view the demo build writes.
 
     Args:
-        built: The session's control-assistant build
-            (the ``built_control_assistant`` fixture).
+        built: The session's demo build
+            (the ``built_demo`` fixture).
     """
     yield built.build_dir / "data" / "graph" / "facility.ttl"
 
@@ -108,8 +108,8 @@ def build_demo_index(index_path: Path | str, built: BuiltProject) -> Path:
 
     Args:
         index_path: Where the index goes.
-        built: The session's control-assistant build
-            (the ``built_control_assistant`` fixture).
+        built: The session's demo build
+            (the ``built_demo`` fixture).
     """
     with demo_corpus_path(built) as corpus:
         return build_index_from_ttl(corpus, index_path=index_path)

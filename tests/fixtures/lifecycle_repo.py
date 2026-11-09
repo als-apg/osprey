@@ -3,7 +3,7 @@
 This module is the hand-authored reference deployment (``als-exemplar/``) that
 the lifecycle verbs are developed against, and the shape ``osprey init`` must
 emit. Exemplar-first: the content below was authored by hand, derived from the
-``control-assistant`` preset emission and rewritten onto the new command
+``demo`` preset emission and rewritten onto the new command
 surface; ``init`` is then made to reproduce it, never the reverse.
 
 The layout is the four-zone repo — one directory, four kinds of content::
@@ -28,7 +28,7 @@ fresh-clone state (SC-10). A test that needs a rendered build stubs one itself.
 Two variants, and which one a caller wants is not a matter of taste:
 
 ``with_ci=False`` (the default) is the **init-reproducible** shape. A bare
-``osprey init --preset control-assistant`` leaves the ``deploy:`` block a
+``osprey init --preset demo`` leaves the ``deploy:`` block a
 commented stub, and with no deployment coordinates there is nothing to render a
 CI pipeline from — so the repo carries neither ``.gitlab-ci.yml`` nor
 ``scripts/verify.sh``. This is the shape Task 2.1 compares ``init``'s emission
@@ -105,7 +105,7 @@ import yaml
 EXEMPLAR_DIRNAME = "als-exemplar"
 
 #: The preset the exemplar was materialized from.
-EXEMPLAR_PRESET = "control-assistant"
+EXEMPLAR_PRESET = "demo"
 
 #: The bundled tiers materialized into ``tiers/``, as file stem -> bundled
 #: source under ``presets/tiers/``. Location is the type: a file is a tier
@@ -168,11 +168,11 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept
 #
-# Made from the bundled `control-assistant` preset. Everything it sets is written
+# Made from the bundled `demo` preset. Everything it sets is written
 # out below and is yours to edit. Nothing is hidden or inherited.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant@
+#   preset content hash: @PRESET_HASH:demo@
 
 name: Als Exemplar
 # Names the compose project, volumes, images, tier and app renders; not the folder.
@@ -276,9 +276,8 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
-  - lattice         # LATTICE tab, optics of the simulator's served models
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
-  - system-health   # SYSTEM tab, a framework health dashboard
+  - system-health   # Health tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
   - canopy          # CANOPY tab, the operator GUI: machine screens and Trace, one per terminal
   # The events and bluesky panels are added by the write-armed tiers
@@ -471,9 +470,6 @@ config:
   # inlines at most 4x this many elements across all the channels it read;
   # past that budget a channel takes the artifact path and says so.
   control_system.read_inline_max_elements: 2000
-  # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
-  # on save. Pinned entries are never pruned. 0 keeps everything.
-  control_system.channel_read_artifact_retention: 20
   # Pattern detection: raw client puts in generated code (epics.caput,
   # PV.put(), and the other client libraries' write calls) are denied by the
   # approval hook and refused at runtime; osprey.runtime.write_channel is the
@@ -719,6 +715,9 @@ config:
   # below, so moving the database stays a one-place edit. Set it only to point
   # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
   # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+  # With an authored uri, the agent's SQL tool is served only through this
+  # SELECT-only login; without it the tool is not offered.
+  # ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
   # No `ariel.ingestion` block: the logbook is seeded from the simulation
   # scenario bundles by `osprey sim apply NAME...`. For production, add
   # `ariel.ingestion.adapter` and `ariel.ingestion.source_url` for your
@@ -730,9 +729,6 @@ config:
   # Links from the agent's answers to each entry's page in your logbook: one
   # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
   # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
-  # The ARIEL tab inside the web terminal offers Browse and New Entry; the
-  # agent searches the logbook. true adds the Search view there and opens on it.
-  # ariel.embedded_search: false
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
@@ -1044,8 +1040,7 @@ config:
   # ── Web terminal ───────────────────────────────────────────────────────────
   # Every panel tab is served by its own small web server, configured under its
   # own section: WORKSPACE `artifact_server`, ARIEL `ariel.web`, CHANNELS
-  # `channel_finder.web`, LATTICE `lattice_dashboard`, KNOWLEDGE
-  # `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
+  # `channel_finder.web`, KNOWLEDGE `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
   # `deployment.port_base`; the panel's env var wins, then its `port` key.
   # Multi-user deployments export the env var per user. The reference guide's
   # ports page prints the table.
@@ -1065,23 +1060,13 @@ config:
   # It fetches more as the list is scrolled.
   # Lowering it suits a slow link; raising it suits a small store.
   # artifact_server.page_size: 20
-  # Extra artifact categories on top of the ones the gallery ships, so a badge
-  # reads in this facility's own vocabulary. One dotted line per category, each
-  # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
-  # category nobody declared is still stored — it just keeps the default badge,
-  # and the save logs a warning naming this key.
-  # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-  # Seed one shipped example (an interactive plot, synthetic data) into an
-  # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
-  artifact_server.example_artifact: true
-  # osprey:panel-port lattice_dashboard
-  # The LATTICE tab needs no section: with `lattice` in `web_panels:` it
-  # binds its slot. Uncomment only to move it or switch it off.
-  # lattice_dashboard.host: 127.0.0.1
-  # lattice_dashboard.port: <a port outside this deployment's block>
-  # lattice_dashboard.auto_launch: true
+  # Facility artifact kinds on top of the gallery's base forms, so a listing
+  # reads in this facility's own vocabulary. One dotted line per type, each
+  # value a `label` and the `base_form` it is listed under (plots, trends,
+  # tables, documents, dashboards, images, data).
+  # artifact_server.extension_types.beam_diagnostics: {label: Beam Diagnostics, base_form: plots}
   # osprey:panel-port system_health
-  # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
+  # The Health tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.
   # health.web.host: 127.0.0.1
   # health.web.port: <a port outside this deployment's block>
@@ -1182,10 +1167,6 @@ config:
   # A colour theme for CANOPY, as a path relative to the project root
   # (absolute accepted). Unset keeps CANOPY's own theme.
   # web.panels.canopy.theme_file: data/canopy/theme/colors.json
-  # The SYSTEM tab is served but starts out of the sidebar: `+ Add panel` and
-  # the command palette open it, and `+ Add panel` can also pin it there.
-  # Delete this line to give it a sidebar row from the first load.
-  web.panels.system-health.hidden: true
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1376,9 +1357,9 @@ config:
   simulation.tick_s: 1.0
   # Scenarios a deployment that never chose a set starts in, by name from
   # the facility's scenarios; `osprey sim apply` replaces the set.
-  # Absent or [] starts in nominal alone.
-  # A stated start set is checked against the file at build.
-  simulation.default_scenarios: [rf-thermal]
+  # demo-history also seeds the sidebar's example sessions on first deploy.
+  # Absent or [] starts in nominal alone; a stated set is checked at build.
+  simulation.default_scenarios: [rf-thermal, demo-history]
 
 # ── Record archive ─────────────────────────────────────────────────────────
 # Copies artifacts and plan-queue history into var/archive/ once a day, beside
@@ -1429,15 +1410,14 @@ dispatch:
 # secure with no editing. Put your own values in .env to override.
 # Environment variables the deployment needs. Replace `env: {}` with any
 # of `required` (the variable must be set somewhere), `pinned` (this
-# repo's own env chain owns it outright, and nowhere else), `defaults`
-# (name to value) and `file` (a profile-relative path copied in as .env):
+# repo's own env chain owns it outright, and nowhere else) and `defaults`
+# (name to value):
 #
 #   env:
 #     required: [DISPATCH_WORKER_TOKEN]
 #     pinned: [ARIEL_DB_PASSWORD]
 #     defaults:
 #       OSPREY_FACILITY_NAME: "Example Facility"
-#     file: env/facility.env
 #
 # If `env:` already has children, add yours under it.
 env:
@@ -1461,8 +1441,8 @@ requires_osprey_version: '>=2026.10.0'
 # `providers_hash` is the same record for providers.yml beside this file;
 # `osprey init --revalidate` adds the packaged entries and keys it lacks.
 provenance:
-  preset: control-assistant
-  preset_hash: @PRESET_HASH:control-assistant@
+  preset: demo
+  preset_hash: @PRESET_HASH:demo@
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
@@ -1502,17 +1482,20 @@ panel_presets: {}
 #     permissions:
 #       allow: [get_twiss]
 
-# --- Artifacts gallery: custom categories ------------------------------------
-# Extra buckets in the artifacts gallery. Each key is the id a facility MCP
-# tool passes as category="<key>" when it saves an artifact; label and color
-# (#RRGGBB) decide how the gallery renders that bucket. The artifact_server
-# block also accepts host/port/auto_launch overrides for the gallery server.
+# --- Artifacts gallery: extension types -------------------------------------
+# Facility artifact kinds, each conforming to one gallery base form (plots,
+# trends, tables, documents, dashboards, images, data) and listed under it.
+# A label may not repeat a base form's or another type's. The optional viewer
+# is a .js/.mjs ES module under this profile's project/ directory, given
+# relative to it. The block also accepts host/port/auto_launch overrides for
+# the gallery server.
 #
 # artifact_server:
-#   categories:
-#     optics:
-#       label: Optics
-#       color: "#4C9AFF"
+#   extension_types:
+#     beam_scan:
+#       label: Beam scan
+#       base_form: plots
+#       viewer: viewers/beam_scan.js
 
 # --- Optimizer ---------------------------------------------------------------
 # Tunes machine variables against an objective with Bayesian optimization. The
@@ -1557,6 +1540,18 @@ panel_presets: {}
 #
 # teams_bridge:
 #   trigger: teams-question
+#   mentions: true               # false posts the agent's @mentions as plain text
+
+# --- Slack bridge ------------------------------------------------------------
+# Answers questions asked from a Slack channel, thread or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Slack credentials are runtime env, not profile keys: declare
+# SLACK_BOT_TOKEN (the xoxb- bot token) and SLACK_APP_TOKEN (the xapp- Socket
+# Mode app token) under `env.required`.
+#
+# slack_bridge:
+#   trigger: slack-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """
 
@@ -1869,8 +1864,6 @@ config:
   approval.tools.entry_publish: always
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -1976,8 +1969,6 @@ config:
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -2081,8 +2072,6 @@ config:
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
 # validate` compares it against the installed app and reports every
@@ -2114,7 +2103,7 @@ def packaged_tutorial_triggers_yml() -> str:
     return (Path(str(package)) / "tutorial_triggers.yml").read_text(encoding="utf-8")
 
 
-#: The demonstration triggers the ``control-assistant`` preset ships, which
+#: The demonstration triggers the ``demo`` preset ships, which
 #: ``init`` writes into a new repo as ``triggers.yml``. Resolved at import,
 #: because :data:`BASE_SOURCE_FILES` is built at import.
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
@@ -2135,10 +2124,10 @@ def packaged_data_readme_md() -> str:
     """
     from tests._preset_data import preset_data
 
-    return (preset_data("control_assistant").app_data / "README.md").read_text(encoding="utf-8")
+    return (preset_data("demo").app_data / "README.md").read_text(encoding="utf-8")
 
 
-#: The ``data/README.md`` the ``control-assistant`` preset ships. Resolved at
+#: The ``data/README.md`` the ``demo`` preset ships. Resolved at
 #: import, because :data:`BASE_SOURCE_FILES` is built at import.
 DATA_README_MD = packaged_data_readme_md()
 
@@ -2446,13 +2435,13 @@ mcp_servers:
 ```
 
 The hello-world preset ships `example_server` as a worked copy to read. Which
-buckets the artifact gallery sorts into is a separate, top-level key, one entry
-per bucket:
+facility artifact kinds the gallery lists is a separate, top-level key, each
+type conforming to one base form:
 
 ```yaml
 artifact_server:
-  categories:
-    beam_studies: {label: Beam studies, color: "#4C6EF5"}
+  extension_types:
+    beam_study: {label: Beam study, base_form: plots}
 ```
 
 ### Adding a panel of your own
@@ -3039,6 +3028,7 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
     "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
     "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "data/facility/scenarios/demo-history.yaml": "{}\n",
     "data/facility/scenarios/rf-thermal.yaml": "{}\n",
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
@@ -3105,14 +3095,14 @@ CANOPY_LIBRARY_RELPATH = "data/canopy/library"
 
 
 def packaged_canopy_library() -> Path:
-    """The control-assistant screen library inside the installed package.
+    """The demo screen library inside the installed package.
 
     Read rather than frozen, as :func:`packaged_providers_yml` reads the
     catalog: the package owns the screens and their write-binding report, so
-    the exemplar carries exactly what ``osprey init --preset control-assistant``
+    the exemplar carries exactly what ``osprey init --preset demo``
     puts into a deployment's ``data/``.
     """
-    bundle = importlib.resources.files("osprey.templates.apps.control_assistant")
+    bundle = importlib.resources.files("osprey.templates.apps.demo")
     return Path(str(bundle)) / "data" / "canopy" / "library"
 
 
@@ -3176,8 +3166,21 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     Args:
         with_ci: Fill in the deploy coordinates and emit the CI pipeline they
             are rendered from. The default False is the init-reproducible
-            shape — a bare ``osprey init --preset control-assistant`` has no
+            shape — a bare ``osprey init --preset demo`` has no
             coordinates to render a pipeline from, so it emits neither.
+    """
+    return {
+        path: expand_sentinels(text)
+        for path, text in _exemplar_source_texts(with_ci=with_ci).items()
+    }
+
+
+def _exemplar_source_texts(*, with_ci: bool = False) -> dict[str, str]:
+    """The exemplar's source zone with its sentinels still in place.
+
+    The texts :func:`exemplar_source_files` expands. A patch over one of them
+    stays applicable across version bumps and preset edits, because a sentinel
+    line reads the same whatever value it stands for.
     """
     if with_ci:
         deploy_block = DEPLOY_BLOCK_ACTIVE
@@ -3200,7 +3203,7 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     files["rules/facility.md"] = seeded_facility_rule(files["profile.yml"])
     if with_ci:
         files.update(CI_PIPELINE_FILES)
-    return {path: expand_sentinels(text) for path, text in files.items()}
+    return files
 
 
 @contextlib.contextmanager
