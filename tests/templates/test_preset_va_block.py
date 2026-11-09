@@ -1,4 +1,4 @@
-"""The `virtual_accelerator` connector block the Control Assistant preset writes.
+"""The `virtual_accelerator` connector block the Demo preset writes.
 
 The preset's ``config:`` block is where a deployment's ``control_system`` comes
 from — the framework template renders no connector at all — so the shape is
@@ -13,7 +13,7 @@ values — authoring them is the go-live edit.
 from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 
-PRESET = "control-assistant"
+PRESET = "demo"
 
 # No `port`: it is derived from services.virtual_accelerator.port at
 # config-load time rather than rendered out (see

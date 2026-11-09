@@ -99,7 +99,7 @@ def test_no_field_is_a_reserved_name(address: str) -> None:
 
 
 def test_an_address_storable_before_encodes_to_itself(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     """An archive written before this encoding holds only such fields, so it reads back unchanged.
 
@@ -107,7 +107,7 @@ def test_an_address_storable_before_encodes_to_itself(
     is not one of the archive's own document fields, is its own field name; the
     shipped demo facility's channels are all of that kind.
     """
-    view = json.loads(built_control_assistant.outputs[0].files["data/simulator/addresses.json"])
+    view = json.loads(built_demo.outputs[0].files["data/simulator/addresses.json"])
     plain = [
         address
         for address in ADDRESSES

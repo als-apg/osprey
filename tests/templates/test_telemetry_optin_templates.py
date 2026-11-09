@@ -24,7 +24,7 @@ from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_resolve import resolve_build_profile
 
 #: The bundled presets that deploy a stack, and so must keep a record.
-_DEPLOYING_PRESETS = ("hello-world", "control-assistant")
+_DEPLOYING_PRESETS = ("hello-world", "demo")
 
 #: Service names a second store beside the record would take.
 _RETIRED_SERVICES = tuple(sorted(RETIRED_DEPLOYED_SERVICES))

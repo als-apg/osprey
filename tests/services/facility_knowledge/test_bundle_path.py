@@ -1,4 +1,4 @@
-"""The control-assistant preset's knowledge bundle lives in the facility tree.
+"""The demo preset's knowledge bundle lives in the facility tree.
 
 The preset's ``facility_knowledge.bundle_path`` names ``data/facility/knowledge``,
 the packaged template ships its pages there, and every reader of the key lands
@@ -18,8 +18,8 @@ from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
 from tests._preset_data import bundle_data_root
 
 _SRC = Path(__file__).resolve().parents[3] / "src" / "osprey"
-_PRESET = _SRC / "profiles" / "presets" / "control-assistant.yml"
-_PACKAGED_DATA = _SRC / "templates" / "apps" / "control_assistant" / "data"
+_PRESET = _SRC / "profiles" / "presets" / "demo.yml"
+_PACKAGED_DATA = _SRC / "templates" / "apps" / "demo" / "data"
 
 BUNDLE_PATH = "data/facility/knowledge"
 

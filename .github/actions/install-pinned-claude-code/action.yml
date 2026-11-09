@@ -18,10 +18,12 @@ runs:
 
     - name: Install and verify the pinned version
       shell: bash
+      # `--locked`: a stale uv.lock fails here rather than being re-locked on
+      # the runner, whatever the caller's own sync did.
       run: |
         set -euo pipefail
-        pin="$(uv run python scripts/pinned_claude.py --pin)"
+        pin="$(uv run --locked python scripts/pinned_claude.py --pin)"
         npm install -g "@anthropic-ai/claude-code@$pin"
-        dir="$(uv run python scripts/pinned_claude.py)"
+        dir="$(uv run --locked python scripts/pinned_claude.py)"
         echo "claude $pin on PATH: $dir"
         echo "$dir" >> "$GITHUB_PATH"

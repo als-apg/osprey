@@ -18,7 +18,7 @@ import pytest
 
 CONFIG_KEY = "facility_knowledge.bundle_path"
 
-#: The relative value shipped in control_assistant/config.yml.j2.
+#: The relative value shipped in demo/config.yml.j2.
 SHIPPED_RELATIVE = "data/facility/knowledge"
 
 

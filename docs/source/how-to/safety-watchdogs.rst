@@ -8,7 +8,7 @@ A watchdog judges each operator prompt in the background and, when a session loo
 holds the agent's writes and asks the operator to stop or continue.
 :ref:`Safety watchdogs <architecture-safety-watchdogs>` says where this sits among the write
 gates and what it does not cover. This page sets one up. The steps here enable
-``guard-circumvention``, the example the ``control-assistant`` preset ships, and then show how
+``guard-circumvention``, the example the ``demo`` preset ships, and then show how
 to write your own.
 
 Each watchdog runs on one of two engines. **decision** is a fast classifier: it scores the
@@ -29,7 +29,7 @@ classifier; :ref:`Choosing an engine <how-to-watchdogs-engine>` compares them.
             alt="The web terminal with the dialog of the guard-circumvention watchdog.">
      </video>
      <p class="osprey-demo-note" id="osprey-watchdog-note">
-       One session on the control-assistant demo; the wait for the verdict is sped up
+       One session on the demo; the wait for the verdict is sped up
        (marked ⏩). Its first exchange happened before recording started.
      </p>
      <div class="osprey-demo-speed" role="group" aria-label="Playback speed" hidden>
@@ -45,7 +45,7 @@ classifier; :ref:`Choosing an engine <how-to-watchdogs-engine>` compares them.
 Enable the example
 ==================
 
-``osprey init --preset control-assistant`` writes the watchdog, turned off, into your
+``osprey init --preset demo`` writes the watchdog, turned off, into your
 deployment: its entry in ``profile.yml`` and its instructions in
 ``watchdogs/guard-circumvention/instructions.md``. It flags an operator pushing the agent
 around OSPREY's own guards, for instance by asking it to edit hooks or call a panel's API with
@@ -302,5 +302,5 @@ The off reaches the sessions of that terminal only. In a multi-user deployment e
 own terminal, so it does not pause anyone else's watchdog; for that, set ``enabled: false``. While it
 is off, prompts there are not judged and no new hold opens, unless the terminal cannot take a prompt
 and the hook judges it itself. Open holds stay until an operator answers. The move is audited, and
-a restart turns the watchdogs back on. The control-assistant preset's readonly dispatch tier refuses
+a restart turns the watchdogs back on. The demo preset's readonly dispatch tier refuses
 ``web.config_panel.enabled``, so no terminal there can move the switch yet (`#2278 <https://github.com/als-apg/osprey/issues/2278>`__).

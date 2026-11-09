@@ -281,7 +281,7 @@ def _rendered_project(tmp_path: Path, name: str) -> Path:
         TemplateManager(),
         project_name=name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
 

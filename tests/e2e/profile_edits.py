@@ -73,3 +73,40 @@ def _leaves(mapping: Mapping[str, Any], prefix: str = "") -> Iterator[tuple[str,
             yield from _leaves(value, f"{path}.")
         else:
             yield path, value
+
+
+#: The scenario no e2e stack starts in: it replays a fabricated past into the
+#: archiver and the logbook, which no lane asserts against.
+WITHHELD_SCENARIO = "demo-history"
+
+
+def e2e_scenario_pin(preset: str = "demo") -> list[str]:
+    """The ``--set`` pair pinning an e2e stack's start scenarios.
+
+    An e2e lane reads live values off the simulator, so the scenarios its stack
+    starts in are part of what it asserts on, and the preset's default set is a
+    product decision that moves on its own. The pin is that default minus
+    :data:`WITHHELD_SCENARIO`, read off the preset file's own ``config:`` block
+    -- never a copied list, so a lane follows the preset everywhere except the
+    one scenario it must not start in.
+
+    It is spelled ``config.simulation.default_scenarios=[...]``, which ``osprey
+    init`` keeps as the ONE literal dotted key the preset itself writes, so the
+    pin replaces the preset's entry instead of landing beside it.
+
+    Args:
+        preset: The bundled preset the lane inits from, in either spelling.
+
+    Returns:
+        ``["--set", "config.simulation.default_scenarios=<json list>"]``, or
+        ``[]`` when the preset states no start set of its own (nothing to
+        withhold from), ready to splice into an ``osprey init`` argv.
+    """
+    from osprey.cli.build_profile_resolve import preset_authored_config
+
+    authored = preset_authored_config(preset)
+    if "simulation.default_scenarios" not in authored:
+        return []
+    names = authored["simulation.default_scenarios"] or []
+    pinned = [name for name in names if name != WITHHELD_SCENARIO]
+    return ["--set", f"config.simulation.default_scenarios={json.dumps(pinned)}"]

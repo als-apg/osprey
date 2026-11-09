@@ -19,12 +19,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Reference Panel</title>
 <script type="module">
-  // Follower role: this standalone surface is never the theme hub (the web
-  // terminal is). It applies its own `?theme=` query param when the host
-  // appends one, otherwise it trusts whatever theme-boot.js already set
-  // pre-paint, and thereafter obeys the hub's broadcasts. applyEmbedded()
-  // reads `?embedded=true` and hides the standalone chrome so the panel
-  // sits flush inside its host frame.
+  // Follower role: this panel is never the theme hub (the web terminal is).
+  // It applies its own `?theme=` query param when the host appends one,
+  // otherwise it trusts whatever theme-boot.js already set pre-paint, and
+  // thereafter obeys the hub's broadcasts.
   import { initTheme } from '/design-system/js/theme-manager.js';
   import { applyEmbedded } from '/design-system/js/frame-params.js';
   initTheme({ role: 'follower' });
@@ -49,36 +47,6 @@
   .panel {
     max-width: 720px;
     margin: 0 auto;
-  }
-
-  /*
-    Standalone chrome: the header only makes sense when the panel is opened
-    on its own. When embedded in a host frame (`?embedded=true` →
-    body.embedded), it is hidden so the panel content sits flush.
-  */
-  .panel-chrome {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 20px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--border-default);
-  }
-  body.embedded .panel-chrome { display: none; }
-
-  .panel-chrome h1 {
-    margin: 0;
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-  .panel-chrome .panel-kicker {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-muted);
   }
 
   .lead {
@@ -186,10 +154,6 @@
 </head>
 <body>
 <div class="panel">
-  <header class="panel-chrome">
-    <h1>Reference Panel</h1>
-    <span class="panel-kicker">OSPREY Design System</span>
-  </header>
 
   <p class="lead">
     A themed, token-only standalone surface — the canonical example every

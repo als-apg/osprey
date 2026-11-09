@@ -132,8 +132,8 @@ export function initPanelAddMenu(opts) {
       item.dataset.panelId = panel.id;
       item.addEventListener('click', () => {
         // The reveal POSTs the visibility + focus; its activation lands the
-        // panel by the open rule (a new tab in front of the service tile used
-        // last), like every other open.
+        // panel by the open rule (the service tile used last, replacing its
+        // panel), like every other open.
         opts.onShowPanel(panel.id);
         closeMenu();
       });
