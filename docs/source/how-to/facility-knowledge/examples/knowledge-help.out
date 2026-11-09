@@ -1,0 +1,11 @@
+Usage: osprey knowledge [OPTIONS] COMMAND [ARGS]...
+
+  Manage OKF facility knowledge bundles.
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  regen-index    Regenerate index.md files throughout an OKF bundle.
+  seed-from-ttl  Seed OKF stub documents from the build's graph view.
+  validate       Validate all OKF documents in a bundle.

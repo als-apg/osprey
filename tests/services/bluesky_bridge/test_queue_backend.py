@@ -67,8 +67,10 @@ async def test_manager_refusal_becomes_request_rejected() -> None:
 async def test_every_call_fails_closed_without_a_manager() -> None:
     backend = QueueBackend(None)
     for call in (backend.status(), backend.items(), backend.history(), backend.start()):
-        with pytest.raises(QueueUnavailableError):
+        with pytest.raises(QueueUnavailableError) as excinfo:
             await call
+        assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
+        assert str(excinfo.value) == qb.MANAGER_NOT_CONFIGURED_DETAIL
 
 
 async def test_close_is_safe_without_a_manager() -> None:
@@ -505,8 +507,9 @@ async def test_abort_reports_pending_while_the_manager_is_still_unwinding(
 
 
 async def test_abort_without_a_manager_fails_closed() -> None:
-    with pytest.raises(QueueUnavailableError):
+    with pytest.raises(QueueUnavailableError) as excinfo:
         await QueueBackend(None).abort()
+    assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
 
 
 # ------------------------------------------------------------ worker namespace
@@ -546,8 +549,9 @@ async def test_devices_allowed_reads_the_manager() -> None:
 
 
 async def test_devices_allowed_without_a_manager_fails_closed() -> None:
-    with pytest.raises(QueueUnavailableError):
+    with pytest.raises(QueueUnavailableError) as excinfo:
         await QueueBackend(None).devices_allowed()
+    assert excinfo.value.reason == qb.REASON_MANAGER_NOT_CONFIGURED
 
 
 # ------------------------------------------------------------------ capability
@@ -602,6 +606,7 @@ async def test_capability_fails_closed_without_a_configured_manager(connector) -
 
     assert capability.can_execute is False
     assert capability.reason == qb.REASON_MANAGER_NOT_CONFIGURED
+    assert capability.detail == qb.MANAGER_NOT_CONFIGURED_DETAIL
 
 
 async def test_capability_fails_closed_when_the_manager_is_silent(connector) -> None:
@@ -628,7 +633,83 @@ def test_capability_serializes_to_the_wire_shape() -> None:
         "lane": "bluesky",
         "lane_target": "live",
         "lane_degraded": None,
+        "retryable": False,
     }
+
+
+# ------------------------------------------------------------- refusal reasons
+
+
+def _declared_refusal_reasons() -> set[str]:
+    """Every refusal reason the module states: its `REASON_*` constants and the
+    `reason` of every `QueueBackendError` subclass, found by walking the module
+    and the class tree."""
+    constants = {
+        value
+        for name, value in vars(qb).items()
+        if name.startswith("REASON_") and value != qb.REASON_EXECUTABLE
+    }
+
+    def walk(cls: type[qb.QueueBackendError]) -> set[type[qb.QueueBackendError]]:
+        found = {cls}
+        for sub in cls.__subclasses__():
+            found |= walk(sub)
+        return found
+
+    class_reasons = {
+        cls.reason
+        for cls in walk(qb.QueueBackendError)
+        if cls.reason != qb.ExecutionUnavailableError.reason
+    }
+    return constants | class_reasons
+
+
+def test_every_refusal_reason_has_a_record() -> None:
+    assert _declared_refusal_reasons() <= set(qb.REFUSAL_REASONS)
+    assert qb.REASON_EXECUTABLE not in qb.REFUSAL_REASONS
+    assert qb.ExecutionUnavailableError.reason not in qb.REFUSAL_REASONS
+
+
+@pytest.mark.parametrize(
+    ("can_execute", "reason"),
+    [
+        (False, "nope"),
+        (False, qb.REASON_EXECUTABLE),
+        (True, qb.REASON_MANAGER_UNREACHABLE),
+        (True, "nope"),
+    ],
+)
+def test_a_capability_with_an_undeclared_or_contradictory_reason_fails(
+    can_execute: bool, reason: str
+) -> None:
+    with pytest.raises(ValueError):
+        Capability(
+            can_execute=can_execute,
+            reason=reason,
+            detail="why",
+            lane="bluesky",
+            lane_target="live",
+        )
+
+
+@pytest.mark.parametrize("reason", sorted(qb.REFUSAL_REASONS))
+def test_a_refused_capability_is_retryable_exactly_as_its_record_says(reason: str) -> None:
+    capability = Capability(
+        can_execute=False, reason=reason, detail="why", lane="bluesky", lane_target="live"
+    )
+    assert capability.retryable is qb.REFUSAL_REASONS[reason].retryable
+    assert capability.to_dict()["retryable"] is capability.retryable
+
+
+def test_an_executable_capability_is_never_retryable() -> None:
+    capability = Capability(
+        can_execute=True,
+        reason=qb.REASON_EXECUTABLE,
+        detail="ok",
+        lane="bluesky",
+        lane_target="live",
+    )
+    assert capability.retryable is False
 
 
 # -------------------------------------------------------- environment lifecycle

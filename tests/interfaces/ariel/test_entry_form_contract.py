@@ -1,4 +1,4 @@
-"""The entry form's field names and their readers, pinned against each other.
+"""The entry form's field names, readers and host, pinned against each other.
 
 Two failure modes live here, and neither raises anything at runtime:
 
@@ -65,3 +65,20 @@ def test_the_free_form_fields_are_not_fixed_option_lists(field_id, index_html):
         f"{field_id} is a <{match.group(1)}>; a fixed option list locks out a facility "
         f"whose shift or logbook names differ from the ones shipped"
     )
+
+
+def test_the_create_form_lives_in_the_compose_host(index_html):
+    """The panel hosts the one create form in ``#ariel-compose``, over the list pane."""
+    host = index_html.find('id="ariel-compose"')
+    form = index_html.find('id="create-entry-form"')
+    assert host != -1, "#ariel-compose is not in the page; compose has nowhere to open"
+    assert index_html.count('id="create-entry-form"') == 1
+    host_close = index_html.find("</section>", host)
+    assert host < form < host_close, "the create form is not inside #ariel-compose"
+
+
+def test_the_submit_handler_closes_compose_instead_of_alerting(entries_form_js):
+    """Success hands the new entry to the reader; only failures still alert."""
+    assert "Entry created" not in entries_form_js, "the success alert() is back"
+    assert "showEntry" not in entries_form_js, "success still opens the retired modal"
+    assert "compose: null" in entries_form_js

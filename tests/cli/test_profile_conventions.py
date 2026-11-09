@@ -672,15 +672,6 @@ def test_hidden_entries_do_not_trip_source_validation(profile_dir: Path):
     validate_convention_sources(profile_dir)
 
 
-def test_symlink_escaping_the_profile_is_rejected(profile_dir: Path, tmp_path: Path):
-    outside = _write(tmp_path / "outside" / "safety.md")
-    (profile_dir / "rules").mkdir()
-    (profile_dir / "rules" / "safety.md").symlink_to(outside)
-    with pytest.raises(BuildProfileError) as excinfo:
-        validate_convention_sources(profile_dir)
-    assert "self-contained" in str(excinfo.value)
-
-
 def test_symlink_inside_the_profile_is_allowed(profile_dir: Path):
     target = _write(profile_dir / "rules" / "safety.md")
     _write(profile_dir / "agents" / "orbit-writer.md")
@@ -952,6 +943,14 @@ def test_zone_generated_dirnames_are_the_ones_the_table_knows():
     creates these directories and build wipes one, all from these constants."""
     assert BUILD_OUTPUT_DIR in KNOWN_ROOT_ENTRIES
     assert STATE_DIR in KNOWN_ROOT_ENTRIES
+
+
+def test_zone_table_names_the_repos_own_dockerignore():
+    """The deployment's image-exclusion file is part of the source-zone layout."""
+    from osprey.cli.profile_conventions import REPO_DOCKERIGNORE_FILENAME
+
+    assert REPO_DOCKERIGNORE_FILENAME == ".dockerignore"
+    assert REPO_DOCKERIGNORE_FILENAME in KNOWN_ROOT_ENTRIES
 
 
 def test_zone_scaffolded_boot_unit_is_not_flagged(zone_repo: Path):

@@ -4,7 +4,7 @@
  *   npx vitest run tests/interfaces/web_terminal/sidebar-target.test.mjs
  *
  * The block dresses the control-target chip mounted in `#sidebar-target` as
- * one row — glyph, the chip's own name and writes pill, the SYSTEM panel's
+ * one row — glyph, the chip's own name and writes pill, the Health panel's
  * health dot, caret — with the decoration aria-hidden and the chip's own words
  * read from `targetReading()` for its tooltip text. There is no caption, no
  * clock and no meta line. Where no chip mounts (the picker is off), the health
@@ -12,7 +12,7 @@
  *
  * Seams: control-target-chip.js is mocked (the chip element, its subscribers
  * and its reading are what this module reads; the chip's own suite pins how it
- * derives them) and `fetch` is stubbed per test. The SYSTEM panel is served
+ * derives them) and `fetch` is stubbed per test. The Health panel is served
  * unless a test says otherwise, through the real panel-availability.js. Module
  * state is isolated by vi.resetModules() + dynamic import per test and the
  * module's own teardown.
@@ -363,9 +363,9 @@ describe('polling', () => {
   });
 });
 
-/* ---- following the SYSTEM panel ------------------------------------------- */
+/* ---- following the Health panel ------------------------------------------- */
 
-describe('while the SYSTEM panel is served', () => {
+describe('while the Health panel is served', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     availability.setPanelServed('system-health', false);

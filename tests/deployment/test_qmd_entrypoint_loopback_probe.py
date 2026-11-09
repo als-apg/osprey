@@ -48,7 +48,9 @@ def _serve_health(family: socket.AddressFamily, host: str) -> ThreadingHTTPServe
         server = server_cls((host, 0), _Health)
     except OSError as exc:
         pytest.skip(f"no {host} loopback on this host: {exc}")
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    ).start()
     return server
 
 

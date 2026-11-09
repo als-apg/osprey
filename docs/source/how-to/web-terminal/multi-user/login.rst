@@ -38,7 +38,7 @@ The snippets on this page show only the keys their section is about; the
 deployment also carries ``default_tier`` and the rest of the roster from the
 multi-user page (see the worked example in
 :ref:`multi-user-registry-images`), and ``tier: readwrite`` / ``readonly``
-name files under ``tiers/``. The ``control-assistant`` preset sets
+name files under ``tiers/``. The ``demo`` preset sets
 ``method: password`` with ``allow_insecure_http: true``, which suits
 ``127.0.0.1`` only; set ``method: token`` to use login URLs.
 
@@ -482,7 +482,7 @@ with a whole single sign-on domain, one with two named people:
            tier: readwrite
            access: [user:ada@example.org, user:bo@example.org]
 
-The apps are shared cards by construction. The ``control-assistant`` preset
+The apps are shared cards by construction. The ``demo`` preset
 lists three under ``shared:`` — ``logbook``, ``knowledge`` and
 ``channel-finder`` — and any roster login opens them with its own password;
 they carry no credential of their own.

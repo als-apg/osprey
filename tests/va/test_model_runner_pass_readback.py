@@ -42,8 +42,8 @@ MONITOR = "SR:DIAG:BPM:01:POSITION:X"
 
 
 @pytest.fixture
-def view(built_control_assistant: BuiltProject) -> SimulatorView:
-    return SimulatorView.of_render(built_control_assistant.build_dir)
+def view(built_demo: BuiltProject) -> SimulatorView:
+    return SimulatorView.of_render(built_demo.build_dir)
 
 
 @pytest.fixture

@@ -161,7 +161,9 @@ def test_normal_child_emits_every_line_in_order(
     )
     steps = [LifecycleStep(name="stream ok", run=run, timeout=30, stream=True)]
 
-    build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+    build_lifecycle._run_lifecycle_phase(
+        "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+    )
 
     assert reporter.lines() == ["    line 1", "    line 2", "    line 3"]
     assert _drain_threads() == []
@@ -191,7 +193,9 @@ def test_a_streamed_child_is_visible_under_every_reporter(
     steps = [LifecycleStep(name="stream visible", run=run, timeout=30, stream=True)]
 
     with installed(make_reporter()):
-        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+        build_lifecycle._run_lifecycle_phase(
+            "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+        )
 
     printed = capsys.readouterr().out
     assert "    from the child" in printed
@@ -214,7 +218,9 @@ def test_overrunning_child_is_cut_off_at_its_timeout(
         popen=_cut_off_on_the_first_line(reporter, "    early"),
     ):
         with pytest.raises(BuildProfileError, match="stream overrun"):
-            build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+            build_lifecycle._run_lifecycle_phase(
+                "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+            )
     elapsed = time.monotonic() - started
 
     # Bounded by the step's own wait and the cut-off after it, not the
@@ -265,7 +271,9 @@ def test_drain_thread_is_silenced_when_a_grandchild_holds_the_pipe(
         popen=_cut_off_on_the_first_line(reporter, "    early"),
     ):
         with pytest.raises(BuildProfileError, match="stream leaky"):
-            build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+            build_lifecycle._run_lifecycle_phase(
+                "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+            )
 
     during_step = reporter.lines()
     assert during_step == ["    early"]
@@ -359,7 +367,9 @@ def test_a_timed_out_step_is_silenced_before_it_is_killed(
 
     with patch_subprocess("osprey.cli.build_lifecycle", popen=_OutlivesItsGrace):
         with pytest.raises(BuildProfileError, match="stream decided"):
-            build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+            build_lifecycle._run_lifecycle_phase(
+                "post_build", steps, tmp_path, tmp_path, venv=None, repo_root=tmp_path
+            )
 
     assert order.index("silenced") < order.index("killed"), order
     assert _drain_threads() == []

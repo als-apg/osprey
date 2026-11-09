@@ -28,7 +28,7 @@
  * That compounding applies ONLY to rules whose subject is a `dv-*` element —
  * the ones with a stock rule to out-specify. Rules whose subject is one of the
  * bar's OWN classes (`.tile-tab*`, `.contrib-*`, `.bar-icon`) anchor on
- * `.tile-tab` instead, matching terminal.css's `.tile-tab .terminal-header`.
+ * `.tile-tab` instead, matching operator.css's `.tile-tab .agent-bar`.
  * `.dock-root` would be actively WRONG for them: dockview builds a tile's drag
  * image by cloning the tab into document.body, so a bar styled from the dock
  * root paints unstyled the moment the operator picks it up. Anchoring on a
@@ -201,22 +201,21 @@
   background: var(--surface-card);
 }
 
-/* ---- Tile header bar: the showing tab's bar IS the host chrome ----
- * dock-tab.js renders every dockview tab as the tile's header bar, and of a
- * tile's tabs only the showing one is on screen (below), so a tile has one
- * bar however many tabs it holds. EVERY tile carries the same bar —
- * --wt-pane-head-height, the pane header row of the design language — with
- * the same grammar: the tile's identity on the left, its actions
- * right-anchored, so naming, switching and closing is one gesture learned
- * once. There is no drag badge: the whole bar is the drag handle (cursor:
- * grab below); a strip item drags its own tab.
+/* ---- Tile header bar: the panel's bar IS the host chrome ----
+ * dock-tab.js renders every dockview tab as the tile's header bar. A tile
+ * holds one panel (dock-policy.js), so it has one bar. EVERY tile carries the
+ * same bar — --wt-pane-head-height, the pane header row of the design
+ * language — with the same grammar: the tile's identity on the left, its
+ * actions right-anchored, so naming and closing is one gesture learned once.
+ * There is no drag badge: the whole bar is the drag handle (cursor: grab
+ * below).
  *
- *   SERVICE tiles show the panel's name (.tile-tab-title) — the tab strip
- *     (.tile-tab-tabs) once the tile holds more than one tab — + the showing
- *     tab's contributed controls + pop out + close.
- *   The AGENT tile shows its adopted bar + close: the chat console's
- *     .op-session-bar in chat (operator.css), the .terminal-header on the
- *     terminal surface (terminal.css). It is always its own tile.
+ *   SERVICE tiles show the panel's name (.tile-tab-title) + its panel icons
+ *     (.tile-tab-contrib) + ⋯ + open in new window + close.
+ *   The AGENT tile shows its adopted bar (the session label ▾ and +) + ⋯ +
+ *     close: the chat console's .op-session-bar in chat, the .terminal-header
+ *     on the terminal surface — one shape, styled as .agent-bar
+ *     (operator.css). It is always its own tile.
  *
  * SEATED CHROME: the bar is part of the card (--surface-card, remapped
  * above) closed by a hairline. The hairline turns accent on the ACTIVE tile
@@ -251,31 +250,23 @@
  * reads primary (set on .tile-tab-title below). The Agent tile's label is
  * the same identity element in either adopted bar, so it dims the same way. */
 .dock-root .dv-groupview.dv-inactive-group .tile-tab-title,
-.dock-root .dv-groupview.dv-inactive-group .tile-tab-item--showing,
 .dock-root .dv-groupview.dv-inactive-group .tile-tab .terminal-label,
 .dock-root .dv-groupview.dv-inactive-group .tile-tab .op-session-label {
   color: var(--text-secondary);
 }
 
-/* The showing tab fills the strip; the void container (dockview's empty-space
- * group drag surface) collapses to zero — the bar itself is the handle.
- * singleTabMode:'fullwidth' (dock-workspace.js) does the stretching for a
- * lone tab and the flex here for the showing one of several; the min-width:0
- * is what makes the shrink side real — a flex item's default min-width:auto
- * floors it at content width, which would silently disable both `flex-shrink`
- * and the whole priority-hide/ellipsis path on narrow tiles. */
+/* The tile's one tab fills the bar; the void container (dockview's
+ * empty-space group drag surface) collapses to zero — the bar itself is the
+ * handle. singleTabMode:'fullwidth' (dock-workspace.js) does the stretching;
+ * the min-width:0 is what makes the shrink side real — a flex item's default
+ * min-width:auto floors it at content width, which would silently disable
+ * both `flex-shrink` and the whole priority-hide/ellipsis path on narrow
+ * tiles. */
 .dock-root .dv-tab {
   flex: 1 1 auto;
   min-width: 0;
   max-width: none;
   padding: 0;
-}
-
-/* A tile's hidden tabs: dockview builds one tab per panel, and every one
- * renders the whole tile's bar (dock-tab.js), so the showing tab's bar is the
- * tile's one bar and its siblings stay off screen. */
-.dock-root .dv-tab.dv-inactive-tab {
-  display: none;
 }
 
 /* The pane header's metrics (the mockup's `.pane-head`): 16px in from the
@@ -315,73 +306,16 @@
   color: var(--text-primary);
 }
 
-/* ---- Tab strip: the tile's tabs, once it holds more than one ----
- * One item per tab, the showing one filled; an item drags its own tab. The
- * strip is the keyboard surface (arrow keys move the showing tab, Delete
- * closes it), so it takes the focus ring; items are reached through it. It
- * shrinks before the contribution region does, ellipsizing its names, and
- * never past one item. */
-.tile-tab .tile-tab-tabs {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex: 0 1 auto;
-  min-width: 0;
-  height: 100%;
-  overflow: hidden;
-  border-radius: var(--radius-lg);
-}
-
-.tile-tab .tile-tab-tabs:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -2px;
-}
-
-.tile-tab .tile-tab-item {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-lg);
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 160px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-family: var(--font-display);
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-  color: var(--text-secondary);
-  cursor: grab;
-  transition: background var(--duration-fast), color var(--duration-fast);
-}
-
-.tile-tab .tile-tab-item-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tile-tab .tile-tab-item:hover {
-  color: var(--text-primary);
-  background: var(--surface-hover);
-}
-
-.tile-tab .tile-tab-item--showing {
-  color: var(--text-primary);
-  background: var(--surface-press);
-}
-
-/* ---- Contribution region: subtitle + the panel-controls slot ----
+/* ---- Contribution region: the panel-icon slot ----
  * Rendered by tile-header-contrib.js from an embedded panel's
  * `canopy-host-header-contribution`. Fills the bar between the tile name and the
- * close button, with no divider fence: inert `text` items are the tile's
- * SUBTITLE and read left, beside the name (they are identity, not a
- * control), while every interactive control right-anchors toward the
- * actions. The split is pure CSS `order` around a flexible ::before spacer,
- * so the reconcile in tile-header-contrib.js keeps one flat child list.
- * min-width:0 + hidden overflow let text ellipsize before the overflow
- * ladder folds whole controls (.contrib-hidden). */
+ * actions, with no divider fence: every control right-anchors toward the
+ * actions behind a flexible ::before spacer. min-width:0 + a clipped overflow
+ * let the fold ladder take whole controls out (.contrib-hidden) into the
+ * tile ⋯. The overflow is `clip`, not `hidden`: a hidden overflow is still a
+ * scroll container, and focusing a control at the clipped edge scrolled the
+ * region to reveal it — a scroll that moved the control under the pointer.
+ * A clipped region cannot scroll, by focus or by code. */
 .tile-tab .tile-tab-contrib {
   display: flex;
   align-items: center;
@@ -389,7 +323,7 @@
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .tile-tab .tile-tab-contrib::before {
@@ -403,35 +337,16 @@
   order: 2;
 }
 
-.tile-tab .tile-tab-contrib > .contrib-text {
-  order: 0;
-}
-
-/* Subtitle: the loaded-file-name idiom — quiet mono beside the display-type
- * name. Its floor makes the region overflow (and the ladder fold controls)
- * before the subtitle is squeezed past a stub. */
-.tile-tab .contrib-text {
-  flex: 0 1 auto;
-  min-width: 40px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
 /* ---- One control language ----
  * Every interactive element the bar renders is the design language's 28px
- * ghost control. The tile's own close (and the Agent bar's buttons) ARE
- * `.osprey-icon-btn` (primitives.css); the contributed buttons, nav
- * segments and the ⋯ menu take the same look here: transparent at rest,
- * the hover wash under the pointer, the press wash while held or open, one
- * radius, one type style. Icons are inline SVG on currentColor, so they take
- * each control's own state colour. */
+ * ghost control. The tile's own ⋯, open in new window and close, a panel's
+ * icons and the Agent bar's buttons ARE `.osprey-icon-btn` (primitives.css);
+ * the legacy text buttons and nav segments take the same look here:
+ * transparent at rest, the hover wash under the pointer, the press wash
+ * while held, one radius, one type style. Icons are inline SVG on
+ * currentColor, so they take each control's own state colour. */
 .tile-tab .contrib-btn,
-.tile-tab .contrib-nav-link,
-.tile-tab .contrib-menu-btn {
+.tile-tab .contrib-nav-link {
   appearance: none;
   display: inline-flex;
   align-items: center;
@@ -454,23 +369,20 @@
 }
 
 .tile-tab .contrib-btn:hover:not(:disabled),
-.tile-tab .contrib-nav-link:hover,
-.tile-tab .contrib-menu-btn:hover {
+.tile-tab .contrib-nav-link:hover {
   color: var(--text-primary);
   background: var(--surface-hover);
 }
 
-.tile-tab .contrib-btn:active:not(:disabled),
-.tile-tab .contrib-menu-btn:active,
-.tile-tab .contrib-menu-btn[aria-expanded='true'] {
+.tile-tab .contrib-btn:active:not(:disabled) {
   color: var(--text-primary);
   background: var(--surface-press);
 }
 
-/* Icon-only controls square off. */
-.tile-tab .contrib-menu-btn {
-  width: 28px;
-  padding: 0;
+/* A panel icon in its pressed state (a toggle the panel reports as on). */
+.tile-tab .contrib-icon[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--surface-selected);
 }
 
 .tile-tab .bar-icon {
@@ -583,16 +495,11 @@
   display: none;
 }
 
-/* A control the overflow ladder folded into the bar's ⋯ menu. Folded, not
- * lost: the menu keeps it reachable (see applyOverflowLadder). */
+/* A control the fold ladder took out of a narrow bar. Folded, not lost: the
+ * tile ⋯ lists it under "This panel" (applyOverflowLadder in
+ * tile-header-contrib.js). */
 .tile-tab .contrib-hidden {
   display: none;
-}
-
-/* The bar-owned ⋯ fold target sits at the controls cluster's right edge,
- * inside the region (order 3 > the controls' order 2). */
-.tile-tab .tile-tab-contrib > .contrib-overflow-btn {
-  order: 3;
 }
 
 /* Ladder step 1: the search field down to its magnifier — a 28px ghost
@@ -621,74 +528,28 @@
   color: var(--text-secondary);
 }
 
-/* Menu popover. Body-level and fixed — the contribution region is
- * overflow:hidden and one bar tall, so an in-place popover would be clipped
- * away. Positioned from JS (tile-header-items.js place()); everything here is
- * appearance only, and matches `.osprey-popover` (primitives.css). Not
- * scoped under .dock-root: it is a child of <body>. */
-.contrib-menu-popover {
-  position: fixed;
-  z-index: var(--z-dropdown);
-  min-width: 168px;
-  padding: var(--space-1);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-dropdown);
-}
-
-.contrib-menu-item {
-  appearance: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  height: 30px;
-  border: none;
-  background: transparent;
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  line-height: var(--leading-none);
-  color: var(--text-primary);
-  text-align: left;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.contrib-menu-item:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
-.contrib-menu-item:disabled {
-  opacity: 0.35;
-  cursor: default;
-}
-
-.contrib-menu-item.checked {
-  font-weight: var(--weight-medium);
-}
-
-/* Fixed-width gutter so labels align whether or not an entry is checkable. */
-.contrib-menu-tick {
-  flex: 0 0 auto;
-  width: 12px;
-  color: var(--color-accent);
-}
-
-/* Actions cluster: right-anchored; a service tile's pop out (`.tile-tab-popout`)
- * and every tile's close (`.tile-tab-close`) are `.osprey-icon-btn`s, so the
- * primitive gives them their size, washes and disabled look.
- * Tiles drag, close and resize, so their header bars are live chrome. */
+/* Actions cluster: right-anchored and never folded; every tile's ⋯
+ * (`.tile-tab-more`), open in new window (`.tile-tab-window`) and close
+ * (`.tile-tab-close`) are `.osprey-icon-btn`s, so the primitive gives them
+ * their size, washes, the open state of the ⋯ (aria-expanded) and the
+ * disabled look. Tiles drag, close and resize, so their header bars are live
+ * chrome. */
 .tile-tab .tile-tab-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+/* Open in new window while the pane cannot leave: the primitive's disabled
+ * look, but it keeps its pointer events, so the next hover or click reads the
+ * gate again once the panel has loaded (dock-tab.js buildWindowButton). */
+.tile-tab .tile-tab-window[aria-disabled="true"] {
+  opacity: 0.35;
+  background: none;
+  color: var(--text-secondary);
+  cursor: default;
 }
 
 /* ---- Drop preview ----
@@ -704,12 +565,11 @@
   z-index: 6;
 }
 
-/* The drop highlight: the rect is the zone itself — the hovered tile or the
- * half an edge drop lands in — and the placeholder inside it is inset 4px,
- * rounded like the cards, with a 2px accent stroke and a fifth of the accent
- * as fill. The rect glides between zones over 0.25s (geometry only). An
- * add-as-tab target paints the same placeholder over the whole tile plus the
- * insertion marker in the bar. */
+/* The drop highlight: the rect is the zone itself — the half an edge drop
+ * lands in, or the strip a dock-edge drop makes — and the placeholder inside
+ * it is inset 4px, rounded like the cards, with a 2px accent stroke and a
+ * fifth of the accent as fill. The rect glides between zones over 0.25s
+ * (geometry only). */
 .dock-drop-preview__rect {
   position: absolute;
   box-sizing: border-box;
@@ -734,14 +594,5 @@
   border-radius: var(--radius-xl);
   background-color: var(--accent-tint-20);
   border: 2px solid var(--color-accent);
-  pointer-events: none;
-}
-
-/* The tab insertion gap: a bar-high accent line centred on the gap's x. */
-.dock-drop-preview__marker {
-  position: absolute;
-  width: 3px;
-  margin-left: -1px;
-  background-color: var(--color-accent);
   pointer-events: none;
 }

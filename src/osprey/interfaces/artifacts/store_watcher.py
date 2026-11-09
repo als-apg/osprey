@@ -1,14 +1,18 @@
 """File-system watcher for cross-process store index changes.
 
 Watches the store index file (artifacts.json) for modifications by external
-processes and broadcasts SSE events for any added or deleted entries.
+processes and broadcasts SSE events for every entry that was added, changed or
+removed there, plus the current head of every run group such a change touched.
 
-Same-process saves already update the store's ``_entries`` in memory, so
-the diff naturally produces nothing — no duplicate events.
+The baseline is a content hash per entry id, so a rewrite that changes an
+existing entry (a settle, a turn-end transcript stamp) is announced as an
+update, and a re-read of an unchanged index announces nothing.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import threading
@@ -35,6 +39,37 @@ from osprey.interfaces.fs_watch import (
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
 
 
+class _Known:
+    """What the handler last saw of one entry: its content hash and run group."""
+
+    __slots__ = ("digest", "exec_id")
+
+    def __init__(self, digest: str, exec_id: str) -> None:
+        self.digest = digest
+        self.exec_id = exec_id
+
+
+def _content_hash(entry: Any) -> str:
+    """A stable digest of everything *entry* stores in the index.
+
+    Hashes the entry's fields as they are, not ``to_dict()``: that deep-copies
+    and sanitizes every nested value, and this runs over the whole index on
+    every write another process makes to it, so on a store of thousands of
+    entries the copy is most of the cost. Any field that changes still changes
+    the digest.
+    """
+    encoded = json.dumps(vars(entry), sort_keys=True, default=str).encode("utf-8")
+    return hashlib.blake2b(encoded, digest_size=16).hexdigest()
+
+
+def _snapshot(store: Any, id_attr: str) -> dict[str, _Known]:
+    """Every entry of *store* mapped by id to its :class:`_Known` record."""
+    return {
+        getattr(e, id_attr): _Known(_content_hash(e), getattr(e, "exec_id", "") or "")
+        for e in store._entries
+    }
+
+
 class _IndexFileHandler(FileSystemEventHandler):
     """Watchdog handler that reacts to modifications of known index files."""
 
@@ -50,6 +85,8 @@ class _IndexFileHandler(FileSystemEventHandler):
                 - ``id_attr``: Attribute name for the entry ID (e.g. ``"id"``)
                 - ``event_type``: SSE event type for new entries (e.g. ``"context"``)
                 - ``delete_type``: SSE event type for deleted entries
+                - ``update_type``: SSE event type for changed entries and for
+                  the re-emitted head of a run group a change touched
                 - ``payload``: Callable turning an entry into the dict of
                   fields its SSE event carries after ``type``
             broadcaster: ``_SSEBroadcaster`` instance with ``.broadcast(data)``
@@ -67,12 +104,11 @@ class _IndexFileHandler(FileSystemEventHandler):
         # that already holds it. Re-entrant because a reconciliation pass enters
         # this handler through :meth:`on_modified` and so takes the lock twice.
         self._dispatch_lock = threading.RLock()
-        # Snapshot known entry IDs per store
-        self._known_ids: dict[str, set] = {}
-        for filename, cfg in index_configs.items():
-            store = cfg["store"]
-            id_attr = cfg["id_attr"]
-            self._known_ids[filename] = {getattr(e, id_attr) for e in store._entries}
+        # Snapshot each store's entries: id -> content hash and run group.
+        self._known: dict[str, dict[str, _Known]] = {
+            filename: _snapshot(cfg["store"], cfg["id_attr"])
+            for filename, cfg in index_configs.items()
+        }
 
     def on_modified(self, event: FileSystemEvent) -> None:
         with self._dispatch_lock:
@@ -133,12 +169,12 @@ class _IndexFileHandler(FileSystemEventHandler):
         per-file event would not have routed.
 
         Nothing is primed first, and nothing needs to be: this handler's
-        baseline is the entry-id snapshot ``__init__`` takes from each store, and
-        :meth:`_handle` broadcasts only ids that differ from it. A first pass
-        that re-reads an unchanged index therefore announces nothing, which is
-        the same reason a same-process save is already silent. That id diff is
-        also what makes a pass harmless after the stream has delivered an index
-        write: the ids match, so nothing is broadcast twice.
+        baseline is the per-entry content-hash snapshot ``__init__`` takes from
+        each store, and :meth:`_handle` broadcasts only entries that differ from
+        it. A first pass that re-reads an unchanged index therefore announces
+        nothing. That diff is also what makes a pass harmless after the stream
+        has delivered an index write: the hashes match, so nothing is broadcast
+        twice.
 
         A pass reads no directory below a watch directory, and there is nothing
         there for it to find: this handler routes only the index filenames it
@@ -211,10 +247,6 @@ class _IndexFileHandler(FileSystemEventHandler):
         cfg = self._index_configs[filename]
         store = cfg["store"]
         id_attr = cfg["id_attr"]
-        event_type = cfg["event_type"]
-        delete_type = cfg["delete_type"]
-
-        old_ids = self._known_ids[filename]
 
         try:
             store._load_index()
@@ -228,30 +260,64 @@ class _IndexFileHandler(FileSystemEventHandler):
         self._last_event[key] = now
         self._last_stamp[key] = stamp
 
-        new_ids = {getattr(e, id_attr) for e in store._entries}
+        old = self._known[filename]
+        new = _snapshot(store, id_attr)
+        self._known[filename] = new
+        self._broadcast_diff(cfg, old, new)
 
-        # Broadcast additions
-        added = new_ids - old_ids
-        for entry in store._entries:
-            if getattr(entry, id_attr) in added:
-                self._broadcaster.broadcast(
-                    {
-                        "type": event_type,
-                        **cfg["payload"](entry),
-                    }
-                )
+    def _broadcast_diff(
+        self, cfg: dict[str, Any], old: dict[str, _Known], new: dict[str, _Known]
+    ) -> None:
+        """Announce what differs between two snapshots of one index.
 
-        # Broadcast deletions
-        removed = old_ids - new_ids
+        Added ids go out as ``event_type`` and changed entries as
+        ``update_type``, both with the full payload; removed ids go out as
+        ``delete_type``. Every run group an added, changed or removed entry
+        belongs to then has its current head re-emitted as ``update_type``,
+        because a member's change can change the head's payload (its status,
+        its parts, or which entry heads the group at all). A head already
+        announced in this pass is not announced twice, and a group with no
+        members left has nothing to re-emit.
+        """
+        store = cfg["store"]
+        id_attr = cfg["id_attr"]
+        update_type = cfg.get("update_type", "artifact_updated")
+        by_id = {getattr(e, id_attr): e for e in store._entries}
+
+        added = [i for i in new if i not in old]
+        changed = [i for i in new if i in old and new[i].digest != old[i].digest]
+        removed = [i for i in old if i not in new]
+
+        touched: dict[str, None] = {}
+        for entry_id in (*added, *changed):
+            if new[entry_id].exec_id:
+                touched[new[entry_id].exec_id] = None
         for entry_id in removed:
-            self._broadcaster.broadcast(
-                {
-                    "type": delete_type,
-                    "id": entry_id,
-                }
-            )
+            if old[entry_id].exec_id:
+                touched[old[entry_id].exec_id] = None
 
-        self._known_ids[filename] = new_ids
+        announced: set[str] = set()
+        for entry_id in added:
+            self._broadcaster.broadcast(
+                {"type": cfg["event_type"], **cfg["payload"](by_id[entry_id])}
+            )
+            announced.add(entry_id)
+        for entry_id in changed:
+            self._broadcaster.broadcast({"type": update_type, **cfg["payload"](by_id[entry_id])})
+            announced.add(entry_id)
+        for entry_id in removed:
+            self._broadcaster.broadcast({"type": cfg["delete_type"], "id": entry_id})
+
+        run_group = getattr(store, "run_group", None)
+        if run_group is None:
+            return
+        for exec_id in touched:
+            group = run_group(exec_id)
+            head_id = group.head_id if group is not None else ""
+            if not head_id or head_id in announced or head_id not in by_id:
+                continue
+            self._broadcaster.broadcast({"type": update_type, **cfg["payload"](by_id[head_id])})
+            announced.add(head_id)
 
 
 class StoreIndexWatcher:
@@ -273,7 +339,7 @@ class StoreIndexWatcher:
             artifact_store: Store whose index this watcher reloads.
             observer_factory: Builds the watchdog observer — see
                 :data:`ObserverFactory`.
-            payload: Turns an added entry into the fields its SSE frame carries
+            payload: Turns an added or changed entry into the fields its SSE frame carries
                 after ``type``. The gallery passes the same function its
                 same-process frames use, so an entry another process saved
                 reaches the browser with the same fields, ``run_record``
@@ -291,6 +357,7 @@ class StoreIndexWatcher:
                 "id_attr": "id",
                 "event_type": "artifact",
                 "delete_type": "artifact_deleted",
+                "update_type": "artifact_updated",
                 "payload": payload,
             },
         }

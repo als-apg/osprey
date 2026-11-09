@@ -1,11 +1,12 @@
 """Shared info-tip contract: one "?" disc and bubble, every host.
 
-The BLUESKY panel's queue controls and the control-target popover's machine
-names each explain themselves behind a small round "?"/"i" that opens a bubble
-on hover and on keyboard focus. Before the design system carried this, each
-host drew its own — and a third and fourth variant (a click-toggled paragraph
-under the strip, an inline block under a form row) had already appeared.
-Nothing failed when a copy stopped matching. This is that missing failure.
+The control-target popover's machine names explain themselves behind a small
+round "?"/"i" that opens a bubble on hover and on keyboard focus. Before the
+design system carried this, each host drew its own — and a third and fourth
+variant (a click-toggled paragraph under the strip, an inline block under a
+form row) had already appeared. Nothing failed when a copy stopped matching.
+This is that missing failure. (The BLUESKY queue controls used it too, until
+their sentences moved into the queue status chip's info popover.)
 
 The contract is static and deliberately shallow: ``base.css`` must carry the
 shared classes with both reveal states, each host's markup or script must put
@@ -49,11 +50,8 @@ _IFACE = "src/osprey/interfaces"
 
 #: Every surface drawing the shared info tip.
 INFO_TIP_HOSTS = [
-    Host(
-        label="bluesky-queue",
-        source=f"{_IFACE}/bluesky_web/panels/bluesky/index.html",
-        styles=(f"{_IFACE}/bluesky_web/panels/bluesky/panel.css",),
-    ),
+    # bluesky-queue is gone: the "?" beside the queue controls became the
+    # status chip's info popover (panel chrome standard, DESIGN.md §12).
     Host(
         label="control-target",
         source=f"{_IFACE}/web_terminal/static/js/control-target-rows.js",

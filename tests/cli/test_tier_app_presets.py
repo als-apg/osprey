@@ -1,4 +1,4 @@
-"""Tests for the bundled tier and app presets and the control-assistant roster.
+"""Tests for the bundled tier and app presets and the demo roster.
 
 A bundled tier (``presets/tiers/<name>.yml``) is a small delta over the
 deployment's own profile: write pins, and the panels, skills and privilege
@@ -6,7 +6,7 @@ lifts that differ from the host. It carries no deployment fact
 and never subtracts, so its top-level keys stay within the tier-kind key set:
 the root set minus every deployment key, plus the per-render image keys.
 
-The ``control-assistant`` preset hosts its own multi-user web tier — nginx,
+The ``demo`` preset hosts its own multi-user web tier — nginx,
 the landing page, one terminal container per person on the roster, and one per
 shared app — alongside the full plan stack. Its people each name a TIER, an
 access level of the deployment's own agent; its ``shared:`` list names the APPS
@@ -46,7 +46,7 @@ privilege by name.
 
 Tiers and apps are read the way a build reads them: the bundled files laid into
 a deployment repo's ``tiers/`` and ``apps/`` beside the exemplar ``profile.yml``
-(the materialized control-assistant deployment), each loaded over that profile.
+(the materialized demo deployment), each loaded over that profile.
 """
 
 from __future__ import annotations
@@ -596,9 +596,9 @@ def _own_config(kind: str, name: str) -> dict:
 
 
 def _layered_repo(dest: Path) -> Path:
-    """A control-assistant deployment repo carrying the bundled tiers and apps.
+    """A demo deployment repo carrying the bundled tiers and apps.
 
-    The exemplar repo is the materialized ``control-assistant`` deployment; its
+    The exemplar repo is the materialized ``demo`` deployment; its
     ``tiers/`` and ``apps/`` are overwritten here with the bundled files
     themselves, so what loads and builds below is the shipped content laid over
     the shipped deployment, never a hand-kept copy of it.
@@ -636,7 +636,7 @@ def layers(layered_repo: Path) -> dict[str, BuildProfile]:
 
 
 def _render_config_overrides(
-    tmp_path: Path, seed: dict, preset: str = "control-assistant", *, config: dict | None = None
+    tmp_path: Path, seed: dict, preset: str = "demo", *, config: dict | None = None
 ) -> dict:
     """Render a ``config:`` layer onto ``seed`` exactly as the build pipeline
     does — via :func:`config_update_fields`, the same dot-notation writer
@@ -660,9 +660,7 @@ def _render_config_overrides(
     return yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
 
-def _render_deployable_config(
-    tmp_path: Path, repo: Path, preset: str = "control-assistant"
-) -> dict:
+def _render_deployable_config(tmp_path: Path, repo: Path, preset: str = "demo") -> dict:
     """The root config a real build produces from ``preset`` — renders included.
 
     :func:`_render_config_overrides` renders the preset's ``config:`` layer
@@ -671,7 +669,7 @@ def _render_deployable_config(
     without that projection is a shape the pipeline never emits. This applies
     the same projection, through the same function the build calls, over a repo
     that carries the bundled tiers and apps, with ``project_name`` = *preset* —
-    what a real ``osprey init --preset control-assistant`` proposes from a repo
+    what a real ``osprey init --preset demo`` proposes from a repo
     named after the preset.
     """
     config_path = tmp_path / "config.yml"
@@ -730,7 +728,7 @@ def _build_render_stack(repo: Path) -> Path:
 
     from osprey.cli.init_cmd import init
 
-    created = CliRunner().invoke(init, [str(repo), "--preset", "control-assistant", "--no-git"])
+    created = CliRunner().invoke(init, [str(repo), "--preset", "demo", "--no-git"])
     assert created.exit_code == 0, created.output
     return _build_layered_stack(repo)
 
@@ -756,7 +754,7 @@ def built_layered_stack(tmp_path_factory) -> Path:
 # ---------------------------------------------------------------------------
 
 
-class TestControlAssistantWebTier:
+class TestDemoWebTier:
     """The tutorial preset hosts its own web tier: block shape, port families
     clear of the tutorial's own service ports, and a lint-clean render."""
 
@@ -767,7 +765,7 @@ class TestControlAssistantWebTier:
         A nested mapping would deep-merge over the rendered ``modules`` subtree
         and drop sibling modules; the literal dotted key sets only its own leaf.
         """
-        base = resolve_preset("control-assistant")
+        base = resolve_preset("demo")
         assert WEB_TERMINALS_KEY in base.config
         assert "modules" not in base.config
         assert "facility" not in base.config
@@ -777,7 +775,7 @@ class TestControlAssistantWebTier:
         """The preset carries the web-terminals block plus the web-tier
         companion key ``deploy.fqdn`` for the landing URL — the hosting posture
         the tiers and apps below render beside."""
-        base = resolve_preset("control-assistant")
+        base = resolve_preset("demo")
         assert WEB_TERMINALS_KEY in base.config
         assert "deploy.fqdn" in base.config
 
@@ -888,7 +886,7 @@ class TestControlAssistantWebTier:
         """Every comment of the preset is copied into the operator's
         ``profile.yml``, so it teaches the current vocabulary only — the
         commented SSO example included, which spells ``roles.<r>.tier``."""
-        text = (_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8")
+        text = (_presets_dir() / "demo.yml").read_text(encoding="utf-8")
         assert re.findall(r"(?i)landing_group|access: any", text) == []
         assert "roles: {operator: {tier: readwrite}, viewer: {tier: readonly}}" in text
 
@@ -960,7 +958,7 @@ class TestControlAssistantWebTier:
         a per-user port collision (its family was missing from the port-family
         derivation) — the fix is per-user ports, never removing the feature.
         """
-        base = resolve_preset("control-assistant")
+        base = resolve_preset("demo")
         assert "channel-finder" in base.web_panels
         assert "ariel" in base.web_panels
 
@@ -977,7 +975,7 @@ class TestControlAssistantWebTier:
         derived from the bundled tiers and apps on disk rather than listed
         here, so one added later is covered without editing this test.
         """
-        assert "jupyter" in resolve_preset("control-assistant").web_panels
+        assert "jupyter" in resolve_preset("demo").web_panels
         assert list_tiers(), "no bundled tier"
         for tier in list_tiers():
             assert "jupyter" in layers[f"tiers/{tier}"].web_panels, tier
@@ -1077,7 +1075,7 @@ def _tier_screen_cells() -> dict[str, str]:
     return {name: " ".join(parts[-1].split()) for name, parts in cells.items()}
 
 
-class TestControlAssistantTiersAndApps:
+class TestDemoTiersAndApps:
     """The three tiers: identical renders except for the tier contract; the
     three apps: agents of their own on the deployment's services.
 
@@ -1095,14 +1093,14 @@ class TestControlAssistantTiersAndApps:
         """Every tier the roster can land a login on, and every app it
         shares, is one OSPREY ships — and every one OSPREY ships is reachable
         from the flagship roster, so none is dead weight in a fresh repo."""
-        wt = resolve_preset("control-assistant").config[WEB_TERMINALS_KEY]
+        wt = resolve_preset("demo").config[WEB_TERMINALS_KEY]
         assert sorted({user["tier"] for user in wt["users"]} | {wt["default_tier"]}) == list_tiers()
         assert sorted(wt["shared"]) == list_apps()
 
     def test_readonly_disables_writes(self, layers: dict[str, BuildProfile]) -> None:
         profile = layers["tiers/readonly"]
-        assert profile.name == "Control Assistant (Read-Only)"
-        assert _profile_data_bundle(profile) == "control_assistant"
+        assert profile.name == "OSPREY Demo (Read-Only)"
+        assert _profile_data_bundle(profile) == "demo"
         assert profile.config.get(WRITES_KEY) == "never"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
         # Flat dotted key, never nested YAML under config:.
@@ -1110,8 +1108,8 @@ class TestControlAssistantTiersAndApps:
 
     def test_readwrite_arms_the_simulator(self, layers: dict[str, BuildProfile]) -> None:
         profile = layers["tiers/readwrite"]
-        assert profile.name == "Control Assistant (Read-Write)"
-        assert _profile_data_bundle(profile) == "control_assistant"
+        assert profile.name == "OSPREY Demo (Read-Write)"
+        assert _profile_data_bundle(profile) == "demo"
         assert profile.config.get(WRITES_KEY) == "asked"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
         assert "control_system" not in _own_config("tiers", "readwrite")
@@ -1127,8 +1125,8 @@ class TestControlAssistantTiersAndApps:
         by subtraction. The deny is therefore expected to be present HERE as
         well; what differs is that it is cancelled."""
         profile = layers["tiers/admin"]
-        assert profile.name == "Control Assistant (Admin)"
-        assert _profile_data_bundle(profile) == "control_assistant"
+        assert profile.name == "OSPREY Demo (Admin)"
+        assert _profile_data_bundle(profile) == "demo"
         assert profile.config.get(WRITES_KEY) == "allowed"
         assert not _posture_keys(profile.config) - {WRITES_KEY}
         assert "control_system" not in _own_config("tiers", "admin")
@@ -1152,7 +1150,7 @@ class TestControlAssistantTiersAndApps:
         checked too — a floor that only held on the deployment while a tier
         quietly re-enabled a surface would pass a deployment-only assertion and
         still be broken. Every app inherits the same floor."""
-        base = resolve_preset("control-assistant")
+        base = resolve_preset("demo")
         assert base.config.get(DENY_KEY) == [SETUP_PATCH_TOOL]
         assert base.config.get(CONFIG_PANEL_KEY) is False
         assert base.config.get(GALLERY_WRITE_KEY) is False
@@ -1308,7 +1306,7 @@ class TestControlAssistantTiersAndApps:
         """The write-capable tier is supervised, not unguarded: the hooks that
         gate a write (writes-check, limits, approval) ship in the deployment
         and reach every tier."""
-        base = resolve_preset("control-assistant")
+        base = resolve_preset("demo")
         for hook in ("writes-check", "limits", "approval"):
             assert hook in base.hooks
             for tier in list_tiers():
@@ -1702,7 +1700,7 @@ def _pinned_rows_match_the_shipped_set(pinned: dict) -> None:
         f"apps/{name}" for name in list_apps()
     ]
     deployments = {key for key in pinned if "/" not in key}
-    assert deployments == {"control-assistant", "hello-world"}
+    assert deployments == {"demo", "hello-world"}
     assert deployments <= set(list_presets())
 
 
@@ -1712,7 +1710,7 @@ def _pinned_rows_match_the_shipped_set(pinned: dict) -> None:
 
 #: row -> the ``control_system.writes`` it renders. A row is a deployment
 #: preset by name, or a bundled tier or app as it loads over the
-#: control-assistant deployment (``tiers/<name>``, ``apps/<name>``).
+#: demo deployment (``tiers/<name>``, ``apps/<name>``).
 #:
 #: The rendered answer rather than the keys a file spells: a row reaches its
 #: posture through the tier key, through the retired ``writes_enabled`` leaves
@@ -1728,7 +1726,7 @@ PINNED_WRITE_POSTURE: dict[str, str] = {
     # The hosting preset arms writes at the prompting position; the read-only
     # tier is what takes them back, and this row is what makes that tier's
     # `never` load-bearing.
-    "control-assistant": "asked",
+    "demo": "asked",
     # No `control_system:` posture of its own; nothing has a write path to lose.
     "hello-world": "never",
     # The write-capable tiers.
@@ -1810,7 +1808,7 @@ class TestWritePostureMatrix:
     ) -> None:
         """Only admin offers the position that does not prompt: readwrite's
         ceiling is ``asked``, and each states its word in the tier key."""
-        assert layers["tiers/readwrite"].name == "Control Assistant (Read-Write)"
+        assert layers["tiers/readwrite"].name == "OSPREY Demo (Read-Write)"
         own = _own_config("tiers", tier)
         assert _stated_writes(own) == ceiling
         assert "control_system" not in own
@@ -1841,7 +1839,7 @@ class TestWritePostureMatrix:
 #: :data:`PINNED_WRITE_POSTURE`; every shipped deployment, tier and app
 #: appears, so a new one has to state its answer here before it ships.
 PINNED_CONTROL_TARGET_PICKER: dict[str, bool | None] = {
-    "control-assistant": None,
+    "demo": None,
     "hello-world": None,
     "tiers/admin": None,
     "tiers/readonly": None,
@@ -1892,7 +1890,7 @@ class TestControlTargetPicker:
 
 
 class TestWebTerminalContextShipped:
-    """Every built project — not just the ``control_assistant`` bundle —
+    """Every built project — not just the ``demo`` bundle —
     carries the ``docker/web-terminal-context/base.md`` that seeding
     requires. The framework ships a generic FALLBACK from its template root:
     ``modules.web_terminals.enabled`` is a config key any profile can turn
@@ -1913,7 +1911,7 @@ class TestWebTerminalContextShipped:
             TemplateManager(),
             project_name="ctx-ship-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
         base_md = project_dir / seeding._CONTEXT_RELPATH / "base.md"
@@ -1930,7 +1928,7 @@ class TestWebTerminalContextShipped:
         assert base_md.is_file()
         assert base_md.read_text(encoding="utf-8").strip() != ""
 
-    def test_non_control_assistant_bundle_ships_base_md(self, tmp_path: Path) -> None:
+    def test_non_demo_bundle_ships_base_md(self, tmp_path: Path) -> None:
         """A bundle that ships no render content of its own still gets the
         framework baseline."""
         from osprey.cli.templates.manager import TemplateManager
@@ -1946,10 +1944,8 @@ class TestWebTerminalContextShipped:
         assert base_md.is_file()
         assert base_md.read_text(encoding="utf-8").strip() != ""
 
-    def test_non_control_assistant_bundle_seeds_successfully(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
-        """A seeded roster on a non-control_assistant bundle reaches the
+    def test_non_demo_bundle_seeds_successfully(self, tmp_path: Path, monkeypatch) -> None:
+        """A seeded roster on a non-demo bundle reaches the
         CLAUDE.md write instead of aborting on a missing base.md — the
         pre-flight ``RuntimeError`` such a project hit before base.md became
         framework-layer.
