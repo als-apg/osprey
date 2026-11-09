@@ -305,8 +305,9 @@ tool server's ``writes:``, so every call is judged as a write, in this order:
       after approval must be the ones that were approved.
    ``require``
       The ``approved_*`` fields a call must carry (``all_of``, or exactly one
-      of each ``one_of`` group). A call that cannot be bound is refused, not
-      asked.
+      of each ``one_of`` group). A ``one_of`` group holds readback
+      (``bind.state_fields``) names only, never a digest. A call that cannot
+      be bound is refused, not asked.
 
 4. **The connector** judges the write once more and records it.
 

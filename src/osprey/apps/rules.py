@@ -446,6 +446,23 @@ def _check_tools(m: AppManifest, reserved: Reserved) -> list[Violation]:
                     f"{entry.tool} binds the input digest {digest.field!r}, which "
                     "require.all_of must name: every bound digest is required",
                 )
+        readbacks = {s.field for s in entry.bind.state_fields}
+        digests = {d.field for d in entry.bind.input_digests}
+        for i, group in enumerate(entry.require.one_of):
+            for name in group:
+                if name in readbacks or name not in produced:
+                    continue
+                what = (
+                    f"the input digest {name!r}, which require.all_of must name"
+                    if name in digests
+                    else f"{name!r}, which every approval records"
+                )
+                refuse(
+                    f"{at}.require.one_of.{i}",
+                    "one_of_readbacks",
+                    f"{entry.tool} puts {what} in a one_of group; a one_of group holds "
+                    "readback (bind.state_fields) names only, never a digest",
+                )
         for field, name in required:
             if name not in produced:
                 refuse(
