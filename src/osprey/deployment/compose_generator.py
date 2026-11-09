@@ -1226,18 +1226,53 @@ def configured_ariel_mirror_path(config):
         or ``None``
     :rtype: str | None
     """
+    mirror_path = _qmd_export_setting(config, "mirror_path")
+    if isinstance(mirror_path, str) and mirror_path.strip():
+        return mirror_path.strip()
+    return None
+
+
+#: The config path of the ``ariel`` corpus's embed switch, as error messages name it.
+ARIEL_QMD_EMBED_KEY = "ariel.enhancement_modules.qmd_export.settings.embed"
+
+
+def configured_ariel_embed(config):
+    """Whether the ``ariel`` corpus's sidecar computes vectors.
+
+    ``False`` builds the keyword index only, for a deployment whose ARIEL
+    search queries qmd's BM25 lane alone. Read with the same settings-wins rule
+    as :func:`configured_ariel_mirror_path`; default ``True``.
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: The switch
+    :rtype: bool
+    :raises ValueError: If the configured value is not a boolean
+    """
+    embed = _qmd_export_setting(config, "embed")
+    if embed is None:
+        return True
+    if not isinstance(embed, bool):
+        raise ValueError(f"{ARIEL_QMD_EMBED_KEY} must be true or false, got {embed!r}")
+    return embed
+
+
+def _qmd_export_setting(config, key):
+    """One key of an enabled ARIEL qmd export, or ``None``.
+
+    The key may be written on the module block or inside its ``settings:``
+    mapping; ARIEL's loader merges the two with ``settings`` winning, so a key
+    present there wins. A disabled or absent export names nothing.
+    """
     ariel = (config or {}).get("ariel")
     modules = ariel.get("enhancement_modules") if isinstance(ariel, dict) else None
     export = modules.get("qmd_export") if isinstance(modules, dict) else None
     if not isinstance(export, dict) or not export.get("enabled"):
         return None
     settings = export.get("settings")
-    mirror_path = export.get("mirror_path")
-    if isinstance(settings, dict) and settings.get("mirror_path"):
-        mirror_path = settings["mirror_path"]
-    if isinstance(mirror_path, str) and mirror_path.strip():
-        return mirror_path.strip()
-    return None
+    if isinstance(settings, dict) and key in settings:
+        return settings[key]
+    return export.get(key)
 
 
 def resolve_ariel_mirror_dir(

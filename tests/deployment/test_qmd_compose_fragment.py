@@ -632,6 +632,25 @@ def test_mirror_path_is_read_from_settings_when_present():
     assert "./data/real_mirror:/corpus/ariel:ro" in service["volumes"]
 
 
+def _export(**fields) -> dict:
+    """A config whose ARIEL qmd export is on, with *fields* on its block."""
+    return {"ariel": {"enhancement_modules": {"qmd_export": {"enabled": True, **fields}}}}
+
+
+def test_ariel_embed_switch_reads_the_nested_spelling_first():
+    """``embed`` follows the same settings-wins rule as ``mirror_path``, and a
+    ``false`` in ``settings`` wins over a ``true`` beside it."""
+    from osprey.deployment.compose_generator import configured_ariel_embed
+
+    assert configured_ariel_embed({}) is True
+    assert configured_ariel_embed(_export()) is True
+    assert configured_ariel_embed(_export(embed=False)) is False
+    assert configured_ariel_embed(_export(embed=True, settings={"embed": False})) is False
+    assert configured_ariel_embed(_export(embed=False, settings={"embed": True})) is True
+    with pytest.raises(ValueError, match=r"qmd_export\.settings\.embed must be true or false"):
+        configured_ariel_embed(_export(settings={"embed": "no"}))
+
+
 # ---------------------------------------------------------------------------
 # The rest of the fragment
 # ---------------------------------------------------------------------------
