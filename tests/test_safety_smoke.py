@@ -6,7 +6,7 @@ requiring API keys, containers, or real hardware. Tests run the hook chain
 directly against the VAInProcessConnector.
 
 Scenarios mirror what an operator would manually test after setting up
-a new control_assistant project:
+a new demo project:
 
   1. Read channel        → passes through, no hooks fire
   2. Write within limits → approval hook asks

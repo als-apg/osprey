@@ -296,7 +296,7 @@ def test_render_document_composes_an_app_and_merges_a_tier() -> None:
 def _shipped() -> tuple[dict[str, Any], Path]:
     from osprey.cli.build_profile import resolve_build_profile
 
-    resolved, profile_dir = resolve_build_profile(None, "control-assistant")
+    resolved, profile_dir = resolve_build_profile(None, "demo")
     return copy.deepcopy(resolved.config), Path(profile_dir)
 
 

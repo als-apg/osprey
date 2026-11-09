@@ -22,8 +22,9 @@ Subcommands:
     report            opens, updates or closes the one ``Full CI red on main``
                       issue from the newest completed revalidation run
 
-Standard library only; every GitHub call goes through ``gh``, injected so the
-selection logic runs on recorded JSON in tests.
+Standard library and the repository's own ``scripts/`` modules only; every
+GitHub call goes through ``gh``, injected so the selection logic runs on recorded
+JSON in tests.
 
 Usage:
     python3 scripts/ci/full_ci_on_main.py should-dispatch
@@ -38,23 +39,16 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
-#: Spending-lane job id -> prefix of its rendered job name. A matrix lane
-#: renders one job per cell, so a prefix is the only stable handle.
-#: tests/deployment/test_ci_workflow_wiring.py pins this map against ci.yml.
-SPENDING_LANES = {
-    "agentic-per-preset": "Tier 3 — Agentic flow",
-    "e2e-tests": "E2E Tests",
-    "dispatch-deploy-e2e": "Dispatch Deploy E2E",
-    "single-user-narrowing-e2e": "Single-User Narrowing E2E",
-    "host-record-e2e": "Host Record E2E",
-    "dispatch-overlay-e2e": "Dispatch Overlay E2E",
-    "scan-agentic-e2e": "Scan Stack Agentic E2E",
-    "nextcloud-talk-bridge-e2e": "Nextcloud Talk Bridge E2E",
-    "gchat-bridge-e2e": "Google Chat Bridge E2E",
-    "target-switch-agentic-e2e": "Control-Target Switch Agentic E2E",
-}
+# scripts/ is not a package; check.py and the checks modules import by name from it.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import check
+
+#: Spending-lane job id -> prefix of its rendered job name, read from the lanes
+#: check.py collects: each lane the LANES tables mark ``why="models"``.
+SPENDING_LANES: dict[str, str] = check.kit.spending(check.LANES)
 #: Lanes that run on a dispatch only when ``revalidate_secret_lanes`` is set.
 _REVALIDATION_MARKERS = tuple(
     prefix for lane, prefix in SPENDING_LANES.items() if lane != "e2e-tests"

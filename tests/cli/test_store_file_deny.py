@@ -45,7 +45,7 @@ def _settings(project: Path) -> dict:
 
 
 def _project(tmp_path: Path, name: str, fields: dict | None = None) -> Path:
-    """A rendered control-assistant project, regenerated with *fields* applied."""
+    """A rendered demo project, regenerated with *fields* applied."""
     from osprey.utils.config_writer import config_update_fields
     from tests.cli._template_projects import create_project_with_manifest
     from tests.cli.test_profile_to_claude_contract import _apply_preset_config
@@ -55,11 +55,11 @@ def _project(tmp_path: Path, name: str, fields: dict | None = None) -> Path:
         manager,
         project_name=name,
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
-        data_root=bundle_data_root("control_assistant"),
+        data_root=bundle_data_root("demo"),
     )
-    _apply_preset_config(manager, project, "control-assistant")
+    _apply_preset_config(manager, project, "demo")
     if fields:
         config_update_fields(project / "config.yml", fields)
     manager.regenerate_claude_code(project)

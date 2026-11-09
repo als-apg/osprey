@@ -18,7 +18,8 @@ each of them, so a new suite cannot reintroduce the leak by forgetting to stamp.
 
 from __future__ import annotations
 
-from contextlib import ExitStack, contextmanager
+import os
+from contextlib import ExitStack, contextmanager, redirect_stderr
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
@@ -484,6 +485,70 @@ def _launched_browser(engine: str) -> Iterator[Browser]:
     finally:
         browser.close()
         pw.stop()
+
+
+#: Per process, each engine's skip reason (``None`` when it launches), probed once.
+_ENGINE_SKIP_REASONS: dict[str, str | None] = {}
+
+
+def _engine_skip_reason(engine: str) -> str | None:
+    """Why :func:`_launched_browser` would skip for ``engine``, or ``None`` if it would not.
+
+    The probe is the fixture's own launch, so the reason text is the one its
+    skip would give. On a host without the binary the launch fails before any
+    browser starts; Playwright is stopped on every path, as in the fixture.
+
+    The probe runs at collection, outside output capture, and Playwright hands
+    its Node driver ``sys.stderr``'s descriptor: the session's real stderr, a
+    pipe the xdist controller writes its report to. Node switches an inherited
+    pipe to non-blocking while it runs, and a controller write that meets a
+    full pipe then fails with ``BlockingIOError``. The driver gets ``/dev/null``.
+    """
+    if engine not in _ENGINE_SKIP_REASONS:
+        reason = None
+        if not _PLAYWRIGHT_AVAILABLE:
+            reason = "playwright package not installed"
+        else:
+            with open(os.devnull, "w") as sink, redirect_stderr(sink):
+                pw = sync_playwright().start()
+                try:
+                    getattr(pw, engine).launch(headless=True).close()
+                except Exception as exc:
+                    reason = f"{engine} binary not available: {exc}"
+                finally:
+                    pw.stop()
+        _ENGINE_SKIP_REASONS[engine] = reason
+    return _ENGINE_SKIP_REASONS[engine]
+
+
+def _requested_fixtures(item: pytest.Item) -> set[str]:
+    """The fixtures ``item`` requests: its closure, plus any named by a parametrized fixture."""
+    callspec = getattr(item, "callspec", None)
+    params = callspec.params.values() if callspec else ()
+    return set(getattr(item, "fixturenames", ())) | {p for p in params if isinstance(p, str)}
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Skip, before any setup, every test that needs a browser engine this host lacks.
+
+    Without this, a test whose ``<engine>_browser`` fixture is going to skip
+    first builds every fixture it requests ahead of it (a deployment, a served
+    hub) and starts a Playwright driver, only to throw both away. A test needs
+    an engine when its fixture closure holds that engine's fixture, or when a
+    parametrized fixture is handed the fixture's name to request it by. Runs
+    last, so tests deselected by ``-m``/``-k`` cost no probe. The fixture's own
+    skip stays as the fallback for a launch that fails only later.
+    """
+    here = Path(__file__).parent
+    for item in items:
+        if not item.path.is_relative_to(here):
+            continue  # the hook sees the whole session; the fixtures live only here
+        requested = _requested_fixtures(item)
+        for engine in BROWSER_ENGINES:
+            if f"{engine}_browser" in requested and (reason := _engine_skip_reason(engine)):
+                item.add_marker(pytest.mark.skip(reason=reason))
+                break
 
 
 @pytest.fixture

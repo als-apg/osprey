@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 from click.testing import CliRunner
@@ -53,10 +53,10 @@ def _render_roots(repo: Path) -> list[Path]:
 
 
 def test_every_render_root_carries_a_byte_equal_facility_file(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    roots = _render_roots(built_control_assistant.repo)
-    build_dir = built_control_assistant.repo / BUILD_DIR_NAME
+    roots = _render_roots(built_demo.repo)
+    build_dir = built_demo.repo / BUILD_DIR_NAME
     assert any(root.parent == build_dir for root in roots)
     assert any(IMAGE_DIR_NAME in root.parts for root in roots)
     assert (build_dir / IMAGE_DIR_NAME / REPO / BUILD_DIR_NAME) in roots
@@ -70,10 +70,10 @@ def test_every_render_root_carries_a_byte_equal_facility_file(
 
 
 def test_the_facility_file_is_written_only_through_render_facility_outputs(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    outputs = built_control_assistant.outputs
-    assert len(outputs) == len(_render_roots(built_control_assistant.repo))
+    outputs = built_demo.outputs
+    assert len(outputs) == len(_render_roots(built_demo.repo))
     # The Bluesky view rides only on a render that runs a Bluesky lane, and the
     # hierarchical channel index only on the one render that selects the
     # hierarchical pipeline: the channel-finder app's.
@@ -112,36 +112,36 @@ def test_the_facility_file_is_written_only_through_render_facility_outputs(
 
 
 def test_the_facility_file_is_the_demo_facility_without_build_facts(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    raw = built_control_assistant.facility_raw
+    raw = built_demo.facility_raw
     document = json.loads(raw)
 
     assert document["schema"] == FACILITY_HEADER
     assert document["identity"]["code"] == "ca"
     assert document["models"][-1] == {"name": TEXTURE, "engine": TEXTURE}
     assert raw.endswith(b"}\n")
-    assert str(built_control_assistant.repo).encode() not in raw
-    assert str(built_control_assistant.repo.resolve()).encode() not in raw
+    assert str(built_demo.repo).encode() not in raw
+    assert str(built_demo.repo.resolve()).encode() not in raw
     assert {"version", "timestamp", "built_at", "generated_at"}.isdisjoint(document)
 
 
 def test_equal_sources_hash_equal_across_two_builds(
-    built_control_assistant: BuiltProject, tmp_path_factory: pytest.TempPathFactory
+    built_demo: BuiltProject, tmp_path_factory: pytest.TempPathFactory
 ) -> None:
     """A second build of the same ``data/facility/`` elsewhere gives the same bytes."""
     other = init_project(tmp_path_factory.mktemp("second"), "hello-world", REPO)
     shutil.rmtree(other / "data" / "facility")
-    shutil.copytree(built_control_assistant.repo / "data" / "facility", other / "data" / "facility")
+    shutil.copytree(built_demo.repo / "data" / "facility", other / "data" / "facility")
 
     result = _build(other, "--skip-deps")
     assert result.exit_code == 0, result.output
 
     assert facility_digest(other / "data" / "facility") == facility_digest(
-        built_control_assistant.repo / "data" / "facility"
+        built_demo.repo / "data" / "facility"
     )
     assert (other / BUILD_DIR_NAME / FACILITY_FILE).read_bytes() == (
-        built_control_assistant.repo / BUILD_DIR_NAME / FACILITY_FILE
+        built_demo.repo / BUILD_DIR_NAME / FACILITY_FILE
     ).read_bytes()
 
 
@@ -151,7 +151,7 @@ def test_a_facility_stop_ends_the_build_before_the_venv(
     """The one build here without ``--skip-deps``: the venv step is a spy that must not run."""
     from osprey.cli import build_cmd
 
-    def venv_spy(*args: Any, **kwargs: Any) -> list[str]:
+    def venv_spy(*args: Any, **kwargs: Any) -> NoReturn:
         raise AssertionError("the project venv was created before the facility stop")
 
     monkeypatch.setattr(build_cmd, "_create_project_venv", venv_spy)

@@ -39,14 +39,12 @@ SECTOR_BPMS = [
 ]
 
 
-def test_the_first_sector_bpms_by_position(built_control_assistant: BuiltProject) -> None:
+def test_the_first_sector_bpms_by_position(built_demo: BuiltProject) -> None:
     from rdflib import Graph
 
     from osprey.facility.views.graph import GRAPH_FILE
 
-    graph = Graph().parse(
-        built_control_assistant.build_dir / "data" / "graph" / GRAPH_FILE, format="turtle"
-    )
+    graph = Graph().parse(built_demo.build_dir / "data" / "graph" / GRAPH_FILE, format="turtle")
 
     rows = [(str(row.id), float(row.s)) for row in graph.query(SECTOR_QUERY)]
 

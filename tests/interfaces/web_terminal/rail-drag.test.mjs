@@ -33,11 +33,9 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/dock-workspace.js
   setLayoutRestoredHook: () => {},
   setServiceRedock: () => {},
 }));
-vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/popout.js', () => ({
-  popOutPanel: vi.fn(),
-  canPopOut: () => true,
-  isPoppedOut: () => false,
-  onPopoutChange: () => {},
+vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/pane-window.js', () => ({
+  detach: vi.fn(),
+  detachBlocker: () => null,
 }));
 vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/tile-header-contrib.js', () => ({
   registerContribHost: () => {},

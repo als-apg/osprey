@@ -3,6 +3,7 @@
 Covers:
   - Detection of new artifact entries written externally
   - Detection of deleted entries
+  - Changed entries and the re-emitted head of each run group they touch
   - Debounce behaviour
   - Ignoring non-index files
   - Handling of corrupt (invalid JSON) index files
@@ -25,7 +26,7 @@ from watchdog.observers.polling import PollingObserver
 
 from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher, _IndexFileHandler
 from osprey.interfaces.fs_watch import one_level_listing
-from osprey.stores.artifact_store import ArtifactStore, is_run_record
+from osprey.stores.artifact_store import ArtifactStore, is_run_record, owner_of
 from tests.interfaces.fsevents_wait import poke_until, wait_for, wait_for_polling_baseline
 
 
@@ -112,7 +113,7 @@ def _index_handler(tmp_path, broadcaster):
 
     The 100 ms debounce keys on the path; the classes below deliver frames back
     to back on purpose, because what has to keep a repeat quiet is the listing
-    diff and the entry-id snapshot rather than the clock.
+    diff and the content-hash snapshot rather than the clock.
     """
     watcher = StoreIndexWatcher(
         workspace_root=tmp_path,
@@ -660,11 +661,10 @@ class TestAReconciliationPass:
     what differs through the same door a delivered frame takes.
 
     Nothing is primed here, and nothing needs to be: this handler's baseline is
-    the entry-id snapshot it takes from each store at construction, and only ids
-    that differ from it are broadcast. A first pass over an unchanged index
-    therefore announces nothing — the same reason a same-process save is already
-    silent — and that id diff is also what keeps a pass quiet after the stream
-    has delivered the write itself.
+    the per-entry content-hash snapshot it takes from each store at
+    construction, and only entries that differ from it are broadcast. A first
+    pass over an unchanged index therefore announces nothing, and that diff is
+    also what keeps a pass quiet after the stream has delivered the write itself.
     """
 
     def _announced(self, broadcaster):
@@ -770,6 +770,190 @@ class TestAReconciliationPass:
         broadcaster.reset_mock()
 
         (artifacts_dir / "random_file.json").write_text('{"data": "test"}')
+        handler.reconcile((artifacts_dir,))
+
+        assert broadcaster.broadcast.call_count == 0
+
+
+def _group_payload(entry):
+    """The test payload plus what the live-update cases read: owner and group."""
+    return {
+        **_payload(entry),
+        "owner": owner_of(entry, None),
+        "exec_id": entry.exec_id,
+    }
+
+
+class TestLiveUpdatesAcrossProcesses:
+    """Changes to existing entries, and the run groups they touch, reach the browser.
+
+    Two ``ArtifactStore`` instances on one workspace stand in for two processes:
+    the watcher's own store, and the one that writes. Frames are driven through
+    the reconciliation pass so the diff, not the notification stream, decides
+    what is broadcast.
+    """
+
+    EXEC = "exec-0001"
+
+    def _setup(self, tmp_path):
+        writer = ArtifactStore(workspace_root=tmp_path)
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        return writer, artifacts_dir
+
+    def _handler(self, tmp_path, broadcaster):
+        watched = ArtifactStore(workspace_root=tmp_path)
+        watcher = StoreIndexWatcher(
+            workspace_root=tmp_path,
+            broadcaster=broadcaster,
+            artifact_store=watched,
+            payload=_group_payload,
+        )
+        handler = _IndexFileHandler(watcher._index_configs, broadcaster)
+        handler._debounce_seconds = 0
+        return handler, watched
+
+    def _announced(self, broadcaster):
+        return [call.args[0] for call in broadcaster.broadcast.call_args_list]
+
+    def _save(self, store, title, part, *, exec_id=EXEC, metadata=None):
+        meta = {"run_part": part} if part else {}
+        meta.update(metadata or {})
+        return store.save_file(
+            file_content=f"<html>{title}</html>".encode(),
+            filename=f"{title.replace(' ', '_')}.html",
+            artifact_type="plot_html",
+            title=title,
+            description=title,
+            mime_type="text/html",
+            tool_source="test",
+            metadata=meta,
+            exec_id=exec_id,
+        )
+
+    def test_a_settle_sends_an_update_for_the_preview_and_the_head(self, tmp_path):
+        writer, artifacts_dir = self._setup(tmp_path)
+        code = self._save(writer, "Notebook", "code")
+        preview = self._save(writer, "Preview", "preview")
+        output = self._save(writer, "Output", "output")
+        broadcaster = MagicMock()
+        handler, watched = self._handler(tmp_path, broadcaster)
+
+        assert writer.merge_entry_metadata({preview.id: {"settled": "not_run"}}) == 1
+        handler.reconcile((artifacts_dir,))
+
+        frames = self._announced(broadcaster)
+        assert all(f["type"] == "artifact_updated" for f in frames)
+        head_id = watched.run_group(self.EXEC).head_id
+        assert head_id == preview.id
+        updated = [f for f in frames if f["id"] == preview.id]
+        assert len(updated) == 1
+        assert updated[0]["metadata"]["settled"] == "not_run"
+        assert {f["id"] for f in frames} == {preview.id}
+        assert code.id not in {f["id"] for f in frames}
+        assert output.id not in {f["id"] for f in frames}
+
+    def test_a_changed_member_re_emits_its_groups_head(self, tmp_path):
+        writer, artifacts_dir = self._setup(tmp_path)
+        preview = self._save(writer, "Preview", "preview")
+        output = self._save(writer, "Output", "output")
+        broadcaster = MagicMock()
+        handler, _ = self._handler(tmp_path, broadcaster)
+
+        writer.merge_entry_metadata({output.id: {"note": "rewritten"}})
+        handler.reconcile((artifacts_dir,))
+
+        frames = self._announced(broadcaster)
+        assert [(f["type"], f["id"]) for f in frames] == [
+            ("artifact_updated", output.id),
+            ("artifact_updated", preview.id),
+        ]
+
+    def test_a_result_after_an_in_flight_preview_re_emits_the_group_with_it_as_head(self, tmp_path):
+        writer, artifacts_dir = self._setup(tmp_path)
+        preview = self._save(writer, "Preview", "preview")
+        broadcaster = MagicMock()
+        handler, watched = self._handler(tmp_path, broadcaster)
+        assert watched.run_group(self.EXEC).head_id == preview.id
+
+        output = self._save(writer, "Output", "output")
+        result = self._save(writer, "Result", "result")
+        handler.reconcile((artifacts_dir,))
+
+        frames = self._announced(broadcaster)
+        assert watched.run_group(self.EXEC).head_id == result.id
+        assert ("artifact", output.id) in [(f["type"], f["id"]) for f in frames]
+        assert ("artifact", result.id) in [(f["type"], f["id"]) for f in frames]
+        # The head goes out once, with its post-change payload, never twice.
+        assert [f["id"] for f in frames].count(result.id) == 1
+        assert preview.id not in {f["id"] for f in frames}
+
+    def test_a_deleted_result_re_emits_the_preview_as_head(self, tmp_path):
+        writer, artifacts_dir = self._setup(tmp_path)
+        preview = self._save(writer, "Preview", "preview")
+        output = self._save(writer, "Output", "output")
+        result = self._save(writer, "Result", "result")
+        broadcaster = MagicMock()
+        handler, watched = self._handler(tmp_path, broadcaster)
+
+        writer.delete_entry(result.id)
+        handler.reconcile((artifacts_dir,))
+
+        frames = [(f["type"], f["id"]) for f in self._announced(broadcaster)]
+        assert watched.run_group(self.EXEC).head_id == preview.id
+        assert frames == [
+            ("artifact_deleted", result.id),
+            ("artifact_updated", preview.id),
+        ]
+        assert output.id not in {i for _, i in frames}
+
+    def test_a_turn_end_stamp_sends_an_update_with_the_new_owner(self, tmp_path):
+        writer, artifacts_dir = self._setup(tmp_path)
+        upload = self._save(writer, "Upload", None, exec_id="")
+        broadcaster = MagicMock()
+        handler, _ = self._handler(tmp_path, broadcaster)
+        transcript = "0b4d7c1e-6a51-4f1a-9a64-3c0f1f8f2a10"
+
+        writer.merge_entry_metadata({upload.id: {"transcript_id": transcript}})
+        handler.reconcile((artifacts_dir,))
+
+        frames = self._announced(broadcaster)
+        assert len(frames) == 1
+        assert frames[0]["type"] == "artifact_updated"
+        assert frames[0]["id"] == upload.id
+        assert frames[0]["owner"] == transcript
+
+    def test_a_group_delete_sends_a_deletion_per_entry(self, tmp_path):
+        writer, artifacts_dir = self._setup(tmp_path)
+        code = self._save(writer, "Notebook", "code")
+        preview = self._save(writer, "Preview", "preview")
+        output = self._save(writer, "Output", "output")
+        result = self._save(writer, "Result", "result")
+        bystander = self._save(writer, "Bystander", None, exec_id="")
+        broadcaster = MagicMock()
+        handler, _ = self._handler(tmp_path, broadcaster)
+
+        removed = writer.delete_with_group(result.id)
+        assert {e.id for e in removed} == {code.id, preview.id, output.id, result.id}
+        handler.reconcile((artifacts_dir,))
+
+        frames = self._announced(broadcaster)
+        assert all(f["type"] == "artifact_deleted" for f in frames)
+        assert sorted(f["id"] for f in frames) == sorted(
+            [code.id, preview.id, output.id, result.id]
+        )
+        assert bystander.id not in {f["id"] for f in frames}
+
+    def test_an_unchanged_reload_sends_nothing(self, tmp_path):
+        writer, artifacts_dir = self._setup(tmp_path)
+        self._save(writer, "Preview", "preview")
+        self._save(writer, "Output", "output")
+        self._save(writer, "Upload", None, exec_id="")
+        broadcaster = MagicMock()
+        handler, _ = self._handler(tmp_path, broadcaster)
+
+        writer._save_index()
+        handler.reconcile((artifacts_dir,))
         handler.reconcile((artifacts_dir,))
 
         assert broadcaster.broadcast.call_count == 0

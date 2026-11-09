@@ -4,7 +4,7 @@ filter (always open above eight artifacts) and a ⋯ menu with **All sessions**
 and **Refresh**. The **Script runs** row lists the records of executed
 scripts: the approval review, the notebook and the result record. The
 artifacts pane shows one artifact under one header row: `Artifacts › <title>`,
-‹ › with `N of M` to go through the list, **Open full size** and **Save**. Pin,
+‹ › with `N of M` to go through the list, **Open full size** and **Save**.
 Print, Compose logbook entry and Delete are in the pane's ⋯ menu. The panel
 label is now `Artifacts` (it was `WORKSPACE`). The gallery has no Simple layout
 now: in its own window, it shows the full gallery in both views.

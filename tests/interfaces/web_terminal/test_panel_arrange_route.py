@@ -3,10 +3,10 @@
 An arrangement is a dock op relayed to the current dock client like every other
 agent write (see ``test_panel_op_route.py`` for the transport). These tests pin
 what the server itself decides for the two arrangement ops: the members and
-layout it relays, the terminal invariant, and the rail effect once the dock
-shows the result. A preset in ``app.state.panel_presets`` is what the app's
-loader resolves from ``web.presets``: ``{name, panels, layout}``, the layout over
-panel ids it opens.
+layout it relays, the terminal invariant, one panel per tile, and the rail
+effect once the dock shows the result. A preset in ``app.state.panel_presets``
+is what the app's loader resolves from ``web.presets``: ``{name, panels,
+layout}``, the layout over panel ids it opens.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import pytest
 from fastapi import FastAPI
 
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster
+from osprey.interfaces.web_terminal.presets import ONE_PANEL_PER_TILE_TEXT
 from osprey.interfaces.web_terminal.routes.panel_ops import router as ops_router
 from osprey.interfaces.web_terminal.routes.panels import router
 
@@ -114,7 +115,7 @@ class TestOpenSet:
         _, _, frames = await _arrange(
             app,
             "/api/panel-op/open-set",
-            {"members": ["grafana", "ariel"], "as": "tabs"},
+            {"members": ["grafana", "ariel"], "as": "side"},
             _side_by_side("grafana", "ariel"),
         )
         assert app.state.visible_panels == ["artifacts", "grafana", "ariel"]
@@ -124,7 +125,7 @@ class TestOpenSet:
     @pytest.mark.parametrize(
         ("body", "reason"),
         [
-            ({"members": ["terminal"], "as": "tabs"}, "terminal_in_layout"),
+            ({"members": ["terminal"], "as": "side"}, "terminal_in_layout"),
             ({"members": ["ariel", "nope"], "as": "side"}, "unknown_member"),
             ({"members": ["ariel", "ariel"], "as": "side"}, "duplicate_member"),
             ({"members": ["ariel"], "as": "layout"}, "invalid_layout"),
@@ -138,6 +139,10 @@ class TestOpenSet:
                 "member_missing",
             ),
             ({"members": ["ariel"], "as": "layout", "layout": {"slot": 0}}, "not_layout"),
+            (
+                {"members": ["ariel", "lattice"], "as": "layout", "layout": {"tabs": [0, 1]}},
+                "one_panel_per_tile",
+            ),
         ],
         ids=[
             "terminal-member",
@@ -148,6 +153,7 @@ class TestOpenSet:
             "terminal-in-layout",
             "member-unplaced",
             "old-shape",
+            "two-panels-in-a-tile",
         ],
     )
     async def test_refusals_are_named_and_relay_nothing(self, body, reason):
@@ -158,12 +164,32 @@ class TestOpenSet:
         assert frame is None
         assert app.state.visible_panels == []
 
-    async def test_an_empty_set_is_a_bad_request(self):
+    async def test_two_panels_in_one_tile_are_refused_with_where_they_are(self):
+        """Every member is placed, and the layout keeps the grammar: only the policy refuses it."""
         app = _app()
+        layout = {"split": "row", "items": [{"tabs": [0]}, {"tabs": [1, 2], "showing": 2}]}
         resp, frame, _ = await _arrange(
-            app, "/api/panel-op/open-set", {"members": [], "as": "tabs"}
+            app,
+            "/api/panel-op/open-set",
+            {"members": ["ariel", "lattice", "grafana"], "as": "layout", "layout": layout},
         )
         assert resp.status_code == 422
+        assert resp.json()["reason"] == "one_panel_per_tile"
+        assert resp.json()["detail"] == (
+            f"layout.items[1].tabs: one_panel_per_tile: {ONE_PANEL_PER_TILE_TEXT}"
+        )
+        assert frame is None
+
+    @pytest.mark.parametrize("as_", ["side", "tabs"], ids=["empty", "tabs-mode"])
+    async def test_an_empty_set_or_a_tabs_mode_is_a_bad_request(self, as_):
+        """``as`` is ``side`` or ``layout``: there is no mode that stacks panels in one tile."""
+        app = _app()
+        members = [] if as_ == "side" else ["ariel", "lattice"]
+        resp, frame, _ = await _arrange(
+            app, "/api/panel-op/open-set", {"members": members, "as": as_}
+        )
+        assert resp.status_code == 422
+        assert "reason" not in resp.json()
         assert frame is None
 
 
@@ -203,8 +229,33 @@ class TestOpenArrangement:
             ("arrange_workspace", "L1")
         ]
 
-    async def test_a_tabbed_layout_keeps_its_showing_and_weights(self):
-        """The members are the layout's tabs in reading order; showing and sizes carry over by index."""
+    async def test_a_layout_keeps_its_showing_and_weights(self):
+        """The members are the layout's panels in reading order; showing and sizes carry over by index."""
+        layout = {
+            "split": "column",
+            "items": [
+                {"tabs": ["lattice"], "showing": "lattice", "size": 3},
+                {"tabs": ["grafana"]},
+            ],
+        }
+        app = _app(panel_presets=[_preset("L1", "lattice", "grafana", layout=layout)])
+        _, frame, _ = await _arrange(
+            app,
+            "/api/panel-op/open-arrangement",
+            {"name": "L1"},
+            _side_by_side("lattice", "grafana"),
+        )
+        assert frame["args"]["members"] == ["lattice", "grafana"]
+        assert frame["args"]["layout"] == {
+            "split": "column",
+            "items": [
+                {"tabs": [0], "showing": 0, "size": 0.75},
+                {"tabs": [1], "showing": 1, "size": 0.25},
+            ],
+        }
+
+    async def test_a_preset_with_two_panels_in_a_tile_is_refused(self):
+        """``resolve_preset`` refuses it by name, whatever the startup loader let through."""
         layout = {
             "split": "column",
             "items": [
@@ -212,21 +263,18 @@ class TestOpenArrangement:
                 {"tabs": ["grafana"]},
             ],
         }
-        app = _app(panel_presets=[_preset("L1", "ariel", "lattice", "grafana", layout=layout)])
-        _, frame, _ = await _arrange(
-            app,
-            "/api/panel-op/open-arrangement",
-            {"name": "L1"},
-            _side_by_side("lattice", "grafana"),
+        app = _app(
+            panel_presets=[_preset("L1", "ariel", "lattice", "grafana", layout=layout)],
+            visible_panels=["artifacts"],
         )
-        assert frame["args"]["members"] == ["ariel", "lattice", "grafana"]
-        assert frame["args"]["layout"] == {
-            "split": "column",
-            "items": [
-                {"tabs": [0, 1], "showing": 1, "size": 0.75},
-                {"tabs": [2], "showing": 2, "size": 0.25},
-            ],
-        }
+        resp, frame, _ = await _arrange(app, "/api/panel-op/open-arrangement", {"name": "L1"})
+        assert resp.status_code == 422
+        assert resp.json()["reason"] == "one_panel_per_tile"
+        assert resp.json()["detail"] == (
+            f"layout.items[0].tabs: one_panel_per_tile: {ONE_PANEL_PER_TILE_TEXT}"
+        )
+        assert frame is None
+        assert app.state.visible_panels == ["artifacts"]
 
     async def test_a_layout_naming_the_terminal_is_refused(self):
         app = _app(panel_presets=[_preset("L1", "terminal", "ariel")])
@@ -255,10 +303,20 @@ class TestOpenArrangement:
         _, frame, _ = await _arrange(
             app,
             "/api/panel-op/open-arrangement",
-            {"name": "L1", "as": "tabs"},
+            {"name": "L1", "as": "side"},
             _side_by_side("ariel"),
         )
-        assert frame["args"]["as"] == "tabs"
+        assert frame["args"]["as"] == "side"
+
+    async def test_as_tabs_is_a_bad_request(self):
+        """A preset opens by its layout or side by side, never stacked in one tile."""
+        app = _app(panel_presets=[_preset("L1", "ariel", "lattice")])
+        resp, frame, _ = await _arrange(
+            app, "/api/panel-op/open-arrangement", {"name": "L1", "as": "tabs"}
+        )
+        assert resp.status_code == 422
+        assert "reason" not in resp.json()
+        assert frame is None
 
     async def test_a_preset_prunes_the_rail_to_its_members(self):
         app = _app(

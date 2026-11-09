@@ -2,8 +2,8 @@
 
 Everything that writes into the freshly rendered tree that isn't a service
 injector: config overrides, convention-tree application + its
-scaffold-ownership registration, and persisting profile MCP servers / custom
-categories into ``config.yml``.
+scaffold-ownership registration, and persisting profile MCP servers / artifact
+extension types into ``config.yml``.
 
 Nothing here preserves anything across a build, and nothing here makes a git
 repository. The render is ``build/`` — output, wiped and re-made whole by every
@@ -170,8 +170,8 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
 
     Feeds the unknown-root-entry warning's ``extra_known``: the profile's own
     filename plus the first path component of every profile-relative path the
-    profile declares — ``data:``, ``env.file``, ``dispatch.triggers``, and
-    each ``services.*.template``. A path that points above the profile root
+    profile declares — ``data:``, ``machine:`` (the mounted machine root, often
+    a git submodule), ``dispatch.triggers``, and each ``services.*.template``. A path that points above the profile root
     contributes nothing (its first component is not a root entry), and a
     bundled ``dispatch.triggers`` name harmlessly exempts a directory that
     does not exist.
@@ -180,7 +180,7 @@ def _profile_known_root_entries(profile: BuildProfile, profile_path: Path | None
     if profile_path is not None:
         known.append(profile_path.name)
 
-    candidates: list[str | None] = [profile.data, profile.env.file]
+    candidates: list[str | None] = [profile.data, profile.machine]
     if profile.dispatch is not None:
         candidates.append(profile.dispatch.triggers)
     candidates.extend(service.template for service in profile.services.values())
@@ -567,8 +567,9 @@ def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> N
     """Merge profile ``artifact_server`` overrides into config.yml's block.
 
     Scalar subkeys (``host``, ``port``, ``auto_launch``) replace the rendered
-    defaults; ``categories`` entries are written into the block's
-    ``categories`` submap.
+    defaults; ``extension_types`` entries are written into the block's
+    ``extension_types`` submap, each viewer as the project-relative path the
+    profile declared (the runtime resolves it against the project root).
     """
     from ruamel.yaml import CommentedMap
 
@@ -584,17 +585,17 @@ def _persist_artifact_server(project_path: Path, overrides: dict[str, Any]) -> N
     block = data["artifact_server"]
 
     for key, value in overrides.items():
-        if key != "categories":
+        if key != "extension_types":
             anchored_put(block, key, value)
-    categories = {
-        key: {"label": spec["label"], "color": spec["color"]}
-        for key, spec in overrides.get("categories", {}).items()
+    extension_types = {
+        key: {field: spec[field] for field in ("label", "base_form", "viewer") if field in spec}
+        for key, spec in (overrides.get("extension_types") or {}).items()
     }
-    if categories:
-        if "categories" in block:
-            for key, entry in categories.items():
-                anchored_put(block["categories"], key, entry)
+    if extension_types:
+        if isinstance(block.get("extension_types"), dict):
+            for key, entry in extension_types.items():
+                anchored_put(block["extension_types"], key, entry)
         else:
-            anchored_put(block, "categories", categories)
+            anchored_put(block, "extension_types", extension_types)
 
     save_config_document(config_path, data)

@@ -58,7 +58,7 @@ def chat_child_script(
 import os, subprocess, sys, threading, time
 def spawn(path, new_session):
     return subprocess.Popen(
-        [sys.executable, path],
+        [sys.executable, "-S", path],
         start_new_session=new_session,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,

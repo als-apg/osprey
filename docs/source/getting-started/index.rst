@@ -39,12 +39,12 @@ Your path
       process. You read channels, enable writes, and see the three safety
       guards at work.
 
-   .. grid-item-card:: 3. Control Systems
-      :link: control-assistant
+   .. grid-item-card:: 3. The Demo
+      :link: demo
       :link-type: doc
       :class-header: bg-success text-white
 
-      Build the ``control-assistant`` preset. It adds natural-language channel
+      Build the ``demo`` preset. It adds natural-language channel
       finding, a seeded logbook and an archive, on the same safety model. The
       last step points it at real hardware.
 
@@ -90,6 +90,6 @@ Next
 
    installation
    hello-world-tutorial
-   control-assistant
+   demo
    conceptual-tutorial
    osprey-install

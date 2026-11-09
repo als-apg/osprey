@@ -7,7 +7,7 @@ the interpreter running the ``osprey`` CLI — and some of what a deploy does ru
 there, in-process, notably the archiver store's seeding (see
 ``container_lifecycle._stage_archiver_store``).
 
-That gap is why the ``control-assistant`` preset once carried
+That gap is why the ``demo`` preset once carried
 ``dependencies: [pymongo>=4.0]`` and ``osprey up`` still refused: the entry was
 real, it did install pymongo into all three project environments, and none of
 them was the one doing the seeding. The declaration looked like the fix, which
@@ -40,7 +40,7 @@ from osprey.cli.build_profile_presets import list_apps, list_tiers
 PINNED_PRESET_DEPENDENCIES: dict[str, list[str]] = {
     # Emptied when pymongo became a core OSPREY dependency. Before that this
     # read ``[pymongo>=4.0]`` — see the module docstring.
-    "control-assistant": [],
+    "demo": [],
     "hello-world": [],
     # A tier or app renders inside a deployment whose root it rides on, so a
     # package one of them asks for would reach that deployment's environments

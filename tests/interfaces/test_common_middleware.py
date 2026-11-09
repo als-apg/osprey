@@ -40,6 +40,10 @@ def cache_client():
     async def vendor_outside_static():
         return {"ok": True}
 
+    @app.get("/design-system/js/context-menu.js")
+    async def design_system_module():
+        return {"ok": True}
+
     @app.get("/other")
     async def other():
         return {"ok": True}
@@ -60,6 +64,13 @@ class TestNoCacheStaticMiddleware:
                 "/static/app.js",
                 "no-cache, no-store, must-revalidate",
                 id="non-vendor-static-is-uncached",
+            ),
+            # A page's scripts import names from the design system's modules;
+            # a cached copy from the previous deploy stops the page at load.
+            pytest.param(
+                "/design-system/js/context-menu.js",
+                "no-cache, no-store, must-revalidate",
+                id="design-system-module-is-uncached",
             ),
             pytest.param(
                 "/api/thing",

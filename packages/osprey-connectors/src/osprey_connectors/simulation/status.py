@@ -4,7 +4,7 @@
 :func:`read_model_status` reads a model's status channel through any
 connector, the way a target served by a separate process reports it.
 :data:`STATUS_OK` and :data:`STATUS_NO_DECK` are the two texts that are not
-an error. The module imports nothing beyond
+an error; :func:`is_error` is the one test of that. The module imports nothing beyond
 the standard library, so a status lookup loads no model: the composite is
 reached through the connector when asked.
 """
@@ -16,6 +16,7 @@ from typing import Any
 __all__ = [
     "STATUS_NO_DECK",
     "STATUS_OK",
+    "is_error",
     "model_status",
     "read_model_status",
 ]
@@ -29,6 +30,21 @@ STATUS_OK = "ok"
 STATUS_NO_DECK = "no deck"
 
 _COMPOSITE_ATTRIBUTE = "_composite"
+
+
+def is_error(status: str) -> bool:
+    """Whether a model's status text is an error.
+
+    Args:
+        status: A model's status, as :func:`model_status` or
+            :func:`read_model_status` returns it.
+
+    Returns:
+        False for :data:`STATUS_OK` and :data:`STATUS_NO_DECK`, a model built
+        on purpose from nothing; True for any other text, which is the error
+        the model failed with.
+    """
+    return status not in (STATUS_OK, STATUS_NO_DECK)
 
 
 def model_status(connector: Any, model: str) -> str:

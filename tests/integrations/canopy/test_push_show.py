@@ -75,7 +75,12 @@ def write_renders(root: Path, tiers: dict[str, bool] = TIERS) -> None:
         (project / "config.yml").write_text(yaml.safe_dump(document), encoding="utf-8")
 
 
-FAKE_DOCKER = f"""#!{sys.executable}
+#: The fake runtime: a stdlib-only script, run with ``-S`` and its inner interpreter
+#: without the ``COVERAGE_*`` variables, so neither starts coverage. Under the
+#: subprocess patch (pyproject's ``[tool.coverage.run]``) each start costs ~0.2 s and
+#: measures nothing: the fake is test code, and the in-container scripts are ``-c``
+#: strings and ``canopy_mcp``, outside the measured source.
+FAKE_DOCKER = f"""#!{sys.executable} -S
 import json, os, subprocess, sys, time
 argv = sys.argv[1:]
 with open(os.environ["FAKE_RUNTIME_LOG"], "a") as log:
@@ -125,7 +130,7 @@ payload = os.environ.get("FAKE_PAYLOAD_DIR")
 for key in ("CANOPY_VIEWER_DIST",):
     if key in env and payload:
         env[key] = os.path.join(payload, env[key].rsplit("/", 1)[1])
-full = dict(os.environ)
+full = {{k: v for k, v in os.environ.items() if not k.startswith("COVERAGE_")}}
 full.update(env)
 sys.exit(subprocess.call([sys.executable, "-I", "-c", script, *[host(a) for a in args]], env=full))
 """

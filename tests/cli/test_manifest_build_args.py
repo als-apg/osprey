@@ -9,7 +9,7 @@ replayed onto the rebuild command.
 from osprey.cli.templates.manifest import extract_build_args
 
 
-def _args(context, *, preset_name="control-assistant", profile_path=None):
+def _args(context, *, preset_name="demo", profile_path=None):
     return extract_build_args(
         project_name="proj",
         preset_name=preset_name,
@@ -59,7 +59,7 @@ def test_profile_path_abs_recorded_for_a_preset_build():
         {"default_provider": "anthropic", "profile_path_abs": "/tmp/proj-profile/profile.yml"}
     )
     assert args["source"] == "preset"
-    assert args["preset"] == "control-assistant"
+    assert args["preset"] == "demo"
     assert args["profile_path_abs"] == "/tmp/proj-profile/profile.yml"
 
 

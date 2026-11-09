@@ -100,7 +100,7 @@ You select the connector in ``profile.yml`` by setting
 container) to ``epics``, and the same agent, tools, and safety hooks work
 against real hardware. You change configuration, not code. A project that also
 runs an archiver changes the archiver settings in the same step:
-:doc:`control-assistant` shows the three ``osprey set`` lines that move its
+:doc:`demo` shows the three ``osprey set`` lines that move its
 control system and archiver together.
 
 
@@ -113,7 +113,7 @@ Put these concepts to work, or go deeper:
   Build your first agent with one MCP server and the simulator served in process.
   Three commands: ``osprey init``, ``osprey build``, ``osprey web``.
 
-**Then scale up:** :doc:`control-assistant`
+**Then scale up:** :doc:`demo`
   Add channel finding, logbook search, an archive of its own, and
   logbook and channel-finder panels in the web terminal.
 

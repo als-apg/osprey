@@ -153,15 +153,14 @@ tools into several functional areas.
 **Artifacts:**
 
 - ``artifact_register`` -- Register a file on disk, or literal text, as a gallery artifact.
-- ``artifact_get`` -- Look up an artifact by ID to get its file path and metadata.
-- ``artifact_list`` -- List stored artifacts, optionally narrowed by category, tool or agent.
-- ``artifact_read`` -- Read a stored artifact's full content (small artifacts only).
+- ``artifact_list`` -- List this session's artifacts, optionally narrowed by form or tool;
+  ``scope="all"`` lists every session's.
+- ``artifact_read`` -- Return an artifact's metadata and file path, plus its content when small.
 - ``artifact_delete`` -- Delete an artifact from the gallery.
-- ``artifact_delete_all`` -- Delete a whole scope of artifacts (one category, or everything)
+- ``artifact_delete_all`` -- Delete one form, or everything, of this session's artifacts
   in a single call. The ``scope`` argument is required.
 - ``artifact_export`` -- Export an artifact to a different format (e.g., PNG, SVG, PDF).
 - ``artifact_focus`` -- Select an artifact in the gallery so the user sees it.
-- ``artifact_pin`` -- Pin or unpin an artifact for quick-access filtering.
 
 **Visualization:**
 
@@ -173,43 +172,27 @@ tools into several functional areas.
 **Stored data:**
 
 Datasets are not a separate namespace -- an archiver read or a run result is an
-artifact with a ``category``, so the artifact tools above list, read and delete
-them (``artifact_list(category="archiver_data")``).
+artifact with a form, so the artifact tools above list, read and delete them
+(``artifact_list(tool="archiver_read")``).
 
 - ``archiver_downsample`` -- Downsample an archiver artifact to a target point count.
-
-**Lattice Dashboard:**
-
-- ``lattice_state`` -- Get current lattice state (summary, families, figures, baseline).
-- ``lattice_set_param`` -- Set a magnet family parameter override.
-- ``lattice_refresh`` -- Recompute figures: a figure name refreshes that one figure,
-  ``verify`` runs ``da`` and ``lma``, and no argument refreshes the selected model's fast figures.
-- ``lattice_set_baseline`` -- Snapshot the current state as the comparison baseline.
-- ``lattice_clear_baseline`` -- Discard the saved comparison baseline.
-- ``lattice_get_figure`` -- Return a named figure with its status and key when it is current for
-  the inputs on screen, else an error naming its status (stale, computing, failed, not yet
-  computed) or the reason the model cannot draw it.
-- ``lattice_get_data`` -- Return the numeric data behind a named figure with its status and key
-  when it is current for the inputs on screen, else the same errors as ``lattice_get_figure``.
-- ``lattice_get_settings`` -- Get current dashboard settings (display options, baselines).
-- ``lattice_update_settings`` -- Update dashboard settings.
 
 **Panels:**
 
 - ``list_panels`` -- List the panels available in the Web Terminal (built-in and
-  custom), the dock's layout (every tile with its tabs and showing tab, the
+  custom), the dock's layout (every tile with the panel it shows, the
   terminal included) and its ``rev``.
-- ``open_panel`` -- Put a panel on screen: a new tab of the service tile used
-  last, or focus it where it already is.
-- ``open_panel_set`` -- Open several panels in one call, as tabs of one tile or
-  side by side.
+- ``open_panel`` -- Put a panel on screen: in a new tile split off the service
+  tile used last, or, with ``place="replace"``, in that tile (the replaced panel
+  keeps its rail entry); focused where it already is.
+- ``open_panel_set`` -- Open several panels in one call, side by side in tiles
+  of their own.
 - ``arrange_workspace`` -- Lay out the service tiles from a configured preset or
-  an exact layout; the terminal keeps its place.
-- ``drop_panel`` -- Make any drop a person can make (tile centre, tab position,
-  edge, a whole side of the dock), plus a drop between two tiles, with a new
-  panel, an open tab or a whole tile.
-- ``close_panel_tab`` -- Close a panel's tab, leaving it on the rail.
-- ``close_panel_tile`` -- Close a whole tile with its tabs.
+  an exact layout; the terminal keeps its place. A tile holds one panel.
+- ``drop_panel`` -- Make any drop a person can make (a tile's edge, a whole
+  side of the dock), plus a drop between two tiles, with a new panel, an open
+  panel or a whole tile.
+- ``close_panel`` -- Close a panel's tile, leaving the panel on the rail.
 - ``add_panel_to_rail`` -- Make a panel launchable from the rail in one click
   (requires human approval).
 - ``remove_panel_from_rail`` -- Take a panel off the rail (and off screen with it)
@@ -228,11 +211,15 @@ pruning the operator gets by clicking that layout.
 Every layout tool is one agent dock operation sent through the op helper
 (``panel_op``): the web terminal relays it to the browser holding the dock and
 answers with the resulting layout and ``rev``, or with a named refusal
-(``stale_base``, ``no_dock_client``, ``terminal_not_agent_movable``, ...) that
-changed nothing. The tools that name tile ids (``drop_panel``,
-``close_panel_tile``) take the ``rev`` of the agent's last read as
-``base_rev``. The terminal is never an agent drop source or close target, and a
-layout never names it.
+(``stale_base``, ``no_dock_client``, ``terminal_not_agent_movable``,
+``one_panel_per_tile``, ...) that changed nothing. A browser that does not
+answer within five seconds gives ``no_dock_answer``. The browser can still
+apply that operation, so the outcome is unknown: the agent reads the panels
+again before it tries again. The web terminal records the late answer of the
+browser as its layout report. The one tool that names tile ids,
+``drop_panel``, takes the ``rev`` of the agent's last read as ``base_rev``.
+The terminal is never an agent drop source or close target, and a layout
+never names it.
 
 **Screen Capture:**
 
@@ -243,7 +230,6 @@ layout never names it.
 **Session:**
 
 - ``session_log`` -- Retrieve the structured session activity log.
-- ``session_summary`` -- Return a compact inventory of all data and artifacts in the session.
 - ``submit_response`` -- Submit a formatted response to the web terminal.
 - ``facility_description`` -- Get the hand-written facility description and the build's generated facts page (places with device counts, device classes with their groups, models, and the signals and roles the channels use).
 - ``prior_answer_read`` -- Read the full text of an earlier answer a chat bridge replayed shortened (dispatched runs only).
@@ -387,3 +373,42 @@ Phoebus product, not a connector: see :ref:`A Phoebus drive
   under ``phoebus.agent_access: read_write`` and asked for approval.
 - ``phoebus_open_databrowser`` -- Open a Data Browser plot of a channel list over a
   time range, bound to the archiver when ``phoebus.archiver_url`` is set.
+
+
+Optimizer
+---------
+
+``optimizer``
+~~~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.optimizer``
+
+Reads the optimizer service a profile deploys with its ``optimizer:`` section
+(:doc:`/reference/configuration/profile`). It is off in every preset and
+switched on with ``claude_code.servers.optimizer.enabled: true``. The build
+refuses that switch on a render with no optimizer to dial: a deployment that
+does not run one, or an attached render whose host publishes no
+``services.optimizer.port``. The server dials ``services.optimizer.port`` on
+loopback, or ``OPTIMIZER_URL`` when that is set.
+
+The server holds no launch token and cannot start a run: a person starts
+every run. A tool that reads a machine (``environment_status``,
+``read_observables``, ``initial_bounds``) asks about the session's current
+control target unless it is given a ``target``; the optimizer serves only the
+targets its profile lists (``va`` and ``standin`` today), and refuses any other.
+
+**Tools:**
+
+- ``list_environments`` -- List the optimization environments the service offers.
+- ``get_environment`` -- Read one environment's variable and observable definitions.
+- ``environment_status`` -- Check whether an environment is reachable on a machine.
+- ``read_observables`` -- Read the current values of an environment's observables.
+- ``list_presets`` -- List the run presets an environment offers.
+- ``initial_bounds`` -- Resolve each variable's starting bounds from its current setpoint.
+- ``list_jobs`` -- List the jobs that have not finished.
+- ``get_job`` -- Read one job's status, optionally with its result summary or full data.
+- ``current_job`` -- Read the current-job pointer, the job a start launches.
+- ``get_job_config`` -- Read an optimization job's stored config and its revision.
+- ``list_results`` -- List the stored runs.
+- ``get_result`` -- Read one stored run: config, best point and evaluated records.
+- ``list_models`` -- List the saved surrogate model files.

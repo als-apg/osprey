@@ -945,6 +945,10 @@ class TestGetEnabledMigrations:
             "embedding_input_key",
             "facility_refs_column",
             "als_logbook_plain_text",
+            "entry_subject_and_keyset",
+            "entry_subject_backfill",
+            "follows_up_index",
+            "logbook_web_source_system",
         ]
 
     def test_unimportable_migration_is_skipped_with_warning(self, monkeypatch, caplog) -> None:
@@ -1363,9 +1367,20 @@ class TestTextEmbeddingMigrationDDL:
         assert len(ddl_conn.sql) == 1
         assert "pg_available_extensions" in ddl_conn.sql[0]
 
+    async def test_up_refuses_a_pgvector_without_hnsw_before_creating_anything(
+        self, ddl_conn
+    ) -> None:
+        """A fresh install on pgvector 0.4 skips with the version, before any DDL runs."""
+        ddl_conn.recorder.rows_for = {"pg_available_extensions": [(None, "0.4.4")]}
+
+        with pytest.raises(MigrationSkippedError, match=r"needs pgvector 0\.5\.0 or newer"):
+            await TextEmbeddingMigration(models=[("model-a", 512)]).up(ddl_conn)
+
+        assert len(ddl_conn.sql) == 1
+
     async def test_up_creates_a_table_and_index_per_model(self, ddl_conn) -> None:
         """Each configured model gets its own dimensioned table and vector index."""
-        ddl_conn.recorder.rows_for = {"pg_available_extensions": [(True,)]}
+        ddl_conn.recorder.rows_for = {"pg_available_extensions": [("0.8.0", "0.8.0")]}
 
         await TextEmbeddingMigration(models=[("model-a", 512), ("model-b", 1024)]).up(ddl_conn)
 
@@ -1387,7 +1402,7 @@ class TestTextEmbeddingMigrationDDL:
 
     async def test_up_uses_the_default_model_when_none_configured(self, ddl_conn) -> None:
         """An unconfigured migration still creates the default nomic table."""
-        ddl_conn.recorder.rows_for = {"pg_available_extensions": [(True,)]}
+        ddl_conn.recorder.rows_for = {"pg_available_extensions": [("0.8.0", "0.8.0")]}
 
         await TextEmbeddingMigration().up(ddl_conn)
 
@@ -1400,7 +1415,7 @@ class TestTextEmbeddingMigrationDDL:
         The column is nullable and is the last column, after created_at and
         before the UNIQUE constraint.
         """
-        ddl_conn.recorder.rows_for = {"pg_available_extensions": [(True,)]}
+        ddl_conn.recorder.rows_for = {"pg_available_extensions": [("0.8.0", "0.8.0")]}
 
         await TextEmbeddingMigration(models=[("model-a", 512)]).up(ddl_conn)
 
@@ -1456,10 +1471,47 @@ class TestTextEmbeddingHnswIndexMigrationDDL:
         assert len(ddl_conn.sql) == 1
         assert "pg_available_extensions" in ddl_conn.sql[0]
 
+    @pytest.mark.parametrize(
+        ("row", "word", "advice"),
+        [
+            pytest.param(
+                ("0.4.4", "0.4.4"), "installed", "ALTER EXTENSION vector UPDATE", id="old-installed"
+            ),
+            pytest.param(
+                (None, "0.4.1"), "available", "upgrade the pgvector package", id="old-available"
+            ),
+        ],
+    )
+    async def test_up_refuses_a_pgvector_without_hnsw(self, ddl_conn, row, word, advice) -> None:
+        """pgvector before 0.5 has no HNSW: the skip names the version, not a raw DDL error."""
+        ddl_conn.recorder.rows_for = {"pg_available_extensions": [row], "to_regclass": [(True,)]}
+
+        with pytest.raises(MigrationSkippedError) as raised:
+            await TextEmbeddingHnswIndexMigration(models=[("model-a", 512)]).up(ddl_conn)
+
+        message = str(raised.value)
+        assert f"pgvector {row[0] or row[1]} is {word}" in message
+        assert "needs pgvector 0.5.0 or newer" in message
+        assert advice in message
+        assert ddl_conn.recorder.matching("DROP INDEX") == []
+        assert ddl_conn.recorder.matching("CREATE INDEX") == []
+
+    @pytest.mark.parametrize("version", ["0.5.0", "0.5.1", "0.10.0", "0.8.0-dev"])
+    async def test_up_accepts_a_pgvector_with_hnsw(self, ddl_conn, version) -> None:
+        """0.5.0 is the floor; versions compare numerically, so 0.10 is newer than 0.5."""
+        ddl_conn.recorder.rows_for = {
+            "pg_available_extensions": [(version, version)],
+            "to_regclass": [(True,)],
+        }
+
+        await TextEmbeddingHnswIndexMigration(models=[("model-a", 512)]).up(ddl_conn)
+
+        assert ddl_conn.recorder.matching("USING hnsw") != []
+
     async def test_up_drops_the_legacy_index_before_creating_the_hnsw_one(self, ddl_conn) -> None:
         """Leaving the old index in place would keep both on the same column."""
         ddl_conn.recorder.rows_for = {
-            "pg_available_extensions": [(True,)],
+            "pg_available_extensions": [("0.8.0", "0.8.0")],
             "to_regclass": [(True,)],
         }
 
@@ -1474,7 +1526,7 @@ class TestTextEmbeddingHnswIndexMigrationDDL:
     async def test_up_skips_a_model_whose_table_is_absent(self, ddl_conn) -> None:
         """A model configured but never migrated has no index to reconcile."""
         ddl_conn.recorder.rows_for = {
-            "pg_available_extensions": [(True,)],
+            "pg_available_extensions": [("0.8.0", "0.8.0")],
             "to_regclass": [(False,)],
         }
 

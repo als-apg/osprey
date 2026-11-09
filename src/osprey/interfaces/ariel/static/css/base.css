@@ -10,7 +10,7 @@
  * design_system/tokens/interfaces/ariel.json). Type, spacing, radius,
  * duration and z-index all come from the design system's scales too. The
  * block below holds only genuine ARIEL-only extensions with no canonical
- * equivalent: a couple of status-tint/shadow/text-accent composites built
+ * equivalent: a couple of surface/status-tint/text-accent composites built
  * from canonical color tokens (so they still theme correctly), the
  * letter-spacing scale (no fleet equivalent), and the layout dimensions.
  */
@@ -21,27 +21,18 @@
   --ariel-surface-card: color-mix(in srgb, var(--bg-secondary) 80%, transparent);
   --ariel-surface-hover: color-mix(in srgb, var(--bg-elevated) 50%, transparent);
 
-  --text-accent: var(--color-accent-light);
   --text-accent-secondary: var(--color-accent-secondary-light);
   /* Info status blue tracks the per-family --ansi-blue (as artifacts does),
      so it darkens for legibility on the light/high-contrast-light themes. */
   --color-info: var(--ansi-blue);
-  --color-success-bg: color-mix(in srgb, var(--color-success) 10%, transparent);
   --color-warning-bg: color-mix(in srgb, var(--color-warning) 10%, transparent);
   --color-error-bg: color-mix(in srgb, var(--color-error) 10%, transparent);
   --color-info-bg: color-mix(in srgb, var(--color-info) 10%, transparent);
 
-  --shadow-lg: 0 10px 15px var(--overlay-black-50);
-  --shadow-glow-accent: 0 0 20px var(--accent-tint-30);
-  --shadow-glow-accent-secondary: 0 0 15px var(--accent-secondary-tint-15);
-
   --tracking-tight: -0.025em;
-  --tracking-normal: 0;
   --tracking-wide: 0.025em;
 
   --container-max: 1400px;
-  --sidebar-width: 280px;
-  --header-height: 64px;
 }
 
 /* === Reset === */
@@ -58,9 +49,9 @@ html {
 }
 
 /* base.css (design system) sets html,body { overflow: hidden } for the
-   hub's fixed-viewport terminal shell. ARIEL is a normal scrolling page
-   (fixed header + a normal-flow .main that grows past one viewport), so
-   override back to auto or content below the fold is unreachable. */
+   hub's fixed-viewport terminal shell. ARIEL's panes scroll inside
+   themselves; auto keeps the page reachable should the screen ever outgrow
+   a short viewport. */
 html, body {
   overflow: auto;
 }
@@ -103,7 +94,7 @@ a:hover {
 }
 
 /* === Monospace text (data, timestamps, IDs) === */
-.mono, code, pre, .entry-id, .timestamp, .score {
+.mono, code, pre, .entry-id, .timestamp {
   font-family: var(--font-mono);
 }
 
@@ -155,17 +146,6 @@ pre {
 }
 
 /* === Utility classes === */
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
 
 .truncate {
   overflow: hidden;
@@ -175,15 +155,11 @@ pre {
 
 .text-muted { color: var(--text-muted); }
 .text-secondary { color: var(--text-secondary); }
-.text-accent { color: var(--text-accent); }
 .text-accent-secondary { color: var(--text-accent-secondary); }
 .text-success { color: var(--color-success); }
-.text-warning { color: var(--color-warning); }
 .text-error { color: var(--color-error); }
 
 .font-mono { font-family: var(--font-mono); }
-.font-medium { font-weight: var(--weight-medium); }
-.font-semibold { font-weight: var(--weight-semibold); }
 
 /* === Lists === */
 ul, ol {
@@ -232,27 +208,8 @@ tbody tr:hover {
   to { opacity: 1; }
 }
 
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
 .animate-fade-in { animation: fadeIn var(--duration-base) ease; }
-.animate-slide-up { animation: slideUp var(--duration-slow) ease; }
-.animate-pulse { animation: pulse 2s infinite; } /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
-.animate-spin { animation: spin 1s linear infinite; } /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */

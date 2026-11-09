@@ -78,13 +78,13 @@ def _served_response(deck: Path, element: str, plane: int, monitors: list[str]) 
 
 @pytest.mark.parametrize(("role", "plane"), [("hcor", 0), ("vcor", 1)])
 def test_a_design_corrector_step_moves_the_orbit_the_served_kick_does(
-    built_control_assistant: BuiltProject, role: str, plane: int
+    built_demo: BuiltProject, role: str, plane: int
 ) -> None:
     from pyaml.accelerator import Accelerator
 
-    document = built_control_assistant.facility
+    document = built_demo.facility
     address = measurement_groups(FacilityRecords(document), "SR")[role][4]
-    view = _view(built_control_assistant)
+    view = _view(built_demo)
     bpms = _bpm_elements(view)
     design = Accelerator.load(str(view / CONFIGURATION_FILE)).design
     magnet = design.magnet.get(address)
@@ -94,7 +94,7 @@ def test_a_design_corrector_step_moves_the_orbit_the_served_kick_does(
     after = np.array([reader.positions.get() for reader in readers])
 
     served = _served_response(
-        built_control_assistant.facility_dir / "decks" / "SR.json",
+        built_demo.facility_dir / "decks" / "SR.json",
         _element_of(document, address),
         plane,
         list(bpms.values()),
@@ -104,17 +104,16 @@ def test_a_design_corrector_step_moves_the_orbit_the_served_kick_does(
 
 
 def test_the_lattice_is_the_deck_with_its_driven_kicks_as_polynomials(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
     from osprey.simulation.engines.pyat import polynomial_kicks
 
-    view = _view(built_control_assistant)
-    groups = measurement_groups(FacilityRecords(built_control_assistant.facility), "SR")
+    view = _view(built_demo)
+    groups = measurement_groups(FacilityRecords(built_demo.facility), "SR")
     elements = [
-        _element_of(built_control_assistant.facility, address)
-        for address in groups["hcor"] + groups["vcor"]
+        _element_of(built_demo.facility, address) for address in groups["hcor"] + groups["vcor"]
     ]
-    deck = built_control_assistant.facility_dir / "decks" / "SR.json"
+    deck = built_demo.facility_dir / "decks" / "SR.json"
     assert (view / LATTICE_FILE).read_text(encoding="utf-8") == polynomial_kicks(deck, elements)
     lattice = at.load_lattice(str(view / LATTICE_FILE))
     held = at.load_lattice(str(deck))

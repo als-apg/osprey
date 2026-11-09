@@ -703,10 +703,23 @@ describe('feedback modal state — disclosure popover', () => {
       'truncated',
       'Nothing leaves this page until you click an action button.',
       'recorded on this deployment',
-      'which may include work from other terminal tabs or the chat panel',
+      'the artifacts this session owns',
+      'artifacts no session owns from the same time window',
+      'not this session’s',
     ]) {
       expect(FEEDBACK_DISCLOSURE_PARAGRAPHS.join('\n\n')).toContain(phrase);
     }
+  });
+
+  test('state: the artifact paragraph never claims the window is this session’s', () => {
+    const artifacts = FEEDBACK_DISCLOSURE_PARAGRAPHS.find((p) => p.includes('titles and ids only'));
+    expect(artifacts).toBe(
+      'The artifact inventory lists titles and ids only — the artifacts this session ' +
+        'owns, plus artifacts no session owns from the same time window, which are not ' +
+        'this session’s and may include work from the chat panel or a CLI conversation.'
+    );
+    expect(artifacts).not.toContain('tagged');
+    expect(artifacts).not.toContain('other terminal tabs');
   });
 
   test('state: the help toggle discloses and hides the popover', () => {
