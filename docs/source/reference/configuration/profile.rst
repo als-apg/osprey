@@ -1600,8 +1600,9 @@ run and turning it on does not widen the run:
   each evaluation one write call) plus one for the completion write when
   ``on_complete`` is ``apply_best`` (the default) or ``restore``, none for
   ``hold``; an eight-hour expiry (``OPTIMIZER_AUTHORIZATION_EXPIRES_S``, held
-  to at most 24 hours) and a lease the run renews every 20 seconds. An evaluation whose objective is
-  re-measured only reads it again: it writes once and spends one step.
+  just under 24 hours) and a lease the run renews every 20 seconds. An
+  evaluation whose objective is re-measured only reads it again: it writes
+  once and spends one step.
 * **How it gets it.** While the owner's switch for the machine stands at
   *allowed*, the run writes its own. Otherwise it writes a request, its job's
   ``write_authorization.state`` reads ``awaiting``, and the owner approves it
@@ -1617,7 +1618,9 @@ run and turning it on does not widen the run:
   call. A run that issued its own grant marks it revoked when it is done.
   One a person approved stands until its expiry, but once the run stops
   renewing its lease — it finished, failed or crashed — it no longer blocks
-  an approval of another program on its channels, about a minute later.
+  an approval of another program on its channels, about a minute later, when
+  the approver can see the run's ledger; with none in sight it blocks until
+  it expires. A paused run still renews, so it still blocks.
 
 The results restore (``POST /results/{env}/{timestamp}/restore``, after its
 preview), ``PUT /environments/{name}/variables`` and ``POST
@@ -1653,9 +1656,7 @@ What these rules do not cover:
   last cancellation checkpoint and its completion write does not stop that
   write; a shutdown that has to kill a worker can stop it in the middle of a
   write; a paused run keeps its lease renewing, so its authorization stays in
-  force while it is paused and keeps blocking every approval of another
-  program on its channels (``auth_overlap``) until it is resumed, cancelled
-  or stopped; and ``GET /environments/{name}/pv`` reads any
+  force while it is paused; and ``GET /environments/{name}/pv`` reads any
   channel the environment's connector can reach.
 
 With a writing tier the container binds the deployment's write ledger,

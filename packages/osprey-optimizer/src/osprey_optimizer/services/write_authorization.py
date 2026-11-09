@@ -40,9 +40,9 @@ own directory; one a person approved is left to its lease and expiry), and
 stops the connector child that names the authorization. With the heartbeat
 stopped the lease lapses within :data:`LEASE_S`, and from then on a person's
 grant no longer blocks another program's approval on its channels
-(:func:`~osprey_connectors.write_authorization.auth_overlap`); a paused run
-keeps renewing, so it keeps blocking. It writes nothing to
-the machine: a cancelled or failed run holds the machine where it is.
+(:func:`~osprey_connectors.write_authorization.auth_overlap`). It writes
+nothing to the machine: a cancelled or failed run holds the machine where it
+is.
 """
 
 from __future__ import annotations
@@ -65,6 +65,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "ASK_INSTEAD",
     "EXPIRES_S",
+    "EXPIRY_MARGIN_S",
     "LEASE_S",
     "POLL_S",
     "WAIT_S",
@@ -80,8 +81,11 @@ Completion = Literal["none", "apply_best", "restore"]
 
 #: How long a run's authorization lasts at most, from the moment it is asked for.
 #: A value past the connectors' ceiling (:data:`~osprey_connectors.write_authorization.MAX_EXPIRES_S`,
-#: a day) is held to it when the run asks.
+#: a day) is held to just under it (:data:`EXPIRY_MARGIN_S`) when the run asks.
 EXPIRES_S = float(os.environ.get("OPTIMIZER_AUTHORIZATION_EXPIRES_S", 8 * 3600))
+#: How far under the ceiling a held expiry stays: an approver's clock behind the
+#: run's would otherwise see the expiry more than a day after its issue.
+EXPIRY_MARGIN_S = 60.0
 #: How long a request waits for a person's approval before the run ends.
 WAIT_S = float(os.environ.get("OPTIMIZER_AUTHORIZATION_WAIT_S", 15 * 60))
 #: How long one renewal of the run's lease lasts; the heartbeat renews at a third of it.
@@ -323,7 +327,9 @@ class RunAuthorization:
             reason=None,
             detail=None,
         )
-        expires_at_ns = time.time_ns() + int(min(EXPIRES_S, wa.MAX_EXPIRES_S) * 1e9)
+        # Under the ceiling by a margin, so an approver's lagging clock still reads it.
+        expires_s = min(EXPIRES_S, wa.MAX_EXPIRES_S - EXPIRY_MARGIN_S)
+        expires_at_ns = time.time_ns() + int(expires_s * 1e9)
         try:
             grant = wa.self_issue(
                 _control_system_section(),

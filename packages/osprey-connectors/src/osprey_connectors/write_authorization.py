@@ -91,12 +91,13 @@ other surface is not honoured at all, because the holder can write there.
 an approver meant: :func:`auth_overlap` finds the live grant of another holder
 sharing a channel, and :func:`issue_grant` refuses ``auth_overlap`` under the
 directory's lock, so two approvals cannot both pass the check. A grant whose
-holder's ledger shows its lease lapsed does not count: no write may use it. The check reads
-the owner's own directory and the holders' self-issued grants in the ledger
-directories this process sees (:func:`self_issued_directories`); another
-owner's directory is not read. A grant file that cannot be read is logged and
-left out of the check: it refuses every write under it already, and a file
-nobody can clear from the chip must not veto every approval.
+every ledger in sight shows its lease time passed does not count: no write may
+use it. The check reads the owner's own directory and the holders'
+self-issued grants in the ledger directories this process sees
+(:func:`self_issued_directories`); another owner's directory is not read. A
+grant file that cannot be read is logged and left out of the check: it
+refuses every write under it already, and a file nobody can clear from the
+chip must not veto every approval.
 
 **8. Requests, approval and the stop.** A holder asks with a **request**,
 ``<ledger dir>/requests/<id>.json`` (:func:`write_request`), read the way a
@@ -494,9 +495,9 @@ def _within_ceilings(steps: int, start_ns: int, expires_ns: int, lease_s: float)
     """Refuse a budget, an expiry or a lease past its ceiling.
 
     The ceilings are :data:`MAX_STEPS`, :data:`MAX_EXPIRES_S` from *start_ns*,
-    and :data:`MAX_LEASE_S`. Every grant and request is parsed through this, so an approval and a
-    self-issue meet the same ceilings, and a file written past them is
-    unreadable.
+    and :data:`MAX_LEASE_S`. Every grant and request is parsed through this,
+    so an approval and a self-issue meet the same ceilings, and a file written
+    past them is unreadable.
     """
     if steps > MAX_STEPS:
         raise ValueError(f"steps {steps} is above the ceiling of {MAX_STEPS}")
@@ -1598,21 +1599,20 @@ def list_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
     return tuple(grants), tuple(unreadable)
 
 
-def _lease_ended(grant: Grant, ledger_dirs: Sequence[Path], now_ns: int) -> bool:
-    """Whether *grant*'s ledger, the first found in *ledger_dirs*, shows its lease lapsed.
+def _lease_ended(grant: Grant, ledger_dirs: Iterable[Path], now_ns: int) -> bool:
+    """Whether every ledger of *grant* in *ledger_dirs* shows its lease time passed.
 
-    The verdict's own test (:func:`_lease_live`), so a grant no write may use
-    is one no approval waits on. A ledger found nowhere is a lease not started
-    yet, or one out of this process's sight, and an unreadable one may be
-    live: neither has ended.
+    The clock alone decides, as :func:`grant_standing` does: the holder's PID,
+    judged from the approver's process, may name another host's process. At
+    least one ledger must be found, and each must agree, so a stale or planted
+    one in a directory searched first cannot free another's live grant. A
+    ledger found nowhere is a lease not started yet, or one out of this
+    process's sight, and an unreadable one may be live: neither has ended.
     """
-    for directory in ledger_dirs:
-        if not os.path.isdir(directory):
-            continue
-        status, ledger = _read_ledger_at(_Place(Path(directory)), grant.id)
-        if status != "absent":
-            return status == "ok" and ledger is not None and not _lease_live(ledger, now_ns)
-    return False
+    found = list(_ledgers_of(grant.id, ledger_dirs))
+    return bool(found) and all(
+        ledger is not None and now_ns >= ledger.lease_until_ns for ledger in found
+    )
 
 
 def auth_overlap(
@@ -1625,9 +1625,9 @@ def auth_overlap(
     """The first grant in *existing* that *candidate* must not be issued beside, or ``None``.
 
     One that is live (not revoked, not expired), held by another holder, on
-    the same machine, listing a channel *candidate* lists, and whose lease has
-    not lapsed in its ledger in *ledger_dirs* (:func:`_lease_ended`): a run
-    that finished, failed or crashed stops renewing, so its grant stops
+    the same machine, listing a channel *candidate* lists, and whose lease
+    time has not passed in its ledgers in *ledger_dirs* (:func:`_lease_ended`):
+    a run that finished, failed or crashed stops renewing, so its grant stops
     blocking once its lease runs out rather than at its expiry. A run that is
     paused still renews, and still blocks. The same holder may hold two: a
     program runs one job at a time and is judged by its own budget. A
@@ -1687,9 +1687,7 @@ def issue_grant(grant: Grant, *, directory: Path | None = None, peers: Iterable[
 
     *peers* are the ledger directories holding the holders' self-issued
     grants (:func:`self_issued_directories`), read under the same hold
-    (:func:`_peer_grants`); their locks are not taken. They and *directory*
-    are where the holders' ledgers are looked for, so a grant whose lease has
-    lapsed does not block.
+    (:func:`_peer_grants`); their locks are not taken.
 
     Returns:
         The path written.
@@ -1969,6 +1967,19 @@ def prune_grants(
     return tuple(removed)
 
 
+def _ledgers_of(authorization: str, ledger_dirs: Iterable[Path]) -> Iterator[Ledger | None]:
+    """Each ledger of *authorization* in *ledger_dirs*, in order; ``None`` for an unreadable one.
+
+    A directory that is not there, and one without the ledger, are skipped.
+    """
+    for directory in ledger_dirs:
+        if not os.path.isdir(directory):
+            continue
+        status, ledger = _read_ledger_at(_Place(Path(directory)), authorization)
+        if status != "absent":
+            yield ledger
+
+
 def read_ledger(directory: Path, authorization: str) -> Ledger | None:
     """The ledger of *authorization* in *directory*, or ``None`` when absent.
 
@@ -2020,15 +2031,9 @@ def grant_standing(
     """
     now = _now_ns() if now_ns is None else now_ns
     in_force = grant_in_force(grant, record, now_ns=now)
-    for directory in ledger_dirs:
-        if not os.path.isdir(directory):
-            continue
-        try:
-            ledger = read_ledger(directory, grant.id)
-        except ValueError:
-            return GrantStanding(grant, in_force, None, None)
+    for ledger in _ledgers_of(grant.id, ledger_dirs):
         if ledger is None:
-            continue
+            return GrantStanding(grant, in_force, None, None)
         used = len(ledger.steps)
         ended = now >= ledger.lease_until_ns or used >= grant.steps
         return GrantStanding(grant, in_force and not ended, used, ledger)

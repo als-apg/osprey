@@ -68,6 +68,10 @@ CHANNELS = {"A:SP": ChannelRange(0.0, 10.0), "B:SP": ChannelRange(-1.0, 1.0)}
 #: Far enough ahead that nothing in a test reaches it.
 FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
+#: An issue time, and the longest expiry after it, for the ceiling cases.
+ISSUED_NS = time.time_ns()
+DAY_NS = int(wa.MAX_EXPIRES_S * 1e9)
+
 #: A PID no test host runs.
 ABSENT_PID = 2_147_483_646
 
@@ -379,23 +383,32 @@ class TestFormats:
         with pytest.raises(ValueError):
             parse_grant(text)
 
-    def test_a_grant_past_any_ceiling_is_refused_and_one_at_them_is_not(self):
-        issued = time.time_ns()
-        day = int(wa.MAX_EXPIRES_S * 1e9)
+    @pytest.mark.parametrize(
+        ("change", "refused"),
+        [
+            ({}, False),
+            ({"steps": wa.MAX_STEPS + 1}, True),
+            ({"expires_at_ns": ISSUED_NS + DAY_NS + 1}, True),
+            ({"lease_s": wa.MAX_LEASE_S + 0.5}, True),
+        ],
+        ids=["at-ceilings", "steps", "expires_at_ns", "lease_s"],
+    )
+    def test_a_grant_past_any_ceiling_is_refused_and_one_at_them_is_not(
+        self, change: dict[str, Any], refused: bool
+    ):
         at_ceilings = make_grant(
             steps=wa.MAX_STEPS,
-            issued_at_ns=issued,
-            expires_at_ns=issued + day,
+            issued_at_ns=ISSUED_NS,
+            expires_at_ns=ISSUED_NS + DAY_NS,
             lease_s=wa.MAX_LEASE_S,
         )
-        assert parse_grant(json.dumps(at_ceilings.to_payload())) == at_ceilings
-        for change in (
-            {"steps": wa.MAX_STEPS + 1},
-            {"expires_at_ns": issued + day + 1},
-            {"lease_s": wa.MAX_LEASE_S + 0.5},
-        ):
+        grant = replace(at_ceilings, **change)
+        text = json.dumps(grant.to_payload())
+        if refused:
             with pytest.raises(ValueError):
-                parse_grant(json.dumps(replace(at_ceilings, **change).to_payload()))
+                parse_grant(text)
+        else:
+            assert parse_grant(text) == grant
 
     @pytest.mark.parametrize(
         "change",
@@ -1184,21 +1197,6 @@ class TestSelfIssue:
             _self_issue(steps=0)
         assert list_grants(grants_dir()) == ((), ())
 
-    @pytest.mark.parametrize(
-        "change",
-        [
-            {"steps": wa.MAX_STEPS + 1},
-            {"expires_at_ns": time.time_ns() + 2 * int(wa.MAX_EXPIRES_S * 1e9)},
-            {"lease_s": wa.MAX_LEASE_S * 2},
-        ],
-        ids=lambda change: next(iter(change)),
-    )
-    def test_a_self_issue_past_a_ceiling_writes_nothing(self, change: dict[str, Any]):
-        switch("allowed")
-        with pytest.raises(ValueError):
-            _self_issue(**change)
-        assert list_grants(grants_dir()) == ((), ())
-
 
 # -- overlap at approval ------------------------------------------------------
 
@@ -1232,60 +1230,67 @@ class TestOverlap:
         assert not grant_path(candidate.id).exists()
 
     @pytest.mark.parametrize(
-        ("lease_until", "blocks"),
-        [(None, True), ("live", True), ("lapsed", False), ("ended", False)],
-        ids=["no-ledger-yet", "lease-live", "lease-ran-out", "lease-ended"],
+        ("leases", "blocks"),
+        [
+            ((), True),
+            (("live",), True),
+            (("lapsed",), False),
+            (("unreadable",), True),
+            (("lapsed", "live"), True),
+        ],
+        ids=["no-ledger-yet", "lease-live", "lease-ran-out", "unreadable", "one-lapsed-one-live"],
     )
     def test_a_grant_whose_lease_lapsed_does_not_block(
-        self, tmp_path: Path, lease_until: str | None, blocks: bool
+        self, tmp_path: Path, leases: tuple[str, ...], blocks: bool
     ):
-        """A person-approved grant of a run that finished or crashed stops blocking at its lease."""
+        """A person-approved grant of a run that finished or crashed stops blocking at its lease.
+
+        Only when every ledger found agrees: one lapsed in a directory searched
+        first does not free a grant whose other ledger is live.
+        """
         now = time.time_ns()
         existing = make_grant(holder="optimizer")
         candidate = make_grant(holder="bluesky", channels={"A:SP": ChannelRange(0, 1)})
-        ledgers = tmp_path / "ledgers"
-        ledgers.mkdir()
-        if lease_until is not None:
-            until = {"live": now + 10**9, "lapsed": now - 1, "ended": 0}[lease_until]
+        dirs = [tmp_path / "absent"]
+        for n, lease in enumerate(leases):
+            directory = tmp_path / f"ledgers-{n}"
+            directory.mkdir()
+            dirs.append(directory)
+            path = directory / f"{existing.id}.ledger.json"
+            if lease == "unreadable":
+                path.write_text("{")
+                continue
             entry = Ledger(
                 authorization=existing.id,
                 holder_pid=None,
                 holder_start=None,
                 pid_ns=None,
-                lease_until_ns=until,
+                lease_until_ns=now + 10**9 if lease == "live" else now - 1,
             )
-            (ledgers / f"{existing.id}.ledger.json").write_text(json.dumps(entry.to_payload()))
-        held = auth_overlap(
-            candidate, [existing], now_ns=now, ledger_dirs=[tmp_path / "absent", ledgers]
-        )
+            path.write_text(json.dumps(entry.to_payload()))
+        held = auth_overlap(candidate, [existing], now_ns=now, ledger_dirs=dirs)
         assert (held is existing) is blocks
 
-    def test_a_dead_holders_grant_blocks_no_later_approval(self):
-        """The approval's own check reads the ledger: a lapsed lease frees the channels."""
+    @pytest.mark.parametrize("same_namespace", [True, False], ids=["same-pid-ns", "no-pid-ns"])
+    def test_a_dead_holders_grant_blocks_until_its_lease_time_passes(self, same_namespace: bool):
+        """The clock alone decides: a holder's PID, seen from here, may be another host's."""
         held = make_grant(holder="optimizer")
         issue_grant(held)
         leased = Ledger(
             authorization=held.id,
             holder_pid=ABSENT_PID,
             holder_start=None,
-            pid_ns=wa.pid_namespace(),
+            pid_ns=wa.pid_namespace() if same_namespace else None,
             lease_until_ns=time.time_ns() + 60 * 10**9,
         )
-        ledger_path(held.id).write_text(json.dumps(replace(leased, holder_pid=None).to_payload()))
+        ledger_path(held.id).write_text(json.dumps(leased.to_payload()))
         candidate = make_grant(holder="bluesky")
         with pytest.raises(AuthorizationRefused):
             issue_grant(candidate)
-        # Its holder is gone: the kernel says so before the lease's time runs out.
-        ledger_path(held.id).write_text(json.dumps(leased.to_payload()))
+        lapsed = replace(leased, lease_until_ns=time.time_ns() - 1)
+        ledger_path(held.id).write_text(json.dumps(lapsed.to_payload()))
         issue_grant(candidate)
         assert grant_path(candidate.id).exists()
-
-    def test_an_unreadable_ledger_still_blocks(self):
-        held = make_grant(holder="optimizer")
-        issue_grant(held)
-        ledger_path(held.id).write_text("{")
-        with pytest.raises(AuthorizationRefused):
-            issue_grant(make_grant(holder="bluesky"))
 
     def test_an_unreadable_grant_beside_it_is_left_out_not_a_veto(self):
         broken = make_grant(holder="optimizer")

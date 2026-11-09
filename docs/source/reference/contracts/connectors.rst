@@ -381,11 +381,11 @@ grants directory's — the one lock order every writer of both keeps — stamps
 the record's ``switch_epoch`` on the grant, and refuses ``auth_overlap`` when
 a live grant of another holder lists one of the channels on the same machine:
 one in the owner's own directory, or a self-issued one in the ledger directory
-the approver sees. A grant whose ledger, where the approver sees it, shows
-its lease lapsed (its holder stopped renewing, or is gone) does not count; one
-with no ledger in sight does, until it expires. Another owner's directory is not read. A grant file that
-cannot be read is logged and left out of that check; it refuses every write
-under it already. Both surfaces also refuse a target the deployment does not
+the approver sees. A grant whose every ledger the approver sees shows its
+lease time passed (its holder stopped renewing) does not count; one with no
+ledger in sight, or one that cannot be read, does, until it expires. Another
+owner's directory is not read. A grant file that cannot be read is logged and
+left out of that check; it refuses every write under it already. Both surfaces also refuse a target the deployment does not
 configure, a ceiling of ``never`` or ``unknown``, a range outside the limits
 database, and a channel without a numeric range there; the chip also refuses
 in a read-only run. The ceiling is the one the program's own writes will meet:
