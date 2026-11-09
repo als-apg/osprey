@@ -725,6 +725,8 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
             HookRule(matcher="mcp__optimizer__cancel_job", hooks=[_APPROVAL]),
         ],
         hooks_post=[_post_error("mcp__optimizer__.*")],
+        # Pausing and cancelling stop motion, never start it.
+        plan_mode_allowed=["pause_job", "cancel_job"],
     ),
     "health": ServerDefinition(
         name="health",
