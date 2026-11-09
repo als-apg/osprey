@@ -34,6 +34,7 @@ from osprey.deployment.web_terminals.roster import (
     effective_tier,
     entry_is_shared,
     freeze_user_indices,
+    image_tag_problem,
     normalize_users,
     phoebus_server_runs,
     renders_needing_archiver_ca_bundles,
@@ -1055,7 +1056,8 @@ def test_resolve_cards_image_tag_expands_env_var_at_render_time(monkeypatch) -> 
 
 def test_resolve_cards_image_tag_unset_env_var_expands_to_empty(monkeypatch) -> None:
     """An `image_tag` referencing an unset variable expands to the empty string
-    (not a surviving `${...}`), yielding a tagless ref that lint warns on."""
+    (not a surviving `${...}`), yielding a tagless ref that `image_tag_problem`
+    refuses."""
     # Arrange
     monkeypatch.delenv("IMAGE_TAG", raising=False)
     web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}", **_CATALOG}
@@ -1065,6 +1067,94 @@ def test_resolve_cards_image_tag_unset_env_var_expands_to_empty(monkeypatch) -> 
 
     # Assert
     assert result[0]["image"] == "registry.example.org/osprey/web-terminal:"
+
+
+# ---------------------------------------------------------------------------
+# image_tag_problem() — the registry-mode empty-tag refusal
+# ---------------------------------------------------------------------------
+
+
+def test_image_tag_problem_names_the_unset_variable(monkeypatch) -> None:
+    """A whole-tag reference to an unset variable is refused, naming it."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+
+    # Act
+    problem = image_tag_problem({"image_tag": "${IMAGE_TAG}"})
+
+    # Assert
+    assert problem == (
+        "modules.web_terminals.image_tag '${IMAGE_TAG}' resolved to an empty string: "
+        "IMAGE_TAG is not set; export it in the shell that runs osprey build and osprey up"
+    )
+
+
+def test_image_tag_problem_names_a_variable_that_empties_part_of_the_tag(monkeypatch) -> None:
+    """A reference that empties only part of the tag is refused too, showing the
+    partial result and every empty name once, in order."""
+    # Arrange
+    monkeypatch.delenv("A", raising=False)
+    monkeypatch.delenv("B", raising=False)
+
+    # Act
+    problem = image_tag_problem({"image_tag": "v${A}$B-${A}"})
+
+    # Assert
+    assert problem == (
+        "modules.web_terminals.image_tag 'v${A}$B-${A}' resolved to 'v-': "
+        "A, B are not set; export them in the shell that runs osprey build and osprey up"
+    )
+
+
+def test_image_tag_problem_treats_a_set_but_empty_variable_as_unset(monkeypatch) -> None:
+    """A variable exported as the empty string expands to empty, so it is refused."""
+    # Arrange
+    monkeypatch.setenv("IMAGE_TAG", "")
+
+    # Act
+    problem = image_tag_problem({"image_tag": "${IMAGE_TAG}"})
+
+    # Assert
+    assert problem is not None
+    assert "IMAGE_TAG is not set" in problem
+
+
+def test_image_tag_problem_refuses_a_literal_empty_tag() -> None:
+    """A literal empty tag names no variable and points at the key."""
+    # Act
+    problem = image_tag_problem({"image_tag": ""})
+
+    # Assert
+    assert problem == (
+        "modules.web_terminals.image_tag is empty; set a tag, or remove the key to use latest"
+    )
+
+
+@pytest.mark.parametrize(
+    "web_terminals",
+    [
+        pytest.param({"image_tag": "${IMAGE_TAG}"}, id="set-variable"),
+        pytest.param({}, id="default-latest"),
+        pytest.param({"image_tag": 7}, id="non-string"),
+        pytest.param({"image_tag": "v1.2.3"}, id="literal"),
+        pytest.param({"image_source": "local", "image_tag": "${UNSET_TAG}"}, id="local-mode"),
+        pytest.param({"image_source": "local", "image_tag": ""}, id="local-mode-empty"),
+    ],
+)
+def test_image_tag_problem_is_silent_for_a_set_variable_the_default_and_local_mode(
+    monkeypatch, web_terminals: dict[str, Any]
+) -> None:
+    """A tag that expands to a non-empty literal, the `latest` default and local
+    mode (which never reads `image_tag`) raise no problem."""
+    # Arrange
+    monkeypatch.setenv("IMAGE_TAG", "v9.9.9")
+    monkeypatch.delenv("UNSET_TAG", raising=False)
+
+    # Act
+    problem = image_tag_problem(web_terminals)
+
+    # Assert
+    assert problem is None
 
 
 # ---------------------------------------------------------------------------
