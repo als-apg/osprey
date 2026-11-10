@@ -11,8 +11,8 @@ whole process takes about 10 minutes.
    - Node.js, Claude Code, and ``uv`` installed
    - An API key configured for your AI provider
    - The ``osprey`` CLI installed and on your ``PATH``
-   - The ability to create projects with ``osprey build``
-   - Optionally, Docker or Podman for ``osprey deploy``
+   - The ability to create projects with ``osprey init``
+   - Optionally, Docker or Podman for ``osprey up``
 
 
 Step 1: Install Node.js
@@ -92,8 +92,7 @@ in a project, set it under ``config:`` in ``profile.yml`` and run
 .. code-block:: yaml
 
    config:
-     claude_code:
-       cli_version: "2.1.300"   # one exact version
+     claude_code.cli_version: "2.1.300"   # one exact version
 
 Then install that same version, so the ``claude`` on your machine matches the
 project:
@@ -212,7 +211,7 @@ Step 5: Install OSPREY
 
       This is the right choice for most users. Your own projects stay separate
       from the tool — you'll create them in their own directories with
-      ``osprey build``.
+      ``osprey init``.
 
       To upgrade later:
 
@@ -268,7 +267,7 @@ increments for hotfixes. See ``CHANGELOG.md`` for details.
 Step 6: Install a container runtime (optional)
 ------------------------------------------------
 
-``osprey deploy`` runs a project and its services (simulation IOCs, databases, the
+``osprey up`` runs a project and its services (simulation IOCs, databases, the
 observability stack) in containers, and needs Docker or Podman for that. The core
 agent workflow does not require containers, so you can skip this step and come back
 to it when you deploy.
@@ -366,7 +365,9 @@ Troubleshooting
       from inside the clone.
 
    **MCP connection failed**
-      Ensure you're running ``claude`` from your project root where ``.mcp.json`` lives.
+      Start sessions with ``osprey chat`` or ``osprey web``, not a bare ``claude``.
+      They run Claude Code in the project's ``build/`` directory, where the
+      rendered ``.mcp.json`` lives.
 
    **Provider authentication error**
       Check that your API key is exported: ``echo $CBORG_API_KEY`` (or whichever key

@@ -4,6 +4,7 @@
     THIS template:
 
       PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
 -#}
 {#- The network axis — network membership and published ports — comes from the
     shared macro rather than being spelled here, so every service template
@@ -60,7 +61,7 @@ services:
     # https://neo4j-labs.github.io/neosemantics/versions.json for an entry
     # matching the newer server before bumping this, because a server the
     # plugin has no jar for comes up healthy and then fails every import.
-    image: ${OSPREY_GRAPHDB_IMAGE:-{{ graphdb.image | default('neo4j:5.26-community', true) }}}
+    image: ${OSPREY_GRAPHDB_IMAGE:-{{ graphdb.image | default(upstream_images.graphdb, true) }}}
     # container_name is a HOST-GLOBAL docker identifier: a bare `graphdb`
     # collides when two OSPREY projects deploy a graph store on one host,
     # forcing them to serialize. Namespace it per-project so concurrent deploys

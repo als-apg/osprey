@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "session_key": "<key>",
+  "flags": [
+    {
+      "flag_id": "<id>",
+      "source": "guard-circumvention",
+      "reason": "Asked the agent to edit hooks, settings or configuration to loosen a gate.",
+      "prompt_ref": "<record_session_id>:<submission_id>",
+      "prompt_excerpt": "<at most 200 characters>",
+      "opened_at": "2026-10-31T00:00:00Z",
+      "state": "open",
+      "stop_unconfirmed": false,
+      "started": []
+    }
+  ]
+}

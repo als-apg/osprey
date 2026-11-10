@@ -138,7 +138,7 @@ describe('createPanelIframe', () => {
   });
 
   test('frames the tile opaque until the hub answers, then first-party with downloads', async () => {
-    stubCaps(() => ({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }));
+    stubCaps(() => jsonOk({ id: 'tuning', opaque: false, cap_url: null }));
     const { createPanelIframe } = await load();
     createPanelIframe(
       { id: 'tuning', label: 'Tuning' },
@@ -187,6 +187,39 @@ describe('createPanelIframe', () => {
   });
 });
 
+describe('panelUiUrl joins the base and the UI path on one slash', () => {
+  const QUERIES_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/panel-queries.js';
+
+  test.each([
+    ['/panel/x', '/', '/panel/x/'],
+    ['/panel/x/', '/ui', '/panel/x/ui'],
+    ['/panel/x', undefined, '/panel/x'],
+    ['/panel/x', '/ui/', '/panel/x/ui/'],
+  ])('(%s, %s) -> %s', async (url, uiPath, expected) => {
+    const { panelUiUrl } = await import(QUERIES_PATH);
+    expect(panelUiUrl(url, uiPath)).toBe(expected);
+  });
+
+  test('a panel whose UI path is "/" is framed as a directory', async () => {
+    stubCaps(() => ({ ok: false, status: 404, statusText: 'Not Found', json: async () => ({}) }));
+    const { createPanelIframe } = await load();
+    const state = { url: '/panel/orbit-bump', pendingUrl: null, iframe: null };
+    createPanelIframe(
+      { id: 'orbit-bump', label: 'Orbit Bump', path: '/' },
+      'orbit-bump',
+      state,
+      document.createElement('div')
+    );
+    await flush();
+    const iframe = /** @type {HTMLIFrameElement} */ (/** @type {unknown} */ (state.iframe));
+    expect(path(iframe)).toBe('/panel/orbit-bump/');
+    // A relative asset resolves inside the mount, not one segment above it.
+    expect(new URL('static/panel.js', iframe.src).pathname).toBe(
+      '/panel/orbit-bump/static/panel.js'
+    );
+  });
+});
+
 describe('capExpiryMs reads the expiry the hub minted into the cap', () => {
   test('the first token segment is epoch seconds in hex', async () => {
     const { capExpiryMs } = await load();
@@ -219,7 +252,20 @@ describe('framePanel', () => {
     expect(calls).toEqual([]);
   });
 
-  test('a panel the hub calls first-party (404) keeps the plain URL and is not renewed', async () => {
+  test('a panel the hub calls first-party (opaque: false) keeps the plain URL and is not renewed', async () => {
+    const calls = stubCaps(() => jsonOk({ id: 'results', opaque: false, cap_url: null }));
+    const { framePanel } = await load();
+    const el = attachedFrame();
+    framePanel({ id: 'results' }, 'results', el, '/panel/results/', '/panel/results');
+    await flush();
+    expect(el.dataset.panelFrame).toBe('first-party');
+    expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
+    expect(path(el)).toBe('/panel/results/');
+    await vi.advanceTimersByTimeAsync(48 * HOUR_MS);
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a 404 from the cap mint frames the panel opaque at its plain URL, never first-party', async () => {
     const calls = stubCaps(() => ({
       ok: false,
       status: 404,
@@ -230,8 +276,8 @@ describe('framePanel', () => {
     const el = attachedFrame();
     framePanel({ id: 'results' }, 'results', el, '/panel/results/', '/panel/results');
     await flush();
-    expect(el.dataset.panelFrame).toBe('first-party');
-    expect(el.getAttribute('sandbox')).toBe(FIRST_PARTY);
+    expect(el.dataset.panelFrame).toBe('opaque');
+    expect(el.getAttribute('sandbox')).toBe(OPAQUE);
     expect(path(el)).toBe('/panel/results/');
     await vi.advanceTimersByTimeAsync(48 * HOUR_MS);
     expect(calls).toHaveLength(1);

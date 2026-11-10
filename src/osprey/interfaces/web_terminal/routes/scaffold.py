@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from osprey.interfaces.web_terminal.config_view import unreadable_config_refusal
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
 from osprey.interfaces.web_terminal.scaffold_gallery_service import (
     ProtectedArtifactError,
@@ -76,8 +77,6 @@ def _require_scaffold_writes(request: Request) -> None:
     if not getattr(request.app.state, "scaffold_write_enabled", False):
         unreadable = getattr(request.app.state, "config_unreadable_path", None)
         if unreadable:
-            from osprey.interfaces.web_terminal.app import unreadable_config_refusal
-
             raise HTTPException(status_code=403, detail=unreadable_config_refusal(unreadable))
         raise HTTPException(
             status_code=403,

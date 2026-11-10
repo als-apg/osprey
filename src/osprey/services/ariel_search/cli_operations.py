@@ -1498,6 +1498,10 @@ def _read_qmd_watermark(mirror_root: Path, *, expansion_key: str | None = None) 
     return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
+#: Read back only by the resync that writes it, under the same account.
+_QMD_WATERMARK_MODE = 0o600
+
+
 def _write_qmd_watermark(
     mirror_root: Path, moment: datetime, *, expansion_key: str | None = None
 ) -> None:
@@ -1533,9 +1537,13 @@ def _write_qmd_watermark(
     atomic_replace(
         mirror_root / QMD_WATERMARK_NAME,
         f"{serialized}\n".encode(),
-        mode=0o600,
+        mode=_QMD_WATERMARK_MODE,
         sync="required",
     )
+
+
+#: The qmd sidecar only stats it for its mtime; no other uid opens it.
+_QMD_MARKER_MODE = 0o600
 
 
 def _touch_qmd_marker(mirror_root: Path) -> bool:
@@ -1564,7 +1572,7 @@ def _touch_qmd_marker(mirror_root: Path) -> bool:
         atomic_replace(
             mirror_root / TOUCH_MARKER_NAME,
             f"{datetime.now(UTC).isoformat()}\n".encode(),
-            mode=0o600,
+            mode=_QMD_MARKER_MODE,
             sync="required",
         )
     except OSError as e:
@@ -3708,6 +3716,7 @@ async def seed_logbook_entries(
     (:func:`~osprey.services.ariel_search.attachments.store_native_attachment`),
     so each is copied with its viewable rendition and linked on the entry the
     moment seeding returns. No caption or picture-embedding module runs here.
+    Every seeded entry is recorded ``local_only``: it lives only in ARIEL.
 
     Args:
         config_dict: ARIEL config dict (``ARIELConfig.from_dict`` shape).
@@ -3723,15 +3732,21 @@ async def seed_logbook_entries(
         guess_mime_type,
         store_native_attachment,
     )
+    from osprey.services.ariel_search.entry_url import SIMULATION_SOURCE_SYSTEM
+    from osprey.services.ariel_search.models import SyncStatus, with_sync_status
 
     config = _ariel_config(config_dict)
     service = await create_ariel_service(config)
     pictures = pictures or {}
     count = 0
     async with service:
-        run_id = await service.repository.start_ingestion_run("Simulation")
+        run_id = await service.repository.start_ingestion_run(SIMULATION_SOURCE_SYSTEM)
         try:
             for entry in entries:
+                entry = {
+                    **entry,
+                    "metadata": with_sync_status(entry.get("metadata"), SyncStatus.LOCAL_ONLY),
+                }
                 await service.repository.upsert_entry(entry)
                 files = pictures.get(entry["entry_id"], ())
                 if files:

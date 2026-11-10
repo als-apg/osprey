@@ -199,7 +199,6 @@ initTypeRegistry().then(() => {
       logbook: (a) => {
         fetchArtifacts().finally(() => openComposeModal({ artifact_id: a.id }));
       },
-      delete: (a) => previewRenderer.deleteArtifact(a),
     },
   });
   fetchArtifacts();

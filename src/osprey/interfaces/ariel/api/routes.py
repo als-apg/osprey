@@ -214,9 +214,7 @@ def _entry_url(entry: Mapping[str, Any]) -> str | None:
 
     metadata = entry.get("metadata")
     return build_entry_url(
-        entry.get("entry_id"),
-        entry.get("source_system"),
-        metadata=metadata if isinstance(metadata, Mapping) else None,
+        entry.get("entry_id"), metadata=metadata if isinstance(metadata, Mapping) else None
     )
 
 

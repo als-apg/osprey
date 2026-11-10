@@ -164,7 +164,7 @@ Working with a Bundle
       .. _shared-bundle-multi-user:
 
       **One bundle, many terminals.** In a multi-user deployment every web
-      terminal whose tier or app configures ``facility_knowledge.bundle_path`` gets
+      terminal whose login configures ``facility_knowledge.bundle_path`` gets
       the *deployment's* bundle bind-mounted, read-write. There is one directory,
       not a copy per user: a concept drafted in one terminal is the same file the
       next terminal opens, and the same file the search sidecar indexes.

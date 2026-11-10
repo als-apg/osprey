@@ -43,7 +43,12 @@ import { activityLabel } from './chat-activity.js';
 import { renderMarkdownInto } from './chat-markdown.js';
 import { linkArtifactIds } from './artifact-links.js';
 import { emitChat } from './chat-events.js';
-import { BACKGROUND_WAIT_LABEL, WORKING_LABEL, systemFrame } from './chat-system.js';
+import {
+  BACKGROUND_WAIT_LABEL,
+  COMPACTING_LABEL,
+  WORKING_LABEL,
+  systemFrame,
+} from './chat-system.js';
 import { endsTurn } from './chat-frames.js';
 
 export { elem } from './chat-dom.js';
@@ -211,6 +216,9 @@ export function createChatRenderer(container, options = {}) {
    * @param {Node} node
    */
   function append(node) {
+    // Entries take focus (on click, see chat-menus.js) so the menu key reaches them.
+    const el = /** @type {any} */ (node);
+    if (el.nodeType === 1 && el.classList.contains('op-entry')) el.setAttribute('tabindex', '-1');
     container.appendChild(node);
     if (loader?.el.isConnected) container.appendChild(loader.el);
   }
@@ -334,6 +342,7 @@ export function createChatRenderer(container, options = {}) {
     if (!loader) loader = createLoader();
     const writing = turn?.drawing() ? 'Drawing…' : 'Writing…';
     loader.setLabel(waiting ? 'Waiting for your answer' : streamingText ? writing : activity);
+    loader.setCompacting(!waiting && !streamingText && activity === COMPACTING_LABEL);
     loader.start(startedAt);
     if (container.lastElementChild !== loader.el) container.appendChild(loader.el);
   }

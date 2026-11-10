@@ -993,6 +993,7 @@ def event_window(
     horizon_start: float,
     *,
     tz: ZoneInfo | None = None,
+    topoff: Mapping[str, Any] | None = None,
 ) -> tuple[float, float]:
     """The absolute span one channel's events can affect, in epoch seconds.
 
@@ -1019,6 +1020,8 @@ def event_window(
             event is anchored further back than the archive reaches.
         tz: Timezone ``at_when`` calendar days are counted in. Defaults to the
             facility zone, matching where the engine places them.
+        topoff: The channel's ``topoff`` seed record, which bounds how long a
+            ``loss`` lasts; without one a loss runs to the anchor.
 
     Returns:
         ``(start, end)`` in epoch seconds. ``end`` is ``anchor`` for anything
@@ -1040,12 +1043,8 @@ def event_window(
             # the span its values reach over is the archive.
             return horizon_start, anchor
         at = _anchored_instant(event, anchor, tz)
-        if event["shape"] == "spike":
-            width = float(event["width"]) * _SPIKE_WINDOW_SIGMAS
-            start, end = min(start, at - width), max(end, at + width)
-        else:
-            until = _step_end(event, anchor, tz)
-            start, end = min(start, at), anchor if until is None else max(end, until)
+        low, high = _occurrence_span(event, at, anchor, tz, topoff)
+        start, end = min(start, low), max(end, high)
     return max(start, horizon_start), min(end, anchor)
 
 
@@ -1055,6 +1054,7 @@ def event_subwindows(
     horizon_start: float,
     *,
     tz: ZoneInfo | None = None,
+    topoff: Mapping[str, Any] | None = None,
 ) -> list[tuple[float, float]]:
     """The stretches one channel's events are actually *evidence* over.
 
@@ -1079,6 +1079,8 @@ def event_subwindows(
         tz: Timezone daily ``at_time`` occurrences and ``at_when`` calendar
             days are placed in. Defaults to the facility zone, matching where
             the engine places them.
+        topoff: The channel's ``topoff`` seed record, which bounds how long a
+            ``loss`` lasts; without one a loss runs to the anchor.
 
     Returns:
         Disjoint ``(start, end)`` pairs, ascending. Empty when every occurrence
@@ -1091,19 +1093,47 @@ def event_subwindows(
     windows: list[tuple[float, float]] = []
     for event in events:
         _refuse_window_fraction(event)
-        for at in _event_instants(event, anchor, horizon_start, tz):
-            if event["shape"] == "spike":
-                half = float(event["width"]) * _SPIKE_WINDOW_SIGMAS
-                windows.append((at - half, at + half))
-            else:
-                until = _step_end(event, anchor, tz)
-                windows.append((at, anchor if until is None else until))
+        windows.extend(
+            _occurrence_span(event, at, anchor, tz, topoff)
+            for at in _event_instants(event, anchor, horizon_start, tz)
+        )
     clamped = [
         (max(start, horizon_start), min(end, anchor))
         for start, end in windows
         if end >= horizon_start and start <= anchor
     ]
     return _merge_intervals(clamped)
+
+
+def _occurrence_span(
+    event: Mapping[str, Any],
+    at: float,
+    anchor: float,
+    tz: ZoneInfo | None,
+    topoff: Mapping[str, Any] | None,
+) -> tuple[float, float]:
+    """The stretch one occurrence of an event at ``at`` changes, in epoch seconds.
+
+    A spike reaches four sigmas either side of its instant. A burst starts at its
+    instant and reaches :data:`BURST_WINDOW_TAUS` of its slowest decay after it. A
+    loss starts at its instant and lasts until top-off has surely refilled it, or
+    to the anchor on a channel no top-off refills. A step or a ramp runs from its
+    instant to its end, or to the anchor.
+    """
+    from osprey_connectors.simulation.series import BURST_WINDOW_TAUS, loss_refill_bound
+
+    shape = event["shape"]
+    if shape == "spike":
+        half = float(event["width"]) * _SPIKE_WINDOW_SIGMAS
+        return at - half, at + half
+    if shape == "burst":
+        slowest = max(float(event["decay_s"]), float(event.get("tail_decay_s", 0.0)))
+        return at, at + BURST_WINDOW_TAUS * slowest
+    if shape == "loss":
+        bound = loss_refill_bound(event, topoff)
+        return at, anchor if bound is None else at + bound
+    until = _step_end(event, anchor, tz)
+    return at, anchor if until is None else until
 
 
 def _event_instants(
@@ -1253,11 +1283,15 @@ def seed_archiver(
             horizon_start = _archive_start(collection, manifest, anchor_s, knobs)
             previous = _ledger_windows(manifest)
             current = {
-                pv: event_window(script, anchor_s, horizon_start, tz=tz)
+                pv: event_window(
+                    script, anchor_s, horizon_start, tz=tz, topoff=archive.topoff_record(pv)
+                )
                 for pv, script in events.items()
             }
             live = {
-                pv: event_subwindows(script, anchor_s, horizon_start, tz=tz)
+                pv: event_subwindows(
+                    script, anchor_s, horizon_start, tz=tz, topoff=archive.topoff_record(pv)
+                )
                 for pv, script in events.items()
             }
             spans = _union_spans(previous, current)
@@ -1827,6 +1861,8 @@ def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogboo
     else:
         raw_text = entry.title or entry.text
 
+    from osprey.services.ariel_search.entry_url import SIMULATION_SOURCE_SYSTEM
+
     metadata: dict = {}
     if entry.title:
         metadata["title"] = entry.title
@@ -1840,7 +1876,7 @@ def _to_enhanced_entry(entry: ScenarioLogEntry, now: datetime) -> EnhancedLogboo
 
     return {
         "entry_id": entry.entry_id,
-        "source_system": "Simulation",
+        "source_system": SIMULATION_SOURCE_SYSTEM,
         "timestamp": timestamp,
         "author": entry.author,
         "raw_text": raw_text,

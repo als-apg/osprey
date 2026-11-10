@@ -1,0 +1,10 @@
+nextcloud_bridge:
+  trigger: nextcloud-question    # default; must exist in your triggers file
+  mentions: true                # default; false posts @mentions as plain text
+
+env:
+  required:
+    - NEXTCLOUD_BASE_URL
+    - NEXTCLOUD_BOT_ACCOUNT
+    - NEXTCLOUD_APP_PASSWORD
+    - NEXTCLOUD_ROOMS

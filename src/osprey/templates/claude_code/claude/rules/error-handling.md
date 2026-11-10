@@ -18,7 +18,7 @@ or work around failures.
 
 | Class | Examples | Your Response |
 |-------|----------|---------------|
-| **Connection** | A service OSPREY talks to did not answer or would not serve the request: the Bluesky or Phoebus bridge, the artifact gallery, the web terminal, the ARIEL search database, the graph store, the agent record, the `python_executor` sandbox, the control system | Name **which** service, from the error's `error_type`, message and `details` (`details.subsystem`, `details.active_target`). Say "control system" only when the envelope names it — `connection_error` / `timeout_error` from the controls server, or a `details.active_target`. A `channel_unreachable` is one channel's device (`details.channel`), not the control system: name the channel. Suggest the operator check that service or device. |
+| **Connection** | A service OSPREY talks to did not answer or would not serve the request: the Bluesky or Phoebus bridge, the artifact gallery, the web terminal, the ARIEL search database, the graph store, the agent record, the `python_executor` sandbox, the control system | Name **which** service, from the error's `error_type`, message and `details` (`details.subsystem`, `details.active_target`). Say "control system" only when the envelope names it — `connection_error` / `timeout_error` from the controls server, or a `details.active_target`. A `channel_unreachable` names the channel (`details.channel`) and states, as measured when the channel failed, whether the active target answers (`details.target_reachability`): report both as the envelope states them. Suggest the operator check that service or device. |
 | **Permission** | Writes disabled, approval denied, channel not writable | Explain the restriction. Do NOT retry or suggest workarounds. |
 | **Validation** | Limits violation, invalid channel name, bad parameter | Show the specific violation. Explain what the valid range or format is, if the error says. |
 | **Data** | Channel not found, archiver has no data for range, empty results | Report what was searched and that no data was found. Suggest refining the query. |
@@ -77,9 +77,12 @@ Some errors indicate conditions that need human operator attention:
 - **Control system unreachable** (a `connection_error` / `timeout_error` from the controls
   server, or an envelope with `details.active_target`) → The facility's control system
   infrastructure may be down. Suggest checking with the control room or operations staff.
-- **One channel unreachable** (`channel_unreachable`) → That channel did not answer, which
-  alone does not say whether the machine is up. If other channels fail the same way, the
-  active target is unreachable (as above); otherwise name the channel to the operator.
+- **One channel unreachable** (`channel_unreachable`) → The envelope measured the active
+  target when the channel failed and states the result (`details.target_reachability`).
+  Report that statement as it stands: `down` — the target is not answering (escalate as
+  above); `reached` — the target answers and only this channel is silent, so name the
+  channel; `unmeasured` — say the channel did not answer and that the target's state is
+  unmeasured. Do not read further channels to decide it.
 - **Any other service unreachable** (a bridge, the gallery, a search or graph store) → Name
   that service. Suggest the operator check it; it is not a control-room matter.
 - **Repeated write failures** → Hardware may be in a fault state or in local control mode.

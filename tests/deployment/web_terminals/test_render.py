@@ -257,6 +257,36 @@ def test_render_in_local_mode_needs_no_registry_url() -> None:
     assert "image: dls_controls-assistant:local" in artifacts["docker-compose.web.yml"]
 
 
+def test_render_refuses_registry_mode_with_an_unset_image_tag_variable(monkeypatch) -> None:
+    """Registry mode bakes the tag into every pulled ref, so a tag whose
+    variable is unset is refused before anything is rendered."""
+    # Arrange
+    monkeypatch.delenv("OSPREY_IMAGE_TAG", raising=False)
+    config = _config(["alice"])
+    config["modules"]["web_terminals"]["image_tag"] = "${OSPREY_IMAGE_TAG}"
+
+    # Act / Assert
+    with pytest.raises(ValueError, match=r"OSPREY_IMAGE_TAG is not set"):
+        render_web_terminals(config)
+
+
+def test_render_in_local_mode_ignores_an_unset_image_tag_variable(monkeypatch) -> None:
+    """Local mode builds `:local` images and never reads image_tag."""
+    # Arrange
+    monkeypatch.delenv("OSPREY_IMAGE_TAG", raising=False)
+    config = _config(["alice"])
+    del config["registry"]
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["image_source"] = "local"
+    web_terminals["image_tag"] = "${OSPREY_IMAGE_TAG}"
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert
+    assert "image: dls_controls-assistant:local" in artifacts["docker-compose.web.yml"]
+
+
 def test_render_returns_exactly_three_artifacts() -> None:
     """render_web_terminals() produces the compose overlay, nginx fragment, and landing page."""
     # Arrange
@@ -334,6 +364,34 @@ def test_nginx_image_custom_value_lands_on_the_nginx_service() -> None:
 
     # Assert
     assert compose["services"]["nginx"]["image"] == custom
+
+
+def test_the_default_nginx_image_comes_from_the_base_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deployment that mirrors Docker Hub pulls the front door from the mirror."""
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["images"] = {"base_registry": "mirror.example.org/dockerhub"}
+
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    assert compose["services"]["nginx"]["image"] == (
+        "mirror.example.org/dockerhub/library/nginx:1.31-alpine"
+    )
+
+
+def test_a_named_nginx_image_ignores_the_base_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["images"] = {"base_registry": "mirror.example.org/dockerhub"}
+    config["modules"]["web_terminals"]["nginx_image"] = "pinned.example.org/nginx:1"
+
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+
+    assert compose["services"]["nginx"]["image"] == "pinned.example.org/nginx:1"
 
 
 def test_compose_service_env_has_terminal_user_and_web_slot_commentary_per_service() -> None:
@@ -6490,6 +6548,7 @@ def test_compose_ctx_hands_the_template_the_control_identity_container_paths() -
         pytest.param("", id="empty"),
         pytest.param("root", id="reserved-root"),
         pytest.param("osprey-dispatch-0", id="reserved-service"),
+        pytest.param("osprey.x", id="reserved-dotted"),
         pytest.param("backup", id="base-image-account"),
     ],
 )
@@ -6673,6 +6732,19 @@ def test_control_identity_env_lines_use_the_quoted_whole_pair_form() -> None:
     assert f'      - "OSPREY_CONTROL_IDENTITY_MODULE={CONTROL_IDENTITY_CONTAINER_PATH}"\n' in text
 
 
+def test_render_emits_a_dotted_control_identity() -> None:
+    """A `first.last` identity renders as the same quoted whole-pair env line."""
+    # Arrange
+    config = copy.deepcopy(_walled_identity_config("password"))
+    config["modules"]["web_terminals"]["users"][0]["control_identity"] = "alice.smith"
+
+    # Act
+    text = render_web_terminals(config)["docker-compose.web.yml"]
+
+    # Assert
+    assert '      - "OSPREY_CONTROL_IDENTITY=alice.smith"\n' in text
+
+
 @pytest.mark.parametrize("method", ["password", "oidc"])
 def test_walled_render_stages_the_closure_byte_equal_to_its_sources(method: str) -> None:
     """The bound directory is written by the render itself: exactly the script
@@ -6726,3 +6798,18 @@ def test_walled_roster_without_any_control_identity_emits_nothing() -> None:
     assert not any(path.startswith("control_identity/") for path in artifacts)
     assert "OSPREY_CONTROL_IDENTITY" not in artifacts["docker-compose.web.yml"]
     assert "./build/control_identity" not in artifacts["docker-compose.web.yml"]
+
+
+def test_a_roster_name_equal_to_a_deployed_apps_audit_identity_is_refused() -> None:
+    """A user named like an application's audit identity would bind that
+    application's spool and state read-write, and write facts as it."""
+    config = _config(["alice", "knob"])
+    config["services"] = {"knob-panel": {"app": "knob", "audit_identity": "knob"}}
+    config["deployed_services"] = ["knob-panel"]
+
+    with pytest.raises(ValueError, match=r"'knob'.*application 'knob'"):
+        render_web_terminals(config)
+
+    # An application that is not deployed claims no identity.
+    config["deployed_services"] = []
+    render_web_terminals(config)

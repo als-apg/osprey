@@ -38,7 +38,6 @@ vi.mock('../../../src/osprey/interfaces/artifacts/static/js/preview.js', () => (
   createPreviewRenderer: () => {
     mocks.preview = {
       renderPreview: vi.fn(),
-      deleteArtifact: vi.fn(),
     };
     return mocks.preview;
   },

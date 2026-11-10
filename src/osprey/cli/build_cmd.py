@@ -50,9 +50,16 @@ from uuid import uuid4
 
 import click
 
+from osprey.apps.loader import ROOT_LOGIN, DeploymentApps, check_deployment
 from osprey.deployment.compose_generator import TEMPLATE_FILENAME
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
 from osprey.deployment.members import WORKSPACE_MEMBERS
+from osprey.deployment.wheel_build import (
+    DEPLOYMENT_PACKAGES_DIRNAME,
+    DeploymentPackage,
+    build_deployment_packages,
+    is_secret_file,
+)
 from osprey.facility.errors import FacilityBuildError, FacilityBuildWarning
 from osprey.profiles.providers import PROVIDERS_FILENAME, load_provider_catalog
 from osprey.utils.config_writer import (
@@ -61,7 +68,7 @@ from osprey.utils.config_writer import (
     load_config_document,
     save_config_document,
 )
-from osprey.utils.workspace import IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
+from osprey.utils.workspace import APPS_DIRNAME, IMAGE_DIR_NAME, STATE_DIR_NAME, STATE_ZONE_DIRS
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
@@ -88,6 +95,9 @@ from .build_injectors import (
     _inject_va,
     _inject_va_archiver,
     graphdb_corpus_fill,
+    project_app_login,
+    project_app_services,
+    write_app_configs,
 )
 from .build_lifecycle import (
     _SHELL_METACHARACTERS,
@@ -110,8 +120,11 @@ from .repo_resolver import PROFILE_FILENAME, find_repo_root, repo_option
 from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
+    from osprey.apps.manifest import AppManifest
+    from osprey.apps.rules import LoginSelection
     from osprey.facility.build import FacilityDocument
     from osprey.facility.render import WrittenViews
+    from osprey.facility.roots import FacilityRoots
 
     from .build_profile_model import BuildProfile
     from .profile_root import ProfileKind
@@ -197,9 +210,12 @@ _NON_SOURCE_ROOT_ENTRIES: frozenset[str] = frozenset(
 #: render its honest answer is this machine's — a path no container has, which
 #: leaves every server and every hook in the image unable to start. Its value is
 #: the interpreter of ``templates/project/Dockerfile.j2``'s
-#: ``FROM python:3.12-slim`` base, which the official python images install at
-#: ``/usr/local/bin/python``. The coupling to that base image is pinned by a
-#: test, so a base change cannot silently invalidate this constant.
+#: ``FROM ${OSPREY_BASE_REGISTRY}/library/python:<IMAGE_PYTHON>-slim`` base,
+#: which the official python images install at ``/usr/local/bin/python``; the
+#: version is
+#: :data:`osprey.deployment.image_facts.IMAGE_PYTHON`. The coupling to that base
+#: image is pinned by a test, so a base change cannot silently invalidate this
+#: constant.
 _CONTAINER_INTERPRETER = "/usr/local/bin/python"
 
 #: The two directories the swap renames through, in the STATE zone. They live
@@ -1405,6 +1421,15 @@ class _SharedRenderInputs(NamedTuple):
     facility_sha256: str
     """The sha256 of the ``data/facility/`` tree :attr:`facility` was built from."""
 
+    facility_roots: FacilityRoots | None = None
+    """Where the build read machine facts and the deployment's own content.
+
+    Resolved once from the profile (``BuildProfile.resolved_facility_roots``)
+    before any render, so every render reads the same two roots. ``None``
+    means the single tree ``<data>/facility`` playing both roles, as for every
+    deployment without ``machine:``.
+    """
+
     profile_overlays: tuple[Path, ...] = ()
     """Profile layers merged over EVERY profile this build resolves.
 
@@ -1416,6 +1441,15 @@ class _SharedRenderInputs(NamedTuple):
     project — and every render image — rendered for a different host than the
     stack they ship in.
     """
+
+    applications: DeploymentApps = DeploymentApps()
+    """The applications the deployment runs and each render's selection of them,
+    as :func:`osprey.apps.loader.check_deployment` found them before any write."""
+
+    deployment_packages: tuple[DeploymentPackage, ...] = ()
+    """The deployment's own packages, built once into the staged render's
+    deployment-packages directory before the venv. Every image context carries
+    a copy of that directory, and every rendered Dockerfile installs from it."""
 
     views_omitted_reported: set[str] | None = None
     """Facility views this build has already named as not written.
@@ -1442,6 +1476,14 @@ class _SharedRenderInputs(NamedTuple):
     view and every later one that agrees copies its bytes: the pyAML view alone
     is a design lattice per model. ``None`` for a single render, which writes
     each view.
+    """
+
+    image_platform: str | None = None
+    """The platform the root profile's ``images.platform`` states, or ``None``.
+
+    Read once from the deployment's profile, never per render: every image of
+    the deployment is built for one platform, and every rendered ``FROM`` names
+    the one its wheels were judged against.
     """
 
     runtime_interpreter: str | None = None
@@ -1771,7 +1813,12 @@ def _template_host_config(
             _apply_config_overrides(scratch_dir, overlay)
         # A view of the profile as the deployment it extends: the injectors
         # skip an attached profile wholesale, and this reading is of the host.
-        _inject_services(replace(build_profile, deploy_services=True), profile_dir, scratch_dir)
+        _inject_services(
+            replace(build_profile, deploy_services=True),
+            profile_dir,
+            scratch_dir,
+            app_manifests=shared.applications.manifests,
+        )
         return _rendered_config(scratch_dir)
 
 
@@ -1969,6 +2016,68 @@ def _facility_display_name(facility: Mapping[str, Any], project_name: str) -> st
     return identity_record(facility["identity"], project_name)["name"]
 
 
+def _copy_app_skills(
+    repo_root: Path,
+    render_dir: Path,
+    manifests: Sequence[AppManifest],
+    selection: LoginSelection,
+) -> list[str]:
+    """Copy the skills of the applications this render shows into its ``.claude/skills/``.
+
+    Only the skills a manifest declares are copied; any other directory under an
+    application's ``skills/`` stays behind. Runs after the profile's own artifacts,
+    so a name already taken there is refused rather than either copy silently winning.
+
+    Returns:
+        The skill names copied.
+    """
+    from osprey.apps.projection import login_skills
+
+    copied: list[str] = []
+    for app, skill in login_skills(manifests, selection):
+        destination = render_dir / ".claude" / "skills" / skill
+        if destination.exists():
+            raise BuildProfileError(
+                f"Application {app!r} carries a skill named {skill!r}, and this render "
+                f"already has one by that name; rename the application's skill."
+            )
+        shutil.copytree(repo_root / APPS_DIRNAME / app / "skills" / skill, destination)
+        copied.append(skill)
+    return copied
+
+
+def _content_dir(roots: FacilityRoots) -> Path | None:
+    """The ``content_dir`` the facility pipeline takes for ``roots``.
+
+    ``None`` for a single tree, which the pipeline reads as "same as the
+    machine root", so a deployment without ``machine:`` calls every stage
+    exactly as before.
+    """
+    return roots.content if roots.mounted else None
+
+
+def _stated_machine_route(profile_path: Path) -> str | None:
+    """The ``machine:`` the profile file states, as a remedy names it (``<machine>/``).
+
+    Read straight from the profile file, because the mirror guard that names
+    it runs before the profile is resolved. ``machine:`` is root-only, so the
+    file itself is the one place it can be stated. ``None`` when the file is
+    unreadable or states none, so the remedy falls back to ``data/facility/``.
+    """
+    import yaml
+
+    from osprey_connectors import yaml_loader
+
+    try:
+        document = yaml_loader.safe_load(profile_path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None
+    machine = document.get("machine") if isinstance(document, dict) else None
+    if not isinstance(machine, str) or not machine.strip():
+        return None
+    return f"{machine.strip().rstrip('/')}/"
+
+
 def _render_project(
     shared: _SharedRenderInputs,
     resolved: Any,
@@ -2123,6 +2232,8 @@ def _render_project(
         project_deps=shared.project_deps,
         skip_deps=shared.skip_deps,
         runtime_interpreter=shared.runtime_interpreter,
+        deployment_packages=shared.deployment_packages,
+        image_platform=shared.image_platform,
     )
     # `api.providers`, rendered verbatim from the catalog beside `profile.yml`.
     # It is a file rather than a profile field because it is a list of
@@ -2156,6 +2267,11 @@ def _render_project(
     # every profile file, so nothing falls back to a packaged bundle here.
     data_root = build_profile.resolved_data_root(repo_root)
     assert data_root is not None  # `data:` required; narrows for type-checkers
+    # The facility roots the build resolved once. A render outside a build
+    # (no roots handed over) reads the single tree, as before `machine:`.
+    from osprey.facility.roots import FacilityRoots
+
+    facility_roots = shared.facility_roots or FacilityRoots.single(data_root / "facility")
 
     # Every edit of the render's config.yml — the template's own ownership
     # registration, the overrides, the projections, the service injectors, the
@@ -2181,6 +2297,7 @@ def _render_project(
             force=True,
             artifacts=effective_artifacts,
             data_root=data_root,
+            facility_roots=facility_roots,
         )
         progress("  ✓ Base template rendered")
         copy_enabled_watchdogs(build_profile.watchdogs, repo_root, render_dir)
@@ -2236,12 +2353,13 @@ def _render_project(
         # simulator's probe, so it reads the filled value.
         facility_fill = fill_facility_settings(
             FacilityRecords(shared.facility),
-            data_root / "facility",
+            facility_roots.machine,
             repo_root,
             _rendered_config(render_dir),
             build_profile.config,
             build_profile.va_archiver,
             reported=shared.views_omitted_reported,
+            content_dir=_content_dir(facility_roots),
         )
         derived_by_block = {
             "layout": layout_port_fill(build_profile.config, _profile_port_base(build_profile)),
@@ -2361,10 +2479,28 @@ def _render_project(
                 raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(tabless))
 
         injected = _inject_services(
-            build_profile, repo_root, render_dir, facility_name=context["facility_name"]
+            build_profile,
+            repo_root,
+            render_dir,
+            facility_name=context["facility_name"],
+            app_manifests=shared.applications.manifests,
         )
         if injected_out is not None:
             injected_out.extend(injected)
+
+        # What this render carries of the applications, before its panels are
+        # told whether they show and its servers are persisted. An attached render
+        # publishes no port of its own: the host's reading says where a panel is.
+        app_panels: list[str] = []
+        app_servers: dict[str, Any] = {}
+        if shared.applications.manifests:
+            login = ROOT_LOGIN if profile_path.parent == repo_root else profile_path.stem
+            app_panels, app_servers = project_app_login(
+                render_dir,
+                shared.applications.manifests,
+                _rendered_config(render_dir) if build_profile.deploy_services else host_config,
+                shared.applications.logins[login],
+            )
 
         # The selection, projected. The tab strip is read from `web.panels` alone,
         # and by now every block this render will carry is there: the template's
@@ -2375,7 +2511,7 @@ def _render_project(
         # `config:`, and the Reach Contract copies addresses from the host's
         # render); only `enabled` moves, and it says one thing: selected here.
         projected_tabs = panel_selection_overrides(
-            build_profile.web_panels or (), _rendered_config(render_dir)
+            [*(build_profile.web_panels or ()), *app_panels], _rendered_config(render_dir)
         )
         if projected_tabs:
             apply_panel_selection(render_dir / "config.yml", projected_tabs)
@@ -2460,6 +2596,17 @@ def _render_project(
             if reg_count:
                 progress("  ✓ Registered %d profile artifact(s) in config.yml", reg_count)
 
+        if shared.applications.manifests:
+            login = ROOT_LOGIN if profile_path.parent == repo_root else profile_path.stem
+            copied = _copy_app_skills(
+                repo_root,
+                render_dir,
+                shared.applications.manifests,
+                shared.applications.logins[login],
+            )
+            if copied:
+                progress("  ✓ Applied %d application skill(s): %s", len(copied), ", ".join(copied))
+
         # The limits database is the limits view, written below with the other
         # facility outputs; the render names it before anything reads the config.
         _inject_limits_database(render_dir)
@@ -2478,10 +2625,11 @@ def _render_project(
             render_dir,
             shared.facility,
             rendered,
-            data_root / "facility",
+            facility_roots.machine,
             omitted_reported=shared.views_omitted_reported,
             built_databases=shared.views_built_databases,
             views_written=shared.views_written,
+            content_dir=_content_dir(facility_roots),
         )
         progress("  ✓ Wrote the facility file and its views")
 
@@ -2502,9 +2650,10 @@ def _render_project(
         if limits_errors:
             raise BuildProfileError("Profile validation failed:\n  " + "\n  ".join(limits_errors))
 
-        if build_profile.mcp_servers:
-            _persist_mcp_servers(render_dir, build_profile.mcp_servers)
-            progress("  ✓ Persisted %d MCP server(s) to config.yml", len(build_profile.mcp_servers))
+        mcp_servers = {**(build_profile.mcp_servers or {}), **app_servers}
+        if mcp_servers:
+            _persist_mcp_servers(render_dir, mcp_servers)
+            progress("  ✓ Persisted %d MCP server(s) to config.yml", len(mcp_servers))
         if build_profile.artifact_server:
             _persist_artifact_server(render_dir, build_profile.artifact_server)
             progress("  ✓ Merged artifact_server overrides into config.yml")
@@ -2658,7 +2807,7 @@ def _layer_files(repo_root: Path) -> list[tuple[ProfileKind, Path]]:
     """Every layer file a build of *repo_root* renders a project for.
 
     :func:`~osprey.cli.profile_root.layer_files` — the direct children of
-    ``tiers/``, ``apps/`` and the retired layer directory — which is the same listing the
+    ``tiers/`` and the retired layer directory — which is the same listing the
     content-hash fold and the staleness digests read through
     :func:`~osprey.cli.build_profile_merge.profile_inputs`. The build and the
     fingerprint have to agree exactly: a file the fingerprint covers but the render skips would make an
@@ -2671,11 +2820,14 @@ def _layer_files(repo_root: Path) -> list[tuple[ProfileKind, Path]]:
 
     Raises:
         BuildProfileError: When a layer does not anchor back at *repo_root*
-            (see the containment check below), or two layer files share a
-            name, which would render two projects into one directory.
+            (see the containment check below), two layer files share a
+            name, which would render two projects into one directory, or
+            ``apps/`` holds a plain login file
+            (:func:`~osprey.cli.profile_root.refuse_plain_app_files`).
     """
-    from .profile_root import layer_files, resolve_profile_root
+    from .profile_root import layer_files, refuse_plain_app_files, resolve_profile_root
 
+    refuse_plain_app_files(repo_root)
     layers = layer_files(repo_root)
 
     # The property the rest of this rests on: a file found in a layer directory
@@ -2717,30 +2869,28 @@ def _layer_files(repo_root: Path) -> list[tuple[ProfileKind, Path]]:
 
 def _layer_render(
     shared: _SharedRenderInputs,
-    kind: ProfileKind,
     layer: Path,
     *,
     project_name: str,
     host_profile: BuildProfile,
 ) -> tuple[str, Any]:
-    """The rendered project name and the resolved profile for one tier or app file.
+    """The rendered project name and the resolved profile for one login file.
 
     The one place a layer file is turned into what its render is made from, so
     the host-side render and the image copy of it cannot disagree about either.
 
-    The name is :func:`~osprey.deployment.web_terminals.render_naming.render_project`'s
-    for the file's kind, the same call the render projection
+    The name is :func:`~osprey.deployment.web_terminals.render_naming.render_project`'s,
+    the same call the render projection
     (:func:`~osprey.deployment.web_terminals.render_naming.render_projection`)
     makes when it writes ``modules.web_terminals.renders.<name>`` into the
     deployment's config, which is how the deploy finds this render.
 
-    A tier is the deployment's own agent at one access level, so its render
+    A login is the deployment's own agent at one access level, so its render
     records the deployment's preset: the packaged trees it copies and the preset
-    its manifest is stamped with are the deployment's. The tier file's own
-    ``provenance:`` block says which bundled tier it was materialized from, which
-    is a fact about that file for ``osprey validate`` and not a preset the build
-    could copy anything from. An app keeps what its resolution gives it: the
-    composer already carries the deployment's provenance.
+    its manifest is stamped with are the deployment's. The login file's own
+    ``provenance:`` block says which bundled login it was materialized from,
+    which is a fact about that file for ``osprey validate`` and not a preset the
+    build could copy anything from.
 
     Returns:
         ``(project, resolved)``: the render's project name and its
@@ -2748,24 +2898,17 @@ def _layer_render(
     """
     from dataclasses import replace
 
-    from osprey.deployment.web_terminals.render_naming import (
-        RENDER_KIND_APP,
-        RENDER_KIND_TIER,
-        render_project,
-    )
+    from osprey.deployment.web_terminals.render_naming import render_project
 
     from .build_profile import resolve_build_document
     from .build_profile_canopy import without_unstaged_panel
-    from .profile_root import ProfileKind
 
-    render_kind = RENDER_KIND_APP if kind is ProfileKind.APP else RENDER_KIND_TIER
-    project, _ = render_project(project_name, layer.stem, kind=render_kind)
+    project, _ = render_project(project_name, layer.stem)
     resolved = resolve_build_document(layer, None, shared.profile_overlays)
-    if kind is not ProfileKind.APP:
-        profile = replace(resolved.profile, provenance=host_profile.provenance)
-        # Not a dataclass field, so `replace` does not carry it: set it here.
-        profile.inherited_preset = host_profile.inherited_preset
-        resolved = replace(resolved, profile=profile)
+    profile = replace(resolved.profile, provenance=host_profile.provenance)
+    # Not a dataclass field, so `replace` does not carry it: set it here.
+    profile.inherited_preset = host_profile.inherited_preset
+    resolved = replace(resolved, profile=profile)
     canopy_kept = without_unstaged_panel(resolved.profile, shared.repo_root)
     if canopy_kept is not resolved.profile:
         resolved = replace(resolved, profile=canopy_kept)
@@ -2780,22 +2923,21 @@ def _render_projects(
     host_profile: BuildProfile,
     selections_out: set[str] | None = None,
 ) -> list[Path]:
-    """Render ``build/<project_name>-<name>/`` for every file in ``tiers/`` and ``apps/``.
+    """Render ``build/<project_name>-<name>/`` for every file in ``tiers/``.
 
-    Tiers and apps are rendered HERE, by the build, and nowhere else. No start
+    Logins are rendered HERE, by the build, and nowhere else. No start
     verb renders one: ``build/`` is the complete account of what a deploy will
     run, and a render appearing at ``osprey up`` would make that false exactly
     when it mattered: an operator whose tier file changed would get a fresh tier
     beside a stale deployment, from a start that re-rendered half the stack.
 
     Into the STAGED tree, so these projects transit the atomic swap with
-    everything else (:func:`_swap_in_render`): a tier or app that will not
+    everything else (:func:`_swap_in_render`): a login that will not
     resolve fails the whole build and leaves the previous ``build/`` exactly as
     it was. Never a half-written set.
 
     Every file is rendered whether the roster references it or not: the roster
-    decides which renders are *deployed*, ``tiers/`` and ``apps/`` decide which
-    exist. See :func:`_layer_render` for how each one is named and resolved.
+    decides which renders are *deployed*, ``tiers/`` decides which exist. See :func:`_layer_render` for how each one is named and resolved.
 
     ``selections_out``, when given, collects every convention artifact a
     render's lists select, for the build's report of the ones none does.
@@ -2815,11 +2957,11 @@ def _render_projects(
     already_warned = unknown_root_entries(shared.repo_root)
 
     rendered: list[Path] = []
-    for kind, layer in layers:
+    for _kind, layer in layers:
         project, resolved = _layer_render(
-            shared, kind, layer, project_name=project_name, host_profile=host_profile
+            shared, layer, project_name=project_name, host_profile=host_profile
         )
-        logger.debug("  Rendering %s %r → %s/", kind.value, layer.stem, project)
+        logger.debug("  Rendering tier %r → %s/", layer.stem, project)
         if selections_out is not None:
             selections_out.update(render_convention_selections(resolved.profile))
         rendered.append(
@@ -2837,7 +2979,31 @@ def _render_projects(
     return rendered
 
 
-def _stage_source_zone(repo_root: Path, image_root: Path, *, build_inputs: Sequence[Path]) -> None:
+def _mount_top(repo_root: Path, machine: PurePosixPath) -> PurePosixPath | None:
+    """The mount top of a machine root: its nearest ancestor holding a ``.git`` entry.
+
+    Searched from the machine root itself upward, and strictly below the
+    repository root, which holds the deployment's own ``.git`` and so is never
+    a mount top. ``None`` for an unversioned machine directory.
+
+    :param repo_root: The deployment repository root.
+    :param machine: The machine root, relative to ``repo_root``.
+    """
+    for candidate in (machine, *machine.parents):
+        if candidate == PurePosixPath("."):
+            return None
+        if (repo_root / candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _stage_source_zone(
+    repo_root: Path,
+    image_root: Path,
+    *,
+    build_inputs: Sequence[Path],
+    machine: Path | None = None,
+) -> None:
     """Copy the repo's SOURCE zone into the container repo being assembled.
 
     A container image carries a deployment repo, so it carries the repo's
@@ -2891,13 +3057,29 @@ def _stage_source_zone(repo_root: Path, image_root: Path, *, build_inputs: Seque
     ``build/.claude/``. None of the four is a fold input, so the copy is still a
     superset of what the fingerprint folds.
 
+    Version-control metadata never enters the image: git's own directory at the
+    root, and a ``.git`` file or directory at any depth below it
+    (:func:`~osprey.facility.roots.is_vcs_metadata`), such as a submodule's.
+
+    A mounted machine root (``machine``) may live inside a mounted repository
+    of its own, a submodule or a nested clone carrying its own profile,
+    ``build/``, ``var/`` and ``.claude/``. Its **mount top** (:func:`_mount_top`)
+    is the nearest ancestor of the machine root, strictly below the repo root,
+    that holds a ``.git`` entry. Below the mount top only the path down to the
+    machine root is copied, so none of the mount's own files reach the image.
+    An unversioned machine directory has no mount top and drops nothing extra.
+
     :param repo_root: The deployment repo whose source zone this is.
     :param image_root: The container repo root being assembled.
     :param build_inputs: Repo-relative paths the build reads (the fold's inputs
         and the repo marker); the repo's ``.dockerignore`` may not exclude them.
+    :param machine: The mounted machine root relative to ``repo_root``
+        (:func:`_image_machine_input`), or ``None`` when the profile mounts none.
     :raises BuildProfileError: When a ``.dockerignore`` pattern excludes a build
         input.
     """
+
+    from osprey.facility.roots import is_vcs_metadata
 
     from .profile_conventions import REPO_CLAUDE_CODE_ENTRIES, REPO_DOCKERIGNORE_FILENAME
 
@@ -2936,12 +3118,28 @@ def _stage_source_zone(repo_root: Path, image_root: Path, *, build_inputs: Seque
             return False
         return True
 
+    machine_path = PurePosixPath(machine.as_posix()) if machine is not None else None
+    mount_top = _mount_top(repo_root, machine_path) if machine_path is not None else None
+
+    def _off_mount_path(prefix: PurePosixPath, name: str) -> bool:
+        # Between the mount top and the machine root, only the next step down.
+        if mount_top is None or machine_path is None:
+            return False
+        if prefix != mount_top and mount_top not in prefix.parents:
+            return False
+        if prefix not in machine_path.parents:
+            return False
+        return name != machine_path.parts[len(prefix.parts)]
+
     def _ignore(directory: str, names: list[str]) -> set[str]:
-        prefix = Path(directory).relative_to(repo_root).as_posix()
+        relative = PurePosixPath(Path(directory).relative_to(repo_root).as_posix())
+        prefix = relative.as_posix()
         return {
             name
             for name in names
             if name.startswith(".env")
+            or is_vcs_metadata(PurePosixPath(name))
+            or _off_mount_path(relative, name)
             or _skipped(f"{prefix}/{name}", is_dir=(Path(directory) / name).is_dir())
         }
 
@@ -2995,7 +3193,7 @@ def _strip_secrets(image_root: Path) -> None:
     to supply, and the shipped ``.dockerignore`` already makes that exception.
     """
     for path in image_root.rglob(".env*"):
-        if path.is_file() and path.name != ".env.example":
+        if path.is_file() and is_secret_file(path.name):
             path.unlink()
 
 
@@ -3277,6 +3475,28 @@ def _image_build_inputs(repo_root: Path) -> list[Path]:
     return [path.resolve().relative_to(root) for path in paths]
 
 
+def _image_machine_input(repo_root: Path) -> Path | None:
+    """The repo-relative mounted machine root of the repo's own profile, or ``None``.
+
+    The ``machine`` entry of
+    :func:`~osprey.cli.build_profile_merge.profile_inputs`, resolved the way
+    :func:`_image_build_inputs` resolves every input, so it names the same path
+    staging copies.
+    """
+    from .build_profile_document import _read_profile_document
+    from .build_profile_merge import MACHINE_INPUT_LABEL, profile_inputs, resolve_profile_document
+
+    profile_path = repo_root / PROFILE_FILENAME
+    document = resolve_profile_document(
+        _read_profile_document(profile_path), profile_path, warn=False
+    )
+    root = repo_root.resolve()
+    for entry in profile_inputs(document):
+        if entry.label == MACHINE_INPUT_LABEL:
+            return entry.path.resolve().relative_to(root)
+    return None
+
+
 def _render_container_project(
     shared: _SharedRenderInputs,
     resolved: Any,
@@ -3285,6 +3505,7 @@ def _render_container_project(
     profile_path: Path,
     project_name: str,
     build_inputs: Sequence[Path],
+    machine: Path | None = None,
     deployment: bool = True,
 ) -> Path:
     """Render the copy of a project that a container image is built from.
@@ -3329,6 +3550,8 @@ def _render_container_project(
 
     :param build_inputs: The repo-relative paths the repo's ``.dockerignore``
         may not exclude (:func:`_image_build_inputs`).
+    :param machine: The repo-relative mounted machine root, or ``None``
+        (:func:`_image_machine_input`).
     :param deployment: Whether this is the deployment's own image rather than a
         render's — see :func:`_render_project`'s parameter of the same name.
     :returns: The container repo root, ready to be a build context.
@@ -3354,7 +3577,13 @@ def _render_container_project(
     )
     rendered.rename(image_root / BUILD_DIR_NAME)
     scratch.rmdir()
-    _stage_source_zone(shared.repo_root, image_root, build_inputs=build_inputs)
+    _stage_source_zone(shared.repo_root, image_root, build_inputs=build_inputs, machine=machine)
+    if shared.deployment_packages:
+        # The wheels its Dockerfile names, at the context root where its deps
+        # layer copies them from.
+        shutil.copytree(
+            zones.stage / DEPLOYMENT_PACKAGES_DIRNAME, image_root / DEPLOYMENT_PACKAGES_DIRNAME
+        )
     _strip_secrets(image_root)
     # Written, then applied to the tree, and only then is the manifest stamped:
     # the fingerprint has to be taken over the tree the image will actually
@@ -3406,6 +3635,7 @@ def _render_container_projects(
     :returns: The image context roots, in build order.
     """
     build_inputs = _image_build_inputs(shared.repo_root)
+    machine = _image_machine_input(shared.repo_root)
     contexts = [
         _render_container_project(
             shared,
@@ -3414,12 +3644,13 @@ def _render_container_projects(
             profile_path=profile_path,
             project_name=project_name,
             build_inputs=build_inputs,
+            machine=machine,
             deployment=True,
         )
     ]
-    for kind, layer in _layer_files(shared.repo_root):
+    for _kind, layer in _layer_files(shared.repo_root):
         project, layer_resolved = _layer_render(
-            shared, kind, layer, project_name=project_name, host_profile=resolved.profile
+            shared, layer, project_name=project_name, host_profile=resolved.profile
         )
         contexts.append(
             _render_container_project(
@@ -3429,6 +3660,7 @@ def _render_container_projects(
                 profile_path=layer,
                 project_name=project,
                 build_inputs=build_inputs,
+                machine=machine,
                 deployment=False,
             )
         )
@@ -3547,6 +3779,7 @@ def _build_repo(
         PROJECT_MIRROR_DIR,
         facility_mirror_violation,
         handwritten_limits_violation,
+        machine_restated_violation,
     )
     from .variant_selection import VARIANT_DIRNAME, resolve_variant_selection
 
@@ -3576,7 +3809,10 @@ def _build_repo(
         # A mirror file at a path the facility build writes is its own one-line
         # stop, raised ahead of profile validation, which gathers every other
         # profile error and leaves this one out.
-        mirror_stop = facility_mirror_violation(repo_root / PROJECT_MIRROR_DIR)
+        mirror_stop = facility_mirror_violation(
+            repo_root / PROJECT_MIRROR_DIR,
+            authoring_route=_stated_machine_route(profile_path),
+        )
         if mirror_stop is not None:
             raise mirror_stop
 
@@ -3783,28 +4019,81 @@ def _build_repo(
 
         data_root = build_profile.resolved_data_root(repo_root)
         assert data_root is not None  # `data:` required; narrows for type-checkers
+        # Where machine facts and the deployment's own content are read,
+        # resolved once for the whole build. A named machine root that is
+        # missing (an uninitialised submodule) or overlaps `data:` stops here.
+        facility_roots = build_profile.resolved_facility_roots(repo_root)
+        assert facility_roots is not None  # `data:` resolved above
         # A limits file the profile ships itself is a stop: the build writes
-        # that file from the facility's limits.yaml.
-        limits_stop = handwritten_limits_violation(data_root, repo_root)
+        # that file from the facility's limits.yaml. The guard checks the
+        # deployment's files; a mounted machine only changes where the remedy
+        # says the limits go.
+        limits_stop = handwritten_limits_violation(
+            data_root,
+            repo_root,
+            machine_root=facility_roots.machine if facility_roots.mounted else None,
+        )
         if limits_stop is not None:
             raise limits_stop
-        facility_dir = data_root / "facility"
-        facility_sha256 = facility_digest(facility_dir)
-        facility, facility_warnings = build_facility_with_warnings(facility_dir, project_name=name)
+        # A deployment file that restates a mounted machine's facts is a stop
+        # at the same point, before anything is installed.
+        restated_stop = machine_restated_violation(facility_roots)
+        if restated_stop is not None:
+            raise restated_stop
+        content_dir = _content_dir(facility_roots)
+        facility_sha256 = facility_digest(facility_roots.machine, content_dir=content_dir)
+        facility, facility_warnings = build_facility_with_warnings(
+            facility_roots.machine, project_name=name, content_dir=content_dir
+        )
         logger.debug("  ✓ Built the facility file (sha256 %s)", facility_sha256)
         _warn_facility_build(facility_warnings)
+
+        # The applications, before the venv and every render: the rules, the pins
+        # and the vendor files refuse here, with nothing installed or written.
+        from osprey.interfaces.vendor import AppVendorError, fetch_app_vendor, offline_from_config
+
+        applications = check_deployment(repo_root)
+        for unnamed in applications.unnamed:
+            output.note(
+                f"⚠ apps/{unnamed}/ is not built or installed: the apps: block of "
+                f"{PROFILE_FILENAME} does not name it. A package there that is no application "
+                f"is a dependencies entry, ./apps/{unnamed}."
+            )
+        try:
+            fetch_app_vendor(
+                repo_root,
+                applications.manifests,
+                offline=offline_from_config(build_profile.config),
+            )
+        except AppVendorError as exc:
+            raise BuildProfileError(str(exc)) from exc
 
         # The project venv, at its final path. It is the one artifact that
         # cannot be rendered somewhere and moved (see `_swap_in_render`), so it
         # is written where it will be read from and joins the staged tree at
         # swap time. Its dependency record, which `_create_project_venv` writes
         # beside it, is copied into the staged tree — the record and the
-        # environment it describes must ship together. The plan is judged first
-        # and in both modes, so a `--skip-deps` render's image installs what a
-        # full build's venv does, and a plan that refuses the build leaves the
-        # existing venv exactly as it was. Only an installing build judges the
-        # workspace-member spec, which only the venv install reads.
-        plan = _plan_project_venv(build_profile, install=not skip_deps)
+        # environment it describes must ship together.
+        # The deployment's own packages, built to wheels in the staged render
+        # before the venv: the venv installs each from its wheel, and every
+        # image context carries the directory (`_render_container_project`). The
+        # image installs them, so `--skip-deps` builds them too.
+        from .build_profile_load import config_image_platform
+
+        image_platform = config_image_platform(build_profile.config)
+        deployment_packages = build_deployment_packages(
+            repo_root,
+            list(build_profile.dependencies or []),
+            zones.stage / DEPLOYMENT_PACKAGES_DIRNAME,
+            apps=[manifest.name for manifest in applications.manifests],
+            image_platform=image_platform,
+        )
+        # The plan is judged first and in both modes, so a `--skip-deps`
+        # render's image installs what a full build's venv does, and a plan
+        # that refuses the build leaves the existing venv exactly as it was.
+        # Only an installing build judges the workspace-member spec, which only
+        # the venv install reads.
+        plan = _plan_project_venv(build_profile, deployment_packages, install=not skip_deps)
         project_deps = plan.extra_deps
         # The venv the post_build and validate steps run on: the one installed
         # below, at the path it is used from; none when no install runs.
@@ -3835,7 +4124,11 @@ def _build_repo(
             views_written={},
             facility=facility,
             facility_sha256=facility_sha256,
+            facility_roots=facility_roots,
             profile_overlays=profile_overlays,
+            applications=applications,
+            deployment_packages=deployment_packages,
+            image_platform=image_platform,
         )
 
         # One reported phase over every render pass this build makes — the
@@ -4418,6 +4711,8 @@ def _repo_render_context(
     project_deps: list[str],
     skip_deps: bool,
     runtime_interpreter: str | None = None,
+    deployment_packages: Sequence[DeploymentPackage] = (),
+    image_platform: str | None = None,
 ) -> dict[str, Any]:
     """The template context for a four-zone render.
 
@@ -4459,6 +4754,12 @@ def _repo_render_context(
         "project_root": str(runtime_root or repo_root),
         "dependencies": project_deps,
         "pip_dependency_args": " ".join(shlex.quote(d) for d in project_deps),
+        # The directory, at the image context's root, holding the deployment's
+        # own package wheels the dependency list names; empty with none.
+        "deployment_packages_dir": DEPLOYMENT_PACKAGES_DIRNAME if deployment_packages else "",
+        # Each of those wheels, by distribution and file: the image binds the
+        # name the dependency list carries to its staged wheel.
+        "deployment_wheels": [{"name": p.name, "wheel": p.wheel_name} for p in deployment_packages],
         # Gates the ONE line of Dockerfile.j2 that hands `build/config.yml` to
         # the agent's user: a render that can still reach the setup tool needs
         # the file that tool edits to be writable, and every other tier must
@@ -4484,6 +4785,10 @@ def _repo_render_context(
         # monorepo pyproject.toml to read the workspace from.
         "workspace_members": list(WORKSPACE_MEMBERS),
     }
+    if image_platform:
+        # The rendered FROM names the platform the deployment's wheels were judged
+        # against and `osprey up` builds for; unset, it stays bare.
+        context["image_platform"] = image_platform
     if build_profile.provider:
         context["default_provider"] = build_profile.provider
     if build_profile.model:
@@ -4604,7 +4909,12 @@ def _attached_service_overrides(config_overrides: Mapping[str, Any]) -> dict[str
 
 
 def _inject_services(
-    build_profile: Any, profile_dir: Path, project_path: Path, *, facility_name: str = ""
+    build_profile: Any,
+    profile_dir: Path,
+    project_path: Path,
+    *,
+    facility_name: str = "",
+    app_manifests: Sequence[AppManifest] = (),
 ) -> list[str]:
     """Scaffold the service tree and inject every service the profile declares.
 
@@ -4630,6 +4940,9 @@ def _inject_services(
     build hands it from its in-memory facility document, because the facility
     file reaches the project only after the injectors run; ``""`` has the
     dispatch injector read the project's facility identity instead.
+
+    ``app_manifests`` are the applications the profile names. Their containers
+    join the profile's own services, each with its rendered settings file.
 
     Returns:
         The name of each component injected, in injection order — what the
@@ -4660,6 +4973,11 @@ def _inject_services(
             # about and skipped, so the profile's own keys can name more
             # services than were injected.
             injected.append(f"{psvc_count} profile service(s)")
+    app_services = project_app_services(build_profile, app_manifests) if app_manifests else {}
+    if app_services:
+        _inject_profile_services(profile_dir, project_path, app_services)
+        write_app_configs(project_path, build_profile, app_services)
+        injected.append(f"{len(app_services)} application service(s)")
     if build_profile.dispatch is not None:
         _inject_dispatch(
             build_profile.dispatch, profile_dir, project_path, facility_name=facility_name
@@ -4711,7 +5029,9 @@ def _inject_services(
         _inject_va_archiver(build_profile.va_archiver, project_path)
         injected.append("archiver store")
 
-    _declare_bundled_host_bindings(project_path, profile_dir, build_profile.services)
+    _declare_bundled_host_bindings(
+        project_path, profile_dir, {**(build_profile.services or {}), **app_services}
+    )
     return injected
 
 

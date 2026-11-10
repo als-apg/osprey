@@ -729,6 +729,7 @@ class TestChatRefusesUnlistedCommands:
     The chat offers the project's skills and commands and the built-ins
     ``/clear`` and ``/compact``. Any other ``/name`` (``/login``, ``/model``)
     the CLI would run itself, so the route refuses it before a turn opens.
+    ``/mcp`` is listed but the browser runs it; one that arrives here is refused too.
     """
 
     @staticmethod
@@ -745,7 +746,9 @@ class TestChatRefusesUnlistedCommands:
         skill.write_text("Body\n", encoding="utf-8")
         return tmp_path
 
-    @pytest.mark.parametrize(("prompt", "name"), [("/login", "login"), ("/model opus", "model")])
+    @pytest.mark.parametrize(
+        ("prompt", "name"), [("/login", "login"), ("/model opus", "model"), ("/mcp", "mcp")]
+    )
     def test_an_unlisted_command_is_refused_before_a_turn_opens(self, tmp_path, prompt, name):
         session = _FakeChatSession([{"type": "result", "is_error": False}])
         registry, client = self._client(self._project(tmp_path), session)

@@ -83,6 +83,7 @@ from test_render_defaults_golden import (
 from test_render_defaults_golden import (
     _PROJECT_NAME,
     TEMPLATES,
+    _image_axes_unset,
     _pinned_context,
     _raw_default_config,
     _render_templates,
@@ -122,7 +123,12 @@ _SITE_IMAGE_BUILD_ARGS = {
     "PIP_NO_PROXY": "internal.example.org,.example.org",
     "PIP_INDEX_URL": "https://mirror.example.org/simple",
     "PIP_EXTRA_INDEX_URL": "https://extra.example.org/simple",
+    "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub",
 }
+
+#: The registry standing in for docker.io the ``images-from-a-hub-mirror``
+#: scenario declares.
+_HUB_MIRROR = "mirror.example.org/dockerhub"
 
 #: The mirror path the ``ariel-sync-qmd-mirror`` scenario configures. Written
 #: repo-relative on purpose: an absolute value would be spelled into the golden
@@ -136,18 +142,17 @@ _MIRROR_PATH = "var/ariel_mirror"
 def _axes_unset() -> Iterator[None]:
     """Render from the scenario's config alone, never from the ambient shell.
 
-    The image axes resolve ``OSPREY_IMAGE_REGISTRY`` / ``OSPREY_IMAGE_TAG``
-    ahead of the config keys, deliberately — that is how one shell overrides a
-    committed pin. It also means a developer who exported either variable would
-    render different bytes than CI does, and a byte-exact suite that the
-    ambient environment can move is pinning the machine, not the templates.
+    The image axes resolve ``OSPREY_IMAGE_REGISTRY`` / ``OSPREY_IMAGE_TAG`` and
+    every site image axis's variable ahead of the config keys, deliberately —
+    that is how one shell overrides a committed pin. It also means a developer
+    who exported one would render different bytes than CI does, and a
+    byte-exact suite that the ambient environment can move is pinning the
+    machine, not the templates.
 
     Wrapped around the regeneration entry point as well as the suite, because
     the two must produce the same bytes and only one of them runs under pytest.
     """
-    with pytest.MonkeyPatch.context() as patch:
-        patch.delenv("OSPREY_IMAGE_REGISTRY", raising=False)
-        patch.delenv("OSPREY_IMAGE_TAG", raising=False)
+    with _image_axes_unset():
         yield
 
 
@@ -382,6 +387,15 @@ SCENARIOS: tuple[Scenario, ...] = (
             "slack_bridge",
         ),
         overrides={"images": {"registry": _AXIS_REGISTRY, "tag": _AXIS_TAG}},
+    ),
+    # Every pulled upstream image on a site mirror of Docker Hub. The five
+    # templates are the ones whose defaults are Docker Hub pins.
+    Scenario(
+        name="images-from-a-hub-mirror",
+        services={},
+        deployed=("postgresql", "mongodb", "graphdb", "bluesky", "optimizer"),
+        templates=("postgresql", "mongodb", "graphdb", "bluesky", "optimizer"),
+        overrides={"images": {"base_registry": _HUB_MIRROR}},
     ),
     # The ARIEL mirror daemon beside the store it writes into, both on the
     # compose bridge. The store's presence is the whole delta: `ariel_sync`
@@ -1026,6 +1040,9 @@ def test_every_service_template_hands_the_axis_to_every_container_it_renders() -
             _raw_default_config(repo_root)
             | {"services": services, "deployed_services": list(services)}
         )
+        # The application runtime reads its block through the per-service name
+        # the render injects, never through `services.app_runtime`.
+        context |= {"service": services["app_runtime"], "service_key": "app_runtime"}
         renders = _render_templates(context, TEMPLATES)
 
     for filename, text in sorted(renders.items()):
@@ -1100,6 +1117,43 @@ def test_image_axes_leave_the_third_party_pins_alone() -> None:
     assert (
         axis["services"]["bluesky-redis"]["image"] == default["services"]["bluesky-redis"]["image"]
     ), "redis's upstream pin was rewritten by the image axes"
+
+
+def test_a_hub_mirror_moves_every_pulled_default_and_no_override() -> None:
+    """``images.base_registry`` moves each Docker Hub default and nothing else.
+
+    Each pulled image keeps its Docker Hub path on the mirror, official images
+    under ``library/``. tiled is on ghcr.io, which the mirror does not stand in
+    for, and an image a deployment names outright is rendered as named.
+    """
+    scenario = _scenario("images-from-a-hub-mirror")
+    expected = {
+        ("postgresql", "postgresql"): f"{_HUB_MIRROR}/pgvector/pgvector:pg16",
+        ("mongodb", "mongodb"): f"{_HUB_MIRROR}/library/mongo:7",
+        ("graphdb", "graphdb"): f"{_HUB_MIRROR}/library/neo4j:5.26-community",
+        ("bluesky", "bluesky-redis"): f"{_HUB_MIRROR}/library/redis:7.4-alpine",
+        ("optimizer", "optimizer-redis"): f"{_HUB_MIRROR}/library/redis:7.4-alpine",
+    }
+    for (key, service), reference in expected.items():
+        image = yaml.safe_load(_golden_text(scenario, key))["services"][service]["image"]
+        assert image.endswith(f":-{reference}}}"), f"{key}: {image}"
+
+    variant = Scenario(
+        name="images-from-a-hub-mirror-with-pins",
+        services={
+            "postgresql": {"image": "pinned.example.org/pg:1"},
+            "bluesky": {"tiled_enabled": True},
+        },
+        deployed=scenario.deployed,
+        templates=("postgresql", "bluesky"),
+        overrides=scenario.overrides,
+    )
+    renders = {name: yaml.safe_load(text) for name, text in _render_scenario(variant).items()}
+    assert renders["postgresql.yml"]["services"]["postgresql"]["image"] == (
+        "${OSPREY_POSTGRES_IMAGE:-pinned.example.org/pg:1}"
+    )
+    tiled = renders["bluesky.yml"]["services"]["tiled"]["image"]
+    assert tiled.endswith(":-ghcr.io/bluesky/tiled:0.2.18}"), tiled
 
 
 def test_image_axes_leave_every_build_block_untouched() -> None:

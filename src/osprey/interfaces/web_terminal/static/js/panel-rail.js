@@ -21,7 +21,8 @@
  * that answered before but has stopped is `.unreachable` (dimmed, still
  * clickable, its tooltip saying since when). The one status a row names is a
  * sidecar that failed to start: its row is `.failed` and carries the server's
- * sentence as its tooltip, because a click on it is the retry.
+ * sentence as its tooltip, because a click on it is the retry (its menu offers
+ * Retry start and Remove from rail).
  *
  * The rows are a curated MEMBERSHIP list: a panel has a row iff it is a rail
  * member. Which member holds the workspace tile is per-client layout state,
@@ -81,10 +82,12 @@
  * A row's tooltip detail (`data-tip-detail`) is the panel's sentence from
  * panel-catalog.js; a panel without one has none.
  *
- * Beyond activation, a row's verbs (open in a new tile, open in a new window, move to another
- * group, remove) live in the caller's right-click context menu — the rail
- * only forwards the contextmenu event through `onContextMenu` and suppresses
- * the browser menu when the caller reports it handled. A caller-supplied
+ * Beyond activation, a row's verbs (the panel's own rows, focus or open its
+ * tile, open in a new window, move to another group, remove) live in the
+ * caller's right-click context menu — the rail only forwards the contextmenu
+ * event through `onContextMenu` and suppresses the browser menu when the
+ * caller reports it handled. A Shift+right-click is never forwarded: it is the
+ * way to the browser's own menu. A caller-supplied
  * `panel.hint` is appended to the tooltip so the menu is advertised.
  *
  * That menu is reachable from the keyboard, and explicitly so: a focused row
@@ -99,7 +102,8 @@
  * to put it directly above the row it was dropped on (`onReorder`); dropped
  * into another group, it moves to that group first (sidebar-groups.js
  * moveToGroup) and then takes the same position there. The Agent row never
- * moves.
+ * moves. A group's heading drags the whole group among the others
+ * (sidebar-group-drag.js, wired with the rail).
  *
  * State classes on a row: `.active` (surfaced panel), `.disabled` (backend
  * never answered), `.unreachable` (backend stopped answering), `.failed` (a
@@ -113,6 +117,7 @@
  */
 
 import { icon } from '/design-system/js/icons.js';
+import { declinesToBrowser } from '/design-system/js/context-menu.js';
 import { TERMINAL_RAIL_ID, describePanel } from './panel-catalog.js';
 import { BUTTON_SELECTOR, getEntry, parked, rowOf, writeRowTips } from './rail-row-state.js';
 import {
@@ -123,6 +128,7 @@ import {
   onGroupsChange,
   paintGroupHeading,
 } from './sidebar-groups.js';
+import { wireGroupDrag } from './sidebar-group-drag.js';
 
 // ---- Types ----
 
@@ -476,8 +482,10 @@ function wireButton(railEl, btn, id, rowOptions) {
 
   // Right-click → the caller's context menu. The caller decides per-row
   // whether a menu exists (returns true); declining leaves the event alone so
-  // the browser menu shows.
+  // the browser menu shows. A Shift+right-click is the operator asking for
+  // the browser's own menu, so it never reaches the caller.
   btn.addEventListener('contextmenu', (e) => {
+    if (declinesToBrowser(e)) return;
     const onContextMenu = options().onContextMenu;
     if (onContextMenu?.(id, e)) e.preventDefault();
   });
@@ -699,6 +707,7 @@ const wiredRails = new WeakSet();
 function wireRail(railEl) {
   if (wiredRails.has(railEl)) return;
   wiredRails.add(railEl);
+  wireGroupDrag(railEl);
   const stop = onGroupsChange(() => {
     if (!railEl.isConnected) {
       stop();

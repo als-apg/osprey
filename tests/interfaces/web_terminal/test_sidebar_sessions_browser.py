@@ -81,16 +81,25 @@ def _send(page: Page, prompt: str) -> None:
     expect(box).to_have_value("")
 
 
-def _bar(page: Page, sid: str, prop: str) -> str:
-    """A computed property of a session row's accent bar (its ``::before``)."""
-    return page.evaluate(
-        """([sid, prop]) => {
-          const row = document.querySelector(
-            `#sidebar-session-tree .osprey-tree-session[data-session-id="${sid}"]`);
-          return getComputedStyle(row, '::before').getPropertyValue(prop);
+def _expect_bar(page: Page, row: str, prop: str, *, equals=None, differs=None) -> None:
+    """Wait until a computed property of the accent bar (the ``::before``) of the
+    session row matching the CSS selector ``row`` equals ``equals``, or differs from
+    ``differs``. A listing redraws the tree, so the row can be absent for a moment;
+    the wait looks the row up again on every poll until it is there and matches."""
+    page.wait_for_function(
+        """([sel, prop, equals, differs]) => {
+          const row = document.querySelector(sel);
+          if (!row) return false;
+          const value = getComputedStyle(row, '::before').getPropertyValue(prop);
+          return equals !== null ? value === equals : value !== differs;
         }""",
-        [sid, prop],
+        arg=[row, prop, equals, differs],
+        timeout=_TIMEOUT_MS,
     )
+
+
+def _row_of(sid: str) -> str:
+    return f'{_TREE} .osprey-tree-session[data-session-id="{sid}"]'
 
 
 def test_the_row_is_named_sessions_and_its_plus_starts_a_new_session(hub, page):
@@ -141,7 +150,7 @@ def test_a_clicked_session_takes_the_accent_and_only_the_active_one_is_bold(hub,
     expect(target).to_have_class(re.compile(r"\bactive\b"), timeout=_TIMEOUT_MS)
     expect(page.locator(f"{_TREE} .osprey-tree-session.accent")).to_have_count(1)
     expect(page.locator(f"{_TREE} .osprey-tree-session.active")).to_have_count(1)
-    assert _bar(page, _PROFILE.transcript_id, "content") != "none"
+    _expect_bar(page, _row_of(_PROFILE.transcript_id), "content", differs="none")
     weights = page.evaluate(
         """() => [...document.querySelectorAll('#sidebar-session-tree .osprey-tree-session')]
           .map((r) => [r.classList.contains('active'), Number(getComputedStyle(r).fontWeight)])"""
@@ -151,21 +160,24 @@ def test_a_clicked_session_takes_the_accent_and_only_the_active_one_is_bold(hub,
 
 def test_the_session_the_agent_works_in_breathes(hub, page):
     _boot(page, hub)
-    sid = _active(page).get_attribute("data-session-id")
     expect(page.locator(f"{_TREE} .osprey-tree-session.is-busy")).to_have_count(0)
 
     hub.chat.delay_s = 30.0
     _send(page, "Scan the corrector currents.")
-    busy = page.locator(f"{_TREE} .osprey-tree-session.is-busy")
+    # The busy row is found by its class, never by its id: a fresh session's row
+    # is named `key:<session key>` until its transcript is listed, then by the
+    # transcript id, so an id read here can name a row the next listing drops.
+    busy_sel = f"{_TREE} .osprey-tree-session.is-busy"
+    busy = page.locator(busy_sel)
     expect(busy).to_have_count(1, timeout=_TIMEOUT_MS)
-    sid = busy.get_attribute("data-session-id")
     expect(busy).to_have_class(re.compile(r"\bactive\b"))
-    assert _bar(page, sid, "animation-name") == "osprey-tree-pulse"
+    _expect_bar(page, busy_sel, "animation-name", equals="osprey-tree-pulse")
 
     # Reduced motion: the accent stays, still.
     page.emulate_media(reduced_motion="reduce")
-    assert _bar(page, sid, "animation-name") == "none"
-    assert _bar(page, sid, "content") != "none"
+    _expect_bar(page, busy_sel, "animation-name", equals="none")
+    _expect_bar(page, busy_sel, "content", differs="none")
+    expect(busy).to_have_count(1)
 
 
 def test_a_folded_session_peeks_at_its_artifacts_and_a_click_opens_one(hub, page):

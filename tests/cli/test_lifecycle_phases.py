@@ -264,11 +264,15 @@ class TestBuildPhases:
         from osprey.agent_record.config import AgentRecordConfig
         from osprey.cli import build_cmd, build_profile, build_profile_deploy
         from osprey.cli.build_environment import _ProjectVenvPlan
+        from osprey.facility.roots import FacilityRoots
 
         class _Lifecycle:
             pre_build = None
             post_build = None
             validate = None
+
+        class _Environment:
+            packages: list[str] = []
 
         class _Profile:
             name = "probe"
@@ -277,6 +281,7 @@ class TestBuildPhases:
             provider = "anthropic"
             requires_osprey_version = None
             dependencies: list[str] = []
+            environment = _Environment()
             lifecycle = _Lifecycle()
             config: dict = {}
             deploy = None
@@ -301,6 +306,11 @@ class TestBuildPhases:
             def resolved_data_root(self, profile_dir: Path) -> Path:
                 return profile_dir / "data"
 
+            def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots:
+                # No `machine:`: one facility tree under `data:`, as
+                # BuildProfile resolves it.
+                return FacilityRoots.single(self.resolved_data_root(profile_dir) / "facility")
+
         class _Resolved:
             profile = _Profile()
             excluded_artifacts: list[str] = []
@@ -313,6 +323,9 @@ class TestBuildPhases:
             build_profile_deploy, "deploy_aware_config_warnings", lambda *a, **k: []
         )
         monkeypatch.setattr(build_cmd, "TemplateManager", lambda *a, **k: object())
+        monkeypatch.setattr(
+            build_cmd, "check_deployment", lambda *a, **k: build_cmd.DeploymentApps()
+        )
         monkeypatch.setattr(
             build_cmd,
             "_plan_project_venv",

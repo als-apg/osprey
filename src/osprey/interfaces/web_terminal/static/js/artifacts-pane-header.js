@@ -15,8 +15,8 @@
  * as its `osprey-artifact-dir` meta, read from the same-origin frame when
  * Info opens.
  *
- * The tile's ⋯ "This panel" section gets the artifact verbs the viewer runs
- * (logbook, print, delete); Delete keeps the viewer's confirm. Print
+ * The tile's ⋯ "This panel" rows are artifact-verbs.js's for the shown
+ * artifact: the viewer runs logbook and print, and Delete… asks in the hub. Print
  * opens its window from the viewer's message task, which a popup blocker
  * lets through: the viewer is a first-party frame on the hub's origin with
  * `allow-popups`, and the HTML standard gives a click's activation to the
@@ -38,7 +38,6 @@ import { titleOf } from './sidebar-artifact-rows.js';
  * and size every entry the panel sends carries.
  * @typedef {import('./sidebar-artifact-listing.js').ArtifactEntry
  *   & {description?: string, size_bytes?: number}} ArtifactEntry
- * @typedef {'print' | 'logbook' | 'delete'} ArtifactAction
  */
 
 /** The Artifacts tile's bar: the docked tile's, else the fallback bar. */
@@ -171,20 +170,4 @@ function infoAnchor() {
 export function showArtifactInfo(entry) {
   const anchor = infoAnchor();
   if (anchor) openInfoPopover(anchor, infoContent(entry, artifactDir()));
-}
-
-/**
- * The artifact verbs of the tile's ⋯ "This panel" section, each sending its
- * action for the artifact to the viewer. Delete comes last, set apart, in the
- * danger colour; the viewer asks before it deletes.
- * @param {ArtifactEntry} shown
- * @param {(action: ArtifactAction) => void} send
- * @returns {{label: string, run: () => void, danger?: boolean, separator?: boolean}[]}
- */
-export function menuItems(shown, send) {
-  return [
-    { label: 'Compose logbook entry', run: () => send('logbook') },
-    { label: 'Print artifact', run: () => send('print') },
-    { label: 'Delete artifact…', danger: true, separator: true, run: () => send('delete') },
-  ];
 }

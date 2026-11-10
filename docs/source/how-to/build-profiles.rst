@@ -16,7 +16,7 @@ and safe to delete and rebuild at any time.
    :icon: book
 
    - Creating a deployment repository and rendering its ``build/`` zone
-   - What lives in a profile: the convention directories, ``data/``, secrets, tiers and apps
+   - What lives in a profile: the convention directories, ``data/``, secrets, logins
    - Moving an artifact you want to own out of ``build/`` and into the profile
    - Shipping and wiring your own hook scripts
    - Keeping a profile and its build in step
@@ -86,38 +86,55 @@ What ``osprey init`` writes
 
    my-facility/
      profile.yml     the full configuration — edit freely
+     providers.yml   the catalog of model providers profile.yml selects from
      data/           the facility tree (data/facility/) and the agent's other data
      .env.example    every variable the agent reads, documented, no values
      .env.shared     shared, committed defaults — no secrets
-     .env            your values and secrets (only when your shell had keys to seed)
+     .env            your values and secrets (when your shell had keys to seed, or the profile declares env.defaults)
+     .env.lock       keeps two writers from editing .env at once; leave it be
      README.md       explains the layout, for whoever opens the repository next
      triggers.yml    the events the agent runs on (dispatch profiles only)
-     tiers/          one delta per web-terminal access level (multi-user presets only)
-     apps/           one complete agent per shared card (multi-user presets only)
+     tiers/          one file per web-terminal login (multi-user presets only)
+     apps/           one directory per application the profile lists, with a
+                     .provenance sidecar (only when it lists one)
      web-terminal-context/  the shared base.md baseline, plus one seeded
                      directory per operator on the roster
+     rules/          rules/facility.md, the facility description, to rewrite in
+                     your own words
+     watchdogs/      one directory per watchdog the profile declares
+     mcp_servers/    the MCP server packages the preset ships
      ci-extra.yml    the facility's own CI jobs; never regenerated
-     .gitignore      keeps build/, var/ and .env out of version control
+     .gitignore      keeps build/, var/, the .env files and apps/*/panel/vendor/
+                     out of version control
      build/          rendered by `osprey build`; disposable
      var/            agent memory and audit log; durable
 
-``triggers.yml``, ``tiers/``, ``apps/`` and ``web-terminal-context/`` appear only when
-the preset calls for them — a ``hello-world`` deployment has none of them.
+``triggers.yml``, ``tiers/``, ``web-terminal-context/``, ``rules/``,
+``watchdogs/`` and ``mcp_servers/`` appear only when the preset calls for them. A
+``demo`` deployment has all of them except ``mcp_servers/``; a
+``hello-world`` deployment has only ``mcp_servers/``.
+
+No bundled preset lists an application, so ``apps/`` appears only when you list
+one: ``osprey init --preset demo --set 'apps.orbit-bump={}'`` writes
+``apps/orbit-bump/``. A preset's applications come with ``osprey init``, never
+through ``extends:``: a profile runs the applications it lists and holds.
 
 ``git init`` and an initial commit run at the end. There is no CI pipeline yet:
 the profile ships its ``deploy:`` block commented out, so there are no
 coordinates to render one from. Fill the block in and ``osprey scaffold ci``
 writes the pipeline — see :doc:`deploy-a-facility`.
 
-Directories for your own artifacts (``rules/``, ``skills/``, and the rest) are
-**not** created up front. Create the ones you need; a directory you never create
-simply means the profile contributes nothing of that kind.
+The other directories for your own artifacts (``skills/``, ``agents/``, and the
+rest) are **not** created up front. Create the ones you need; a directory you
+never create means the profile contributes nothing of that kind.
 
 The facility tree
 -----------------
 
 ``data/facility/`` holds every source of the facility file: the authored files
-and the ``imported/<layer>/`` directories the importers write.
+and the ``imported/<layer>/`` directories the importers write. With
+``machine:``, the machine facts come from a
+:doc:`machine repository </how-to/control-systems/machine-repository>` instead.
 :doc:`describe-your-facility` walks the tree file by file.
 
 ``osprey build`` reads the tree and writes the facility file and its views into
@@ -126,15 +143,17 @@ the render, never back into ``data/facility/``:
 .. code-block:: text
 
    build/
-     facility.json                    the facility file
-     data/channel_limits.json         the limits view
-     data/facility_facts.json         the facts view
-     data/simulator/                  the simulator view and its decks
-     data/pyaml/<model>/              the pyAML view, per served model with a measurement file
-     data/graph/facility.ttl          the graph view
-     data/channel_finder/<mode>.json  the channel-finder view the profile selects
-     data/bluesky_devices.yml         the device view, when Bluesky is configured
-     data/benchmarks/queries.json     the benchmarks view, when a benchmark dataset is configured
+     facility.json                        the facility file
+     data/channel_limits.json             the limits view
+     data/facility_facts.json             the facts view
+     data/facility_facts.md               the facts view, as markdown
+     data/simulator/                      the simulator view and its decks
+     data/pyaml/<model>/                  the pyAML view, per served model with a measurement file
+     data/graph/facility.ttl              the graph view
+     data/channel_databases/graph.duckdb  the channel search index, when the profile has a graph store
+     data/channel_finder/<mode>.json      the channel-finder view, in every mode but graph
+     data/bluesky_devices.yml             the device view, when Bluesky is configured
+     data/benchmarks/queries.json         the benchmarks view, when a benchmark dataset is configured
 
 ``osprey facility show`` prints the facility the tree builds and each view's
 path. What a scenario file holds is in :doc:`/how-to/run-scenarios`.
@@ -213,8 +232,8 @@ the same list. Name one with its directory as a prefix:
    hooks:
      - hooks/osprey_limits.py    # only a file replacing an OSPREY hook
 
-``profile.yml``'s lists select for the deployment and every tier, a tier adds to
-them, and an app's lists are its whole selection. A bare entry always means
+``profile.yml``'s lists select for the deployment and every login, a login adds
+to them, and a ``lists: own`` login's lists are its whole selection. A bare entry always means
 OSPREY's artifact. A file named like one (``rules/facility.md``) replaces it
 only where its path, ``rules/facility``, is named: there it counts as that
 artifact for wiring, checks and the brief, and supplies only the content.
@@ -222,7 +241,7 @@ Listing both in one render is a build error. A path naming no file fails the bui
 reaches no render, and the build warns. ``osprey init`` names the facility
 description it seeds by its path. ``osprey init --revalidate`` turns a bare
 entry into the path wherever the repo ships the file, and names every other
-unnamed one in ``profile.yml`` and each app, so an existing deployment's renders
+unnamed one in ``profile.yml`` and each login, so an existing deployment's renders
 stay as they were.
 
 A ``hooks:`` list names a ``hooks/<file>`` only to replace an OSPREY hook; any
@@ -318,7 +337,7 @@ Three layers stack, in this order:
   becomes their ``CLAUDE.md``.
 
 Unlike the per-operator directories, the baseline is **not** roster-derived. It
-is copied on every build, including a tier or app render that has no roster at all,
+is copied on every build, including a login render that has no roster at all,
 and ``osprey init`` writes it whenever the profile stands up web terminals
 (``modules.web_terminals.enabled``) — even when the roster is still empty, so a
 profile that names no operators yet still starts from text it can see. A
@@ -333,12 +352,12 @@ other profile-shipped file:
      web-terminal-context:
        - web-terminal-context/base.md   # the framework fallback renders instead
 
-A tier or app render has no web terminals of its own, so it resolves an empty
+A login render has no web terminals of its own, so it resolves an empty
 roster and copies no operator directories.
 
-To keep the baseline in the deployment but leave it out of one tier's or app's
-terminals, set ``seed_base: false`` at the top of that file in ``tiers/`` or
-``apps/``: its users are seeded from their own ``extra.md`` alone.
+To keep the baseline in the deployment but leave it out of one login's
+terminals, set ``seed_base: false`` at the top of its file in ``tiers/``: its
+users are seeded from their own ``extra.md`` alone.
 
 .. admonition:: ``base.md`` is the only loose file
    :class: important
@@ -361,7 +380,7 @@ what keeps a build reproducible: clone the deployment repository anywhere, and
 the same project renders.
 
 That includes its name. The compose project, the volumes, the images and the
-tier and app renders are all named from the tracked ``project_name:`` field, never
+login renders are all named from the tracked ``project_name:`` field, never
 from the folder the clone sits in, so a clone under any folder name renders and
 deploys the same deployment. The flip side is that two clones on one host are
 the same deployment until one of them says otherwise. A second clone that runs
@@ -388,7 +407,8 @@ the repository, as must every file the profile ``extends``. ``osprey validate``
 and ``osprey build`` refuse a profile that reads anything outside the
 repository, before anything is installed, naming the path. The resolved tree is
 folded into the profile hash, so editing it reports the built project as out of
-date.
+date. ``machine:``, the facility directory of a mounted machine repository,
+resolves and is folded the same way.
 
 
 .. _profile-claim:
@@ -415,8 +435,8 @@ The artifact is **moved** out of ``build/`` and into the matching convention
 slot of the repository's profile — ``rules/safety`` lands at
 ``<profile>/rules/safety.md``, ``services/postgresql`` at
 ``<profile>/services/postgresql/``. A claimed skill, agent, rule, output style
-or hook is named by its path (``rules/safety``) wherever ``profile.yml`` or an
-app listed its bare name. Edit it there, then rebuild:
+or hook is named by its path (``rules/safety``) wherever ``profile.yml`` or a
+login listed its bare name. Edit it there, then rebuild:
 
 .. code-block:: bash
 
@@ -507,9 +527,9 @@ is in force in — and in no other:
      claude_code.hooks.SessionStart:
        - facility_banner.py             # shorthand when there is nothing to qualify
 
-Valid events: ``PreToolUse``, ``PostToolUse``, ``UserPromptSubmit``,
-``SessionStart``, ``SessionEnd``, ``Stop``, ``SubagentStop``, ``Notification``,
-``PreCompact``.
+Valid events: ``PreToolUse``, ``PostToolUse``, ``PostToolUseFailure``,
+``UserPromptSubmit``, ``SessionStart``, ``Stop``, ``StopFailure``, ``SessionEnd``,
+``SubagentStop``, ``Notification``, ``PreCompact``.
 
 .. admonition:: An undeclared hook never runs
    :class: important
@@ -520,11 +540,11 @@ Valid events: ``PreToolUse``, ``PostToolUse``, ``UserPromptSubmit``,
 
 Guards are a floor. Every ``PreToolUse`` hook in force on the deployment's
 render — OSPREY's (approval, ``writes-check``, ``limits``, ``memory-guard``) or
-one ``profile.yml`` declares — reaches every tier and app render, inert where
-no tool it matches is present. A tier or app adds guards; it never drops one by
-leaving it out. A declaration on any other event reaches a tier with
-``profile.yml``'s config, and an app only when the app's own ``config:``
-declares it.
+one ``profile.yml`` declares — reaches every login render, inert where no tool
+it matches is present. A login adds guards; it never drops one by leaving it
+out or by a ``--set`` edit. A declaration on any other event reaches a ``lists: add`` login with
+``profile.yml``'s config, and a ``lists: own`` login only when its own
+``config:`` declares it.
 
 Declared wiring is **added** to the framework's, never put in its place. Your
 declaration cannot remove, alter, or displace anything the generated settings
@@ -587,18 +607,16 @@ the built-in was. This is the one ``hooks/<file>`` a list accepts.
 the profile's ``hooks:`` selection, so a declaration naming one would invoke it
 twice. Select or unselect a built-in through ``hooks:``; never through
 ``claude_code.hooks``. A built-in guard the deployment selects reaches every
-tier and app all the same, in the spelling ``profile.yml`` gives it.
+login all the same, in the spelling ``profile.yml`` gives it.
 
 
-Tiers and Apps
-==============
+Logins
+======
 
-Some presets give each operator their own web terminal. Each operator's
-terminal runs the deployment's agent at a **tier** — an access level such as
-read-only, write-capable or admin. Cards everyone on the roster can open run an
-**app** — a second, complete agent, such as the logbook research assistant.
-For those presets (``demo``), ``osprey init`` writes one file per
-tier and per app:
+Some presets give each operator their own web terminal. Every card on the
+landing page opens a **login**: one file in ``tiers/``, laid over
+``profile.yml`` and rendered as its own project. For those presets
+(``demo``), ``osprey init`` writes six:
 
 .. code-block:: text
 
@@ -609,51 +627,79 @@ tier and per app:
        readonly.yml       # a read-only terminal
        readwrite.yml      # a write-capable terminal
        admin.yml          # the one terminal that may edit the deployment
-     apps/
-       logbook.yml        # logbook research
-       knowledge.yml      # facility knowledge
-       channel-finder.yml # channel search
+       logbook.yml        # logbook research, shared
+       knowledge.yml      # facility knowledge, shared
+       channel-finder.yml # channel search, shared
 
-A tier holds only its **differences** from ``profile.yml`` — for ``readonly``,
-chiefly ``control_system.writes: never``; for ``admin``, the
-privileges the profile deliberately withholds. The build lays it over the
-profile: lists are added by name, ``config:`` keys win. A tier never subtracts
-and never carries a deployment fact, so it has no ``extends:``, ``exclude:``,
-``data:`` or ``services:``.
+A login file says what its card's agent is: ``name``, ``model``,
+``claude_md_template``, ``default_panel``, ``channel_finder_mode``, the
+``hooks``, ``rules``, ``skills``, ``agents``, ``output_styles``,
+``web_panels`` and ``mcp_servers`` lists, ``panel_presets``, ``config:``,
+the per-render keys ``extra_mounts``, ``seed_base`` and ``image``, and the
+``provenance:`` block ``osprey init`` writes. A deployment fact — the
+connector, the provider, ``port_base``, a service block, ``data:``,
+``machine:``, ``services:`` — is refused on a login, naming ``profile.yml`` as
+its home, and so are ``extends:`` and ``exclude:``. A login never subtracts.
 
-An app is a whole agent definition — its own skills, rules, brief and tool
-servers — composed over the deployment's services, data and provider. Every app
-render is read-only on the machine.
+``lists:`` says how the file's lists meet the deployment's:
 
-An app runs the deployment's model unless its file names its own with a
+- ``lists: add`` (the default) adds them by name, and its ``config:`` keys win.
+  ``readonly`` holds chiefly ``control_system.writes: never``; ``admin`` the
+  privileges the profile deliberately withholds.
+- ``lists: own`` takes the lists, ``name``, ``default_panel``,
+  ``claude_md_template`` and ``channel_finder_mode`` from the file alone;
+  nothing the deployment selects is inherited. Its ``mcp_servers`` are added
+  to the deployment's, but none of the deployment's server switches reach it,
+  so the file switches off each server it does without. The guards still reach
+  it (see :ref:`profile-custom-hooks`). The bundled ``logbook``, ``knowledge``
+  and ``channel-finder`` logins are written this way.
+
+A login's write posture is its tier, ``control_system.writes``
+(:doc:`web-terminal/multi-user/tiers`). A login named by
+``modules.web_terminals.shared`` opens from a shared card everyone on the
+roster can use, and a shared card never writes: the build seals that render
+``control_system.writes: never``, closes every deployment-edit door and adds
+the ``writes-check`` hook, whatever its file says; no ``--set`` edit unseals
+it.
+
+``apps:`` picks the applications the deployment lists in ``profile.yml`` that
+this login's card shows: ``apps: {<name>: {shown: true}}``. A listed
+application is shown under ``lists: add`` and hidden under ``lists: own``
+unless the entry says otherwise. Whether one is on is ``profile.yml``'s to say,
+never a login's. A shown application writes only where the login's tier arms
+it — ``asked`` or ``allowed``, never ``never`` — and then only on a machine
+whose switch the operator has turned on; whether a write still asks for
+approval is decided per write at run time.
+
+A login runs the deployment's model unless its file names its own with a
 top-level ``model:``, such as a cheaper model for a research card:
 
 .. code-block:: yaml
 
-   # apps/logbook.yml
+   # tiers/logbook.yml
    model: claude-sonnet-5
 
-The id must be one the deployment's provider serves; the provider itself is
-always ``profile.yml``'s. As for ``profile.yml``, an id the provider's
-``models`` list does not carry is used as written, and the build warns that the
-provider does not list it. A tier may set ``model:`` the same way. Neither
-spells ``config: claude_code.default_model``; the build renders that key from
-``model:`` and refuses it in the file that spells it.
+The provider is always ``profile.yml``'s: a login may name its own model, never
+its own provider. As for ``profile.yml``, an id the provider's ``models`` list
+does not carry is used as written, and the build warns that the provider does
+not list it. A login never spells ``config: claude_code.default_model``; the
+build renders that key from ``model:`` and refuses it in the file that spells
+it.
 
-Both kinds may set ``extra_mounts``, ``seed_base`` and ``image`` at the top of
-the file. Edit a file to change what its terminals can do, and see the merged
-result with:
+Edit a file to change what its terminals can do, and see the merged result
+with:
 
 .. code-block:: bash
 
    osprey validate tiers/readonly.yml
 
-The file name is the name: ``users[].tier`` and ``default_tier`` pick a file in
-``tiers/``, ``shared:`` picks one in ``apps/``. Each renders to
-``build/<project_name>-<name>``. ``osprey up`` renders nothing: a tier or app
-missing from ``build/`` stops the start and points at ``osprey build``.
-``osprey scaffold tiers`` and ``osprey scaffold apps`` write the preset's
-files again, leaving any you edited alone.
+The file name is the name: ``users[].tier``, ``default_tier`` and ``shared:``
+each pick a file in ``tiers/``. Each renders to
+``build/<project_name>-<name>``. ``osprey up`` renders nothing: a login missing
+from ``build/`` stops the start and points at ``osprey build``.
+``osprey scaffold tiers`` writes the preset's login files again, leaving any
+you edited alone. A repository that still keeps a login in ``apps/`` moves it
+with ``osprey init --revalidate`` (:doc:`/reference/cli`).
 
 
 .. _profile-exclude:
@@ -695,8 +741,8 @@ spelling and lists what to take out of it:
 This is how a profile deploys fewer services than the one it extends. Lists
 under ``config:`` union across ``extends`` and across a host-variant overlay,
 so an overlay cannot state a shorter list; it names the entries it drops instead.
-``exclude:`` belongs to ``profile.yml`` and its variant overlays; a tier or app
-that spells it is refused.
+``exclude:`` belongs to ``profile.yml`` and its variant overlays; a login that
+spells it is refused.
 A key the profile does not carry is a silent no-op; a key that holds anything
 other than a list is refused.
 
@@ -708,7 +754,7 @@ but ``web_panels`` is what shows a tab: the build writes ``enabled`` onto every
 ``web.panels.<id>`` block a render carries, ``true`` for a selected panel and
 ``false`` for any other, and the web terminal, the health probe and the
 credential grants all read that one flag. The facts stay so the Reach Contract
-can keep copying a host's addresses into the tiers and apps that *do* select the tab.
+can keep copying a host's addresses into the logins that *do* select the tab.
 A ``config:`` line that says ``web.panels.<id>.enabled`` and contradicts the
 selection is refused at validation, as two spellings of one fact disagreeing.
 
@@ -788,10 +834,10 @@ Each host names the one it wants in ``.env.variant`` at the repository root:
    echo OSPREY_PROFILE_VARIANT=teststand > .env.variant
 
 ``osprey build`` merges that overlay over ``profile.yml`` before it renders
-anything, and says which variant it used in its output. Tiers and apps are rendered
+anything, and says which variant it used in its output. Logins are rendered
 for the same host, so a stack cannot come up half-configured for another one: each
 sees the overlay through the ``profile.yml`` it merges over. An overlay that adds a
-``services:`` entry therefore adds it to the deployment, and the tier and app renders
+``services:`` entry therefore adds it to the deployment, and the login renders
 stay attached to it like any other service the deployment runs.
 
 The overlays are committed: which hosts a deployment has is part of what the
@@ -991,12 +1037,17 @@ to ``profile.yml`` and renders the whole ``build/`` zone from it.
    * - ``-s, --stream``
      - Stream lifecycle step output in real time.
    * - ``--skip-lifecycle``
-     - Skip ``pre_build``, ``post_build``, and ``validate``.
+     - Skip ``pre_build``, ``post_build``, and ``validate``; deployment-package
+       wheels are still built and installed.
    * - ``--skip-deps``
-     - Skip venv creation and dependency installation (CI mode).
+     - Skip venv creation and dependency installation (CI mode); deployment-package
+       wheels are still built, for the image.
    * - ``--runtime-root PATH``
      - Override ``project_root`` in the rendered config, for a build whose
        output runs somewhere other than where it was made.
+   * - ``--dev``
+     - Render a dev build: bake the local OSPREY checkout into the service
+       images instead of the published release.
    * - ``--repo DIRECTORY``
      - Deployment repository to act on (default: the nearest ``profile.yml``
        at or above the working directory).
@@ -1024,8 +1075,8 @@ It never touches the source zone — only ``osprey init --force`` replaces that.
    osprey init --list-presets
 
    # Create the deployment, then render it
-   osprey init my-assistant --preset demo
-   cd my-assistant
+   osprey init my-facility --preset demo
+   cd my-facility
    osprey build
 
    # Change a setting, then carry it through to build/
@@ -1033,7 +1084,7 @@ It never touches the source zone — only ``osprey init --force`` replaces that.
    osprey build
 
    # Render another repository's build/ without cd-ing to it
-   osprey build --repo ~/deployments/als-test
+   osprey build --repo ~/deployments/my-facility
 
 Checking a profile without building
 -----------------------------------
@@ -1073,12 +1124,13 @@ build that was fine yesterday.
 What the build does
 ===================
 
-1. Settle the profile (materialize from a preset on first use, or read the one
-   you named), writing any ``--set`` into it.
+1. Find the repository's ``profile.yml`` (the nearest one at or above the
+   working directory, or the one under ``--repo``) and read it.
 2. Resolve and validate the profile, including any tier merged over it.
 3. Check ``requires_osprey_version``; abort if unsatisfied.
-4. Clear the previous render. ``build/`` is wiped whole and re-made; nothing
-   durable lives inside it to step around.
+4. Start the new render in ``build/.tmp``. Until it succeeds, the previous
+   ``build/`` (apart from its venv) stays as it was, so a failed build leaves
+   the last good one in place.
 5. Run ``pre_build`` commands.
 6. Create the project venv and install OSPREY plus the profile's dependencies.
 7. Render the base template and the profile's ``data/`` tree. No env file is
@@ -1092,7 +1144,8 @@ What the build does
     ``osprey up`` compares the profile against before it starts anything.
 13. Re-render the agent artifacts against the complete config, and validate that
     every tool an agent declares is backed by a permission.
-14. Run ``post_build`` and ``validate`` commands on the project venv.
+14. Run ``post_build`` and ``validate`` commands on the project venv, then swap
+    the finished render in as ``build/``.
 
 The venv is created before rendering so templates can reference the resolved
 Python path. The generated project runs standalone — nothing reaches back to the
@@ -1104,7 +1157,7 @@ What gets generated
 
 .. code-block:: text
 
-   my-project/build/
+   my-facility/build/
    ├── .claude/
    │   ├── agents/           # built-ins, plus anything from the profile's agents/
    │   ├── rules/            # built-ins, plus the profile's rules/
@@ -1127,12 +1180,18 @@ Your own files come from the convention directories and are marked as yours.
 Troubleshooting
 ===============
 
-**"Either a profile path or --preset is required"** — every build reads a
-profile. Name one, or ``--preset`` to have one materialized.
+**"No OSPREY deployment repo found: no profile.yml in … or any parent
+directory."** — ``osprey build`` reads the ``profile.yml`` of the deployment
+repository it runs in, and found none at or above the working directory. Run it
+from inside the repository, point at one with ``--repo PATH``, or create one with
+``osprey init <name> --preset <NAME>``.
 
-**"was materialized from preset X, but this build asks for Y"** — the profile
-directory beside this project came from a different preset. Build ``Y`` under a
-different project name so it gets a profile of its own.
+**"profile.yml was materialized from preset … at …; the preset bundled with
+OSPREY … is … — it has moved on since"** — a note, not an error. The preset your
+profile came from has changed in the OSPREY release you run. Your deployment
+does not change with it, because the profile inherits nothing. To see what
+moved, diff a fresh ``osprey init`` against your profile, as shown under
+*Preset → Profile → Build* above.
 
 **"Profile convention directories are invalid"** — a convention directory has
 the wrong shape: a ``.md`` directory holding something else, or a skill that is
@@ -1162,11 +1221,12 @@ are (see the table above), or into ``project/`` for anything without one.
 
 **"is already an OSPREY deployment repo"** — ``osprey init`` will not lay a
 source zone over one that is already there. To re-render the project, run
-``osprey build`` in the repo: it wipes and re-renders ``build/`` in place and
+``osprey build`` in the repo: it wipes and re-renders ``build/`` and
 leaves the source zone alone. To replace the source zone itself from the
 preset, re-run ``osprey init --force`` — which rewrites ``profile.yml``,
-``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``web-terminal-context/`` and
-``.env.example``, losing any edit to them.
+``data/``, ``tiers/``, ``apps/``, ``triggers.yml``, ``web-terminal-context/``,
+``watchdogs/`` and ``.env.example``, losing any edit to them. In
+``providers.yml`` it resets the entries OSPREY ships and keeps the ones you added.
 
 **"already exists, is not empty, and is not an OSPREY deployment repo"** — a
 deployment repo is one directory that holds nothing else, so ``osprey init``

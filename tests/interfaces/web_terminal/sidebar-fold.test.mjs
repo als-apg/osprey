@@ -5,7 +5,8 @@
  *
  * A double-click on a heading folds and unfolds its group and persists the
  * ids under the scoped `osprey-sidebar-folded` key; the name's keys do the
- * same, the ⋯ button and a rename field do not. Folding keeps the scroll
+ * same, and so does a click on the heading's chevron; the ⋯ button and a
+ * rename field do not. Folding keeps the scroll
  * position with an exact spacer. Layout does not exist in the test DOM, so
  * heights are stubbed.
  */
@@ -57,6 +58,7 @@ async function boot() {
   vi.resetModules();
   const fold = await import(`${JS}/sidebar-fold.js`);
   fold.initSidebarFold(rail());
+  return fold;
 }
 
 beforeEach(() => {
@@ -99,14 +101,65 @@ describe('folding a group', () => {
     expect(stored(FOLDED)).toEqual(['workspace']);
   });
 
-  test('headings carry no chevron, and a stale one is removed', async () => {
-    const stale = Object.assign(document.createElement('span'), {
-      className: 'sidebar-group-chevron',
-    });
+  test('each heading carries one chevron, kept across folds and repaints', async () => {
     await boot();
-    head('tools').prepend(stale);
+    for (const id of ['workspace', 'tools']) {
+      const chevrons = head(id).querySelectorAll(':scope > .sidebar-group-chevron');
+      expect(chevrons).toHaveLength(1);
+      // The last child of the heading, hidden from assistive technology: the
+      // name's aria-expanded carries the state.
+      expect(head(id).lastElementChild).toBe(chevrons[0]);
+      expect(chevrons[0].getAttribute('aria-hidden')).toBe('true');
+    }
     dbl(head('tools'));
-    expect(rail().querySelector('.sidebar-group-chevron')).toBeNull();
+    dbl(head('tools'));
+    document.dispatchEvent(new CustomEvent('osprey-sidebar-rendered'));
+    expect(head('tools').querySelectorAll('.sidebar-group-chevron')).toHaveLength(1);
+  });
+
+  test('a heading rebuilt by a render gets its chevron back', async () => {
+    const { SIDEBAR_RENDERED_EVENT } = await import(`${JS}/panel-rail.js`);
+    await boot();
+    head('tools').replaceChildren(name('tools'));
+    document.dispatchEvent(new CustomEvent(SIDEBAR_RENDERED_EVENT));
+    expect(head('tools').querySelector('.sidebar-group-chevron')).not.toBeNull();
+  });
+
+  test('a click on the chevron folds, another unfolds, and it persists', async () => {
+    await boot();
+    const chevron = () => qs(head('tools'), '.sidebar-group-chevron');
+    chevron().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(group('tools').hasAttribute('data-folded')).toBe(true);
+    expect(name('tools').getAttribute('aria-expanded')).toBe('false');
+    expect(stored(FOLDED)).toEqual(['tools']);
+    chevron().dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+    expect(stored(FOLDED)).toEqual([]);
+  });
+
+  test('a double-click on the chevron toggles twice, never a third time', async () => {
+    await boot();
+    const chevron = qs(head('tools'), '.sidebar-group-chevron');
+    // A browser fires click, click, dblclick for a double-click.
+    for (const type of ['click', 'click', 'dblclick']) {
+      chevron.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+    }
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+  });
+
+  test('a click on the heading outside the chevron does not fold', async () => {
+    await boot();
+    name('tools').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+  });
+
+  test('a click on the chevron with the sidebar collapsed to icons does not fold', async () => {
+    await boot();
+    document.documentElement.setAttribute('data-sidebar', 'collapsed');
+    qs(head('tools'), '.sidebar-group-chevron').dispatchEvent(
+      new MouseEvent('click', { bubbles: true, cancelable: true })
+    );
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
   });
 
   test('the spacer is the exact scroll shortfall, recomputed and never accumulated', async () => {
@@ -203,5 +256,62 @@ describe('folding a group', () => {
     });
     dbl(name('tools'));
     expect(group('tools').hasAttribute('data-folded')).toBe(true);
+  });
+});
+
+describe('setGroupFolded', () => {
+  test('folds and unfolds by id, persists, and fires the fold event', async () => {
+    const fold = await boot();
+    const seen = vi.fn();
+    document.addEventListener('osprey-sidebar-fold-change', seen);
+    fold.setGroupFolded('tools', true);
+    expect(group('tools').hasAttribute('data-folded')).toBe(true);
+    expect(name('tools').getAttribute('aria-expanded')).toBe('false');
+    expect(fold.isGroupFolded('tools')).toBe(true);
+    expect(stored(FOLDED)).toEqual(['tools']);
+    expect(seen).toHaveBeenCalledTimes(1);
+    fold.setGroupFolded('tools', false);
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+    expect(fold.isGroupFolded('tools')).toBe(false);
+    expect(stored(FOLDED)).toEqual([]);
+    expect(seen).toHaveBeenCalledTimes(2);
+    document.removeEventListener('osprey-sidebar-fold-change', seen);
+  });
+
+  test('a state already held is a no-op: no write, no event', async () => {
+    const fold = await boot();
+    const seen = vi.fn();
+    document.addEventListener('osprey-sidebar-fold-change', seen);
+    fold.setGroupFolded('tools', false);
+    expect(localStorage.getItem(FOLDED)).toBeNull();
+    fold.setGroupFolded('tools', true);
+    fold.setGroupFolded('tools', true);
+    expect(stored(FOLDED)).toEqual(['tools']);
+    expect(seen).toHaveBeenCalledTimes(1);
+    document.removeEventListener('osprey-sidebar-fold-change', seen);
+  });
+
+  test('the headless group never folds', async () => {
+    const fold = await boot();
+    fold.setGroupFolded('workspace', true);
+    expect(group('workspace').hasAttribute('data-folded')).toBe(false);
+    expect(localStorage.getItem(FOLDED)).toBeNull();
+  });
+
+  test("a double-click after the seam toggles from the seam's state", async () => {
+    const fold = await boot();
+    fold.setGroupFolded('tools', true);
+    dbl(name('tools'));
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+    expect(stored(FOLDED)).toEqual([]);
+  });
+
+  test('is a no-op before initSidebarFold wires a rail', async () => {
+    document.body.innerHTML = HTML;
+    vi.resetModules();
+    const fold = await import(`${JS}/sidebar-fold.js`);
+    expect(() => fold.setGroupFolded('tools', true)).not.toThrow();
+    expect(group('tools').hasAttribute('data-folded')).toBe(false);
+    expect(localStorage.getItem(FOLDED)).toBeNull();
   });
 });

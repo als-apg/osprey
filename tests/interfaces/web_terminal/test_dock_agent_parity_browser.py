@@ -1120,7 +1120,8 @@ def test_an_agent_open_while_typing_never_covers_the_terminal(tmp_path, chromium
         _open_services(page, "a", "b")
         a, b, c, d = (S(x) for x in "abcd")
         cases = [
-            # A service tile of its own: the panel replaces the one it shows.
+            # One service tile: the panel opens in a new tile split off it (the
+            # agent's default; the tile is tall enough for two readable halves).
             ("own tile", ONE_SERVICE, c),
             # Two service tiles: the panel replaces one of theirs, never the Agent pane.
             ("two tiles", MATRIX_START, d),
@@ -1148,8 +1149,11 @@ def test_an_agent_open_while_typing_never_covers_the_terminal(tmp_path, chromium
                 )
                 _assert_terminal_shown(page, state)
                 if case == "own tile":
-                    assert state["shape"] == S("row[c,terminal]"), (label, state["shape"])
-                    assert _tile_of(state, c) == "t1", (label, state["held"])
+                    assert state["shape"] == S("row[column[a,c],terminal]"), (
+                        label,
+                        state["shape"],
+                    )
+                    assert _tile_of(state, a) == "t1", (label, state["held"])
         assert hub.errors == []
 
 
@@ -1409,7 +1413,9 @@ def test_an_agent_op_mid_drag_applies_after_the_drag(tmp_path, chromium_browser)
         assert "error" not in drag, drag
         assert drag["shieldRose"] and drag["dragLive"], drag
         try:
-            result = _Background(_tool, "open_panel", panel_id=d).join()
+            # Asked to replace, so D takes a tile that is there and the drop's
+            # geometry below is exact (an agent's default open adds a tile).
+            result = _Background(_tool, "open_panel", panel_id=d, place="replace").join()
             assert d in _keys(result["layout"]), result
             page.wait_for_timeout(300)
             expect(_bar(page, d)).to_have_count(0)  # nothing re-laid the dock mid-drag
@@ -1432,8 +1438,8 @@ def test_an_agent_op_mid_drag_applies_after_the_drag(tmp_path, chromium_browser)
 def test_a_person_undoing_an_agent_open_is_reported(tmp_path, chromium_browser):
     """After an agent op, a person's return to the pre-op layout reaches the server.
 
-    The agent opens D, which replaces A in A's tile (recorded through the op
-    result); the person clicks A's sidebar row, which replaces D with A and
+    The agent opens D asked to replace, so D replaces A in A's tile (recorded
+    through the op result); the person clicks A's sidebar row, which replaces D with A and
     puts the dock back exactly where it was before the op. The server, and so
     the agent's next ``list_panels``, must hold that layout and not the op's
     result — otherwise the agent works from a dock that is no longer on
@@ -1444,7 +1450,7 @@ def test_a_person_undoing_an_agent_open_is_reported(tmp_path, chromium_browser):
         _open_services(page, "a")
         a, d = S("a"), S("d")
         before = _restore(page, hub, ONE_SERVICE)
-        opened = _tool("open_panel", panel_id=d)
+        opened = _tool("open_panel", panel_id=d, place="replace")
         assert d in _keys(opened["layout"]) and a not in _keys(opened["layout"]), opened
         _settle(page)
         _rail_open(page, a)
@@ -1532,8 +1538,9 @@ def test_ariel_and_phoebus_open_through_the_op_path_in_one_tab(
 
     ARIEL opens through its tool's ``open {member: ariel, url}`` helper, Phoebus
     through ``phoebus_open_panel`` (its bridge stubbed; ``OSPREY_SERVER_NAME``
-    names its panel). Opening twice keeps one tile of each; Phoebus's open
-    replaces ARIEL in the service tile, whose iframe stays cached and hidden;
+    names its panel). Opening twice keeps one tile of each; each opens in a new
+    tile by the agent's default (ARIEL below the operator's A, Phoebus beside
+    ARIEL), so nothing on screen is replaced;
     the dock client answers each op once through ``/api/panel-op-result``; the
     other browser tab, which is not the dock client, never changes.
     """
@@ -1585,9 +1592,10 @@ def test_ariel_and_phoebus_open_through_the_op_path_in_one_tab(
                 assert _keys(state).count(PHOEBUS) == 1, state["shape"]
                 expect(_bar(page, PHOEBUS)).to_have_count(1)
         assert len(answers) == 4, answers
-        assert PHOEBUS in _keys(state) and ARIEL not in _keys(state), state["shape"]
+        expected = f"row[column[{S('a')},row[{ARIEL},{PHOEBUS}]],{TERMINAL}]"
+        assert state["shape"] == expected, state["shape"]
         expect(_iframe(page, ARIEL)).to_have_count(1)
-        expect(_iframe(page, ARIEL)).to_be_hidden()
+        expect(_iframe(page, ARIEL)).to_be_visible()
 
         assert other_posts == [], f"the other browser tab answered ops: {other_posts}"
         assert _settle(other)["shape"] == other_before["shape"]

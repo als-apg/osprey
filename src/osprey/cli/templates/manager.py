@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from jinja2 import Environment, FileSystemLoader, TemplateRuntimeError, select_autoescape
 
@@ -18,6 +18,9 @@ from osprey_connectors import yaml_loader
 from osprey_connectors.config import resolve_env_vars
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.workspace import repo_root_for_config
+
+if TYPE_CHECKING:
+    from osprey.facility.roots import FacilityRoots
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -159,6 +162,7 @@ class TemplateManager:
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
+        facility_roots: "FacilityRoots | None" = None,
     ) -> Path:
         """Create complete project from template.
 
@@ -187,6 +191,12 @@ class TemplateManager:
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
+            facility_roots: The deployment's resolved facility roots. When they
+                are mounted, the machine root's facts are copied into the
+                project's ``data/facility`` beside the deployment's own content,
+                so the render holds one facility tree as a single-tree
+                deployment does. ``None`` (or a single tree) copies *data_root*
+                alone.
 
         Returns:
             Path to created project directory
@@ -265,6 +275,7 @@ class TemplateManager:
             ctx,
             jinja_env=self.jinja_env,
             data_root=data_root,
+            facility_roots=facility_roots,
         )
 
         # 6a. Copy machine_data/ if bundle provides it

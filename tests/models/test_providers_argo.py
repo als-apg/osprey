@@ -46,10 +46,6 @@ class TestArgoMetadata:
         """Test provider requires base URL."""
         assert ArgoProviderAdapter.requires_base_url is True
 
-    def test_requires_model_id(self):
-        """Test provider requires model ID."""
-        assert ArgoProviderAdapter.requires_model_id is True
-
     def test_supports_proxy(self):
         """Test provider supports HTTP proxy."""
         assert ArgoProviderAdapter.supports_proxy is True

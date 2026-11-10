@@ -142,9 +142,15 @@ def _open(browser: Browser, base_url: str) -> tuple[Page, list[str]]:
 
 
 def _group_by_activity(page: Page) -> None:
-    """Switch the session tree to Activity, so the active session lists its artifacts flat."""
-    page.locator(f"{_TREE} .osprey-tree-session.active").click(button="right")
-    page.get_by_role("menuitemcheckbox", name="Group by Activity").click()
+    """Switch the session tree to Activity, so the active session lists its artifacts flat.
+
+    The grouping is the Sessions row's: Group by ▸ Activity.
+    """
+    page.locator("#sidebar-agent-row").click(button="right")
+    page.get_by_role("menuitem", name="Group by").click()
+    page.locator('.rail-context-menu[data-depth="1"]').get_by_role(
+        "menuitemcheckbox", name="Activity"
+    ).click()
 
 
 def _reopen_stream(page: Page) -> None:

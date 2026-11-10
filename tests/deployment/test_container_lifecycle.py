@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.agent_record.config import HISTORY_SERVICE
-from osprey.deployment import container_lifecycle
+from osprey.deployment import compose_generator, container_lifecycle
 from osprey.deployment.errors import (
     ArchiverClientMissingError,
     DeploymentPreconditionError,
@@ -2070,7 +2070,7 @@ def no_site_env(monkeypatch):
     kin), so a developer machine that happens to export one for its own tooling
     would otherwise leak into every assertion here.
     """
-    for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+    for name in compose_generator.SITE_IMAGE_AXES:
         monkeypatch.delenv(name, raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
 
@@ -2086,6 +2086,7 @@ def _site_config(tmp_path, **extra):
             "pip_no_proxy": ".internal.example.org",
             "pip_index_url": "https://mirror.example.org/simple",
             "pip_extra_index_url": "https://wheels.example.org/simple",
+            "base_registry": "mirror.example.org/dockerhub",
         },
     }
     config.update(extra)
@@ -2117,6 +2118,7 @@ def test_site_image_build_args_carry_every_axis(tmp_path):
         "PIP_NO_PROXY": ".internal.example.org",
         "PIP_INDEX_URL": "https://mirror.example.org/simple",
         "PIP_EXTRA_INDEX_URL": "https://wheels.example.org/simple",
+        "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub",
     }
     staged = tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME
     assert staged.read_text() == "-----BEGIN CERTIFICATE-----\n"
@@ -2567,6 +2569,7 @@ def test_site_image_build_args_take_the_environment_ahead_of_the_config(monkeypa
     monkeypatch.delenv("OSPREY_SITE_CA", raising=False)
     monkeypatch.delenv("PIP_EXTRA_INDEX_URL", raising=False)
     monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+    monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
     monkeypatch.setenv("PIP_INDEX_URL", "https://from-the-shell.example.org/simple")
     monkeypatch.setenv("PIP_NO_PROXY", ".shell.example.org")
 
@@ -2577,6 +2580,17 @@ def test_site_image_build_args_take_the_environment_ahead_of_the_config(monkeypa
         "PIP_INDEX_URL": "https://from-the-shell.example.org/simple",
         "PIP_NO_PROXY": ".shell.example.org",
     }
+
+
+@pytest.mark.usefixtures("no_site_env")
+def test_the_base_registry_takes_the_environment_ahead_of_the_config(monkeypatch, tmp_path):
+    """One shell can point the base images at another mirror than the config pins."""
+    monkeypatch.setenv("OSPREY_BASE_REGISTRY", "shell.example.org/hub")
+
+    config = {"project_name": "x", "images": {"base_registry": "pinned.example.org/hub"}}
+    args = container_lifecycle.site_image_build_args(config, tmp_path)
+
+    assert _build_args(args) == {"OSPREY_BASE_REGISTRY": "shell.example.org/hub"}
 
 
 @pytest.mark.usefixtures("no_site_env")
@@ -2611,6 +2625,34 @@ def test_project_and_render_builds_share_one_site_arg_producer(tmp_path):
     assert site_args, "the fixture config declares site axes"
     assert site_args <= set(project)
     assert site_args <= set(tier)
+
+
+@pytest.mark.usefixtures("no_site_env")
+def test_a_stated_image_platform_reaches_every_managed_build(tmp_path):
+    """The project and render builders extend the one producer the sidecar does too."""
+    from osprey.deployment.web_terminals import render_images
+
+    config = {"project_name": "myfacility", "images": {"platform": "linux/amd64"}}
+    project = container_lifecycle._project_image_build_cmd(config, "docker", str(tmp_path))
+    tier = render_images._render_image_build_cmd(
+        "docker", str(tmp_path), "demo:local", "myfacility", config
+    )
+
+    assert container_lifecycle.site_image_build_args(config, tmp_path) == [
+        "--platform",
+        "linux/amd64",
+    ]
+    for cmd in (project, tier):
+        assert cmd[cmd.index("--platform") + 1] == "linux/amd64"
+        assert cmd[-1] == str(tmp_path)
+
+
+@pytest.mark.usefixtures("no_site_env")
+def test_an_image_platform_no_builder_accepts_is_refused_before_the_build(tmp_path):
+    config = {"project_name": "x", "images": {"platform": "linux/riscv64"}}
+
+    with pytest.raises(ValueError, match="images.platform"):
+        container_lifecycle.site_image_build_args(config, tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -3487,11 +3529,13 @@ def test_every_template_on_the_project_image_is_a_project_image_service():
 
     # The history page is derived from the config rather than deployed by name,
     # so it joins the gate through its predicate (test_history_service.py);
-    # agent-record is derived and always deployed, so it joins unconditionally.
+    # agent-record is derived and always deployed, so it joins unconditionally;
+    # a projected application runtime joins by its row (_projected_services).
     assert on_project_image == {
         *container_lifecycle._PROJECT_IMAGE_SERVICES,
         HISTORY_SERVICE,
         container_lifecycle.AGENT_RECORD_TEMPLATE_DIR,
+        "app_runtime",
     }
 
 

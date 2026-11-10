@@ -29,7 +29,6 @@ class CBorgProviderAdapter(LiteLLMEmbeddingDelegatingProvider):
     description = "LBNL CBorg proxy (supports multiple models)"
     requires_api_key = True
     requires_base_url = True
-    requires_model_id = True
     supports_proxy = True
     default_base_url = None
     models_probe = "bearer"

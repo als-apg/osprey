@@ -331,6 +331,18 @@ class TestListParams:
         assert _ids(_list(client, form="runs")) == [r.id]
         assert _list(client, form="tables")["total"] == 0
 
+    def test_exec_id_keeps_one_runs_entries(self, client, store):
+        _text(store, minute=1)
+        p = _preview(store, minute=2)
+        o = _output(store, minute=3)
+        r = _result(store, minute=4, run_status="succeeded")
+        _preview(store, exec_id="toolu_other", minute=5)
+        listed = _list(client, exec_id=EXEC)
+        assert _ids(listed) == [r.id, o.id, p.id]
+        head = next(e for e in listed["artifacts"] if e["id"] == r.id)
+        assert {part["role"] for part in head["run_parts"]} >= {"preview", "output"}
+        assert _list(client, exec_id="toolu_none")["total"] == 0
+
     def test_after_and_before_are_half_open(self, client, store):
         a = _text(store, "a", minute=1)
         b = _text(store, "b", minute=2)

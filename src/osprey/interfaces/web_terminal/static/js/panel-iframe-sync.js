@@ -128,10 +128,10 @@ export function sendArtifactSelectToIframe(iframe, artifactId) {
 
 /**
  * Ask the artifacts viewer to run a tile-menu action on an artifact, through
- * the gallery's own code path for it (its confirm, its request, its popup).
+ * the gallery's own code path for it (its request, its popup).
  * @param {HTMLIFrameElement | null} iframe  the artifacts panel's iframe
  * @param {string} artifactId
- * @param {'pin' | 'unpin' | 'print' | 'logbook' | 'delete'} action
+ * @param {'pin' | 'unpin' | 'print' | 'logbook'} action
  */
 export function sendArtifactActionToIframe(iframe, artifactId, action) {
   postToIframe(iframe, { type: 'osprey-artifact-action', artifact_id: artifactId, action });

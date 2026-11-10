@@ -20,28 +20,38 @@ about what the build makes of them.
 The facility file
 =================
 
-A facility ``osprey init`` copies from a preset is bundled: every copied text file
-opens with the bundled-origin line, except the knowledge indexes, which
-``osprey knowledge regen-index`` writes. Delete the line to make a file yours. The
-import, in every format, replaces the bundled files and refuses only hand-written
-records of the kinds that format writes. A bundled facility carries data only:
-records, decks, models, limits, seeds, scenarios, knowledge pages, benchmark query
-sources and the ARIEL vocabulary, and never a skill, agent or rule.
-
 ``build/facility.json`` is every record of the facility in one document,
 under a ``schema`` header: ``identity``, ``classes``, ``places``, ``devices``,
 ``channels``, ``groups``, ``models`` with their wiring, ``limits`` and
-``scenarios``. It holds two things no source file does. The first is what the
-build computes: the readback a setpoint is paired with when no source names
-one; each device's place and position along its model's deck, its ordinal
-among its class in its place and in its model, and the groups that name it;
-and each wiring record's unit, direction, value range and operating point,
-and what its model's engine says it is: role, plane and refresh. The second is ``provenance``: per record, which layer and file stated each field,
+``scenarios``. A model's *deck* is the lattice file its simulation engine
+loads, and its *wiring* is the set of records that tie channel addresses to
+elements of that deck.
+
+The file holds two things no source file does. The first is what the build
+computes:
+
+- the readback a setpoint is paired with, when no source names one;
+- for each device, its place and position along its model's deck, its ordinal
+  among its class in its place and in its model, and the groups that name it;
+- for each wiring record, its unit, direction, value range and operating
+  point, and what its model's engine says it is: role, plane and refresh.
+
+The second is ``provenance``: per record, which layer and file stated each field,
 which fixes were applied and which fields the build filled.
 ``osprey facility show <id>`` prints it.
 
 The file is the same in every render of a build. It carries no timestamp, no
 OSPREY version and no absolute path, so equal sources give equal bytes.
+
+The sources can start as a copy of a preset. A facility ``osprey init`` copies
+from a preset is *bundled*: every copied text file opens with the
+bundled-origin line. The exception is the knowledge indexes, which
+``osprey knowledge regen-index`` writes. Delete the line to make a file yours.
+The import, in every format, replaces the bundled files and refuses only
+hand-written records of the kinds that format writes. A bundled facility
+carries data only: records, decks, models, limits, seeds, scenarios, knowledge
+pages, benchmark query sources and the ARIEL vocabulary, and never a skill,
+agent or rule.
 
 Reading the facility file
 =========================
@@ -70,6 +80,10 @@ filters the file's own channel records and names a model or a place.
    * - ``document``
      - The mapping it was built from, read-only.
      -
+     -
+   * - ``facility_bytes()``
+     - The bytes of ``facility.json`` for the document it was built from, serialised by ``osprey.facility.render.facility_bytes`` (two-space indent, one final newline), so the renders of one build share one serialisation.
+     - Sorted keys.
      -
    * - ``record(kind, id)``
      - The one record of that kind and id.
@@ -207,8 +221,9 @@ derived keys where a stated value is not refused.
      - be a channel of the facility file
    * - ``simulation.default_scenarios``
      - the key
-     - never derived
-     - name only scenarios the facility serves: its own and the built-in ``still``
+     - the scenarios marked ``start: true``
+     - name only scenarios the facility serves (its own and the built-in
+       ``still``), and be absent beside a mark or a mounted machine
    * - ``ariel.vocabulary.enabled``
      - the key
      - ``true`` when the tree ships ``ariel/vocabulary.yml``
@@ -326,10 +341,12 @@ channel and per signal named, with the device classes as a class tree.
 The schema
 ==========
 
-The facility file's shape is two LinkML modules in
+The facility file's shape is two `LinkML <https://linkml.io/>`_ modules (LinkML
+is a YAML language for data schemas) in
 ``src/osprey/facility/schema/``: ``core.yaml``, the records, and
 ``vocabulary.yaml``, the device classes, signal roles and property names. Both
-carry NARAD's schemas forward. NARAD requires more than a bare channel list
+carry forward the schemas of NARAD, a set of LinkML schemas for normalizing
+facility exports and mapping them across facilities. NARAD requires more than a bare channel list
 can state, so ``loosenings.yaml`` records, per slot NARAD requires, what became
 of it (``dropped``, ``optional``, ``renamed:<slot>`` or ``header``) and why.
 The graph view writes the facility file back in NARAD's terms.

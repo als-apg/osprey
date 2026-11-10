@@ -1,0 +1,19 @@
+{
+  "_provenance": "exporter=1.2.0 ao_sha256=1f4b… mapping_sha256=9c07…",
+  "SR": {
+    "BPM": {
+      "Monitor": {
+        "ChannelNames": ["SR01C:BPM1:X", "SR01C:BPM1:Y"],
+        "TangoNames": ["sr/bpm/1/X", "sr/bpm/1/Y"]
+      },
+      "Setpoint": {
+        "X": {"ChannelNames": ["SR01C:BPM1:XSet"]},
+        "Y": {"ChannelNames": ["SR01C:BPM1:YSet"]}
+      },
+      "setup": {
+        "CommonNames": ["BPM 1", "BPM 2"],
+        "DeviceList": [[1, 1], [1, 2]]
+      }
+    }
+  }
+}

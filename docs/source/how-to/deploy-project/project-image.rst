@@ -127,10 +127,10 @@ Build Arguments
 
 - the top-level ``offline`` key
 - the ``images.site_ca`` / ``images.pip_no_proxy`` / ``images.pip_index_url``
-  / ``images.pip_extra_index_url`` block
+  / ``images.pip_extra_index_url`` / ``images.base_registry`` block
 
-It resolves them once and hands them to the three images built from these
-recipes: the project image, each web-terminal image and the login sidecar. Set
+It resolves them once and hands them to every image it builds: the project
+image, each web-terminal image, the login sidecar and each service image. Set
 them there and a site network is configured in one place.
 
 The build arguments below are the same settings under the names a hand-run
@@ -162,6 +162,12 @@ shell, the same way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
    * - ``PIP_EXTRA_INDEX_URL``
      - ``""``
      - A second index, consulted after the first. Same handling.
+   * - ``OSPREY_BASE_REGISTRY``
+     - ``docker.io``
+     - Registry standing in for ``docker.io``: the base image is
+       ``${OSPREY_BASE_REGISTRY}/library/<image>``. The mirror must keep Docker
+       Hub's paths; pull-through caches such as a Harbor proxy project, an
+       Artifactory remote and a Nexus docker proxy do.
    * - ``OSPREY_OFFLINE``
      - ``"0"``
      - ``"1"`` vendors web assets (JS/CSS/fonts) into the image via
@@ -728,16 +734,17 @@ Troubleshooting
 of OSPREY's dependency chain ship prebuilt wheels for ``linux/amd64`` only.
 So an arm64 build must compile them from source, which is where it breaks.
 Build (and run) the amd64 image under Docker Desktop's emulation instead; it
-matches the usual amd64 deployment target:
+matches the usual amd64 deployment target. State the platform in ``profile.yml``
+and rebuild:
 
-.. code-block:: bash
+.. code-block:: yaml
 
-   docker build --platform linux/amd64 -t my-project \
-     -f build/.image/my-project/build/Dockerfile build/.image/my-project
-   docker run --platform linux/amd64 --rm -p 10100:10100 --env-file .env \
-     -v "$PWD/.env.agent-record.login.$USER:/app/my-project/.env.agent-record.login.$USER:ro" \
-     -v "$PWD/.env.agent-record.service:/app/my-project/.env.agent-record.service:ro" \
-     my-project
+   config:
+     images.platform: linux/amd64
+
+``osprey build`` judges the deployment's wheels against it and names it on the
+Dockerfile's ``FROM``; ``osprey up`` builds every image it builds for it.
+Unset, images are built for this host.
 
 Customizing
 ===========

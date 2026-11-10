@@ -49,13 +49,19 @@ from osprey.profiles.providers import PROVIDERS_FILENAME
 # ``osprey_connectors.config`` into this module's import closure, so naming it
 # here adds no load time to the CLI's lazy-command budget. Imported rather than
 # restated — see :data:`PROTECTED_CONFIG_KEYS`.
-from osprey.utils.workspace import LAYER_DIRNAMES, RUNTIME_WRITE_PATH_KEYS, STATE_DIR_NAME
+from osprey.utils.workspace import (
+    APPS_DIRNAME,
+    LAYER_DIRNAMES,
+    RUNTIME_WRITE_PATH_KEYS,
+    STATE_DIR_NAME,
+)
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
 from osprey_connectors.workspace import BUILD_DIR_NAME
 
 if TYPE_CHECKING:
     from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.roots import FacilityRoots
 
 logger = get_logger("build")
 
@@ -300,8 +306,10 @@ _SOURCE_ZONE_ENTRIES: frozenset[str] = frozenset(
         PROVIDERS_FILENAME,
         PROFILE_TRIGGERS_FILENAME,
         "data",
-        # The tier and app files laid over the profile, by location.
+        # The login files laid over the profile, by location.
         *LAYER_DIRNAMES,
+        # The applications, one `apps/<name>/` directory each.
+        APPS_DIRNAME,
         "profiles",
         "scripts",
         # The watchdogs' instructions and references. Source zone so executed
@@ -1379,21 +1387,28 @@ def validate_project_mirror(mirror_dir: Path) -> None:
         raise BuildProfileError(_format_mirror_violations(violations))
 
 
-def facility_mirror_violation(mirror_dir: Path) -> FacilityBuildError | None:
+def facility_mirror_violation(
+    mirror_dir: Path, *, authoring_route: str | None = None
+) -> FacilityBuildError | None:
     """The stop for the first ``project/`` mirror file the facility build writes.
 
     Files are visited in sorted order, so the answer is the same on every run.
 
     Args:
         mirror_dir: The profile's ``project/`` directory (missing is fine).
+        authoring_route: The tree the facility is authored in, as the remedy
+            names it. ``None`` names :data:`FACILITY_AUTHORING_ROUTE`; a
+            deployment that mounts a machine root passes ``<machine>/``. The
+            guard itself always checks the deployment's ``project/``.
 
     Returns:
         A ``profile-invalid`` error naming the first mirror file matching
-        :data:`RESERVED_MIRROR_PATTERNS` and ``data/facility/`` as the tree it
-        is authored in, or ``None`` when the mirror writes none of them.
+        :data:`RESERVED_MIRROR_PATTERNS` and the tree it is authored in, or
+        ``None`` when the mirror writes none of them.
     """
     if not mirror_dir.is_dir():
         return None
+    route = authoring_route or FACILITY_AUTHORING_ROUTE
     for path in _iter_files(mirror_dir, include_hidden=True):
         rel = path.relative_to(mirror_dir).as_posix()
         if not _is_facility_mirror_path(rel):
@@ -1405,17 +1420,100 @@ def facility_mirror_violation(mirror_dir: Path) -> FacilityBuildError | None:
             "profile-invalid",
             mirrored,
             [mirrored],
-            f"remove {mirrored} and author the facility in {FACILITY_AUTHORING_ROUTE}",
+            f"remove {mirrored} and author the facility in {route}",
             record_kind="path",
             detail=(
                 f"the {PROJECT_MIRROR_DIR}/ mirror writes {rel}, which the build writes "
-                f"from {FACILITY_AUTHORING_ROUTE}"
+                f"from {route}"
             ),
         )
     return None
 
 
-def handwritten_limits_violation(data_root: Path, repo_root: Path) -> FacilityBuildError | None:
+def _first_restated_file(content: Path, allowed: Collection[str]) -> Path | None:
+    """The first file of ``content`` outside ``allowed`` top-level directories.
+
+    Dot-entries at any depth are skipped (``.DS_Store``, an editor's swap
+    directory), and files are visited in sorted order, so the answer is the
+    same on every run. An empty directory holds no file and restates nothing.
+    """
+    for path in _iter_files(content):
+        if path.relative_to(content).parts[0] not in allowed:
+            return path
+    return None
+
+
+def machine_restated_violation(roots: FacilityRoots) -> FacilityBuildError | None:
+    """The stop for a deployment file that restates a mounted machine's facts.
+
+    While a profile mounts a machine root, the content root (``<data>/facility``)
+    holds only :data:`~osprey.facility.roots.DEPLOYMENT_CONTENT_DIRS`; every
+    other entry is a machine fact and belongs to the machine repository. Only
+    files are judged: stated settings (the probe and freshness channels, ARIEL
+    vocabulary, the benchmark dataset) are deployment choices and stay legal,
+    and a stated start set is the start-set refusal of
+    :mod:`osprey.facility.settings`.
+
+    Paths are shown relative to the nearest directory holding both roots, so
+    the message reads ``data/facility/records/x.yaml`` beside
+    ``machine/records/x.yaml``.
+
+    Args:
+        roots: The deployment's resolved facility roots.
+
+    Returns:
+        A ``machine-restated`` error naming the first offending deployment file,
+        the same relative path under the machine root when that exists
+        (otherwise the machine root) and the remedy, or ``None`` when the roots
+        are not mounted or the content root restates nothing.
+    """
+    if not roots.mounted or not roots.content.is_dir():
+        return None
+    from osprey.facility.errors import FacilityBuildError
+    from osprey.facility.roots import DEPLOYMENT_CONTENT_DIRS
+
+    found = _first_restated_file(roots.content, DEPLOYMENT_CONTENT_DIRS)
+    if found is None:
+        return None
+
+    base = Path(posixpath.commonpath([roots.machine.as_posix(), roots.content.as_posix()]))
+
+    def shown(path: Path) -> str:
+        return path.relative_to(base).as_posix() if path.is_relative_to(base) else str(path)
+
+    rel = found.relative_to(roots.content)
+    deployment_file = shown(found)
+    content_dirs = ", ".join(f"{name}/" for name in DEPLOYMENT_CONTENT_DIRS)
+    counterpart = roots.machine / rel
+    if counterpart.is_file():
+        machine_file = shown(counterpart)
+        detail = (
+            f"the mounted machine states {machine_file}, and a mounted deployment's "
+            f"{shown(roots.content)}/ holds only {content_dirs}"
+        )
+        remedy = f"remove {deployment_file}; edit {machine_file} in the machine repository instead"
+    else:
+        machine_root = f"{shown(roots.machine)}/"
+        detail = (
+            f"it is a machine fact, which the machine root {machine_root} owns, and a "
+            f"mounted deployment's {shown(roots.content)}/ holds only {content_dirs}"
+        )
+        remedy = (
+            f"move {deployment_file} into {machine_root} in the machine repository, or remove it"
+        )
+    return FacilityBuildError(
+        "machine-restated",
+        deployment_file,
+        [deployment_file],
+        remedy,
+        record_kind="path",
+        detail=detail,
+    )
+
+
+def handwritten_limits_violation(
+    data_root: Path, repo_root: Path, *, machine_root: Path | None = None
+) -> FacilityBuildError | None:
     """The stop for a limits file the profile ships itself.
 
     The build writes the limits database from ``<data>/facility/limits.yaml``,
@@ -1424,12 +1522,17 @@ def handwritten_limits_violation(data_root: Path, repo_root: Path) -> FacilityBu
     returned; a render under ``build/`` is never consulted.
 
     Args:
-        data_root: The profile's resolved ``data:`` tree.
+        data_root: The profile's resolved ``data:`` tree. The guard checks the
+            deployment's files whether or not a machine root is mounted.
         repo_root: The repo the profile lives in.
+        machine_root: The mounted machine root, when the profile names one.
+            The machine repository owns ``limits.yaml`` then, so the remedy
+            names ``<machine>/limits.yaml``; ``None`` names
+            ``<data>/facility/limits.yaml`` as for a single tree.
 
     Returns:
         A ``profile-invalid`` error naming the file found, the file the build
-        writes in its place and ``<data>/facility/limits.yaml`` as where its
+        writes in its place and the facility's ``limits.yaml`` as where its
         limits go, or ``None`` when the profile ships none.
     """
     from osprey.facility.errors import FacilityBuildError
@@ -1445,7 +1548,10 @@ def handwritten_limits_violation(data_root: Path, repo_root: Path) -> FacilityBu
         (data_root / "simulation" / LIMITS_FILE, f"data/simulation/{LIMITS_FILE}"),
         (repo_root / PROJECT_MIRROR_DIR / "data" / LIMITS_FILE, f"data/{LIMITS_FILE}"),
     )
-    data = shown(data_root)
+    if machine_root is None:
+        source = f"{shown(data_root)}/facility/limits.yaml"
+    else:
+        source = f"{shown(machine_root)}/limits.yaml"
     for path, written in candidates:
         if not path.is_file():
             continue
@@ -1454,9 +1560,9 @@ def handwritten_limits_violation(data_root: Path, repo_root: Path) -> FacilityBu
             "profile-invalid",
             found,
             [found],
-            f"move its limits into {data}/facility/limits.yaml and remove {found}",
+            f"move its limits into {source} and remove {found}",
             record_kind="path",
-            detail=f"the build writes {written} from {data}/facility/limits.yaml",
+            detail=f"the build writes {written} from {source}",
         )
     return None
 

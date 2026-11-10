@@ -7,6 +7,7 @@ from osprey.health.core.versions import versions
 from osprey.health.models import Status
 from osprey.integrations.canopy.proven import (
     ABSENT,
+    NO_RECORD,
     NOT_INSTALLED,
     PROVEN,
     PROVEN_COMMITS,
@@ -25,8 +26,16 @@ def _judgement(held: Held, state: str) -> Judgement:
     return Judgement((reading,), state)
 
 
-def _rows(config: dict, monkeypatch, *, running: str, judgement: Judgement | None = None) -> dict:
+def _rows(
+    config: dict,
+    monkeypatch,
+    *,
+    running: str,
+    judgement: Judgement | None = None,
+    canopy_version: str | None = None,
+) -> dict:
     monkeypatch.setattr(versions_mod, "_running_version", lambda: running)
+    monkeypatch.setattr(versions_mod, "_canopy_version", lambda: canopy_version)
     if judgement is not None:
         monkeypatch.setattr(versions_mod, "_canopy_judgement", lambda: judgement)
     return {row.name: row for row in versions(config)()}
@@ -78,3 +87,53 @@ def test_canopy_not_installed_here_is_a_skip(monkeypatch):
     )["versions.canopy"]
     assert row.status is Status.SKIP
     assert row.value == "not installed here"
+
+
+def test_canopy_recorded_commit_at_the_pin_ignores_the_label(monkeypatch):
+    pin = PROVEN_COMMITS["canopy"]
+    row = _rows(
+        _CANOPY_ON,
+        monkeypatch,
+        running="1",
+        judgement=_judgement(Held(commit=pin), PROVEN),
+        canopy_version="0.0.2.dev291+gdeadbeef",
+    )["versions.canopy"]
+    assert row.status is Status.OK
+    assert row.value == f"{pin[:12]} = pin"
+
+
+def test_canopy_wheel_without_a_record_at_the_pin_by_its_label(monkeypatch):
+    pin = PROVEN_COMMITS["canopy"]
+    row = _rows(
+        _CANOPY_ON,
+        monkeypatch,
+        running="1",
+        judgement=_judgement(Held(reason=NO_RECORD), UNPROVEN),
+        canopy_version=f"0.0.2.dev291+g{pin[:9]}",
+    )["versions.canopy"]
+    assert row.status is Status.OK
+    assert row.value == f"{pin[:12]} = pin"
+
+
+def test_canopy_wheel_without_a_record_labelled_elsewhere_warns(monkeypatch):
+    row = _rows(
+        _CANOPY_ON,
+        monkeypatch,
+        running="1",
+        judgement=_judgement(Held(reason=NO_RECORD), UNPROVEN),
+        canopy_version="0.0.2.dev291+gdeadbeef1",
+    )["versions.canopy"]
+    assert row.status is Status.WARNING
+    assert row.value == f"deadbeef1 ≠ pin {PROVEN_COMMITS['canopy'][:12]}"
+
+
+def test_canopy_without_a_record_or_a_label_warns(monkeypatch):
+    row = _rows(
+        _CANOPY_ON,
+        monkeypatch,
+        running="1",
+        judgement=_judgement(Held(reason=NO_RECORD), UNPROVEN),
+        canopy_version="0.0.2",
+    )["versions.canopy"]
+    assert row.status is Status.WARNING
+    assert row.value == f"{NO_RECORD} ≠ pin {PROVEN_COMMITS['canopy'][:12]}"

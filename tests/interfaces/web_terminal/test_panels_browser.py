@@ -478,17 +478,54 @@ def _open_agent_header_menu(page: Page):
 
 
 def _open_second_tile(page: Page, base_url: str, panel_id: str, label: str) -> None:
-    """Open ``panel_id`` as a SECOND tile beside the current one from its menu.
+    """Open ``panel_id`` as a SECOND tile beside the current one.
 
     A rail click replaces the panel the focused service tile shows, so tests
-    that need two service tiles side by side use the entry's context-menu row
-    "Open in a new tile" — the one open that splits. ``base_url`` is unused
-    (kept so call sites read uniformly with the old add-menu dance).
+    that need two service tiles side by side split instead. A panel already in
+    a tile offers "Open in a new tile" on its rail entry; a panel in no tile is
+    opened from the last docked service tile's ⋯ → Open panel ▸ Right ▸ <panel>, the
+    one open that splits for it (with no service tile docked, its rail click
+    opens a tile of its own). ``base_url`` is unused (kept so call sites read
+    uniformly with the old add-menu dance).
     """
     del base_url  # the menu path is purely client-side
     _open_rail_menu(page, panel_id)
-    _menu_row(page, "Open in a new tile").click()
+    beside = _menu_row(page, "Open in a new tile")
+    if beside.count():
+        beside.click()
+    else:
+        page.keyboard.press("Escape")
+        expect(_context_menu(page)).to_have_count(0, timeout=5_000)
+        _split_beside_a_service_tile(page, panel_id)
     expect(_service_tab(page, label)).to_have_count(1, timeout=5_000)
+
+
+def _split_beside_a_service_tile(page: Page, panel_id: str) -> None:
+    """Open ``panel_id`` (in no tile) right of the last docked service tile,
+    through that tile's ⋯ → Open panel ▸ Right; with no service tile docked, the
+    entry's click opens a tile of its own."""
+    bars = page.locator('#dock-root .tile-tab[data-panel-key]:not([data-panel-key="terminal"])')
+    if bars.count() == 0:
+        _rail_entry(page, panel_id).click()
+        return
+    # The submenu names each panel as its sidebar row reads.
+    shown = _rail_entry(page, panel_id).locator(".osprey-nav-label").inner_text().strip()
+    _open_panel_from_tile(page, bars.last, "Right", shown)
+
+
+def _open_panel_from_tile(page: Page, bar, place: str, label: str) -> None:
+    """Run a tile bar's ⋯ → Open panel ▸ ``place`` ▸ ``label``."""
+    bar.locator(".tile-tab-more").click()
+    expect(_context_menu(page)).to_have_count(1, timeout=5_000)
+    root = page.locator(_RAIL_MENU).first
+    root.locator(f'{_RAIL_MENU_ITEM}[aria-haspopup="menu"]').filter(has_text="Open panel").click()
+    depth1 = page.locator(f'{_RAIL_MENU}[data-depth="1"]')
+    expect(depth1).to_have_count(1, timeout=5_000)
+    depth1.get_by_role("menuitem", name=place, exact=True).click()
+    depth2 = page.locator(f'{_RAIL_MENU}[data-depth="2"]')
+    expect(depth2).to_have_count(1, timeout=5_000)
+    depth2.get_by_role("menuitem", name=label, exact=True).click()
+    expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
 
 def _drag_with_dock_shield(page: Page, source, target, **kwargs) -> None:
@@ -1540,22 +1577,23 @@ def _reset_layout_from_palette(page: Page) -> None:
     expect(page.locator(_PALETTE_OVERLAY)).to_have_count(0, timeout=5_000)
 
 
-def _reset_layout_from_terminal_menu(page: Page) -> None:
-    """Run "Reset layout" from the terminal tile header's right-click menu."""
-    _open_agent_header_menu(page)
+def _reset_layout_from_sidebar_menu(page: Page) -> None:
+    """Run "Reset layout" from the sidebar header's right-click menu."""
+    page.locator("#sidebar-toggle").click(button="right")
+    expect(page.get_by_role("menu", name="Sidebar")).to_have_count(1, timeout=5_000)
     _menu_row(page, "Reset layout").click()
     expect(_context_menu(page)).to_have_count(0, timeout=5_000)
 
 
 @pytest.mark.parametrize(
     "reset",
-    [_reset_layout_from_palette, _reset_layout_from_terminal_menu],
-    ids=["palette", "terminal-menu"],
+    [_reset_layout_from_palette, _reset_layout_from_sidebar_menu],
+    ids=["palette", "sidebar-menu"],
 )
 def test_reset_layout_restores_the_default(tmp_path, chromium_browser, reset):
     """The "Reset layout" control clears a custom arrangement back to the default.
 
-    Offered in the command palette and on the terminal tile's menu. Rearrange
+    Offered in the command palette and on the sidebar header's menu. Rearrange
     (terminal → left), then reset: the grid returns to the default split
     (service tile left, terminal right) and the reset survives a reload (the
     stored value is the default, not the discarded custom one).
@@ -3055,9 +3093,10 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
 
     The popover is body-level and viewport-positioned (it has to escape the
     rail's own overflow), names the panel in its accessible name, and carries
-    the verbs in words with the rail's glyphs kept as trailing decoration. The
-    group moves sit in a section of their own, and the membership verb is the
-    only destructive one and is styled apart.
+    the verbs in words with the rail's glyphs kept as trailing decoration. A
+    panel in no tile offers Open; the group moves sit in the Move to submenu,
+    and the membership verb, under a divider, is the only destructive one and
+    is styled apart.
     """
     workspace = tmp_path / "_agent_data"
     workspace.mkdir()
@@ -3073,18 +3112,16 @@ def test_rail_context_menu_lists_every_panel_verb(tmp_path, chromium_browser):
         menu = _open_rail_menu(page, "data-viz")
 
         assert _menu_labels(page) == [
-            "Focus Data Viz",
-            "Open in a new tile",
+            "Open",
             "Open in new window",
-            "Move to Sessions",
-            "Move to System",
-            "Move to new group…",
+            "Move to",
             "Remove from rail",
         ], _menu_labels(page)
         expect(menu).to_have_attribute("role", "menu")
         expect(menu).to_have_attribute("aria-label", f"{_title_case('DATA VIZ')} actions")
-        expect(menu.locator(".rail-context-divider")).to_have_count(2)
-        expect(menu.locator(".rail-context-glyph")).to_have_count(3)
+        expect(menu.locator(".rail-context-divider")).to_have_count(1)
+        expect(menu.locator(".rail-context-glyph")).to_have_count(2)
+        expect(_menu_row(page, "Move to")).to_have_attribute("aria-haspopup", "menu")
         expect(menu.locator(f"{_RAIL_MENU_ITEM}.danger")).to_have_text(
             re.compile(r"Remove from rail")
         )
@@ -3131,8 +3168,11 @@ def test_rail_context_menu_keyboard_open_and_escape_restores_focus(tmp_path, chr
 
         # Exactly one popover, and the keyboard user lands on its first row.
         expect(_context_menu(page)).to_have_count(1, timeout=5_000)
-        assert page.evaluate("() => document.activeElement?.textContent ?? ''").startswith(
-            "Focus Data Viz"
+        assert (
+            page.evaluate(
+                "() => document.activeElement?.querySelector('.rail-context-label')?.textContent ?? ''"
+            )
+            == "Open"
         )
 
         page.keyboard.press("Escape")
@@ -3304,7 +3344,7 @@ def test_disabled_rail_entry_has_no_context_menu(tmp_path, chromium_browser):
 def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser):
     """In chat the PTY verb would act on a surface the operator cannot see.
 
-    The Agent tile header keeps Open in new window, Export conversation and the layout
+    The Agent tile header keeps Switch to terminal, Export conversation and the tile
     rows; the Agent rail row holds the session rows.
     """
     workspace = tmp_path / "_agent_data"
@@ -3319,12 +3359,9 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
 
         _open_rail_menu(page, "data-viz")
         assert _menu_labels(page) == [
-            "Focus Data Viz",
-            "Open in a new tile",
+            "Open",
             "Open in new window",
-            "Move to Sessions",
-            "Move to System",
-            "Move to new group…",
+            "Move to",
             "Remove from rail",
         ], _menu_labels(page)
 
@@ -3333,12 +3370,18 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
 
         _open_agent_header_menu(page)
         labels = _menu_labels(page)
-        # "This panel": the chat's own rows (Export conversation, Desktop
-        # notifications); "Tile": the window and layout rows, no PTY verb.
-        # The notifications row names a browser that blocks them; headless may.
-        assert labels[0] == "Export conversation", labels
-        assert labels[1].startswith("Desktop notifications"), labels
-        assert labels[2:] == ["Open in new window", "Reset layout", "Close Agent pane"], labels
+        # "Agent": the way to the terminal and the chat's own rows (Export
+        # conversation, Desktop notifications); "Tile": the tile rows, no PTY
+        # verb. The notifications row names a browser that blocks them;
+        # headless may.
+        assert labels[:2] == ["Switch to terminal", "Export conversation"], labels
+        assert labels[2].startswith("Desktop notifications"), labels
+        assert labels[3:] == [
+            "Maximize",
+            "Open in new window",
+            "Reveal in sidebar",
+            "Close Agent pane",
+        ], labels
 
         page.keyboard.press("Escape")
         expect(_context_menu(page)).to_have_count(0, timeout=5_000)
@@ -3346,8 +3389,9 @@ def test_chat_trims_the_agent_menu_to_the_layout_rows(tmp_path, chromium_browser
         _open_rail_menu(page, "terminal")
         assert _menu_labels(page) == [
             "New session",
-            "Collapse all",
+            "Group by",
             "Show pinned sessions",
+            "Collapse all",
         ], _menu_labels(page)
 
         page.close()
@@ -3379,11 +3423,12 @@ def test_terminal_context_menu_survives_streaming_output(tmp_path, chromium_brow
 
         _open_agent_header_menu(page)
         # The pane's "This panel" rows come first; the Tile rows close the menu.
-        assert _menu_labels(page)[-4:] == [
+        assert _menu_labels(page)[-5:] == [
+            "Maximize",
             "Open in new window",
-            "Restart terminal",
-            "Reset layout",
+            "Reveal in sidebar",
             "Close Agent pane",
+            "Restart terminal",
         ], _menu_labels(page)
 
         # The event xterm emits from its viewport on every streamed line. It
@@ -3423,7 +3468,7 @@ def test_agent_header_menu_opens_while_the_panel_list_is_still_loading(tmp_path,
         assert held, "the panel list was answered before the menu could be tried"
 
         _open_agent_header_menu(page)
-        assert "Reset layout" in _menu_labels(page), _menu_labels(page)
+        assert "Close Agent pane" in _menu_labels(page), _menu_labels(page)
 
         page.keyboard.press("Escape")
         for route in held:
@@ -3469,14 +3514,12 @@ def test_tile_header_menu_yields_to_contributed_search_input(tmp_path, chromium_
             assert _menu_labels(page) == [
                 "All sessions",
                 "Refresh",
-                "Open in a new tile",
-                "Move to Sessions",
-                "Move to System",
-                "Move to new group…",
+                "Open panel",
+                "Maximize",
                 "Open in new window",
                 "Reload",
-                "Remove from rail",
-                "Reset layout",
+                "Reveal in sidebar",
+                "Close tile",
             ], _menu_labels(page)
 
             page.close()

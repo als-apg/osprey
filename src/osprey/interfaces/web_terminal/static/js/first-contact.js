@@ -271,12 +271,20 @@ export function chipRow(prompts) {
 }
 
 /**
+ * Marks an empty-state block whose suggestions were used: one was clicked, so
+ * the row is gone and a rebuild leaves it out.
+ */
+const SUGGESTIONS_TAKEN = 'suggestionsTaken';
+
+/**
  * Fill (or refill) the empty-state block: the sentence, then the prompts.
  *
  * Both halves read ONE {@link activeKind} answer, so a switch landing between
  * them cannot leave a sentence about one machine above a prompt about another.
  * Rebuilding in place rather than replacing the block keeps the caller's handle
- * valid across a switch.
+ * valid across a switch. A block whose suggestions were taken gets the
+ * sentence alone: offering the other questions again under the one just
+ * picked would read as the pick not having landed.
  * @param {HTMLElement} el
  * @returns {HTMLElement} the same element
  */
@@ -290,18 +298,30 @@ export function renderEmptyStateContent(el) {
   // deployment that published nothing has nothing to promise.
   if (phrases.length) el.append(introParagraph(phrases));
 
-  el.append(chipRow(starterPrompts(kind, facts)));
+  if (!el.dataset[SUGGESTIONS_TAKEN]) el.append(chipRow(starterPrompts(kind, facts)));
   return el;
 }
 
 /**
  * The block the chat shows in place of an empty message list: what the
  * agent can do here, and the questions that start a conversation about it.
+ *
+ * Clicking a suggestion puts its question in the input and takes the row
+ * away; the sentence stays until the first message is sent, when the chat
+ * removes the whole block. The tour's card shares {@link chipRow} but not
+ * this: its chips stay for as long as the card does.
  * @returns {HTMLElement}
  */
 export function buildEmptyState() {
   const block = document.createElement('div');
   block.className = 'op-empty';
+  // The chip's own listener inserts the prompt first; this one, on the way
+  // up, takes the row away.
+  block.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element) || !e.target.closest('.tour-chip')) return;
+    block.dataset[SUGGESTIONS_TAKEN] = 'true';
+    block.querySelector('.tour-chips')?.remove();
+  });
   return renderEmptyStateContent(block);
 }
 

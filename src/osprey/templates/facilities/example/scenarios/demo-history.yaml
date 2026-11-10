@@ -1,27 +1,28 @@
 # Bundled with OSPREY: the example facility. Delete this line to make the file yours.
 description: 'A short history of agent sessions for a fresh deployment to look back on, with the
   telemetry and logbook behind them. Yesterday at 14:32:08 a vacuum burst in sector 7 takes about
-  18 mA of the 500 mA stored beam before top-off recovers it; an operator investigates it with the
-  agent. Two days ago a horizontal orbit drift in sector 3 leads to an approved HCM13 nudge, sent to
+  18 mA of the 500 mA stored beam in one step, and the next top-off cycle refills it; an operator
+  investigates it with the agent. Two days ago a horizontal orbit drift in sector 3 leads to an approved HCM13 nudge, sent to
   the rehearsal stand-in. Three days ago an operator tabulates the orbit and, after a /clear, saves
   orbit statistics and lays out the workspace.'
 archiver:
 - channel: SR:VAC:GAUGE:SR07:PRESSURE:RB
   events:
-  - shape: spike
+  - shape: burst
     at_when:
       days_ago: 1
       time: '14:32:08'
     amplitude: 1.5e-07
-    width: 40
+    decay_s: 5
+    tail_share: 0.1
+    tail_decay_s: 25
 - channel: SR:DIAG:DCCT:01:CURRENT:RB
   events:
-  - shape: spike
+  - shape: loss
     at_when:
       days_ago: 1
       time: '14:32:08'
-    amplitude: -18.0
-    width: 60
+    amount: 18.0
 logbook:
 - entry_id: DEMO-036
   when:
@@ -30,10 +31,10 @@ logbook:
   author: J. Park
   title: Partial beam loss — sector 7 vacuum burst
   text: At 14:32:08 the sector 7 gauge (SR07) jumped from its 3.7e-10 Torr baseline to about 1.5e-07
-    Torr, and the stored current dropped by about 18 mA from the 500 mA top-off level at the same moment.
-    No RF or magnet interlock tripped. The pressure was back at baseline within about two minutes and
-    top-off restored the current. Cause not yet known; leaving SR07 on the watch list for the rest of
-    the shift.
+    Torr, and the stored current dropped in one step by about 18 mA from the 500 mA top-off level at the
+    same moment. No RF, magnet or vacuum interlock tripped. The pressure fell back to near baseline
+    within about two minutes; the next top-off cycle refilled the current in about 25 s. Cause not yet
+    known; leaving SR07 on the watch list for the rest of the shift.
   tags:
   - beam-loss
   - vacuum
@@ -102,34 +103,35 @@ sessions:
           SR:DIAG:DCCT:01:CURRENT:RB:
             unit: mA
             before: about 500 (top-off)
-            minimum: about 482 at 14:32:08
-            after: back near 500 within a few minutes
+            minimum: about 482 from 14:32:08, one step down
+            after: back near 500 within a minute, refilled by top-off in about 25 s
           SR:VAC:GAUGE:SR07:PRESSURE:RB:
             unit: Torr
             before: 3.7e-10
-            maximum: about 1.5e-07 at 14:32:08
-            after: back to 3.7e-10 within about two minutes
+            maximum: about 1.5e-07 at 14:32:08, a jump within one sample
+            after: falls off fast, then a slower tail; near 3.7e-10 within about two minutes
       - tool:
           server: osprey_workspace
           name: create_interactive_plot
         input:
-          title: Stored current and sector 7 pressure
+          title: Stored beam current and Sector 7 pressure
           code: |
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             fig.add_scatter(x=dcct.index, y=dcct.values, name="DCCT current (mA)")
             fig.add_scatter(x=sr07.index, y=sr07.values, name="SR07 pressure (Torr)", secondary_y=True)
             fig.update_yaxes(type="log", secondary_y=True)
-            save_artifact(fig, "Stored current and sector 7 pressure")
-        result: Saved interactive plot "Stored current and sector 7 pressure".
+            save_artifact(fig, "Stored beam current and Sector 7 pressure")
+        result: Saved interactive plot "Stored beam current and Sector 7 pressure".
       - answer: The two move together. At 14:32:08 the sector 7 gauge jumps from 3.7e-10 Torr to about
-          1.5e-07 Torr and the stored current drops by about 18 mA, from 500 mA to about 482 mA, at the
-          same second. The pressure is back at baseline within about two minutes and top-off brings the
-          current back. That looks like a local vacuum burst in sector 7 scattering the beam, not an
-          RF or magnet trip. The plot is in the gallery.
+          1.5e-07 Torr and the stored current drops in one step by about 18 mA, from 500 mA to about
+          482 mA, in the same second. The pressure falls off fast and is near baseline within about two
+          minutes; the current stays down until the next top-off cycle, which refills it in about 25 s.
+          That looks like a local vacuum burst in sector 7 taking the beam, not an RF or magnet trip.
+          The plot is in the gallery.
       artifacts:
       - slug: loss-plot
         form: plot
-        title: Stored current and sector 7 pressure
+        title: Stored beam current and Sector 7 pressure
         source: demo-history/plots/loss-plot.json
     - prompt: Is there anything in the logbook about it?
       at_offset_s: 240
@@ -167,10 +169,11 @@ sessions:
             **Follow-up to DEMO-036 — sector 7 vacuum burst at 14:32:08**
 
             The archiver confirms the sequence in DEMO-036. SR:VAC:GAUGE:SR07:PRESSURE:RB
-            rose from 3.7e-10 Torr to about 1.5e-07 Torr at 14:32:08 and was back at
-            baseline within about two minutes. SR:DIAG:DCCT:01:CURRENT:RB fell by about
-            18 mA, from 500 mA to about 482 mA, at the same second, and top-off restored
-            it. No other sector shows a pressure rise. Plot attached.
+            jumped from 3.7e-10 Torr to about 1.5e-07 Torr at 14:32:08 and was near
+            baseline within about two minutes. SR:DIAG:DCCT:01:CURRENT:RB dropped in one
+            step by about 18 mA, from 500 mA to about 482 mA, in the same second; the next
+            top-off cycle refilled it in about 25 s. No other sector shows a pressure rise.
+            Plot attached.
 
             Suggested next step: check the SR07 ion pump current and the gauge status
             history around 14:32.
@@ -219,11 +222,11 @@ sessions:
             value: 0.013
             unit: A
           SR:DIAG:BPM:13:POSITION:X:
-            value: 4.1e-05
-            unit: m
+            value: 0.041
+            unit: mm
           SR:DIAG:BPM:14:POSITION:X:
-            value: 3.4e-05
-            unit: m
+            value: 0.034
+            unit: mm
       - answer: HCM13 is set to 0.012 A and reads back 0.013 A, so the corrector is doing what it is
           told. BPM13 reads +41 um and BPM14 +34 um in X, the same outward offset DEMO-037 describes.
           The +0.15 A trim it proposes would take HCM13 to 0.162 A, well inside its ±10 A range.
@@ -271,11 +274,11 @@ sessions:
           - SR:DIAG:BPM:14:POSITION:X
         result:
           SR:DIAG:BPM:13:POSITION:X:
-            value: 4.1e-05
-            unit: m
+            value: 0.041
+            unit: mm
           SR:DIAG:BPM:14:POSITION:X:
-            value: 3.4e-05
-            unit: m
+            value: 0.034
+            unit: mm
       - answer: Unchanged, +41 um and +34 um, as expected from a rehearsal. To apply the trim for real,
           switch the write target to the machine and ask again; I will read the BPMs straight after.
 - slug: orbit-table-and-stats
@@ -310,18 +313,18 @@ sessions:
         input:
           channels: *bpm-table
         result: &bpm-values
-          SR:DIAG:BPM:01:POSITION:X: {value: 1.2e-05, unit: m}
-          SR:DIAG:BPM:01:POSITION:Y: {value: 3.0e-06, unit: m}
-          SR:DIAG:BPM:02:POSITION:X: {value: -8.0e-06, unit: m}
-          SR:DIAG:BPM:02:POSITION:Y: {value: -2.0e-06, unit: m}
-          SR:DIAG:BPM:03:POSITION:X: {value: 2.1e-05, unit: m}
-          SR:DIAG:BPM:03:POSITION:Y: {value: 5.0e-06, unit: m}
-          SR:DIAG:BPM:04:POSITION:X: {value: 4.0e-06, unit: m}
-          SR:DIAG:BPM:04:POSITION:Y: {value: 1.0e-06, unit: m}
-          SR:DIAG:BPM:05:POSITION:X: {value: -1.5e-05, unit: m}
-          SR:DIAG:BPM:05:POSITION:Y: {value: -4.0e-06, unit: m}
-          SR:DIAG:BPM:06:POSITION:X: {value: 9.0e-06, unit: m}
-          SR:DIAG:BPM:06:POSITION:Y: {value: 2.0e-06, unit: m}
+          SR:DIAG:BPM:01:POSITION:X: {value: 0.012, unit: mm}
+          SR:DIAG:BPM:01:POSITION:Y: {value: 0.003, unit: mm}
+          SR:DIAG:BPM:02:POSITION:X: {value: -0.008, unit: mm}
+          SR:DIAG:BPM:02:POSITION:Y: {value: -0.002, unit: mm}
+          SR:DIAG:BPM:03:POSITION:X: {value: 0.021, unit: mm}
+          SR:DIAG:BPM:03:POSITION:Y: {value: 0.005, unit: mm}
+          SR:DIAG:BPM:04:POSITION:X: {value: 0.004, unit: mm}
+          SR:DIAG:BPM:04:POSITION:Y: {value: 0.001, unit: mm}
+          SR:DIAG:BPM:05:POSITION:X: {value: -0.015, unit: mm}
+          SR:DIAG:BPM:05:POSITION:Y: {value: -0.004, unit: mm}
+          SR:DIAG:BPM:06:POSITION:X: {value: 0.009, unit: mm}
+          SR:DIAG:BPM:06:POSITION:Y: {value: 0.002, unit: mm}
       - answer: |
           | BPM   | X (um) | Y (um) |
           |-------|-------:|-------:|
@@ -356,12 +359,12 @@ sessions:
           code: |
             import json
             import numpy as np
-            x = np.array([12, -8, 21, 4, -15, 9]) * 1e-6
-            y = np.array([3, -2, 5, 1, -4, 2]) * 1e-6
+            x = np.array([12, -8, 21, 4, -15, 9]) * 1e-3
+            y = np.array([3, -2, 5, 1, -4, 2]) * 1e-3
             def stats(v):
-                return {"mean_um": round(v.mean() * 1e6, 2), "rms_um": round(np.sqrt((v**2).mean()) * 1e6, 2),
-                        "std_um": round(v.std() * 1e6, 2), "worst_bpm": f"BPM{int(np.abs(v).argmax()) + 1:02d}",
-                        "worst_um": round(v[np.abs(v).argmax()] * 1e6, 2)}
+                return {"mean_um": round(v.mean() * 1e3, 2), "rms_um": round(np.sqrt((v**2).mean()) * 1e3, 2),
+                        "std_um": round(v.std() * 1e3, 2), "worst_bpm": f"BPM{int(np.abs(v).argmax()) + 1:02d}",
+                        "worst_um": round(v[np.abs(v).argmax()] * 1e3, 2)}
             print(json.dumps({"x": stats(x), "y": stats(y)}))
         result:
           x: {mean_um: 3.83, rms_um: 12.72, std_um: 12.13, worst_bpm: BPM03, worst_um: 21.0}

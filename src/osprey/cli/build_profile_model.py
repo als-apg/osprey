@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import warnings
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -32,6 +32,8 @@ from osprey.deployment.qmd_service import (
     QMD_SERVICE_NAME,
     resolve_qmd_service_config,
 )
+from osprey.facility.errors import FacilityBuildError
+from osprey.facility.roots import FacilityRoots
 from osprey.interfaces.web_terminal.dock_layout import layout_keys
 from osprey.interfaces.web_terminal.presets import preset_refusal
 from osprey.port_layout import LAYOUT, WORKER_MAX, PortSlot, default_port, resolve_port_base
@@ -55,7 +57,9 @@ from .build_profile_presets import (
     resolve_triggers_path,
 )
 from .build_profile_schema import (
+    DEFAULT_LISTS_MODE,
     SECOND_LANE_PORT_STRIDE,
+    AppEntry,
     BlueskyConfig,
     BlueskyWebConfig,
     DispatchConfig,
@@ -63,6 +67,7 @@ from .build_profile_schema import (
     EnvironmentConfig,
     GChatBridgeProfileConfig,
     LifecycleConfig,
+    ListsMode,
     McpServerDef,
     NextcloudBridgeProfileConfig,
     OptimizerConfig,
@@ -324,8 +329,8 @@ def render_key_errors(config: Any) -> list[str]:
         return []
     return [
         "config: modules.web_terminals.renders is written by the build, which derives "
-        "every entry from the files in tiers/ and apps/ and from project_name; set "
-        "extra_mounts, seed_base or image at the top of the tier or app file instead. "
+        "every entry from the login files in tiers/ and from project_name; set "
+        "extra_mounts, seed_base or image at the top of the login file instead. "
         "Delete modules.web_terminals.renders from profile.yml."
     ]
 
@@ -407,6 +412,21 @@ class BuildProfile:
     anchor it against (``--preset`` refuses the key outright) and whose tree
     ``osprey init`` materializes. The resolution point for both the validator
     and the build is :meth:`resolved_data_root`.
+    """
+    machine: str | None = None
+    """The deployment's machine root (``machine:``), as a path relative to the
+    profile directory naming a facility directory, typically inside a git
+    submodule holding the facility's own machine repository.
+
+    Set, the build reads every machine fact (identity, classes, records,
+    models, decks, seeds, limits, scenarios) from that directory and only the
+    deployment's own content (``knowledge/``, ``ariel/``, ``benchmarks/``)
+    from ``<data>/facility``. Unset, ``<data>/facility`` plays both roles, as
+    for every deployment before the key existed. Root-only: a tier or app may
+    not restate it, because the machine a deployment drives is deployment-wide.
+    :meth:`validate` checks only that it is a non-empty string; the location
+    itself is checked by :meth:`resolved_facility_roots`, which build,
+    ``osprey facility`` and ``osprey validate`` all go through.
     """
     deploy: DeployConfig | None = None
     """Where this project is built, pushed, and run (``deploy:``).
@@ -514,6 +534,14 @@ class BuildProfile:
     The resolved block is written into the rendered ``config.yml`` under the
     top-level key ``agent_record`` (see :mod:`osprey.agent_record.config`).
     """
+    apps: dict[str, AppEntry] = field(default_factory=dict)
+    """The applications this deployment runs (``apps:``), by the name of their
+    ``apps/<name>/`` directory. Listing one turns it on; a login render carries
+    the deployment's entries merged with the login's ``shown`` choices."""
+    lists: ListsMode = DEFAULT_LISTS_MODE
+    """How a login's selection lists relate to the deployment's (``lists:``);
+    spelled in a login file only. Decides whether a listed application is
+    shown by default (:meth:`app_shown`)."""
     watchdogs: WatchdogsBlock = field(default_factory=dict)
     """The deployment's watchdogs (``watchdogs:``), as the author spelled them.
 
@@ -576,6 +604,150 @@ class BuildProfile:
         if not isinstance(self.data, str) or not self.data.strip():
             return None
         return (profile_dir / self.data).resolve()
+
+    def app_shown(self, name: str) -> bool:
+        """Whether this render's card shows application *name*.
+
+        An unlisted application is never shown. A listed one is shown when its
+        entry says so, and otherwise by the ``lists:`` default: shown under
+        ``add``, hidden under ``own``.
+
+        Args:
+            name: The application's name.
+
+        Returns:
+            Whether the card shows it.
+        """
+        entry = self.apps.get(name)
+        if entry is None:
+            return False
+        if entry.shown is not None:
+            return entry.shown
+        return self.lists == "add"
+
+    def _validate_apps(self, profile_dir: Path) -> list[str]:
+        """Return validation errors for the ``apps:`` block, closed against the manifests.
+
+        Every listed name must be an application under ``apps/<name>/``, every
+        ``services.<key>`` one of that application's containers, and every axis
+        value well-formed.
+
+        Args:
+            profile_dir: The profile root, whose ``apps/`` holds the applications.
+
+        Returns:
+            Human-readable error messages; empty when the block is valid.
+        """
+        if not self.apps:
+            return []
+        from osprey.apps.errors import AppManifestError
+        from osprey.apps.loader import MANIFEST_FILE
+        from osprey.apps.loader import load as load_apps
+
+        from .application_material import application_dirs
+
+        try:
+            manifests = {m.name: m for m in load_apps(profile_dir, self.apps)}
+        except AppManifestError as exc:
+            return [f"apps: {exc}"]
+
+        errors: list[str] = []
+        dirs = application_dirs(profile_dir)
+        known = ", ".join(d.name for d in dirs if (d / MANIFEST_FILE).is_file()) or "none"
+        for name, entry in sorted(self.apps.items()):
+            manifest = manifests.get(name)
+            if manifest is None:
+                errors.append(
+                    f"apps.{name} names no application: there is no apps/{name}/app.yml "
+                    f"(applications here: {known})."
+                )
+                continue
+            for key, axes in sorted(entry.services.items()):
+                where = f"apps.{name}.services.{key}"
+                if key not in manifest.containers:
+                    containers = ", ".join(sorted(manifest.containers))
+                    errors.append(
+                        f"{where} names no container of {name}: its app.yml declares {containers}."
+                    )
+                    continue
+                if axes.network is not None:
+                    errors.extend(network_mode_errors(axes.network, f"{where}.network"))
+                if axes.env is not None:
+                    errors.extend(env_names_errors(axes.env, f"{where}.env"))
+        return errors
+
+    def resolved_facility_roots(self, profile_dir: Path) -> FacilityRoots | None:
+        """Resolve where this deployment reads machine facts and its own content.
+
+        The one resolution point for ``machine:``, shared by the build,
+        ``osprey facility`` and ``osprey validate``. The content root is always
+        ``<data>/facility``; the machine root is the same directory unless
+        ``machine:`` names another one.
+
+        A named machine root must not overlap the ``data:`` tree in either
+        direction, since one tree would then be read in both roles; and it
+        must hold ``identity.yaml``. The identity requirement is what catches
+        an uninitialised submodule (an empty directory), and it keeps the
+        rendered facility the same standalone and mounted, because without an
+        identity file the facility name falls back to the project name.
+
+        Args:
+            profile_dir: Directory holding the profile file.
+
+        Returns:
+            ``None`` when the profile declares no ``data:``; a single-tree
+            :class:`FacilityRoots` when it declares no ``machine:``; otherwise
+            the machine root and ``<data>/facility``.
+
+        Raises:
+            FacilityBuildError: ``profile-invalid`` when the machine root and
+                the data tree overlap, ``machine-missing`` when the machine
+                root holds no ``identity.yaml``.
+        """
+        data_root = self.resolved_data_root(profile_dir)
+        if data_root is None:
+            return None
+        content = data_root / "facility"
+        if not isinstance(self.machine, str) or not self.machine.strip():
+            return FacilityRoots.single(content)
+        machine = (profile_dir / self.machine).resolve()
+        if machine.is_relative_to(data_root) or data_root.is_relative_to(machine):
+            raise FacilityBuildError(
+                "profile-invalid",
+                self.machine,
+                [self.machine, self.data or ""],
+                "point `machine:` at a directory outside the `data:` tree, and "
+                "`data:` at one outside the machine root",
+                record_kind="path",
+                detail=(
+                    f"the machine root {self.machine!r} and the data tree {self.data!r} "
+                    "overlap, so one directory would be read both as machine facts and "
+                    "as the deployment's own data"
+                ),
+            )
+        identity = machine / "identity.yaml"
+        if not identity.is_file():
+            hint = ""
+            if (machine / "data" / "facility").is_dir():
+                hint = (
+                    f"; {self.machine}/data/facility exists, so `machine:` likely names "
+                    f"the repository top instead of its facility directory: state "
+                    f"`machine: {self.machine.rstrip('/')}/data/facility`"
+                )
+            raise FacilityBuildError(
+                "machine-missing",
+                f"{self.machine.rstrip('/')}/identity.yaml",
+                [self.machine],
+                "point `machine:` at the machine repository's facility directory "
+                "(the one holding identity.yaml); for a git submodule, run "
+                "`git submodule update --init`" + hint,
+                record_kind="path",
+                detail=(
+                    f"the machine root {self.machine!r} (resolved: {machine}) holds no "
+                    "identity.yaml, so there is no machine to build"
+                ),
+            )
+        return FacilityRoots(machine=machine, content=content)
 
     def _is_known_panel_id(self, pid: str) -> bool:
         """Return True if ``pid`` names a tab this profile's render shows.
@@ -1173,6 +1345,37 @@ class BuildProfile:
 
         return claimed
 
+    def projected_port_collisions(
+        self, services: Mapping[str, Mapping[str, Any]]
+    ) -> list[tuple[str, str]]:
+        """Every projected port the profile, or another projected service, already spends.
+
+        The ledger is :meth:`_claimed_ports` plus the stand-in's own ports, which
+        the ledger leaves to their own rule among the profile's blocks.
+
+        Args:
+            services: The projected ``services.<key>`` entries, each holding its
+                ``config.port`` and ``config.app``.
+
+        Returns:
+            ``(service key, message)`` per collision, naming both holders.
+        """
+        holders = {port: key for key, port in self._claimed_ports().items()}
+        va = self.virtual_accelerator
+        if va is not None:
+            holders.setdefault(va.port, "virtual_accelerator.port")
+            if va.pva_port is not None:
+                holders.setdefault(va.pva_port, "virtual_accelerator.pva_port")
+        found: list[tuple[str, str]] = []
+        for key, entry in services.items():
+            config = entry["config"]
+            port = config["port"]
+            where = f"apps.{config['app']}.services.{key}"
+            holder = holders.setdefault(port, where)
+            if holder != where:
+                found.append((key, f"{where} publishes port {port}, which {holder} already spends"))
+        return found
+
     def _resolved_port_base(self) -> int:
         """Return the port base this profile's ``config:`` block resolves to.
 
@@ -1633,6 +1836,7 @@ class BuildProfile:
         # The one conditionally derived key, judged here where the condition
         # (whether this deployment serves web terminals) is known.
         errors.extend(health_url_key_errors(self.config))
+        errors.extend(self._validate_apps(profile_dir))
 
         if (
             self.channel_finder_mode is not None
@@ -1734,11 +1938,31 @@ class BuildProfile:
             elif not data_root.is_dir():
                 errors.append(f"data must be a directory: {self.data} (resolved: {data_root})")
 
+        # ``machine:`` is only shape-checked here; whether the location holds a
+        # machine is resolved_facility_roots' job, which raises the facility
+        # stop the build and ``osprey validate`` both report.
+        if self.machine is not None and (
+            not isinstance(self.machine, str) or not self.machine.strip()
+        ):
+            errors.append(f"machine must be a non-empty directory path (got {self.machine!r})")
+
         # Validate the profile's convention directories (shape of each source,
         # plus the reserved paths the project/ mirror may not write). Reported
         # as one entry so its own multi-problem message stays intact.
         try:
             validate_convention_sources(profile_dir)
+        except BuildProfileError as e:
+            errors.append(str(e))
+
+        # A `config:` pair the build cannot apply — a scalar beside a dotted key
+        # under it — is refused here, once, for the whole block. The readers of
+        # one subtree fold only the keys on their own path, so none of them
+        # reports a conflict elsewhere. Imported here: build_profile_emit
+        # reaches this module at import time.
+        from .build_profile_emit import _collapse_config_prefixes
+
+        try:
+            _collapse_config_prefixes(dict(self.config))
         except BuildProfileError as e:
             errors.append(str(e))
 

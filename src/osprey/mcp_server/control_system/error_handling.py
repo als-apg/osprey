@@ -42,6 +42,7 @@ __all__ = [
     "ToolError",
     "connector_error_handler",
     "describe_active_target",
+    "measure_active_target",
     "shared_typed_cause",
 ]
 
@@ -77,6 +78,79 @@ def describe_active_target() -> dict[str, str] | None:
         return identity
     except Exception:  # see docstring: never fail an envelope
         return None
+
+
+#: Where a ``channel_unreachable`` envelope states the active target's
+#: reachability: ``{"state", "gateway", "detail"}``, the last two where known.
+REACHABILITY_KEY = "target_reachability"
+
+#: The target's gateway accepted a connection when the channel failed.
+REACHABILITY_REACHED = "reached"
+#: The target's gateway did not.
+REACHABILITY_DOWN = "down"
+#: Nothing was measured, so neither of the above is claimed.
+REACHABILITY_UNMEASURED = "unmeasured"
+
+_UNMEASURED = {
+    "state": REACHABILITY_UNMEASURED,
+    "detail": "No gateway a reachability probe can dial is known for this target.",
+}
+
+
+async def measure_active_target(identity: dict[str, str] | None) -> dict[str, str]:
+    """Whether the active target's gateway answers right now.
+
+    One silent channel does not say whether the machine is up, and the
+    background prober's last row may predate the outage that silenced it. So
+    the gateway the session is talking through — the endpoint *identity*
+    names — is probed at the moment of the failure, with the prober's own
+    instrument and its connect timeout as the bound on the tool reply.
+
+    Unmeasured, rather than either state, whenever the instrument cannot
+    answer: no identity or no endpoint (the mock connector, the simulator
+    served in-process), an address-list gateway (CA search there is UDP, and
+    the prober declines to claim anything from a TCP connect), or a
+    measurement that raised. Fail-soft for the reason
+    :func:`describe_active_target` is.
+
+    Args:
+        identity: The active target as :func:`describe_active_target` gives it.
+
+    Returns:
+        ``{"state": ...}`` with ``gateway`` when one was dialled or declined
+        and ``detail`` when the instrument gave one.
+    """
+    if not identity or not identity.get("endpoint"):
+        return dict(_UNMEASURED)
+    try:
+        from osprey.mcp_server.control_system import endpoint_prober
+        from osprey.mcp_server.control_system.server_context import get_server_context
+
+        prober = endpoint_prober.EndpointProber(get_server_context().config.raw, targets=())
+        row = await prober.measure(identity["name"], identity["endpoint"])
+        if row is None:
+            return dict(_UNMEASURED)
+        state = {
+            endpoint_prober.STATUS_OK: REACHABILITY_REACHED,
+            endpoint_prober.STATUS_UNREACHABLE: REACHABILITY_DOWN,
+        }.get(row.endpoint_tcp, REACHABILITY_UNMEASURED)
+        measured = {"state": state, "gateway": row.gateway}
+        if row.detail:
+            measured["detail"] = row.detail
+        return measured
+    except Exception as exc:  # never fail an envelope
+        logger.debug("Target reachability measurement failed", exc_info=True)
+        return {
+            "state": REACHABILITY_UNMEASURED,
+            "detail": f"The reachability measurement failed: {type(exc).__name__}: {exc}",
+        }
+
+
+async def _reachability_for(exc: BaseException, connector_name: str) -> dict[str, str] | None:
+    """The measurement an unreachable channel's envelope states, else ``None``."""
+    if not isinstance(exc, ChannelUnreachableError) or connector_name != "control_system":
+        return None
+    return await measure_active_target(describe_active_target())
 
 
 #: What an answer for an address outside the facility tells the agent first.
@@ -224,7 +298,9 @@ async def connector_error_handler(
                 recovery=_merged_recovery(exc.errors),
                 results=exc.results,
             )
-        error_type, message, suggestions, details = _envelope(exc.cause, tool_name, connector_name)
+        error_type, message, suggestions, details = _envelope(
+            exc.cause, tool_name, connector_name, await _reachability_for(exc.cause, connector_name)
+        )
         if error_type == "write_refused" and exc.results:
             # A refused batch suggests the remedy of every reason its rows
             # name, not only the remedy of the row that stands for the batch.
@@ -235,7 +311,9 @@ async def connector_error_handler(
         }
         make_error(error_type, message, suggestions, details=details)
     except Exception as exc:
-        error_type, message, suggestions, details = _envelope(exc, tool_name, connector_name)
+        error_type, message, suggestions, details = _envelope(
+            exc, tool_name, connector_name, await _reachability_for(exc, connector_name)
+        )
         make_error(error_type, message, suggestions, details=details)
 
 
@@ -257,10 +335,17 @@ def _recovery_clause(records: list[Recovery]) -> str:
     return "".join(f" {record['text']}" for record in records)
 
 
-def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> _Envelope:
+def _envelope(
+    exc: BaseException,
+    tool_name: str,
+    connector_name: str,
+    reachability: dict[str, str] | None = None,
+) -> _Envelope:
     """Render ``exc`` as the envelope its class is answered with.
 
     An unreachable channel is that channel's failure and carries no recovery.
+    It states ``reachability``, what :func:`measure_active_target` found when
+    the channel failed, and reads as unmeasured without one.
     A connection or timeout failure carries what the supervisor did about it,
     from ``exc.recovery``, under ``details.recovery``, and its sentences close
     the message.
@@ -268,17 +353,32 @@ def _envelope(exc: BaseException, tool_name: str, connector_name: str) -> _Envel
     if isinstance(exc, ChannelUnreachableError):
         identity = describe_active_target() if connector_name == "control_system" else None
         error_type = "channel_unreachable"
-        machine = identity["label"] if identity else "control system"
+        machine = identity["label"] if identity else connector_name.replace("_", " ")
+        measured = reachability or dict(_UNMEASURED)
+        channel = exc.channel_address
+        if measured["state"] == REACHABILITY_DOWN:
+            stated = f"the {machine} at {measured['gateway']} is not answering"
+            report = f"Report that the {machine} is not answering, so {channel} could not be read."
+        elif measured["state"] == REACHABILITY_REACHED:
+            stated = f"the {machine} at {measured['gateway']} answers; only this channel is silent"
+            report = f"Report that {channel} did not answer while the {machine} itself answers."
+        else:
+            stated = f"whether the {machine} is answering was not measured"
+            report = (
+                f"Report that {channel} did not answer and that whether the {machine} is "
+                "answering is unmeasured."
+            )
         return (
             error_type,
-            f"Channel {exc.channel_address} did not answer during {tool_name}"
-            f"{_target_clause(identity)}: {exc}",
-            [
-                f"One channel's silence does not say whether the {machine} is up: if other "
-                f"channels fail the same way, report the {machine} as unreachable, otherwise "
-                "report this channel."
-            ],
-            {"channel": exc.channel_address, **({"active_target": identity} if identity else {})},
+            f"Channel {channel} did not answer during {tool_name}"
+            f"{_target_clause(identity)}: {str(exc).rstrip('.')}. Measured when the channel "
+            f"failed: {stated}.",
+            [report],
+            {
+                "channel": channel,
+                **({"active_target": identity} if identity else {}),
+                REACHABILITY_KEY: measured,
+            },
         )
     if isinstance(exc, ConnectionError):
         recovery = _recovery_of(exc)

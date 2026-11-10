@@ -365,6 +365,26 @@ class TestOpenPanel:
         mock_op.assert_called_once_with("open", {"member": "ariel", "url": url}, base_rev=None)
 
     @pytest.mark.asyncio
+    async def test_open_panel_passes_placement_and_reports_how_it_landed(self):
+        """place/tile/edge reach the op; the route's placement report reaches the agent."""
+        applied = {**_applied(), "placed": "replaced", "replaced": "okf", "note": "no room"}
+        with patch(f"{_MODULE}.panel_op", return_value=applied) as mock_op:
+            result = extract_response_dict(
+                await _get_open_panel()("ariel", place="split", tile="t1", edge="right")
+            )
+
+        mock_op.assert_called_once_with(
+            "open",
+            {"member": "ariel", "place": "split", "tile": "t1", "edge": "right"},
+            base_rev=None,
+        )
+        assert (result["placed"], result["replaced"], result["note"]) == (
+            "replaced",
+            "okf",
+            "no room",
+        )
+
+    @pytest.mark.asyncio
     async def test_open_panel_custom_panel(self):
         with patch(f"{_MODULE}.panel_op", return_value=_applied()) as mock_op:
             result = extract_response_dict(await _get_open_panel()("my-grafana"))

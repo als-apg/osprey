@@ -78,7 +78,7 @@ function makeArtifact(id) {
 
 /** One spy per action the viewer routes. */
 function makeActions() {
-  return { print: vi.fn(), logbook: vi.fn(), delete: vi.fn() };
+  return { print: vi.fn(), logbook: vi.fn() };
 }
 
 /**
@@ -323,10 +323,10 @@ describe('osprey-artifact-action', () => {
   test('does nothing when the server has no such artifact', async () => {
     const viewer = setup({ fetchEntry: async () => null });
 
-    viewer.deliver(action('gone', 'delete'));
+    viewer.deliver(action('gone', 'print'));
     await settle();
 
-    expect(viewer.actions.delete).not.toHaveBeenCalled();
+    expect(viewer.actions.print).not.toHaveBeenCalled();
   });
 
   test('never changes what the viewer shows', () => {
@@ -368,10 +368,10 @@ describe('osprey-artifact-action', () => {
   test('ignores an action from another origin', async () => {
     const viewer = setup({ held: [makeArtifact('a1')] });
 
-    viewer.deliver(action('a1', 'delete'), 'https://evil.example');
+    viewer.deliver(action('a1', 'print'), 'https://evil.example');
     await settle();
 
-    expect(viewer.actions.delete).not.toHaveBeenCalled();
+    expect(viewer.actions.print).not.toHaveBeenCalled();
   });
 });
 
