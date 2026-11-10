@@ -107,11 +107,6 @@ SET_VALUED_SLOTS: frozenset[tuple[str, str]] = frozenset(
         ("Device", "groups"),
         ("Wiring", "marks"),
         ("Measurement", "kinds"),
-        ("MeasurementGroups", "bpm"),
-        ("MeasurementGroups", "hcor"),
-        ("MeasurementGroups", "vcor"),
-        ("MeasurementGroups", "quad"),
-        ("MeasurementGroups", "sext"),
     }
 )
 

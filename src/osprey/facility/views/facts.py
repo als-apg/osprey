@@ -425,6 +425,11 @@ def measurement_records(
     return found
 
 
+#: The stepped role the block's ``rf`` key carries rather than ``groups``: the
+#: approval hook reads the RF frequency's setpoints from ``rf``.
+_RF_ROLE = "rf"
+
+
 def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, dict[str, Any]]:
     """The approval hook's ``measurement`` block of one render, read from its facts alone.
 
@@ -443,8 +448,8 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
         kind the file allows that steps a role, with the view name of each
         stepped role (``rf`` the RF plant), the role itself where the view has
         none; ``groups`` each group role a kind uses with the addresses its
-        array's members stand for, and each other stepped role that is no
-        instrument with its members' addresses; ``rf`` the
+        array's members stand for, and every other stepped role but the RF,
+        group or instrument, with its members' addresses; ``rf`` the
         setpoint each of the view's RF plants steps, empty when it has none;
         ``by_kinds`` the kinds that take ``by``; ``corrector_roles`` the roles
         whose setpoints ``correctors`` may name, for each kind that takes them.
@@ -463,7 +468,7 @@ def hook_measurement(facts: Mapping[str, Any], render_root: Path) -> dict[str, d
             if roles:
                 stepped[str(kind)] = {role: str(names.get(role, role)) for role in roles}
             for role, member in (entry.get("members") or {}).items():
-                if role in arrays or (role in roles and role not in instruments):
+                if role in arrays or (role in roles and role != _RF_ROLE):
                     groups[str(role)] = list(member.get("addresses") or [])
         ordered = [*(role for role in arrays if role in groups), *sorted(set(groups) - set(arrays))]
         block[str(model)] = {

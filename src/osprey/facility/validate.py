@@ -447,8 +447,8 @@ def check_schema(document: Mapping[str, Any], sources: Sources) -> list[Facility
     """Validate the filled document against the generated model (stage S3).
 
     Each failing path is one ``source-invalid`` line naming the dotted path. The
-    slots typed ``Any`` (scenario ``overrides`` and ``faults``) are checked for
-    being mappings here too.
+    slots typed ``Any`` (scenario ``overrides`` and ``faults``, a measurement
+    file's ``groups`` and ``instruments``) are checked for their shape here too.
 
     Args:
         document: The document from ``schema_document``.
@@ -486,7 +486,50 @@ def check_schema(document: Mapping[str, Any], sources: Sources) -> list[Facility
                         detail=f"{rel} `{slot}` is not {shape}",
                     )
                 )
+    for index, model in enumerate(document.get("models") or []):
+        measurement = model.get("measurement") if isinstance(model, dict) else None
+        if isinstance(measurement, dict):
+            errors.extend(_measurement_shape(index, str(model.get("name")), measurement))
     return errors
+
+
+#: Each open map of a measurement file, what each of its values is, and the test.
+_MEASUREMENT_MAPS: tuple[tuple[str, str, Any], ...] = (
+    (
+        "groups",
+        "a group id or a list of group ids",
+        lambda v: (
+            isinstance(v, str) or (isinstance(v, list) and all(isinstance(i, str) for i in v))
+        ),
+    ),
+    ("instruments", "a channel address", lambda v: isinstance(v, str)),
+)
+
+
+def _measurement_shape(
+    index: int, model: str, measurement: Mapping[str, Any]
+) -> Iterator[FacilityBuildError]:
+    """A measurement file's open maps: each a mapping of role to what the role names."""
+    rel = f"measurement/{model}.yaml"
+    for slot, shape, fits in _MEASUREMENT_MAPS:
+        value = measurement.get(slot)
+        if value is None:
+            continue
+        if not isinstance(value, dict):
+            bad: list[str | None] = [None]
+        else:
+            bad = [str(role) for role, named in value.items() if not fits(named)]
+        for role in bad:
+            where = slot if role is None else f"{slot}.{role}"
+            wanted = "a mapping of role to " + shape if role is None else shape
+            yield FacilityBuildError(
+                "source-invalid",
+                f"models.{index}.measurement.{where}",
+                [rel],
+                f"write `{where}` in {rel} as {wanted}",
+                record_kind="path",
+                detail=f"{rel} `{where}` is not {wanted}",
+            )
 
 
 def _mapping_of_depth(value: Any, depth: int) -> bool:
@@ -2141,7 +2184,10 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
     Runs once every wiring slot is filled, so a group or instrument is judged
     by the setpoints and readbacks its model actually wires. A group plays one
     group role; only ``hcor`` and ``vcor`` may name the same group. Every kind
-    the file allows is a registered kind (:mod:`osprey.facility.kinds`); each
+    the file allows is a registered kind (:mod:`osprey.facility.kinds`). Every
+    role the file names under ``groups`` or ``instruments`` is one the pyAML
+    view ships or one a listed kind declares, named in the map its sort says
+    (:func:`osprey.facility.kinds.member_sorts`); each
     member the kind declares is judged by its requirement: ``wired`` must be
     named by the file and wired by the model, ``exists`` named and present in
     the facility, ``optional`` either absent or present. A ``single_pass``
@@ -2153,8 +2199,9 @@ def check_measurement(validated: Validated) -> list[FacilityBuildError]:
         validated: What the earlier stages produced.
 
     Returns:
-        Every stop: ``value-invalid`` naming a kind the registry refuses,
-        ``reference-missing`` naming a kind no installed package registers or
+        Every stop: ``value-invalid`` naming a kind the registry refuses or a
+        role no listed kind declares, ``reference-missing`` naming a kind no
+        installed package registers or
         the kind and the member it lacks, ``value-invalid`` naming the kind and
         the key it lacks or what its hook refuses, or the two group roles that
         name one group.
@@ -2172,7 +2219,12 @@ def _groups_text(value: Any) -> str:
 
 
 def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]:
-    from osprey.facility.kinds import ENTRY_POINT_GROUP, KindRegistryError, registered
+    from osprey.facility.kinds import (
+        ENTRY_POINT_GROUP,
+        KindRegistryError,
+        member_sorts,
+        registered,
+    )
     from osprey.facility.views.pyaml import (
         GROUP_ROLES,
         ROLE_PLANES,
@@ -2222,7 +2274,11 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 record_kind="measurement",
                 detail=(f"`groups.{first}` and `groups.{second}` both name group {shared[0]}"),
             )
-        grouped = measurement_groups(records, name)
+        sorts = member_sorts(
+            declared[str(kind)] for kind in measurement.get("kinds") or [] if str(kind) in declared
+        )
+        yield from _unsorted_roles(name, files, groups_named, instruments, sorts)
+        grouped = measurement_groups(records, name, sorts)
         for kind in measurement.get("kinds") or []:
             declaration = declared.get(str(kind))
             if declaration is None:
@@ -2242,7 +2298,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                 )
                 continue
             for member, requirement in declaration.members.items():
-                is_group = member in GROUP_ROLES
+                is_group = sorts[member] != "instrument"
                 slot = f"groups.{member}" if is_group else f"instruments.{member}"
                 named = groups_named.get(member) if is_group else instruments.get(member)
                 if named is None:
@@ -2265,7 +2321,7 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                     plane = ROLE_PLANES.get(member)
                     wiring = (
                         "monitor"
-                        if member == "bpm"
+                        if sorts[member] == "monitors"
                         else f"{plane}-plane setpoint"
                         if plane
                         else "setpoint"
@@ -2311,6 +2367,40 @@ def _measurement_stops(document: dict[str, Any]) -> Iterator[FacilityBuildError]
                         record_kind="measurement",
                         detail=f"kind {kind}: {stop.detail}",
                     )
+
+
+def _unsorted_roles(
+    model: str,
+    files: list[str],
+    groups_named: Mapping[str, Any],
+    instruments: Mapping[str, Any],
+    sorts: Mapping[str, str],
+) -> Iterator[FacilityBuildError]:
+    """A role neither the pyAML view nor a listed kind declares, or named in the other map."""
+    for slot, named, other in (
+        ("groups", groups_named, "instruments"),
+        ("instruments", instruments, "groups"),
+    ):
+        for role in sorted(named, key=str):
+            sort = sorts.get(str(role))
+            if sort is None:
+                yield FacilityBuildError(
+                    "value-invalid",
+                    model,
+                    files,
+                    f"remove `{slot}.{role}`, or list a kind that declares {role} in `kinds`",
+                    record_kind="measurement",
+                    detail=f"`{slot}.{role}` names a role no listed kind declares",
+                )
+            elif (sort == "instrument") != (slot == "instruments"):
+                yield FacilityBuildError(
+                    "value-invalid",
+                    model,
+                    files,
+                    f"move `{slot}.{role}` to `{other}.{role}`",
+                    record_kind="measurement",
+                    detail=(f"`{slot}.{role}` names a role whose kind names it under `{other}`"),
+                )
 
 
 def _measurement_missing(model: str, detail: str, remedy: str) -> FacilityBuildError:

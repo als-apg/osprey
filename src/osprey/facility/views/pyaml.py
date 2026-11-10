@@ -9,7 +9,8 @@ that names a deck and has a ``measurement/<model>.yaml``::
                          instruments name, one array per group role, named
                          after its group, or after the role when the role
                          names several (one group named as both ``hcor`` and
-                         ``vcor`` is two arrays, one per plane), and each
+                         ``vcor`` is two arrays, one per plane; a group role
+                         only a registered kind declares has no array), and each
                          measurement kind's tool section, written by the kind's
                          declaration (:mod:`osprey.facility.kinds`)
     lattice.json         the design simulator's lattice, referenced as
@@ -46,6 +47,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from osprey.facility import TEXTURE
+from osprey.facility.kinds import SHIPPED_SORTS
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views import ViewInputs, report_note
 from osprey.facility.views.facts import CONFIGURATION_FILE, PYAML_DIR
@@ -75,8 +77,10 @@ _MODELS_FILE = "models.yaml"
 #: The deck's copy beside the configuration.
 LATTICE_FILE = "lattice.json"
 
-#: The measurement file's group roles, in the order the arrays are written.
-GROUP_ROLES: tuple[str, ...] = ("bpm", "hcor", "vcor", "quad", "sext")
+#: The group roles the view writes an array for, in the order it writes them.
+GROUP_ROLES: tuple[str, ...] = tuple(
+    role for role, sort in SHIPPED_SORTS.items() if sort != "instrument"
+)
 
 #: Each magnet role and the pyAML magnet its setpoints are.
 MAGNET_TYPES: dict[str, str] = {
@@ -227,13 +231,17 @@ def _wiring(records: FacilityRecords, model: str) -> dict[str, Mapping[str, Any]
 ROLE_PLANES: dict[str, str] = {"hcor": "x", "vcor": "y"}
 
 
-def measurement_groups(records: FacilityRecords, model: str) -> dict[str, list[str]]:
+def measurement_groups(
+    records: FacilityRecords, model: str, sorts: Mapping[str, str] | None = None
+) -> dict[str, list[str]]:
     """The addresses each group role of a model's measurement file stands for.
 
     ``bpm`` is the readbacks the model wires as monitors, in both planes;
     ``hcor`` the setpoints the model wires whose plane its engine describes as
     ``x``, ``vcor`` those it describes as ``y``; ``quad`` and ``sext`` every
-    setpoint the model wires. Each is taken over the member devices of every
+    setpoint the model wires; a role a registered kind declares the monitors
+    or the setpoints the model wires, in every plane, as the kind sorts it.
+    Each is taken over the member devices of every
     group the role names: the channels on a member device and the channels
     naming one as an endpoint, visiting the
     devices in ``(s, id)`` order, an address listed once at its first device and
@@ -244,10 +252,13 @@ def measurement_groups(records: FacilityRecords, model: str) -> dict[str, list[s
     Args:
         records: The facility file's records.
         model: The model's name.
+        sorts: Each member role's sort (:func:`osprey.facility.kinds.member_sorts`);
+            the shipped roles' when omitted, and a role of no known sort is
+            left out.
 
     Returns:
-        Role to addresses, for each role the measurement file names, in
-        :data:`GROUP_ROLES` order.
+        Role to addresses, for each group role the measurement file names: the
+        shipped ones in :data:`GROUP_ROLES` order, then the others by name.
 
     Raises:
         KeyError: The facility file has no model ``model``.
@@ -256,12 +267,14 @@ def measurement_groups(records: FacilityRecords, model: str) -> dict[str, list[s
 
     record = records.require("model", model)
     groups_named = (record.get("measurement") or {}).get("groups") or {}
+    known = SHIPPED_SORTS if sorts is None else sorts
     wiring = _wiring(records, model)
     found: dict[str, list[str]] = {}
-    for role in GROUP_ROLES:
-        if groups_named.get(role) is None:
+    roles = [*GROUP_ROLES, *sorted(set(groups_named) - set(GROUP_ROLES))]
+    for role in roles:
+        if groups_named.get(role) is None or known.get(role) in (None, "instrument"):
             continue
-        wanted = "monitor" if role == "bpm" else "setpoint"
+        wanted = "monitor" if known[role] == "monitors" else "setpoint"
         plane = ROLE_PLANES.get(role)
         members = [
             member
@@ -907,7 +920,9 @@ def _view_context(
     return ViewContext(
         model=model,
         kinds=tuple(kinds),
-        arrays={str(role): names.array_name(str(role)) for role in groups_named},
+        arrays={
+            str(role): names.array_name(str(role)) for role in groups_named if role in GROUP_ROLES
+        },
         measurement=measurement,
         devices={
             "rf_plant": RF_PLANT_NAME,
@@ -979,10 +994,11 @@ def kind_records(
         {requirement, addresses}}, stepped_roles, tool_keys, tool, single_pass,
         matrix, takes_by, corrector_roles, view_files, measure_plan,
         description}``: a group role's addresses are those its array's members
-        stand for, a magnet's setpoint and both planes of a BPM; an instrument's
-        its one channel.
+        stand for, a magnet's setpoint and both planes of a BPM, or, for a role
+        the view writes no array for, those :func:`measurement_groups` resolves;
+        an instrument's its one channel.
     """
-    from osprey.facility.kinds import registered
+    from osprey.facility.kinds import member_sorts, registered
 
     arrays = {str(a["name"]): list(a["elements"]) for a in configuration.get("arrays") or []}
     devices = {str(d["name"]): d for d in configuration.get("devices") or []}
@@ -996,13 +1012,20 @@ def kind_records(
     array_of = {
         str(role): names.array_name(str(role))
         for role in measurement.get("groups") or {}
-        if names.array_name(str(role)) in arrays
+        if role in GROUP_ROLES and names.array_name(str(role)) in arrays
     }
     group_addresses = {
         role: [
             address for member in arrays[array] for address in _member_addresses(devices[member])
         ]
         for role, array in array_of.items()
+    }
+    declared = registered()
+    listed = [declared[str(kind)] for kind in measurement.get("kinds") or []]
+    group_addresses |= {
+        role: addresses
+        for role, addresses in measurement_groups(records, model, member_sorts(listed)).items()
+        if role not in GROUP_ROLES
     }
     plants = [device for device in devices.values() if device.get("type") == RF_PLANT_TYPE]
     rf = sorted(_parse_reference(d["masterclock"]) for d in plants if "masterclock" in d)
@@ -1012,7 +1035,6 @@ def kind_records(
     monitors = [d for d in devices.values() if d.get("type") == TUNE_MONITOR_TYPE]
     if monitors and "tune" in instruments:
         role_names["tune"] = str(monitors[-1]["name"])
-    declared = registered()
     kinds: dict[str, Any] = {}
     for kind in measurement.get("kinds") or []:
         declaration = declared[str(kind)]
