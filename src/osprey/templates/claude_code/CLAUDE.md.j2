@@ -73,6 +73,23 @@ do not attempt their work with your own tools.
 - **{{ a.name }}** — {{ a.description }}
 {%- endfor %}
 
+{% if "pv-directory" in enabled_servers | default([]) -%}
+## Control-System Directory
+
+The directory is the control system's own list of every channel and IOC, beside the curated channels. Its tools: {% for t in pv_directory_tools | default([]) %}`{{ t }}`{{ ", " if not loop.last }}{% endfor %}.
+
+- Check the curated channels first{% if channel_finder_enabled %} (through **channel-finder**, which searches the directory when they do not answer){% endif %}.
+- Directory names are the control system's own, not curated: say so when you report one.
+- A "no_match" answer is not evidence that a channel does not exist; "unavailable" means the directory did not answer.
+- Build queries only from the user's words or property values the directory listed.
+{%- if "controls" in enabled_servers %}
+- Whether an IOC is alive, and its engineer: `ioc_record` names its health channels; read them with `channel_read`. An advancing HEARTBEAT means alive.
+{%- else %}
+- Whether an IOC is alive, and its engineer: open the IOC page from `ioc_record`'s `links.panel`; the page reads its health channels.
+{%- endif %}
+- To show a channel or IOC, call `open_panel` with the result's `links.panel`. It opens the page in a new split tile, or focuses it when it is already on screen.
+
+{% endif -%}
 {% if pyaml_view_present | default(false) and "python" in enabled_servers | default([]) -%}
 ## Measurements
 
