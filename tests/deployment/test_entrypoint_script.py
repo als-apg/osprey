@@ -1330,6 +1330,45 @@ class TestTheSelinuxHint:
 
         assert self.HINT not in run.stderr, run.stderr
 
+    def test_a_super_privileged_container_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr="system_u:system_r:spc_t:s0\0",
+        )
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
+
+    def test_an_unconfined_label_adds_no_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr="unconfined_u:unconfined_r:unconfined_t:s0\0",
+        )
+
+        assert "cannot write" in run.stderr, run.stderr
+        assert "SELinux" not in run.stderr, run.stderr
+
+    def test_a_container_family_label_adds_the_hint(self, sandbox: Sandbox):
+        spool = sandbox.spool_mount(gid=3000)
+
+        run = sandbox.run(
+            spool_dir=spool,
+            probe_rc=1,
+            selinux_enforce=None,
+            proc_attr="system_u:system_r:container_init_t:s0:c1,c2\0",
+        )
+
+        assert self.HINT in run.stderr, run.stderr
+        assert "SELinux labels this container" in run.stderr, run.stderr
+
     def test_a_permissive_host_adds_no_hint(self, sandbox: Sandbox):
         spool = sandbox.spool_mount(gid=3000)
 
