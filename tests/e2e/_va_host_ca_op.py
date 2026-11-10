@@ -122,14 +122,13 @@ def _arm_switch(target: str) -> str:
     import atexit
     import tempfile
 
-    from osprey_connectors import control_context, posture_store
+    from osprey_connectors import control_context
 
     for name in _FOREIGN_VERDICT_ENV:
         os.environ.pop(name, None)
     root = tempfile.mkdtemp(prefix="osprey-ca-op-")
     atexit.register(shutil.rmtree, root, ignore_errors=True)
-    os.environ[posture_store.AGENT_DATA_ROOT_ENV_VAR] = root
-    posture_store.invalidate_cache()
+    os.environ["OSPREY_AGENT_DATA_ROOT"] = root
     control_context.invalidate_cache()
     path = control_context.record_path()
     if path is None:

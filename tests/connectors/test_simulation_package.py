@@ -5,7 +5,7 @@ import sys
 
 import pytest
 
-from osprey_connectors.simulation import state, values
+from osprey_connectors.simulation import state, status
 
 
 def test_two_scenarios_writing_one_address_give_one_overlap_naming_it():
@@ -118,12 +118,11 @@ def test_the_values_module_imports_no_numpy_and_no_lume():
     assert not {m for m in modules if m == "lume" or m.startswith(("lume.", "lume_"))}
 
 
-def test_the_package_root_reexports_the_state_helpers():
+def test_the_package_root_holds_the_status_lookups_and_no_engine():
     import osprey_connectors.simulation as package
 
-    for name in state.__all__:
-        assert getattr(package, name) is getattr(state, name)
-    assert package.coerce is values.coerce
+    assert package.model_status is status.model_status
+    assert package.read_model_status is status.read_model_status
     assert not hasattr(package, "SimulationEngine")
 
 

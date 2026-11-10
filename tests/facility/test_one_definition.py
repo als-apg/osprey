@@ -58,9 +58,10 @@ _LABELLED_SPELLING = re.compile(r"""\(\s*['"]bool['"]\s*,\s*['"]enum['"]\s*\)"""
 
 
 def test_the_labelled_value_types_are_defined_once() -> None:
-    from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES, VALUE_TYPES
+    from osprey_connectors.simulation.values import GATED_TYPES, LABELLED_TYPES
 
-    assert set(LABELLED_TYPES) | {"float", "int"} == set(GATED_TYPES) <= set(VALUE_TYPES)
+    value_types = {member.value for member in core.ValueTypeEnum}
+    assert set(LABELLED_TYPES) | {"float", "int"} == set(GATED_TYPES) <= value_types
     definition = _SIMULATION_DIR / "simulation/values.py"
     hits = []
     for root in (FACILITY_DIR, _SIMULATION_DIR):

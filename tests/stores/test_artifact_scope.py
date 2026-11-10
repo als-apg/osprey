@@ -24,7 +24,7 @@ from osprey.stores.artifact_store import (
     owner_of,
 )
 from osprey.stores.session_ledger import EPOCH, Ledger, LedgerRow
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 
 KEY = "11111111-1111-4111-8111-111111111111"
 OTHER_KEY = "22222222-2222-4222-8222-222222222222"
@@ -165,9 +165,9 @@ def state_dir(tmp_path, monkeypatch):
     bound = tmp_path / "state"
     bound.mkdir()
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(bound))
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     yield bound
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture

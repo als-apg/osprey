@@ -187,7 +187,7 @@ def record_for(tree: Path, owner: str, *, on: bool, target: str = _TARGET) -> Pa
     if on:
         epoch = control_context.read_record(path=path).switch_epoch
         control_context.set_switch([target], "asked", epoch=epoch, path=path)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     return path
 
 
@@ -195,7 +195,7 @@ def turn_off_for(tree: Path, owner: str, target: str = _TARGET) -> Path:
     """Turn *owner*'s switch for *target* off."""
     path = tree / owner / control_context.RECORD_FILENAME
     control_context.set_switch([target], "off", path=path)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     return path
 
 

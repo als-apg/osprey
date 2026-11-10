@@ -48,6 +48,7 @@ from typing import Any, Literal
 import pytest
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from tests.va.e2e import conftest as e2e_conftest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -471,7 +472,7 @@ def acting_in(
         "OSPREY_CONFIG": str(deployment.config_path),
         # The sandbox wrapper initialises its registry from this name.
         "CONFIG_FILE": str(deployment.config_path),
-        posture_store.AGENT_DATA_ROOT_ENV_VAR: str(agent_data),
+        OSPREY_AGENT_DATA_ROOT: str(agent_data),
         POSTURE_SESSION_ENV_VAR: str(uuid.uuid5(uuid.NAMESPACE_URL, str(agent_data))),
         "PYTHONPATH": os.pathsep.join(REPO_PATHS),
         **dict(environment or {}),
@@ -490,7 +491,6 @@ def acting_in(
         for name, value in values.items():
             patch.setenv(name, value)
         reset_config_cache()
-        posture_store.invalidate_cache()
         control_context.invalidate_cache()
         if not control_context._record_path_under(agent_data).exists():
             write_control_context(
@@ -504,7 +504,6 @@ def acting_in(
             yield
         finally:
             reset_config_cache()
-            posture_store.invalidate_cache()
             control_context.invalidate_cache()
 
 

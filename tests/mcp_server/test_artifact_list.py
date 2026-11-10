@@ -12,6 +12,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from osprey.stores.artifact_store import EXAMPLE_ORIGIN, WATCHDOG_ORIGIN, initialize_artifact_store
+from osprey_connectors import control_context
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 OTHER_KEY = "22222222-2222-4222-8222-222222222222"
@@ -163,9 +164,8 @@ async def test_all_names_every_owner_and_null_for_unowned(store, list_tool, web_
     from osprey.stores import session_ledger
 
     session_ledger.append(web_session.state_dir, OTHER_KEY, OTHER_KEY, session_ledger.EPOCH)
-    from osprey_connectors import posture_store
 
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     mine = _plot(store, "Mine")
     theirs = _plot(store, "Theirs", session_id=OTHER_KEY)
     untagged = _plot(store, "Untagged", session_id="")
@@ -225,12 +225,11 @@ async def test_an_unreadable_ledger_answers_unavailable(store, list_tool, web_se
     """An unreadable ledger lists nothing for the session and says so; all still lists rows."""
     entry = _plot(store, "Mine")
     from osprey.stores import session_ledger
-    from osprey_connectors import posture_store
 
     ledger_file = web_session.state_dir / session_ledger.STORE_FILENAME
     assert ledger_file.exists()
     ledger_file.write_text("not json", encoding="utf-8")
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     out = await _list(list_tool)
     assert out["ledger"] == "unavailable"

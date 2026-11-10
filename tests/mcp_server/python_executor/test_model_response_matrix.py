@@ -29,6 +29,7 @@ at = pytest.importorskip("at")
 import numpy as np  # noqa: E402
 from fastmcp.exceptions import ToolError  # noqa: E402
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT  # noqa: E402
 from osprey.facility.records import FacilityRecords  # noqa: E402
 from osprey.facility.views.simulator import simulator_wiring  # noqa: E402
 from osprey.mcp_server.errors import MISSING_KEY  # noqa: E402
@@ -195,7 +196,6 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     collects each execution folder handed out, and ``state["seed"]`` maps file
     names to text each new folder receives first.
     """
-    from osprey_connectors import posture_store
     from osprey_connectors.workspace import reset_config_cache
 
     root = tmp_path / "deployment"
@@ -211,7 +211,7 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
     monkeypatch.setenv("CONFIG_FILE", str(config_path))
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root / "var" / "agent_data"))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root / "var" / "agent_data"))
     reset_config_cache()
 
     state: dict[str, Any] = {"render": None, "folders": [], "seed": {}, "timeout": TIMEOUT_S}

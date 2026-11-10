@@ -17,12 +17,13 @@ from unittest.mock import patch
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.web_terminal import scenario_sessions, session_meta, transcript_map
 from osprey.simulation.apply import SCENARIO_SESSIONS_FILENAME
 from osprey.simulation.sessions import parse_sessions, resolve, to_dict
 from osprey.stores import session_ledger
 from osprey.stores.artifact_store import ArtifactStore, operator_visible, owner_of
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 
 ANCHOR = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
 SCENARIO = "demo-history"
@@ -108,8 +109,8 @@ def hub(tmp_path, monkeypatch):
     root = tmp_path / "shared_agent_data"
     root.mkdir()
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    posture_store.invalidate_cache()
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
+    control_context.invalidate_cache()
     sessions_dir = tmp_path / "claude-projects" / "proj"
     monkeypatch.setattr(
         "osprey.interfaces.web_terminal.session_discovery.claude_project_dir",
@@ -127,7 +128,7 @@ def hub(tmp_path, monkeypatch):
         state_dir=state_dir,
         seed=state_dir / SCENARIO_SESSIONS_FILENAME,
     )
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 def _write_seed(path: Path) -> None:
