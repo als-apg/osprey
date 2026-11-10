@@ -33,8 +33,8 @@ import pytest
 from osprey.agent_record.backends import clickhouse_ddl, clickhouse_stage
 from osprey.agent_record.backends.clickhouse import ClickHouseBackend
 from osprey.agent_record.backends.embedded import EmbeddedBackend
-from osprey.agent_record.config import DEFAULT_CLICKHOUSE_IMAGE
 from osprey.agent_record.credentials import CLICKHOUSE_ADMIN_USER
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from tests._container_support import (
     CONTAINER_START_ATTEMPTS,
     ContainerExitedError,
@@ -100,7 +100,7 @@ def clickhouse_store() -> Iterator[_ClickHouseStore]:
 
     def build():
         return (
-            DockerContainer(DEFAULT_CLICKHOUSE_IMAGE)
+            DockerContainer(UPSTREAM_IMAGES["clickhouse"])
             .with_env("CLICKHOUSE_USER", CLICKHOUSE_ADMIN_USER)
             .with_env("CLICKHOUSE_PASSWORD", admin_password)
             .with_env("CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT", "1")
