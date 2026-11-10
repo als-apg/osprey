@@ -925,10 +925,10 @@ def _mixed_depth_control_system_errors(config: Mapping[str, Any]) -> list[str]:
     Exactly that pair, and no deeper one. A deeper pair —
     ``control_system.connector:`` holding one type's block beside
     ``control_system.connector.epics.gateways`` — renders correctly
-    today: :func:`~osprey.utils.config_writer._set_dotted_anchored` runs with
-    ``create_only=True``, so it walks INTO whatever an existing intermediate
-    key holds rather than replacing it, and the two entries merge. Refusing
-    those would refuse profiles the build already honours.
+    today: :func:`~osprey.utils.config_writer._set_dotted_anchored` walks
+    INTO whatever an existing intermediate key holds rather than replacing it,
+    and the two entries merge. Refusing those would refuse profiles the build
+    already honours.
 
     The bare key is the one that does not merge. It is a top-level ``config:``
     entry with no dots to walk, so the render assigns its value verbatim at

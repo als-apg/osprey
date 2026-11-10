@@ -18,7 +18,6 @@ from osprey.utils.config_writer import (
     anchored_put,
     config_add_to_list,
     config_update_fields,
-    update_yaml_file,
 )
 
 SAMPLE = """\
@@ -215,20 +214,26 @@ class TestConfigUpdateFields:
         after = path.read_text(encoding="utf-8")
         assert after.replace("claude-sonnet-5", "claude-haiku-4-5") == before
 
-
-class TestUpdateYamlFile:
-    def test_nested_dict_form_new_key_stays_in_section(self, tmp_path):
-        path = _write_sample(tmp_path)
-
-        update_yaml_file(
-            path,
-            {"claude_code": {"servers": {"health": {"enabled": True}}}},
-            create_backup=False,
+    def test_scalar_update_keeps_header_section_and_inline_comments(self, tmp_path):
+        path = tmp_path / "config.yml"
+        path.write_text(
+            "# Header comment\n"
+            "project_name: test  # inline comment\n"
+            "\n"
+            "# Section comment\n"
+            "control_system:\n"
+            "  type: virtual_accelerator  # type comment\n"
+            "  port: 5064\n",
+            encoding="utf-8",
         )
 
+        config_update_fields(path, {"control_system.type": "epics"})
+
         text = path.read_text(encoding="utf-8")
-        assert _line_no(text, "servers:") < _line_no(text, "# WEB PANEL CONFIGURATION")
-        assert _load(path)["claude_code"]["servers"]["health"]["enabled"] is True
+        for comment in ("# Header comment", "# inline comment", "# Section comment"):
+            assert comment in text
+        assert "type: epics" in text and "# type comment" in text
+        assert "virtual_accelerator" not in text
 
 
 class TestConfigAddToList:

@@ -21,11 +21,7 @@ from .base import (
 )
 
 # Helper functions for simplified registry creation
-from .helpers import (
-    extend_framework_registry,
-    generate_explicit_registry_code,
-    get_framework_defaults,
-)
+from .helpers import extend_framework_registry
 from .manager import RegistryManager, get_registry, initialize_registry, reset_registry
 
 __all__ = [
@@ -47,6 +43,4 @@ __all__ = [
     "ArielIngestionAdapterRegistration",
     # Helper functions
     "extend_framework_registry",
-    "get_framework_defaults",
-    "generate_explicit_registry_code",
 ]
