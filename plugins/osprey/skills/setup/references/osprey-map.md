@@ -34,7 +34,7 @@ setup skill does not choose it, `/osprey:contribute` does.
 None of these needs a source checkout. `osprey profile presets`, `osprey profile artifacts`,
 `osprey config --defaults` and `--help` run from any directory and take no `--repo` — the
 artifacts menu is installation-wide, not a property of a repo; `osprey scaffold list`, `osprey profile
-card`, `osprey scaffold pull`, `osprey scaffold tiers` and `osprey scaffold apps` act on a deployment repo
+card`, `osprey scaffold pull`, `osprey scaffold tiers` and `osprey app` act on a deployment repo
 (the nearest `profile.yml` at or above the working directory, or `--repo DIR`).
 
 ## Start a deployment repo
@@ -54,12 +54,12 @@ feature port). It refuses to re-materialize an existing repo's source zone unles
 | Path | What it is |
 | --- | --- |
 | `profile.yml` | SOURCE. The manifest: everything the preset configures, written out explicitly |
-| `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/` | SOURCE. The material the manifest names — yours to edit |
+| `data/`, `tiers/`, `apps/`, `watchdogs/`, `triggers.yml`, `web-terminal-context/` | SOURCE. The material the manifest names — yours to edit. `tiers/` holds every login file, `apps/<name>/` one application per directory, `watchdogs/<name>/` one watchdog's instructions |
 | `profiles/` | SOURCE. One `<name>.yml` host-variant overlay per variant the deployment has. Which one this host builds is the single line `OSPREY_PROFILE_VARIANT=<name>` in the git-ignored `.env.variant`; with none set, the tracked `profile.yml` builds |
 | `rules/`, `skills/`, `agents/`, `commands/`, `output-styles/`, `hooks/`, `mcp_servers/`, `services/`, `project/` | SOURCE. Convention directories: the directory name is the declaration, so there is nothing to list in `profile.yml`. `project/` is the catch-all mirrored onto the built project's root |
 | `.gitlab-ci.yml`, `scripts/verify.sh` | SOURCE. Generated pipeline and post-deploy health check — emitted by `osprey scaffold ci` once the `deploy:` block is filled in, then re-emitted, never hand-edited |
 | `ci-extra.yml` | SOURCE. The facility's own CI jobs; written once, never rewritten |
-| `.env` | SECRETS. Provider keys, plus the service tokens `osprey up` mints. Git-ignored, durable. **`osprey init` does not write it** — it writes `.env.example` and `.env.shared`, and its summary line names `.env` for the file you are to create from the example. Until you do, there is no `.env` on disk |
+| `.env` | SECRETS. Provider keys, plus the service tokens `osprey up` mints. Git-ignored, durable. `osprey init` always writes `.env.example` and `.env.shared`; it seeds `.env` only from what it already has — a key the shell exports, the preset's `env.defaults` — so a bare hello-world has no `.env` on disk until you create one from the example |
 | `build/` | OUTPUT. Rendered by `osprey build`; git-ignored, 100% disposable |
 | `var/` | STATE. Agent memory, sessions, audit log; git-ignored, durable. No build touches it |
 
@@ -67,19 +67,22 @@ Pull one piece of a preset's packaged data bundle into this repo with `osprey sc
 pull <preset>[:path] [--list] [--force] [--with-content]`; the recipe lives in
 `references/map.md` and `references/knowledge-starter.md`.
 
-Write this repo's own tier and app files from another preset's roster with
-`osprey scaffold tiers --from <preset> [--force]` and
-`osprey scaffold apps --from <preset> [--force]`; the recipe (the web-terminal step
-in BUILD) lives in `references/map.md`.
+Write this repo's own login files from another preset's roster with
+`osprey scaffold tiers --from <preset> [--force]`: one `tiers/<name>.yml` per tier
+and per shared login. The recipe (the web-terminal step in BUILD) lives in
+`references/map.md`. An application is a different thing: `osprey app new <name>`
+copies the scaffold application into `apps/<name>/` and lists it under the
+profile's top-level `apps:`, and `osprey app check` checks the ones listed.
 
 Every verb finds the repo by walking up from the working directory, so none of them is
 given a project or config path — `--repo DIR` overrides the starting point.
 `profile.yml` is standalone and self-documenting — the preset's whole
 configuration written out explicitly, with its comments, and no `extends:`. Read it; it
 is the authoritative statement of what a profile can say. A file under `tiers/` is a
-small delta merged over it implicitly; a file under `apps/` is a whole agent
-definition composed over the deployment's services, data and provider, and named
-under the roster's `shared:`.
+login. A tier is a small delta merged over the profile implicitly; a shared login
+(`lists: own`) is a whole agent definition composed over the deployment's services,
+data and provider, and named under the roster's `shared:`. Each file's header
+comment says which it is.
 
 Check an edited profile without building: `osprey validate`
 
@@ -101,7 +104,7 @@ roster.
 
 | What | Where |
 | --- | --- |
-| Bundled presets (what `extends:` resolves to) | `src/osprey/profiles/presets/` |
+| Bundled presets, their login files (`tiers/`) and applications (`apps/`) | `src/osprey/profiles/presets/` |
 | Canonical example | the `demo` family in that directory |
 | The `deploy:` block's shape and rules | `src/osprey/cli/build_profile_deploy.py` |
 | Selectable model providers | `src/osprey/profiles/providers.yml` — the packaged catalog `osprey init` copies into the repo as `providers.yml`; `provider:` names one of its entries |
