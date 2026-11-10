@@ -806,6 +806,11 @@ markers = [
 # `osprey_connectors` the separately installable connectors package. Every
 # import statement counts, including ones inside functions and under
 # `if TYPE_CHECKING:`; an `importlib.import_module("...")` string does not.
+#
+# The protected-feature contracts `feature-knowledge`, `feature-channel-finder`,
+# `feature-logbook` and `feature-bluesky` list, in their `ignore_imports`, the
+# imports core still makes into each feature. Only removals are expected: a
+# new core import of a feature breaks its contract.
 [tool.importlinter]
 root_packages = ["osprey", "osprey_connectors"]
 
@@ -928,6 +933,182 @@ allowed_importers = [
     "osprey.cli.build_cmd",
     "osprey.cli.build_injectors",
     "osprey.cli.build_profile_model",
+]
+
+[[tool.importlinter.contracts]]
+id = "feature-knowledge"
+name = "Only Knowledge imports Knowledge"
+# Knowledge is becoming an app. Each line below is a core import of it that
+# still exists, grouped by the piece that removes it; only removals are
+# expected. Edges from another feature are listed here too, because a feature
+# is not an allowed importer of another.
+type = "protected"
+protected_modules = [
+    "osprey.services.facility_knowledge",
+    "osprey.mcp_server.facility_knowledge",
+    "osprey.interfaces.okf_panel",
+]
+allowed_importers = [
+    "osprey.services.facility_knowledge",
+    "osprey.mcp_server.facility_knowledge",
+    "osprey.interfaces.okf_panel",
+    "osprey.cli.knowledge_cmd",
+]
+ignore_imports = [
+    # health check
+    "osprey.health.core.service_capabilities -> osprey.services.facility_knowledge.bundle_path",
+    "osprey.health.core.service_capabilities -> osprey.services.facility_knowledge.okf.bundle",
+    # facility-tree write hook
+    "osprey.cli.facility_cmd -> osprey.services.facility_knowledge.okf.index",
+    "osprey.cli.scaffold_pull -> osprey.services.facility_knowledge.okf.index",
+    # agent surface (render)
+    # Strings, not imports: `registry/mcp.py` `module="osprey.mcp_server.facility_knowledge"`
+    # and `registry/web.py` `factory_path="osprey.interfaces.okf_panel.app:create_app"`.
+    # backend routes
+    # Strings, not imports: `web_terminal/agent_content_routes.py` `SCANNED_PACKAGES`
+    # names `osprey.interfaces.okf_panel`.
+    # untangled by facility-frontmatter-reader
+    "osprey.facility.knowledge_links -> osprey.services.facility_knowledge.okf.document",
+    # untangled by graph-store-leaves-knowledge
+    "osprey.cli.build_cmd -> osprey.services.facility_knowledge.seeder.graph_seeder",
+    "osprey.deployment.container_lifecycle -> osprey.services.facility_knowledge.seeder.graph_seeder",
+    "osprey.deployment.container_lifecycle -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
+    "osprey.health.core.rendered -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
+    "osprey.mcp_server.graph.tools.get_schema -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
+    "osprey.services.channel_finder.benchmarks.runner -> osprey.services.facility_knowledge.seeder.graph_seeder",
+    "osprey.services.channel_finder.graph_index.builder -> osprey.services.facility_knowledge.seeder.graph_seeder",
+]
+
+[[tool.importlinter.contracts]]
+id = "feature-channel-finder"
+name = "Only Channel finder imports Channel finder"
+# Channel finder is becoming an app; the lines below are kept as for Knowledge.
+type = "protected"
+protected_modules = [
+    "osprey.services.channel_finder",
+    "osprey.mcp_server.channel_finder_graph",
+    "osprey.mcp_server.channel_finder_hierarchical",
+    "osprey.mcp_server.channel_finder_in_context",
+    "osprey.mcp_server.channel_finder_middle_layer",
+    "osprey.mcp_server.channel_finder_common",
+    "osprey.interfaces.channel_finder",
+]
+allowed_importers = [
+    "osprey.services.channel_finder",
+    "osprey.mcp_server.channel_finder_graph",
+    "osprey.mcp_server.channel_finder_hierarchical",
+    "osprey.mcp_server.channel_finder_in_context",
+    "osprey.mcp_server.channel_finder_middle_layer",
+    "osprey.mcp_server.channel_finder_common",
+    "osprey.interfaces.channel_finder",
+    "osprey.cli.channel_finder_cmd",
+]
+ignore_imports = [
+    # health check
+    "osprey.health.core.channel_finder -> osprey.services.channel_finder.core.exceptions",
+    "osprey.health.core.channel_finder -> osprey.services.channel_finder.graph_index",
+    # build step
+    "osprey.cli.build_cmd -> osprey.services.channel_finder.graph_index",
+    # agent surface (render)
+    "osprey.cli.templates.claude_code -> osprey.services.channel_finder.core.exceptions",
+    "osprey.cli.templates.claude_code -> osprey.services.channel_finder.databases.hierarchical",
+    "osprey.registry.mcp -> osprey.services.channel_finder.core.exceptions",
+    # Strings, not imports: `registry/mcp.py`
+    # `module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}"`,
+    # `registry/web.py` `factory_path="osprey.interfaces.channel_finder.app:create_app"`,
+    # and `prompt_snapshot._CATALOGUE_MODULES` naming
+    # `osprey.mcp_server.channel_finder_graph.tools.examples_data`.
+    # backend routes
+    # Strings, not imports: `web_terminal/agent_content_routes.py` `_CF_REVIEW` and
+    # `SCANNED_PACKAGES` name `osprey.interfaces.channel_finder`.
+    # facility view
+    "osprey.facility.views.channel_finder -> osprey.services.channel_finder.databases.duckdb_import",
+    "osprey.facility.views.channel_finder -> osprey.services.channel_finder.databases.middle_layer",
+    # untangled by drop-dead-channel-finder-service
+    # A string, not an import: `registry/builtins.py` registers the service
+    # `module_path="osprey.services.channel_finder"`.
+    # untangled by mml-family-rule-to-facility
+    "osprey.facility.layers.mml.loaders.json_any -> osprey.services.channel_finder.tools.preview_database",
+]
+
+[[tool.importlinter.contracts]]
+id = "feature-logbook"
+name = "Only Logbook imports Logbook"
+# Logbook is becoming an app; the lines below are kept as for Knowledge.
+type = "protected"
+protected_modules = [
+    "osprey.services.ariel_search",
+    "osprey.mcp_server.ariel",
+    "osprey.interfaces.ariel",
+]
+allowed_importers = [
+    "osprey.services.ariel_search",
+    "osprey.mcp_server.ariel",
+    "osprey.interfaces.ariel",
+    "osprey.cli.ariel",
+]
+ignore_imports = [
+    # health check
+    "osprey.deployment.reach -> osprey.services.ariel_search.config",
+    "osprey.health.core.ariel -> osprey.services.ariel_search.config",
+    "osprey.health.core.ariel_modules -> osprey.services.ariel_search",
+    "osprey.health.core.ariel_modules -> osprey.services.ariel_search.enhancement",
+    "osprey.health.core.ariel_modules -> osprey.services.ariel_search.enhancement.base",
+    # build step
+    "osprey.deployment.compose_generator -> osprey.services.ariel_search.config",
+    "osprey.deployment.compose_generator -> osprey.services.ariel_search.search.qmd",
+    # deploy staging / migrations
+    "osprey.deployment.container_lifecycle -> osprey.services.ariel_search.cli_operations",
+    "osprey.deployment.container_lifecycle -> osprey.services.ariel_search.config",
+    # agent surface (render)
+    "osprey.cli.templates.claude_code -> osprey.services.ariel_search.config",
+    # Strings, not imports: `registry/mcp.py` `module="osprey.mcp_server.ariel"` and
+    # `registry/web.py` `factory_path="osprey.interfaces.ariel.app:create_app"`.
+    # plugin points
+    # Strings, not imports: `registry/builtins.py` registers the search modules,
+    # enhancers and ingestion adapters by `osprey.services.ariel_search.*` paths.
+    # backend routes
+    # Strings, not imports: `web_terminal/agent_content_routes.py` `_ARIEL_ROUTES`,
+    # `_ARIEL_DRAFTS` and `SCANNED_PACKAGES` name `osprey.interfaces.ariel`.
+    # simulation scenario
+    "osprey.cli.sim -> osprey.services.ariel_search.cli_operations",
+    "osprey.simulation.apply -> osprey.services.ariel_search.cli_operations",
+    "osprey.simulation.apply -> osprey.services.ariel_search.entry_url",
+    "osprey.simulation.apply -> osprey.services.ariel_search.exceptions",
+    "osprey.simulation.apply -> osprey.services.ariel_search.models",
+    # untangled by artifact-converters-to-core
+    "osprey.agent_runner.artifact_resolve -> osprey.mcp_server.ariel.converters",
+    "osprey.interfaces.artifacts.logbook -> osprey.mcp_server.ariel.tools.entry",
+]
+
+[[tool.importlinter.contracts]]
+id = "feature-bluesky"
+name = "Only Bluesky imports Bluesky"
+# Bluesky is becoming an app; the lines below are kept as for Knowledge.
+type = "protected"
+protected_modules = [
+    "osprey.services.bluesky_bridge",
+    "osprey.mcp_server.bluesky",
+    "osprey.interfaces.bluesky_web",
+]
+allowed_importers = [
+    "osprey.services.bluesky_bridge",
+    "osprey.mcp_server.bluesky",
+    "osprey.interfaces.bluesky_web",
+]
+ignore_imports = [
+    # build step
+    "osprey.cli.templates.plan_index -> osprey.services.bluesky_bridge.plan_loader",
+    "osprey.cli.templates.plan_index -> osprey.services.bluesky_bridge.plan_metadata",
+    "osprey.cli.templates.plan_index -> osprey.services.bluesky_bridge.plan_types",
+    "osprey.deployment.compose_generator -> osprey.services.bluesky_bridge.devices._specs_from_file",
+    # agent surface (render)
+    # A string, not an import: `registry/mcp.py` `module="osprey.mcp_server.bluesky"`.
+    # facility view
+    "osprey.facility.views.bluesky -> osprey.services.bluesky_bridge.devices.connector",
+    "osprey.facility.views.bluesky -> osprey.services.bluesky_bridge.substrate_devices",
+    # SDK shared service
+    "osprey.apps.sdk._wrappers -> osprey.services.bluesky_bridge.queue_backend",
 ]
 
 # Ruff configuration for modern Python linting
