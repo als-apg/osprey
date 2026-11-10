@@ -48,7 +48,6 @@ from osprey.deployment.compose_generator import (
     WRITE_REQUESTS_CONTAINER_DIR,
     configured_ariel_mirror_path,
     guarded_run_relpath,
-    hub_image,
     repo_identity,
     repo_relative_mount_source,
     resolve_base_registry,
@@ -63,6 +62,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.deployment.qmd_service import is_loopback_bind
+from osprey.deployment.upstream_images import hub_image
 from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
     terminal_secret_var,

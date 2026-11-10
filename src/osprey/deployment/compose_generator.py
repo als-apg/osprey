@@ -44,7 +44,6 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
-from osprey.deployment.graphdb_service import DEFAULT_IMAGE as GRAPHDB_DEFAULT_IMAGE
 from osprey.deployment.qmd_service import ARIEL_CORPUS, OKF_CORPUS, is_loopback_bind
 from osprey.deployment.runtime_helper import (
     CONFIG_DIGEST_VAR,
@@ -53,6 +52,12 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
 )
 from osprey.deployment.subprocess_capture import run_captured
+from osprey.deployment.upstream_images import (  # noqa: F401  (re-exported)
+    DOCKER_HUB,
+    UPSTREAM_IMAGES,
+    hub_image,
+    upstream_image,
+)
 
 # The dev-wheel build, per-process cache, and staging-copy helpers live in
 # wheel_build; the copy helper is invoked here by _stage_dev_wheel_for_context,
@@ -1857,40 +1862,6 @@ SITE_IMAGE_AXES = {
 }
 
 
-#: The registry Docker Hub references name, spelled out or implied.
-DOCKER_HUB = "docker.io"
-
-
-def hub_image(reference: str, base_registry: str) -> str:
-    """A Docker Hub image reference, moved onto the registry standing in for docker.io.
-
-    The mirror must keep Docker Hub's paths: an official image is served under
-    ``library/`` and a namespaced one under its own namespace, exactly as
-    Docker Hub files them. So ``redis:7.4-alpine`` becomes
-    ``<mirror>/library/redis:7.4-alpine``, ``pgvector/pgvector:pg16`` becomes
-    ``<mirror>/pgvector/pgvector:pg16``, and ``ghcr.io/bluesky/tiled:0.2.18``,
-    which names another registry, is returned unchanged.
-
-    :param reference: An image reference, short or fully qualified.
-    :type reference: str
-    :param base_registry: The registry standing in for docker.io, ``""`` when
-        the deployment declares none.
-    :type base_registry: str
-    :return: *reference* on the mirror, or *reference* itself when there is no
-        mirror or it names a registry other than Docker Hub.
-    :rtype: str
-    """
-    if not base_registry:
-        return reference
-    first, slash, rest = reference.partition("/")
-    if slash and first != DOCKER_HUB and ("." in first or ":" in first or first == "localhost"):
-        return reference
-    path = rest if slash and first == DOCKER_HUB else reference
-    if "/" not in path:
-        path = f"library/{path}"
-    return f"{base_registry}/{path}"
-
-
 def resolve_base_registry(config):
     """The registry standing in for docker.io this deployment declares.
 
@@ -1908,20 +1879,11 @@ def resolve_base_registry(config):
     return resolve_site_image_axes(config).get("OSPREY_BASE_REGISTRY", "")
 
 
-#: The Docker Hub image each pulled service runs when nothing names its image,
-#: keyed as the compose templates read them from ``upstream_images``.
-UPSTREAM_IMAGES = {
-    "postgres": "pgvector/pgvector:pg16",
-    "mongodb": "mongo:7",
-    "graphdb": GRAPHDB_DEFAULT_IMAGE,
-    "redis": "redis:7.4-alpine",
-}
-
-
 def resolve_upstream_images(config):
     """The default reference of every pulled upstream image this deployment renders.
 
-    Each :data:`UPSTREAM_IMAGES` entry passed through :func:`hub_image` with
+    Each :data:`~osprey.deployment.upstream_images.UPSTREAM_IMAGES` entry passed
+    through :func:`~osprey.deployment.upstream_images.upstream_image` with
     :func:`resolve_base_registry`, so a declared Docker Hub mirror moves every
     one and an undeclared one leaves each spelled as Docker Hub names it.
 
@@ -1933,7 +1895,7 @@ def resolve_upstream_images(config):
         value no build arg can carry.
     """
     base_registry = resolve_base_registry(config)
-    return {key: hub_image(ref, base_registry) for key, ref in UPSTREAM_IMAGES.items()}
+    return {key: upstream_image(key, base_registry) for key in UPSTREAM_IMAGES}
 
 
 def resolve_site_image_axes(config):

@@ -281,7 +281,7 @@ class CIContext:
 
     def hub_image(self, reference: str) -> str:
         """*reference*, a Docker Hub image, as the pipeline pulls it."""
-        from osprey.deployment.compose_generator import hub_image
+        from osprey.deployment.upstream_images import hub_image
 
         return hub_image(reference, self.base_registry)
 
