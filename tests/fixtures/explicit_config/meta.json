@@ -1,7 +1,7 @@
 {
   "api_key_env_stripped": true,
-  "baseline_commit": "158f4a520a2c25c0326717b463d30cb37563319e",
-  "baseline_sha": "158f4a520a",
+  "baseline_commit": "ba287f0c5a2561ffc57060c220303c69718dc197",
+  "baseline_sha": "ba287f0c5",
   "build_account": "osprey-freeze-builder",
   "cells": [
     "hello-world/unset",

@@ -91,7 +91,11 @@ def base(tmp_path_factory) -> Path:
         data_root=bundle_data_root("demo"),
     )
     profile, _profile_dir = resolve_build_profile(None, preset="demo")
-    config_update_fields(project / "config.yml", profile.config)
+    # The demo preset ships a pv_directory section; the base is the preset without it.
+    config_update_fields(
+        project / "config.yml",
+        {key: value for key, value in profile.config.items() if key != "pv_directory"},
+    )
     write_facility_views(project, "demo")
     manager.regenerate_claude_code(project)
     return project
