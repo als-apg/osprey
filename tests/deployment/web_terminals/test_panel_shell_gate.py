@@ -20,7 +20,7 @@ from osprey.deployment.web_terminals.artifacts import (
     dangerously_allowed_bash_renders,
     write_web_terminal_artifacts,
 )
-from osprey.deployment.web_terminals.provision import web_terminal_preflight_problems
+from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
 from tests.deployment.web_terminals._panel_fixtures import _TOKEN, _panel_render, _roster
 
 _WRITE_ROUTES = (("GET", "/state"), ("POST", "/set"))
@@ -124,7 +124,7 @@ def test_the_collected_preflight_report_names_the_application_under_the_waiver(t
     config["dangerously_allow_bash"] = True
 
     problems = [
-        problem for problem, _ in web_terminal_preflight_problems(config, repo_root=tmp_path)
+        problem for problem, _ in web_terminal_preflight_report(config, repo_root=tmp_path)[0]
     ]
 
     assert any("'knob'" in problem and "POST /set" in problem for problem in problems)

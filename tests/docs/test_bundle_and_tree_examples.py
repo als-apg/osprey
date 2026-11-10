@@ -50,7 +50,7 @@ from osprey.cli.profile_conventions import (
     PROJECT_MIRROR_DIR,
     convention_for,
     plan_convention_copies,
-    validate_project_mirror,
+    validate_convention_sources,
 )
 from osprey.deployment.compose_generator import SERVICES_DIR, TEMPLATE_FILENAME
 from osprey.facility import sources
@@ -532,7 +532,7 @@ def test_project_mirror_dockerfile_is_copied_onto_the_render_root(tmp_path: Path
     paths = _profile_tree(PROJECT_IMAGE_PAGE, "copied verbatim onto the render")
     assert paths == [f"{PROJECT_MIRROR_DIR}/", f"{PROJECT_MIRROR_DIR}/Dockerfile"]
     _materialize(tmp_path, paths)
-    validate_project_mirror(tmp_path / PROJECT_MIRROR_DIR)
+    validate_convention_sources(tmp_path)
     copies = [(c.category, c.destination, c.is_directory) for c in plan_convention_copies(tmp_path)]
     assert copies == [(PROJECT_MIRROR_DIR, "Dockerfile", False)]
 
