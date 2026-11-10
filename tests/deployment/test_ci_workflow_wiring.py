@@ -463,7 +463,18 @@ def _raw_workflow() -> dict[str, Any]:
     """ci.yml as written, parsed once per process; read only through ``_load_raw_workflow``."""
     loaded = yaml.safe_load(CI_YML.read_text())
     assert loaded is not None, f"{CI_YML} parsed to None"
-    return loaded
+    return _unshared(loaded)
+
+
+def _unshared(node: Any) -> Any:
+    """A copy with no node shared between parents. PyYAML resolves every alias
+    of a ci.yml anchor to the same object, and deepcopy keeps that sharing, so
+    a mutation test editing one lane's step would edit every lane's."""
+    if isinstance(node, dict):
+        return {key: _unshared(value) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_unshared(value) for value in node]
+    return node
 
 
 def _load_raw_workflow() -> dict[str, Any]:

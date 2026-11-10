@@ -164,6 +164,9 @@ env:
   # Stated once here so a new container lane cannot forget it.
   OSPREY_CI_DIAG_DIR: ci-diag
 
+# Steps repeated across lanes are written once as a YAML anchor (`- &name`, at
+# their first use) and reused as an alias (`- *name`). Editing an anchored step
+# edits every lane that aliases it.
 jobs:
   test:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }} (${{ matrix.shard }})
@@ -249,12 +252,14 @@ jobs:
         exclude: ${{ fromJSON(github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"python-version":"3.11"},{"python-version":"3.14"}]' || '[]') }}
 
     steps:
-    - name: Checkout repository
+    - &checkout-full-history
+      name: Checkout repository
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
 
-    - name: Install uv
+    - &install-uv
+      name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
@@ -279,7 +284,8 @@ jobs:
       # [project] dependencies for that reason.
       run: uv sync --locked --extra dev --extra virtual-accelerator
 
-    - name: Install the pinned Claude Code CLI
+    - &install-pinned-cli
+      name: Install the pinned Claude Code CLI
       # One Claude Code runs in this lane: the version OSPREY pins, installed
       # where PATH finds it. The suite's real-binary checks run that install
       # and fail, never skip, without it; every other test is pointed at a
@@ -567,15 +573,9 @@ jobs:
         exclude: ${{ fromJSON(github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && '[{"python-version":"3.11"},{"python-version":"3.14"}]' || '[]') }}
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
     - name: Set up Python ${{ matrix.python-version }}
       run: uv python install ${{ matrix.python-version }}
@@ -586,9 +586,7 @@ jobs:
       # it the suites would skip.
       run: uv sync --locked --extra dev --extra virtual-accelerator
 
-    - name: Install the pinned Claude Code CLI
-      # The `test` job's environment, so a suite here sees what it saw there.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run real-terminal pty suite serially
       # Linux only, and not because the suite cannot run elsewhere: it is POSIX
@@ -667,18 +665,18 @@ jobs:
     # the declared minimums so the floor either holds or fails here, rather than
     # at an operator's site running an older pandas.
     steps:
-    - name: Checkout repository
+    - &checkout
+      name: Checkout repository
       uses: actions/checkout@v7
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
+    - &python-3-11
+      name: Set up Python
       run: uv python install 3.11
 
-    - name: Install dependencies
+    - &sync-dev-deps
+      name: Install dependencies
       run: uv sync --locked --extra dev
 
     - name: Pin pandas and numpy to the declared floor
@@ -718,16 +716,11 @@ jobs:
     # This lane installs the extra, and a redis-server for the tests that
     # exercise the job lock and status compare-and-set through real Lua scripts.
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
+    - *checkout
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     - name: Install redis-server
       run: sudo apt-get update && sudo apt-get install -y --no-install-recommends redis-server
@@ -773,21 +766,11 @@ jobs:
     # that package installed. The same suite also runs beside the framework in
     # the unit lane's rest-b shard.
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      # Full history + tags: the package version is derived from its own
-      # osprey-connectors-v* tags, and test_version.py fails a full checkout
-      # that cannot describe one.
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     - name: Install the connectors package alone
       # The member, its dependencies and its `dev` group, exactly as uv.lock pins them.
@@ -846,11 +829,7 @@ jobs:
       floor: ${{ steps.plan.outputs.floor }}
       floor-applicable: ${{ steps.plan.outputs.floor-applicable }}
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      # Full history + tags: the plan reads every tag reachable from HEAD.
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
     - name: Read the supported releases and the connectors floor
       id: plan
@@ -995,19 +974,11 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      # Full history + tags: the package version is derived from the git tag.
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     - name: Lockfile is current with pyproject
       # pyproject.toml and uv.lock must move together. Every lane's
@@ -1017,8 +988,7 @@ jobs:
       # that could rewrite the lock.
       run: python3 scripts/check.py run lockfile
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     - name: Run ruff (linting)
       run: uv run python scripts/check.py run ruff
@@ -1177,18 +1147,11 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     # sphinx.ext.graphviz shells out to `dot`; without it every graphviz
     # directive is a warning, and warnings are errors below.
@@ -1224,19 +1187,11 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      # Full history + tags: the package version is derived from the git tag.
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     # One step: the check builds the framework, twine-checks dist/ while it
     # holds only the framework's own artifacts, builds the lean connectors
@@ -1265,22 +1220,13 @@ jobs:
     timeout-minutes: 20
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      # Full history + tags: the package version is derived from the git tag.
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     - name: Run Tier 0 static checks
       timeout-minutes: 15
@@ -1475,21 +1421,13 @@ jobs:
       OSPREY_OFFLINE: "1"
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     # The artifact pages are served opaque, and the suites that prove it run
     # with OSPREY_OFFLINE=1 so every vendor library comes through the proxy's
@@ -1507,7 +1445,8 @@ jobs:
     # running a test. The browsers come from Playwright's CDN and are always
     # fast. So the debs and the browsers are cached across runs, apt prefers
     # archive.ubuntu.com, and each install step has its own short timeout.
-    - name: Resolve Playwright browser cache key
+    - &playwright-cache-key
+      name: Resolve Playwright browser cache key
       id: playwright-key
       run: |
         version=$(uv run python -c 'import importlib.metadata as m; print(m.version("playwright"))')
@@ -1515,7 +1454,8 @@ jobs:
         echo "prefix=playwright-${version}-${ImageOS}-" >> "$GITHUB_OUTPUT"
         echo "key=playwright-${version}-${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
 
-    - name: Configure apt for the Playwright system deps
+    - &playwright-apt
+      name: Configure apt for the Playwright system deps
       # The runner's sources read `mirror+file:/etc/apt/apt-mirrors.txt`, one
       # `URL<TAB>priority:N` per line, lowest tried first. Swapping azure's 1
       # with archive.ubuntu.com's 2 keeps azure as the fallback; a file in any
@@ -1550,7 +1490,8 @@ jobs:
         restore-keys: |
           ${{ steps.playwright-key.outputs.prefix }}
 
-    - name: Install Playwright chromium
+    - &playwright-chromium
+      name: Install Playwright chromium
       timeout-minutes: 10
       run: uv run playwright install chromium --with-deps
 
@@ -1673,21 +1614,13 @@ jobs:
       OSPREY_OFFLINE: "1"
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     # See the visual-theming lane's step of the same name.
     - name: Fetch vendor assets
@@ -1697,31 +1630,9 @@ jobs:
     # `visual-theming` writes the Playwright cache (both browsers and their
     # debs); this lane only reads it, so the two never store a second copy
     # under a second key.
-    - name: Resolve Playwright browser cache key
-      id: playwright-key
-      run: |
-        version=$(uv run python -c 'import importlib.metadata as m; print(m.version("playwright"))')
-        : "${ImageOS:?runner image name missing}" "${ImageVersion:?runner image version missing}"
-        echo "prefix=playwright-${version}-${ImageOS}-" >> "$GITHUB_OUTPUT"
-        echo "key=playwright-${version}-${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+    - *playwright-cache-key
 
-    - name: Configure apt for the Playwright system deps
-      # See the visual-theming lane's step of the same name.
-      run: |
-        sudo sed -i -E \
-          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
-          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
-          /etc/apt/apt-mirrors.txt
-        cat /etc/apt/apt-mirrors.txt
-        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
-          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
-        mkdir -p "$HOME/apt-archives/partial"
-        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
-        Dir::Cache::Archives "$HOME/apt-archives";
-        APT::Keep-Downloaded-Packages "true";
-        Acquire::http::Timeout "15";
-        Acquire::Retries "3";
-        EOF
+    - *playwright-apt
 
     - name: Restore Playwright browsers and apt debs
       uses: actions/cache/restore@v6
@@ -1733,15 +1644,9 @@ jobs:
         restore-keys: |
           ${{ steps.playwright-key.outputs.prefix }}
 
-    - name: Install Playwright chromium
-      timeout-minutes: 10
-      run: uv run playwright install chromium --with-deps
+    - *playwright-chromium
 
-    - name: Install the pinned Claude Code CLI
-      # The watchdog suite below launches the agent the web terminal launches,
-      # against a scripted model. Every agent run refuses to start without the
-      # version OSPREY pins.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run the watchdog browser suite
       timeout-minutes: 20
@@ -1827,11 +1732,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      # Full history + tags: the package version is derived from the git tag.
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
     - name: Set up Node
       uses: actions/setup-node@v7
@@ -1862,10 +1763,7 @@ jobs:
       run: python3 scripts/check.py run vitest
 
     # `osprey app check` installs its own pinned toolchain and runs it through Python.
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
     - name: Install Python dependencies
       run: uv sync --locked --extra dev
@@ -1884,11 +1782,7 @@ jobs:
     # accepting, or a plugin CLI change all break it without touching the
     # plugin tree. The lane costs about a minute, so it always runs.
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      # Full history + tags: the package version is derived from the git tag.
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
     # `claude plugin marketplace add` writes the registration into
     # $CLAUDE_CONFIG_DIR/settings.json, and `install`/`details` read it back
@@ -1900,23 +1794,14 @@ jobs:
     - name: Point the Claude CLI at a scratch config dir
       run: echo "CLAUDE_CONFIG_DIR=$RUNNER_TEMP/claude-cfg" >> "$GITHUB_ENV"
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     - name: Install dependencies
       run: uv sync --locked
 
-    - name: Install the pinned Claude Code CLI
-      # One Claude Code runs in this lane: the version OSPREY pins, installed
-      # where PATH finds it. Every agent run here is pointed at that install
-      # and refuses to start without it, so a lane that lacks it fails loudly
-      # rather than skipping its agent tests or running some other build.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Install the osprey plugin from the in-repo marketplace
       # The checkout itself is the marketplace source, so this proves the
@@ -1945,22 +1830,13 @@ jobs:
         preset: [hello-world, demo]
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      # Full history + tags: the package version is derived from the git tag.
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     - name: Cache uv project-venv downloads
       uses: actions/cache@v6
@@ -2063,22 +1939,13 @@ jobs:
         preset: [hello-world, demo]
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      # Full history + tags: the package version is derived from the git tag.
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2111,12 +1978,7 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Install the pinned Claude Code CLI
-      # One Claude Code runs in this lane: the version OSPREY pins, installed
-      # where PATH finds it. Every agent run here is pointed at that install
-      # and refuses to start without it, so a lane that lacks it fails loudly
-      # rather than skipping its agent tests or running some other build.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run Tier 3 agentic test for preset
       timeout-minutes: 55
@@ -2172,26 +2034,19 @@ jobs:
     # Image-building E2E lanes run the hosted runner out of disk ("No space left
     # on device" in the image's deps layer). Drop the preinstalled SDKs this job
     # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
+    - &free-runner-disk
+      name: Free runner disk
       run: |
         sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
         df -h /
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2217,12 +2072,7 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Install the pinned Claude Code CLI
-      # One Claude Code runs in this lane: the version OSPREY pins, installed
-      # where PATH finds it. Every agent run here is pointed at that install
-      # and refuses to start without it, so a lane that lacks it fails loudly
-      # rather than skipping its agent tests or running some other build.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run E2E tests
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -2483,7 +2333,6 @@ jobs:
         docker volume ls -q --filter "name=^osprey-e2e-host-record_" \
           | xargs -r docker volume rm -f || true
 
-
   e2e-no-model:
     name: Model-Free E2E (the tests/e2e files that reach no gateway)
     runs-on: ubuntu-latest
@@ -2512,33 +2361,18 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      # Full history: `uv sync` builds the package from source and the version
-      # backend cannot derive a version without the tags.
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
-    - name: Assert a container runtime is present
+    - &assert-container-runtime
+      name: Assert a container runtime is present
       # A file here that needs containers skips itself when `docker` is
       # absent, and this lane treats a skip as a failure — so the runtime is
       # asserted here,
@@ -2548,12 +2382,7 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Install the pinned Claude Code CLI
-      # One Claude Code runs in this lane: the version OSPREY pins, installed
-      # where PATH finds it. Every agent run here is pointed at that install
-      # and refuses to start without it, so a lane that lacks it fails loudly
-      # rather than skipping its agent tests or running some other build.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run the model-free E2E files
       timeout-minutes: 25
@@ -2627,7 +2456,6 @@ jobs:
         name: e2e-no-model
         engine: docker
 
-
   agent-record-e2e:
     name: Agent Record E2E (${{ matrix.backend }}; replays every captured fixture through the real stack)
     runs-on: ubuntu-latest
@@ -2667,41 +2495,19 @@ jobs:
     # The project image's deps layer ran the runner out of disk: uv reported
     # "No space left on device" installing into the image. Drop the preinstalled
     # SDKs this job never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      # Full history: `uv sync` builds the package from source and the version
-      # backend cannot derive a version without the tags.
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
-    - name: Assert a container runtime is present
-      # The replay skips itself when `docker` is absent, and this lane treats
-      # a skip as a failure — so the runtime is asserted here, where the cause
-      # is named.
-      run: |
-        set -euo pipefail
-        docker info > /dev/null
+    - *assert-container-runtime
 
-    - name: Install the pinned Claude Code CLI
-      # The deployments this lane brings up start a dispatch worker, which
-      # refuses to start without the Claude Code OSPREY pins.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run the agent record replay
       timeout-minutes: 120
@@ -2764,7 +2570,6 @@ jobs:
         docker volume ls -q --filter "name=^osprey-e2e-agent-record_" \
           | xargs -r docker volume rm -f || true
 
-
   channel-finder-benchmarks:
     name: Channel-Finder MCP Benchmarks (on demand)
     runs-on: ubuntu-latest
@@ -2782,21 +2587,13 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2822,12 +2619,7 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Install the pinned Claude Code CLI
-      # One Claude Code runs in this lane: the version OSPREY pins, installed
-      # where PATH finds it. Every agent run here is pointed at that install
-      # and refuses to start without it, so a lane that lacks it fails loudly
-      # rather than skipping its agent tests or running some other build.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Fetch the pinned neosemantics (n10s) jar for the graph benchmark lane
       # The fourth paradigm, `graph`, is scored against a real Neo4j +
@@ -2872,21 +2664,13 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install dependencies
-      run: uv sync --locked --extra dev
+    - *sync-dev-deps
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -2912,10 +2696,7 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Install the pinned Claude Code CLI
-      # The agent runs refuse to start without the pinned Claude Code, so a
-      # lane that lacks it fails loudly rather than skipping its tests.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run Tier 2 model benchmarks
       env:
@@ -2945,23 +2726,18 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
+    - &setup-compose
+      name: Set up Docker Compose
       uses: docker/setup-compose-action@v2
 
-    - name: Install osprey
+    - &install-osprey
+      name: Install osprey
       run: uv sync --locked --extra dev
 
     - name: Create hello_world deployment repo
@@ -3052,32 +2828,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3104,7 +2865,8 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Build the qmd sidecar image
+    - &build-qmd-image
+      name: Build the qmd sidecar image
       # The demo preset deploys the qmd sidecar, which `osprey up`
       # would otherwise build cold here, fetching 2.1 GB of models from
       # huggingface.co. Built from the layer cache the main-branch warm-up
@@ -3142,7 +2904,6 @@ jobs:
         docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
           | xargs -r docker volume rm -f || true
 
-
   single-user-narrowing-e2e:
     name: Single-User Narrowing E2E (full Docker stack + owner-narrowed dispatch run)
     runs-on: ubuntu-latest
@@ -3168,32 +2929,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3220,12 +2966,7 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Build the qmd sidecar image
-      # The demo preset deploys the qmd sidecar, which `osprey up`
-      # would otherwise build cold here, fetching 2.1 GB of models from
-      # huggingface.co. Built from the layer cache the main-branch warm-up
-      # saves instead, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
+    - *build-qmd-image
 
     - name: Run single-user narrowing E2E
       timeout-minutes: 55
@@ -3258,7 +2999,6 @@ jobs:
         docker volume ls -q --filter "name=^suproj_" \
           | xargs -r docker volume rm -f || true
 
-
   host-record-e2e:
     name: Host Record E2E (host sessions record without a container; the stack takes the record over)
     runs-on: ubuntu-latest
@@ -3284,32 +3024,17 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3336,10 +3061,7 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Install the pinned Claude Code CLI
-      # The host chat and query run the version OSPREY pins; the module skips
-      # without a `claude` on PATH, which the skip gate below turns into a red.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run host record E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3393,7 +3115,6 @@ jobs:
         docker volume ls -q --filter "name=^osprey-e2e-host-record_" \
           | xargs -r docker volume rm -f || true
 
-
   dispatch-overlay-e2e:
     name: Dispatch Overlay E2E (overlay skill/data/trigger visibility, full Docker stack)
     runs-on: ubuntu-latest
@@ -3421,32 +3142,17 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -3473,12 +3179,7 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Build the qmd sidecar image
-      # The demo preset deploys the qmd sidecar, which `osprey up`
-      # would otherwise build cold here, fetching 2.1 GB of models from
-      # huggingface.co. Built from the layer cache the main-branch warm-up
-      # saves instead, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
+    - *build-qmd-image
 
     - name: Run dispatch overlay visibility E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3514,7 +3215,6 @@ jobs:
         docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
           | xargs -r docker volume rm -f || true
 
-
   bluesky-deploy-e2e:
     name: Bluesky Deploy E2E (bluesky bridge, full Docker stack)
     runs-on: ubuntu-latest
@@ -3530,32 +3230,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    # The project image's deps layer ran the runner out of disk: uv reported
-    # "No space left on device" installing into the image. Drop the preinstalled
-    # SDKs this job never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run bluesky deploy E2E
       timeout-minutes: 55
@@ -3582,7 +3267,6 @@ jobs:
         docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
           | xargs -r docker volume rm -f || true
 
-
   optimizer-deploy-e2e:
     name: Optimizer Deploy E2E (optimizer + Redis job store, full Docker stack)
     runs-on: ubuntu-latest
@@ -3596,24 +3280,15 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run optimizer deploy E2E
       timeout-minutes: 55
@@ -3627,7 +3302,6 @@ jobs:
       with:
         name: optimizer-deploy-e2e
         engine: docker
-
 
   bluesky-web-deploy-e2e:
     name: Bluesky Web Deploy E2E (VA + bluesky bridge + bluesky-web sidecar, full Docker stack)
@@ -3648,32 +3322,17 @@ jobs:
     timeout-minutes: 45
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run bluesky web deploy E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3703,7 +3362,6 @@ jobs:
         docker volume ls -q --filter "name=^panels-proj_" \
           | xargs -r docker volume rm -f || true
 
-
   va-substrate-equivalence-e2e:
     name: VA Substrate Equivalence E2E (virtual accelerator + bluesky bridge, full Docker stack)
     runs-on: ubuntu-latest
@@ -3727,32 +3385,17 @@ jobs:
     timeout-minutes: 45
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run VA substrate equivalence E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -3781,7 +3424,6 @@ jobs:
         docker rm -f osprey-e2e-va-substrate-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
           | xargs -r docker volume rm -f || true
-
 
   orm-roundtrip-e2e:
     name: ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
@@ -3826,10 +3468,7 @@ jobs:
     steps:
     # The VA, bridge and Tiled images fill the runner's ~14 GB; drop the
     # preinstalled SDKs this job never uses.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
     # The four stacks build the same layers under four project names. Docker's
     # containerd image store (the runner default since Docker 29) keeps each
@@ -3852,24 +3491,15 @@ jobs:
         echo "storage driver: $driver"
         [ "$driver" = overlay2 ]
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     # Step caps under the job cap, each sized from its module's own internal
     # timeouts (see the job-cap note above), so a hang fails THAT step and the
@@ -3931,7 +3561,6 @@ jobs:
         docker volume ls -q --filter "name=^preflight-probe_" \
           | xargs -r docker volume rm -f || true
 
-
   bluesky-queue-e2e:
     name: Bluesky Queue E2E (queueserver + Redis + Tiled + VA, full Docker stack)
     runs-on: ubuntu-latest
@@ -3950,32 +3579,17 @@ jobs:
     timeout-minutes: 75
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run Bluesky queue E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4007,7 +3621,6 @@ jobs:
         docker rm -f queue-e2e-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^queue-e2e_" \
           | xargs -r docker volume rm -f || true
-
 
   scan-agentic-e2e:
     name: Scan Stack Agentic E2E (agent-driven ORM + grid scans on the deployed queue stack)
@@ -4047,32 +3660,17 @@ jobs:
     timeout-minutes: 75
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -4099,19 +3697,9 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Install the pinned Claude Code CLI
-      # One Claude Code runs in this lane: the version OSPREY pins, installed
-      # where PATH finds it. Every agent run here is pointed at that install
-      # and refuses to start without it, so a lane that lacks it fails loudly
-      # rather than skipping its agent tests or running some other build.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
-    - name: Build the qmd sidecar image
-      # The demo preset deploys the qmd sidecar, which `osprey up`
-      # would otherwise build cold here, fetching 2.1 GB of models from
-      # huggingface.co. Built from the layer cache the main-branch warm-up
-      # saves instead, and started through OSPREY_QMD_IMAGE below.
-      uses: ./.github/actions/build-qmd-image
+    - *build-qmd-image
 
     - name: Run scan stack agentic E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4192,7 +3780,6 @@ jobs:
         docker volume ls -q --filter "name=^plan-agentic_" \
           | xargs -r docker volume rm -f || true
 
-
   archiver-world-e2e:
     name: Archiver World E2E (VA + mongodb store + recorder, full Docker stack)
     runs-on: ubuntu-latest
@@ -4219,33 +3806,21 @@ jobs:
     steps:
     # The VA, recorder and store images fill the runner's ~14 GB; drop the
     # preinstalled SDKs this job never uses.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
     # No ghcr login step: the trimmed stack pulls nothing from a private
     # registry. The VA image builds locally from
     # python:3.11-slim, mongodb is mongo:7 from Docker Hub, and the recorder
     # reuses the VA image.
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run archiver world E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4278,7 +3853,6 @@ jobs:
         docker rm -f archiver-world-agent-record-clickhouse || true
         docker volume rm archiver-world_agent_record_clickhouse_data || true
 
-
   graph-reseed-e2e:
     name: Graph Reseed Stamp E2E (render + real Neo4j store, no model)
     runs-on: ubuntu-latest
@@ -4294,21 +3868,13 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Fetch the pinned neosemantics (n10s) jar
       # The store fixture can download the jar itself, but a failed download
@@ -4334,7 +3900,6 @@ jobs:
         name: graph-reseed-e2e
         engine: docker
 
-
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
     runs-on: ubuntu-latest
@@ -4358,32 +3923,17 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run Tiled roundtrip E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4413,7 +3963,6 @@ jobs:
         docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
           | xargs -r docker volume rm -f || true
 
-
   bluesky-catalog-e2e:
     name: Bluesky Catalog E2E (layered plan catalog, full Docker stack)
     runs-on: ubuntu-latest
@@ -4436,29 +3985,17 @@ jobs:
     steps:
     # The image build's uv install runs the runner out of its ~14 GB; drop the
     # preinstalled SDKs this job never uses.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run bluesky catalog E2E
       timeout-minutes: 55
@@ -4484,7 +4021,6 @@ jobs:
         docker rm -f osprey-e2e-catalog-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
           | xargs -r docker volume rm -f || true
-
 
   bluesky-sandbox-escape-e2e:
     name: Bluesky Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
@@ -4512,29 +4048,17 @@ jobs:
     # starts with free (the 2026-10-31 attempts died in `uv` with "No space
     # left on device" during the image build); drop the preinstalled SDKs this
     # job never uses.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run bluesky sandbox escape E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -4563,7 +4087,6 @@ jobs:
         docker rm -f sandbox-escape-agent-record-clickhouse || true
         docker volume ls -q --filter "name=^sandbox-escape_" \
           | xargs -r docker volume rm -f || true
-
 
   nextcloud-talk-bridge-e2e:
     name: Nextcloud Talk Bridge E2E (real Talk server + dispatch stack)
@@ -4599,18 +4122,9 @@ jobs:
     timeout-minutes: 45
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
     - name: Log in to ghcr (Nextcloud Talk fixture)
       uses: docker/login-action@v4
@@ -4619,25 +4133,15 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
-    - name: Install the pinned Claude Code CLI
-      # The dispatch worker this lane starts refuses to run without an
-      # installed `claude` reporting the pinned version, so the pin goes on
-      # PATH before any test brings the dispatcher/worker pair up.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Pull the pinned Nextcloud Talk fixture image
       run: |
@@ -4698,7 +4202,6 @@ jobs:
         name: nextcloud-talk-bridge-e2e
         engine: docker
 
-
   gchat-bridge-e2e:
     name: Google Chat Bridge E2E (Pub/Sub emulator + dispatch stack)
     runs-on: ubuntu-latest
@@ -4741,26 +4244,13 @@ jobs:
       OSPREY_E2E_RUNTIME: docker
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     - name: Install osprey
       # `--extra gchat` is load-bearing, not tidiness: the e2e module drives a
@@ -4770,11 +4260,7 @@ jobs:
       # backstop; this is the fix.
       run: uv sync --locked --extra dev --extra gchat
 
-    - name: Install the pinned Claude Code CLI
-      # The dispatch worker this lane starts refuses to run without an
-      # installed `claude` reporting the pinned version, so the pin goes on
-      # PATH before any test brings the dispatcher/worker pair up.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Pull the Pub/Sub emulator image
       run: |
@@ -4879,7 +4365,6 @@ jobs:
         name: gchat-bridge-e2e
         engine: docker
 
-
   teams-bridge-e2e:
     name: Microsoft Teams Bridge E2E (loopback fakes, no container)
     runs-on: ubuntu-latest
@@ -4907,18 +4392,11 @@ jobs:
     timeout-minutes: 15
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     - name: Install osprey
       # `--extra teams` is load-bearing at COLLECTION time, not tidiness: the
@@ -4927,11 +4405,7 @@ jobs:
       # the bottom of this job is the backstop; this is the fix.
       run: uv sync --locked --extra dev --extra teams
 
-    - name: Install the pinned Claude Code CLI
-      # The dispatch worker this lane starts refuses to run without an
-      # installed `claude` reporting the pinned version, so the pin goes on
-      # PATH before any test brings the dispatcher/worker pair up.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run Microsoft Teams bridge E2E
       # Well inside the job cap, so the diagnostics step below still runs.
@@ -4988,7 +4462,6 @@ jobs:
       with:
         name: teams-bridge-e2e
 
-
   slack-bridge-e2e:
     name: Slack Bridge E2E (loopback fakes, no container)
     runs-on: ubuntu-latest
@@ -5007,28 +4480,15 @@ jobs:
     timeout-minutes: 15
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install osprey
-      # No bridge extra: the Slack adapter's one third-party need, `websockets`,
-      # is a core dependency.
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
-    - name: Install the pinned Claude Code CLI
-      # The dispatch worker this lane starts refuses to run without an
-      # installed `claude` reporting the pinned version.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run Slack bridge E2E
       # Well inside the job cap, so the diagnostics step below still runs.
@@ -5073,7 +4533,6 @@ jobs:
       with:
         name: slack-bridge-e2e
 
-
   privilege-split-e2e:
     name: Privilege Split E2E (built images, stat-level ownership proof)
     runs-on: ubuntu-latest
@@ -5100,29 +4559,15 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run privilege split E2E
       timeout-minutes: 85
@@ -5237,26 +4682,15 @@ jobs:
     # The cache-hit test rebuilds the generated image (Playwright's Chromium
     # included) next to the first build, which overruns the ~14 GB a hosted
     # runner starts with free; drop the preinstalled SDKs this job never uses.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run Dockerfile E2E
       timeout-minutes: 55
@@ -5492,7 +4926,6 @@ jobs:
         fi
         docker rm -f osprey-ci-proxy > /dev/null 2>&1 || true
 
-
   execution-environment-parity-e2e:
     name: Execution Environment Parity E2E (host venv vs generated image)
     runs-on: ubuntu-latest
@@ -5511,26 +4944,18 @@ jobs:
     timeout-minutes: 40
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     # Installs osprey editable + the `build` package, which is what lets the
     # test stage a wheel from this checkout into the image build context. That
     # staging is load-bearing: without it the image would install the released
     # PyPI osprey and the parity assertions would describe released code
     # instead of the branch under review.
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run execution environment parity E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -5547,7 +4972,6 @@ jobs:
       with:
         name: execution-environment-parity-e2e
         engine: docker
-
 
   deploy-writeback-e2e:
     name: Deploy Write-Back E2E (profile-owned secrets across a rebuild)
@@ -5568,32 +4992,17 @@ jobs:
     timeout-minutes: 40
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run deploy write-back E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -5650,32 +5059,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run multi-user deploy lifecycle E2E
       timeout-minutes: 55
@@ -5747,32 +5141,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     # `osprey up --dev` builds the sidecar image and stages a locally-built
     # wheel into its context, so the whole run exercises THIS branch's code
@@ -5868,32 +5247,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into the render image, so
@@ -6001,31 +5365,17 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    # The image build's uv install runs the runner out of its ~14 GB; drop the
-    # preinstalled SDKs this job never uses.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     # `--with-deps` apt-installs chromium's system debs from the runner's
     # default mirror, azure.archive.ubuntu.com, which some days serves them at
@@ -6033,31 +5383,9 @@ jobs:
     # archive.ubuntu.com, and the install has its own cap. That lane writes the
     # Playwright cache (both browsers and their debs); this one only reads it,
     # so the two never store a second copy under a second key.
-    - name: Resolve Playwright browser cache key
-      id: playwright-key
-      run: |
-        version=$(uv run python -c 'import importlib.metadata as m; print(m.version("playwright"))')
-        : "${ImageOS:?runner image name missing}" "${ImageVersion:?runner image version missing}"
-        echo "prefix=playwright-${version}-${ImageOS}-" >> "$GITHUB_OUTPUT"
-        echo "key=playwright-${version}-${ImageOS}-${ImageVersion}" >> "$GITHUB_OUTPUT"
+    - *playwright-cache-key
 
-    - name: Configure apt for the Playwright system deps
-      # See the visual-theming lane's step of the same name.
-      run: |
-        sudo sed -i -E \
-          -e 's#^(http://azure\.archive\.ubuntu\.com/ubuntu/\t)priority:1$#\1priority:2#' \
-          -e 's#^(https?://archive\.ubuntu\.com/ubuntu/\t)priority:2$#\1priority:1#' \
-          /etc/apt/apt-mirrors.txt
-        cat /etc/apt/apt-mirrors.txt
-        grep -Eq '^https?://archive\.ubuntu\.com/ubuntu/[[:space:]]+priority:1$' /etc/apt/apt-mirrors.txt \
-          || echo "::warning::apt-mirrors.txt not in the expected shape; apt keeps the image's mirror order"
-        mkdir -p "$HOME/apt-archives/partial"
-        sudo tee /etc/apt/apt.conf.d/zzz-playwright-deps-cache >/dev/null <<EOF
-        Dir::Cache::Archives "$HOME/apt-archives";
-        APT::Keep-Downloaded-Packages "true";
-        Acquire::http::Timeout "15";
-        Acquire::Retries "3";
-        EOF
+    - *playwright-apt
 
     - name: Restore Playwright browsers and apt debs
       uses: actions/cache/restore@v6
@@ -6070,9 +5398,7 @@ jobs:
           ${{ steps.playwright-key.outputs.prefix }}
 
     # The history page is proved in a real browser against this lane's stack.
-    - name: Install Playwright chromium
-      timeout-minutes: 10
-      run: uv run playwright install chromium --with-deps
+    - *playwright-chromium
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into both real images, so
@@ -6170,43 +5496,19 @@ jobs:
     timeout-minutes: 75
 
     steps:
-    # The deployment's generated images overrun the ~14 GB a hosted runner
-    # starts with free (the 2026-10-31 attempts died in `uv` with "No space
-    # left on device" during the image build); drop the preinstalled SDKs this
-    # job never uses.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
-    - name: Assert a container runtime is present
-      # The module skips itself when docker is unavailable, which is right for
-      # a developer laptop and wrong here: pytest exits 0 on an all-skipped
-      # run, so a runner without docker would turn this lane green having
-      # tested nothing. Failing here instead makes that state loud, and fails
-      # it before the image build rather than after.
-      run: |
-        set -euo pipefail
-        docker info > /dev/null
+    - *assert-container-runtime
 
     # The fixture drives `osprey init`/`osprey build`/`osprey up --dev` itself;
     # `--dev` stages this branch's locally-built wheel into the render image,
@@ -6266,26 +5568,13 @@ jobs:
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
     - name: Set up rootless Podman
       run: |
@@ -6305,8 +5594,7 @@ jobs:
         insecure = true
         EOF
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Run multi-user deploy lifecycle E2E (podman)
       timeout-minutes: 55
@@ -6399,26 +5687,15 @@ jobs:
     # podman-compose 1.0.6 answered `up -d` 0 with no container created. Drop
     # the preinstalled SDKs this job never uses, as the other image-building
     # E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Pin podman-compose 1.0.6 as podman's compose provider
       # This lane exists to certify OSPREY against podman-compose specifically:
@@ -6606,7 +5883,6 @@ jobs:
         podman rmi -f osprey-e2e-two-shape:local || true
         podman rmi -f osprey-e2e-two-shape-dispatch:local || true
 
-
   qmd-sidecar-e2e:
     name: qmd Sidecar E2E (image build + live daemon over a fixture corpus)
     runs-on: ubuntu-latest
@@ -6630,48 +5906,22 @@ jobs:
     timeout-minutes: 240
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     # Needed by the multi-user shared-bundle step below, which drives a real
     # `osprey up` (and therefore `docker compose`). Same step the two
     # multi-user lifecycle lanes use, for the same reason.
-    - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Assert a container runtime is present
-      # The module skips itself when docker is unavailable, which is right for
-      # a developer laptop and wrong here: pytest exits 0 on an all-skipped
-      # run, so a runner without docker would turn this lane green having
-      # tested nothing. Failing here instead makes that state loud, and fails
-      # it before the multi-GB build rather than after.
-      #
-      # The absent-module case needs no guard — pytest exits 4 on a path that
-      # does not exist, which already reds the step.
-      run: |
-        set -euo pipefail
-        docker info > /dev/null
+    - *assert-container-runtime
 
     - name: Build the sidecar image
       # Restores the layer cache the main-branch warm-up job saves, then
@@ -6822,8 +6072,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
+    - *checkout
 
     - name: Warm the qmd layer cache
       uses: ./.github/actions/build-qmd-image
@@ -6858,35 +6107,18 @@ jobs:
     timeout-minutes: 30
 
     steps:
-    - name: Checkout repository
-      # Full history, not a shallow clone: the image build below stages a tree
-      # with no .git in it and passes the version in from the host, and
-      # hatch-vcs cannot derive that version without the tags.
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
-    - name: Assert a container runtime is present
-      # Every module in this lane drives real containers, and their fixtures
-      # fail rather than skip when the image is missing — but nothing in them
-      # checks that a runtime exists at all. Failing here makes that state
-      # loud, and does it before the multi-minute build rather than after.
-      run: |
-        set -euo pipefail
-        docker info > /dev/null
+    - *assert-container-runtime
 
-    - name: Build the virtual accelerator image
+    - &build-va-image
+      name: Build the virtual accelerator image
       # One of this lane's two control targets is a container of this image;
       # `bench-ioc:latest`, built below, is the other, and every assertion in
       # the lane reads a value back from one of the two.
@@ -7028,32 +6260,15 @@ jobs:
     timeout-minutes: 45
 
     steps:
-    # Image-building E2E lanes run the hosted runner out of disk ("No space left
-    # on device" in the image's deps layer). Drop the preinstalled SDKs this job
-    # never uses, as the other image-building E2E jobs do.
-    - name: Free runner disk
-      run: |
-        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-        df -h /
+    - *free-runner-disk
 
-    - name: Checkout repository
-      # Full history, not a shallow clone: the image build below stages a tree
-      # with no .git in it and passes the version in from the host, and
-      # hatch-vcs cannot derive that version without the tags.
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install osprey
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
     - name: Pre-flight LLM endpoint reachability check
       env:
@@ -7080,34 +6295,16 @@ jobs:
         fi
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
-    - name: Assert a container runtime is present
-      # The module drives two real containers, and its image preconditions FAIL
-      # rather than skip when an image is missing — but an absent runtime is a
-      # module-level `skipif`, so without this step the lane would build two
-      # images and then skip its way to a green the zero-skip gate only catches
-      # at the very end. Failing here says the same thing in one line, before
-      # the builds.
-      run: |
-        set -euo pipefail
-        docker info > /dev/null
+    - *assert-container-runtime
 
-    - name: Build the virtual accelerator image
-      # One of this lane's two control targets is a container of this image;
-      # `bench-ioc:latest`, built below, is the other, and the agent is
-      # judged on moving between them.
-      uses: ./.github/actions/build-virtual-accelerator-image
+    - *build-va-image
 
     - name: Build the bench IOC image
       # After the virtual accelerator image: this action builds on the Buildx
       # builder that one sets up, and has none of its own.
       uses: ./.github/actions/build-bench-ioc-image
 
-    - name: Install the pinned Claude Code CLI
-      # One Claude Code runs in this lane: the version OSPREY pins, installed
-      # where PATH finds it. Every agent run here is pointed at that install
-      # and refuses to start without it, so a lane that lacks it fails loudly
-      # rather than skipping its agent tests or running some other build.
-      uses: ./.github/actions/install-pinned-claude-code
+    - *install-pinned-cli
 
     - name: Run the control-target switch agentic E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -7295,41 +6492,17 @@ jobs:
           als_lane: true
 
     steps:
-    - name: Checkout repository
-      # Full history, not a shallow clone: the image build below stages a tree
-      # with no .git in it and passes the version in from the host, and
-      # hatch-vcs cannot derive that version without the tags.
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Install osprey
-      # The sync has to be the one that populates THIS checkout's `.venv`: the
-      # directory conftest resolves the CLI by path at `.venv/bin/osprey` and
-      # shells it to apply a scenario, rather than going through `uv run`.
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
-    - name: Assert a container runtime is present
-      # Every module in this lane drives real containers, and their fixtures
-      # fail rather than skip when the image is missing — but nothing in them
-      # checks that a runtime exists at all. Failing here makes that state
-      # loud, and does it before the multi-minute build rather than after.
-      run: |
-        set -euo pipefail
-        docker info > /dev/null
+    - *assert-container-runtime
 
-    - name: Build the virtual accelerator image
-      # Every module this lane runs reads its values back from a container of
-      # this image; there is no fake anywhere in the lane to fall back on.
-      uses: ./.github/actions/build-virtual-accelerator-image
+    - *build-va-image
 
     - name: Run the live virtual accelerator E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -7462,48 +6635,19 @@ jobs:
     timeout-minutes: 60
 
     steps:
-    - name: Checkout repository
-      # Full history, not a shallow clone: the image build below stages a tree
-      # with no .git in it and passes the version in from the host, and
-      # hatch-vcs cannot derive that version without the tags.
-      uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    - *checkout-full-history
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        enable-cache: true
+    - *install-uv
 
-    - name: Set up Python
-      run: uv python install 3.11
+    - *python-3-11
 
-    - name: Set up Docker Compose
-      # `osprey up` shells `docker compose`, so this lane needs the plugin
-      # present; the lanes that only start plain containers do not.
-      uses: docker/setup-compose-action@v2
+    - *setup-compose
 
-    - name: Install osprey
-      # The sync has to be THIS checkout's: the module resolves the CLI beside
-      # the running interpreter and hands every child an absolute PYTHONPATH,
-      # so a deployment built from another checkout's code would satisfy every
-      # assertion about the wrong source tree.
-      run: uv sync --locked --extra dev
+    - *install-osprey
 
-    - name: Assert a container runtime is present
-      # This module makes an absent `docker` a module-level skip, so without
-      # this step the lane would build an image and then skip its way to a
-      # green that only the zero-skip gate at the very end catches. Failing
-      # here says the same thing in one line, before the build.
-      run: |
-        set -euo pipefail
-        docker info > /dev/null
+    - *assert-container-runtime
 
-    - name: Build the virtual accelerator image
-      # The module SKIPS rather than fails when `osprey-va-full:latest` is
-      # absent, and it boots that image directly as the live lane's Channel
-      # Access endpoint, so this build is what the whole lane rests on.
-      uses: ./.github/actions/build-virtual-accelerator-image
+    - *build-va-image
 
     - name: Run the two-lane plan deployment E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
