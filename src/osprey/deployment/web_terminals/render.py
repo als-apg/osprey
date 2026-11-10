@@ -62,7 +62,7 @@ from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_PATH,
 )
 from osprey.deployment.qmd_service import is_loopback_bind
-from osprey.deployment.upstream_images import hub_image
+from osprey.deployment.upstream_images import upstream_image
 from osprey.deployment.web_terminals.auth_credentials import (
     TERMINAL_SECRET_VAR_PREFIX,
     terminal_secret_var,
@@ -156,11 +156,6 @@ _SIGN_IN_LABEL = "Log in to your terminal"
 # off-host would defeat the single-origin chokepoint this module exists to
 # provide.
 _LOOPBACK_BIND_HOST = "127.0.0.1"
-
-# Default nginx image when `modules.web_terminals.nginx_image` is unset. Kept
-# byte-identical to docker-compose.web.yml.j2's own `| default(...)` fallback so
-# an absent config value renders the same image from either side.
-_DEFAULT_NGINX_IMAGE = "nginx:1.31-alpine"
 
 #: The TLS seam's listener port when ``modules.web_terminals.tls.port`` is
 #: unset: HTTPS's own default rather than a slot in this deployment's port
@@ -1589,7 +1584,7 @@ def render_web_terminals(
         # when ``images.base_registry`` declares one; a named image is rendered
         # as named.
         "nginx_image": web_terminals.get("nginx_image")
-        or hub_image(_DEFAULT_NGINX_IMAGE, resolve_base_registry(root)),
+        or upstream_image("nginx", resolve_base_registry(root)),
         # The auth sidecar's service (image, listen port, session lifetime, the
         # env-var names its OIDC credentials arrive under) is rendered from the
         # same parsed stanza the nginx seam reads, so the two ends of the
