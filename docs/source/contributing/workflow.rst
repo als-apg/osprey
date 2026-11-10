@@ -42,7 +42,8 @@ Making Changes
 
    git checkout -b feature/your-feature-name
 
-**2. Make changes** -- follow the code standards below, add tests, update docs.
+**2. Make changes** -- follow the code standards on :doc:`development-setup`, add
+tests, update docs.
 
 **3. Test locally** with the check command, ``scripts/check.py``, which runs
 the merge gate from the checks every owner declares:
@@ -178,17 +179,37 @@ They now run on exactly two events:
 A release-notes pull request always carries ``full-ci``: these lanes are the
 only proof the agentic paths work on the tree about to be tagged.
 
-There is deliberately no schedule. A scheduled run spends model tokens with
-nobody watching, and its red reaches nobody; a lane that only runs when someone
-asked for it has a person waiting on the result. If you consume ``main``
-directly, pin a sha a full run was green on rather than raw head.
+On ``main``, ``.github/workflows/main-full-ci.yml`` starts that dispatch once a
+day, and only when ``main`` has moved since the last revalidation run, so a quiet
+day spends no model tokens. A red revalidation run opens or updates the one
+"Full CI red on main" issue, and the next green run closes it, so a red reaches
+a person. If you consume ``main`` directly, pin a sha a full run was green on
+rather than raw head. This prints the newest such sha, for the whole run or for
+one lane; it reads the runs through ``gh``, so sign in to the GitHub CLI first:
+
+.. code-block:: bash
+
+   python3 scripts/ci/full_ci_on_main.py last-green
+   python3 scripts/ci/full_ci_on_main.py last-green scan-agentic-e2e
 
 Everything else on a PR is unchanged: the unit, lint, docs and package lanes and
 every secret-free e2e lane (build-and-boot, deploy, bluesky, auth, podman) still
 run on every push. Those cost runner minutes, not tokens, and the deploy lanes
 are the per-PR proof that a render builds and starts.
 
-Path filtering was measured and rejected as the mechanism: over the 161 PRs
+The one exception is a docs-only pull request: when every changed path is under
+``docs/``, ``changelog.d/`` or ``tests/docs/``, the ``changes`` job sets
+``docs_only`` and every pull-request-scoped lane (the e2e and deploy set)
+skips. The always-on lanes still run, including the docs build and the tests
+that read ``docs/`` (``tests/docs/`` runs only in always-on lanes), and the
+gate's run summary says the e2e lanes did not run. A docs-only run used to
+cost about 620 runner-minutes, nearly all of it in lanes a page cannot reach.
+Root files such as ``README.md`` do not count, because the package build and
+the Dockerfile lane copy them. The ``full-ci`` label turns the exception off;
+``scripts/ci/docs_only.py`` holds the rule.
+
+Path filtering was measured and rejected as the mechanism for the
+model-spending lanes: over the 161 PRs
 merged in the two weeks before this landed, 86–91 % touched something under
 ``src/`` that the broad lanes cover, so a filter map would have saved about a
 fifth and needed maintaining. The label is the whole mechanism; the stop-loss
@@ -262,6 +283,6 @@ If you use the OSPREY agent (e.g., via `Claude Code <https://code.claude.com/doc
 the ``/osprey:contribute`` skill gives guided help following this workflow. It
 walks you through branching, commits, push, PR, and CI iteration,
 auto-detecting whether you have push access to ``als-apg/osprey`` or are
-contributing from a fork. It ships in the ``osprey`` plugin alongside five
+contributing from a fork. It ships in the ``osprey`` plugin alongside nine
 others; how to install it, and which skill fits which step of the journey, is
 on :doc:`agent-skills`.

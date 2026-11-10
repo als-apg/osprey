@@ -76,7 +76,8 @@ MCP server
 ----------
 
 An MCP server is how new tools reach the agent. Adding an *external* server
-needs no Python at all --- it is a ``config.yml`` block, covered in
+needs no Python at all --- it is an entry in the ``mcp_servers:`` block of
+``profile.yml``, covered in
 :doc:`/how-to/agent-interfaces/add-mcp-server`. A *framework* server is the
 developer seam: a package under ``src/osprey/mcp_server/`` holding a
 module-level ``FastMCP`` instance and a ``create_server()`` factory in

@@ -60,9 +60,9 @@ between:
 
 .. code-block:: yaml
 
-   # config.yml
-   execution:
-     execution_method: subprocess
+   # profile.yml
+   config:
+     execution.execution_method: subprocess
 
 ``subprocess`` is the default and the key can be left out entirely. Two other
 spellings load: ``local`` is an alias for this same backend and is accepted
@@ -193,8 +193,9 @@ Ten safety layers are applied in sequence:
 
 .. code-block:: yaml
 
-   python_executor:
-     execution_timeout_seconds: 300
+   # profile.yml
+   config:
+     python_executor.execution_timeout_seconds: 300
 
 .. _python-executor-write-surface:
 
@@ -395,7 +396,7 @@ same operator alert a readonly refusal raises.
 **Before the run.** For the ``execute`` tool in a ``readwrite`` run, the
 approval hook refuses the unambiguous raw spellings before any human is asked
 to approve: ``caput(``, ``caput_many(``, ``epics.caput(``, ``PV(...).put(``,
-``ctxt.put(``, ``aioca.caput(``, ``write_door`` and ``open_door``. It reads
+``aioca.caput(``, ``write_door`` and ``open_door``. It reads
 the source with comments and string literals removed, so a spelling inside a
 comment or a message does not count. The hook answers with a ``deny`` and the
 ``write_channel`` message, and files a refused audit record with reason
