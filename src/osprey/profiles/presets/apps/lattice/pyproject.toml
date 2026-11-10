@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lattice"
+version = "0.1.0"
+description = "An OSPREY application: lattice analyses of the facility's decks, computed once and shared."
+requires-python = ">=3.11"
+# The framework, FastAPI and uvicorn are already in the image, and so are numpy and pyAT,
+# which the built-in pyAT engine uses. The elegant engine runs the facility's own binaries.
+dependencies = ["numpy", "accelerator-toolbox"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["lattice_app"]
+
+# The panel and the skill sit beside the package in the source tree and inside it in the wheel.
+[tool.hatch.build.targets.wheel.force-include]
+panel = "lattice_app/panel"
+skills = "lattice_app/skills"

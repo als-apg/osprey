@@ -18,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_APP = REPO_ROOT / "tests/apps/fixtures/boundary_fixture_app"
 SHIPPED_PACKAGES = (
     "src/osprey/profiles/presets/apps/orbit-bump/orbit_bump",
+    "src/osprey/profiles/presets/apps/lattice/lattice_app",
     "src/osprey/apps/scaffold-app/scaffold_app",
     "tests/facility/fixtures/fixture_kind",
 )

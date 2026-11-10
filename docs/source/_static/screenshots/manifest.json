@@ -34,6 +34,11 @@
     "kind": "static",
     "osprey_version": "2026.9.0b3.post6981+gce771a4c5.d20261111"
   },
+  "lattice_panel": {
+    "captured_utc": "2026-11-10T22:20:48.579669+00:00",
+    "kind": "static",
+    "osprey_version": "2026.9.0b3.post6849+gc2c5062ce.d20261110"
+  },
   "qmd_query_pipeline": {
     "captured_utc": "2026-11-11T16:53:50.571915+00:00",
     "kind": "static",
