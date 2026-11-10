@@ -310,8 +310,7 @@ def _check_start_set(inputs: _Inputs) -> None:
             DEFAULT_SCENARIOS_KEY,
             f"{found}, and the profile states one too",
             f"remove `{DEFAULT_SCENARIOS_KEY}` from the profile; to cancel a value a preset "
-            f"gives, state the dotted key `{DEFAULT_SCENARIOS_KEY}: null`; on a materialized "
-            "profile, keep the existing `SITE-DEVIATION`-style marker line",
+            f"gives, state the dotted key `{DEFAULT_SCENARIOS_KEY}: null`",
         )
     if not isinstance(stated, list):
         return

@@ -1586,15 +1586,6 @@ def _revalidate(directory: Path | None, *, preset: str | None, conflicts: dict[s
         output.note(f"Left for you: {key}: {reason}")
     if result.providers_kept:
         output.note(f"Kept your own provider entries: {', '.join(result.providers_kept)}")
-    if result.drift_refusals:
-        output.report(
-            f"⚠ profile.yml names preset '{result.preset}', so `osprey validate` compares "
-            f"the two: it differs in {result.drift_refusals} place(s) no marker claims."
-        )
-        output.note(
-            f"Claim one with a `# {result.deviation_marker}: <why>` comment above its line, "
-            f"or in the key's name. `osprey validate --drift=warn` reports them without refusing."
-        )
     if result.app_drift:
         output.report("Applications that differ from what `osprey init` copied (left as they are):")
         for line in result.app_drift:

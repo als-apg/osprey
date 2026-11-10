@@ -38,7 +38,7 @@ in place, with the round-trip writer so every comment the operator kept survives
 6. ``providers.yml`` is completed, never rewritten: every value it states is
    kept, an edited entry OSPREY ships included, and only the entries OSPREY
    ships that it lacks, and the keys an existing one lacks, are added.
-   ``osprey validate`` reports each remaining difference as drift.
+   Each remaining difference is the operator's.
 7. ``provenance:`` is restamped with the preset, its hash and the catalog's
    hash, and ``requires_osprey_version`` at the schema floor, so a release
    that predates the vocabulary refuses the rewritten repo.
@@ -228,13 +228,9 @@ class RevalidateResult:
     """Lacking config keys left out on purpose → why."""
     providers_kept: tuple[str, ...] = ()
     """The operator's own ``providers.yml`` entries carried over."""
-    drift_refusals: int = 0
-    """Differences from the preset ``osprey validate`` now refuses."""
-    deviation_marker: str = ""
-    """The tag a drift finding is claimed with."""
     app_drift: list[str] = field(default_factory=list)
     """Each copied application whose files differ from what ``osprey init`` copied,
-    unclaimed, and each whose preset has moved on since. Reported, never rewritten."""
+    and each whose preset has moved on since. Reported, never rewritten."""
     retired_policies: list[str] = field(default_factory=list)
     """One line per file that lost ``approval.tools.<tool>`` for a governed tool, naming them."""
 
@@ -1968,24 +1964,20 @@ def _refresh_provenance_comment(document: CommentedMap) -> None:
     token.value = "\n".join(lines)
 
 
-def _stamp_provenance(document: Any, preset: str, preset_hash: str, providers_hash: str) -> str:
+def _stamp_provenance(document: Any, preset: str, preset_hash: str, providers_hash: str) -> None:
     """Record what the profile now carries: the preset, its hash, the catalog's.
 
     Written after the fill rather than before, because that is what makes it
     true: the profile spells every key the preset documents, so the stamp the
-    emitter would have written is the honest one. A ``deviation_marker:`` the
-    operator set is left alone — it is the one key in the block that is
-    theirs. The comment OSPREY emitted above the block is brought up to date
+    emitter would have written is the honest one. A ``deviation_marker:`` key
+    an earlier release honoured is dropped: nothing reads it any more. The
+    comment OSPREY emitted above the block is brought up to date
     (:func:`_refresh_provenance_comment`).
-
-    Returns:
-        The deviation marker now in force, which is what a drift finding has to
-        be claimed with.
     """
     from osprey.utils.config_writer import anchored_put
 
     from .build_profile_emit import _PROVENANCE_COMMENT
-    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
+    from .build_profile_load import RETIRED_PROVENANCE_KEY
 
     stamps = {
         "preset": preset,
@@ -2000,12 +1992,11 @@ def _stamp_provenance(document: Any, preset: str, preset_hash: str, providers_ha
         anchored_put(
             document, "provenance", block, comment=_comment_text(list(_PROVENANCE_COMMENT))
         )
-        return DEFAULT_DEVIATION_MARKER
+        return
     _refresh_provenance_comment(document)
     for key, value in stamps.items():
         block[key] = value
-    marker = block.get("deviation_marker")
-    return marker if isinstance(marker, str) and marker else DEFAULT_DEVIATION_MARKER
+    block.pop(RETIRED_PROVENANCE_KEY, None)
 
 
 class _Fill(NamedTuple):
@@ -2023,13 +2014,11 @@ def _stated_tier_word(config: Any) -> Any:
 
 
 def _tier_drift_note(stated: Any, preset: str, preset_word: Any) -> str:
-    """Why the fill leaves a stated tier word alone, and what ``osprey validate`` says of it."""
+    """Why the fill leaves a stated tier word alone."""
     shipped = f"`{preset_word}`" if preset_word is not None else "no value"
     return (
         f"this profile states `{stated}` and preset `{preset}` ships {shipped}; a preset "
-        "never decides whether this deployment allows writes, so it is kept. `osprey "
-        "validate` reports the difference as a preset-drift NOTE, not a refusal; a "
-        "`# DEVIATION:` comment above the line, or spelling the preset's word, silences it."
+        "never decides whether this deployment allows writes, so it is kept."
     )
 
 
@@ -2524,8 +2513,8 @@ def _moved_login_text(
     today, shipped shadows named by path either way — is re-emitted from the
     bundled login it names, which restamps its provenance. An edited one keeps
     its lines and gains ``lists: own`` and, unless it spells it,
-    ``control_system.writes: never``; *steps* says how ``osprey validate``
-    reports where it differs from the bundled login.
+    ``control_system.writes: never``; *steps* says how to take the bundled
+    login instead.
     """
     from .build_profile_emit import emit_layer_delta_yaml
     from .build_profile_presets import list_tiers
@@ -2554,9 +2543,7 @@ def _moved_login_text(
     if not (isinstance(config, dict) and list(_tier_key_values(config))):
         moved = _pin_never(moved, rel)
     note = (
-        f"; `osprey validate` reports where it differs from the bundled `{bundled}` login — "
-        f"claim each difference with a `# DEVIATION:` comment, or take the bundled file with "
-        f"`osprey scaffold tiers --force`"
+        f"; to take the bundled `{bundled}` login instead, run `osprey scaffold tiers --force`"
         if bundled in list_tiers()
         else ""
     )
@@ -3009,9 +2996,7 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     preset_hash = ""
     if resolved is not None:
         preset_hash = compute_preset_hash(resolved) or "(unavailable)"
-        result.deviation_marker = _stamp_provenance(
-            document, resolved, preset_hash, plan.content_hash
-        )
+        _stamp_provenance(document, resolved, preset_hash, plan.content_hash)
 
     _restamp_floor(document)
     for rel, doc in documents.items():
@@ -3039,30 +3024,24 @@ def revalidate_repo(root: Path, *, preset: str | None = None) -> RevalidateResul
     renamed = {layer.origin: layer.rel for layer in layers.values() if layer.origin != layer.rel}
     renamed.update(moved)
     result.diff, result.changed = _diff(before, _snapshot(root), renamed)
-    if resolved is not None:
-        result.drift_refusals = _drift_refusals(
-            root, resolved, preset_hash, plan.content_hash, result.deviation_marker
-        )
-    result.app_drift = _app_drift(root, result.deviation_marker)
+    result.app_drift = _app_drift(root)
     return result
 
 
-def _app_drift(root: Path, marker: str) -> list[str]:
-    """The application differences ``osprey validate`` reports, one line each.
+def _app_drift(root: Path) -> list[str]:
+    """The applications that differ from what ``osprey init`` copied, one line each.
 
     An application's files are the operator's to edit, so a difference is said
-    and never rewritten: the copy stays as it is, and a marker in its
-    ``.provenance`` sidecar claims it. Never fatal: a sidecar that does not
-    parse reports nothing here and refuses where ``osprey validate`` reads it.
+    and never rewritten. Never fatal: a sidecar that does not parse reports
+    nothing here.
     """
     from .build_profile_drift import _compare_apps
-    from .build_profile_schema import DEFAULT_DEVIATION_MARKER
 
     try:
-        findings, _stale, notes = _compare_apps(root, marker or DEFAULT_DEVIATION_MARKER)
+        findings, notes = _compare_apps(root)
     except BuildProfileError:
         return []
-    return [finding.render() for finding in findings if not finding.marked] + notes
+    return [finding.render() for finding in findings] + notes
 
 
 def _plan_providers(root: Path) -> Any:
@@ -3075,34 +3054,3 @@ def _plan_providers(root: Path) -> Any:
         return _plan_provider_catalog(root, keep_values=True)
     except click.UsageError as e:
         raise BuildProfileError(e.message) from e
-
-
-def _drift_refusals(
-    root: Path, preset: str, preset_hash: str, providers_hash: str, marker: str
-) -> int:
-    """How many differences from *preset* ``osprey validate`` now refuses.
-
-    Stamping ``provenance:`` is what turns the preset-drift check on: before it
-    there is nothing to compare the profile with, and after it every structural
-    difference from the preset is a refusal until a marker comment claims it.
-    A profile that carried no stamp — or one ``--preset`` just re-pointed — can
-    therefore validate green before the rewrite and be refused after, which the
-    operator has to hear from the verb that did it rather than from the next
-    build. Never fatal: a comparison that cannot be made counts nothing.
-    """
-    from .build_profile_drift import preset_drift_report
-    from .build_profile_schema import ProfileProvenance
-
-    try:
-        card = preset_drift_report(
-            root / PROFILE_FILENAME,
-            ProfileProvenance(
-                preset=preset,
-                preset_hash=preset_hash,
-                providers_hash=providers_hash,
-                deviation_marker=marker,
-            ),
-        )
-    except BuildProfileError:
-        return 0
-    return len(card.refusals)

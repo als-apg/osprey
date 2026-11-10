@@ -18,11 +18,10 @@ the file ``osprey init`` would write from the bundled login its own
 from the preset is not compared: the display name, the materialized data tree,
 the schema floor and the provenance stamp.
 
-A difference is deliberate when a ``# <TAG>: <why>`` comment says so — within
-three lines above the profile line it describes, or, for a line the profile
-does not have, anywhere in the file naming what is absent. The tag is
-``provenance.deviation_marker`` (default ``DEVIATION``), so a facility's
-existing marker convention is the first consumer rather than a second one.
+The verbs print only the report's note: that the preset has moved on since
+the profile was written. The findings are not printed and never refuse. The
+profile is the operator's to edit, and a comparison with today's preset alone
+cannot tell an edit from a line the preset gained since.
 """
 
 from __future__ import annotations
@@ -31,7 +30,7 @@ import copy
 import hashlib
 import re
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -58,25 +57,8 @@ from .build_profile_merge import (
 )
 from .build_profile_presets import _load_preset_raw, _normalize_preset_name
 from .build_profile_resolve import _dotted_leaves
-from .build_profile_schema import DEFAULT_DEVIATION_MARKER, ProfileProvenance
+from .build_profile_schema import ProfileProvenance
 from .profile_root import layer_files, resolve_profile_root
-
-#: How far above a profile line a marker comment reaches.
-MARKER_REACH = 3
-
-#: The finding kinds ``osprey validate --drift=error`` refuses: one document
-#: has a key, a block or a list member the other has not. These are the
-#: silent failure the lint was written for — a profile that never picked up a
-#: line its preset gained builds green forever, and nothing says so.
-REFUSAL_KINDS: frozenset[str] = frozenset(
-    {"missing", "missing_member", "extra", "extra_member", "exclude"}
-)
-
-#: The finding kind that is reported and never refused: both documents carry
-#: the key and disagree on its value. That is a knob a facility turned — the
-#: thing the emitted profile invites — so a preset changing a default in a
-#: newer OSPREY surfaces as a note rather than as a refusal to build.
-NOTE_KINDS: frozenset[str] = frozenset({"value"})
 
 #: What joins two advisories into :attr:`DriftReport.note`. The printer indents
 #: the note it is handed by one step and no more, so a second line carries that
@@ -84,16 +66,15 @@ NOTE_KINDS: frozenset[str] = frozenset({"value"})
 _NOTE_SEPARATOR = "\n  "
 
 
-def _compare_catalog(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list[str]]:
+def _compare_catalog(root_dir: Path) -> list[DriftFinding]:
     """``providers.yml`` against the catalog OSPREY ships, entry by entry.
 
     The repo's catalog is the operator's the way ``profile.yml`` is, and ``osprey
     init --revalidate`` never changes a value it states; it only adds what the
     packaged catalog has and the file lacks. So the entries this OSPREY ships
     are compared key by key, with the profile's own rules: a value the
-    facility turned is a note, a key or a list member one side has and the
-    other has not is a refusal, and a ``# <TAG>:`` comment claims either. An
-    entry the packaged catalog does not declare is the operator's own gateway
+    facility turned and a key or a list member one side has and the other has
+    not are both findings. An entry the packaged catalog does not declare is the operator's own gateway
     and is not compared.
 
     Silent for a repo with no catalog: the packaged copy IS what it resolves,
@@ -102,10 +83,9 @@ def _compare_catalog(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list
     Args:
         root_dir: The deployment repo root, where a ``providers.yml`` sits
             beside ``profile.yml``.
-        tag: The deviation marker that claims a finding.
 
     Returns:
-        ``(findings, stale markers)``, as for any other compared document.
+        The findings, as for any other compared document.
 
     Raises:
         BuildProfileError: The repo's catalog does not parse. Left to surface
@@ -115,7 +95,7 @@ def _compare_catalog(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list
     """
     catalog = load_provider_catalog(root_dir)
     if catalog.source != "repo" or catalog.path is None:
-        return [], []
+        return []
     shipped_path = packaged_catalog_path()
     actual = _parse_profile_document(catalog.path.read_text(encoding="utf-8"), PROVIDERS_FILENAME)
     shipped = _parse_profile_document(shipped_path.read_text(encoding="utf-8"), "packaged")
@@ -135,7 +115,7 @@ def _compare_catalog(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list
         },
         {"providers": shipped_entries},
     )
-    return _apply_markers(comparison.findings, catalog.path, root_dir, tag)
+    return comparison.findings
 
 
 #: The sidecar ``osprey init`` writes inside each application directory it
@@ -180,27 +160,25 @@ def app_provenance_text(app_dir: Path, preset: str, preset_hash: str | None) -> 
     )
     return (
         "# Written by `osprey init`: the preset this application was copied from, and\n"
-        "# the digest of the files as copied. `osprey validate` compares the digest\n"
-        "# with the files on disk; a deviation-marker comment here claims an edit.\n"
+        "# the digest of the files as copied. `osprey init --revalidate` compares the\n"
+        "# digest with the files on disk and lists an application that differs.\n"
         f"{body}"
     )
 
 
-def _compare_apps(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list[str], list[str]]:
+def _compare_apps(root_dir: Path) -> tuple[list[DriftFinding], list[str]]:
     """Each application ``osprey init`` copied against the tree it copied.
 
     An application with a ``.provenance`` sidecar is compared by its source
-    digest (:func:`app_tree_digest`): a difference is a note, never a refusal —
-    the copy is the operator's to edit, as ``profile.yml`` is — and a
-    ``# <TAG>:`` comment in the sidecar claims it. A preset that has moved on
+    digest (:func:`app_tree_digest`): a difference is a finding, never a
+    refusal — the copy is the operator's to edit, as ``profile.yml`` is. A preset that has moved on
     since the copy is said once per application. An application with no
     sidecar is the operator's own and is not compared.
 
     Returns:
-        ``(findings, stale markers, notes)``.
+        ``(findings, notes)``.
     """
     findings: list[DriftFinding] = []
-    stale: list[str] = []
     notes: list[str] = []
     for app_dir in application_dirs(root_dir):
         sidecar = app_dir / APP_PROVENANCE_FILENAME
@@ -221,23 +199,18 @@ def _compare_apps(root_dir: Path, tag: str) -> tuple[list[DriftFinding], list[st
                 f"the preset bundled with OSPREY {__version__} is {_short_hash(installed)} — "
                 f"it has moved on since"
             )
-        found: list[DriftFinding] = []
         if app_tree_digest(app_dir) != recorded.get("tree_digest"):
-            found.append(
+            findings.append(
                 DriftFinding(
                     subject=relative,
                     detail=f"its files differ from the ones `osprey init` copied from {preset}",
                     profile_ref=relative,
                     preset_ref=f"preset {preset}",
-                    token=relative.rstrip("/"),
                     line=None,
                     kind="value",
                 )
             )
-        claimed, unclaimed = _apply_markers(found, sidecar, root_dir, tag)
-        findings.extend(claimed)
-        stale.extend(unclaimed)
-    return findings, stale, notes
+    return findings, notes
 
 
 # Top-level keys `osprey init` writes for the repo rather than copies from the
@@ -263,25 +236,20 @@ class DriftFinding:
             profile has no line for it.
         preset_ref: ``file:line`` in the preset, or the preset's name when the
             value is one the emitter synthesizes.
-        token: What a marker comment must name to silence this finding.
         line: The profile line the finding sits on, or ``None`` for an absence.
-        kind: Which sort of difference this is, and so what it costs:
-            ``value`` when both documents carry the key and give it different
-            values, or one of the structural kinds — ``missing``,
-            ``missing_member``, ``extra``, ``extra_member``, ``exclude`` — when
-            one document has something the other has not. See
-            :data:`REFUSAL_KINDS` and :data:`NOTE_KINDS`.
-        marked: Whether a marker comment claims it.
+        kind: Which sort of difference this is: ``value`` when both documents
+            carry the key and give it different values, or one of the
+            structural kinds — ``missing``, ``missing_member``, ``extra``,
+            ``extra_member``, ``exclude`` — when one document has something the
+            other has not.
     """
 
     subject: str
     detail: str
     profile_ref: str
     preset_ref: str
-    token: str
     line: int | None
     kind: str
-    marked: bool = False
 
     def render(self) -> str:
         """The one-line form the verbs print."""
@@ -295,37 +263,15 @@ class DriftReport:
     Attributes:
         preset: The bundled preset the profile's provenance names.
         note: The advisories about the comparison itself rather than about any
-            one key — distinct from :attr:`notes`, which are findings. The preset has
-            moved on since materialization, or is not bundled here. One line
-            each, joined with the printer's own indent when both apply.
-        findings: Every difference found, marked or not.
-        stale_markers: Marker comments that silence nothing.
+            one key: the preset has moved on since materialization, or is not
+            bundled here. One line each, joined with the printer's own indent
+            when both apply. The only part of the report the verbs print.
+        findings: Every difference found.
     """
 
     preset: str
     note: str | None
     findings: list[DriftFinding]
-    stale_markers: list[str]
-
-    @property
-    def unmarked(self) -> list[DriftFinding]:
-        """The differences nobody has claimed as deliberate.
-
-        The union of :attr:`refusals` and :attr:`notes`, in the order the
-        comparison found them — what a surface prints when it prints
-        everything.
-        """
-        return [finding for finding in self.findings if not finding.marked]
-
-    @property
-    def refusals(self) -> list[DriftFinding]:
-        """The unclaimed structural differences — what ``osprey validate`` refuses."""
-        return [finding for finding in self.unmarked if finding.kind in REFUSAL_KINDS]
-
-    @property
-    def notes(self) -> list[DriftFinding]:
-        """The unclaimed value differences — reported by every surface, refused by none."""
-        return [finding for finding in self.unmarked if finding.kind in NOTE_KINDS]
 
 
 def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None) -> DriftReport:
@@ -364,11 +310,9 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None
     if is_delta:
         provenance = _root_provenance(root_raw)
     profile = resolve_profile_document(copy.deepcopy(root_raw), root_path, warn=False).raw
-    tag = provenance.deviation_marker if provenance is not None else DEFAULT_DEVIATION_MARKER
 
     notes: list[str] = []
     findings: list[DriftFinding] = []
-    stale: list[str] = []
     preset = _normalize_preset_name(provenance.preset) if provenance is not None else ""
     if provenance is not None:
         installed_hash = compute_preset_hash(preset)
@@ -388,18 +332,13 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None
                     f"since"
                 )
             if not is_delta:
-                findings_catalog, stale_catalog = _compare_catalog(root_dir, tag)
-                findings.extend(findings_catalog)
-                stale.extend(stale_catalog)
-                findings_root, stale_root = _compare_root(profile, preset, root_path, root_dir, tag)
-                findings.extend(findings_root)
-                stale.extend(stale_root)
+                findings.extend(_compare_catalog(root_dir))
+                findings.extend(_compare_root(profile, preset, root_path))
     if not is_delta:
         # Each copied application carries its own provenance, so it is compared
         # whether or not the root's preset is bundled here.
-        findings_apps, stale_apps, notes_apps = _compare_apps(root_dir, tag)
+        findings_apps, notes_apps = _compare_apps(root_dir)
         findings.extend(findings_apps)
-        stale.extend(stale_apps)
         notes.extend(notes_apps)
 
     profile_name = str(profile.get("name", ""))
@@ -433,13 +372,9 @@ def preset_drift_report(profile_file: Path, provenance: ProfileProvenance | None
             [_Lines(_load_preset_raw(pair.source)[1])],
         )
         comparison.compare(pair.document, expected)
-        claimed, unclaimed = _apply_markers(
-            comparison.findings, pair.path, root_dir, pair.marker or tag
-        )
-        findings.extend(claimed)
-        stale.extend(unclaimed)
+        findings.extend(comparison.findings)
 
-    return DriftReport(preset, _NOTE_SEPARATOR.join(notes) or None, findings, stale)
+    return DriftReport(preset, _NOTE_SEPARATOR.join(notes) or None, findings)
 
 
 def _root_provenance(root_raw: Mapping[str, Any]) -> ProfileProvenance | None:
@@ -447,22 +382,14 @@ def _root_provenance(root_raw: Mapping[str, Any]) -> ProfileProvenance | None:
     block = root_raw.get("provenance")
     if not isinstance(block, Mapping) or not block.get("preset") or not block.get("preset_hash"):
         return None
-    marker = block.get("deviation_marker")
     return ProfileProvenance(
         preset=str(block["preset"]),
         preset_hash=str(block["preset_hash"]),
         providers_hash=str(block.get("providers_hash") or ""),
-        deviation_marker=(
-            marker.strip()
-            if isinstance(marker, str) and marker.strip()
-            else DEFAULT_DEVIATION_MARKER
-        ),
     )
 
 
-def _compare_root(
-    profile: Mapping[str, Any], preset: str, root_path: Path, root_dir: Path, tag: str
-) -> tuple[list[DriftFinding], list[str]]:
+def _compare_root(profile: Mapping[str, Any], preset: str, root_path: Path) -> list[DriftFinding]:
     """``profile.yml`` against the document ``osprey init`` would write from *preset*."""
     preset_raw, preset_path = _load_preset_raw(preset)
     chain: list[Path] = []
@@ -478,7 +405,7 @@ def _compare_root(
         PROFILE_FILENAME, _Lines(root_path), preset, [_Lines(path) for path in chain]
     )
     comparison.compare(profile, expected)
-    return _apply_markers(comparison.findings, root_path, root_dir, tag)
+    return comparison.findings
 
 
 @dataclass(frozen=True)
@@ -489,7 +416,6 @@ class _LayerPair:
     dirname: str
     stem: str
     preset_hash: str
-    marker: str | None
     document: dict[str, Any]
 
     @property
@@ -530,14 +456,12 @@ def _layer_pairs(root_dir: Path, project_name: str, only: Path | None) -> list[_
         block = document.get("provenance")
         if not isinstance(block, Mapping) or not block.get("preset"):
             continue
-        marker = block.get("deviation_marker")
         pairs.append(
             _LayerPair(
                 path=path,
                 dirname=TIERS_DIRNAME,
                 stem=_normalize_preset_name(str(block["preset"])),
                 preset_hash=str(block.get("preset_hash") or ""),
-                marker=marker.strip() if isinstance(marker, str) and marker.strip() else None,
                 document=document,
             )
         )
@@ -602,7 +526,6 @@ class _Comparison:
                     f"{_short_repr(expected)}",
                     self._profile_ref(path),
                     self._preset_ref(path),
-                    _token(path),
                     self.lines.line(path),
                     kind="value",
                 )
@@ -622,7 +545,6 @@ class _Comparison:
                 f"set by {self.label}, unknown to the preset",
                 self._profile_ref(path),
                 f"preset {self.preset}",
-                _token(path),
                 self.lines.line(path),
                 kind="extra",
             )
@@ -635,7 +557,6 @@ class _Comparison:
                 f"set by the preset, absent from {self.label}",
                 self.label,
                 self._preset_ref(path),
-                _token(path),
                 None,
                 kind="missing",
             )
@@ -643,7 +564,7 @@ class _Comparison:
 
     def _missing_member(self, path: tuple[str, ...], member: str) -> None:
         # A document subtracts a member with `exclude:`; that line, when it
-        # exists, is where the operator would write the marker.
+        # exists, is where the finding points.
         line = self.lines.line(("exclude", *path, member))
         self.findings.append(
             DriftFinding(
@@ -651,7 +572,6 @@ class _Comparison:
                 f"selected by the preset, not by {self.label}",
                 self._profile_ref(("exclude", *path, member)) if line else self.label,
                 self._preset_ref((*path, member)),
-                member,
                 line,
                 # An `exclude:` line is a subtraction the profile spells out;
                 # without one the member is simply not there. Both are the
@@ -667,7 +587,6 @@ class _Comparison:
                 f"selected by {self.label}, not by the preset",
                 self._profile_ref((*path, member)),
                 f"preset {self.preset}",
-                member,
                 self.lines.line((*path, member)),
                 kind="extra_member",
             )
@@ -730,46 +649,6 @@ def _locate(node: Any, segments: list[str]) -> int | None:
             if isinstance(item, str) and item == segments[0]:
                 return int(node.lc.item(index)[0]) + 1
     return None
-
-
-def _apply_markers(
-    findings: list[DriftFinding], path: Path, root_dir: Path, tag: str
-) -> tuple[list[DriftFinding], list[str]]:
-    """Claim findings with the ``# <tag>:`` comments in *path*; name the rest.
-
-    A marker reaches a finding that sits within :data:`MARKER_REACH` lines
-    below it, and any finding whose token it names. A marker reaching nothing
-    is stale: the line it described has come back into step with the preset,
-    or it has drifted too far from that line.
-    """
-    pattern = re.compile(rf"^\s*#\s*{re.escape(tag)}:\s*(?P<text>.*)$")
-    markers: list[tuple[int, str]] = []
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        match = pattern.match(line)
-        if match:
-            markers.append((number, match.group("text")))
-
-    used: set[int] = set()
-    claimed: list[DriftFinding] = []
-    for finding in findings:
-        covering = [number for number, text in markers if _covers(number, text, finding)]
-        used.update(covering)
-        claimed.append(replace(finding, marked=bool(covering)))
-
-    relative = path.relative_to(root_dir).as_posix()
-    stale = [
-        f"{relative}:{number}: `# {tag}:` marks no difference from the preset — the line it "
-        f"describes matches again, or sits more than {MARKER_REACH} lines below it"
-        for number, _text in markers
-        if number not in used
-    ]
-    return claimed, stale
-
-
-def _covers(marker_line: int, text: str, finding: DriftFinding) -> bool:
-    if finding.line is not None and 1 <= finding.line - marker_line <= MARKER_REACH:
-        return True
-    return re.search(rf"(?<![\w.-]){re.escape(finding.token)}(?![\w.-])", text) is not None
 
 
 def lacking_config_keys(profile_raw: Mapping[str, Any], preset: str) -> list[str]:
@@ -863,11 +742,6 @@ def _is_name_list(value: Any) -> bool:
 
 def _dotted(path: tuple[str, ...]) -> str:
     return ".".join(path)
-
-
-def _token(path: tuple[str, ...]) -> str:
-    """What a marker names for a key finding: the key as the profile spells it."""
-    return _dotted(path[1:]) if path[0] == "config" and len(path) > 1 else _dotted(path)
 
 
 def _short_repr(value: Any) -> str:
