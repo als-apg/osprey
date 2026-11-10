@@ -1465,6 +1465,7 @@ class Channel(ConfiguredBaseModel):
     shape: Optional[list[int]] = Field(default=None, description="""The dimensions of a waveform channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel'], 'list_elements_ordered': True} })
     precision: Optional[int] = Field(default=None, description="""The decimals a display shows, 0 to 17; only on a float channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     simulation: Optional[Seed] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
+    command: Optional[bool] = Field(default=None, description="""Computed; true on a command, a setpoint fired rather than set: its vocabulary signal is a command word or a model's engine marks its wiring record command. Absent on every other channel.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Channel']} })
     provenance: Optional[Provenance] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Place', 'Device', 'Channel', 'Group', 'Model', 'Wiring']} })
 
 

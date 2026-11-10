@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from osprey.facility.kinds import KindDeclaration, KindStop, KindTool, ViewContext, ViewSection
 
-#: The mark a facility puts on a channel a program fires as a command.
+#: The mark the build puts on a channel a program fires as a command.
 COMMAND = "command"
 
 
@@ -65,20 +65,12 @@ class RegistryKindBlock(_Strict):
 
 
 def _commands(document: Mapping[str, Any]) -> set[str]:
-    """The addresses the facility marks ``command``: by a wiring record or a channel's signal."""
-    marked = {
-        str(entry.get("address"))
-        for model in document.get("models") or []
-        for entry in model.get("wiring") or []
-        if COMMAND in (entry.get("marks") or [])
-    }
-    marked |= {
+    """The addresses the rendered facility definition marks ``command``."""
+    return {
         str(channel.get("id"))
         for channel in document.get("channels") or []
-        if channel.get("role") == "setpoint"
-        and str(channel.get("signal") or "").rpartition("_")[2] == COMMAND
+        if channel.get(COMMAND) is True
     }
-    return marked
 
 
 def build_stops(document: Mapping[str, Any], block: Any) -> Iterator[KindStop]:

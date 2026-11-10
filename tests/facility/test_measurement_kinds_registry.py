@@ -303,15 +303,15 @@ def test_a_command_step_on_an_unmarked_address_stops_the_build(tmp_path):
     from osprey.facility.validate import _measurement_stops
 
     document, _ = built_document(tmp_path, _tree())
-    sr = _with_block(document)
+    _with_block(document)
 
     (stop,) = _measurement_stops(document)
     assert stop.detail == (
         "kind registry_kind: step inject writes SCOR:H:SP, which the facility does not mark command"
     )
 
-    (entry,) = [e for e in sr["wiring"] if e["address"] == "SCOR:H:SP"]
-    entry["marks"] = ["command"]
+    (channel,) = [c for c in document["channels"] if c["id"] == "SCOR:H:SP"]
+    channel["command"] = True
     assert list(_measurement_stops(document)) == []
 
 
