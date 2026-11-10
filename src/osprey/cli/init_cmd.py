@@ -202,8 +202,8 @@ def _repo_env_shared(name: str, _seeded: tuple[str, ...] = (), _facility_rule: b
 # Site CA bundle — uncomment if a proxy re-signs TLS with a site CA.
 # These reach the CONTAINERS that read this chain. The CA the IMAGES are built
 # with, and the one the login service verifies the identity provider against,
-# is `images.site_ca` in config.yml instead: it is baked into each image's
-# trust store at build time rather than named as a path at run time.
+# is `images.site_ca` under `config:` in profile.yml instead: it is baked into
+# each image's trust store at build time rather than named as a path at run time.
 # On RHEL-family hosts the system bundle lives here:
 # SSL_CERT_FILE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem
 # REQUESTS_CA_BUNDLE=/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem

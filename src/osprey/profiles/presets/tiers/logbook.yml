@@ -8,8 +8,8 @@
 # PreToolUse guards reach it whatever its hooks list says.
 #
 # Services, data and provider are profile.yml's: the logbook's Postgres, the
-# qmd search sidecar, the graph store and telemetry are the deployment's, and
-# the build tells this render where they are (the Reach Contract,
+# qmd search sidecar, the graph store and the agent record are the
+# deployment's, and the build tells this render where they are (the Reach Contract,
 # `osprey.deployment.reach`), so the operators and this login look at one
 # logbook. The model is profile.yml's too, unless a top-level `model:` here
 # names one the provider serves. The config keys below are laid over the

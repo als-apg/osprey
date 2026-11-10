@@ -1187,7 +1187,7 @@ def _adopt_original_credentials(
     if absent:
         _append_env_block(
             env_path,
-            "Credentials adopted from pre-existing data volumes (osprey --reuse-stores)",
+            "Credentials adopted from pre-existing data volumes (osprey up --reuse-stores)",
             absent,
         )
 
@@ -1303,8 +1303,9 @@ def _refuse_invented_history(config: dict) -> None:
     raise RuntimeError(
         f"This deployment's control_system.type is {control_system_type!r} and its "
         f"archiver.type is {pairing.archiver_phrase} — {VA_MOCK_ARCHIVER_WHY}\n"
-        f"Fix config.yml before deploying: under its `archiver:` section set `type:` "
-        f"to a connector reading a store this stack writes, or serve the simulator in "
+        f"Fix profile.yml before deploying: set `archiver.type` under `config:` "
+        f"(`osprey set config.archiver.type=<type>`) to a connector reading a store "
+        f"this stack writes, or serve the simulator in "
         f"process (`control_system.connector.virtual_accelerator.serving: in_process`), "
         f"whose synthesized archive claims nothing it cannot back up. To have "
         f"the stack deploy its own store, rebuild from a profile carrying a "
