@@ -20,7 +20,7 @@ from unittest.mock import patch
 
 import yaml
 
-from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
+from osprey.interfaces.web_terminal import config_view
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.write_target import KIND_BANNERS
@@ -354,7 +354,7 @@ def reset_process_memos() -> None:
     """
     posture_store.invalidate_cache()
     control_context.invalidate_cache()
-    websocket_routes.reset_rendered_config_memo()
+    config_view.reset_rendered_config_memo()
 
 
 #: A sweep in which every configured target answered. The switch gate refuses

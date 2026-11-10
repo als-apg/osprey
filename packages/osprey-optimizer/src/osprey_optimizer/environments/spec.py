@@ -16,7 +16,7 @@ One file per environment under the deployment's environments directory::
         reduce: rms
         channels: ["SR:DIAG:BPM:{01..72}:POSITION:Y"]
         direction: MINIMIZE
-        units: m
+        units: mm
     default_objective: orbit_rms_y
     presets:
       gentle:

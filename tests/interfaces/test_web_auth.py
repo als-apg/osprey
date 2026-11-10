@@ -45,6 +45,7 @@ from osprey.interfaces.web_auth import (
     peek_supplied_panel_token,
     reset_web_credentials,
 )
+from osprey.profiles.sidecar_panels import SIDECAR_PANELS, ApplicationPanel, PanelRegistry
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
 #: Length of ``secrets.token_urlsafe(32)``, the minting recipe every absent
@@ -1731,6 +1732,78 @@ def test_panel_register_route_is_not_in_the_unconditional_set() -> None:
     registration — URL-backed included — would clear the panel tier.
     """
     assert web_auth.PANEL_REGISTER_ROUTE not in web_auth.PANEL_TIER_ROUTES
+
+
+#: A configured application panel's declared read route, composed exactly as
+#: the approval hook fetches it: ``GET /panel/<panel id><state_path>``.
+_AGENT_ROUTE = ("GET", "/panel/knob/api/state")
+
+
+def _registry(*panels: tuple[str, tuple[tuple[str, str], ...]]) -> PanelRegistry:
+    """A terminal's registry with the sidecars and *panels* as ``(id, routes)``."""
+    return PanelRegistry(
+        SIDECAR_PANELS, {pid: ApplicationPanel(pid, routes) for pid, routes in panels}
+    )
+
+
+_KNOB = _registry(("knob", (("GET", "/api/state"),)))
+
+
+def test_declared_agent_route_is_panel_tier_once_registered() -> None:
+    """The hook's exact state URL clears the panel tier only in a registry that declares it.
+
+    Before the terminal loads its panel config the path is one more
+    ``/panel/...`` spelling and stays operator-only; in the terminal's
+    registry the exact pair is panel-tier and the unconditional table is
+    untouched.
+    """
+    assert web_auth.classify(*_AGENT_ROUTE, False) is web_auth.Tier.OPERATOR
+
+    assert web_auth.classify(*_AGENT_ROUTE, False, panels=_KNOB) is web_auth.Tier.PANEL
+    assert web_auth.classify("get", _AGENT_ROUTE[1], False, panels=_KNOB) is web_auth.Tier.PANEL
+    assert set(web_auth.PANEL_TIER_ROUTES) == _EXPECTED_PANEL_ROUTES
+    for method, path in _EXPECTED_OPERATOR_ROUTES:
+        assert web_auth.classify(method, path, False, panels=_KNOB) is web_auth.Tier.OPERATOR
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/panel/knob/api/state"),
+        ("GET", "/panel/knob/api/state/"),
+        ("GET", "/panel/knob/api/state/more"),
+        ("GET", "/panel/knob/api/stat"),
+        ("GET", "/panel/knob/api"),
+        ("GET", "/panel/knob/"),
+        ("GET", "/panel/other/api/state"),
+        ("GET", "/u/alice/panel/knob/api/state"),
+    ],
+)
+def test_agent_routes_match_exactly(method: str, path: str) -> None:
+    """A declared route grants its own pair and nothing that merely resembles it."""
+    assert web_auth.classify(method, path, False, panels=_KNOB) is web_auth.Tier.OPERATOR
+
+
+def test_another_registry_admits_only_its_own_routes() -> None:
+    """Each panel-config load builds the whole registry; a dropped route stops admitting."""
+    other = _registry(("other", (("GET", "/state"),)))
+
+    assert web_auth.classify(*_AGENT_ROUTE, False, panels=other) is web_auth.Tier.OPERATOR
+    assert web_auth.classify("GET", "/panel/other/state", False, panels=other) is (
+        web_auth.Tier.PANEL
+    )
+
+
+def test_agent_routes_sit_under_the_panel_proxy() -> None:
+    """A declared route lands under ``/panel/<id>``: the table cannot widen through it."""
+    widened = _registry(("knob", (("POST", "/api/config"), ("GET", "api/state"))))
+
+    assert web_auth.panel_tier_routes(widened) - web_auth.panel_tier_routes() == {
+        ("POST", "/panel/knob/api/config")
+    }
+    assert web_auth.classify("POST", "/api/config", False, panels=widened) is (
+        web_auth.Tier.OPERATOR
+    )
 
 
 @pytest.mark.parametrize(

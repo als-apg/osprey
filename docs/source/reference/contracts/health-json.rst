@@ -27,41 +27,8 @@ The report envelope
 
 The document always has these nine keys, in this order:
 
-.. code-block:: json
-
-   {
-     "summary": "6/17 checks passed (2 warnings, 1 error, 8 skipped)",
-     "ok": 6,
-     "warnings": 2,
-     "errors": 1,
-     "skips": 8,
-     "total": 17,
-     "elapsed_ms": 194.8,
-     "deadline_hit": false,
-     "results": [
-       {
-         "name": "disk_space",
-         "category": "file_system",
-         "status": "ok",
-         "message": "Disk 6% full (6986.2 GB free)"
-       },
-       {
-         "name": "beam_current",
-         "category": "beamline_services",
-         "status": "ok",
-         "message": "SR:CURRENT = 401.2 mA",
-         "value": "401.2 mA",
-         "latency_ms": 12.4
-       },
-       {
-         "name": "config_file_exists",
-         "category": "configuration",
-         "status": "error",
-         "message": "config.yml not found at /srv/osprey/my-agent/config.yml",
-         "details": "Searched from: /srv/osprey/my-agent\nRun this from inside a deployment repository, or pass --project with the directory holding config.yml."
-       }
-     ]
-   }
+.. literalinclude:: examples/health-report.json
+   :language: json
 
 .. list-table::
    :header-rows: 1

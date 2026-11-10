@@ -25,6 +25,9 @@ from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 # panel code imports panel names from.
 from osprey.profiles.sidecar_panels import JUPYTER_PANEL_ID as JUPYTER_PANEL_ID
 from osprey.profiles.sidecar_panels import SIDECAR_PANELS as SIDECAR_PANELS
+from osprey.profiles.sidecar_panels import SIDECAR_REGISTRY as SIDECAR_REGISTRY
+from osprey.profiles.sidecar_panels import ApplicationPanel as ApplicationPanel
+from osprey.profiles.sidecar_panels import PanelRegistry as PanelRegistry
 from osprey.profiles.sidecar_panels import SidecarPanel as SidecarPanel
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 

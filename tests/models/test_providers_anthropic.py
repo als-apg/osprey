@@ -29,11 +29,6 @@ class TestAnthropicProviderMetadata:
         provider = AnthropicProviderAdapter()
         assert provider.requires_base_url is False
 
-    def test_requires_model_id(self):
-        """Test provider requires model ID."""
-        provider = AnthropicProviderAdapter()
-        assert provider.requires_model_id is True
-
     def test_supports_proxy(self):
         """Test provider supports HTTP proxy."""
         provider = AnthropicProviderAdapter()

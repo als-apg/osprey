@@ -40,6 +40,10 @@ logger = logging.getLogger(__name__)
 __all__ = ["read_json_object", "write_json_atomic"]
 
 
+#: Read back only by the web terminal that writes it, under its own uid.
+_JSON_FILE_MODE = 0o600
+
+
 def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
     """Serialize *data* to *path* as JSON, replaced whole at mode 0600.
 
@@ -58,7 +62,7 @@ def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
     missing mount.
     """
     text = json.dumps(data, indent=2, default=str)
-    atomic_replace(path, text.encode("utf-8"), mode=0o600, sync="best_effort")
+    atomic_replace(path, text.encode("utf-8"), mode=_JSON_FILE_MODE, sync="best_effort")
 
 
 def read_json_object(path: Path) -> dict[str, Any] | None:

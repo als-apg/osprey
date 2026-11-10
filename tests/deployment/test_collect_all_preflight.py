@@ -362,7 +362,7 @@ def test_a_declared_name_no_source_provides_is_reported(tmp_path):
     this is a deploy that starts and then fails at the first request."""
     _required(tmp_path, "FACILITY_API_TOKEN")
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {})
+    problems = container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert len(problems) == 1
     problem, remedy = problems[0]
@@ -380,7 +380,7 @@ def test_either_chain_file_provides_the_value(tmp_path, filename):
     _required(tmp_path, "FACILITY_API_TOKEN")
     (tmp_path / filename).write_text("FACILITY_API_TOKEN=set\n", encoding="utf-8")
 
-    assert container_lifecycle._required_env_problems(tmp_path, {}) == []
+    assert container_lifecycle._required_env_problems(tmp_path, {}, {}) == []
 
 
 def test_an_exported_value_provides_it_with_no_file_at_all(tmp_path):
@@ -388,7 +388,10 @@ def test_an_exported_value_provides_it_with_no_file_at_all(tmp_path):
     no chain at all is not refused when the environment carries the value."""
     _required(tmp_path, "FACILITY_API_TOKEN")
 
-    assert container_lifecycle._required_env_problems(tmp_path, {"FACILITY_API_TOKEN": "set"}) == []
+    assert (
+        container_lifecycle._required_env_problems(tmp_path, {"FACILITY_API_TOKEN": "set"}, {})
+        == []
+    )
 
 
 def test_the_chain_is_read_from_the_repo_not_from_the_process(tmp_path):
@@ -400,7 +403,7 @@ def test_the_chain_is_read_from_the_repo_not_from_the_process(tmp_path):
     _required(repo, "FACILITY_API_TOKEN")
     (repo / ".env").write_text("FACILITY_API_TOKEN=set\n", encoding="utf-8")
 
-    assert container_lifecycle._required_env_problems(repo, {}) == []
+    assert container_lifecycle._required_env_problems(repo, {}, {}) == []
 
 
 @pytest.mark.parametrize("value", ["", "   "])
@@ -412,7 +415,7 @@ def test_an_empty_value_is_a_missing_value(tmp_path, value):
     _required(tmp_path, "FACILITY_API_TOKEN")
     (tmp_path / ".env").write_text(f"FACILITY_API_TOKEN={value}\n", encoding="utf-8")
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {"OTHER": "x"})
+    problems = container_lifecycle._required_env_problems(tmp_path, {"OTHER": "x"}, {})
 
     assert len(problems) == 1
     assert "FACILITY_API_TOKEN" in problems[0][0]
@@ -424,7 +427,10 @@ def test_an_empty_local_value_is_still_answered_by_the_environment(tmp_path):
     _required(tmp_path, "FACILITY_API_TOKEN")
     (tmp_path / ".env").write_text("FACILITY_API_TOKEN=\n", encoding="utf-8")
 
-    assert container_lifecycle._required_env_problems(tmp_path, {"FACILITY_API_TOKEN": "set"}) == []
+    assert (
+        container_lifecycle._required_env_problems(tmp_path, {"FACILITY_API_TOKEN": "set"}, {})
+        == []
+    )
 
 
 def test_every_missing_name_is_its_own_finding_in_declaration_order(tmp_path):
@@ -433,7 +439,7 @@ def test_every_missing_name_is_its_own_finding_in_declaration_order(tmp_path):
     _required(tmp_path, "ZULU_TOKEN", "ALPHA_TOKEN", "MIDDLE_TOKEN")
     (tmp_path / ".env").write_text("MIDDLE_TOKEN=set\n", encoding="utf-8")
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {})
+    problems = container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert [problem.split()[0] for problem, _remedy in problems] == ["ZULU_TOKEN", "ALPHA_TOKEN"]
 
@@ -466,7 +472,7 @@ def test_ci_only_credentials_never_refuse_a_host_that_builds_its_own_images(tmp_
         },
     )
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {})
+    problems = container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert [problem.split()[0] for problem, _remedy in problems] == ["FACILITY_API_TOKEN"]
 
@@ -477,11 +483,11 @@ def test_a_machine_minted_name_is_never_the_operators_to_supply(tmp_path):
     the pass has already written the value; without it, nothing in the stack
     reads the name at all. Either way a refusal would send the operator to
     invent a secret the deploy owns."""
-    minted = sorted(container_lifecycle._deploy_written_env_vars())
+    minted = sorted(container_lifecycle._deploy_written_env_vars({}))
     assert "EVENT_DISPATCHER_TOKEN" in minted  # the census the exclusion reuses
     _required(tmp_path, *minted, "FACILITY_API_TOKEN")
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {})
+    problems = container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert [problem.split()[0] for problem, _remedy in problems] == ["FACILITY_API_TOKEN"]
 
@@ -496,7 +502,7 @@ def test_a_deploy_block_without_tokens_excludes_nothing(tmp_path):
         deploy={"ci": "gitlab", "registry": {"url": "git.example.org:5050/physics/facility"}},
     )
 
-    assert len(container_lifecycle._required_env_problems(tmp_path, {})) == 1
+    assert len(container_lifecycle._required_env_problems(tmp_path, {}, {})) == 1
 
 
 @pytest.mark.parametrize(
@@ -516,7 +522,7 @@ def test_every_nothing_declared_shape_reports_nothing(tmp_path, document):
     if document is not None:
         _write_profile(tmp_path, document)
 
-    assert container_lifecycle._required_env_problems(tmp_path, {}) == []
+    assert container_lifecycle._required_env_problems(tmp_path, {}, {}) == []
 
 
 def test_an_unparseable_profile_is_not_this_probes_refusal(tmp_path):
@@ -524,13 +530,13 @@ def test_an_unparseable_profile_is_not_this_probes_refusal(tmp_path):
     failure. Raising it from here would report it as a missing variable."""
     (tmp_path / "profile.yml").write_text("env: [unclosed\n", encoding="utf-8")
 
-    assert container_lifecycle._required_env_problems(tmp_path, {}) == []
+    assert container_lifecycle._required_env_problems(tmp_path, {}, {}) == []
 
 
 def test_a_name_declared_twice_is_reported_once(tmp_path):
     _required(tmp_path, "FACILITY_API_TOKEN", "FACILITY_API_TOKEN")
 
-    assert len(container_lifecycle._required_env_problems(tmp_path, {})) == 1
+    assert len(container_lifecycle._required_env_problems(tmp_path, {}, {})) == 1
 
 
 def test_the_probe_writes_nothing(tmp_path):
@@ -540,7 +546,7 @@ def test_the_probe_writes_nothing(tmp_path):
     _required(tmp_path, "FACILITY_API_TOKEN")
     before = sorted(p.name for p in tmp_path.iterdir())
 
-    container_lifecycle._required_env_problems(tmp_path, {})
+    container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert sorted(p.name for p in tmp_path.iterdir()) == before
 
@@ -593,7 +599,7 @@ def test_a_required_name_the_selected_variant_adds_is_enforced(tmp_path):
     _write_profile(tmp_path, {"name": "facility"})
     _variant(tmp_path, "teststand", {"env": {"required": ["FACILITY_API_TOKEN"]}})
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {})
+    problems = container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert [problem.split()[0] for problem, _remedy in problems] == ["FACILITY_API_TOKEN"]
 
@@ -607,7 +613,7 @@ def test_the_variants_declarations_are_added_to_the_tracked_ones(tmp_path):
     _required(tmp_path, "TRACKED_TOKEN")
     _variant(tmp_path, "teststand", {"env": {"required": ["VARIANT_TOKEN"]}})
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {})
+    problems = container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert sorted(problem.split()[0] for problem, _remedy in problems) == [
         "TRACKED_TOKEN",
@@ -629,7 +635,7 @@ def test_an_unselected_variant_contributes_nothing(tmp_path):
     _write_profile(tmp_path, {"name": "facility"})
     _variant(tmp_path, "teststand", {"env": {"required": ["VARIANT_TOKEN"]}}, select=False)
 
-    assert container_lifecycle._required_env_problems(tmp_path, {}) == []
+    assert container_lifecycle._required_env_problems(tmp_path, {}, {}) == []
 
 
 def test_a_variant_this_repo_does_not_define_is_not_this_probes_refusal(tmp_path):
@@ -642,7 +648,7 @@ def test_a_variant_this_repo_does_not_define_is_not_this_probes_refusal(tmp_path
     _variant(tmp_path, "teststand", {"env": {"required": ["VARIANT_TOKEN"]}}, select=False)
     (tmp_path / ".env.variant").write_text("OSPREY_PROFILE_VARIANT=controlroom\n", encoding="utf-8")
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {})
+    problems = container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert [problem.split()[0] for problem, _remedy in problems] == ["TRACKED_TOKEN"]
 
@@ -652,7 +658,7 @@ def test_a_variant_named_by_a_repo_with_no_variants_leaves_the_profile_standing(
     _required(tmp_path, "TRACKED_TOKEN")
     (tmp_path / ".env.variant").write_text("OSPREY_PROFILE_VARIANT=teststand\n", encoding="utf-8")
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {})
+    problems = container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert [problem.split()[0] for problem, _remedy in problems] == ["TRACKED_TOKEN"]
 
@@ -665,7 +671,7 @@ def test_an_unusable_overlay_leaves_the_tracked_document_standing(tmp_path, over
     (tmp_path / "profiles" / "teststand.yml").write_text(overlay, encoding="utf-8")
     (tmp_path / ".env.variant").write_text("OSPREY_PROFILE_VARIANT=teststand\n", encoding="utf-8")
 
-    problems = container_lifecycle._required_env_problems(tmp_path, {})
+    problems = container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert [problem.split()[0] for problem, _remedy in problems] == ["TRACKED_TOKEN"]
 
@@ -676,7 +682,7 @@ def test_the_variant_read_writes_nothing(tmp_path):
     _variant(tmp_path, "teststand", {"env": {"required": ["VARIANT_TOKEN"]}})
     before = sorted(p.name for p in tmp_path.iterdir())
 
-    container_lifecycle._required_env_problems(tmp_path, {})
+    container_lifecycle._required_env_problems(tmp_path, {}, {})
 
     assert sorted(p.name for p in tmp_path.iterdir()) == before
 

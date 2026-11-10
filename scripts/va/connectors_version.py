@@ -71,25 +71,32 @@ def normalize(version: str) -> str:
 
 
 def describe_command(pyproject: Path = PYPROJECT) -> list[str]:
-    """The describe argv the build backend runs for the connectors package."""
+    """The describe argv the build backend runs for the package at *pyproject*.
+
+    The connectors package's by default; a package's raw-options spell it under
+    ``scm.git`` or the older flat key. A missing one is a ``KeyError``.
+    """
     with pyproject.open("rb") as handle:
         options = tomllib.load(handle)["tool"]["hatch"]["version"]["raw-options"]
-    return shlex.split(options["scm"]["git"]["describe_command"])
+    nested = options.get("scm", {}).get("git", {}).get("describe_command")
+    return shlex.split(nested or options["git_describe_command"])
 
 
-def version_from_describe(described: str, *, today: datetime | None = None) -> str | None:
+def version_from_describe(
+    described: str, *, prefix: str = TAG_PREFIX, today: datetime | None = None
+) -> str | None:
     """``osprey-connectors-v2026.10.0-3-g<sha>[-dirty]`` -> ``2026.10.0.post3+g<sha9>``.
 
-    None for anything that is not a connectors calendar describe.
+    None for anything that is not a calendar describe of the *prefix* stream.
     """
     dirty = described.endswith("-dirty")
     if dirty:
         described = described.removesuffix("-dirty")
     tag, _, node = described.rpartition("-g")
     tag, _, distance = tag.rpartition("-")
-    if not tag.startswith(TAG_PREFIX) or not distance.isdigit() or not node:
+    if not tag.startswith(prefix) or not distance.isdigit() or not node:
         return None
-    base = tag.removeprefix(TAG_PREFIX)
+    base = tag.removeprefix(prefix)
     if not base[:1].isdigit():
         return None
     base = normalize(base)

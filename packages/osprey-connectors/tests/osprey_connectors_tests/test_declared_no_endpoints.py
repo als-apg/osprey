@@ -1,8 +1,11 @@
 """A Channel Access block says "nothing to probe" only by an explicit ``gateways: []``.
 
-The derivation carries that statement to child verification, which names it in
-plain words. A missing table is not the same statement: a forgotten table must
-never read as a direct connection, so it derives exactly what it did before.
+:func:`declared_gateways` is the one reader of that statement, and the
+derivation takes its verdict (target eligibility and the switch gate's
+reachability rung move onto it with the connectors floor bump, #2592). The
+derivation carries it to child verification, which names it in plain words. A
+missing table is not the same statement: a forgotten table must never read as a
+direct connection, so it derives exactly what it did before.
 """
 
 from __future__ import annotations
@@ -11,7 +14,14 @@ from typing import Any
 
 import pytest
 
-from osprey_connectors.ipc import derive_endpoints, verify_host_report
+from osprey_connectors.ipc import (
+    GATEWAYS_MISSING,
+    GATEWAYS_NONE_DECLARED,
+    GATEWAYS_ROWS,
+    declared_gateways,
+    derive_endpoints,
+    verify_host_report,
+)
 
 _NOTHING_CONFIGURED = {
     "selected_role": None,
@@ -29,6 +39,35 @@ def _config(gateways: Any) -> dict[str, Any]:
     if gateways is not ...:
         block["gateways"] = gateways
     return {"control_system": {"type": "epics", "connector": {"epics": block}}}
+
+
+@pytest.mark.parametrize(
+    ("block", "shape"),
+    [
+        ({"gateways": []}, GATEWAYS_NONE_DECLARED),
+        ({}, GATEWAYS_MISSING),
+        ({"gateways": None}, GATEWAYS_MISSING),
+        ({"gateways": {}}, GATEWAYS_MISSING),
+        ({"gateways": [{"address": "gw"}]}, GATEWAYS_MISSING),
+        (None, GATEWAYS_MISSING),
+        ("not a block", GATEWAYS_MISSING),
+        ({"gateways": _ROWS}, GATEWAYS_ROWS),
+    ],
+)
+def test_declared_gateways_classifies_the_three_spellings(block: Any, shape: str) -> None:
+    assert declared_gateways(block) == shape
+
+
+@pytest.mark.parametrize(
+    ("gateways", "shape"),
+    [([], GATEWAYS_NONE_DECLARED), (..., GATEWAYS_MISSING), (_ROWS, GATEWAYS_ROWS)],
+)
+def test_the_derivation_carries_the_classifier_verdict(gateways: Any, shape: str) -> None:
+    derivation = derive_endpoints(
+        _config(gateways), "live", writes_enabled=False, readonly_run=True
+    )
+
+    assert derivation.gateways_declared == shape
 
 
 @pytest.mark.parametrize(

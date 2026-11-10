@@ -743,7 +743,12 @@ testpaths = [
 ]
 # The connectors suite's helpers (osprey_connectors_tests) are imported by the
 # framework's own connector tests, which may be collected before that suite is.
-pythonpath = ["packages/osprey-connectors/tests"]
+# The bundled example application is imported by its own tests, as a deployment's
+# image imports it.
+pythonpath = [
+    "packages/osprey-connectors/tests",
+    "src/osprey/profiles/presets/apps/orbit-bump",
+]
 python_files = [
     "test_*.py",
     "*_test.py"
@@ -903,6 +908,24 @@ ignore_imports = [
     # authorizations on the stopped machines revoked inside its record lock,
     # through one function-local import of the grant format's own writer.
     "osprey_connectors.control_context -> osprey_connectors.write_authorization",
+]
+
+[[tool.importlinter.contracts]]
+id = "apps-loader-build-only"
+name = "Only the build reads a deployment's applications"
+# Rendered config is what the rest of the framework reads; the loader is the
+# build's. `osprey.apps.manifest` stays importable for the `AppManifest` type.
+# Deployment code is held to its own boundary by
+# `osprey.apps.boundary`, because import-linter refuses a listed module that is
+# missing from the graph and a deployment's package is not in it.
+type = "protected"
+protected_modules = ["osprey.apps.loader"]
+allowed_importers = [
+    "osprey.cli.app_cmd",
+    "osprey.cli.application_material",
+    "osprey.cli.build_cmd",
+    "osprey.cli.build_injectors",
+    "osprey.cli.build_profile_model",
 ]
 
 # Ruff configuration for modern Python linting

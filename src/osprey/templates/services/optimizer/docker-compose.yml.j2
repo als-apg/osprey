@@ -13,7 +13,6 @@
 {%- import "services/_own_image.j2" as own -%}
 {%- set svc = services.optimizer -%}
 {%- set port = svc.port | default(osprey_ports.optimizer, true) -%}
-{%- set targets = svc.targets | default(['va'], true) -%}
 # The optimizer service: a FastAPI process (osprey_optimizer.api.main) that runs
 # Xopt-driven optimizations against the control system, and the Redis job store
 # it keeps its jobs, locks and cancellation flags in.
@@ -47,16 +46,16 @@ services:
     depends_on:
       optimizer-redis:
         condition: service_healthy
-{%- if 'virtual_accelerator' in deployed_services and 'va' in targets %}
-      # Only when the Virtual Accelerator is co-deployed and this optimizer may
-      # drive it: a run must not open its connector before the VA's Channel
-      # Access server answers. Compose errors on a depends_on naming a service
-      # no document defines, hence the co-deployment test.
+{%- if 'virtual_accelerator' in deployed_services %}
+      # Only when the Virtual Accelerator is co-deployed: a run must not open
+      # its connector before the VA's Channel Access server answers. Compose
+      # errors on a depends_on naming a service no document defines, hence the
+      # co-deployment test.
       virtual-accelerator:
         condition: service_healthy
 {%- endif %}
-{%- if 'live_standin' in deployed_services and 'standin' in targets %}
-      # The same guard on the stand-in soft IOC, when this optimizer may drive it.
+{%- if 'live_standin' in deployed_services %}
+      # The same guard on the stand-in soft IOC, when it is co-deployed.
       live-standin:
         condition: service_healthy
 {%- endif %}
@@ -112,9 +111,6 @@ services:
       OPTIMIZER_ENVIRONMENTS_DIR: /app/environments
       # Where runs are written: the results volume mounted below.
       OPTIMIZER_RESULTS_DIR: /app/results
-      # The control targets this deployment's optimizer may drive. The live
-      # machine is refused at build time until the optimizer supports it.
-      OPTIMIZER_TARGETS: "{{ targets | join(',') }}"
       # No :-default — an unset token stays EMPTY, so the routes that move
       # hardware refuse rather than accept a guessable secret. `osprey up`
       # mints it into the project .env when unset (container_lifecycle's
