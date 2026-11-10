@@ -15,11 +15,11 @@ import pytest
 from osprey_connectors.ipc import (
     GATEWAYS_MISSING,
     GATEWAYS_NONE_DECLARED,
-    GATEWAYS_ROWS,
     declared_gateways,
     derive_endpoints,
     verify_host_report,
 )
+from osprey_connectors.ipc._verification import GATEWAYS_ROWS
 
 _NOTHING_CONFIGURED = {
     "selected_role": None,
