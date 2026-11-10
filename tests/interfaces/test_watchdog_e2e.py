@@ -277,8 +277,14 @@ def served(
     monkeypatch.setenv(DISPATCHER_TOKEN_ENV, "fake-dispatcher-token")
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "fake-launch-token")
     monkeypatch.setenv("PHOEBUS_REQUIRE_HANDLE", "0")
-    for name, value in cli_mcp_ready_env().items():
+    ready = cli_mcp_ready_env()
+    for name, value in ready.items():
         monkeypatch.setenv(name, value)
+    # With the barrier on, the CLI answers the SDK's initialize only once every
+    # server is connected or failed, each within MCP_TIMEOUT; the SDK's own wait
+    # for that answer (60 s unless this says otherwise) is the same barrier, so
+    # the chat's start waits on the servers, not on a shorter budget of its own.
+    monkeypatch.setenv("CLAUDE_CODE_STREAM_CLOSE_TIMEOUT", ready["MCP_TIMEOUT"])
 
     def chat_child_env(*args: Any, **kwargs: Any) -> dict[str, str]:
         # The chat's own environment, hold stamps included, on the scripted credential.
