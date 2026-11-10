@@ -1836,5 +1836,4 @@ there; every write is then refused ``auth_unreadable``.
 .. code-block:: yaml
 
    optimizer:
-     targets: [va, standin]
      environments_dir: optimizer/environments

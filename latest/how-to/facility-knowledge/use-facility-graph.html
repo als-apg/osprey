@@ -539,14 +539,17 @@
                   
   <section id="search-the-facility-graph">
 <span id="how-to-facility-graph"></span><h1>Search the Facility Graph<a class="headerlink" href="#search-the-facility-graph" title="Link to this heading">#</a></h1>
+<p>You do nothing to use the facility graph until it cannot answer: ask the
+OSPREY agent a structural question and it delegates the question to the
+<strong>facility-knowledge-graph agent</strong>, a specialist that writes Cypher (Neo4j’s
+query language, the graph counterpart of SQL) through the <code class="docutils literal notranslate"><span class="pre">graph</span></code> MCP server.
+Neither you nor the main agent writes the query. This page covers what sits
+around that: where the graph comes from, what it refuses, what its failures
+mean, and how to run it against a store your facility already has.</p>
 <p>The facility graph holds the <em>structure</em> of the machine: the devices, the
 sections they sit in, the classes they belong to, and the control system
-addresses bound to each one. It is served by the <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store
-(<a class="reference internal" href="../deploy-project/index.html"><span class="doc">Container Deployment</span></a>) and searched by the <strong>facility-knowledge-graph agent</strong>
-— a specialist the main OSPREY agent delegates structural questions to — which
-writes Cypher (Neo4j’s query language, the graph counterpart of SQL) through
-the <code class="docutils literal notranslate"><span class="pre">graph</span></code> MCP server. You never write it yourself, and neither does the
-main agent: ask it a structural question and the delegation is its own move.</p>
+addresses bound to each one. The <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> store serves it
+(<a class="reference internal" href="../deploy-project/index.html"><span class="doc">Container Deployment</span></a>).</p>
 <p>It answers a different kind of question than the <a class="reference internal" href="../use-channel-finder.html"><span class="doc">channel finder</span></a>. The channel finder turns a phrase into an address —
 “beam current” into <code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code>. The graph relates addresses
 to each other: how many correctors the storage ring has, what sits in a section
@@ -924,14 +927,14 @@ whether a store exists. Useful for testing the wiring, not for anything else.</p
 </section>
 <section id="where-the-graph-comes-from">
 <h2>Where the Graph Comes From<a class="headerlink" href="#where-the-graph-comes-from" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the corpus: the graph view <code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>
-under the render, written from the facility file (<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>), so the
-graph describes the same machine the channel finder does. Nobody edits the
-view: its first line names the hash of the facility file it was written from,
-and a change belongs in the facility file. The build points every rendered
-<code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block’s <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> at it unless the profile names a
-corpus of its own, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds the store from it whenever the
-store’s seed marker differs from the view’s digest. A change to the facility
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> writes the corpus, the <strong>graph view</strong>
+(<code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code> under the render), from the facility file
+(<code class="docutils literal notranslate"><span class="pre">data/facility/</span></code>), so the graph describes the same machine the channel
+finder does. Nobody edits the graph view: its first line names the hash of the
+facility file it was written from, and a change belongs in the facility file.
+The build points every rendered <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> block’s <code class="docutils literal notranslate"><span class="pre">ttl_path</span></code> at it
+unless the profile names a corpus of its own, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> seeds the store
+from it whenever the store’s seed marker differs from the graph view’s digest. A change to the facility
 file reaches the graph with:</p>
 <div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>osprey<span class="w"> </span>up
 </pre></div>
@@ -953,9 +956,26 @@ view from that.</p>
 </section>
 <section id="pointing-at-a-store-the-facility-runs">
 <span id="graph-external-store"></span><h2>Pointing at a Store the Facility Runs<a class="headerlink" href="#pointing-at-a-store-the-facility-runs" title="Link to this heading">#</a></h2>
-<p>The store does not have to be one this deployment brings up. In the profile’s
-<code class="docutils literal notranslate"><span class="pre">config:</span></code> block, give <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> an explicit <code class="docutils literal notranslate"><span class="pre">uri</span></code> and leave
-<code class="docutils literal notranslate"><span class="pre">graphdb</span></code> out of <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>:</p>
+<p>The store does not have to be one this deployment brings up. OSPREY starts
+nothing and bootstraps nothing on a store it does not run, and never writes to
+it: the corpus is whatever the facility loaded. An external store that holds no
+corpus answers every query with zero rows.</p>
+<p>To point the deployment at the facility’s store:</p>
+<ol class="arabic">
+<li><p>In the profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, give <code class="docutils literal notranslate"><span class="pre">services.graphdb</span></code> an explicit
+<code class="docutils literal notranslate"><span class="pre">uri</span></code>, and the store account as <code class="docutils literal notranslate"><span class="pre">username</span></code>. <code class="docutils literal notranslate"><span class="pre">username</span></code> is read only
+on this path; a store this deployment does run authenticates as <code class="docutils literal notranslate"><span class="pre">neo4j</span></code>,
+the account its container is created with.</p></li>
+<li><p>In the same block, write out <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> without <code class="docutils literal notranslate"><span class="pre">graphdb</span></code>.
+Leaving <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> in is the mistake to avoid: the build still stands up a
+local Neo4j that nobody then queries. <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> is a list, so
+an edit replaces it whole — write out the services you <em>do</em> want rather
+than the one you are taking away.</p></li>
+<li><p>Mark both edits with a <code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span> <span class="pre">&lt;why&gt;</span></code> comment. Both are structural
+differences from the preset the profile was materialized from, so
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuses them until a comment claims each one. A dropped
+list member needs its own marker: one comment does not cover the key beside
+it. The block then reads:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="c1"># DEVIATION: the graph store is the facility&#39;s, not this deployment&#39;s</span>
 <span class="w">  </span><span class="nt">services.graphdb.uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bolt://graph.facility.example:7687</span>
@@ -965,32 +985,24 @@ view from that.</p>
 <span class="w">  </span><span class="nt">deployed_services</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">postgresql</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">qmd</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># no graphdb</span>
 </pre></div>
 </div>
-<p>Leaving <code class="docutils literal notranslate"><span class="pre">graphdb</span></code> in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> is the mistake to avoid: the build
-still stands up a local Neo4j that nobody then queries. <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>
-is a list, so an edit replaces it whole — write out the services you <em>do</em>
-want rather than the one you are taking away.</p>
-<p>Both edits are structural differences from the preset the profile was
-materialized from, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code> refuses them until a
-<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span> <span class="pre">&lt;why&gt;</span></code> comment claims each one — which is what the two comments
-in that block are doing. A dropped list member needs its own marker: one
-comment does not cover the key beside it.</p>
 <p>Which differences are refused and which are only reported is set out under
-<a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift</span></a> in the
-profile reference.</p>
-<p>If the corpus lives in a database other than <code class="docutils literal notranslate"><span class="pre">neo4j</span></code> on that store, name it
-with <code class="docutils literal notranslate"><span class="pre">services.graphdb.database</span></code>. The store this deployment runs is a
-Community image that serves exactly one database, so the key matters only here:
-it is what every session — the seeder’s writes and the agent’s reads alike — is
-opened against, so both halves reach the same corpus.</p>
-<p>Put that account’s password in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code> as <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code>.
-Nothing mints one here — the store belongs to somebody else, so OSPREY starts
-nothing and bootstraps nothing, and it never writes to a store it does not run:
-the corpus is whatever the facility loaded. An external store that holds no
-corpus answers every query with zero rows.</p>
-<p>To give that store the same graph a deployment of its own would seed, load the
-build’s graph view, <code class="docutils literal notranslate"><span class="pre">build/data/graph/facility.ttl</span></code>, through the store’s
-neosemantics plugin. On a store that has never held an import, initialise the
-plugin with the settings OSPREY’s queries are written against first:</p>
+<a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift</span></a> in the profile reference.</p>
+</li>
+<li><p>If the corpus lives in a database other than <code class="docutils literal notranslate"><span class="pre">neo4j</span></code> on that store, name
+it with <code class="docutils literal notranslate"><span class="pre">services.graphdb.database</span></code>. The store this deployment runs is a
+Community image that serves exactly one database, so the key matters only
+here. Every session — the seeder’s writes and the agent’s reads alike — is
+opened against it, so both reach the same corpus.</p></li>
+<li><p>Put that account’s password in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code> as
+<code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code>. Nothing mints one here, because the store belongs to
+somebody else.</p></li>
+<li><p>To give that store the graph a deployment of its own would seed, copy the
+build’s graph view, <code class="docutils literal notranslate"><span class="pre">build/data/graph/facility.ttl</span></code>, to the store’s host.
+The <code class="docutils literal notranslate"><span class="pre">file://</span></code> path in the next step is read on that host.</p></li>
+<li><p>Load the graph view through the store’s neosemantics (<code class="docutils literal notranslate"><span class="pre">n10s</span></code>) plugin. On
+a store that has never held an import, run all three statements: the first
+two initialise the plugin with the settings OSPREY’s queries are written
+against.</p>
 <div class="highlight-cypher notranslate"><div class="highlight"><pre><span></span><span class="k">CREATE</span><span class="w"> </span><span class="n">CONSTRAINT</span><span class="w"> </span><span class="n">n10s_unique_uri</span><span class="w"> </span><span class="n">IF</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="n">EXISTS</span>
 <span class="w">  </span><span class="n">FOR</span><span class="w"> </span><span class="p">(</span><span class="n">r</span><span class="p">:</span><span class="n">Resource</span><span class="p">)</span><span class="w"> </span><span class="n">REQUIRE</span><span class="w"> </span><span class="n">r</span><span class="p">.</span><span class="n">uri</span><span class="w"> </span><span class="k">IS</span><span class="w"> </span><span class="k">UNIQUE</span><span class="p">;</span>
 <span class="k">CALL</span><span class="w"> </span><span class="n">n10s</span><span class="p">.</span><span class="n">graphconfig</span><span class="p">.</span><span class="n">init</span><span class="p">({</span>
@@ -1002,10 +1014,9 @@ plugin with the settings OSPREY’s queries are written against first:</p>
 <span class="k">CALL</span><span class="w"> </span><span class="n">n10s</span><span class="p">.</span><span class="n">rdf</span><span class="p">.</span><span class="n">import</span><span class="p">.</span><span class="n">fetch</span><span class="p">(</span><span class="s">&#39;file:///path/to/build/data/graph/facility.ttl&#39;</span><span class="p">,</span><span class="w"> </span><span class="s">&#39;Turtle&#39;</span><span class="p">);</span>
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">file://</span></code> path is read by the store’s host, so copy the file there first.
-Load the view again after every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> that changes it. <code class="docutils literal notranslate"><span class="pre">username</span></code> is read only
-on this path; a store this deployment does run authenticates as <code class="docutils literal notranslate"><span class="pre">neo4j</span></code>, the
-account its container is created with.</p>
+</li>
+<li><p>Load the graph view again after every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> that changes it.</p></li>
+</ol>
 <p>Everything else on this page applies to an external store as written, because
 it is all client side: the same four tools, the same read-only posture, the
 same bounds and the same degraded states. The graph channel finder paradigm
@@ -1014,9 +1025,10 @@ reads the same block and reaches an external store the same way
 </section>
 <section id="one-machine-several-views">
 <h2>One Machine, Several Views<a class="headerlink" href="#one-machine-several-views" title="Link to this heading">#</a></h2>
-<p>On the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset the graph and the channel finder are
-generated from the same source, so their address spaces line up exactly — and
-where a view is smaller, it is a strict subset rather than a different machine:</p>
+<p>On the <code class="docutils literal notranslate"><span class="pre">demo</span></code> preset every view of the machine is written from
+the one facility file, so their address spaces line up exactly. A smaller view
+is a strict subset rather than a different machine, and the simulator adds
+only its own status channels. After <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> the views hold:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 34.0%" />
@@ -1030,33 +1042,41 @@ where a view is smaller, it is a strict subset rather than a different machine:<
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p>Graph corpus (<code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>)</p></td>
-<td><p>2,908</p></td>
-<td><p>Build output, written from the facility file: 512 devices, and one
-binding per channel; the 396 setpoint channels are the write-direction
+<tr class="row-even"><td><p>Graph view (<code class="docutils literal notranslate"><span class="pre">data/graph/facility.ttl</span></code>)</p></td>
+<td><p>4731</p></td>
+<td><p>Build output, written from the facility file: 1016 devices, and one
+binding per channel; the 674 setpoint channels are the write-direction
 bindings.</p></td>
 </tr>
-<tr class="row-odd"><td><p>Channel finder — hierarchical, middle-layer and graph builds</p></td>
-<td><p>2,908</p></td>
+<tr class="row-odd"><td><p>Channel finder — hierarchical and graph builds</p></td>
+<td><p>4731</p></td>
 <td><p>The same set, address for address. A graph-mode build keeps no database
-of its own: it answers out of the graph view.</p></td>
+of its own: it answers out of the search index the build writes from
+the graph view.</p></td>
 </tr>
-<tr class="row-even"><td><p>Channel finder, in-context index</p></td>
-<td><p>569</p></td>
+<tr class="row-even"><td><p>Channel finder — middle-layer build</p></td>
+<td><p>4725</p></td>
+<td><p>A strict subset — every channel bound to a device. The few channels the
+facility file attaches to a place rather than a device belong to no
+family, so this view leaves them out.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Channel finder, in-context index</p></td>
+<td><p>571</p></td>
 <td><p>A strict subset — the channels the facility file tags <code class="docutils literal notranslate"><span class="pre">in_context</span></code>,
 every one of which is in the graph.</p></td>
 </tr>
-<tr class="row-odd"><td><p>Virtual accelerator simulation</p></td>
-<td><p>1,036</p></td>
-<td><p>A strict subset — the channels the simulated machine actually serves.</p></td>
+<tr class="row-even"><td><p>Virtual accelerator simulation</p></td>
+<td><p>all, plus status</p></td>
+<td><p>Every channel of the facility file, plus one status channel per physics
+model, <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;:SIM:&lt;model&gt;:STATUS</span></code>, where <code class="docutils literal notranslate"><span class="pre">&lt;code&gt;</span></code> is the facility’s
+identity code.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>So on an in-context build the agent can find a device in the graph that the
-in-context channel finder does not list, and on any build it can find an
-address the virtual accelerator does not serve. Both are the documented shapes
-of those smaller views, not a mismatch: every view is written from the one
+<p>So on an in-context or middle-layer build the agent can find a channel in the
+graph that the channel finder does not list. That is the documented shape of
+those smaller views, not a mismatch: every view is written from the one
 facility file, so a change to that file reaches all of them on the next
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 <section id="the-search-index">
@@ -1129,17 +1149,14 @@ seed and an index that have drifted apart.</p></li>
 <h2>Multi-User Operator Terminals<a class="headerlink" href="#multi-user-operator-terminals" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">demo-readonly</span></code>, <code class="docutils literal notranslate"><span class="pre">demo-readwrite</span></code> and
 <code class="docutils literal notranslate"><span class="pre">demo-admin</span></code> tier renders (<a class="reference internal" href="../web-terminal/multi-user/index.html"><span class="doc">Multi-User Support</span></a>)
-get the same facility-knowledge-graph agent and its tools, reading the hosting
-deployment’s store, and — the preset runs <code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span> <span class="pre">graph</span></code> — a
-channel finder that answers from it too. They are attached renders — they
-deploy no services of their own — so they have to be told which port that
-store is published on. Per-user web terminal containers run with
-<code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>, so a container’s <code class="docutils literal notranslate"><span class="pre">localhost</span></code> <em>is</em> the deployment
-host, and the build copies the bolt port from the hosting deployment’s own
-render into each login. The corpus is the one thing about the store a
-render is <em>not</em> told: <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> names the graph view
-every render writes for itself, so each render keeps the key as its own and
-the build derives that render’s search index from it.</p>
+get the same facility-knowledge-graph agent and tools, and — the preset runs
+<code class="docutils literal notranslate"><span class="pre">channel_finder_mode:</span> <span class="pre">graph</span></code> — a channel finder that answers from the same
+store. They are attached renders that deploy no services of their own, and
+their containers run with <code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>, so they reach the hosting
+deployment’s store on <code class="docutils literal notranslate"><span class="pre">localhost</span></code>. The build copies the bolt port from the
+hosting deployment’s render into each login. The graph view is the one
+thing a render is <em>not</em> told: each render keeps <code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code>
+as its own and derives its search index from it.</p>
 <p>Two consequences worth knowing before you move anything:</p>
 <ul class="simple">
 <li><p><strong>Move the port on the hosting deployment and every render follows.</strong> A
@@ -1154,15 +1171,13 @@ longer reach it. URL-backed panels have the same shape — they name
 <code class="docutils literal notranslate"><span class="pre">http://127.0.0.1:&lt;port&gt;</span></code> outright (<a class="reference internal" href="../web-terminal/panels.html"><span class="doc">Panels</span></a>) — so a
 deployment that moves off loopback has to revisit both.</p></li>
 </ul>
-<p>The read-only tier receives <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> as well. The store has a
-single write-capable account, so read-only-ness here is enforced by the graph
-server’s read transaction rather than by the credential — the same posture the
-ARIEL database credential already takes. <code class="docutils literal notranslate"><span class="pre">demo-logbook</span></code> has no
-control surface and no graph tools by design. <code class="docutils literal notranslate"><span class="pre">demo-knowledge</span></code>
-is the app built around the graph: it keeps the facility-knowledge-graph
-agent, the graph-backed channel finder and the KNOWLEDGE panel, and nothing
-that reads or writes the machine — the shared card for “how is the
-machine put together” questions.</p>
+<p>The read-only tier receives <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code> too: the store’s one account
+can write, so the graph server’s read transaction, not the credential, keeps
+that tier read-only, as with the ARIEL database credential.</p>
+<p><code class="docutils literal notranslate"><span class="pre">demo-logbook</span></code> has no control surface and no graph tools.
+<code class="docutils literal notranslate"><span class="pre">demo-knowledge</span></code> is the app built around the graph: it keeps
+the facility-knowledge-graph agent, the graph-backed channel finder and the
+KNOWLEDGE panel, and nothing that reads or writes the machine.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">

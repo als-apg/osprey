@@ -1213,9 +1213,8 @@ environment variable; see <a class="reference internal" href="../../contributing
 <p>The same registry can remove a built-in provider:
 <code class="docutils literal notranslate"><span class="pre">extend_framework_registry(exclude_providers=[&quot;openai&quot;])</span></code> takes <code class="docutils literal notranslate"><span class="pre">openai</span></code> out
 of the provider registry, so a config or tool call that names it fails with
-<code class="docutils literal notranslate"><span class="pre">Unknown</span> <span class="pre">provider</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">registry</span></code> no longer lists it. A
-<code class="docutils literal notranslate"><span class="pre">ProviderRegistration</span></code> under the same name is kept, which is how an
-application replaces a built-in with its own class.</p>
+<code class="docutils literal notranslate"><span class="pre">Unknown</span> <span class="pre">provider</span></code>. A <code class="docutils literal notranslate"><span class="pre">ProviderRegistration</span></code> under the same name is kept,
+which is how an application replaces a built-in with its own class.</p>
 </section>
 </section>
 

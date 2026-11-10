@@ -28,7 +28,7 @@ Your path
       :link-type: doc
       :class-header: bg-info text-white
 
-      Install the ``osprey`` CLI and configure a provider. A container runtime (Docker or Podman) is the optional last step, needed for ``osprey deploy``.
+      Install the ``osprey`` CLI and configure a provider. A container runtime (Docker or Podman) is the optional last step, needed for ``osprey up``.
 
    .. grid-item-card:: 2. Hello World
       :link: hello-world-tutorial

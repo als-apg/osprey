@@ -459,8 +459,8 @@ whole process takes about 10 minutes.</p>
 <li><p class="sd-card-text">Node.js, Claude Code, and <code class="docutils literal notranslate"><span class="pre">uv</span></code> installed</p></li>
 <li><p class="sd-card-text">An API key configured for your AI provider</p></li>
 <li><p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">osprey</span></code> CLI installed and on your <code class="docutils literal notranslate"><span class="pre">PATH</span></code></p></li>
-<li><p class="sd-card-text">The ability to create projects with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code></p></li>
-<li><p class="sd-card-text">Optionally, Docker or Podman for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code></p></li>
+<li><p class="sd-card-text">The ability to create projects with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code></p></li>
+<li><p class="sd-card-text">Optionally, Docker or Podman for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code></p></li>
 </ul>
 </div>
 </details><section id="step-1-install-node-js">
@@ -525,8 +525,7 @@ command above gives you the one new projects use. To run a different version
 in a project, set it under <code class="docutils literal notranslate"><span class="pre">config:</span></code> in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and run
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">claude_code</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.300&quot;</span><span class="w">   </span><span class="c1"># one exact version</span>
+<span class="w">  </span><span class="nt">claude_code.cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.300&quot;</span><span class="w">   </span><span class="c1"># one exact version</span>
 </pre></div>
 </div>
 <p>Then install that same version, so the <code class="docutils literal notranslate"><span class="pre">claude</span></code> on your machine matches the
@@ -633,7 +632,7 @@ environment for OSPREY and puts the <code class="docutils literal notranslate"><
 </div>
 <p>This is the right choice for most users. Your own projects stay separate
 from the tool — you’ll create them in their own directories with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>.</p>
 <p>To upgrade later:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>tool<span class="w"> </span>upgrade<span class="w"> </span>osprey-framework
 </pre></div>
@@ -681,7 +680,7 @@ increments for hotfixes. See <code class="docutils literal notranslate"><span cl
 </section>
 <section id="step-6-install-a-container-runtime-optional">
 <h2>Step 6: Install a container runtime (optional)<a class="headerlink" href="#step-6-install-a-container-runtime-optional" title="Link to this heading">#</a></h2>
-<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> runs a project and its services (simulation IOCs, databases, the
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> runs a project and its services (simulation IOCs, databases, the
 observability stack) in containers, and needs Docker or Podman for that. The core
 agent workflow does not require containers, so you can skip this step and come back
 to it when you deploy.</p>
@@ -771,7 +770,9 @@ and open a new terminal. If you installed from source, either activate the
 venv (<code class="docutils literal notranslate"><span class="pre">source</span> <span class="pre">.venv/bin/activate</span></code>) or prefix commands with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span></code>
 from inside the clone.</p>
 </dd>
-<dt><strong>MCP connection failed</strong></dt><dd><p class="sd-card-text">Ensure you’re running <code class="docutils literal notranslate"><span class="pre">claude</span></code> from your project root where <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> lives.</p>
+<dt><strong>MCP connection failed</strong></dt><dd><p class="sd-card-text">Start sessions with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, not a bare <code class="docutils literal notranslate"><span class="pre">claude</span></code>.
+They run Claude Code in the project’s <code class="docutils literal notranslate"><span class="pre">build/</span></code> directory, where the
+rendered <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> lives.</p>
 </dd>
 <dt><strong>Provider authentication error</strong></dt><dd><p class="sd-card-text">Check that your API key is exported: <code class="docutils literal notranslate"><span class="pre">echo</span> <span class="pre">$CBORG_API_KEY</span></code> (or whichever key
 you’re using). Re-source your shell profile if needed: <code class="docutils literal notranslate"><span class="pre">source</span> <span class="pre">~/.zshrc</span></code></p>
