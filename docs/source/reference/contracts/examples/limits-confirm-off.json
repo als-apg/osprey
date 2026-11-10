@@ -1,0 +1,6 @@
+{
+  "SHUTTER:OPEN_CMD": {
+    "writable": true,
+    "confirm": false
+  }
+}

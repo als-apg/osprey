@@ -24,7 +24,7 @@ Build & deploy
       :link-type: doc
 
       The end-to-end walkthrough: one deployment repo from ``osprey init``
-      through the CI scaffolding to a running three-service stack.
+      through the CI scaffolding to a running four-service stack.
 
    .. grid-item-card:: Container Deployment
       :link: deploy-project/index
@@ -131,7 +131,7 @@ Facility services
       :link: bluesky/index
       :link-type: doc
 
-      Run measurement plans through a durable queue — compose with the Osprey
+      Run measurement plans through a durable queue — compose with the OSPREY
       agent, review, start and stop in the BLUESKY panel, and add plans
       of your own.
 
