@@ -59,6 +59,7 @@ __all__ = [
     "OPERATOR_LOGIN",
     "PanelKind",
     "cap_url",
+    "is_first_party_panel",
     "login_for_request",
     "mint_cap",
     "opaque_panel_kind",
@@ -212,6 +213,19 @@ def _custom_panel(request: HTTPConnection, panel_id: str) -> dict[str, Any] | No
     return None
 
 
+def is_first_party_panel(request: HTTPConnection, panel_id: str) -> bool:
+    """Whether ``panel_id`` is a panel the deployment itself ships: framed plain, never capped.
+
+    Built-in, sidecar and framework panels, and the custom panels the config
+    loader stamped ``configDefined``. A discovered bundle whose directory is
+    gone, or an id the hub does not know, is neither this nor opaque.
+    """
+    if panel_id in _FIRST_PARTY_IDS:
+        return True
+    cp = _custom_panel(request, panel_id)
+    return cp is not None and bool(cp.get("configDefined"))
+
+
 def opaque_panel_kind(request: HTTPConnection, panel_id: str) -> PanelKind | None:
     """Whether ``panel_id`` is an opaque panel, and which route serves it.
 
@@ -220,10 +234,10 @@ def opaque_panel_kind(request: HTTPConnection, panel_id: str) -> PanelKind | Non
     Built-in, framework and config-defined panels are ``None`` — they are the
     deployment's own and are never capped.
     """
-    if panel_id in _FIRST_PARTY_IDS:
+    if is_first_party_panel(request, panel_id):
         return None
     cp = _custom_panel(request, panel_id)
-    if cp is None or cp.get("configDefined"):
+    if cp is None:
         return None
     if cp.get("discovered"):
         dirs = getattr(request.app.state, "discovered_panel_dirs", {}) or {}

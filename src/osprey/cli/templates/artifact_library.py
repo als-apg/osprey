@@ -15,6 +15,8 @@ from pathlib import Path
 
 import yaml
 
+from osprey_connectors import yaml_loader
+
 logger = logging.getLogger("osprey.cli.templates")
 
 # Artifact type → subdirectory name under claude_code/claude/
@@ -29,8 +31,8 @@ _TYPE_TO_SUBDIR: dict[str, str] = {
 ARTIFACT_TYPES = list(_TYPE_TO_SUBDIR.keys())
 
 # Some files in hooks/ are helpers rather than hooks — imported or read by the
-# hooks beside them and wired to no event (``osprey_hook_log.py``,
-# ``osprey_target_state.py``, ``osprey_safety_file.py``, ``hook_config.json``).
+# hooks beside them and wired to no event; ``BuildArtifactCatalog.helpers()``
+# names them.
 # They are listed here like any other row, but never selected: they ship as the
 # closure of the hooks that need them (the catalog's ``requires``), and naming
 # one in a profile's ``hooks:`` is refused. A profile may still ship its own copy
@@ -110,7 +112,7 @@ def _read_hook_frontmatter(hook_path: Path) -> dict | None:
     yaml_block = parts[1]
 
     try:
-        meta = yaml.safe_load(yaml_block)
+        meta = yaml_loader.safe_load(yaml_block)
     except yaml.YAMLError:
         logger.warning("Malformed YAML frontmatter in %s", hook_path)
         return None

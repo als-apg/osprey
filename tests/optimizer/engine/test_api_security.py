@@ -1,8 +1,8 @@
-"""The deployment's gates: the launch token on the routes that move hardware,
-write what a start will run, or accept code, and the targets a deployment's
-optimizer may drive.
+"""The deployment's gate: the launch token on the routes that move hardware or
+accept code. Drafts are open; a start names the draft revision it runs
+(``test_jobs_api.py``).
 
-Both are deployment credentials rather than route behaviour, so the rest of the
+It is a deployment credential rather than route behaviour, so the rest of the
 suite runs past a stand-in for the token (``conftest._launch_token_armed``);
 these tests meet the real gate, through the real app.
 """
@@ -21,8 +21,6 @@ from osprey_optimizer.api.main import app
 from osprey_optimizer.api.security import (
     LAUNCH_TOKEN_ENV,
     LAUNCH_TOKEN_HEADER,
-    TARGETS_ENV,
-    allowed_targets,
 )
 
 TOKEN = "s3cret-launch-token"
@@ -43,9 +41,6 @@ GATED = [
         {"json": {"variables": {}, "observables": []}},
         id="evaluate",
     ),
-    pytest.param("post", "/optimizations", {"json": {}}, id="create_draft"),
-    pytest.param("put", "/jobs/nope/config", {"json": {}}, id="update_draft"),
-    pytest.param("put", "/jobs/current", {"json": {"job_id": "nope"}}, id="current_job"),
     pytest.param("post", "/jobs/nope/start", {}, id="start"),
     pytest.param("post", "/jobs/nope/resume", {}, id="resume"),
     pytest.param("post", "/results/env/ts/restore", {}, id="restore"),
@@ -111,14 +106,41 @@ def test_the_right_token_is_admitted(
     assert resp.status_code not in (403, 503), resp.text
 
 
+#: The routes that need no token, as (method, path, request kwargs, the status
+#: the stubbed request gets). Stopping a run must never wait on a credential,
+#: and a draft is open since a start must name the revision it runs.
+UNGATED = [
+    pytest.param("post", "/jobs/nope/cancel", {}, 404, id="cancel"),
+    pytest.param("post", "/jobs/nope/pause", {}, 404, id="pause"),
+    pytest.param("post", "/optimizations", {"json": {}}, 422, id="create_draft"),
+    pytest.param("put", "/jobs/nope/config", {"json": {}}, 404, id="update_draft"),
+    pytest.param("put", "/jobs/current", {"json": {"job_id": "nope"}}, 200, id="current_job"),
+]
+
+
 @pytest.mark.launch_token_gate
-@pytest.mark.parametrize("action", ["cancel", "pause"])
-def test_stopping_a_run_needs_no_token(
-    gate_client: TestClient, monkeypatch: pytest.MonkeyPatch, action: str
+@pytest.mark.parametrize(("method", "path", "kwargs", "expected"), UNGATED)
+def test_the_ungated_routes_need_no_token(
+    gate_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+    path: str,
+    kwargs: dict,
+    expected: int,
 ) -> None:
     monkeypatch.delenv(LAUNCH_TOKEN_ENV, raising=False)
-    resp = gate_client.post(f"/jobs/nope/{action}")
-    assert resp.status_code not in (403, 503), resp.text
+    resp = _call(gate_client, method, path, kwargs)
+    assert resp.status_code == expected, resp.text
+
+
+@pytest.mark.launch_token_gate
+def test_a_wrong_token_on_a_start_without_a_revision_is_forbidden_not_unprocessable(
+    gate_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The token gate answers before the required ``config_revision`` is checked."""
+    monkeypatch.setenv(LAUNCH_TOKEN_ENV, TOKEN)
+    resp = gate_client.post("/jobs/nope/start", headers={LAUNCH_TOKEN_HEADER: "wrong"})
+    assert resp.status_code == 403, resp.text
 
 
 @pytest.mark.launch_token_gate
@@ -158,53 +180,3 @@ def test_an_upload_past_the_model_cap_is_refused_by_its_declared_length(
         headers={LAUNCH_TOKEN_HEADER: TOKEN, "content-length": str(10 * 1024**3)},
     )
     assert resp.status_code == 413
-
-
-# ── allowed targets ─────────────────────────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        pytest.param(None, None, id="unset_is_unrestricted"),
-        pytest.param("va", frozenset({"va"}), id="one"),
-        pytest.param(" va , standin ", frozenset({"va", "standin"}), id="spaced"),
-        pytest.param("", frozenset(), id="empty_allows_none"),
-    ],
-)
-def test_allowed_targets_parse(
-    monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: frozenset[str] | None
-) -> None:
-    if raw is None:
-        monkeypatch.delenv(TARGETS_ENV, raising=False)
-    else:
-        monkeypatch.setenv(TARGETS_ENV, raw)
-    assert allowed_targets() == expected
-
-
-def test_a_machine_route_on_a_target_not_allowed_is_forbidden(
-    gate_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv(TARGETS_ENV, "va")
-    resp = gate_client.get("/environments/sim/variables", params={"target": "standin"})
-    assert resp.status_code == 403
-    assert "'standin'" in resp.json()["detail"]
-
-
-def test_a_machine_route_on_an_allowed_target_passes_the_check(
-    gate_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv(TARGETS_ENV, "va,standin")
-    resp = gate_client.get("/environments/sim/variables", params={"target": "standin"})
-    assert resp.status_code != 403, resp.text
-
-
-def test_a_draft_on_a_target_not_allowed_is_forbidden(
-    gate_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv(TARGETS_ENV, "va")
-    resp = gate_client.post(
-        "/optimizations",
-        json={"environment_name": "sim", "control_target": "standin", "objective_name": "obj"},
-    )
-    assert resp.status_code == 403

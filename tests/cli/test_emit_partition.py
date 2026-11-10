@@ -1,9 +1,10 @@
 """Partition guard for emitted profiles — "no silent config" (FR8).
 
-Every ``BuildProfile`` field belongs to exactly one of three named sets, and
+Every ``BuildProfile`` field belongs to exactly one of four named sets, and
 what each set promises is asserted against real emissions of every bundled
 preset: EXPLICIT members always appear, COMMENTED members appear either active
-or as a commented template, and build-mechanics keys are never synthesized.
+or as a commented template, build-mechanics keys are never synthesized, and
+login-only keys never appear in a deployment's profile.
 
 The second half of the file is about the ``config:`` block the presets now
 carry. Those keys used to live in an app template the operator never opened, so
@@ -30,6 +31,7 @@ from osprey.cli.build_profile_emit import (
     _COMMENTED_TEMPLATES,
     _EXPLICIT_DEFAULTS,
     _EXPLICIT_KEYS,
+    _LOGIN_ONLY_KEYS,
     emit_standalone_profile_yaml,
 )
 from osprey.cli.build_profile_load import (
@@ -106,12 +108,33 @@ def _comment_lines(text: str) -> list[str]:
 
 def test_every_field_is_classified_exactly_once() -> None:
     """A new BuildProfile field fails here until someone classifies it."""
-    union = _EXPLICIT_KEYS | _COMMENTED_TEMPLATE_KEYS | _BUILD_MECHANICS_KEYS
+    sets = (_EXPLICIT_KEYS, _COMMENTED_TEMPLATE_KEYS, _BUILD_MECHANICS_KEYS, _LOGIN_ONLY_KEYS)
+    union = frozenset().union(*sets)
 
     assert union == _FIELDS, f"unclassified: {_FIELDS - union}; unknown: {union - _FIELDS}"
-    assert not _EXPLICIT_KEYS & _COMMENTED_TEMPLATE_KEYS
-    assert not _EXPLICIT_KEYS & _BUILD_MECHANICS_KEYS
-    assert not _COMMENTED_TEMPLATE_KEYS & _BUILD_MECHANICS_KEYS
+    assert sum(len(s) for s in sets) == len(union), "a field is in two sets"
+
+
+@pytest.mark.parametrize("preset", list_presets())
+def test_login_only_keys_never_reach_a_profile(preset: str) -> None:
+    """`lists` belongs to a login file: no emitted profile.yml spells or offers it."""
+    text = _emit(preset)
+    active, templated = _active_and_commented(text)
+
+    assert not active & _LOGIN_ONLY_KEYS
+    assert not templated & _LOGIN_ONLY_KEYS
+    for key in _LOGIN_ONLY_KEYS:
+        assert f"\n# {key}:" not in text
+
+
+def test_a_preset_that_sets_apps_emits_it_live() -> None:
+    """COMMENTED governs only the unset case: a set `apps:` is written active."""
+    text = _emit("hello-world", set_pairs=("apps.knob.config.step=1",))
+    active, templated = _active_and_commented(text)
+
+    assert "apps" in active
+    assert "apps" not in templated
+    assert yaml.safe_load(text)["apps"] == {"knob": {"config": {"step": 1}}}
 
 
 def test_every_commented_member_has_a_template() -> None:
@@ -273,6 +296,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
 
     assert templated == {
         "model",
+        "apps",
         "channel_finder_mode",
         "default_panel",
         "deploy",
@@ -287,6 +311,7 @@ def test_hello_world_extension_surface_is_pinned() -> None:
         "nextcloud_bridge",
         "gchat_bridge",
         "teams_bridge",
+        "slack_bridge",
     }
 
 
@@ -342,6 +367,7 @@ def test_known_profile_keys_equals_the_partition_plus_inheritance_keys() -> None
     and is refused in a profile.
     """
     expected = _FIELDS | {"extends", "exclude"} | {CONNECTOR_PROFILE_KEY, PORT_BASE_PROFILE_KEY}
+    assert _LOGIN_ONLY_KEYS <= _FIELDS
 
     assert set(_KNOWN_PROFILE_KEYS) == expected
     assert PRESET_DATA_BUNDLE_KEY not in _KNOWN_PROFILE_KEYS
@@ -353,10 +379,10 @@ def test_known_profile_keys_equals_the_partition_plus_inheritance_keys() -> None
 
 
 def test_emitted_profile_carries_the_provenance_header() -> None:
-    text = _emit("control-assistant")
+    text = _emit("demo")
     header = text.split("\nname:")[0]
 
-    assert "bundled `control-assistant` preset" in header
+    assert "bundled `demo` preset" in header
     assert "preset content hash: sha256:" in header
     assert "emitted by OSPREY" in header
 
@@ -401,9 +427,9 @@ def test_dropping_the_bundle_key_leaves_the_next_key_commented(preset: str) -> N
 
 
 def test_live_preset_blocks_emit_active() -> None:
-    """control-assistant really configures dispatch and bluesky — those must be
+    """demo really configures dispatch and bluesky — those must be
     active keys, not templates."""
-    parsed = yaml.safe_load(_emit("control-assistant"))
+    parsed = yaml.safe_load(_emit("demo"))
 
     assert isinstance(parsed["dispatch"], dict)
     assert isinstance(parsed["bluesky"], dict)
@@ -431,11 +457,11 @@ def test_every_config_key_carries_a_comment() -> None:
     profile.yml, a key with no prose above it is a value someone has to guess
     the meaning of from its name — and there are ~300 of them.
 
-    control-assistant is the preset asked because it is the widest: the other
+    demo is the preset asked because it is the widest: the other
     bundled presets configure subsets of the same surface.
     """
     undocumented = []
-    block = _config_block(_emit("control-assistant"))
+    block = _config_block(_emit("demo"))
     for i, line in enumerate(block):
         match = _CONFIG_KEY_RE.match(line)
         if match is None:
@@ -527,13 +553,13 @@ def test_a_marker_stops_covering_a_comment_out_of_reach() -> None:
 def test_the_refusal_names_the_marker_that_declares_a_port_foreign() -> None:
     """A rule is readable where it fires, or it is read nowhere.
 
-    The marker's shape is spelled in the pattern above, in the one bundled preset that uses
+    The marker's shape is spelled in the pattern above, in the only bundled preset that uses
     it and in the fixture that copies that preset byte for byte. The failure message is the
     only one of the four that a contributor editing a preset arrives at.
     """
     offender = f"# reachable at {DEFAULT_PORT_BASE}"
 
-    message = _layout_port_failure("control-assistant", [offender])
+    message = _layout_port_failure("demo", [offender])
 
     assert offender in message
     assert "# Not a deployment port: <n>" in message
@@ -541,7 +567,7 @@ def test_the_refusal_names_the_marker_that_declares_a_port_foreign() -> None:
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CHANNEL_FINDER_MODES))
-@pytest.mark.parametrize("preset", ("control-assistant",))
+@pytest.mark.parametrize("preset", ("demo",))
 def test_no_comment_freezes_the_channel_finder_mode(preset: str, mode: str) -> None:
     """Prose about the channel finder must hold whatever paradigm is selected.
 
@@ -552,7 +578,7 @@ def test_no_comment_freezes_the_channel_finder_mode(preset: str, mode: str) -> N
     carried, which described the mode as a fact and went stale the moment
     ``osprey set channel_finder_mode=`` moved it.
 
-    The two presets asked are the ones that spell the field. For a preset that
+    The presets asked are the ones that spell the field. For a preset that
     leaves it to the commented template, setting the mode retires that template,
     which is a difference in the offered keys rather than in frozen prose.
     """

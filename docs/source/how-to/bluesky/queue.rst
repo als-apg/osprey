@@ -10,7 +10,7 @@ it; sending a plan toward the machine is the guarded step, whichever click
 does it. **Stopping is never locked** — no token, no switch, no state can
 take the stop and abort buttons away.
 
-A project built from the ``control-assistant`` preset comes up armed
+A project built from the ``demo`` preset comes up armed
 (``bluesky.queue_autostart``), so the everyday flow is one click: **Run**.
 Stop or Abort leaves the queue stopped until the next **Start**.
 
@@ -28,14 +28,14 @@ One queue, three ways to drive it
    .. tab-item:: Panels
 
       The **PLAN** tab composes; the **BLUESKY** tab runs and watches. A
-      badge in BLUESKY's status strip names the queue's state on every tab —
-      *ready*, *running*, *stopped*, *stopping after current* — and a **?**
-      beside it explains the buttons.
+      status chip in BLUESKY's toolbar names the queue's state on every view —
+      *ready*, *running*, *stopped*, *stopping after current*. Click the chip
+      to read what each button does.
 
       - **Run** (PLAN) — on an armed queue, queues exactly the draft on your
         screen after a confirming click, and it runs now. On a stopped queue
         the same button reads **Add to queue**: the plan waits.
-      - **Start** (BLUESKY, Queue tab) — arms a stopped queue: it runs
+      - **Start** (BLUESKY, Queue view) — arms a stopped queue: it runs
         everything waiting, in order, and whatever is added later. It starts
         the queue you are looking at. If the list moved between your glance and
         your click the start is refused with the bridge's own sentence, and
@@ -45,16 +45,18 @@ One queue, three ways to drive it
       - **Stop** and **Abort** (BLUESKY) — never disabled. Stop lets the
         current plan finish; Abort stops it right now, after a second,
         confirming click. Both leave the queue stopped. They sit on the Queue
-        tab always, quiet while nothing moves, and appear on the other tabs
+        view always, quiet while nothing moves, and appear on the other views
         whenever a plan is moving or the state is in doubt.
-      - **Clear** (BLUESKY, Queue tab) — drops every waiting plan, after a
-        confirming click. The running plan is Abort's.
+      - **Clear waiting plans** (BLUESKY, tile **⋯** menu) — drops every
+        waiting plan. You confirm it at the top of the Queued card. The running
+        plan is Abort's.
       - Every queued row has reorder (↑ ↓) and remove (✕) buttons — the queue
         is editable right up until it runs.
       - **History** lists finished runs. Each row's ✕ removes that run from
-        the list, and the card's **Clear** removes them all after a
-        confirming click; the Results view offers **Remove from history** for
-        the run on screen. Run data is kept — see *Where the data lives*.
+        the list. **Clear history** in the tile **⋯** menu removes them all,
+        after you confirm at the top of the History card. The Results view
+        offers **Remove from history** for the run on screen. Run data is kept
+        — see *Where the data lives*.
       - Under those runs, History also lists **what was taken off the queue**
         — one quiet row for every plan removed, whether one at a time or by
         clearing the queue, and one for every plan aborted. Each gives the time
@@ -62,7 +64,7 @@ One queue, three ways to drive it
         still named: the queue server keeps no record of one. A row with no name
         means the request authorised without naming anybody, which some do. The
         rows are a record of what happened, and nothing on the queue is allowed
-        or refused because of them. The card's **Clear** empties both halves.
+        or refused because of them. **Clear history** empties both halves.
 
       See :doc:`/how-to/web-terminal/panels` for where these tabs live.
 
@@ -100,6 +102,8 @@ One queue, three ways to drive it
                                     the queue it means — expected_plan_queue_uid)
          POST   /queue/stop         stop after the running item, and disarm
          POST   /queue/abort        abort the running plan, and disarm — never gated
+         POST   /queue/items/<uid>/move
+                                    move one waiting item (reorder; ungated)
          DELETE /queue/items/<uid>  drop one waiting item
          DELETE /queue/items        drop every waiting item
          GET    /queue              what is queued and running, and the queue's own
@@ -107,7 +111,9 @@ One queue, three ways to drive it
          GET    /queue/removals     what was taken off the queue, newest first,
                                     and who asked (X-Osprey-Owner names the asker)
          GET    /runs               recent runs; /runs/<id>/data for the numbers,
-                                    /runs/<id>/figure for the plotted view
+                                    /runs/<id>/figure for the plotted view,
+                                    /runs/<id>/export for the whole run as a
+                                    CSV or parquet file
          DELETE /runs/<id>          remove one finished run from the list
          DELETE /history            remove every finished run from the list
 
@@ -122,8 +128,9 @@ One queue, three ways to drive it
       the field and the start arms whatever is queued now.
 
       Every refusal comes back with a ``detail`` object of the form
-      ``{"code": ..., "detail": ...}`` — a stable code for software to
-      branch on, a sentence for a human to read. The panels and the agent
+      ``{"code": ..., "detail": ..., "retryable": ...}`` — a stable code for
+      software to branch on, a sentence for a human to read, and whether
+      trying again can help. The panels and the agent
       show that same sentence, so every surface describes the same event
       the same way.
 
@@ -159,7 +166,7 @@ quirks worth knowing:
         - Nothing — the item just waits.
       * - Add to an **armed** or **running** queue
         - The launch token — this hands work straight to the machine. On the
-          ``control-assistant`` preset the queue is armed by default, so this
+          ``demo`` preset the queue is armed by default, so this
           is the everyday case.
       * - Start (arm) the queue
         - The launch token.
@@ -228,7 +235,7 @@ quirks worth knowing:
    this, and a name shown on one of its items is a label rather than a gate.
 
    On a two-lane deployment the BLUESKY panel carries a **lane picker** in its
-   status strip, labelled by the machine each lane drives. The panel is bound
+   toolbar, labelled by the machine each lane drives. The panel is bound
    to one lane at a time — plans, shared draft, queue and results all follow
    the picked lane, and its Start button arms with that lane's own token —
    so what you see and what a click starts can never belong to two different
@@ -238,7 +245,9 @@ quirks worth knowing:
    :color: info
    :icon: alert
 
-   A refusal always says why. The codes you will actually meet:
+   A refusal always says why. Every queue refusal also carries
+   ``retryable``; only ``retryable: true`` means trying again can help. The
+   codes you will actually meet:
 
    ``stale_draft_revision`` / ``draft_revision_already_launched``
       The draft changed since you looked, or that exact revision has already
@@ -272,6 +281,10 @@ quirks worth knowing:
 
    ``interrupted_item_in_queue``
       The queue still holds a plan someone stopped — see the next dropdown.
+
+   ``manager_not_configured``
+      No queue server is configured for this deployment. This needs an
+      operator to redeploy, never a retry.
 
    ``manager_unreachable``
       The queue server is not answering — often it is simply still starting.
@@ -320,7 +333,7 @@ quirks worth knowing:
    :color: info
    :icon: server
 
-   A project built from the ``control-assistant`` preset brings the whole
+   A project built from the ``demo`` preset brings the whole
    stack up with ``osprey up``: the **bridge** (the HTTP front door,
    port 10080), the **queue server** with its own storage, the **bluesky-web**
    sidecar serving the BLUESKY panel (port 10071), the **Virtual Accelerator** (the
@@ -333,7 +346,7 @@ quirks worth knowing:
    Tiled store, which plans the catalog carries, and the device file plans may
    drive or record — see :doc:`/reference/configuration/profile`. Whether the
    queue comes up armed is ``bluesky.queue_autostart``: on in the
-   ``control-assistant`` preset, off unless a deployment says so.
+   ``demo`` preset, off unless a deployment says so.
 
    Whether a deployment can execute plans at all is decided by its control
    system. The queue worker builds its devices over Channel Access, so the
@@ -351,7 +364,7 @@ quirks worth knowing:
 
    Run ``osprey build`` and ``osprey up`` afterwards to carry the change into
    the running stack. That switch needs a real archive behind it: a deployment
-   created from the ``control-assistant`` preset has one and the flip just
+   created from the ``demo`` preset has one and the flip just
    works; one still reading the mock archiver is refused at build time, and told
    to point ``archiver.type`` at a store its deployment writes first — see
    :doc:`../control-systems/use-virtual-accelerator`.

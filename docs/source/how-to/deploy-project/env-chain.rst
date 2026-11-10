@@ -4,7 +4,9 @@
 Environment Variables (the ``.env`` chain)
 ==========================================
 
-A deployment reads its environment from two files at the repository root:
+Use this page to set the environment variables a deployment reads, and to act
+on what ``osprey up`` reports about them. A deployment reads its environment
+from two files at the repository root, together called the **env chain**:
 
 .. list-table::
    :header-rows: 1
@@ -23,24 +25,49 @@ A deployment reads its environment from two files at the repository root:
      - no
 
 **The local file wins.** A variable set in both takes its value from ``.env``,
-on every path that reads them — the deploy, the CLI, the containers. That is
-the whole rule: same syntax, same variables, ``.env.shared`` simply sits lower.
-Setting a key in ``.env`` is how one host departs from a shared default, and
-there is nothing else to do about it — unless the profile has declared that
-variable the shared file's to decide (see :ref:`deployment-pinned-env`).
+on every path that reads them: the deploy, the CLI, the containers. That is the
+whole rule. Both files use the same syntax and the same variables;
+``.env.shared`` sits lower.
 
-Both files stay on the host. Neither ever enters a container image: they are
-read at run time and handed to the container runtime, which uses them to fill
-in the ``${VAR}`` placeholders in the rendered compose files. A variable reaches
-a running container only where a template maps it in. *How* the two files are
-handed over differs by compose provider (see
+To make one host depart from a shared default, set the key in ``.env``. There
+is nothing else to do, unless the profile has declared that variable the
+shared file's to decide (see :ref:`deployment-pinned-env`).
+
+.. _deployment-env-launch-variables:
+
+**Launch variables come from the shell only.** OSPREY never takes the
+variables below from either file, because they decide which program runs, what
+code it loads, or what code an installer fetches: ``PATH``, ``HOME``,
+``SHELL``, the variables that point a shell at its start-up files or run a
+command at its prompt, ``PS4``, ``IFS``, ``SHELLOPTS``, ``BASHOPTS``, the
+Python, Node, Perl, Ruby and Java start-up and load-path variables, the glibc
+variables ``GCONV_PATH``, ``GLIBC_TUNABLES``, ``LOCPATH``, ``NLSPATH`` and
+``HOSTALIASES``, ``OPENSSL_CONF``, ``OPENSSL_MODULES``, ``OPENSSL_ENGINES``,
+``XDG_CONFIG_HOME``, ``XDG_CONFIG_DIRS``, ``XDG_CACHE_HOME``,
+``XDG_DATA_HOME``, the compilers ``CC``, ``CXX`` and ``LDSHARED`` and their
+flag and include-path variables, ``DOCKER_HOST``, ``DOCKER_CONFIG``,
+``DOCKER_CONTEXT``, ``CLAUDE_CONFIG_DIR``, ``CLAUDE_CODE_SHELL``,
+``CLAUDE_CODE_SHELL_PREFIX``, ``CLAUDE_CODE_GIT_BASH_PATH``,
+``CLAUDE_ENV_FILE``, the askpass helpers, ``PAGER``, ``MANPAGER``,
+``LESSOPEN``, ``LESSCLOSE``, ``EDITOR``, ``VISUAL``, ``BROWSER``, and every
+``LD_``, ``DYLD_``, ``BASH_FUNC_``, ``GIT_``, ``NPM_CONFIG_``, ``UV_``,
+``PIP_`` or ``COMPOSE_`` variable. Names match in any case, so ``path`` is
+refused like ``PATH``. OSPREY ignores such a line and warns, naming the
+variables. Export them in your shell instead.
+
+Both files stay on the host. Neither ever enters a container image. They are
+read at run time and handed to the container runtime. The runtime uses them to
+fill in the ``${VAR}`` placeholders in the rendered compose files.
+
+A variable reaches a running container only where a template maps it in.
+*How* the two files are handed over differs by compose provider (see
 :ref:`compose-provider-compatibility`); what they resolve to does not.
 
-``.env`` has to exist. Rather than start a stack whose every ``${VAR}``
-substitutes to nothing, ``osprey up`` refuses when the file is missing. On an
-interactive terminal it first offers to seed one, but only when your shell has
-the key to seed it with — this deployment's own provider auth variable,
-exported. Otherwise start from the example:
+``.env`` has to exist. When the file is missing, ``osprey up`` refuses rather
+than start a stack whose every ``${VAR}`` substitutes to nothing. On an
+interactive terminal it first offers to seed one. It does so only when your
+shell has the key to seed it with: this deployment's own provider auth
+variable, exported. Otherwise start from the example:
 
 .. code-block:: bash
 
@@ -48,14 +75,14 @@ exported. Otherwise start from the example:
    # Edit .env with your actual values
 
 ``osprey init`` can give a new repository a head start on this file, once, from
-your shell — see :ref:`profile-secrets`.
+your shell. See :ref:`profile-secrets`.
 
 The ``.env*`` family
 --------------------
 
-Two files are yours to edit and one is documentation. The rest are written for
-you — most of them derived, rewritten whenever a command needs them, and not
-worth editing because the next command overwrites them:
+Two files are yours to edit and one is documentation. OSPREY writes the rest
+for you. Most of them are derived and rewritten whenever a command needs them.
+Don't edit those, because the next command overwrites them:
 
 .. list-table::
    :header-rows: 1
@@ -89,12 +116,13 @@ The generated ``.gitignore`` keeps all of them out of version control except
 .. note:: Upgrading a multi-user deployment
 
    The web terminals' env file changed name to ``.env.users``. ``osprey up``
-   does the rename for you the next time you deploy, and if both names are
-   present it keeps the new one and removes the leftover, naming both paths.
+   does the rename for you the next time you deploy. If both names are
+   present, it keeps the new one and removes the leftover, naming both paths.
+
    Only ``osprey up`` does this, so a stack you stop before you next deploy
-   still carries the old name — and because the web stack's compose file names
-   ``.env.users``, ``osprey down`` fails with an env-file-not-found error until
-   the rename has happened. Do it yourself in that case:
+   still carries the old name. The web stack's compose file names
+   ``.env.users``, so ``osprey down`` fails with an env-file-not-found error
+   until the rename has happened. In that case, do the rename yourself:
 
    .. code-block:: bash
 
@@ -103,86 +131,100 @@ The generated ``.gitignore`` keeps all of them out of version control except
 What a deploy writes back
 -------------------------
 
-``osprey up`` also *writes* to ``.env``. On first deploy it mints any missing
-service tokens and passwords (for example ``EVENT_DISPATCHER_TOKEN`` or
-``ARIEL_DB_PASSWORD``) so no service ever starts on a blank or publicly-known
-credential, appends them under a "Minted by deploy" heading, and restricts the
-file to owner-only permissions. The agent record's logins are the exception:
-each has its own ``.env.agent-record.*`` file at the repo root, mode 0600,
-outside the env chain, so a container is handed only the login it acts as.
-``osprey build`` writes nothing into ``.env``: the virtual accelerator reads
+``osprey up`` also *writes* to ``.env``. On first deploy it:
+
+- mints any missing service tokens and passwords (for example
+  ``EVENT_DISPATCHER_TOKEN`` or ``ARIEL_DB_PASSWORD``), so no service ever
+  starts on a blank or publicly-known credential;
+- appends them under a "Minted by deploy" heading;
+- restricts the file to owner-only permissions.
+
+The agent record's logins are the exception. Each has its own
+``.env.agent-record.*`` file at the repo root, mode 0600, outside the env
+chain. So a container is handed only the login it acts as.
+
+``osprey build`` writes nothing into ``.env``. The virtual accelerator reads
 the simulator view the build renders under ``build/data/simulator/``.
 
-The deploy's write is append-only, and a value already on file always wins. A
-value that disagrees with what it would have put there is *reported*, by name
-and never by value, for you to resolve by hand. That is what makes the stack
-reproducible: a later start comes up on the same credentials the running
-containers were initialized with, instead of minting a second set they do not
-trust. The ``.env`` beside ``profile.yml`` is the deployment's whole secret
-store — the only copy you maintain. ``osprey build`` writes no secret into
-``build/`` and reads none out of it, so a value you set once survives every
-rebuild; ``build/.env.merged`` is a derived copy the deploy regenerates, so
-wiping ``build/`` loses nothing — so back ``.env`` up.
+The deploy's write is append-only, and a value already on file always wins. If
+a value disagrees with what the deploy would have put there, the deploy
+*reports* it, by name and never by value, for you to resolve by hand.
+
+This append-only write makes the stack reproducible. A later start comes up on the same
+credentials the running containers were initialized with, instead of minting a
+second set they do not trust.
+
+**Back up** ``.env``. The ``.env`` beside ``profile.yml`` is the deployment's
+whole secret store, and the only copy you maintain. ``osprey build`` writes no
+secret into ``build/`` and reads none out of it, so a value you set once
+survives every rebuild. ``build/.env.merged`` is a derived copy the deploy
+regenerates, so wiping ``build/`` loses nothing.
 
 Minted values only ever land in ``.env``, never in ``.env.shared``. A minted
 credential belongs to this host, and ``.env.shared`` is committed.
 
+.. _deployment-env-chain-report:
+
 What a deploy tells you about the chain
 ---------------------------------------
 
-Two layered files make one new mistake possible, so every ``osprey up`` reports
-on the chain before it starts anything. Variable names are printed; values never
-are.
+Every ``osprey up`` reports on the chain before it starts anything, because two
+layered files make one new mistake possible. It prints variable names, never
+values.
 
 * **Overrides** — the keys ``.env`` overrides in ``.env.shared`` are listed
   once, by name, as information. That is the chain working as intended.
-* **Stale pins** — a warning, and it is reserved for one exact case: ``.env``
-  still holds the value ``.env.shared`` carried *before* the shared file
-  changed. That is the signature of a value copied from the default of the day
-  and then forgotten rather than one this host chose, and the stack starts on
-  the superseded value looking perfectly healthy. To adopt the shared value,
-  remove the key from ``.env``; to keep a local value deliberately, set it to
-  the value this host actually wants. The warning repeats until you do one or
-  the other.
+* **Stale pins** — a warning, reserved for one exact case: ``.env`` still
+  holds the value ``.env.shared`` carried *before* the shared file changed.
+  That is the signature of a value copied from the default of the day and then
+  forgotten, rather than one this host chose. The stack starts on the
+  superseded value, looking perfectly healthy.
+
+  - To adopt the shared value, remove the key from ``.env``.
+  - To keep a local value deliberately, set it to the value this host actually
+    wants.
+
+  The warning repeats until you do one or the other. A stale pin is a value
+  pinned by hand in ``.env`` that has fallen behind the shared default. It is
+  unrelated to ``env.pinned`` (the next item), and it stays a warning.
 * **Pinned variables** — a refusal. A profile can declare that some variables
-  are the shared file's to decide and no one else's; ``osprey up`` then refuses
-  to start when anything contradicts that. See :ref:`deployment-pinned-env`.
-* **Chain drift** — a refusal. Which env files the stack reads is decided when
-  the project is rendered, not when it starts: adding ``.env.shared`` to a
-  project built without one puts none of its values into the containers, and
-  removing one leaves the render pointing at a file that is gone. ``osprey up``
-  refuses and names ``osprey build``. Re-render, then start.
-* **Shell exports** — when a variable exported in your shell disagrees with the
-  value the chain resolves to, ``osprey up`` names it and says which of the two
-  the compose provider it just probed will actually substitute (see
-  :ref:`compose-interpolation-precedence`). A warning, so the export stays
-  available as an escape hatch — except for a pinned name, where it is a
-  refusal.
+  are the shared file's to decide and no one else's. ``osprey up`` then
+  refuses to start when anything contradicts that. See
+  :ref:`deployment-pinned-env`.
+* **Chain drift** — a refusal. The stack's env files are fixed when the
+  project is rendered, not when it starts. Adding ``.env.shared`` to a project
+  built without one puts none of its values into the containers. Removing one
+  leaves the render pointing at a file that is gone. ``osprey up`` refuses and
+  names ``osprey build``: re-render, then start.
+* **Shell exports** — a warning, so the export stays available as an escape
+  hatch; for a pinned name it is a refusal. When a variable exported in your
+  shell disagrees with the value the chain resolves to, ``osprey up`` names
+  it. It also says which of the two the compose provider it just probed will
+  actually substitute (see :ref:`compose-interpolation-precedence`).
 
 .. note::
 
    Postgres reads ``ARIEL_DB_PASSWORD`` (as ``POSTGRES_PASSWORD``) only when
    initializing a **fresh** data volume. A volume created before the password
-   was minted keeps its original password; the ``${ARIEL_DB_PASSWORD:-ariel}``
-   fallback — applied by the compose template and by the DSN the agent derives
-   from ``services.postgresql`` — keeps such deployments working. To adopt
-   the minted password, remove the ``ariel_postgres_data`` volume and redeploy
-   (this deletes the stored logbook data — re-ingest afterwards).
+   was minted keeps its original password. The ``${ARIEL_DB_PASSWORD:-ariel}``
+   fallback keeps such deployments working; the compose template and the DSN
+   the agent derives from ``services.postgresql`` both apply it. To adopt the
+   minted password, remove the ``ariel_postgres_data`` volume and redeploy.
+   This deletes the stored logbook data, so re-ingest afterwards.
 
    ``ARIEL_DB_READONLY_PASSWORD`` is minted beside it and has the same
-   fresh-volume caveat: it is the login secret of the SELECT-only role the
-   agent's SQL tool queries through, created by an init script the same
-   volume initialization runs. A volume that predates the role simply does not
-   have it, and the agent says so once at start-up rather than failing. See
-   :ref:`ariel-sql-readonly-role` for adopting the role on an existing
-   database.
+   fresh-volume caveat. It is the login secret of the SELECT-only role that
+   the agent's SQL tool queries through. An init script creates the role
+   during the same volume initialization. A volume that predates the role does
+   not have it, and the agent says so once at start-up rather than failing. To
+   adopt the role on an existing database, see :ref:`ariel-sql-readonly-role`.
 
 Egress through a site proxy
 ---------------------------
 
-A site that reaches the outside world only through a proxy sets the three
-standard names in the chain — in ``.env.shared`` when every host goes through
-the same proxy, in ``.env`` when this one differs:
+If your site reaches the outside world only through a proxy, set the three
+standard names in the chain. Put them in ``.env.shared`` when every host goes
+through the same proxy, and in ``.env`` when this one differs:
 
 .. code-block:: bash
 
@@ -190,69 +232,84 @@ the same proxy, in ``.env`` when this one differs:
    HTTPS_PROXY=http://proxy.example.com:8080
    NO_PROXY=localhost,127.0.0.1
 
-**Spell them in uppercase.** Two containers do not read the chain wholesale and
-are handed these settings instead: the login service (``env_file``
-``.env.auth``) and each per-user terminal (``env_file`` the closed allowlist
-``.env.users``). Each setting that has a value reaches both under its uppercase
-name and its lowercase twin, both carrying the uppercase value; a setting with
-no value is not set in them at all, under either spelling, so whatever the
-container runtime injects is left alone (an empty lowercase name would turn the
-proxy off for that scheme). A lowercase ``https_proxy`` in the chain is not
-read, and reaches neither. ``osprey up`` decides which settings have a value,
-from its own environment first and then the chain, each time it renders the
-stack; change one and run ``osprey up`` again. On a deployment that renders web
-terminals, ``osprey up`` warns when the chain gives a lowercase name a value and
-its uppercase twin none, naming the file and the variable; the value is left as
-written.
+**Spell them in uppercase.** Two containers do not read the chain wholesale.
+They are handed these settings instead:
+
+- the login service (``env_file`` ``.env.auth``);
+- each per-user terminal (``env_file`` the closed allowlist ``.env.users``).
+
+These rules apply to both containers:
+
+- **Only the uppercase names are read.** A lowercase ``https_proxy`` in the
+  chain is not read, and reaches neither container.
+- **Both containers get both spellings.** Each setting that has a value
+  reaches them under its uppercase name and its lowercase twin. Both carry the
+  uppercase value.
+- **An empty setting is unset.** A setting with no value is not set in them at
+  all, under either spelling. So whatever the container runtime injects is
+  left alone; an empty lowercase name would turn the proxy off for that scheme.
+- **Changes apply at the next** ``osprey up``. ``osprey up`` decides which
+  settings have a value each time it renders the stack. It reads its own
+  environment first, then the chain. Change one and run ``osprey up`` again.
+
+On a deployment that renders web terminals, ``osprey up`` warns when the chain
+gives a lowercase name a value and its uppercase twin none. The warning names
+the file and the variable; the value is left as written.
 
 Both of those containers make calls of their own, which is why they get these
-settings. The login service fetches the identity provider's discovery document at
-the first login; the agent in a terminal reaches the model provider on every
-turn. On a proxied host without these names those calls go out directly, so the
-stack comes up, the health check is green, and they fail. Nothing
-proxy-related belongs in ``.env.auth`` or ``.env.users``. Those files are a
-credential store and a generated allowlist; proxy settings are configuration
-rather than secrets, and the chain already delivers them (see
+settings. The login service fetches the identity provider's discovery document
+at the first login. The agent in a terminal reaches the model provider on every
+turn. On a proxied host without these names, those calls go out directly. The
+stack comes up and the health check is green, but the calls fail.
+
+Nothing proxy-related belongs in ``.env.auth`` or ``.env.users``. Those files
+are a credential store and a generated allowlist. Proxy settings are
+configuration rather than secrets, and the chain already delivers them (see
 :ref:`multi-user-require-a-login`).
 
 **The trust store comes from the image, not from the chain.** A proxy that
-re-signs TLS with a site certificate authority needs that authority's
-certificate inside the container, and the chain is the wrong place to put it: a
+re-signs TLS with a site certificate authority (CA) needs that authority's
+certificate inside the container. The chain is the wrong place to put it. A
 ``SSL_CERT_FILE`` naming a path the image does not carry stops httpx from
-constructing a client at all. Set ``images.site_ca`` in ``config.yml`` instead
-and rebuild — the CA is installed into the project image, each web-terminal
-image and the login sidecar, and each of the three points its own tools
-at the merged bundle. The
+constructing a client at all.
+
+Set ``images.site_ca`` in ``config.yml`` instead, and rebuild. The CA is
+installed into the project image, each web-terminal image and the login
+sidecar. Each of the three points its own tools at the merged bundle. The
 site-CA block ``osprey init`` writes into ``.env.shared`` is for the
 *containers* that read the whole chain, not for this.
 
 **A changed value lands at the next start.** These values are filled in when a
-container is created, so editing the chain does not reach a running stack:
-``osprey up`` is what puts a new proxy into force. Because the value is
-interpolated into the sidecar's ``environment:``, a changed value is a
-service-definition change, so Docker Compose recreates the login service and
-leaves the running terminals alone; podman-compose bounces the whole project.
+container is created, so editing the chain does not reach a running stack.
+``osprey up`` is what puts a new proxy into force. The value is interpolated
+into the sidecar's ``environment:``, so a changed value is a service-definition
+change:
+
+- Docker Compose recreates the login service and leaves the running terminals
+  alone.
+- podman-compose bounces the whole project.
+
 ``osprey restart`` also works, but it is a full stop-and-start on either
 provider, so every live web-terminal session drops. Pick the moment for it.
 
 .. warning::
 
-   No value in the chain may contain a ``$``, and a proxy URL carrying a
-   password is the usual way to meet that rule. Container stacks substitute
-   ``$`` sequences on the way through, so what reaches the container is
-   silently not what you wrote. ``osprey up`` scans ``.env.shared`` and
-   ``.env`` before it starts anything, refuses, and names the variable. The
-   remedy is a value without the character — ask for a credential that has
-   none.
+   No value in the chain may contain a ``$``. A proxy URL carrying a password
+   is the usual way to break that rule. Container stacks substitute ``$``
+   sequences on the way through, so what reaches the container is silently not
+   what you wrote. ``osprey up`` scans ``.env.shared`` and ``.env`` before it
+   starts anything, refuses, and names the variable. The remedy is a value
+   without the character: ask for a credential that has none.
 
 .. _deployment-pinned-env:
 
 Pinning a variable to the chain
 -------------------------------
 
-``.env`` winning is the right default, and for a few variables it is the wrong
-one: a proxy every host at the site has to go through, a hostname the whole
-facility shares. A profile can say so, in ``profile.yml``:
+To make the shared file decide a variable, pin it in ``profile.yml``. ``.env``
+winning is the right default, but for a few variables it is the wrong one. Two
+examples are a proxy every host at the site has to go through, and a hostname
+the whole facility shares:
 
 .. code-block:: yaml
 
@@ -262,34 +319,38 @@ facility shares. A profile can say so, in ``profile.yml``:
        - FACILITY_ARCHIVER_HOST
 
 Pinning does not change how a value resolves. It changes what ``osprey up``
-does when something contradicts the declaration: it refuses to start, rather
+does when something contradicts the declaration. It refuses to start, rather
 than let the stack run on a value from a source the deployment said it would
-not come from. Three checks, one for each way that can happen:
+not come from. There are three checks, one for each way that can happen:
 
 * **The declaration itself.** Pinning a name the deploy writes for you is
-  refused — a service token or password it mints, a service default it records,
-  a credential ``--reuse-stores`` restores from a surviving volume. A pin says
-  the chain is the variable's only source, and ``osprey up`` writing that same
-  name into ``.env`` contradicts it by construction. The message names each offender and its remedy:
-  ``unpin <NAME>; it is machine-minted.`` The check covers every name any writer
-  can produce, not only the services this deployment currently enables, so
-  turning a service on later cannot make a profile that was fine start
-  refusing.
+  refused. That covers a service token or password it mints, a service default
+  it records, and a credential ``--reuse-stores`` restores from a surviving
+  volume. A pin says the chain is the variable's only source. ``osprey up``
+  writing that same name into ``.env`` contradicts it by construction.
+
+  The message names each offender and its remedy:
+  ``unpin <NAME>; it is machine-minted.`` The check covers every name any
+  writer can produce, not only the services this deployment currently
+  enables. So turning a service on later cannot make a profile that was fine
+  start refusing.
 * **A local override.** ``.env`` setting a pinned name is refused. Without the
-  pin that is just this host's business; with it, the stack would start on a
-  value contradicting what the deployment declares it runs on — and nothing
-  else would notice, because the override is well-formed and the stack comes up
+  pin, that is just this host's business. With it, the stack would start on a
+  value contradicting what the deployment declares it runs on. Nothing else
+  would notice, because the override is well-formed and the stack comes up
   healthy.
-* **A shell export.** An export disagreeing with the chain is a warning for any
-  unpinned variable, deliberately: exporting over the store is a legitimate
-  one-off. For a pinned name it is a refusal, under either compose provider.
-  Docker Compose would substitute the exported value; podman-compose would
-  ignore it. Neither outcome is acceptable for a name the deployment declared
-  its own, and a repo must not be startable on one host and refused on another
-  for the same shell state, so the answer is the same on both — only the
+* **A shell export.** An export disagreeing with the chain is deliberately a
+  warning for any unpinned variable, because exporting over the store is a
+  legitimate one-off. For a pinned name it is a refusal, under either compose
+  provider. Docker Compose would substitute the exported value; podman-compose
+  would ignore it. Neither outcome is acceptable for a name the deployment
+  declared its own.
+
+  A repo must also not be startable on one host and refused on another for
+  the same shell state. So the answer is the same on both; only the
   explanation differs.
 
-All three run before any secret is minted and before any image is built, so a
+All three run before any secret is minted and before any image is built. So a
 deploy that is going to stop here stops having provisioned nothing. All three
 print names and never values.
 
@@ -300,17 +361,17 @@ name from ``env.pinned`` and re-run ``osprey build``.
 **A pin covers the chain and the shell, not the files derived from them.**
 Those two are where a value can reach a container while every reading of
 ``.env.shared`` goes on describing something else. ``.env.users`` carries a
-copy of what the chain already resolved to, and ``.env.auth`` holds credentials
-the deploy mints; neither is a place a pinned variable's value gets decided, so
+copy of what the chain already resolved to. ``.env.auth`` holds credentials the
+deploy mints. Neither is a place a pinned variable's value gets decided, so
 there is nothing there for the declaration to contradict.
 
-The declaration is read from ``profile.yml`` at the repository root, as
-``osprey build`` emitted it — a flat document. A hand-written profile that
-inherits its ``env`` block through ``extends:`` leaves the parent's pins unread
-and nothing enforced; spell them out in the repository's own profile.
+Spell out your pins in the repository's own profile. The declaration is read
+from ``profile.yml`` at the repository root, as ``osprey build`` emitted it: a
+flat document. A hand-written profile that inherits its ``env`` block through
+``extends:`` leaves the parent's pins unread and nothing enforced.
 
 .. note::
 
-   The warning ``osprey up`` prints as **Stale pin** is a different thing: a
-   value pinned by hand in ``.env`` that has fallen behind the shared default.
-   It is unrelated to ``env.pinned``, and it stays a warning.
+   The warning ``osprey up`` prints as **Stale pin** is unrelated to
+   ``env.pinned``; see the **Stale pins** item under
+   :ref:`What a deploy tells you about the chain <deployment-env-chain-report>`.

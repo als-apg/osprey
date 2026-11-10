@@ -22,7 +22,7 @@ K_B = -0.456
 SLICES = [{"element": "A", "weight": 2}, {"element": "B", "weight": 1}]
 ENGINE = {"attribute": "PolynomB", "index": 1}
 CALIBRATION = {"curve": {"linear": {"gain": GAIN, "offset": OFFSET}}}
-SLOTS = ("direction", "unit", "default", "value_range", "role", "plane", "refresh")
+SLOTS = ("direction", "unit", "default", "value_range", "engine_role", "plane", "refresh")
 
 
 def _save_deck(path: Path) -> None:
@@ -186,14 +186,24 @@ class TestProvenance:
         assert (record["direction"], record["unit"]) == ("read", "mm")
         assert "default" not in record
         assert "value_range" not in record
-        assert record["provenance"]["defaults"] == ["direction", "plane", "refresh", "role", "unit"]
-        assert (record["role"], record["plane"], record["refresh"]) == ("monitor", "x", "pass")
+        assert record["provenance"]["defaults"] == [
+            "direction",
+            "engine_role",
+            "plane",
+            "refresh",
+            "unit",
+        ]
+        assert (record["engine_role"], record["plane"], record["refresh"]) == (
+            "monitor",
+            "x",
+            "pass",
+        )
 
 
 class TestDescription:
     def test_each_record_carries_what_the_engine_says_it_is(self, filled):
         described = {
-            record_id: (filled[record_id]["role"], filled[record_id]["refresh"])
+            record_id: (filled[record_id]["engine_role"], filled[record_id]["refresh"])
             for record_id in ("SR/Q1:SP", "SR/Q1:RB", "SR/U:RB")
         }
         assert described == {
@@ -302,7 +312,7 @@ class TestStops:
         ]
         setpoint = _records(result)["SR/Q1:SP"]
         assert "default" in setpoint
-        assert setpoint["role"] == "setpoint"
+        assert setpoint["engine_role"] == "setpoint"
 
     def test_an_engine_that_contradicts_the_file_stops(self, tmp_path, monkeypatch):
         from osprey.simulation.engines import pyat
@@ -312,7 +322,7 @@ class TestStops:
         def write_as_readback(record: Any) -> Any:
             found = dict(describe(record))
             if record.get("direction") == "write":
-                found["role"] = "readback"
+                found["engine_role"] = "readback"
             return found
 
         monkeypatch.setattr(pyat, "describe", write_as_readback)
@@ -365,11 +375,11 @@ def test_an_authored_computed_slot_is_never_overwritten() -> None:
     with pytest.raises(
         RuntimeError, match=r"wiring w1 already carries computed slots \['default'\]"
     ):
-        wiring_module._fill_record(record, {"role": "setpoint"}, None, 0.0)
+        wiring_module._fill_record(record, {"engine_role": "setpoint"}, None, 0.0)
 
 
 @pytest.mark.parametrize(
-    ("slot", "value"), [("role", "monitor"), ("plane", "x"), ("refresh", "pass")]
+    ("slot", "value"), [("engine_role", "monitor"), ("plane", "x"), ("refresh", "pass")]
 )
 def test_an_authored_description_slot_is_refused(tmp_path: Path, slot: str, value: str) -> None:
     files = _files()

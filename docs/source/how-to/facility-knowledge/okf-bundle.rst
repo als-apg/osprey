@@ -103,7 +103,7 @@ Working with a Bundle
          ├── physics/            ← calibrations, beam-behavior notes
          └── references/         ← glossaries, standards, safety rules
 
-      The ``control-assistant`` preset ships an Example Research Facility bundle
+      The ``demo`` preset ships an Example Research Facility bundle
       you can read as a worked example, then replace with your own.
 
       Author the bundle in your **profile** (``data/facility/knowledge/`` in the deployment repository),
@@ -158,13 +158,13 @@ Working with a Bundle
 
       Relative paths are resolved against the project root — the deployment
       repo, not the ``build/`` render inside it, which every ``osprey build``
-      re-creates. For the ``control-assistant`` preset the example bundle is
+      re-creates. For the ``demo`` preset the example bundle is
       scaffolded into ``data/facility/knowledge/`` automatically.
 
       .. _shared-bundle-multi-user:
 
       **One bundle, many terminals.** In a multi-user deployment every web
-      terminal whose tier or app configures ``facility_knowledge.bundle_path`` gets
+      terminal whose login configures ``facility_knowledge.bundle_path`` gets
       the *deployment's* bundle bind-mounted, read-write. There is one directory,
       not a copy per user: a concept drafted in one terminal is the same file the
       next terminal opens, and the same file the search sidecar indexes.
@@ -220,7 +220,7 @@ Working with a Bundle
       first to orient, search to narrow, read to synthesize, then submit the
       result.
 
-      It is enabled by default in the ``control-assistant`` preset. To enable or
+      It is enabled by default in the ``demo`` preset. To enable or
       disable it in a generated project, set the agent's ``enabled`` flag under
       ``claude_code.agents`` in ``config.yml``:
 
@@ -242,25 +242,13 @@ Working with a Bundle
 
       .. _knowledge-cli:
 
-      The ``osprey knowledge`` command group provides four operations from the
-      terminal — three that manage an OKF bundle and one that compiles the
-      ontology table.  The graph store has no verb of its own: ``osprey up``
-      seeds it from the build's graph view (see :doc:`../deploy-project/index`).
+      The ``osprey knowledge`` command group provides three operations from the
+      terminal, all of which manage an OKF bundle. The graph store has no verb
+      of its own: ``osprey up`` seeds it from the build's graph view (see
+      :doc:`../deploy-project/index`). ``osprey knowledge --help`` prints:
 
-      .. code-block:: console
-
-         $ osprey knowledge --help
-         Usage: osprey knowledge [OPTIONS] COMMAND [ARGS]...
-
-           Manage OKF facility knowledge bundles.
-
-         Options:
-           --help  Show this message and exit.
-
-         Commands:
-           regen-index       Regenerate index.md files throughout an OKF bundle.
-           seed-from-ttl     Seed OKF stub documents from the build's graph view.
-           validate          Validate all OKF documents in a bundle.
+      .. literalinclude:: examples/knowledge-help.out
+         :language: text
 
       **regen-index** — regenerates ``index.md`` files throughout the bundle. Run
       this after adding or removing concept documents:

@@ -36,7 +36,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import click
 
@@ -56,13 +56,10 @@ from osprey.cli.repo_resolver import find_repo_root, repo_option
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
 from osprey.docs_links import setup_remedy
-from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, TIERS_DIRNAME
+from osprey.utils.workspace import TIERS_DIRNAME
 from osprey_connectors.config import load_project_config
 from osprey_connectors.errors import ConfigurationError
 from osprey_connectors.logger import get_logger
-
-if TYPE_CHECKING:
-    from osprey.cli.scaffold_layers import LayerKind
 
 logger = get_logger("scaffold")
 
@@ -558,10 +555,11 @@ def _escaping_symlinks(source: Path) -> list[str]:
     """Symlinks in ``source`` that a move into the profile would break.
 
     A profile must be self-contained to be reproducible, so
-    :func:`~osprey.cli.profile_conventions.validate_convention_sources` refuses
-    a convention directory that symlinks outside the profile. A claim that
-    moved such a link would report success and then fail *every* later build of
-    that profile — with the project copy already gone.
+    :func:`~osprey.cli.build_profile_merge.refuse_inputs_outside_repository`
+    refuses a convention directory holding a link that resolves outside the
+    repository. A claim that moved such a link would report success and then
+    fail *every* later build of that profile — with the project copy already
+    gone.
 
     The artifact itself being a link is always fatal: it cannot resolve inside
     itself. Inside a directory artifact, a relative link pointing at a sibling
@@ -804,9 +802,8 @@ def scaffold(ctx):
     \b
       osprey scaffold ci                          # Re-emit the CI files
       osprey scaffold systemd                     # Write the boot unit
-      osprey scaffold tiers                       # Write the tier files
-      osprey scaffold apps                        # Write the app files
-      osprey scaffold pull control-assistant --list # Show what a preset offers
+      osprey scaffold tiers                       # Write the login files
+      osprey scaffold pull demo --list # Show what a preset offers
       osprey scaffold list                        # Show all artifacts
       osprey scaffold claim agents/channel-finder # Move it into the profile
       osprey scaffold diff agents/channel-finder  # Compare yours vs framework
@@ -872,10 +869,8 @@ def ci(repo: Path | None, force: bool) -> None:
         raise SystemExit(1)
 
 
-def _scaffold_layer_files(
-    repo: Path | None, from_preset: str | None, force: bool, kind: LayerKind
-) -> None:
-    """The body of ``scaffold tiers`` and ``scaffold apps``; ``kind`` is the folder."""
+def _scaffold_layer_files(repo: Path | None, from_preset: str | None, force: bool) -> None:
+    """The body of ``scaffold tiers``."""
     # Imported here rather than at module scope: these pull the whole
     # build-profile chain in behind them, and every other verb in this group
     # runs without any of it.
@@ -884,7 +879,7 @@ def _scaffold_layer_files(
     from .profile_cmd import _resolve_preset_bundle
     from .scaffold_layers import plan_layer_files, unnamed_by_roster, write_layer_files
 
-    word = LAYER_DIR_KINDS[kind]
+    word = "login"
     # Resolved before anything is emitted: standing outside a repo is a mistake
     # about where the command was run, not a scaffolding failure.
     repo_root = find_repo_root(repo)
@@ -909,7 +904,7 @@ def _scaffold_layer_files(
     preset_name, _bundle = _resolve_preset_bundle(preset)
 
     try:
-        results, texts = plan_layer_files(repo_root, profile.name, preset_name, kind, force=force)
+        results, texts = plan_layer_files(repo_root, profile.name, preset_name, force=force)
     except ConfigurationError as exc:
         raise click.ClickException(str(exc)) from None
 
@@ -939,7 +934,7 @@ def _scaffold_layer_files(
 
     # Adopting another preset's files does not deploy them: until this repo's
     # roster names one, it sits unread, and an operator could take it for live.
-    unnamed = unnamed_by_roster(profile, results, kind)
+    unnamed = unnamed_by_roster(profile, results)
     if unnamed:
         console.print(
             f"  [warning]⚠[/warning] not named by this repo's roster, so nothing deploys "
@@ -957,63 +952,43 @@ _FROM_HELP = "Preset whose {} to emit. Default: the preset this repo was created
     "from_preset",
     metavar="PRESET",
     default=None,
-    help=_FROM_HELP.format("tier files"),
+    help=_FROM_HELP.format("login files"),
 )
 @click.option(
     "--force",
     is_flag=True,
-    help="Replace a tier file that exists and differs.",
+    help="Replace a login file that exists and differs.",
 )
 def tiers(repo: Path | None, from_preset: str | None, force: bool) -> None:
-    """Emit the tier files a preset's web-terminal roster names.
+    """Emit the login files a preset's web-terminal roster names.
 
-    Writes tiers/<name>.yml for every tier the preset's roster names, exactly
-    as osprey init does: the bundled tier written out in full, with its
-    comments and a provenance block. A file whose content already matches is
-    left untouched. A file that differs is yours: it is reported, nothing is
-    written, and --force replaces it.
+    Writes tiers/<name>.yml for every login the preset's roster names, each
+    person's tier and each shared login, exactly as osprey init does: the
+    bundled login written out in full, with its comments and a provenance
+    block. A file whose content already matches is left untouched. A file that
+    differs is yours: it is reported, nothing is written, and --force replaces
+    it.
 
     Examples:
 
     \b
       $ osprey scaffold tiers
-      $ osprey scaffold tiers --from control-assistant
+      $ osprey scaffold tiers --from demo
       $ osprey scaffold tiers --force
     """
-    _scaffold_layer_files(repo, from_preset, force, TIERS_DIRNAME)
+    _scaffold_layer_files(repo, from_preset, force)
 
 
-@scaffold.command(name="apps")
-@repo_option
-@click.option(
-    "--from",
-    "from_preset",
-    metavar="PRESET",
-    default=None,
-    help=_FROM_HELP.format("app files"),
-)
-@click.option(
-    "--force",
-    is_flag=True,
-    help="Replace an app file that exists and differs.",
-)
-def apps(repo: Path | None, from_preset: str | None, force: bool) -> None:
-    """Emit the app files a preset's web-terminal roster shares.
-
-    Writes apps/<name>.yml for every app the preset's roster names under
-    shared:, exactly as osprey init does: the bundled app written out in full,
-    with its comments and a provenance block. A file whose content already
-    matches is left untouched. A file that differs is yours: it is reported,
-    nothing is written, and --force replaces it.
-
-    Examples:
-
-    \b
-      $ osprey scaffold apps
-      $ osprey scaffold apps --from control-assistant
-      $ osprey scaffold apps --force
-    """
-    _scaffold_layer_files(repo, from_preset, force, APPS_DIRNAME)
+@scaffold.command(name="apps", hidden=True, context_settings={"ignore_unknown_options": True})
+@click.argument("args", nargs=-1, type=click.UNPROCESSED)
+def apps(args: tuple[str, ...]) -> None:
+    """Retired: logins live in tiers/, applications are made with `osprey app new`."""
+    del args
+    raise click.UsageError(
+        "`osprey scaffold apps` is retired. Shared logins live in tiers/ now: "
+        "`osprey scaffold tiers` writes them. To make an application, run "
+        "`osprey app new`."
+    )
 
 
 @scaffold.command(name="pull")
@@ -1038,9 +1013,9 @@ def apps(repo: Path | None, from_preset: str | None, force: bool) -> None:
 def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_content: bool) -> None:
     """Copy a preset's packaged content into this repo.
 
-    PRESET[:PATH] names what to copy: 'control-assistant' is the whole app
+    PRESET[:PATH] names what to copy: 'demo' is the whole app
     template with its facility under data/facility/,
-    'control-assistant:data/facility/knowledge' one subtree of it.
+    'demo:data/facility/knowledge' one subtree of it.
     Each file lands at the same path under this repo, where you edit it and
     commit it. Run --list first to see every path a preset offers.
 
@@ -1056,9 +1031,9 @@ def pull(spec: str, repo: Path | None, list_only: bool, force: bool, with_conten
     Examples:
 
     \b
-      $ osprey scaffold pull control-assistant --list
-      $ osprey scaffold pull control-assistant:data/facility/knowledge
-      $ osprey scaffold pull control-assistant:web-terminal-context
+      $ osprey scaffold pull demo --list
+      $ osprey scaffold pull demo:data/facility/knowledge
+      $ osprey scaffold pull demo:web-terminal-context
       $ osprey scaffold pull hello-world:mcp_servers/example_server --force
     """
     # Imported here for the same reason `ci` and `tiers` do it: the
@@ -1875,7 +1850,7 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
     _reject_retired_config_option(config_path)
 
     from osprey.deployment.web_terminals.render import render_web_terminals
-    from osprey.deployment.web_terminals.roster import app_titles_in, render_stop_grace
+    from osprey.deployment.web_terminals.roster import login_titles_in, render_stop_grace
 
     repo_root = find_repo_root(repo)
     config = _load_config(repo_root / BUILD_OUTPUT_DIR)
@@ -1906,8 +1881,8 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
             )
 
     # The preview names the facility by the project name, the name a build
-    # with no authored identity records; each app card is titled by its
-    # apps/<name>.yml `name:`, as the deploy titles it.
+    # with no authored identity records; each shared card is titled by its
+    # tiers/<name>.yml `name:`, as the deploy titles it.
     try:
         # Not a credential, so this preview carries it: how long each service
         # gets to stop is a fact of the compose file an operator reads here,
@@ -1916,7 +1891,7 @@ def web_terminals_render(repo, config_path, output_dir, no_lint):
             config,
             stop_grace_renders=render_stop_grace(config, repo_root),
             facility_name=str(config.get("project_name") or ""),
-            app_titles=app_titles_in(repo_root / APPS_DIRNAME),
+            shared_titles=login_titles_in(repo_root / TIERS_DIRNAME),
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc

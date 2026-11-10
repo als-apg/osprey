@@ -10,7 +10,12 @@ event: UserPromptSubmit, Stop, StopFailure, SessionStart
 ## Flow
 
 ```
-hook fires ──► OSPREY_WEB_PORT and OSPREY_SESSION_ID both set? ──NO──► exit 0, silent
+hook fires ──► OSPREY_SESSION_ID unset, host-prefixed OSPREY_TERMINAL_SESSION
+                    │    and OSPREY_CLI_LAUNCH set? ──YES──► CLI pointer (below) ──► exit 0
+                   NO
+                    │
+                    ▼
+               OSPREY_WEB_PORT and OSPREY_SESSION_ID both set? ──NO──► exit 0, silent
                     │
                    YES
                     │
@@ -95,10 +100,39 @@ without ``OSPREY_WEB_PORT`` there is no web terminal to report to, and a report
 sent to a guessed port would be a report about a session that server has never
 heard of.
 
-stdlib-only — must NOT import osprey, yaml, requests, or any third-party lib.
-Uses only ``json``, ``os``, ``sys``, ``time``, ``urllib.request``. The hook runs
-under ``python3`` (possibly a system Python 3.9, not the venv interpreter), so
-this file must be 3.9-safe.
+## The CLI transcript pointer
+
+An ``osprey chat`` or ``osprey query`` launch has no web terminal and no hub
+ledger, yet "this session" must still follow a ``/clear`` there: the MCP
+servers it started keep the pre-clear ``CLAUDE_CODE_SESSION_ID`` for their
+whole life. So the hook keeps a pointer for it instead, the CLI mirror of the
+web ledger moving before any tool runs. A process with no
+``OSPREY_SESSION_ID``, an ``OSPREY_TERMINAL_SESSION`` carrying the host prefix
+(``chat-``) and an ``OSPREY_CLI_LAUNCH`` writes the payload's ``session_id`` to
+``<agent-data root>/cli-transcripts/<OSPREY_CLI_LAUNCH>`` on every
+``SessionStart`` (startup, resume, clear — never ``compact``) and every
+``UserPromptSubmit``. The root is ``osprey_hook_log.repo_agent_data_root()``,
+the one ``osprey.stores.artifact_scope.current_scope`` reads from.
+
+The file holds the transcript id on one line and is replaced atomically
+(temporary file plus rename), so a reader never sees half of one. A launch id
+that is not a safe single path component writes nothing. Each write also
+prunes *other* launches' pointer files older than seven days — never the
+writer's own. Each launcher exports a fresh launch id, never an inherited one,
+so a launch nested inside another one's Bash keeps a pointer of its own.
+
+## Import contract
+
+The web branch is stdlib-only and must NOT import osprey, yaml, requests, or
+any third-party lib: ``json``, ``os``, ``sys``, ``time``, ``urllib.request``.
+The CLI branch additionally imports the siblings ``osprey_hook_log`` (for
+``repo_agent_data_root``) and ``osprey_safety_file`` (the pointer is replaced
+whole through ``atomic_replace``), through the same ``sys.path`` shim as the
+other hooks, and only when that branch runs — the build catalog declares the
+dependencies (``requires=("hooks/hook-log", "hooks/safety-file")``). This file itself stays
+3.9-safe, since the hook runs under ``python3`` (possibly a system Python, not
+the venv interpreter); an interpreter the sibling cannot load costs the
+pointer, never the web report or the turn.
 
 Fails open on any error — stays silent, writes nothing to stdout, and exits 0.
 Every one of these events would otherwise block the operator's prompt or the end
@@ -111,6 +145,7 @@ import os
 import sys
 import time
 import urllib.request
+from pathlib import Path
 
 #: What each hook event says about the process. An event outside this table is
 #: not a turn edge and is not reported.
@@ -128,6 +163,21 @@ _SESSION_START = "SessionStart"
 #: The ``SessionStart`` source that must never be reported — see the module
 #: docstring. The registered matcher excludes it; this is the backstop.
 _COMPACT_SOURCE = "compact"
+
+#: The events that move the CLI transcript pointer: a session opening (the
+#: compaction backstop still applies) and a prompt being submitted.
+_CLI_POINTER_EVENTS = frozenset({"SessionStart", "UserPromptSubmit"})
+
+#: Directory under the agent-data root holding one pointer file per CLI launch.
+#: Must equal ``osprey.stores.artifact_scope.CLI_POINTER_DIR``.
+CLI_POINTER_DIR = "cli-transcripts"
+
+#: The terminal-session prefix a host launch carries. Must equal
+#: ``osprey.build.claude_code_telemetry.HOST_SESSION_PREFIX``.
+HOST_SESSION_PREFIX = "chat-"
+
+#: Age past which another launch's pointer file is pruned, in seconds (C10).
+POINTER_MAX_AGE_S = 7 * 24 * 60 * 60
 
 #: Seconds the POST may take. Long enough for a loopback call to a busy server,
 #: short enough that a dead one never holds up a prompt or a turn's end.
@@ -194,8 +244,117 @@ def report_turn_state(body, port):
         urllib.request.urlopen(_turn_request(body, port), timeout=_POST_TIMEOUT).close()
 
 
+def _safe_launch(launch):
+    """Whether *launch* is a single, safe path component for a pointer file."""
+    return (
+        isinstance(launch, str)
+        and bool(launch)
+        and launch not in {".", ".."}
+        and not any(char in launch for char in ("/", "\\", "\0"))
+    )
+
+
+def _siblings_on_path():
+    """Put this hook's directory on ``sys.path`` for the sibling imports.
+
+    Siblings (``osprey_hook_log``, ``osprey_safety_file``) are imported on the
+    CLI branch only, never at module scope, so the web branch stays stdlib-only
+    and an in-process import of this module stays inert.
+    """
+    hooks_dir = os.path.dirname(os.path.abspath(__file__))
+    if hooks_dir not in sys.path:
+        sys.path.insert(0, hooks_dir)
+
+
+def _pointer_root(payload):
+    """The agent-data root the pointer lives under (``repo_agent_data_root``)."""
+    _siblings_on_path()
+    from osprey_hook_log import repo_agent_data_root
+
+    return repo_agent_data_root(payload)
+
+
+def _prune_pointers(directory, own, now):
+    """Remove other launches' pointer files older than :data:`POINTER_MAX_AGE_S`."""
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return
+    for name in names:
+        if name == own:
+            continue
+        path = os.path.join(directory, name)
+        with contextlib.suppress(OSError):
+            if os.path.isfile(path) and now - os.path.getmtime(path) > POINTER_MAX_AGE_S:
+                os.unlink(path)
+
+
+#: Read by the host launch's own MCP processes (``artifact_scope``), under the same account.
+_POINTER_FILE_MODE = 0o600
+
+
+def write_cli_pointer(root, launch, transcript):
+    """Atomically write *transcript* as *launch*'s pointer under *root*.
+
+    Returns the pointer path, or ``None`` when *launch* is not a safe name or
+    *transcript* is not a one-line id. Raises on a filesystem failure; the
+    caller fails open.
+    """
+    if not _safe_launch(launch):
+        return None
+    if not isinstance(transcript, str) or not transcript or "\n" in transcript:
+        return None
+    directory = os.path.join(str(root), CLI_POINTER_DIR)
+    os.makedirs(directory, exist_ok=True)
+    target = os.path.join(directory, launch)
+    _siblings_on_path()
+    from osprey_safety_file import atomic_replace
+
+    atomic_replace(
+        Path(target),
+        (transcript + "\n").encode("utf-8"),
+        mode=_POINTER_FILE_MODE,
+        sync="best_effort",
+    )
+    _prune_pointers(directory, launch, time.time())
+    return target
+
+
+def _cli_launch():
+    """The launch id when this process is a CLI launch's agent, else ``None``."""
+    if (os.environ.get("OSPREY_SESSION_ID") or "").strip():
+        return None
+    if not (os.environ.get("OSPREY_TERMINAL_SESSION") or "").startswith(HOST_SESSION_PREFIX):
+        return None
+    return os.environ.get("OSPREY_CLI_LAUNCH") or None
+
+
+def record_cli_pointer(launch):
+    """The CLI branch: move *launch*'s pointer to the payload's transcript."""
+    payload = _read_payload()
+    event = payload.get("hook_event_name")
+    if event not in _CLI_POINTER_EVENTS:
+        return
+    if event == _SESSION_START and payload.get("source") == _COMPACT_SOURCE:
+        # Compaction keeps the transcript; it is not a move.
+        return
+    if not _safe_launch(launch):
+        return
+    session_id = payload.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        return
+    write_cli_pointer(_pointer_root(payload), launch, session_id)
+
+
 def main():
     try:
+        launch = _cli_launch()
+        if launch is not None:
+            # A host launch: no web terminal to report to, only the pointer.
+            with contextlib.suppress(Exception):
+                record_cli_pointer(launch)
+            return 0
+
         port = (os.environ.get("OSPREY_WEB_PORT") or "").strip()
         pool_key = (os.environ.get("OSPREY_SESSION_ID") or "").strip()
         if not port or not pool_key:

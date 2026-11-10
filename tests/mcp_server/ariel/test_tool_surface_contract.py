@@ -85,9 +85,33 @@ def test_attachment_view_row_is_conditional_on_the_view_switch():
     assert "{%- endif %}" not in text[opener:row]
 
 
+def test_sql_query_row_is_conditional_on_the_readonly_login():
+    text = _TEMPLATE.read_text(encoding="utf-8")
+    row = text.index("- `sql_query`")
+    opener = text.rfind("{%- if ariel_sql_tool %}", 0, row)
+    assert opener != -1
+    assert "{%- endif %}" in text[row:]
+    assert "{%- endif %}" not in text[opener:row]
+
+
 def test_contract_documents_the_view_switch():
     """The view-off rule is stated in the contract next to ``attachment_view``."""
     text = _CONTRACT_RST.read_text(encoding="utf-8")
     assert "ariel.attachments.view.enabled" in text
     for key in ("attachment_count", "matched_attachment_ids", "viewable"):
         assert f"``{key}``" in text
+
+
+def test_the_offer_table_is_the_registry_declaration():
+    """Each server offer predicate gates the tools one registry ctx key declares."""
+    from osprey.mcp_server.ariel import server
+
+    by_key: dict[str, set[str]] = {}
+    for tool, offer in _ARIEL.optional_tools.items():
+        by_key.setdefault(offer.key, set()).add(tool)
+
+    assert sorted(map(sorted, by_key.values())) == sorted(
+        sorted(tools) for tools, _offered in server._TOOL_OFFERS
+    )
+    assert all(offer.default for offer in _ARIEL.optional_tools.values())
+    assert not set(_ARIEL.optional_tools) & set(_ARIEL.permissions_ask)

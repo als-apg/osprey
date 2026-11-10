@@ -1,6 +1,6 @@
 """Reverse proxy for companion panel servers running inside the container.
 
-Companion servers (artifact gallery, ARIEL, channel-finder, lattice, OKF) and
+Companion servers (artifact gallery, ARIEL, channel-finder, OKF) and
 the notebook sidecar bind to 127.0.0.1 inside the Docker container.  The browser cannot reach them
 directly, so this proxy forwards ``/panel/{panel_id}/{path}`` to the internal
 server and rewrites root-absolute paths in HTML/JS/CSS responses.
@@ -63,9 +63,11 @@ import httpx
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 from fastapi.routing import APIRoute
+from starlette.concurrency import run_in_threadpool
 from starlette.websockets import WebSocketState
 from websockets.asyncio.client import connect as _WebSocketConnect
 
+from osprey.apps.manifest import is_write_method
 from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.interfaces._media_types import STATIC_TEXT_TYPES as _STATIC_TEXT_TYPES
 from osprey.interfaces._media_types import asset_media_type as _asset_media_type
@@ -74,6 +76,7 @@ from osprey.interfaces.common_middleware import (
     EXTERNAL_ORIGIN_ENV,
     FACILITY_TIMEZONE_ATTRIBUTE,
     FIRST_PARTY_PANEL_STATIC,
+    FIRST_PARTY_PANEL_VIEWERS,
     MOUNT_SEGMENT_RE,
     PANEL_ADMISSION_STATE_KEY,
     PANEL_ASSET_SUBPATHS,
@@ -86,16 +89,18 @@ from osprey.interfaces.common_middleware import (
     _normalize_origin as _normalize_external_origin,
 )
 from osprey.interfaces.opaque_origin import document_headers
-from osprey.interfaces.web_auth import get_web_credentials
+from osprey.interfaces.web_auth import get_web_credentials, panel_registry_of
+from osprey.interfaces.web_terminal.config_view import login_tier, rendered_config, section_of
 from osprey.interfaces.web_terminal.operator_session import session_hold_root_of
 from osprey.interfaces.web_terminal.panel_cap import opaque_panel_kind, verify_request_cap
 from osprey.interfaces.web_terminal.panel_sandbox import apply_panel_sandbox, builtin_entry_pages
-from osprey.interfaces.web_terminal.routes.watchdog import session_is_live
+from osprey.interfaces.web_terminal.routes.watchdog import live_session_keys, session_is_live
 from osprey.interfaces.web_terminal.routes.workspace_activity import observe_set_workspace
-from osprey.profiles.web_panels import SIDECAR_PANELS
+from osprey.profiles.web_panels import SIDECAR_PANELS, ApplicationPanel
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
-from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
+from osprey.utils.launch_token import LAUNCH_TOKEN_HEADER
+from osprey.utils.owner_header import OWNER_HEADER, SESSION_HEADER, owner_from_header
 from osprey_connectors.config import get_facility_timezone
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.refusals import refusal_text
@@ -189,6 +194,10 @@ _REWRITE_PREFIXES = (
     "/webhook/",
     "/retry/",
     "/trigger/",
+    # The gallery's extension-type viewer modules (artifact-viewport.js builds
+    # the import URL as a `/viewers/...` literal), answered by
+    # ``proxy_panel_artifacts_viewer`` for the embedded gallery.
+    "/viewers/",
 )
 
 # Content types eligible for path rewriting.
@@ -267,6 +276,71 @@ def _panel_is_config_defined(scope: Request | WebSocket, panel_id: str) -> bool:
     return False
 
 
+def application_panels(custom_panels: list[dict]) -> dict[str, ApplicationPanel]:
+    """The application panels the configured panels declare, by panel id.
+
+    Only a config-declared panel addressed at loopback that names its
+    application contributes: a runtime registration or an off-box backend
+    declares nothing, whatever its dict holds.
+
+    Args:
+        custom_panels: The custom-panel dicts :func:`_load_panel_config` forwards,
+            each with ``agentRoutes`` as ``{method, path}`` entries whose path is
+            backend-root-relative.
+    """
+    panels: dict[str, ApplicationPanel] = {}
+    for panel in custom_panels:
+        if not panel.get("configDefined") or not _backend_is_loopback(panel.get("url", "")):
+            continue
+        if not panel.get("app"):
+            continue
+        routes = tuple((route["method"], route["path"]) for route in panel.get("agentRoutes") or [])
+        panels[str(panel["id"])] = ApplicationPanel(str(panel["app"]), routes)
+    return panels
+
+
+def _login_arms_writes(config_path: Path | None) -> bool:
+    """Whether the acting login's ``control_system.writes`` tier arms writes here.
+
+    The same per-login tier the header chip shows (``login_tier``): the
+    deployment's tier, then the login's own rung. ``asked`` and ``allowed``
+    arm; ``never`` and ``unknown`` do not. The owner's per-machine switch is
+    not read here: the write itself meets it downstream, where the position
+    decides whether a person is asked. Blocking (it reads the render); call it
+    off the loop.
+    """
+    section = section_of(rendered_config(config_path))
+    return login_tier(section, acting_identity()) in ("asked", "allowed")
+
+
+async def _unarmed_application(scope: Request | WebSocket, panel_id: str) -> str | None:
+    """The application ``panel_id`` serves, when this login does not arm it.
+
+    ``None`` for a panel that names no application — a built-in panel, a
+    runtime registration, a config-defined panel of the non-application shape —
+    and for an application panel on a login whose write tier arms writes.
+    A disabled panel block never reaches ``custom_panels``, so its application
+    is never armed here.
+    """
+    for panel in getattr(scope.app.state, "custom_panels", []):
+        if panel.get("id") == panel_id:
+            application = panel.get("app")
+            if not application:
+                return None
+            config_path = getattr(scope.app.state, "config_path", None)
+            if await run_in_threadpool(_login_arms_writes, config_path):
+                return None
+            return str(application)
+    return None
+
+
+def _unarmed_refusal(scope: Request | WebSocket, application: str, what: str) -> str:
+    """The refusal naming the login and the application."""
+    login = str(getattr(scope.app.state, "terminal_user", "") or "").strip()
+    who = f"login '{login}'" if login else "this login"
+    return f"{what} refused: {who} does not arm application '{application}' for writes"
+
+
 class _RedirectRefusingConnect(_WebSocketConnect):
     """An upstream websocket handshake that follows no redirect.
 
@@ -316,12 +390,6 @@ def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
 #: The dispatcher tools that start a job; its other tools only read.
 _JOB_FIRING_TOOLS = frozenset({"manual_fire"})
 
-#: The header naming the calling session on an agent hop's MCP server entry
-#: (the dispatcher's, and each opted-in sidecar's). The panel token is shared,
-#: so it is honest-path: it answers which session is asking, and is no proof
-#: of it.
-_SESSION_HEADER = "x-osprey-session"
-
 #: JSON-RPC's implementation-defined server error, for a call refused before it left.
 _JSONRPC_REFUSED = -32000
 
@@ -348,6 +416,37 @@ def _acting_messages(body: bytes, acting_tools: Collection[str]) -> list[dict] |
     return None
 
 
+async def _held_session_refusal(request: Request, *, agent: bool, what: str) -> str | None:
+    """The refusal a held session earns this acting request; ``None`` lets it through.
+
+    An agent's request names its session (:data:`SESSION_HEADER`), and under a
+    hold store that session must be named and live, so a key nobody runs cannot
+    act past a hold it has no record of. Any other caller is the operator at
+    this terminal, whose request names nothing the terminal can trust: it is
+    held while any session this terminal runs is held. With no store nothing is
+    read.
+
+    Args:
+        request: The proxied request.
+        agent: Whether the terminal's gate admitted the request on the panel token.
+        what: The act the refusal names (``call``, ``write``).
+    """
+    root = session_hold_root_of(request.app)
+    if root is None:
+        return None
+    if agent:
+        key = request.headers.get(SESSION_HEADER, "")
+        if not is_safe_session_key(key) or not session_is_live(request.app, key):
+            return f"This {what} needs a live session; it names none."
+        keys = [key]
+    else:
+        keys = live_session_keys(request.app)
+    for key in keys:
+        if await asyncio.to_thread(is_held, key, root=root):
+            return refusal_text("session_held", detail=f"The {what} is refused while held.")
+    return None
+
+
 async def _refuse_held_call(
     request: Request, acting_tools: Collection[str], *, hop: str
 ) -> Response | None:
@@ -370,18 +469,13 @@ async def _refuse_held_call(
         acting_tools: The bare tool names on this hop that act.
         hop: What the log names when a call is refused.
     """
-    root = session_hold_root_of(request.app)
-    if root is None:
+    if session_hold_root_of(request.app) is None:
         return None
     messages = _acting_messages(await request.body(), acting_tools)
     if messages is None:
         return None
-    key = request.headers.get(_SESSION_HEADER, "")
-    if not is_safe_session_key(key) or not session_is_live(request.app, key):
-        text = "This call needs a live session; it names none."
-    elif await asyncio.to_thread(is_held, key, root=root):
-        text = refusal_text("session_held", detail="The call is refused while held.")
-    else:
+    text = await _held_session_refusal(request, agent=True, what="call")
+    if text is None:
         return None
     logger.warning("Refused a call on the %s while the session is held or unnamed", hop)
     errors = [
@@ -429,6 +523,7 @@ _STRIPPED_REQUEST_HEADERS = frozenset(
         "authorization",
         "x-osprey-terminal-secret",
         OWNER_HEADER.lower(),
+        LAUNCH_TOKEN_HEADER.lower(),
     }
 )
 
@@ -723,7 +818,7 @@ def _is_admitted_agent_hop(scope: Request | WebSocket, panel_id: str, path: str)
         panel_id: The panel id from the proxied URL.
         path: The decoded path below the panel id, without a leading slash.
     """
-    sidecar = SIDECAR_PANELS.get(panel_id)
+    sidecar = panel_registry_of(getattr(scope, "app", None)).sidecars.get(panel_id)
     if sidecar is None or not sidecar.agent_hop or not sidecar.mcp_path:
         return False
     if f"/{path}" != sidecar.mcp_path:
@@ -769,7 +864,7 @@ def _mcp_path_refusal(
         path: The decoded path below the panel id, without a leading slash.
         target: The upstream URL this request would be forwarded to.
     """
-    sidecar = SIDECAR_PANELS.get(panel_id)
+    sidecar = panel_registry_of(getattr(scope, "app", None)).sidecars.get(panel_id)
     if sidecar is None or not sidecar.mcp_path:
         return None
 
@@ -801,7 +896,8 @@ def _panel_auth_header(
     A sidecar this process starts is handed a credential of its own and refuses
     anything that arrives without it. The launcher publishes that credential as
     a ready-made header mapping on ``app.state.panel_auth_headers``, keyed by
-    panel id, and it is injected on this hop so the browser never holds it.
+    panel id, and it is injected on this hop so the browser never holds it. An
+    application panel's launch token is held the same way.
 
     Gated exactly as the operator secret is
     (:func:`_backend_earns_credentials`): a credential handed to a listener the
@@ -878,6 +974,7 @@ async def _request_no_redirect(
     url: str,
     headers: dict[str, str],
     content: bytes | None,
+    timeout: httpx.Timeout | None = None,
 ) -> httpx.Response:
     """Send one panel request without letting httpx chase redirects.
 
@@ -899,13 +996,25 @@ async def _request_no_redirect(
     The redirect is relayed to the browser instead (:func:`_relay_redirect`),
     whose re-request is re-gated by the terminal's own auth and, if it comes
     back through a panel path, earns a freshly evaluated injection.
+
+    *timeout* is the panel's own bound (:func:`_panel_timeout`); ``None`` sends
+    the request on the shared client's default.
     """
+    if timeout is None:
+        return await client.request(
+            method=method,
+            url=url,
+            headers=headers,
+            content=content,
+            follow_redirects=False,
+        )
     return await client.request(
         method=method,
         url=url,
         headers=headers,
         content=content,
         follow_redirects=False,
+        timeout=timeout,
     )
 
 
@@ -1071,6 +1180,32 @@ def _panel_json_rewrite_paths(request: Request, panel_id: str) -> tuple[str, ...
                 return tuple(str(p).rstrip("/") for p in paths if p)
             return (str(paths).rstrip("/"),)
     return ()
+
+
+def _panel_timeout(request: Request, panel_id: str, shared: httpx.Timeout) -> httpx.Timeout | None:
+    """The timeout of this panel's proxied requests, or ``None`` for the shared default.
+
+    A config-defined panel that writes ``read_timeout_s`` replaces the read bound
+    of the shared client's timeout and keeps its connect, write and pool bounds;
+    ``null`` lifts the read bound. A panel that writes nothing, and every runtime
+    registration (a timeout is configuration), stays on *shared*.
+
+    Args:
+        request: The request being proxied.
+        panel_id: The panel id from the proxied URL.
+        shared: The shared proxy client's timeout.
+    """
+    for cp in getattr(request.app.state, "custom_panels", []):
+        if cp.get("id") == panel_id:
+            if not cp.get("configDefined") or "readTimeoutS" not in cp:
+                return None
+            return httpx.Timeout(
+                connect=shared.connect,
+                read=cp["readTimeoutS"],
+                write=shared.write,
+                pool=shared.pool,
+            )
+    return None
 
 
 def _path_rewrite_prefix(path: object) -> tuple[str, ...]:
@@ -1376,14 +1511,14 @@ async def proxy_panel_terminal_static(
 #:
 #: The notebook panel is a page an operator runs code from, so it is the one
 #: panel where "which machine does this land on, and may it write?" has to be
-#: answerable on the page itself once the page is on its own — popped out of
-#: the hub, or opened at its own address. Every other panel's HTML is relayed
-#: untouched.
+#: answerable on the page itself once the pane is out in a window of its own.
+#: Every other panel's HTML is relayed untouched.
 #:
-#: The tag goes in regardless of how the page is opened; the bar module mounts
-#: only when its document is a top-level window, so a Lab page framed inside
-#: the hub keeps the header chip as its one picker. That test is the page's to
-#: make: a request does not say whether it came from a frame.
+#: The tag goes in regardless of how the page is opened. The module sends a page
+#: opened at its own address to the hub, and mounts the bar only where the page
+#: has no other picker, so a Lab page framed inside the hub keeps the sidebar's
+#: chip as its one picker. That test is the page's to make: a request does not
+#: say whether it came from a frame.
 _LAB_BAR_PANEL_ID = "jupyter"
 
 #: The bar's entry module, relative to the terminal-static route's root.
@@ -1452,9 +1587,9 @@ def _control_target_bar_markup(
        of ``/panel/jupyter`` would aim every read at JupyterLab, which answers
        none of them.
     2. **A scoped import map**, for the root-absolute module specifiers in the
-       bar's import closure, both under ``/design-system/`` (``confirm-skip.js``
-       imports ``storage-scope.js``, ``lab-theme-follow.js`` imports
-       ``tokens.js``). The hub's own page retargets that prefix with a
+       bar's import closure, all under ``/design-system/`` (the bar imports
+       ``frame-params.js``, ``confirm-skip.js`` imports ``storage-scope.js``,
+       ``lab-theme-follow.js`` imports ``tokens.js``). The hub's own page retargets that prefix with a
        document-wide import map; here the mapping is confined to a
        ``scopes`` entry keyed on the bar's own directory, so nothing the panel
        itself imports can be redirected by it. With an empty prefix the mapping
@@ -1875,6 +2010,36 @@ for _panel_id, _subpaths in FIRST_PARTY_PANEL_STATIC.items():
 del _panel_id, _subpaths, _subpath, _root
 
 
+@router.api_route(f"{FIRST_PARTY_PANEL_VIEWERS}{{key}}.js", methods=["GET", "HEAD"])
+async def proxy_panel_artifacts_viewer(key: str) -> Response:
+    """Serve extension type ``key``'s viewer module to the embedded gallery.
+
+    A C-ASSETS path (:data:`~osprey.interfaces.common_middleware.FIRST_PARTY_PANEL_VIEWERS`):
+    the embedded gallery is an opaque-origin document, so its viewer import is
+    a credential-less CORS request that could not reach the gated catch-all.
+    MUST stay declared above :func:`proxy_panel`.
+
+    The bytes are the one file :func:`~osprey.stores.type_registry.viewer_path`
+    resolved for ``key`` at load, served verbatim; the key never touches the
+    filesystem. An unknown key, or a type without a viewer, is a 404 here and
+    never reaches the backend.
+    """
+    from osprey.stores.type_registry import viewer_path
+
+    path = viewer_path(key)
+    if path is None or not path.is_file():
+        return Response(content="Not found", status_code=404)
+    return Response(
+        content=path.read_bytes(),
+        headers={
+            "cache-control": _DEFAULT_NO_CACHE,
+            "x-content-type-options": "nosniff",
+            **ASSET_CORS_HEADERS,
+        },
+        media_type="text/javascript",
+    )
+
+
 _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 
@@ -1970,6 +2135,30 @@ async def _forward_to_panel(
             content=f"Panel '{panel_id}' is not available",
             status_code=404,
         )
+
+    # An application panel on a login that does not arm it is read-only here:
+    # a write method is refused before anything leaves the terminal.
+    method = request.method.upper()
+    unarmed_application = await _unarmed_application(request, panel_id)
+    if unarmed_application is not None and is_write_method(method):
+        return Response(
+            content=_unarmed_refusal(request, unarmed_application, method),
+            status_code=403,
+        )
+
+    # An application's container serves every session and reads no hold, so a
+    # held session's write to an application panel is refused here: the
+    # agent's, naming its session on the panel token, and the operator's from
+    # the application's own page.
+    application = panel_registry_of(request.app).applications.get(panel_id)
+    if application is not None and application.session_writes and is_write_method(method):
+        state = request.scope.get("state") or {}
+        held = await _held_session_refusal(
+            request, agent=state.get(PANEL_ADMISSION_STATE_KEY) is True, what="write"
+        )
+        if held is not None:
+            logger.warning("Refused a write to application panel %s while held", panel_id)
+            return Response(content=held, status_code=403)
 
     outer_prefix = compute_url_prefix()
     panel_prefix = panel_base or f"{outer_prefix}/panel/{panel_id}"
@@ -2074,8 +2263,12 @@ async def _forward_to_panel(
         if token:
             fwd_headers["authorization"] = f"Bearer {token}"
 
-    # A launched sidecar's own credential, on the same gate as the secret above.
-    fwd_headers.update(_panel_auth_header(request, panel_id, backend_url))
+    # A launched sidecar's own credential or an application's launch token, on
+    # the same gate as the secret above. A safe method still reaches an
+    # application this login does not arm; its launch token does not go with it.
+    panel_auth = _panel_auth_header(request, panel_id, backend_url)
+    if panel_auth and unarmed_application is None:
+        fwd_headers.update(panel_auth)
 
     # Who is driving, for the backends that file work under it and gate that
     # work by the driver's own chip. Minted in this same run, after the strip,
@@ -2176,6 +2369,7 @@ async def _forward_to_panel(
             url=target,
             headers=fwd_headers,
             content=body or None,
+            timeout=_panel_timeout(request, panel_id, client.timeout),
         )
         if observer is not None:
             if not _is_redirect(resp):
@@ -2199,6 +2393,11 @@ async def _forward_to_panel(
             content=f"Upstream connection failed: {exc}",
             status_code=502,
         )
+    except BaseException:
+        # Anything else that escapes still leaves each observed call its row.
+        if observer is not None:
+            observer.close()
+        raise
 
     # Filter response headers (see _filter_response_headers); fill in the
     # no-cache default when the upstream made no caching decision of its own
@@ -2384,6 +2583,16 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
     backend_url = _resolve_panel_url(websocket, panel_id)
     if not backend_url:
         await websocket.close(code=4004, reason=f"Panel '{panel_id}' not available")
+        return
+
+    # A socket to an application panel is a write path: refused on a login
+    # that does not arm the application, before any credential is attached.
+    application = await _unarmed_application(websocket, panel_id)
+    if application is not None:
+        # A close reason is capped at 123 bytes on the wire.
+        reason = _unarmed_refusal(websocket, application, "WebSocket")
+        reason = reason.encode()[:123].decode(errors="ignore")
+        await websocket.close(code=4003, reason=reason)
         return
 
     # Convert http(s) backend URL to ws(s)

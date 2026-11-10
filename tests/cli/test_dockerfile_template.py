@@ -29,6 +29,8 @@ import pytest
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from osprey.cli.templates.scaffolding import _default_image_facts
+from osprey.deployment.image_facts import IMAGE_PYTHON
 from osprey.deployment.members import WORKSPACE_MEMBERS
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey.utils.workspace import PRE_UPGRADE_AUDIT_RELPATH
@@ -55,6 +57,7 @@ EXPECTED_ARGS = {
     "PIP_EXTRA_INDEX_URL": "",
     "OSPREY_OFFLINE": "0",
     "OSPREY_SITE_CA": "",
+    "OSPREY_BASE_REGISTRY": "docker.io",
 }
 
 
@@ -93,6 +96,16 @@ def deps_project(tmp_path_factory):
     )
 
 
+@pytest.fixture(scope="module")
+def packages_project(tmp_path_factory):
+    """The same, for a deployment whose profile declares ``environment.packages``."""
+    return _render(
+        tmp_path_factory.mktemp("dockerfile-packages") / "packages-docker",
+        "hello-world",
+        'environment.packages=["pyepics"]',
+    )
+
+
 class TestDockerfileContent:
     """Content invariants of the rendered Dockerfile."""
 
@@ -102,12 +115,19 @@ class TestDockerfileContent:
 
     def test_base_image_port_and_project_path(self, hello_project):
         text = (hello_project / "Dockerfile").read_text()
-        assert "FROM python:3.12-slim" in text
+        assert "FROM ${OSPREY_BASE_REGISTRY}/library/python:3.12-slim" in text
         # The exposed port is the layout's `web` slot at the deployment's base,
         # not a literal — moving `deployment.port_base` moves this line.
         assert f"EXPOSE {default_port('web', base=DEFAULT_PORT_BASE)}" in text
         assert "/app/hello-docker/" in text
         assert "WORKDIR /app/hello-docker" in text
+
+    def test_the_base_python_is_the_one_the_wheels_are_judged_against(self, hello_project):
+        """One constant: the FROM and the deployment-wheel fit check cannot disagree."""
+        text = (hello_project / "Dockerfile").read_text()
+        assert (
+            f"\nFROM ${{OSPREY_BASE_REGISTRY}}/library/python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim\n"
+        ) in text
 
     def test_arg_contract(self, hello_project):
         """Exactly the contract ARGs, with the documented defaults."""
@@ -364,6 +384,11 @@ class TestDockerfileContent:
         browser = bodies[0]
         assert "--with-deps" in browser
         assert "chromium" in browser
+        # Playwright's bundled node needs libatomic.so.1, which the deps
+        # layer's toolchain purge autoremoves; the browser RUN restores it
+        # before the driver first starts.
+        assert "install -y --no-install-recommends libatomic1" in browser
+        assert browser.index("libatomic1") < browser.index("playwright install")
 
         env = re.search(r"^ENV PLAYWRIGHT_BROWSERS_PATH=(\S+)$", text, re.MULTILINE)
         assert env, "the browser path must be shared, not root's home cache"
@@ -469,6 +494,12 @@ class TestDockerfileContent:
             in deps
         )
 
+    def test_environment_packages_on_deps_run(self, packages_project):
+        """A ``--skip-deps`` render installs the list a full build installs:
+        ``environment.packages`` joins the deps RUN after ``$OSPREY_PIP_SPEC``."""
+        deps = self._deps_run_body((packages_project / "Dockerfile").read_text())
+        assert "pyepics" in deps.split('"$OSPREY_PIP_SPEC"', 1)[1]
+
     @staticmethod
     def _run_command_bodies(text: str) -> list[str]:
         """Every RUN instruction's shell body, with line-continuations joined."""
@@ -503,7 +534,8 @@ class TestDockerfileContent:
         immediately before the deps RUN that installs it."""
         text = (hello_project / "Dockerfile").read_text()
         match = re.search(
-            r"^COPY \.dockerignore osprey-local-requirements\.tx\[t\] /tmp/deps-ctx/$",
+            r"^COPY \.dockerignore osprey-local-requirements\.tx\[t\] "
+            r"osprey-lock-constraints\.tx\[t\] /tmp/deps-ctx/$",
             text,
             flags=re.MULTILINE,
         )
@@ -524,10 +556,11 @@ class TestDockerfileContent:
             "manifest install missing or not &&-chained in the deps RUN"
         )
         assert install in deps
-        assert deps.index(install) > deps.index("WARNING: pin unreleased"), (
+        # Twice: alone on the lock-driven path, after the primer on the other.
+        assert deps.rindex(install) > deps.index("WARNING: pin unreleased"), (
             "manifest install must follow the primer's dev-fallback construct"
         )
-        assert deps.index(install) < deps.index("apt-get purge -y build-essential"), (
+        assert deps.rindex(install) < deps.index("apt-get purge -y build-essential"), (
             "manifest install must precede the toolchain purge"
         )
         assert "rm -rf /tmp/deps-ctx" in deps, "deps RUN must clean up /tmp/deps-ctx"
@@ -945,6 +978,7 @@ def _render_template(**context) -> str:
     # TemplateManager._project_context.
     context.setdefault("port_base", DEFAULT_PORT_BASE)
     context.setdefault("osprey_ports", layout_ports(DEFAULT_PORT_BASE))
+    _default_image_facts(context)
     template = TemplateManager().jinja_env.get_template("project/Dockerfile.j2")
     return template.render(**context)
 
@@ -1127,7 +1161,7 @@ class TestSetupCapabilityConditional:
     and the admin tier — whose whole purpose is the Config panel — can. These
     render the template against both contexts directly, which is what pins the
     conditional itself; `TestTieredPresetConfigChown` below asks the same
-    question of the real `control-assistant` presets that produce each side.
+    question of the real `demo` presets that produce each side.
     """
 
     #: The one line the conditional renders. Matched exactly rather than by the
@@ -1299,14 +1333,14 @@ class TestSetupCapabilityConditional:
 
 @pytest.fixture(scope="module")
 def tiered_render(tmp_path_factory):
-    """Render the `control-assistant` preset once — the deployment's own project
+    """Render the `demo` preset once — the deployment's own project
     plus one per layer, all from a single `osprey build`.
 
     Module-scoped: the tier question below is asked of five Dockerfiles out of
     the same render, and rendering per test would pay for the same build five
     times over.
     """
-    return _render(tmp_path_factory.mktemp("dockerfile-tiers") / "ca-docker", "control-assistant")
+    return _render(tmp_path_factory.mktemp("dockerfile-tiers") / "ca-docker", "demo")
 
 
 class TestTieredPresetConfigChown:
@@ -1618,7 +1652,7 @@ class TestBrowserLayerAndImageChecks:
         """The real renders: every project image carries the browser, and the
         checks follow the CANOPY tab.
 
-        The control assistant shows the tab on its own project and on its
+        The demo shows the tab on its own project and on its
         tiers; its apps never inherit it, and hello-world never had it.
         Whether a render shows it is read from the config rendered beside its
         Dockerfile.
@@ -1829,3 +1863,58 @@ class TestCliCrossCheck:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestImagePlatform:
+    """``images.platform`` is one fact every reader of it names alike."""
+
+    def test_a_stated_platform_is_named_on_the_from_line(self, platform_project):
+        text = (platform_project / "Dockerfile").read_text()
+        assert (
+            "\nFROM --platform=linux/amd64 ${OSPREY_BASE_REGISTRY}/library/"
+            f"python:{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}-slim\n"
+        ) in text
+
+    def test_the_fit_check_the_argv_the_override_and_the_from_agree(
+        self, platform_project, tmp_path
+    ):
+        """With ``linux/amd64`` stated, every consumer builds for it."""
+        import yaml
+        from packaging.utils import parse_wheel_filename
+
+        from osprey.cli.build_profile_load import config_image_platform
+        from osprey.deployment.compose_generator import write_labels_override
+        from osprey.deployment.container_lifecycle import site_image_build_args
+        from osprey.deployment.wheel_build import _refuse_unfit_wheel
+
+        repo = platform_project.parent
+        profile = yaml.safe_load((repo / "profile.yml").read_text())
+        config = yaml.safe_load((platform_project / "config.yml").read_text())
+        stated = config_image_platform(profile["config"])
+        wheel = "knob-0.1.0-cp312-cp312-manylinux_2_17_x86_64.whl"
+        compose = tmp_path / "docker-compose.yml"
+        compose.write_text("services:\n  built:\n    build: .\n", encoding="utf-8")
+        config["project_root"] = str(tmp_path)
+        override = write_labels_override(tmp_path, [compose], config)
+        argv = site_image_build_args(config, tmp_path)
+        from_line = next(
+            line
+            for line in (platform_project / "Dockerfile").read_text().splitlines()
+            if line.startswith("FROM ")
+        )
+
+        _refuse_unfit_wheel(pathlib.Path(wheel), parse_wheel_filename(wheel)[3], repo, stated)
+        assert stated == "linux/amd64"
+        assert argv[argv.index("--platform") + 1] == stated
+        assert yaml.safe_load(override.read_text())["services"]["built"]["platform"] == stated
+        assert f"--platform={stated} " in from_line
+
+
+@pytest.fixture(scope="module")
+def platform_project(tmp_path_factory):
+    """A deployment whose profile states ``images.platform``."""
+    return _render(
+        tmp_path_factory.mktemp("dockerfile-platform") / "platform-docker",
+        "hello-world",
+        "config.images.platform=linux/amd64",
+    )

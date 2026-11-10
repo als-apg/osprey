@@ -77,10 +77,9 @@ from typing import Any
 import pytest
 
 from tests.e2e._deploy_support import format_failure
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: full VA image build + a real multi-service deploy -- runs in
     # the dedicated archiver-world-e2e CI job, never the shared e2e-tests lane
@@ -210,7 +209,8 @@ def _profile_edits() -> dict[str, Any]:
     built config, not assumed. The preset's ``services:`` block holds the record
     archive, which runs the same project image as the dispatch stack, so it goes
     with it: ``services: {}`` is the spelling because a single service cannot be
-    nulled.
+    nulled. The preset's bundled application goes the same way, under ``apps: {}``:
+    it would deploy beside this world.
 
     ``virtual_accelerator.live_standin: null`` switches the preset's live
     stand-in off — the delete-the-line escape the profile documents, spelled as
@@ -258,6 +258,7 @@ def _profile_edits() -> dict[str, Any]:
         "bluesky_web": None,
         "dispatch": None,
         "services": {},
+        "apps": {},
     }
 
 
@@ -307,8 +308,9 @@ def _build_project(output_dir: Path) -> Path:
                 "init",
                 str(repo),
                 "--preset",
-                "control-assistant",
+                "demo",
                 "--no-git",
+                *e2e_scenario_pin(),
                 *set_pairs(_profile_edits()),
                 "--set",
                 f"virtual_accelerator.port={VA_CA_PORT}",

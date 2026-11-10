@@ -1,0 +1,53 @@
+{% if "optimizer" in enabled_servers | default([]) %}---
+name: operating-optimizer
+description: >
+  Prepare an optimizer run as a draft for the operator to start, then watch
+  it, pause it or cancel it. Use when asked to tune, optimize or maximize a
+  machine quantity with the optimizer service (Bayesian optimization,
+  sampling or direct search over a set of knobs), to set up or edit an optimization job, or to
+  report on, pause or cancel one that is running.
+summary: Draft an optimization for a person to start; monitor, pause or cancel it
+---
+
+# Operating the Optimizer
+
+You prepare runs; a person starts them. This server holds no launch token, so
+it cannot start, resume or restore a run. Never say a run started, resumed or
+was restored because you asked: only `get_job` showing it is evidence.
+
+Every read and every draft is about the session's control target: tell the operator
+which machine that is. To draft for another, the operator switches the session first.
+
+## Workflow
+
+1. `mcp__optimizer__list_environments`, then `mcp__optimizer__get_environment`.
+2. `mcp__optimizer__list_presets`, then `mcp__optimizer__initial_bounds`.
+3. `mcp__optimizer__create_draft`, then read it back with `mcp__optimizer__get_job_config`.
+   Always set `objective_name`, even with a preset.
+4. Tell the operator the job id and everything they would approve: environment
+   and target; preset; each variable with its bounds and step size; algorithm
+   and `algorithm_params`; `model_file` / `surrogate_model`; `n_iterations` and
+   `n_initial_samples`; objective and direction; constraints; `execution_mode`;
+   `environment_config`; `on_complete`.
+5. The operator reads the draft and its revision themselves (`get_job_config`)
+   before starting: your summary is not the review. Any edit after that makes
+   the start refuse (409).
+6. To change it, `mcp__optimizer__update_draft` with the whole config, then read it back.
+   The stored draft holds each window as a fixed `min`/`max`: edit those, or drop
+   them and give a `window_abs` to re-centre on the current setpoint. Both at once is refused.
+7. The operator starts it.
+8. `mcp__optimizer__get_job` to monitor; `mcp__optimizer__pause_job` or
+   `mcp__optimizer__cancel_job` when asked. Each asks the operator first.
+
+## Bounds on periodic variables
+
+For a periodic variable such as an RF phase, never set bounds that span the
+whole period (`[0, 360]`): centre a window on the current value (`window_abs`).
+Near either end of the variable's range the window is clipped at that end and
+cannot cross the wrap: tell the operator.
+
+## After a cancel or a failure
+
+Nothing is restored: the machine stays where the run left it. Say so, and offer
+`mcp__optimizer__preview_restore`; a person confirms a restore elsewhere.
+{% endif %}

@@ -25,6 +25,10 @@ export default [
     files: [
       'src/osprey/interfaces/**/*.js',
       'src/osprey/history/static/**/*.js',
+      'src/osprey/profiles/presets/apps/*/panel/**/*.js',
+      'src/osprey/profiles/presets/apps/*/tests/**/*.{js,mjs}',
+      'src/osprey/apps/scaffold-app/panel/**/*.js',
+      'src/osprey/apps/scaffold-app/tests/**/*.{js,mjs}',
       'tests/**/*.{js,mjs}',
     ],
     languageOptions: {
@@ -70,6 +74,12 @@ export default [
     },
   },
 
+  // (4c) P-4: ARIEL reports through toasts (C-TOAST), never a blocking alert().
+  {
+    files: ['src/osprey/interfaces/ariel/static/js/**/*.js'],
+    rules: { 'no-alert': 'error' },
+  },
+
   // (5) Root config files: node globals.
   {
     files: ['vitest.config.js', 'eslint.config.js'],
@@ -88,6 +98,10 @@ export default [
     files: [
       'src/osprey/interfaces/**/static/js/**/*.js',
       'src/osprey/interfaces/bluesky_web/panels/**/*.js',
+      'src/osprey/profiles/presets/apps/*/panel/**/*.js',
+      'src/osprey/profiles/presets/apps/*/tests/**/*.{js,mjs}',
+      'src/osprey/apps/scaffold-app/panel/**/*.js',
+      'src/osprey/apps/scaffold-app/tests/**/*.{js,mjs}',
       'tests/**/*.{js,mjs}',
     ],
     plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },

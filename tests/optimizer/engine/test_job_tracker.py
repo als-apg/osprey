@@ -30,6 +30,7 @@ from osprey_optimizer.api.job_control import (
     SHUTDOWN_KILLED_MESSAGE,
     TERMINATE_WAIT_SECONDS,
     launch_job,
+    persist_created_job,
     stop_launched_jobs,
 )
 from osprey_optimizer.api.job_tracker import (
@@ -633,7 +634,10 @@ class TestJobLifecycle:
     def test_enter_creates_an_optimization_writer(self):
         lc = JobLifecycle("job-w")
         lc.__enter__()
-        assert isinstance(lc.writer, OptimizationStateWriter)
+        try:
+            assert isinstance(lc.writer, OptimizationStateWriter)
+        finally:
+            lc._heartbeat.stop(timeout=1)
 
 
 def _launched(job_id: str) -> str:
@@ -745,6 +749,7 @@ def _call(
     return launch_job(
         tracker=tracker,
         job_id="job-1",
+        config_json="{}",
         make_writer=make_writer,
         spawn_target=spawn_target or MagicMock(),
         spawn_args=("a",),
@@ -767,8 +772,8 @@ def test_claim_failure_raises_409_without_spawning() -> None:
 def test_preinit_failure_releases_slot_and_503() -> None:
     tracker = MagicMock()
     tracker.claim_active_job.return_value = True
+    tracker.start_claimed_job.side_effect = RuntimeError("redis down")
     make_writer = MagicMock()
-    make_writer.return_value.set_status.side_effect = RuntimeError("redis down")
 
     with pytest.raises(HTTPException) as exc:
         _call(tracker, make_writer)
@@ -1202,9 +1207,16 @@ class TestStopLaunchedJobsIntegration:
     def _launch(self, target, job_id: str):  # type: ignore[no-untyped-def]
         tracker = JobTracker()
         ready = _SPAWN.Event()
+        persist_created_job(
+            tracker=tracker,
+            job_id=job_id,
+            payload_json="{}",
+            make_writer=get_optimization_writer,
+        )
         launch_job(
             tracker=tracker,
             job_id=job_id,
+            config_json="{}",
             make_writer=get_optimization_writer,
             spawn_target=target,
             spawn_args=(job_id, ready),

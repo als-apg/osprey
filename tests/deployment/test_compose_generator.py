@@ -51,6 +51,7 @@ from osprey.deployment.compose_generator import (
     guarded_run_relpath,
     prepare_compose_files,
     resolve_project_name,
+    resolve_upstream_images,
     resolve_user_volume_names,
     simulator_log_mount_sources,
 )
@@ -60,6 +61,7 @@ from osprey.deployment.control_identity import (
 )
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.members import WORKSPACE_MEMBERS
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
 from osprey_connectors.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
@@ -84,7 +86,7 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     from osprey.cli.build_profile import resolve_build_profile
     from osprey.utils.config_writer import config_update_fields
 
-    bundle = kwargs.setdefault("data_bundle", "control_assistant")
+    bundle = kwargs.setdefault("data_bundle", "demo")
     preset = bundle.replace("_", "-")
     kwargs.setdefault("data_root", bundle_data_root(bundle))
     project = manager.create_project(**kwargs)
@@ -412,6 +414,7 @@ def _dispatcher_context(**service_overrides: object) -> dict:
         "system": {"timezone": "UTC"},
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_images": _image_defaults(),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
     }
@@ -1530,6 +1533,38 @@ def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None
     assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
 
 
+def test_worker_optimizer_link_names_the_optimizer_service_on_the_bridge() -> None:
+    """On the compose network the optimizer is reached by its service key.
+
+    Left unset, the agent's optimizer server dials the published port on the
+    worker container's own loopback, and every optimizer tool fails on connect.
+    """
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=["optimizer"],
+        services_extra={"optimizer": {"port": 10182}},
+    )
+    environment = _worker_service(rendered)["environment"]
+
+    assert environment["OPTIMIZER_URL"] == "http://optimizer:10182"
+
+
+@pytest.mark.parametrize(
+    ("deployed", "network"), [(["optimizer"], "host"), ([], None), ([], "host")]
+)
+def test_worker_optimizer_link_is_absent_on_the_host_or_without_an_optimizer(
+    deployed: list[str], network: str | None
+) -> None:
+    """Host mode reaches the published port on loopback; no optimizer, no link."""
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=deployed,
+        dispatch_worker={} if network is None else {"network": network},
+        services_extra={"optimizer": {"port": 10182}},
+    )
+    assert "OPTIMIZER_URL" not in rendered
+
+
 @pytest.mark.parametrize("key", list(SECOND_LANE_KEYS.values()))
 def test_worker_plan_queue_link_covers_a_second_lane(key: str) -> None:
     """Each deployed lane is addressed under its own env prefix.
@@ -1709,6 +1744,7 @@ def _render_bluesky_template(
         "deployed_services": deployed,
         "osprey_labels": {"project_name": "p", "project_root": "/r"},
         "osprey_images": _image_defaults(),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_ports": _layout_ports_for(),
         "osprey_version": "",
         **_control_identity_context(),
@@ -1716,7 +1752,7 @@ def _render_bluesky_template(
     # control_system is omitted by default (matching every pre-existing call
     # site below). The template reads each lane's posture from
     # `svc.writes_enabled`, which compose_generator precomputes per lane from
-    # the render's tier (`_bluesky_lane_write_posture`) rather than from the
+    # the render's tier (`drives_target_write_posture`) rather than from the
     # config, so a caller that cares stamps the lane the way the generator does.
     if writes_enabled is not None:
         kwargs["control_system"] = {"writes": "allowed" if writes_enabled else "never"}
@@ -2250,9 +2286,11 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
         "Python; the deploy config overrides nothing here"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
-    assert container_lifecycle._deployed_project_image_services(dict(config)) == ["agent_record"], (
-        "the plan-stack lanes deploy no service on the project image; only the "
-        f"always-deployed agent record runs on it: {config.get('deployed_services')}"
+    assert container_lifecycle._deployed_project_image_services(dict(config)) == [
+        "agent_record",
+    ], (
+        "on the project image the plan-stack lanes deploy only the always-deployed "
+        f"agent record: {config.get('deployed_services')}"
     )
 
     # -- bluesky MCP server enabled in the rendered .mcp.json -------------------
@@ -2282,13 +2320,13 @@ def test_orm_stack_renders_va_bridge_tiled_and_bluesky_mcp(
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 
     # -- Task 3.2 / CC-2: read-only config + limits mounts under /app/project -
-    # The control-assistant preset's root sets control_system.writes: asked
+    # The demo preset's root sets control_system.writes: asked
     # (this deploy config never overrides it to never), so the real,
     # fully-flattened render must mount both config.yml and channel_limits.json
     # under the same /app/project root the connector resolves project_root
     # against.
     assert config["control_system"]["writes"] == "asked", (
-        "this assertion block assumes the control-assistant preset's "
+        "this assertion block assumes the demo preset's "
         "control_system.writes: asked default -- if that default ever changes, this "
         "test's premise for asserting the channel_limits.json mount changes too"
     )
@@ -2337,12 +2375,14 @@ def test_orm_stack_names_a_bounded_corrector_and_its_models_monitors(
     bpms = _orm_stack.select_bpms(repo, count=None, model=model)
     assert bpms, f"model {model} serves no monitor the worker registered"
     view = _facility_select.repo_view(repo)
-    model_monitors = {binding.address for binding in view.bindings(role="monitor", model=model)}
+    model_monitors = {
+        binding.address for binding in view.bindings(engine_role="monitor", model=model)
+    }
     assert set(bpms) <= model_monitors, sorted(set(bpms) - model_monitors)
 
 
 def test_orm_stack_correctors_hold_the_sweep_span(orm_stack_render: Path) -> None:
-    """Every corrector the ORM lane sweeps holds ``+-SPAN_A`` on the model.
+    """Every corrector the ORM lane sweeps holds ``+-SPAN`` on the model.
 
     The lane sweeps one model's correctors, the model whose corrector a limits
     record bounds. A write the model cannot solve is refused and leaves the
@@ -2360,7 +2400,7 @@ def test_orm_stack_correctors_hold_the_sweep_span(orm_stack_render: Path) -> Non
     composite = Composite(SimulatorView.of_project(repo), state_dir=None, model_log=False)
     for setpoint in sorted(correctors):
         before = composite.get(setpoint)
-        for value in (-test_orm_roundtrip.SPAN_A, test_orm_roundtrip.SPAN_A):
+        for value in (-test_orm_roundtrip.SPAN, test_orm_roundtrip.SPAN):
             try:
                 composite.set({setpoint: value})
             except WriteRefusedError as exc:
@@ -2418,7 +2458,7 @@ def test_setup_build_dir_stages_a_config_naming_no_interpreter(
         TemplateManager(),
         project_name="staged-no-interp",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
 
@@ -2469,7 +2509,7 @@ def test_setup_build_dir_stages_the_bytes_pyyaml_writes_for_the_config(
         TemplateManager(),
         project_name="staged-bytes",
         output_dir=tmp_path,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     service_dir = project_dir / "services" / "worker"
@@ -2555,7 +2595,7 @@ def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
             manager,
             project_name="pep-fallback",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -2599,7 +2639,7 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
             manager,
             project_name="pep-host",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 
@@ -2618,21 +2658,8 @@ def test_host_python_env_path_cannot_bake_host_interpreter_into_mcp_command() ->
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_BLUESKY_TEMPLATE = (
-    _REPO_ROOT / "src" / "osprey" / "templates" / "services" / "bluesky" / "docker-compose.yml.j2"
-)
 _CONFIG_KEY_MANIFEST = _REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
-
-
-def _compose_default_image(template: Path, image_ref: str) -> str:
-    """The ``<ref>:<tag>`` a compose template spells in its Jinja ``default('…')``."""
-    match = re.search(
-        r"default\('(" + re.escape(image_ref) + r":[^')\s]+)'\)",
-        template.read_text(encoding="utf-8"),
-    )
-    assert match, f"{template.relative_to(_REPO_ROOT)} no longer pins {image_ref} as default('…')"
-    return match.group(1)
 
 
 def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
@@ -2645,7 +2672,7 @@ def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
     """
     from packaging.version import Version
 
-    image = _compose_default_image(_BLUESKY_TEMPLATE, "ghcr.io/bluesky/tiled")
+    image = UPSTREAM_IMAGES["tiled"]
     server = image.rsplit(":", 1)[1]
     floor_match = re.search(
         r'"tiled\[client\]>=([^",\s]+)"', _PYPROJECT.read_text(encoding="utf-8")
@@ -2653,37 +2680,29 @@ def test_tiled_server_tag_is_not_older_than_the_client_floor() -> None:
     assert floor_match, "pyproject.toml no longer declares a tiled[client]>= floor"
     floor = floor_match.group(1)
     assert Version(server) >= Version(floor), (
-        f"{_BLUESKY_TEMPLATE.relative_to(_REPO_ROOT)} pins ghcr.io/bluesky/tiled:{server}, "
+        f"the upstream image catalogue pins {image}, "
         f"older than the tiled[client]>={floor} floor in pyproject.toml."
     )
 
 
 @pytest.mark.parametrize(
-    ("key", "template", "image_ref"),
-    [
-        (
-            "services.bluesky.tiled_image",
-            _BLUESKY_TEMPLATE,
-            "ghcr.io/bluesky/tiled",
-        ),
-    ],
+    ("key", "entry"),
+    [("services.bluesky.tiled_image", "tiled")],
     ids=["tiled"],
 )
-def test_the_manifest_default_matches_the_compose_default(
-    key: str, template: Path, image_ref: str
-) -> None:
+def test_the_manifest_default_matches_the_catalogue_default(key: str, entry: str) -> None:
     """A pin spelled in two files is the same pin in both.
 
     The config-key manifest documents the default of the key that overrides the
-    image, and the compose template renders it; a bump that reaches one and not
-    the other documents an image the stack does not run.
+    image, and the compose template renders the upstream image catalogue's
+    entry; a bump that reaches one and not the other documents an image the
+    stack does not run.
     """
     manifest = yaml.safe_load(_CONFIG_KEY_MANIFEST.read_text(encoding="utf-8"))
     documented = manifest["keys"][key]["default"]
-    rendered = _compose_default_image(template, image_ref)
-    assert documented == rendered, (
-        f"config_key_manifest.yml documents {key} = {documented!r}, but "
-        f"{template.relative_to(_REPO_ROOT)} defaults it to {rendered!r}."
+    assert documented == UPSTREAM_IMAGES[entry], (
+        f"config_key_manifest.yml documents {key} = {documented!r}, but the "
+        f"upstream image catalogue's {entry!r} entry is {UPSTREAM_IMAGES[entry]!r}."
     )
 
 
@@ -2726,6 +2745,7 @@ def _render_postgres_template(project_name: str) -> str:
             "project_root": f"/r/{project_name}",
         },
         osprey_ports=_layout_ports_for(),
+        upstream_images=resolve_upstream_images({}),
         osprey_version="",
     )
 
@@ -2781,6 +2801,7 @@ def test_postgres_image_follows_env_config_default_chain() -> None:
         system={"timezone": "UTC"},
         osprey_labels={"project_name": "p", "project_root": "/r/p"},
         osprey_ports=_layout_ports_for(),
+        upstream_images=resolve_upstream_images({}),
         osprey_version="",
     )
     svc = yaml.safe_load(rendered)["services"]["postgresql"]
@@ -2817,6 +2838,7 @@ def _render_mongodb_template(project_name: str = "proj-a", **mongodb_config: obj
             "project_root": f"/r/{project_name}",
         },
         osprey_ports=_layout_ports_for(),
+        upstream_images=resolve_upstream_images({}),
         osprey_version="",
     )
 
@@ -3218,6 +3240,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "nextcloud_bridge": {"trigger": "t"},
             "gchat_bridge": {"trigger": "t"},
             "teams_bridge": {"trigger": "t"},
+            "slack_bridge": {"trigger": "t"},
         },
         "deployment": {},
         "system": {"timezone": "UTC"},
@@ -3226,6 +3249,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "project_root": f"/r/{project_name}",
         },
         "osprey_images": _image_defaults(project_name),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_version": "",
         "osprey_env_present": False,
         "deployed_services": [],
@@ -3510,6 +3534,12 @@ _PREFIXED_IMAGE_SERVICES = [
         "OSPREY_TEAMS_BRIDGE_IMAGE",
         "teams-bridge",
     ),
+    (
+        "slack_bridge/docker-compose.yml.j2",
+        "slack-bridge",
+        "OSPREY_SLACK_BRIDGE_IMAGE",
+        "slack-bridge",
+    ),
 ]
 
 _PREFIXED_IDS = [s[1] for s in _PREFIXED_IMAGE_SERVICES]
@@ -3668,8 +3698,7 @@ def test_worker_template_fallback_matches_worker_image_target_python_fallback() 
 #
 # One `--dev` deploy stages the SAME wheel into many build contexts (every
 # Dockerfile-bearing service context, the project-image root, each render
-# project), and rebuild_deployment renders the compose files twice (its own
-# prepare_compose_files + the delegated deploy_up's). The isolated-env
+# project), and one process may render the compose files more than once. The isolated-env
 # `python -m build` takes tens of seconds, so it is memoized per process:
 # built at most once, copied per context. Staging is also scoped to build
 # contexts that actually contain a Dockerfile — pure-image services
@@ -3910,13 +3939,20 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
         assert (ctx / "osprey-local-requirements.txt").is_file(), (
             f"no local-requirements manifest staged next to the wheels in {ctx}"
         )
+    # The lock constraints too, the same bytes in every context: a byte that
+    # differed would give that image a deps layer of its own.
+    locks = {
+        (ctx / "osprey-lock-constraints.txt").read_bytes()
+        for ctx in (service_ctx, project_image_ctx, render_ctx)
+    }
+    assert len(locks) == 1 and next(iter(locks)), "the lock constraints differ between contexts"
 
 
-def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
+def test_dev_wheel_builds_once_across_repeated_renders(
     tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``rebuild_deployment`` runs ``prepare_compose_files`` twice (its own call
-    plus the delegated ``deploy_up``'s) — the wheel build must still run once."""
+    """Two ``prepare_compose_files`` calls in one process — the wheel build must
+    still run once."""
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
 
@@ -4479,6 +4515,7 @@ def _render_bridge_template(
             "project_root": f"/r/{project_name}",
         },
         osprey_images=_image_defaults(project_name),
+        upstream_images=resolve_upstream_images({}),
         osprey_ports=_layout_ports_for(),
         osprey_version="",
         osprey_env_present=env_present,
@@ -5589,15 +5626,188 @@ def test_teams_bridge_image_installs_the_teams_extra_over_the_shared_deps_layer(
         'uv pip install ${OSPREY_PIP_PRE:+--prerelease=allow} "osprey-framework==$OSPREY_VERSION"'
     )
     extras_install = 'pip install "osprey-framework[teams]"'
+    # A source build installs the extra's own requirements there instead.
+    lock_extras_install = (
+        "pip install -c /opt/osprey/lock-constraints.txt "
+        "-r /tmp/extras-ctx/osprey-extra-requirements.txt"
+    )
     assert deps_install in dockerfile
     assert extras_install in dockerfile
     assert (
         dockerfile.index(deps_install)
+        < dockerfile.index(lock_extras_install)
         < dockerfile.index(extras_install)
         < dockerfile.index("# ── wheel layer ─")
     )
-    assert 'pip install "${whl}[teams]"' in dockerfile
+    assert 'pip install $lock "${whl}[teams]"' in dockerfile
     assert '"${whl}"' not in dockerfile
+
+
+# ---------------------------------------------------------------------------
+# slack-bridge service template
+#
+# The Slack bridge holds an outbound Socket Mode connection: no published port,
+# no healthcheck, and one named volume that holds its dedup ledger and durable
+# inbox. Like the Nextcloud bridge it ships no extra, so its section carries only
+# the bridge-specific facts; the shared contracts run over ``_CHAT_BRIDGES``.
+# ---------------------------------------------------------------------------
+
+# Credentials and tokens that must render as bare ``${VAR}``: both Slack tokens
+# (a default would authenticate as nobody, or open a socket on another app) and
+# both dispatch tokens. ``DISPATCH_TRIGGER`` is absent because the template
+# renders it as a profile-supplied literal.
+_SLACK_FAIL_CLOSED_VARS = [
+    "SLACK_BOT_TOKEN",
+    "SLACK_APP_TOKEN",
+    "EVENT_DISPATCHER_TOKEN",
+    "DISPATCH_WORKER_TOKEN",
+]
+
+_SLACK_BRIDGE = _ChatBridge(
+    name="slack",
+    module="osprey.bridges.slack",
+    config_class_name="SlackBridgeConfig",
+    profile_class_name="SlackBridgeProfileConfig",
+    fail_closed_vars=tuple(_SLACK_FAIL_CLOSED_VARS),
+)
+
+
+def test_slack_bridge_state_volume_is_named_and_mounted_at_data() -> None:
+    """/data is a NAMED volume — the dedup ledger and the durable inbox live there.
+
+    Slack never redelivers an event the bridge has acked, so losing /data on a
+    restart drops questions or re-answers ones that were mid-run. Named rather
+    than a bind mount so it is namespaced per compose project.
+    """
+    parsed = yaml.safe_load(_render_bridge_template(_SLACK_BRIDGE))
+    service = parsed["services"]["slack-bridge"]
+
+    assert service["volumes"][0] == "slack_bridge_data:/data"
+    assert [str(v).rsplit(":", 1)[1] for v in service["volumes"][1:]] == [
+        "/slack-bridge",
+        "/slack-bridge",
+    ]
+    assert "slack_bridge_data" in parsed["volumes"]
+    assert not str(service["volumes"][0]).startswith((".", "/", "$"))
+
+
+@pytest.mark.parametrize("var", _SLACK_FAIL_CLOSED_VARS)
+def test_slack_bridge_credentials_render_without_a_default_fallback(var: str) -> None:
+    """Credentials render as bare ``${VAR}`` — never ``${VAR:-something}``.
+
+    Bare, an unset token stays empty and ``require_startup`` aborts at boot
+    naming it; with a fallback the bridge would come up on a placeholder. Both
+    the parsed value and the raw text are checked, since the absence of the
+    fallback is the requirement.
+    """
+    rendered = _render_bridge_template(_SLACK_BRIDGE)
+    environment = yaml.safe_load(rendered)["services"]["slack-bridge"]["environment"]
+
+    assert environment[var] == f"${{{var}}}", environment[var]
+    assert f"${{{var}:" not in rendered
+
+
+def test_slack_bridge_neutral_tunables_keep_their_defaults_in_code() -> None:
+    """Optional knobs pass through with an EMPTY ``:-`` default, not a restated value."""
+    environment = _bridge_service(_SLACK_BRIDGE)["environment"]
+    for var in (
+        "POLL_INTERVAL",
+        "DRAIN_INTERVAL",
+        "RETRY_MIN_AGE",
+        "RETRY_GIVE_UP",
+        "RETRY_LIFETIME_CAP",
+        "BRIDGE_TRUST_ENV",
+        "HISTORY_ANSWER_LIMIT",
+        "GITLAB_URL",
+        "GITLAB_PROJECT",
+        "GITLAB_ISSUES_TOKEN",
+        "APP_VERSION_DISPLAY",
+    ):
+        assert environment[var] == f"${{{var}:-}}", (var, environment[var])
+
+
+def test_slack_bridge_state_paths_match_their_code_defaults() -> None:
+    """``DEDUP_PATH``'s compose default equals ``CoreConfig``'s default.
+
+    Its reader is a plain ``e.get(NAME, default)``, so an empty fallback would
+    point the store at the empty path; the template therefore restates the code
+    default, and this test binds the two by reading the default back out of the
+    real config class rather than restating it here.
+    """
+    from osprey.bridges.core import CoreConfig
+    from osprey.bridges.slack.config import SlackBridgeConfig
+
+    code_default = CoreConfig.from_env({}).dedup_path
+    environment = _bridge_service(_SLACK_BRIDGE)["environment"]
+    assert "HISTORY_PATH" not in environment
+
+    match = _COMPOSE_VAR_RE.match(str(environment["DEDUP_PATH"]))
+    assert match is not None and match.group("default") is not None, environment["DEDUP_PATH"]
+    assert match.group("default") == code_default, (
+        f"DEDUP_PATH renders {match.group('default')!r} but the config default is "
+        f"{code_default!r}: the two must move together"
+    )
+
+    assert _resolve_compose_env(environment)["DEDUP_PATH"] == code_default
+    overridden = _resolve_compose_env(environment, host_env={"DEDUP_PATH": "/srv/dedup.json"})
+    assert overridden["DEDUP_PATH"] == "/srv/dedup.json"
+    assert SlackBridgeConfig.from_env(overridden).core.dedup_path == "/srv/dedup.json"
+
+
+def test_slack_bridge_depends_on_dispatcher_only_when_co_deployed() -> None:
+    """``depends_on: event-dispatcher`` renders IFF the dispatcher is co-deployed;
+    compose fails hard on a ``depends_on`` naming an undefined service."""
+    with_dispatcher = _bridge_service(_SLACK_BRIDGE, dispatcher_deployed=True)
+    assert with_dispatcher["depends_on"] == {"event-dispatcher": {"condition": "service_healthy"}}
+
+    external = _render_bridge_template(_SLACK_BRIDGE, dispatcher_deployed=False)
+    assert "depends_on:" not in external
+    assert yaml.safe_load(external)["services"]["slack-bridge"].get("depends_on") is None
+
+
+def test_slack_bridge_rendered_env_boots_with_host_secrets_supplied() -> None:
+    """With the .env supplying the credentials, the same block yields a valid config.
+
+    Proves the names the template renders are the names the runtime reads, and
+    that the state path stays on the /data volume.
+    """
+    from osprey.bridges.slack.config import SlackBridgeConfig, require_boot
+
+    environment = _bridge_service(_SLACK_BRIDGE)["environment"]
+    resolved = _resolve_compose_env(
+        environment,
+        host_env={
+            "SLACK_BOT_TOKEN": "xoxb-bot",
+            "SLACK_APP_TOKEN": "xapp-app",
+            "EVENT_DISPATCHER_TOKEN": "dispatcher-token",
+            "DISPATCH_WORKER_TOKEN": "worker-token",
+        },
+    )
+    cfg = SlackBridgeConfig.from_env(resolved)
+    cfg.require_startup()
+    require_boot(cfg)
+
+    assert cfg.bot_token == "xoxb-bot"
+    assert cfg.app_token == "xapp-app"
+    assert cfg.core.event_dispatcher_token == "dispatcher-token"
+    assert cfg.core.dispatch_worker_token == "worker-token"
+    assert cfg.core.trigger == "slack-question"
+    assert cfg.core.dispatcher_url == f"http://event-dispatcher:{default_port('dispatcher')}"
+    assert cfg.core.worker_url == f"http://dispatch-worker-1:{default_port('worker', 1)}"
+    assert cfg.core.dedup_path.startswith("/data/"), cfg.core.dedup_path
+
+
+def test_slack_bridge_template_is_bundled_into_a_declaring_project(tmp_path: Path) -> None:
+    """``osprey build`` copies the packaged bridge service directory into the project."""
+    _write_config(tmp_path, deployed_services=["slack_bridge"])
+
+    # The bridge, plus the always-bundled agent record.
+    assert _copy_service_templates(tmp_path) == 2
+
+    service_dir = tmp_path / "services" / "slack_bridge"
+    assert (service_dir / "docker-compose.yml.j2").is_file()
+    assert (service_dir / "Dockerfile").is_file()
+    assert (service_dir / ".dockerignore").is_file()
 
 
 # ---------------------------------------------------------------------------
@@ -5608,6 +5818,7 @@ _CHAT_BRIDGES = [
     pytest.param(_NEXTCLOUD_BRIDGE, id="nextcloud"),
     pytest.param(_GCHAT_BRIDGE, id="gchat"),
     pytest.param(_TEAMS_BRIDGE, id="teams"),
+    pytest.param(_SLACK_BRIDGE, id="slack"),
 ]
 
 
@@ -7986,12 +8197,15 @@ class TestStageSiteImageArgsForContext:
         assert self._resolve({"project_name": "p"}, context) == {}
         assert [path.name for path in context.iterdir()] == ["Dockerfile"]
 
-    def test_a_context_that_builds_nothing_is_left_alone(self, tmp_path: Path) -> None:
+    def test_a_context_that_builds_nothing_is_left_alone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A pure-image service gets no staged CA it would never COPY.
 
         Its compose fragment declares no ``build:`` block at all, so a file
         staged beside it is dead weight that also churns the context hash.
         """
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
         context = tmp_path / "postgresql"
         context.mkdir()
         source = tmp_path / "site-ca.pem"
@@ -8000,7 +8214,39 @@ class TestStageSiteImageArgsForContext:
         assert (
             self._resolve({"project_name": "p", "images": {"site_ca": str(source)}}, context) == {}
         )
+        assert self._resolve({"project_name": "p", "offline": True}, context) == {}
         assert list(context.iterdir()) == []
+
+    def test_offline_reaches_a_built_context(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An offline deployment tells every image it builds, in the spelling recipes compare."""
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+
+        assert self._resolve({"project_name": "p", "offline": True}, self._context(tmp_path)) == {
+            "OSPREY_OFFLINE": "1"
+        }
+
+    def test_an_online_deployment_renders_no_offline_arg(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``offline: false`` renders the args block an online deployment always had."""
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+
+        assert self._resolve({"project_name": "p", "offline": False}, self._context(tmp_path)) == {}
+
+    def test_the_environment_overrides_the_offline_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``OSPREY_OFFLINE`` wins over the config key, as the serving check reads it."""
+        monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+        context = self._context(tmp_path)
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "0")
+        assert self._resolve({"project_name": "p", "offline": True}, context) == {}
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        assert self._resolve({"project_name": "p"}, context) == {"OSPREY_OFFLINE": "1"}
 
     def test_the_pip_axes_are_carried_through_verbatim(self, tmp_path: Path) -> None:
         """The three pip axes need no rewriting — they are values, not paths."""
@@ -8018,6 +8264,28 @@ class TestStageSiteImageArgsForContext:
             "PIP_INDEX_URL": "https://mirror.example.org/simple",
             "PIP_EXTRA_INDEX_URL": "https://extra.example.org/simple",
         }
+
+    def test_the_base_registry_is_carried_without_a_trailing_slash(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Both spellings of a mirror path resolve to the one the recipes join with ``/``."""
+        monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+        context = self._context(tmp_path)
+
+        for spelling in ("mirror.example.org/dockerhub/", "mirror.example.org/dockerhub"):
+            config = {"project_name": "p", "images": {"base_registry": spelling}}
+            assert self._resolve(config, context) == {
+                "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub"
+            }
+
+    def test_a_slash_alone_declares_no_base_registry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A value with nothing before its slash leaves the recipes' own default standing."""
+        monkeypatch.delenv("OSPREY_BASE_REGISTRY", raising=False)
+        config = {"project_name": "p", "images": {"base_registry": "/"}}
+
+        assert self._resolve(config, self._context(tmp_path)) == {}
 
     def test_the_site_ca_is_named_by_its_context_filename(self, tmp_path: Path) -> None:
         """The operator's host path never reaches the rendered fragment.
@@ -8062,6 +8330,64 @@ class TestStageSiteImageArgsForContext:
         )
 
         assert args == {"OSPREY_SITE_CA": SITE_CA_CONTEXT_FILENAME}
+
+
+class TestHubImage:
+    """A Docker Hub reference, moved onto the registry that stands in for docker.io.
+
+    The mirror keeps Docker Hub's paths, so an official image gains the
+    ``library/`` namespace Docker Hub files it under and a namespaced image keeps
+    its own; a reference naming another registry is not Docker Hub's to move.
+    """
+
+    MIRROR = "mirror.example.org/dockerhub"
+
+    @staticmethod
+    def _hub_image(reference: str, base_registry: str) -> str:
+        from osprey.deployment.compose_generator import hub_image
+
+        return hub_image(reference, base_registry)
+
+    def test_an_official_image_gains_library(self) -> None:
+        assert (
+            self._hub_image("redis:7.4-alpine", self.MIRROR)
+            == f"{self.MIRROR}/library/redis:7.4-alpine"
+        )
+
+    def test_a_namespaced_image_keeps_its_path(self) -> None:
+        assert (
+            self._hub_image("pgvector/pgvector:pg16", self.MIRROR)
+            == f"{self.MIRROR}/pgvector/pgvector:pg16"
+        )
+
+    def test_a_docker_io_reference_is_rebased(self) -> None:
+        assert (
+            self._hub_image("docker.io/library/alpine:3.20", self.MIRROR)
+            == f"{self.MIRROR}/library/alpine:3.20"
+        )
+        assert (
+            self._hub_image("docker.io/clickhouse/clickhouse-server:26.8", self.MIRROR)
+            == f"{self.MIRROR}/clickhouse/clickhouse-server:26.8"
+        )
+
+    @pytest.mark.parametrize(
+        "reference",
+        [
+            "ghcr.io/bluesky/tiled:0.2.18",
+            "registry.example.org:5000/team/image:1",
+            "localhost/image:1",
+            "localhost:5000/image:1",
+        ],
+    )
+    def test_another_registry_is_left_alone(self, reference: str) -> None:
+        assert self._hub_image(reference, self.MIRROR) == reference
+
+    @pytest.mark.parametrize(
+        "reference",
+        ["redis:7.4-alpine", "pgvector/pgvector:pg16", "docker.io/library/alpine:3.20"],
+    )
+    def test_no_base_registry_leaves_every_reference_unchanged(self, reference: str) -> None:
+        assert self._hub_image(reference, "") == reference
 
 
 class TestEnsureGroupSharedDirExact:

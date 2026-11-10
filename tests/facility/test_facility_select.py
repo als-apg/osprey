@@ -31,7 +31,7 @@ from tests.e2e._facility_select import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FACILITIES = REPO_ROOT / "src/osprey/templates/facilities"
-CONTROL_ASSISTANT = FACILITIES / "example"
+EXAMPLE = FACILITIES / "example"
 HELLO_WORLD = FACILITIES / "hello_world"
 
 
@@ -39,12 +39,12 @@ HELLO_WORLD = FACILITIES / "hello_world"
 def example(tmp_path_factory: pytest.TempPathFactory) -> Iterator[tuple[SimulatorView, dict]]:
     """The example tree rendered once: its simulator view and its facility file."""
     root = tmp_path_factory.mktemp("example-render")
-    view = facility_view(CONTROL_ASSISTANT, root)
+    view = facility_view(EXAMPLE, root)
     document = json.loads((root / FACILITY_FILE).read_text(encoding="utf-8"))
     yield view, document
 
 
-@pytest.mark.parametrize("tree", [HELLO_WORLD, CONTROL_ASSISTANT], ids=lambda tree: tree.name)
+@pytest.mark.parametrize("tree", [HELLO_WORLD, EXAMPLE], ids=lambda tree: tree.name)
 def test_each_shipped_facility_answers_the_e2e_lanes_channel_questions(
     tmp_path: Path, tree: Path
 ) -> None:
@@ -101,7 +101,7 @@ def test_monitors_in_plane_are_monitors_of_that_plane_in_address_order(
     for address in picked:
         binding = view.binding(address)
         assert binding is not None
-        assert binding.role == "monitor"
+        assert binding.engine_role == "monitor"
         assert binding.plane == "x"
 
 

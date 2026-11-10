@@ -11,7 +11,7 @@ from tests._graph_index import demo_corpus_path
 
 
 @pytest.fixture(scope="module")
-def demo_path(built_control_assistant: BuiltProject) -> Iterator[Path]:
-    """The graph view the control-assistant build writes."""
-    with demo_corpus_path(built_control_assistant) as path:
+def demo_path(built_demo: BuiltProject) -> Iterator[Path]:
+    """The graph view the demo build writes."""
+    with demo_corpus_path(built_demo) as path:
         yield path

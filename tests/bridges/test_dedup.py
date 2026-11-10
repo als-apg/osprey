@@ -77,7 +77,7 @@ def test_prune_keeps_terminal_entry_at_exact_age_boundary(tmp_path):
     # Exactly PRUNE_MAX_AGE_SECONDS old: age is NOT > the threshold, so it stays.
     clock.advance(PRUNE_MAX_AGE_SECONDS)
     d.claim("trigger")  # prune runs at the start of claim()
-    assert d.seen("old") is True
+    assert d.get("old") is not None
 
 
 def test_prune_drops_terminal_entry_past_age_boundary(tmp_path):
@@ -88,8 +88,8 @@ def test_prune_drops_terminal_entry_past_age_boundary(tmp_path):
 
     clock.advance(PRUNE_MAX_AGE_SECONDS + 1)
     d.claim("trigger")
-    assert d.seen("old") is False
-    assert d.seen("trigger") is True
+    assert d.get("old") is None
+    assert d.get("trigger") is not None
 
 
 def test_prune_uses_claimed_at_when_settled_at_absent(tmp_path):
@@ -100,7 +100,7 @@ def test_prune_uses_claimed_at_when_settled_at_absent(tmp_path):
 
     clock.advance(PRUNE_MAX_AGE_SECONDS + 1)
     d.claim("trigger")
-    assert d.seen("old") is False
+    assert d.get("old") is None
 
 
 # --- prune: only terminal entries ------------------------------------------
@@ -116,9 +116,9 @@ def test_prune_leaves_non_terminal_entries(tmp_path):
     # Far past any prune horizon — non-terminal work is never reaped.
     clock.advance(PRUNE_MAX_AGE_SECONDS * 10)
     d.claim("trigger")
-    assert d.seen("pending1") is True
-    assert d.seen("inflight1") is True
-    assert d.seen("queued1") is True
+    assert d.get("pending1") is not None
+    assert d.get("inflight1") is not None
+    assert d.get("queued1") is not None
 
 
 def test_prune_reaps_each_terminal_status(tmp_path):
@@ -131,7 +131,7 @@ def test_prune_reaps_each_terminal_status(tmp_path):
 
     clock.advance(PRUNE_MAX_AGE_SECONDS + 1)
     d.claim("trigger")
-    assert [d.seen(f"m{i}") for i in range(4)] == [False, False, False, False]
+    assert [d.get(f"m{i}") for i in range(4)] == [None, None, None, None]
 
 
 # --- prune: grandfathering ts-less terminal entries ------------------------
@@ -143,7 +143,7 @@ def test_prune_grandfathers_tsless_terminal_entry_on_first_observation(tmp_path)
     d = _clocked_store(tmp_path, clock)
 
     d.claim("trigger")  # first prune observation
-    assert d.seen("legacy") is True
+    assert d.get("legacy") is not None
     assert d.get("legacy")["settled_at"] == clock.t
 
     # The stamp is persisted: a fresh store reading the file sees it.
@@ -162,13 +162,13 @@ def test_prune_grandfathered_entry_ages_out_one_window_later(tmp_path):
     # Not yet a full window past the grandfather stamp: still present.
     clock.advance(PRUNE_MAX_AGE_SECONDS)
     d.claim("trigger2")
-    assert d.seen("legacy") is True
+    assert d.get("legacy") is not None
     assert d.get("legacy")["settled_at"] == grandfather_t  # not re-stamped
 
     # One tick past the window from the grandfather stamp: reaped.
     clock.advance(1)
     d.claim("trigger3")
-    assert d.seen("legacy") is False
+    assert d.get("legacy") is None
 
 
 # --- prune: redelivery re-claims cleanly -----------------------------------

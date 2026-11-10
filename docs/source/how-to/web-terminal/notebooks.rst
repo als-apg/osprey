@@ -9,13 +9,13 @@ durable path, so they outlive the container, and the OSPREY agent can edit
 them alongside you.
 
 The panel starts one kernel, **OSPREY**. A request for any other kernelspec,
-the interpreter's own ``python3`` included, is refused, and a notebook that
-names no kernel gets the OSPREY one, so every cell runs under the gates below.
+the interpreter's own ``python3`` included, is refused. A notebook that names no
+kernel gets the OSPREY one, so every cell runs under the gates below.
 
 Turning the panel on
 --------------------
 
-The panel is a built-in with the id ``jupyter``. The ``control-assistant``
+The panel is a built-in with the id ``jupyter``. The ``demo``
 preset selects it, so every tier of a standard build has the tab. The
 ``hello-world`` preset and the bundled logbook, knowledge and channel-finder
 apps do not select it.
@@ -80,8 +80,10 @@ Which machine a kernel writes to
 
 A kernel has no control-system identity of its own, and it follows no chat
 session. Cells read and write through the deployment's current control target
-and write posture — the same one the control-target block in the sidebar shows and the agent
-uses.
+and write posture, the same ones the control-target chip in the sidebar shows
+and the agent uses. The *write posture* is the position of the write switch on
+that chip, for example writes asked, allowed or off (see
+:ref:`web-terminal-session-posture` for every state the chip shows).
 
 The kernel re-reads that before **every cell**, so a switch made anywhere, by
 anyone, reaches the next cell you run. A cell can read back what it was routed
@@ -98,16 +100,28 @@ with:
 **Nothing restarts.** Switch the control target from the chip, or move the
 write switch, and the next cell you run is routed by the new state.
 
-Inside the web terminal the control-target block in the sidebar is the only
-place to do that; the JUPYTER tab carries no chip of its own. A notebook
-opened in its own window — popped out of the terminal, or opened at its own
-address — has no sidebar beside it, so that page shows the same chip in its
-top-right corner. It is the same
-switch either way: a change made from either place lands deployment-wide.
+Inside the web terminal, the chip in the sidebar is the only place to do that;
+the JUPYTER tab carries no chip of its own. A notebook in a window of its own
+has no sidebar beside it, so that window shows the same chip in its top-right
+corner. It is the same switch either way: a change made from
+either place lands deployment-wide.
 
-A cell already running is not re-routed --- but taking writes away still
-reaches it. The two directions are not symmetric, and the difference is worth
-knowing:
+A cell already running is not re-routed, but taking writes away still reaches
+it:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 30 30
+
+   * - Change
+     - Reaches the running cell?
+     - Reaches the next cell?
+   * - Turn writes off
+     - Yes, at its next write
+     - Yes
+   * - Widen writes, or switch the machine
+     - No
+     - Yes
 
 - **Turning writes off lands at once.** The connector re-reads the write
   posture on every write, so the running cell's very next write is refused.
@@ -133,28 +147,36 @@ routed nowhere rather than to a guess:
 
 It works the other way too. From a cell's first control-system call until that
 cell ends, a switch asked for anywhere in the deployment is refused and names
-the kernel holding the target, so whoever asked knows to interrupt it rather
-than wait on nothing. A cell that touches no channel holds nothing.
+the kernel holding the target. Whoever asked then knows to interrupt the kernel
+rather than wait on nothing. A cell that touches no channel holds nothing.
 
-The record a cell reads is the one belonging to whoever the kernel's terminal
-is acting as, and a kernel finds it without being told. The build points each
-terminal's container at its own record directory through
-``OSPREY_CONTROL_CONTEXT_DIR``, and a kernel reads that; where nothing names
-one, it falls back to the agent-data root and the name it is acting as. Where
-its own audit records are filed is a separate question, answered by that name
-rather than by a directory: a kernel starts with most of the environment around
-it stripped away, and ``OSPREY_AUDIT_IDENTITY`` --- the name the deployment
-gives the container it runs in --- is what survives the stripping. In a
-multi-user deployment both answers are the user whose terminal the kernel
-belongs to, so a cell reads that user's own chip settings and nobody else's.
+In a multi-user deployment, a cell reads the chip settings of the user whose
+terminal the kernel belongs to, and nobody else's.
 
-Each channel a cell writes leaves one ``allowed`` record on the
-``notebook_kernel`` surface, filed after the put. Its reason says how the write
-ended: ``write_landed`` when the write was verified, ``write_unconfirmed`` when
-the value was sent but not verified. The record's ``detail`` names the channel
-and the account and host the control system saw the write come from, which is
-what joins it to a gateway's put-log. A refused write reaches no channel and
-leaves only its refusal record. See :ref:`audit-trail-attribution`.
+.. dropdown:: Under the hood: whose record a kernel reads, and what a write leaves
+   :icon: gear
+
+   The record a cell reads is the one belonging to whoever the kernel's
+   terminal is acting as, and a kernel finds it without being told. The build
+   points each terminal's container at its own record directory through
+   ``OSPREY_CONTROL_CONTEXT_DIR``, and a kernel reads that. Where nothing names
+   one, it falls back to the agent-data root and the name it is acting as.
+
+   Where its own audit records are filed is a separate question, answered by
+   that name rather than by a directory. A kernel starts with most of the
+   environment around it stripped away, and ``OSPREY_AUDIT_IDENTITY`` (the name
+   the deployment gives the container it runs in) is what survives the
+   stripping. In a multi-user deployment both answers are the user whose
+   terminal the kernel belongs to.
+
+   Each channel a cell writes leaves one ``allowed`` record on the
+   ``notebook_kernel`` surface, filed after the put. Its reason says how the
+   write ended: ``write_landed`` when the write was verified,
+   ``write_unconfirmed`` when the value was sent but not verified. The record's
+   ``detail`` names the channel and the account and host the control system saw
+   the write come from. That is what joins it to a gateway's put-log. A refused
+   write reaches no channel and leaves only its refusal record. See
+   :ref:`audit-trail-attribution`.
 
 A cell carries no target at all in two cases: the deployment's control-context
 record is missing or unreadable, or it names a machine this deployment cannot
@@ -229,7 +251,7 @@ Notebooks in a multi-user deployment
 
 The multi-user stack gives every user their own container and their own
 volumes, which a redeploy never touches (:doc:`multi-user/index`), so
-notebooks are per user. There is no shared notebook folder in this release.
+notebooks are per user. There is no shared notebook folder.
 Sharing a notebook means handing over the file.
 
 .. _notebooks-outputs-no-script:
@@ -289,26 +311,36 @@ A dimmed JUPYTER entry whose tooltip reads *JUPYTER failed to start:
 <reason>* means the sidecar did not start. On a host where the first start is
 slow, the terminal gives up after 60 s. Set ``web.sidecar_ready_timeout_s``
 (:ref:`config-web`) to give the sidecar longer. The reason is one line: what
-went wrong, and the sidecar's last error line when it has one. The terminal log
-has the full error output. The rest of the terminal is unaffected — only that
-one tab is unavailable.
+went wrong, and the sidecar's last error line when it has one. If the Jupyter
+tile is open, it shows *JupyterLab did not start*, the reason, and a **Retry**
+button. To see the last lines of the sidecar's error output, open the tile's
+**⋯** menu and select **Show server log**. The terminal log has the full error
+output. The rest of the terminal is unaffected — only that one tab is
+unavailable.
 
-Click the entry to start the sidecar again. The terminal runs one attempt at a
-time and waits as long as it does at startup; the tooltip reads *JUPYTER is
-starting* until the attempt settles. A start that succeeds opens the tab; one
-that fails again shows its new reason.
+Click the entry, or **Retry** in the tile, to start the sidecar again. The
+terminal runs one attempt at a time and waits as long as it does at startup;
+the tooltip reads *JUPYTER is starting* and the tile shows *Starting
+JupyterLab…* until the attempt settles. A start that succeeds opens the tab;
+one that fails again shows its new reason.
 
 A sidecar that dies after it started turns the entry the same way within about
-ten seconds. JupyterLab reads *Disconnected* first and saves fail, and there is
-nowhere else to save to, so copy any unsaved cells out of the browser before you
-click the entry to start it again.
+ten seconds. JupyterLab reads *Disconnected* first and saves fail, with nowhere
+else to save to. Copy any unsaved cells out of the browser before you start it
+again.
+
+When JupyterLab stops answering but the sidecar still runs, click the **Reload**
+icon on the tile bar. This loads JupyterLab again; the kernels keep running. To
+stop the sidecar and start a new one, open the tile's **⋯** menu and select
+**Restart kernel server**. The terminal asks you to confirm first, because
+running kernels stop and their unsaved state is lost.
 
 ``osprey health`` never fetches the panel. It shows the same *failed to start*
 sentence as a warning row when the terminal recorded a failure, and a skip row
 otherwise, so it never claims a panel is healthy on evidence it does not have.
 
-Not in this release
--------------------
+Limitations
+-----------
 
 - The agent cannot run cells. It edits notebook files; you run them.
 - No real-time collaborative editing. Two people in one notebook fall back to

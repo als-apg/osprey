@@ -98,7 +98,6 @@ class LlamaCppProviderAdapter(BaseProvider):
     description = "llama.cpp server (text and image embeddings, no chat, site-run)"
     requires_api_key = False
     requires_base_url = True
-    requires_model_id = True
     supports_proxy = False
     default_base_url = "http://localhost:8080"
 

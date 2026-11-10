@@ -97,6 +97,9 @@ describe('openContextMenu — DOM contract', () => {
     const glyph = rows()[1].querySelector('.rail-context-glyph');
     expect(glyph?.textContent).toBe('⊞');
     expect(glyph?.getAttribute('aria-hidden')).toBe('true');
+    // The glyph leads the row; the label follows it.
+    expect(rows()[1].firstElementChild).toBe(glyph);
+    expect(glyph?.nextElementSibling?.className).toBe('rail-context-label');
 
     const divider = el.querySelector('.rail-context-divider');
     expect(divider?.getAttribute('role')).toBe('separator');
@@ -120,7 +123,7 @@ describe('openContextMenu — DOM contract', () => {
       x: 0,
       y: 0,
       ariaLabel: 'ARIEL actions',
-      items: [{ label: 'Pop out', glyph: '↗', disabled: true, run }],
+      items: [{ label: 'Open in new window', glyph: '↗', disabled: true, run }],
     });
 
     expect(rows()[0].getAttribute('aria-disabled')).toBe('true');
@@ -185,7 +188,7 @@ describe('keyboard behavior', () => {
       y: 0,
       ariaLabel: 'ARIEL actions',
       items: [
-        { label: 'Pop out', disabled: true },
+        { label: 'Open in new window', disabled: true },
         { label: 'Focus ARIEL', run: () => {} },
       ],
     });
@@ -200,7 +203,7 @@ describe('keyboard behavior', () => {
       ariaLabel: 'ARIEL actions',
       items: [
         { label: 'Focus ARIEL', run: () => {} },
-        { label: 'Pop out', disabled: true },
+        { label: 'Open in new window', disabled: true },
         { label: 'Remove from rail', danger: true, run: () => {} },
       ],
     });
@@ -348,6 +351,102 @@ describe('focus hand-back', () => {
     pressKey('Escape');
 
     expect(document.activeElement).toBe(entry);
+  });
+
+  test('a redraw that replaces the element focus came from hands focus to its replacement', () => {
+    document.body.innerHTML = `
+      <div id="rail">
+        <button type="button" data-panel-id="ariel">ARIEL</button>
+        <button type="button" data-panel-id="olog">OLOG</button>
+      </div>`;
+    const rail = /** @type {HTMLElement} */ (document.getElementById('rail'));
+    const entry = /** @type {HTMLElement} */ (rail.querySelector('[data-panel-id="olog"]'));
+    entry.focus();
+    openServiceMenu({ anchorEl: entry });
+
+    // The rail redraws while the menu is open: every entry is a new element.
+    rail.replaceChildren(...[...rail.children].map((c) => c.cloneNode(true)));
+    expect(entry.isConnected).toBe(false);
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(rail.querySelector('[data-panel-id="olog"]'));
+  });
+
+  test('a heading with no key of its own is found again under its keyed container', () => {
+    document.body.innerHTML = `
+      <div id="rail">
+        <div data-group="a"><div class="group-head" tabindex="0">A</div></div>
+        <div data-group="b"><div class="group-head" tabindex="0">B</div></div>
+      </div>`;
+    const rail = /** @type {HTMLElement} */ (document.getElementById('rail'));
+    /** @type {HTMLElement} */ (rail.querySelector('[data-group="b"] .group-head')).focus();
+    openServiceMenu();
+
+    rail.replaceChildren(...[...rail.children].map((c) => c.cloneNode(true)));
+    pressKey('Escape');
+
+    expect(document.activeElement?.textContent).toBe('B');
+  });
+
+  test('of two copies of one key in one container, focus goes back to the copy it came from', () => {
+    // The collapsed sidebar's flyout draws a pinned session twice: in the
+    // Pinned group and in Sessions, told apart only by data-where.
+    document.body.innerHTML = `
+      <div id="flyout">
+        <div data-session-id="t1" data-where="pinned"><button type="button" data-tree-pin="t1">pin</button></div>
+        <div data-session-id="t1" data-where="sessions"><button type="button" data-tree-pin="t1">pin</button></div>
+      </div>`;
+    const flyout = /** @type {HTMLElement} */ (document.getElementById('flyout'));
+    /** @type {HTMLElement} */ (flyout.querySelector('[data-where="sessions"] button')).focus();
+    openServiceMenu();
+
+    flyout.replaceChildren(...[...flyout.children].map((c) => c.cloneNode(true)));
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(flyout.querySelector('[data-where="sessions"] button'));
+  });
+
+  test('of two buttons with one key on one card, focus goes back to the one it came from', () => {
+    // A pending-feedback card: Approve and Dismiss both carry the item's data-id.
+    document.body.innerHTML = `
+      <div id="pending">
+        <div class="card" data-id="f1">
+          <button type="button" class="btn approve" data-id="f1">Approve</button>
+          <button type="button" class="btn dismiss" data-id="f1">Dismiss</button>
+        </div>
+      </div>`;
+    const pending = /** @type {HTMLElement} */ (document.getElementById('pending'));
+    /** @type {HTMLElement} */ (pending.querySelector('.dismiss')).focus();
+    openServiceMenu();
+
+    pending.replaceChildren(...[...pending.children].map((c) => c.cloneNode(true)));
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(pending.querySelector('.dismiss'));
+  });
+
+  test('an element gone with no replacement hands focus to the nearest container that takes it', () => {
+    document.body.innerHTML = `
+      <div id="tree" tabindex="-1"><div class="list"><button type="button" data-id="x">x</button></div></div>`;
+    const tree = /** @type {HTMLElement} */ (document.getElementById('tree'));
+    /** @type {HTMLElement} */ (tree.querySelector('[data-id="x"]')).focus();
+    openServiceMenu();
+
+    tree.innerHTML = '<div class="list"></div>';
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(tree);
+  });
+
+  test('with no replacement and no container that takes focus, focus is left where it falls', () => {
+    const { entry, rail } = mountSurfaces();
+    entry.focus();
+    openServiceMenu({ anchorEl: entry });
+
+    rail.replaceChildren();
+    pressKey('Escape');
+
+    expect(document.activeElement).toBe(document.body);
   });
 
   test('pointer, blur, scroll and resize dismissals leave focus alone', () => {

@@ -161,6 +161,20 @@ def test_the_byte_specification_lives_with_the_exemplar() -> None:
 # ── Template lookup ──────────────────────────────────────────────────────────
 
 
+def test_golden_exemplar_is_unaffected_by_the_seeded_history(exemplar: dict[str, Any]) -> None:
+    """The exemplar is a deployment with no start set, and it stays one.
+
+    Seeding a sidebar history is the demo preset's default, never a
+    key a deployment without a start set acquires: the exemplar names no
+    ``simulation.default_scenarios`` and no ``demo-history``.
+    """
+    config = exemplar["config"]
+    assert "simulation.default_scenarios" not in config
+    assert "default_scenarios" not in (config.get("simulation") or {})
+    text = (EXEMPLAR_DIR / "profile.yml").read_text(encoding="utf-8")
+    assert "demo-history" not in text
+
+
 def test_every_supported_platform_has_a_template() -> None:
     """``deploy.ci`` accepts exactly the platforms with a shipped pipeline."""
     assert set(CI_TEMPLATES) == set(SUPPORTED_CI_PLATFORMS)
@@ -476,3 +490,60 @@ def test_ssh_key_is_ci_only_and_lands_outside_the_project(rendered_ci: str) -> N
         rendered_ci
     )
     assert "DEPLOY_SSH_KEY" not in yaml.safe_load(rendered_ci)["variables"]
+
+
+def test_the_exemplar_facility_recipe_pulls_its_base_through_the_base_registry() -> None:
+    """The facility recipe follows the rule every shipped recipe follows."""
+    from tests.deployment.test_service_dockerfiles import _base_registry_violations
+
+    recipe = EXEMPLAR_DIR / "services" / "facility-mcp" / "Dockerfile"
+    assert _base_registry_violations(recipe.read_text(encoding="utf-8")) == []
+
+
+@pytest.mark.parametrize("base_registry", ["", "mirror.example.org/dockerhub"])
+def test_the_exemplar_facility_fragment_hands_its_recipe_the_site_args(
+    base_registry: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``osprey up`` builds the facility recipe from the registry the site declares.
+
+    The fragment renders the site build args into its ``build`` block, and
+    renders no ``args:`` at all when the deployment declares none.
+    """
+    from osprey.deployment.compose_generator import (
+        SITE_IMAGE_AXES,
+        _site_image_args_for_context,
+        render_template,
+    )
+
+    for name in SITE_IMAGE_AXES:
+        monkeypatch.delenv(name, raising=False)
+    source = EXEMPLAR_DIR / "services" / "facility-mcp"
+    services = tmp_path / "services"
+    (services / "facility-mcp").mkdir(parents=True)
+    shared = Path(osprey.__file__).parent / "templates" / "services" / "_site_image_args.j2"
+    (services / "_site_image_args.j2").write_text(shared.read_text(encoding="utf-8"))
+    template = services / "facility-mcp" / "docker-compose.yml.j2"
+    template.write_text((source / "docker-compose.yml.j2").read_text(encoding="utf-8"))
+    context = tmp_path / "out"
+    context.mkdir()
+    (context / "Dockerfile").write_text((source / "Dockerfile").read_text(encoding="utf-8"))
+    config: dict[str, Any] = {
+        "project_name": "demo",
+        "services": {},
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+    }
+    if base_registry:
+        config["images"] = {"base_registry": base_registry}
+    config["site_image_build_args"] = _site_image_args_for_context(config, str(context))
+    monkeypatch.chdir(tmp_path)
+
+    rendered = render_template("services/facility-mcp/docker-compose.yml.j2", config, str(context))
+
+    text = Path(rendered).read_text(encoding="utf-8")
+    build = yaml.safe_load(text)["services"]["facility-mcp"]["build"]
+    if base_registry:
+        assert build["args"] == {"OSPREY_BASE_REGISTRY": base_registry}
+    else:
+        assert "args" not in build
+        assert "args:" not in text

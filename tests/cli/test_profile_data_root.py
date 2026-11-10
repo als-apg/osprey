@@ -22,7 +22,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.cli.build_profile_emit import emit_layer_delta_yaml
-from osprey.cli.build_profile_presets import list_apps, list_tiers
+from osprey.cli.build_profile_presets import list_tiers
 from osprey.cli.templates.scaffolding import copy_template_data
 from osprey.facility.build import build_facility
 from osprey.facility.records import FacilityRecords
@@ -33,7 +33,7 @@ from tests._preset_data import copy_bundle_data
 def _write_profile(profile_dir: Path, **extra) -> Path:
     """Materialize a profile directory carrying its own copy of the bundle data.
 
-    The copy starts byte-identical to the control-assistant preset's packaged
+    The copy starts byte-identical to the demo preset's packaged
     data (app template ``data/`` plus its facility) so the
     benchmark query sources the build copies from are present; individual tests
     then mutate it to make the replacement observable.
@@ -44,7 +44,7 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
     profile: dict = {
         "name": "Data Root Test",
         "project_name": "data-root-test",
-        "extends": "control-assistant",
+        "extends": "demo",
         "data": "data",
         "provider": "cborg",
         "model": "claude-haiku-4-5",
@@ -71,12 +71,12 @@ def _write_profile(profile_dir: Path, **extra) -> Path:
 
 
 def _materialize_layers(profile_dir: Path, profile_name: str) -> None:
-    """Write the bundled tiers and apps beside ``profile.yml``, as ``osprey init`` does.
+    """Write the bundled logins beside ``profile.yml``, as ``osprey init`` does.
 
-    The inherited roster names tiers and shared apps, and each resolves only to
-    a file in the repo's ``tiers/`` or ``apps/``.
+    The inherited roster names tiers and shared logins, and each resolves only
+    to a file in the repo's ``tiers/``.
     """
-    for kind, names in (("tiers", list_tiers()), ("apps", list_apps())):
+    for kind, names in (("tiers", list_tiers()),):
         (profile_dir / kind).mkdir(exist_ok=True)
         for name in names:
             (profile_dir / kind / f"{name}.yml").write_text(

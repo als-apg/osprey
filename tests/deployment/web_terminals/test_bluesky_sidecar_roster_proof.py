@@ -15,7 +15,7 @@ panel answered ``401 invalid credential``. The one test on that seam asserted
 on a re-render no verb performs, and shipped it green.
 
 This module is the proof that would have caught it on its own: a REAL
-``osprey init --preset control-assistant`` + ``osprey build`` render, the
+``osprey init --preset demo`` + ``osprey build`` render, the
 deploy ``.env`` written by the SAME writers ``osprey up`` calls, the sidecar
 started by ``docker compose`` from the compose files the build wrote (the
 as-built list, resolved the way the start verbs resolve it), and four requests
@@ -404,7 +404,7 @@ def _wait_for_health(base_url: str, *, container_name: str, timeout: float = 90.
 
 @pytest.fixture(scope="module")
 def sidecar(tmp_path_factory) -> Iterator[Sidecar]:
-    """The sidecar of a real control-assistant build, up on an ephemeral port."""
+    """The sidecar of a real demo build, up on an ephemeral port."""
     tmp_path = tmp_path_factory.mktemp("bluesky-roster")
     repo = _build_render_stack(tmp_path / "my-facility")
     host_config = yaml.safe_load((repo / "build" / "config.yml").read_text(encoding="utf-8"))

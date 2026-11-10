@@ -30,11 +30,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from osprey.services.ariel_search.attachments.copy import copy_entry, record_and_compose
-from osprey.services.ariel_search.database.repository import text_mark_kwargs
+from osprey.services.ariel_search.database.repository import marker_kwargs, text_mark_kwargs
 from osprey.services.ariel_search.exceptions import DatabaseQueryError
 from osprey.services.ariel_search.ingestion.metadata_attachment import (
     extract_metadata_from_attachments,
 )
+from osprey.services.ariel_search.models import SyncStatus, with_sync_status
 from osprey_connectors.logger import get_logger
 
 if TYPE_CHECKING:
@@ -110,12 +111,21 @@ async def ingest_one(
     """
     entry_id = entry["entry_id"]
     await extract_metadata_from_attachments(entry, adapter=adapter)
+    # Read from the adapter's source: a facility page exists unless that source
+    # is one the facility never sees (the same file a local-only write lands in).
+    status = SyncStatus.LOCAL_ONLY if adapter.writes_local_only else SyncStatus.SYNCED
+    entry["metadata"] = with_sync_status(entry.get("metadata"), status)
 
     if not (await repo.schema_facts()).has_copy_state:
         await repo.upsert_entry(entry)
         _warn_schema_behind(copy_run)
         return await _run_enhancers(
-            entry, repo, enhancers, attachments_recorded=True, has_copy_state=False
+            entry,
+            repo,
+            enhancers,
+            attachments_recorded=True,
+            has_copy_state=False,
+            markers=_text_markers(config, enhancers),
         )
 
     recorded = await _store(entry, adapter, repo, config)
@@ -127,8 +137,33 @@ async def ingest_one(
             logger.warning("%s: picture copy failed (%s); the next poll retries it", entry_id, exc)
 
     return await _run_enhancers(
-        entry, repo, enhancers, attachments_recorded=recorded, has_copy_state=True
+        entry,
+        repo,
+        enhancers,
+        attachments_recorded=recorded,
+        has_copy_state=True,
+        markers=_text_markers(config, enhancers),
     )
+
+
+def _text_markers(
+    config: ARIELConfig, enhancers: Sequence[BaseEnhancementModule]
+) -> dict[str, str | None]:
+    """The current marker of each inline text marker module in ``enhancers``."""
+    from osprey.services.ariel_search.enhancement.status import (
+        qmd_export_marker,
+        semantic_processor_marker,
+    )
+
+    resolvers = {
+        "semantic_processor": semantic_processor_marker,
+        "qmd_export": qmd_export_marker,
+    }
+    return {
+        enhancer.name: resolvers[enhancer.name](config)
+        for enhancer in enhancers
+        if enhancer.name in resolvers and getattr(enhancer, "runs_inline", True)
+    }
 
 
 async def _store(
@@ -201,20 +236,22 @@ async def _run_enhancers(
     *,
     attachments_recorded: bool,
     has_copy_state: bool = False,
+    markers: Mapping[str, str | None] | None = None,
 ) -> EntryIngestOutcome:
     """Run each inline enhancer on its own connection and mark its status on the entry.
 
     A ``runs_inline=False`` module is skipped without a status write: it runs
     only in the catch-up. On a store with copy state a text module is marked
     under the md5 of the ``attachment_text`` it read, so a caption that changed
-    meanwhile leaves the module owed.
+    meanwhile leaves the module owed. A module with a current marker in
+    ``markers`` is marked complete or failed under it.
     """
     enhanced = 0
     failed = 0
     for enhancer in enhancers:
         if not getattr(enhancer, "runs_inline", True):
             continue
-        mark_kwargs = text_mark_kwargs(enhancer.name, entry, has_copy_state)
+        mark_kwargs = text_mark_kwargs(enhancer.name, entry, has_copy_state, markers)
         try:
             async with repo.pool.connection() as conn:
                 await enhancer.enhance(entry, conn)
@@ -223,7 +260,12 @@ async def _run_enhancers(
         except Exception as exc:
             failed += 1
             try:
-                await repo.mark_enhancement_failed(entry["entry_id"], enhancer.name, str(exc))
+                await repo.mark_enhancement_failed(
+                    entry["entry_id"],
+                    enhancer.name,
+                    str(exc),
+                    **marker_kwargs(enhancer.name, markers),
+                )
             except Exception:
                 logger.exception(
                     "%s: could not mark enhancer %s failed", entry["entry_id"], enhancer.name

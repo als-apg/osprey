@@ -22,7 +22,7 @@ that fails, run the way the entrypoint runs it:
 * a hand-written tree of names in two separator conventions, built through
   ``osprey build`` with no physics model -- the names are served verbatim and
   boot with no alarm;
-* the control-assistant demo, whose SR model is a pyAT child -- the
+* the demo, whose SR model is a pyAT child -- the
   write safety, the chromaticity left for the next tick, the model RPC's
   fault writes, and a child that fails to solve;
 * a hand-written view of stub children -- the alarm each kind of output
@@ -207,11 +207,11 @@ SR_STATUS = "ca:SIM:SR:STATUS"
 
 #: BPM03's horizontal offset fault, as the model RPC names it.
 BPM_OFFSET = f"SR/{BPM_X}/offset"
-#: The offset written, in the reading's own unit (metres). A reading is the
-#: position less its offset, so the reading falls by exactly this much.
-OFFSET_M = 1e-3
+#: The offset written, in the reading's own unit (millimetres). A reading is
+#: the position less its offset, so the reading falls by exactly this much.
+OFFSET_MM = 1.0
 #: Far wider than the reading's own motion between two passes.
-READING_TOLERANCE_M = 2e-5
+READING_TOLERANCE_MM = 0.02
 
 #: A scenario the demo view gains for these tests: twice the demo's QF01
 #: current, where the one-turn map has no stable orbit, so the pyAT child
@@ -312,8 +312,8 @@ def _stub_channel(address: str, owner: str, **fields: Any) -> dict[str, Any]:
 
 
 #: The description a build stamps on a stub setpoint and a stub readback.
-_DESCRIBED_SETPOINT = {"role": "setpoint", "plane": None, "refresh": "pass"}
-_DESCRIBED_READBACK = {"role": "readback", "plane": None, "refresh": "pass"}
+_DESCRIBED_SETPOINT = {"engine_role": "setpoint", "plane": None, "refresh": "pass"}
+_DESCRIBED_READBACK = {"engine_role": "readback", "plane": None, "refresh": "pass"}
 
 
 def _write_stub_view(root: Path) -> Path:
@@ -1056,8 +1056,8 @@ class TestNamesServedVerbatim:
 
 
 @pytest.fixture(scope="class")
-def demo_files(built_control_assistant: BuiltProject) -> dict[str, bytes]:
-    files: dict[str, bytes] = built_control_assistant.outputs[0].files
+def demo_files(built_demo: BuiltProject) -> dict[str, bytes]:
+    files: dict[str, bytes] = built_demo.outputs[0].files
     return files
 
 
@@ -1209,13 +1209,13 @@ class TestDemoComposite:
     ) -> None:
         before = _ca(BPM_X)["value"]
         try:
-            written = demo_server.rpc("set", values={BPM_OFFSET: OFFSET_M}, token=TOKEN)
+            written = demo_server.rpc("set", values={BPM_OFFSET: OFFSET_MM}, token=TOKEN)
             after = _ca(BPM_X)["value"]
         finally:
             demo_server.rpc("set", values={BPM_OFFSET: 0.0}, token=TOKEN)
 
         assert written == [BPM_OFFSET]
-        assert after - before == pytest.approx(-OFFSET_M, abs=READING_TOLERANCE_M)
+        assert after - before == pytest.approx(-OFFSET_MM, abs=READING_TOLERANCE_MM)
 
     def test_a_pass_raising_after_a_fault_set_gives_an_error_reply(
         self, demo_server: _Server
@@ -1223,7 +1223,7 @@ class TestDemoComposite:
         demo_server.ask("fail_next_pass", "the pass failed on purpose", False)
         try:
             with pytest.raises(ModelRpcError, match="the pass failed on purpose"):
-                demo_server.rpc("set", values={BPM_OFFSET: OFFSET_M}, token=TOKEN)
+                demo_server.rpc("set", values={BPM_OFFSET: OFFSET_MM}, token=TOKEN)
             status = demo_server.rpc("status")
         finally:
             demo_server.rpc("set", values={BPM_OFFSET: 0.0}, token=TOKEN)
@@ -1284,7 +1284,7 @@ class TestDemoComposite:
         with _sr_failed(demo_server):
             before = demo_server.ask("counts")
             with pytest.raises(ModelRpcError, match="has failed"):
-                demo_server.rpc("set", values={BPM_OFFSET: OFFSET_M}, token=TOKEN)
+                demo_server.rpc("set", values={BPM_OFFSET: OFFSET_MM}, token=TOKEN)
             after = demo_server.ask("counts")
 
         assert after["passes"] > before["passes"]

@@ -23,11 +23,9 @@ rule to every read, whatever protocol answered it: values within an element
 budget come back inline as JSON lists, and anything larger is saved to the
 artifact gallery and reported as a summary plus a handle to it.
 
-.. code-block:: yaml
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-read-budget.yml
+   :language: yaml
 
-   control_system:
-     read_inline_max_elements: 2000        # per-value element budget
-     channel_read_artifact_retention: 20   # readings kept per channel
 
 Only arrays are measured -- strings and single scalars are always inline. One
 ``channel_read`` call also has an aggregate budget of four times
@@ -48,10 +46,7 @@ alone. The agent reaches the numbers by loading ``data_file`` inside
 write, the read still reports success with ``artifact_error`` in place of the
 handle -- the machine did answer.
 
-``channel_read_artifact_retention`` (default 20) keeps only the newest N
-**unpinned** artifacts per channel; pinned readings are never pruned and never
-occupy a slot. ``0`` keeps everything -- remembering that an unattended
-polling loop will then grow the gallery without bound.
+OSPREY never deletes a reading; keep or delete them in the gallery.
 
 Addresses Outside the Facility
 ------------------------------
@@ -87,7 +82,10 @@ on the difference:
   answer in time. It names the channel under ``channel_address`` and is no
   ``ConnectionError``: the connector keeps serving every other channel, and
   nothing is restarted. The controls tools report it as error type
-  ``channel_unreachable``, naming the channel under ``details.channel``.
+  ``channel_unreachable``, naming the channel under ``details.channel``. The
+  error also states whether the active target's gateway answered when the
+  channel failed, under ``details.target_reachability``: ``state`` is
+  ``reached``, ``down``, or ``unmeasured`` when no gateway could be probed.
 - ``ConnectorUnavailableError`` -- the connector's own transport is gone: its
   context, its service or its connector-host child. It is a
   ``ConnectionError``. Its supervisor replaces the connector once per
@@ -117,16 +115,16 @@ A write is **confirmed** when the channel it wrote now holds the value that was
 sent. The connector establishes that itself: it re-reads the channel once the
 control system has accepted the put, and reports what it found as a single word
 on :class:`~osprey_connectors.control_system.ChannelWriteResult`, which every
-``write_channel()`` call returns.
+``write_channel()`` call returns; ``write_multiple_channels()`` returns one per
+operation. The program in :ref:`how-to-write-from-a-program` reads it after a
+batch, with :class:`~osprey_connectors.control_system.WriteOutcome` imported
+from ``osprey_connectors.control_system``:
 
-.. code-block:: python
-
-   from osprey_connectors.control_system import WriteOutcome
-
-   result = await connector.write_channel("BEAM:CURRENT", 100.0)
-
-   if result.outcome is WriteOutcome.CONFIRMED:
-       print("the channel now holds the value that was sent")
+.. literalinclude:: ../../how-to/control-systems/examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: outcome begins
+   :end-before: # docs: outcome ends
+   :dedent: 4
 
 Every write ends in exactly one of six outcomes:
 
@@ -176,14 +174,8 @@ Switching confirmation off
 ``confirm`` is a per-channel boolean in the limits database, sitting beside
 ``writable``, which every entry states:
 
-.. code-block:: json
-
-   {
-     "SHUTTER:OPEN_CMD": {
-       "writable": true,
-       "confirm": false
-     }
-   }
+.. literalinclude:: examples/limits-confirm-off.json
+   :language: json
 
 A channel's own entry decides; an entry that does not state ``confirm``, or a
 channel with no entry, has confirmation on. The database holds no ``defaults``
@@ -222,10 +214,9 @@ points to.
 
 **The tier key** is the furthest position a login may put its switch at:
 
-.. code-block:: yaml
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-writes.yml
+   :language: yaml
 
-   control_system:
-     writes: asked            # never | asked | allowed; silence is never
 
 It is spelled in ``tiers/*.yml``, in the deployment root for the root or
 single-user render, and in ``apps/*.yml``, where it is always ``never``. A tier
@@ -333,8 +324,14 @@ and a switch moved to *asked* or *allowed* does not widen it. The how-to is
 
 **Three files, three writers.** Each is read the fail-closed way: no symbolic
 link followed, a bounded read, a regular file, exactly the fields below, no
-repeated key, every number finite. A file that is there and cannot be read
-refuses; an absent grant is no authorization (``switch_off``).
+repeated key, every number finite. A request or grant is written only inside
+three ceilings: at most 100000 ``steps`` (``MAX_STEPS``), an ``expires_at_ns``
+at most 24 hours after its ``requested_at_ns`` or ``issued_at_ns``
+(``MAX_EXPIRES_S``), and a ``lease_s`` of at most 600 seconds; a write past
+one raises ``ValueError`` and writes nothing. Reading does not apply them, so
+a file already on disk past a ceiling is honoured as before. A file that is
+there and cannot be read refuses; an absent grant is no authorization
+(``switch_off``).
 
 .. list-table::
    :header-rows: 1
@@ -383,15 +380,19 @@ grants directory's — the one lock order every writer of both keeps — stamps
 the record's ``switch_epoch`` on the grant, and refuses ``auth_overlap`` when
 a live grant of another holder lists one of the channels on the same machine:
 one in the owner's own directory, or a self-issued one in the ledger directory
-the approver sees. Another owner's directory is not read. A grant file that
-cannot be read is logged and left out of that check; it refuses every write
-under it already. Both surfaces also refuse a target the deployment does not
-configure, a ceiling of ``never`` or ``unknown``, a range outside the limits
-database, and a channel without a numeric range there; the chip also refuses
-in a read-only run. The ceiling is the one the program's own writes will meet:
-for a request in ``var/write_ledger/requests`` (a program in a shared
-container), the login map the build staged for those containers; for one filed
-on the host, the rendered config, as the web terminal on the host reads it.
+the approver sees. A grant whose every ledger the approver sees shows its
+lease time passed by more than a minute (its holder stopped renewing; the
+minute is a grace for the two clocks) does not count; one with no ledger in
+sight, or a ledger that cannot be read, does, until it expires. Another
+owner's directory is not read. A grant file that cannot be read is logged and
+left out of that check; it refuses every write under it already. Both
+surfaces also refuse a target the deployment does not configure, a ceiling of
+``never`` or ``unknown``, a range outside the limits database, and a channel
+without a numeric range there; the chip also refuses in a read-only run. The
+ceiling is the one the program's own writes will meet: for a request in
+``var/write_ledger/requests`` (a program in a shared container), the login map
+the build staged for those containers; for one filed on the host, the rendered
+config, as the web terminal on the host reads it.
 A refusal names every channel that cannot be approved.
 
 An approval is the confirmation for every write the run makes inside it, a
@@ -550,17 +551,9 @@ executor subprocesses and kernels where ``osprey`` may not be importable.
 Limits Checking
 ~~~~~~~~~~~~~~~
 
-.. code-block:: yaml
+.. literalinclude:: ../../how-to/control-systems/examples/control-system-limits.yml
+   :language: yaml
 
-   control_system:
-     limits_checking:
-       enabled: true                     # Enable limits validation
-       mode: exclusive                   # Only channels in the database can be written
-     connector:
-       virtual_accelerator:
-         limits_checking:                # This connector type's own posture,
-           enabled: true                 # replacing the pair above for it alone
-           mode: optional
 
 When enabled, every ``write_channel()`` call is validated against the limits
 database before the write reaches hardware. The database format is the

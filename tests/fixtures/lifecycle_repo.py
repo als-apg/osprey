@@ -3,7 +3,7 @@
 This module is the hand-authored reference deployment (``als-exemplar/``) that
 the lifecycle verbs are developed against, and the shape ``osprey init`` must
 emit. Exemplar-first: the content below was authored by hand, derived from the
-``control-assistant`` preset emission and rewritten onto the new command
+``demo`` preset emission and rewritten onto the new command
 surface; ``init`` is then made to reproduce it, never the reverse.
 
 The layout is the four-zone repo — one directory, four kinds of content::
@@ -11,7 +11,7 @@ The layout is the four-zone repo — one directory, four kinds of content::
     als-exemplar/
     │  ═ SOURCE — tracked, user-edited ═══════════════
     ├── profile.yml  providers.yml  triggers.yml  README.md
-    ├── data/  tiers/  apps/  web-terminal-context/
+    ├── data/  tiers/  web-terminal-context/
     ├── .gitignore  .env.example  .env.shared  ci-extra.yml
     ├── .gitlab-ci.yml  scripts/verify.sh   (with_ci=True only)
     │  ═ SECRETS — ignored, durable ══════════════════
@@ -28,7 +28,7 @@ fresh-clone state (SC-10). A test that needs a rendered build stubs one itself.
 Two variants, and which one a caller wants is not a matter of taste:
 
 ``with_ci=False`` (the default) is the **init-reproducible** shape. A bare
-``osprey init --preset control-assistant`` leaves the ``deploy:`` block a
+``osprey init --preset demo`` leaves the ``deploy:`` block a
 commented stub, and with no deployment coordinates there is nothing to render a
 CI pipeline from — so the repo carries neither ``.gitlab-ci.yml`` nor
 ``scripts/verify.sh``. This is the shape Task 2.1 compares ``init``'s emission
@@ -47,14 +47,14 @@ the full artifact lists, the Bluesky/virtual-accelerator stack, every
 content belongs to the preset, and a byte-for-byte gate is only satisfiable
 that way. What the redesign does change: the four-zone header, comments moved
 onto the new verb surface, the roster spelled as people with a ``tier`` plus the
-``shared`` app cards, and the deploy block above.
+``shared`` login cards, and the deploy block above.
 
-``tiers/`` and ``apps/`` hold explicit materializations of the bundled tier and
-app presets: the bundled file's comments and keys, a header in place of its
-own, and a ``provenance:`` block naming the bundled source by stem and its
-content hash. A tier keeps the deployment's name in its ``name:``; an app keeps
-the bundled ``name:``, which is its card title. Neither carries ``extends:`` or
-``exclude:``, and neither spells an attachment fact (``deploy_services``,
+``tiers/`` holds explicit materializations of the bundled login presets: the
+bundled file's comments and keys, a header in place of its own, and a
+``provenance:`` block naming the bundled source by stem and its content hash. A
+tier keeps the deployment's name in its ``name:``; a ``lists: own`` login keeps
+the bundled ``name:``, which is its card title. None carries ``extends:`` or
+``exclude:``, and none spells an attachment fact (``deploy_services``,
 ``services``, ``modules.web_terminals.enabled``): those follow from the
 folder.
 
@@ -62,7 +62,7 @@ Three values cannot be frozen into the text: the installed OSPREY version, the
 bundled presets' content hashes, and the provider catalog's content hash, all of
 which the real emission stamps into the provenance header. They are written as
 ``@OSPREY_VERSION@``, ``@PRESET_HASH:<preset>@`` and ``@PROVIDERS_HASH@``
-(a tier or app hash as ``@PRESET_HASH:tiers/<name>@``, ``@PRESET_HASH:apps/<name>@``)
+(a login hash as ``@PRESET_HASH:tiers/<name>@``)
 sentinels and expanded at materialization, so a byte-comparison against a live
 ``osprey init`` stays meaningful as the repo moves. Sentinels rather than
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
@@ -91,6 +91,7 @@ import contextlib
 import importlib.resources
 import os
 import re
+import shutil
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -105,7 +106,7 @@ import yaml
 EXEMPLAR_DIRNAME = "als-exemplar"
 
 #: The preset the exemplar was materialized from.
-EXEMPLAR_PRESET = "control-assistant"
+EXEMPLAR_PRESET = "demo"
 
 #: The bundled tiers materialized into ``tiers/``, as file stem -> bundled
 #: source under ``presets/tiers/``. Location is the type: a file is a tier
@@ -120,19 +121,19 @@ TIER_PRESETS: Mapping[str, str] = {
 #: still imports it collects. No new code reads it.
 RENDER_PRESETS = TIER_PRESETS
 
-#: The bundled apps materialized into ``apps/``, as file stem -> bundled source
-#: under ``presets/apps/``. Each is a shared card everyone on the roster opens,
-#: listed in the profile's ``modules.web_terminals.shared``.
-APP_PRESETS: Mapping[str, str] = {
+#: The bundled ``lists: own`` logins materialized into ``tiers/``, as file stem
+#: -> bundled source under ``presets/tiers/``. Each is a shared card everyone on
+#: the roster opens, listed in the profile's ``modules.web_terminals.shared``.
+SHARED_LOGIN_PRESETS: Mapping[str, str] = {
     "channel-finder": "channel-finder",
     "knowledge": "knowledge",
     "logbook": "logbook",
 }
 
 #: ``modules.web_terminals.shared`` as the exemplar writes it. The order is
-#: the landing page's, and it fixes each app's derived port slot:
-#: ``INDEX_MAX - position``, so the first app sits on the top slot.
-SHARED_APPS: tuple[str, ...] = ("logbook", "knowledge", "channel-finder")
+#: the landing page's, and it fixes each shared login's derived port slot:
+#: ``INDEX_MAX - position``, so the first one sits on the top slot.
+SHARED_LOGINS: tuple[str, ...] = ("logbook", "knowledge", "channel-finder")
 
 #: Durable state zone, created empty. A build recreates these when absent
 #: (FR-2), so a fresh clone and a reset repo look identical here.
@@ -168,11 +169,11 @@ PROFILE_YML = r"""# Als Exemplar — OSPREY deployment repo
 #   OUTPUT   build/, generated. Never edit it; deleting it is safe
 #   STATE    var/, the agent's memory and audit log. Not in git. Kept
 #
-# Made from the bundled `control-assistant` preset. Everything it sets is written
+# Made from the bundled `demo` preset. Everything it sets is written
 # out below and is yours to edit. Nothing is hidden or inherited.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   preset content hash: @PRESET_HASH:control-assistant@
+#   preset content hash: @PRESET_HASH:demo@
 
 name: Als Exemplar
 # Names the compose project, volumes, images, tier and app renders; not the folder.
@@ -245,6 +246,7 @@ skills:
   - writing-bluesky-plans  # Write, check and queue a plan (needs the Bluesky server)
   - operating-bluesky-plans  # Stage, queue and watch a plan (needs the Bluesky server)
   - bluesky-plans  # Browse which plans this deployment can run
+  - operating-optimizer  # Draft an optimizer run for a person to start (needs the optimizer server)
   - canopy-panel-builder  # Build, port and check CANOPY screens (goes with the canopy panel)
   - canopy-operator  # Open, arrange and close what the CANOPY panel shows (goes with the panel)
   - canopy-screens  # Which CANOPY screen shows which device, built from the library (goes with the panel)
@@ -276,9 +278,8 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
-  - lattice         # LATTICE tab, optics of the simulator's served models
   - okf             # KNOWLEDGE tab, for browsing the facility knowledge bundle
-  - system-health   # SYSTEM tab, a framework health dashboard
+  - system-health   # Health tab, a framework health dashboard
   - jupyter         # JUPYTER tab, JupyterLab with kernels that follow the terminal session
   - canopy          # CANOPY tab, the operator GUI: machine screens and Trace, one per terminal
   # The events and bluesky panels are added by the write-armed tiers
@@ -471,9 +472,6 @@ config:
   # inlines at most 4x this many elements across all the channels it read;
   # past that budget a channel takes the artifact path and says so.
   control_system.read_inline_max_elements: 2000
-  # Newest N UNPINNED read artifacts kept per channel; older ones are pruned
-  # on save. Pinned entries are never pruned. 0 keeps everything.
-  control_system.channel_read_artifact_retention: 20
   # Pattern detection: raw client puts in generated code (epics.caput,
   # PV.put(), and the other client libraries' write calls) are denied by the
   # approval hook and refused at runtime; osprey.runtime.write_channel is the
@@ -719,6 +717,9 @@ config:
   # below, so moving the database stays a one-place edit. Set it only to point
   # ARIEL at a Postgres this deployment does not run; an explicit uri wins.
   # ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+  # With an authored uri, the agent's SQL tool is served only through this
+  # SELECT-only login; without it the tool is not offered.
+  # ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
   # No `ariel.ingestion` block: the logbook is seeded from the simulation
   # scenario bundles by `osprey sim apply NAME...`. For production, add
   # `ariel.ingestion.adapter` and `ariel.ingestion.source_url` for your
@@ -730,9 +731,6 @@ config:
   # Links from the agent's answers to each entry's page in your logbook: one
   # URL with an `{entry_id}` placeholder. Unset, the agent shows plain IDs.
   # ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
-  # The ARIEL tab inside the web terminal offers Browse and New Entry; the
-  # agent searches the logbook. true adds the Search view there and opens on it.
-  # ariel.embedded_search: false
   # osprey:panel-port ariel
   # The ARIEL tab's own web server. It launches when `ariel` is in
   # `web_panels:` above, on this deployment's ARIEL slot; OSPREY_ARIEL_PORT or
@@ -1044,8 +1042,7 @@ config:
   # ── Web terminal ───────────────────────────────────────────────────────────
   # Every panel tab is served by its own small web server, configured under its
   # own section: WORKSPACE `artifact_server`, ARIEL `ariel.web`, CHANNELS
-  # `channel_finder.web`, LATTICE `lattice_dashboard`, KNOWLEDGE
-  # `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
+  # `channel_finder.web`, KNOWLEDGE `facility_knowledge`, SYSTEM `health.web`. Each defaults to its slot above
   # `deployment.port_base`; the panel's env var wins, then its `port` key.
   # Multi-user deployments export the env var per user. The reference guide's
   # ports page prints the table.
@@ -1065,23 +1062,13 @@ config:
   # It fetches more as the list is scrolled.
   # Lowering it suits a slow link; raising it suits a small store.
   # artifact_server.page_size: 20
-  # Extra artifact categories on top of the ones the gallery ships, so a badge
-  # reads in this facility's own vocabulary. One dotted line per category, each
-  # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
-  # category nobody declared is still stored — it just keeps the default badge,
-  # and the save logs a warning naming this key.
-  # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-  # Seed one shipped example (an interactive plot, synthetic data) into an
-  # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
-  artifact_server.example_artifact: true
-  # osprey:panel-port lattice_dashboard
-  # The LATTICE tab needs no section: with `lattice` in `web_panels:` it
-  # binds its slot. Uncomment only to move it or switch it off.
-  # lattice_dashboard.host: 127.0.0.1
-  # lattice_dashboard.port: <a port outside this deployment's block>
-  # lattice_dashboard.auto_launch: true
+  # Facility artifact kinds on top of the gallery's base forms, so a listing
+  # reads in this facility's own vocabulary. One dotted line per type, each
+  # value a `label` and the `base_form` it is listed under (plots, trends,
+  # tables, documents, dashboards, images, data).
+  # artifact_server.extension_types.beam_diagnostics: {label: Beam Diagnostics, base_form: plots}
   # osprey:panel-port system_health
-  # The SYSTEM tab needs no section: with `system-health` in `web_panels:` it
+  # The Health tab needs no section: with `system-health` in `web_panels:` it
   # binds its slot. Uncomment only to move it or switch it off.
   # health.web.host: 127.0.0.1
   # health.web.port: <a port outside this deployment's block>
@@ -1182,10 +1169,6 @@ config:
   # A colour theme for CANOPY, as a path relative to the project root
   # (absolute accepted). Unset keeps CANOPY's own theme.
   # web.panels.canopy.theme_file: data/canopy/theme/colors.json
-  # The SYSTEM tab is served but starts out of the sidebar: `+ Add panel` and
-  # the command palette open it, and `+ Add panel` can also pin it there.
-  # Delete this line to give it a sidebar row from the first load.
-  web.panels.system-health.hidden: true
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
   # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
@@ -1281,7 +1264,7 @@ config:
     #     roles: {operator: {tier: readwrite}, viewer: {tier: readonly}}
     #     claims: {claim: groups, map: {ca-operators: operator, ca-viewers: viewer}}
     # How the landing page is laid out. Omit this whole block and you get the
-    # people below first and the shared apps after them, headed "Apps".
+    # people below first and the shared logins after them, headed "Shared logins".
     landing:
       # Each file below becomes one collapsible section at the bottom of the
       # landing page, in this order. The file's `# H1` is the section label, so
@@ -1302,10 +1285,10 @@ config:
           # to your terminal" button, so the page lists nobody. It needs the
           # login wall above (auth.method password or oidc).
           # names: shown
-        # `apps` renders one card per entry in `shared:` below, titled by the
-        # app's own `name:` in apps/. Everyone on the roster opens them.
-        - type: apps
-          label: Apps
+        # `shared` renders one card per entry in `shared:` below, titled by the
+        # login's own `name:` in tiers/. Everyone on the roster opens them.
+        - type: shared
+          label: Shared logins
     users:
       # One web terminal per person. `index` pins that user's ports, `tier`
       # names their access level in tiers/, and `display_name` becomes the
@@ -1327,10 +1310,11 @@ config:
         index: 2
         tier: admin
         display_name: "Deployment Admin (Carol)"
-    # Apps everyone above may open, each defined in apps/<name>.yml: a second
-    # agent beside this deployment's own, on this deployment's services. Each
-    # gets its own container and a port slot counted down from the top of the
-    # user block, in this order; no password of its own, so none is set in .env.
+    # Logins everyone above may open, each defined in tiers/<name>.yml: a
+    # second agent beside this deployment's own, on this deployment's services,
+    # sealed read-only for everyone. Each gets its own container and a port slot
+    # counted down from the top of the user block, in this order; no password of
+    # its own, so none is set in .env.
     shared:
       - logbook          # Logbook Research: search and synthesise the logbook
       - knowledge        # Facility Knowledge: how the machine is built
@@ -1376,9 +1360,9 @@ config:
   simulation.tick_s: 1.0
   # Scenarios a deployment that never chose a set starts in, by name from
   # the facility's scenarios; `osprey sim apply` replaces the set.
-  # Absent or [] starts in nominal alone.
-  # A stated start set is checked against the file at build.
-  simulation.default_scenarios: [rf-thermal]
+  # demo-history also seeds the sidebar's example sessions on first deploy.
+  # Absent or [] starts in nominal alone; a stated set is checked at build.
+  simulation.default_scenarios: [rf-thermal, demo-history]
 
 # ── Record archive ─────────────────────────────────────────────────────────
 # Copies artifacts and plan-queue history into var/archive/ once a day, beside
@@ -1386,6 +1370,13 @@ config:
 services:
   archive:
     template: osprey.archive
+
+# ── Applications ─────────────────────────────────────────────────────────────
+# Each entry runs the application in apps/<name>/; none is on by default. Orbit
+# bump ships with OSPREY (strip, model bump, approval-gated apply):
+# `osprey init --preset demo --set 'apps.orbit-bump={}'` copies it into
+# apps/orbit-bump/ and lists it as
+# apps: {orbit-bump: {}}
 
 # ── Build checks ─────────────────────────────────────────────────────────────
 # `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,
@@ -1429,15 +1420,14 @@ dispatch:
 # secure with no editing. Put your own values in .env to override.
 # Environment variables the deployment needs. Replace `env: {}` with any
 # of `required` (the variable must be set somewhere), `pinned` (this
-# repo's own env chain owns it outright, and nowhere else), `defaults`
-# (name to value) and `file` (a profile-relative path copied in as .env):
+# repo's own env chain owns it outright, and nowhere else) and `defaults`
+# (name to value):
 #
 #   env:
 #     required: [DISPATCH_WORKER_TOKEN]
 #     pinned: [ARIEL_DB_PASSWORD]
 #     defaults:
 #       OSPREY_FACILITY_NAME: "Example Facility"
-#     file: env/facility.env
 #
 # If `env:` already has children, add yours under it.
 env:
@@ -1461,8 +1451,8 @@ requires_osprey_version: '>=2026.10.0'
 # `providers_hash` is the same record for providers.yml beside this file;
 # `osprey init --revalidate` adds the packaged entries and keys it lacks.
 provenance:
-  preset: control-assistant
-  preset_hash: @PRESET_HASH:control-assistant@
+  preset: demo
+  preset_hash: @PRESET_HASH:demo@
   providers_hash: @PROVIDERS_HASH@
 # true builds its own services stack; false attaches to another project's.
 deploy_services: true
@@ -1502,17 +1492,20 @@ panel_presets: {}
 #     permissions:
 #       allow: [get_twiss]
 
-# --- Artifacts gallery: custom categories ------------------------------------
-# Extra buckets in the artifacts gallery. Each key is the id a facility MCP
-# tool passes as category="<key>" when it saves an artifact; label and color
-# (#RRGGBB) decide how the gallery renders that bucket. The artifact_server
-# block also accepts host/port/auto_launch overrides for the gallery server.
+# --- Artifacts gallery: extension types -------------------------------------
+# Facility artifact kinds, each conforming to one gallery base form (plots,
+# trends, tables, documents, dashboards, images, data) and listed under it.
+# A label may not repeat a base form's or another type's. The optional viewer
+# is a .js/.mjs ES module under this profile's project/ directory, given
+# relative to it. The block also accepts host/port/auto_launch overrides for
+# the gallery server.
 #
 # artifact_server:
-#   categories:
-#     optics:
-#       label: Optics
-#       color: "#4C9AFF"
+#   extension_types:
+#     beam_scan:
+#       label: Beam scan
+#       base_form: plots
+#       viewer: viewers/beam_scan.js
 
 # --- Optimizer ---------------------------------------------------------------
 # Tunes machine variables against an objective with Bayesian optimization. The
@@ -1557,6 +1550,18 @@ panel_presets: {}
 #
 # teams_bridge:
 #   trigger: teams-question
+#   mentions: true               # false posts the agent's @mentions as plain text
+
+# --- Slack bridge ------------------------------------------------------------
+# Answers questions asked from a Slack channel, thread or direct message. The
+# trigger name must match one declared in the dispatch triggers file.
+#
+# The Slack credentials are runtime env, not profile keys: declare
+# SLACK_BOT_TOKEN (the xoxb- bot token) and SLACK_APP_TOKEN (the xapp- Socket
+# Mode app token) under `env.required`.
+#
+# slack_bridge:
+#   trigger: slack-question
 #   mentions: true               # false posts the agent's @mentions as plain text
 """
 
@@ -1620,7 +1625,7 @@ WEB_TERMINALS_IMAGE_SOURCE_LINE = (
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SOURCE zone — tiers and apps
+# SOURCE zone — logins
 # ─────────────────────────────────────────────────────────────────────────────
 
 TIER_READONLY_YML = """\
@@ -1631,7 +1636,7 @@ TIER_READONLY_YML = """\
 # ports stay profile.yml's. To see the combined result:
 #   osprey validate tiers/readonly.yml
 #
-# Made from the bundled `readonly` tier. Everything it sets is written out
+# Made from the bundled `readonly` login. Everything it sets is written out
 # below and is yours to edit. Nothing is hidden or inherited from the package.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
@@ -1663,7 +1668,7 @@ TIER_READWRITE_YML = """\
 # ports stay profile.yml's. To see the combined result:
 #   osprey validate tiers/readwrite.yml
 #
-# Made from the bundled `readwrite` tier. Everything it sets is written out
+# Made from the bundled `readwrite` login. Everything it sets is written out
 # below and is yours to edit. Nothing is hidden or inherited from the package.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
@@ -1704,7 +1709,7 @@ TIER_ADMIN_YML = """\
 # ports stay profile.yml's. To see the combined result:
 #   osprey validate tiers/admin.yml
 #
-# Made from the bundled `admin` tier. Everything it sets is written out
+# Made from the bundled `admin` login. Everything it sets is written out
 # below and is yours to edit. Nothing is hidden or inherited from the package.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
@@ -1762,23 +1767,27 @@ provenance:
   preset_hash: @PRESET_HASH:tiers/admin@
 """
 
-APP_LOGBOOK_YML = """\
-# Logbook Research — an app this deployment offers on a shared card
+SHARED_LOGBOOK_YML = """\
+# Logbook Research — a narrow login of this deployment (`lists: own`)
 #
-# A complete agent definition of its own: the lists below are its whole
-# selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data and provider are profile.yml's, and so is the model
-# unless a top-level `model:` here names one the provider serves. Its
-# config: keys are laid over profile.yml's. To see the combined result:
-#   osprey validate apps/logbook.yml
+# The lists below are its whole selection: nothing is inherited from
+# profile.yml's lists or subtracted from them, and profile.yml's PreToolUse
+# guards reach it whatever they say. Services, data and provider are
+# profile.yml's, and so is the model unless a top-level `model:` here names one
+# the provider serves. Its config: keys are laid over profile.yml's. To see the
+# combined result:
+#   osprey validate tiers/logbook.yml
 #
-# Made from the bundled `logbook` app. Everything it sets is written out
+# Made from the bundled `logbook` login. Everything it sets is written out
 # below and is yours to edit. Nothing is hidden or inherited from the package.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   content hash: @PRESET_HASH:apps/logbook@
+#   content hash: @PRESET_HASH:tiers/logbook@
 
 name: Logbook Research
+
+# The whole selection is the lists below.
+lists: own
 
 # The logbook-research brief instead of the control-room operator one: the
 # agent's whole brief is written for searching, reading and synthesising
@@ -1792,7 +1801,7 @@ default_panel: ariel
 
 # No channel finder: finding a channel address is not logbook work, and the
 # channel-finder server is switched off below. A deployment that wants channel
-# lookups beside the logbook offers the `channel-finder` app.
+# lookups beside the logbook offers the `channel-finder` login.
 channel_finder_mode: null
 
 hooks:
@@ -1808,8 +1817,8 @@ hooks:
   - turn-state        # Tell the web terminal when a turn starts and ends
 
 rules:
-  # The safety rule governs no tool this app carries today. It stays because
-  # the app runs inside a deployment that does move hardware: if a control
+  # The safety rule governs no tool this login carries today. It stays because
+  # the login runs inside a deployment that does move hardware: if a control
   # server is ever switched back on here, the rule is already in place.
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
@@ -1837,13 +1846,13 @@ web_panels:
   - ariel             # ARIEL search interface
 
 # No tool servers of its own; the deployment's facility servers are not this
-# app's to inherit.
+# login's to inherit.
 mcp_servers: {}
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block. These win over
 # the deployment's config; the deployment's own tool-server switches never
-# reach this render, so every server this app does without is named here.
+# reach this render, so every server this login does without is named here.
 config:
   # No control-system surface at all: the tools are absent, not merely unused.
   # Each line is a decision about a server the deployment runs.
@@ -1853,14 +1862,14 @@ config:
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
   # The facility knowledge bundle answers "how is the machine documented"; that
-  # is the `knowledge` app's question, not this one's.
+  # is the `knowledge` login's question, not this one's.
   claude_code.servers.osprey_facility_knowledge.enabled: false
   # Kept on: `osprey_workspace` (the Workspace tab), `ariel` (the point of this
-  # app) and `graph` (the facility-knowledge-graph subagent dials the
+  # login) and `graph` (the facility-knowledge-graph subagent dials the
   # deployment's graph store). The event dispatcher renders only with the
-  # EVENTS panel, which no app carries.
+  # EVENTS panel, which no shared login carries.
   #
-  # The write boundary: `never`, the only value an app may spell.
+  # The write boundary: `never`, the only value a shared login may spell.
   control_system.writes: never
   # Creating a logbook entry is this agent's only write of any kind, and it is
   # approval-gated like every other write. Publishing is the half that reaches
@@ -1869,40 +1878,42 @@ config:
   approval.tools.entry_publish: always
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed app and reports every
+# validate` compares it against the installed tier and reports every
 # difference as drift. This file is the source of truth either way.
 provenance:
   preset: logbook
-  preset_hash: @PRESET_HASH:apps/logbook@
+  preset_hash: @PRESET_HASH:tiers/logbook@
 """
 
-APP_KNOWLEDGE_YML = """\
-# Facility Knowledge — an app this deployment offers on a shared card
+SHARED_KNOWLEDGE_YML = """\
+# Facility Knowledge — a narrow login of this deployment (`lists: own`)
 #
-# A complete agent definition of its own: the lists below are its whole
-# selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data and provider are profile.yml's, and so is the model
-# unless a top-level `model:` here names one the provider serves. Its
-# config: keys are laid over profile.yml's. To see the combined result:
-#   osprey validate apps/knowledge.yml
+# The lists below are its whole selection: nothing is inherited from
+# profile.yml's lists or subtracted from them, and profile.yml's PreToolUse
+# guards reach it whatever they say. Services, data and provider are
+# profile.yml's, and so is the model unless a top-level `model:` here names one
+# the provider serves. Its config: keys are laid over profile.yml's. To see the
+# combined result:
+#   osprey validate tiers/knowledge.yml
 #
-# Made from the bundled `knowledge` app. Everything it sets is written out
+# Made from the bundled `knowledge` login. Everything it sets is written out
 # below and is yours to edit. Nothing is hidden or inherited from the package.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   content hash: @PRESET_HASH:apps/knowledge@
+#   content hash: @PRESET_HASH:tiers/knowledge@
 
 name: Facility Knowledge
+
+# The whole selection is the lists below.
+lists: own
 
 # The knowledge brief: answering "how is the machine built" from three
 # read-only sources and citing which one answered.
 claude_md_template: CLAUDE.knowledge.md.j2
 
-# Open on the KNOWLEDGE tab. The CHANNELS tab is the other one this app keeps.
+# Open on the KNOWLEDGE tab. The CHANNELS tab is the other one this login keeps.
 default_panel: okf
 
 # Channel addresses come from the graph, the same store the knowledge-graph
@@ -1923,8 +1934,8 @@ hooks:
   - turn-state        # Tell the web terminal when a turn starts and ends
 
 rules:
-  # The safety rule governs no tool this app carries today. It stays because
-  # the app runs inside a deployment that does move hardware.
+  # The safety rule governs no tool this login carries today. It stays because
+  # the login runs inside a deployment that does move hardware.
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
@@ -1932,7 +1943,7 @@ rules:
   - timezone          # Always localise timestamps to facility timezone
 
 # No skills: every bundled skill either writes to the logbook, drives the
-# machine or needs the Python sandbox, and this app reaches none of them.
+# machine or needs the Python sandbox, and this login reaches none of them.
 skills: []
 
 agents:
@@ -1948,13 +1959,13 @@ web_panels:
   - channel-finder    # Interactive channel-finder web UI
 
 # No tool servers of its own; the deployment's facility servers are not this
-# app's to inherit.
+# login's to inherit.
 mcp_servers: {}
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block. These win over
 # the deployment's config; the deployment's own tool-server switches never
-# reach this render, so every server this app does without is named here.
+# reach this render, so every server this login does without is named here.
 config:
   # No control-system surface and no logbook: each line is a decision about a
   # server the deployment runs.
@@ -1962,48 +1973,50 @@ config:
   claude_code.servers.python.enabled: false
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
-  # The logbook is the `logbook` app's.
+  # The logbook is the `logbook` login's.
   claude_code.servers.ariel.enabled: false
   # Kept on: `osprey_workspace` (the Workspace tab), `osprey_facility_knowledge`
   # (the bundle), `channel-finder` and `graph` (the store both read). The event
-  # dispatcher renders only with the EVENTS panel, which no app carries.
+  # dispatcher renders only with the EVENTS panel, which no shared login carries.
   #
   # Reading the bundle, never writing to it: drafting a concept is the
   # deployment's editors' work, not a shared card's.
   claude_code.permissions.deny:
     - mcp__osprey_facility_knowledge__draft_concept
-  # The write boundary: `never`, the only value an app may spell.
+  # The write boundary: `never`, the only value a shared login may spell.
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed app and reports every
+# validate` compares it against the installed tier and reports every
 # difference as drift. This file is the source of truth either way.
 provenance:
   preset: knowledge
-  preset_hash: @PRESET_HASH:apps/knowledge@
+  preset_hash: @PRESET_HASH:tiers/knowledge@
 """
 
-APP_CHANNEL_FINDER_YML = """\
-# Channel Finder — an app this deployment offers on a shared card
+SHARED_CHANNEL_FINDER_YML = """\
+# Channel Finder — a narrow login of this deployment (`lists: own`)
 #
-# A complete agent definition of its own: the lists below are its whole
-# selection, and nothing is inherited from profile.yml's lists or subtracted
-# from them. Services, data and provider are profile.yml's, and so is the model
-# unless a top-level `model:` here names one the provider serves. Its
-# config: keys are laid over profile.yml's. To see the combined result:
-#   osprey validate apps/channel-finder.yml
+# The lists below are its whole selection: nothing is inherited from
+# profile.yml's lists or subtracted from them, and profile.yml's PreToolUse
+# guards reach it whatever they say. Services, data and provider are
+# profile.yml's, and so is the model unless a top-level `model:` here names one
+# the provider serves. Its config: keys are laid over profile.yml's. To see the
+# combined result:
+#   osprey validate tiers/channel-finder.yml
 #
-# Made from the bundled `channel-finder` app. Everything it sets is written out
+# Made from the bundled `channel-finder` login. Everything it sets is written out
 # below and is yours to edit. Nothing is hidden or inherited from the package.
 #
 #   emitted by OSPREY @OSPREY_VERSION@
-#   content hash: @PRESET_HASH:apps/channel-finder@
+#   content hash: @PRESET_HASH:tiers/channel-finder@
 
 name: Channel Finder
+
+# The whole selection is the lists below.
+lists: own
 
 # The channel-finder brief: how to query, narrow and report channel addresses.
 claude_md_template: CLAUDE.channel-finder.md.j2
@@ -2029,8 +2042,8 @@ hooks:
   - turn-state        # Tell the web terminal when a turn starts and ends
 
 rules:
-  # The safety rule governs no tool this app carries today. It stays because
-  # the app runs inside a deployment that does move hardware.
+  # The safety rule governs no tool this login carries today. It stays because
+  # the login runs inside a deployment that does move hardware.
   - safety            # Core safety rules: never write without approval
   - error-handling    # Standard error handling and retry guidance
   - artifacts         # Rules for saving diagnostic artifacts
@@ -2039,7 +2052,7 @@ rules:
   - timezone          # Always localise timestamps to facility timezone
 
 # No skills: every bundled skill either writes to the logbook, drives the
-# machine or needs the Python sandbox, and this app reaches none of them.
+# machine or needs the Python sandbox, and this login reaches none of them.
 skills: []
 
 agents:
@@ -2052,13 +2065,13 @@ web_panels:
   - channel-finder    # Interactive channel-finder web UI
 
 # No tool servers of its own; the deployment's facility servers are not this
-# app's to inherit.
+# login's to inherit.
 mcp_servers: {}
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY, as in the deployment's own config: block. These win over
 # the deployment's config; the deployment's own tool-server switches never
-# reach this render, so every server this app does without is named here.
+# reach this render, so every server this login does without is named here.
 config:
   # No control-system surface: each line is a decision about a server the
   # deployment runs.
@@ -2066,30 +2079,28 @@ config:
   claude_code.servers.python.enabled: false
   claude_code.servers.bluesky.enabled: false
   claude_code.servers.health.enabled: false
-  # The logbook is the `logbook` app's, the knowledge bundle the `knowledge`
-  # app's.
+  # The logbook is the `logbook` login's, the knowledge bundle the `knowledge`
+  # login's.
   claude_code.servers.ariel.enabled: false
   claude_code.servers.osprey_facility_knowledge.enabled: false
-  # No graph: this app is file-based, so it never dials the deployment's graph
+  # No graph: this login is file-based, so it never dials the deployment's graph
   # store even when one runs.
   claude_code.servers.graph.enabled: false
   # Kept on: `osprey_workspace` (the Workspace tab) and `channel-finder` (the
-  # point of this app). The event dispatcher renders only with the EVENTS
-  # panel, which no app carries.
+  # point of this login). The event dispatcher renders only with the EVENTS
+  # panel, which no shared login carries.
   #
-  # The write boundary: `never`, the only value an app may spell.
+  # The write boundary: `never`, the only value a shared login may spell.
   control_system.writes: never
   # No control-target picker in the title bar: nothing here reaches the machine.
   web.control_target_picker: false
-  # No shipped example plot: it invites a live plot this app cannot produce.
-  artifact_server.example_artifact: false
 
 # What this file was materialized from. Emitted, not hand-written: `osprey
-# validate` compares it against the installed app and reports every
+# validate` compares it against the installed tier and reports every
 # difference as drift. This file is the source of truth either way.
 provenance:
   preset: channel-finder
-  preset_hash: @PRESET_HASH:apps/channel-finder@
+  preset_hash: @PRESET_HASH:tiers/channel-finder@
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2114,7 +2125,7 @@ def packaged_tutorial_triggers_yml() -> str:
     return (Path(str(package)) / "tutorial_triggers.yml").read_text(encoding="utf-8")
 
 
-#: The demonstration triggers the ``control-assistant`` preset ships, which
+#: The demonstration triggers the ``demo`` preset ships, which
 #: ``init`` writes into a new repo as ``triggers.yml``. Resolved at import,
 #: because :data:`BASE_SOURCE_FILES` is built at import.
 TRIGGERS_YML = packaged_tutorial_triggers_yml()
@@ -2135,10 +2146,10 @@ def packaged_data_readme_md() -> str:
     """
     from tests._preset_data import preset_data
 
-    return (preset_data("control_assistant").app_data / "README.md").read_text(encoding="utf-8")
+    return (preset_data("demo").app_data / "README.md").read_text(encoding="utf-8")
 
 
-#: The ``data/README.md`` the ``control-assistant`` preset ships. Resolved at
+#: The ``data/README.md`` the ``demo`` preset ships. Resolved at
 #: import, because :data:`BASE_SOURCE_FILES` is built at import.
 DATA_README_MD = packaged_data_readme_md()
 
@@ -2165,6 +2176,10 @@ GITIGNORE = """\
 # and the next `osprey init` puts its contents back. Never committed either
 # way — for the seconds it exists it is a second copy of files already tracked.
 /.osprey-replaced-source-zone/
+
+# APPLICATION VENDOR FILES — fetched by `osprey build` into each application's
+# panel from its `vendor:` list. Build output inside the source zone.
+/apps/*/panel/vendor/
 
 # SECRETS — provider keys you set plus the tokens `osprey up` mints, and the
 # lock file the write-back path creates beside them. Two exceptions carry no
@@ -2446,13 +2461,13 @@ mcp_servers:
 ```
 
 The hello-world preset ships `example_server` as a worked copy to read. Which
-buckets the artifact gallery sorts into is a separate, top-level key, one entry
-per bucket:
+facility artifact kinds the gallery lists is a separate, top-level key, each
+type conforming to one base form:
 
 ```yaml
 artifact_server:
-  categories:
-    beam_studies: {label: Beam studies, color: "#4C6EF5"}
+  extension_types:
+    beam_study: {label: Beam study, base_form: plots}
 ```
 
 ### Adding a panel of your own
@@ -3026,11 +3041,11 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "tiers/readonly.yml": TIER_READONLY_YML,
     "tiers/readwrite.yml": TIER_READWRITE_YML,
     "tiers/admin.yml": TIER_ADMIN_YML,
-    "apps/logbook.yml": APP_LOGBOOK_YML,
-    "apps/knowledge.yml": APP_KNOWLEDGE_YML,
-    "apps/channel-finder.yml": APP_CHANNEL_FINDER_YML,
-    # One context slot per person on the roster. An app is not a person: its
-    # card has no per-user context, so it gets no slot.
+    "tiers/logbook.yml": SHARED_LOGBOOK_YML,
+    "tiers/knowledge.yml": SHARED_KNOWLEDGE_YML,
+    "tiers/channel-finder.yml": SHARED_CHANNEL_FINDER_YML,
+    # One context slot per person on the roster. A shared login is not a
+    # person: its card has no per-user context, so it gets no slot.
     "web-terminal-context/alice/.gitkeep": "",
     "web-terminal-context/bob/.gitkeep": "",
     "web-terminal-context/carol/.gitkeep": "",
@@ -3039,6 +3054,7 @@ BASE_SOURCE_FILES: Mapping[str, str] = {
     "data/facility/records/places.yaml": FACILITY_PLACES_YAML,
     "data/facility/records/devices.yaml": FACILITY_DEVICES_YAML,
     "data/facility/records/channels.yaml": FACILITY_CHANNELS_YAML,
+    "data/facility/scenarios/demo-history.yaml": "{}\n",
     "data/facility/scenarios/rf-thermal.yaml": "{}\n",
     "data/facility/knowledge/index.md": FK_INDEX_MD,
     "data/facility/knowledge/subsystems/index.md": FK_SUBSYSTEMS_INDEX_MD,
@@ -3054,7 +3070,7 @@ CI_PIPELINE_FILES: Mapping[str, str] = {
     "scripts/verify.sh": VERIFY_SH,
 }
 
-_PRESET_HASH_SENTINEL = re.compile(r"@PRESET_HASH:((?:tiers/|apps/)?[a-z0-9-]+)@")
+_PRESET_HASH_SENTINEL = re.compile(r"@PRESET_HASH:((?:tiers/)?[a-z0-9-]+)@")
 _VERSION_SENTINEL = "@OSPREY_VERSION@"
 _PROVIDERS_HASH_SENTINEL = "@PROVIDERS_HASH@"
 _IMAGE_SOURCE_MARKER = "@WEB_TERMINALS_IMAGE_SOURCE@"
@@ -3071,7 +3087,7 @@ def _osprey_version() -> str:
 def _preset_hash(preset_name: str) -> str:
     """Content hash of a bundled preset, or the emitters' unavailable marker.
 
-    A tier or app is named kind-qualified (``tiers/readonly``, ``apps/logbook``):
+    A login is named kind-qualified (``tiers/readonly``, ``tiers/logbook``):
     the stem alone does not say which folder of the package it comes from.
     """
     from osprey.cli.build_profile_merge import compute_preset_hash
@@ -3105,14 +3121,14 @@ CANOPY_LIBRARY_RELPATH = "data/canopy/library"
 
 
 def packaged_canopy_library() -> Path:
-    """The control-assistant screen library inside the installed package.
+    """The demo screen library inside the installed package.
 
     Read rather than frozen, as :func:`packaged_providers_yml` reads the
     catalog: the package owns the screens and their write-binding report, so
-    the exemplar carries exactly what ``osprey init --preset control-assistant``
+    the exemplar carries exactly what ``osprey init --preset demo``
     puts into a deployment's ``data/``.
     """
-    bundle = importlib.resources.files("osprey.templates.apps.control_assistant")
+    bundle = importlib.resources.files("osprey.templates.apps.demo")
     return Path(str(bundle)) / "data" / "canopy" / "library"
 
 
@@ -3166,6 +3182,69 @@ def seeded_facility_rule(profile_text: str) -> str:
         return (root / "rules" / "facility.md").read_text(encoding="utf-8")
 
 
+#: The application OSPREY ships beside the demo preset, off in it by default.
+ORBIT_BUMP = "orbit-bump"
+
+#: The ``osprey init --set`` pair that turns it on: init copies it into
+#: ``apps/orbit-bump/`` and lists it.
+ENABLE_ORBIT_BUMP = f"apps.{ORBIT_BUMP}={{}}"
+
+
+def enable_orbit_bump(root: Path) -> None:
+    """Turn orbit bump on in the repo at *root*, as ``--set apps.orbit-bump={}`` at init does.
+
+    For a repo made from the exemplar rather than by ``osprey init``: the
+    profile lists the application and its tree is copied with its provenance.
+    """
+    with (root / "profile.yml").open("a", encoding="utf-8") as profile:
+        profile.write(f"\napps:\n  {ORBIT_BUMP}: {{}}\n")
+    for rel, text in packaged_application_files().items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+def lay_preset_applications(preset: str, root: Path) -> None:
+    """Copy what *preset* lists under ``root/apps/``, as ``osprey init`` lays it beside a profile.
+
+    For a test that writes the emitted profile itself: the emitter lists the
+    application and copies nothing, and a listing with no directory is refused.
+    """
+    from osprey.cli.build_profile_presets import _presets_dir, preset_apps
+
+    for name in preset_apps(preset):
+        shutil.copytree(
+            _presets_dir() / "apps" / name,
+            root / "apps" / name,
+            ignore=shutil.ignore_patterns("__pycache__", "*.py[co]"),
+        )
+
+
+def packaged_application_files() -> dict[str, str]:
+    """Orbit bump as ``osprey init`` copies it when turned on, sidecar included.
+
+    Read rather than frozen, for the reason the data README is: the package owns
+    these files, and what the comparison downstream is for is that init copies
+    them through unchanged.
+    """
+    from osprey.cli.build_profile_drift import APP_PROVENANCE_FILENAME, app_provenance_text
+    from osprey.cli.build_profile_merge import compute_preset_hash
+    from osprey.profiles import presets
+
+    app_dir = Path(presets.__file__).parent / "apps" / "orbit-bump"
+    files = {
+        f"apps/orbit-bump/{path.relative_to(app_dir).as_posix()}": path.read_text(encoding="utf-8")
+        for path in sorted(app_dir.rglob("*"))
+        if path.is_file()
+        and "__pycache__" not in path.parts
+        and path.suffix not in {".pyc", ".pyo"}
+    }
+    files[f"apps/orbit-bump/{APP_PROVENANCE_FILENAME}"] = app_provenance_text(
+        app_dir, "demo", compute_preset_hash("demo")
+    )
+    return files
+
+
 def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     """The exemplar's source zone as repo-relative posix path -> final text.
 
@@ -3176,8 +3255,21 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     Args:
         with_ci: Fill in the deploy coordinates and emit the CI pipeline they
             are rendered from. The default False is the init-reproducible
-            shape — a bare ``osprey init --preset control-assistant`` has no
+            shape — a bare ``osprey init --preset demo`` has no
             coordinates to render a pipeline from, so it emits neither.
+    """
+    return {
+        path: expand_sentinels(text)
+        for path, text in _exemplar_source_texts(with_ci=with_ci).items()
+    }
+
+
+def _exemplar_source_texts(*, with_ci: bool = False) -> dict[str, str]:
+    """The exemplar's source zone with its sentinels still in place.
+
+    The texts :func:`exemplar_source_files` expands. A patch over one of them
+    stays applicable across version bumps and preset edits, because a sentinel
+    line reads the same whatever value it stands for.
     """
     if with_ci:
         deploy_block = DEPLOY_BLOCK_ACTIVE
@@ -3200,7 +3292,7 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
     files["rules/facility.md"] = seeded_facility_rule(files["profile.yml"])
     if with_ci:
         files.update(CI_PIPELINE_FILES)
-    return {path: expand_sentinels(text) for path, text in files.items()}
+    return files
 
 
 @contextlib.contextmanager

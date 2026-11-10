@@ -11,6 +11,7 @@ from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -48,12 +49,18 @@ from osprey_connectors_tests._harness._guards import (  # noqa: F401 - fixtures 
     write_server_report,
 )
 from osprey_connectors_tests._harness._ports import port_reserver
-from tests import _canopy_contract, _scoped_temp
+from tests import _canopy_contract, _scoped_temp, _wallclock_files
 from tests._agent_cli import STUB_AGENT_CLI
 from tests._builds import (  # noqa: F401 - the session's shared builds
-    built_control_assistant,
+    built_demo,
+    built_demo_orbit_bump,
+    built_demo_watchdog_on,
     offline_build_env,
 )
+from tests.e2e import refusals
+
+if TYPE_CHECKING:
+    from tests._graphdb_container import WatchedStore
 
 # ===================================================================
 # Provider gateway stand-in
@@ -69,7 +76,7 @@ GATEWAY_BASE_URL = "https://gateway.example.org/v1"
 
 # import-time required because every xdist worker must hold this default
 # before it collects a module.
-# The control-assistant preset's `canopy-payload` pre_build step stages a
+# The demo preset's `canopy-payload` pre_build step stages a
 # prebuilt CANOPY payload no test host is expected to have, and a build that
 # names none leaves the panel out. Skipping the step renders the finished
 # preset; the tests of the staging module turn the check back on. setdefault
@@ -229,11 +236,9 @@ def no_project_venv_outlives_the_session(tmp_path_factory):
     """Fail the session if a real project venv is still in the temp tree.
 
     A real ``osprey build`` installs the whole dependency tree into
-    ``build/.venv``, gigabytes per build. Pytest removes a passing test's
-    ``tmp_path`` but never a ``mktemp`` directory, and under xdist the whole
-    tree is only removed when the run ends green, so a fixture that leaves its
-    venv behind fills the disk during the run and keeps it full after a red
-    one. A fixture that runs a real build removes the venv itself, as soon as
+    ``build/.venv``, gigabytes per build. A fixture's tree is removed when its
+    scope ends, but a venv inside it costs gigabytes while the scope is live,
+    so a fixture that runs a real build removes the venv itself, as soon as
     nothing reads it any more.
 
     A real venv is told from a stub by its interpreter: ``uv venv`` links
@@ -1090,6 +1095,26 @@ _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] 
 }
 
 
+@pytest.hookimpl(specname="pytest_collection_modifyitems")
+def pytest_collection_modifyitems_wallclock_guard(items):
+    """Hold the wall-clock scan to pytest's marks.
+
+    This runs before `-m` deselects anything, so the sweep, which deselects the
+    `wallclock` marker, still sees every marked test it collects; one in a file
+    tests/_wallclock_files.py does not find would be timed by nothing, and the
+    run stops with its name. A hook of its own, so the resource auto-skip below
+    keeps the narrow item contract its tests drive it with.
+    """
+    strays = _wallclock_files.unscanned(
+        item.path for item in items if item.get_closest_marker(_wallclock_files.MARKER)
+    )
+    if strays:
+        # Written out as well as raised: an xdist worker's UsageError reaches
+        # the controller only as an INTERNALERROR without its text.
+        print("\n".join(strays), file=sys.stderr, flush=True)
+        raise pytest.UsageError("\n".join(strays))
+
+
 def pytest_collection_modifyitems(items):
     """Auto-skip items whose `requires_<resource>` marker's resource is missing.
 
@@ -1320,8 +1345,7 @@ def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     Every lane that starts a real graph store mounts the same two jars, and the
     expensive half of resolving them is a release download — so this is shared
-    across lanes even though the *stores* are not (two of them wipe the graph
-    between corpora and therefore run their own module-scoped container).
+    across lanes, as is the store in :func:`graphdb_session_store`.
 
     Skips, with the reason, on a host that could not start the container:
     see :func:`tests._graphdb_container.resolve_plugin_dir`.
@@ -1329,6 +1353,65 @@ def graphdb_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from tests._graphdb_container import resolve_plugin_dir
 
     return resolve_plugin_dir(tmp_path_factory)
+
+
+@pytest.fixture(scope="session")
+def graphdb_session_store(graphdb_plugin_dir: Path) -> Iterator["WatchedStore"]:
+    """One started graph store for every lane that seeds a corpus of its own.
+
+    Starting the container is most of what such a lane costs, and the corpus
+    is the lane's own, so each lane takes this store through
+    :func:`tests._graphdb_container.wiped_graphdb_store`, which empties it to
+    the state a fresh deploy starts from before the lane seeds. Those lanes are
+    all in the ``docker`` xdist group, so they run on one worker, one module
+    after another, and share this container. A lane that proves something of a
+    store nothing has touched yet starts a container of its own.
+    """
+    from tests._graphdb_container import watched_graphdb_store
+
+    with watched_graphdb_store(
+        graphdb_plugin_dir, label="graphdb (neo4j + n10s) shared by the session"
+    ) as store:
+        yield store
+
+
+@pytest.fixture(scope="session")
+def mongodb_container() -> Iterator[dict[str, object]]:
+    """Start a MongoDB container for the test session.
+
+    Yields a dict with connection parameters. Skips the entire chain
+    of dependent tests if Docker isn't available.
+
+    Defined here rather than beside the connector tests so that the connector,
+    recorder and simulation lanes share one container: a fixture imported into
+    a test module is a fixture of that module, with a container of its own.
+    Every lane that uses it is in the ``docker`` xdist group, which puts them on
+    one worker. Each lane works in a collection of its own and empties it.
+    """
+    from tests._container_support import is_docker_available
+    from tests._mongo_container import MONGO_AUTH_DB, started_mongo
+
+    if not is_docker_available():
+        pytest.skip(
+            "Docker not available — install Docker Desktop or Podman "
+            "to run MongoDB archiver integration tests."
+        )
+
+    username = "testuser"
+    password = "testpass123"
+    db_name = "test_archiver_db"
+    collection_name = "test_archiver_collection"
+
+    with started_mongo("mongodb", username=username, password=password) as (host, port):
+        yield {
+            "host": host,
+            "port": port,
+            "username": username,
+            "password": password,
+            "auth_db": MONGO_AUTH_DB,
+            "db_name": db_name,
+            "collection_name": collection_name,
+        }
 
 
 # ===================================================================
@@ -1371,7 +1454,7 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
 
     ``osprey build`` derives a graph-mode project's channel search index from
     the Turtle corpus the render staged, which is an rdflib parse of the whole
-    file — about a second and a half for the corpus the control-assistant
+    file — about a second and a half for the corpus the demo
     preset ships. The suite renders that preset over and over, in the build
     tests, the deployment tests and every exemplar render, and each of those
     renders parses the identical bytes again.
@@ -1410,7 +1493,7 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
         # that counts builder calls by patching the package attribute still
         # sees this path go through it.
         from osprey.services.channel_finder.graph_index import build_graph_index
-        from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
+        from osprey.services.graph_store.seeder import ttl_sha256
 
         try:
             digest = ttl_sha256(target.corpus_path.read_text(encoding="utf-8"))
@@ -1521,10 +1604,15 @@ def pytest_runtest_makereport(
     item: pytest.Item,
     call: pytest.CallInfo[None],  # noqa: ARG001 - the hook's signature
 ) -> Generator[None, pytest.TestReport, pytest.TestReport]:
-    """A ``canopy``-marked test never skips, and its report says it carries the mark."""
+    """A ``canopy``-marked test never skips, and its report says it carries the mark.
+
+    A test whose agent session the provider refused becomes a setup error here too, which
+    happens only on the benchmark board (``tests/e2e/refusals.py``).
+    """
     report = yield
     _canopy_contract.refuse_skip(item, report)
     _canopy_contract.stamp(item, report)
+    refusals.apply_to_report(report)
     return report
 
 

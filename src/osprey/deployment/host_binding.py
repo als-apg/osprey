@@ -108,6 +108,10 @@ BUNDLED_HOST_BINDINGS: Mapping[str, BundledHostBinding] = {
         HostBinding(listens=False),
         "a chat bridge that dials the dispatcher; nothing in a container dials it",
     ),
+    "slack_bridge": BundledHostBinding(
+        HostBinding(listens=False),
+        "a chat bridge that dials the dispatcher; nothing in a container dials it",
+    ),
     "ariel_sync": BundledHostBinding(
         HostBinding(listens=False),
         "a logbook poller that dials the store and the facility logbook; "
@@ -129,6 +133,11 @@ BUNDLED_HOST_BINDINGS: Mapping[str, BundledHostBinding] = {
         HostBinding(bind_env="NEO4J_server_default__listen__address"),
         "under host its compose file binds Neo4j itself to loopback through "
         "NEO4J_server_default__listen__address",
+    ),
+    "app_runtime": BundledHostBinding(
+        HostBinding(bind_env="OSPREY_APP_BIND"),
+        "its compose file renders the application's bind address into OSPREY_APP_BIND, "
+        "loopback under host networking",
     ),
     "qmd": BundledHostBinding(
         HostBinding(),

@@ -11,19 +11,31 @@ authoring side, and this page catalogues what the rendered result means.
 The parts of that file gathered here are the models its simulator serves
 (``simulation:``), the
 diagnostic suite (``health:``), the browser UI's documentation and feedback
-settings (``web:``), the artifact gallery's own
-categories (``artifact_server:``), the Python sandbox's run ceiling
+settings (``web:``), the artifact gallery's
+extension types (``artifact_server:``), the Python sandbox's run ceiling
 (``python_executor:``), where screenshots are written (``screen_capture:``), the
 links from an answer to a
-logbook entry (``ariel.entry_url_template``), how much of each logbook entry
-the agent reads (``ariel.entry_text``), whether the agent shows its
-thinking (``claude_code.thinking.display``), the Phoebus display bridge
+logbook entry (``ariel.entry_url_template``), the login the agent's SQL tool
+uses on a logbook database you run yourself (``ariel.database.readonly_uri``),
+how much of each logbook entry the agent reads (``ariel.entry_text``), whether
+the agent shows its thinking (``claude_code.thinking.display``), the Phoebus
+display bridge
 (``phoebus:``), and the deployment keys that decide which container image each
 service runs and how ``${VAR}`` placeholders in the compose files are filled
 in. Settings that only
 ever arrive from the environment are in :doc:`environment-variables`. A closing
 note records the **protected set** — the files and keys no agent-side writer
 may touch.
+
+Each example names its file on its first line. ``# build/config.yml`` marks the
+nested form that ``osprey build`` writes. Every build wipes and re-renders that
+file, so set a key through the profile and never edit the rendered file.
+``# profile.yml, under config:`` marks
+the dotted form you write in the profile's ``config:`` block. Both spell the
+same key: ``health.disk.min_free_gb: 2.0`` under ``config:`` renders as
+``min_free_gb: 2.0`` under ``disk:`` under ``health:``. In a profile, always use
+the dotted form; the reason is under "Configuration overrides" in
+:doc:`profile`.
 
 .. _config-simulation:
 
@@ -48,10 +60,13 @@ may touch.
      - The scenarios a deployment that has never chosen a set starts in, by
        name from the facility's scenarios. ``osprey up`` activates them
        the way ``osprey sim apply`` would, before it seeds the archive and the
-       logbook, and only while no set has been chosen. Absent, ``null`` or
-       ``[]`` starts in ``nominal`` alone, which is the default: the build
-       derives no start set. The control-assistant preset sets ``[rf-thermal]``;
-       the other presets leave it out. A value that is not a list of non-empty
+       logbook, and only while no set has been chosen. Absent, the build
+       derives it from the scenarios marked ``start: true``; with no mark,
+       absent, ``null`` or ``[]`` starts in
+       ``nominal`` alone, which is the default. The demo preset sets
+       ``[rf-thermal, demo-history]`` (an existing deployment gets
+       ``demo-history``'s sessions only from a fresh ``osprey init``); the other
+       presets leave it out. A value that is not a list of non-empty
        names, or a name that is not a scenario the facility serves (its own or
        the built-in ``still``), stops the
        build with a ``profile-invalid`` line naming the key (see
@@ -69,6 +84,7 @@ list, so a tier that sets the key there stops the build with
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      simulation.models: [SR]
 
@@ -80,7 +96,7 @@ list, so a tier that sets the key there stops the build with
 ``osprey health`` always runs its built-in checks; a ``health:`` block adds a
 facility's own checks and tunes the suite's timing. Everything in the block is
 optional. For how to put these settings to work — the two recipes worth
-starting from, cost classes, and the ``SYSTEM`` dashboard — see
+starting from, cost classes, and the Health dashboard — see
 :doc:`/how-to/health-and-monitoring/configure-health-checks`; for the shape of
 the ``--json`` report, see :doc:`/reference/contracts/health-json`.
 
@@ -93,6 +109,7 @@ default timing.
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      suite_timeout_s: 30          # poll-class wall-clock budget (default 30)
      on_demand_timeout_s: 120     # on_demand wall-clock budget (default: sum of budgets)
@@ -227,7 +244,7 @@ configured or deployed, so a minimal build shows no empty tiles.
   :doc:`/how-to/facility-knowledge/use-facility-graph`.
 - ``reach`` — appears when this render has a client switched on for a shared
   service: hybrid logbook search and the OKF panel (the qmd sidecar), the
-  graph MCP server (the graph store), the ARIEL panel and MCP server
+  graph MCP server (the graph store), the Logbook panel and ARIEL MCP server
   (Postgres), the Bluesky MCP server (the bridge), the EVENTS and BLUESKY tabs (their sidecars), and the
   virtual-accelerator connector. One row per service, and the address it
   knocks on is the one **the client itself resolves** from this config, in the
@@ -277,6 +294,7 @@ you normally configure nothing.
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      auto:
        mcp:
@@ -357,6 +375,7 @@ unresponsiveness should be treated as non-fatal:
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      categories:
        beamline_services:
@@ -388,6 +407,7 @@ genuine dependency chain serializes.
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      categories:
        beamline_services:
@@ -414,6 +434,7 @@ plugin category — without redefining it:
 
 .. code-block:: yaml
 
+   # build/config.yml
    health:
      categories:
        providers:
@@ -430,13 +451,13 @@ Suite timing
 
 Three scalar settings tune the suite as a whole:
 
-- ``suite_timeout_s`` (default 30) — the wall-clock budget bounding all
+- ``health.suite_timeout_s`` (default 30) — the wall-clock budget bounding all
   poll-class categories collectively. It is also the default budget for a
   poll-class callable category.
-- ``on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
+- ``health.on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
   categories collectively (only relevant under ``--full``). When omitted it
   defaults to the sum of the selected on_demand categories' budgets.
-- ``interval_s`` — the minimum interval between server-side re-runs. When
+- ``health.interval_s`` — the minimum interval between server-side re-runs. When
   omitted it derives as ``max(60, 2 × suite_timeout_s)``; an explicit value must
   be greater than ``suite_timeout_s`` or the config is rejected. This value is
   validated but not yet enforced by ``osprey health`` itself.
@@ -474,11 +495,17 @@ The thresholds are not spelled as a ``file_system`` entry under
 
 The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
-section. The keys below aim the sidebar's two utility controls, bound the feedback
-store, name the deployment, decide who is offered the onboarding tour, choose
-whether the terminal is offered, size the operator-chat pool, bound how
-long a panel's own server gets to start, set how often the file watchers
-re-read the tree, and configure the CANOPY panel.
+section. The keys below:
+
+- aim the sidebar's two utility controls
+- bound the feedback store
+- name the deployment
+- decide who is offered the onboarding tour
+- choose whether the terminal is offered
+- size the operator-chat pool
+- bound how long a panel's own server gets to start
+- set how often the file watchers re-read the tree
+- configure the CANOPY panel
 
 .. _feedback-configuration:
 
@@ -537,6 +564,7 @@ Documentation and feedback keys
 
 .. code-block:: yaml
 
+   # build/config.yml
    web:
      docs_url: https://docs.example-facility.org/osprey
      feedback:
@@ -651,14 +679,15 @@ The control-target picker
 
 .. code-block:: yaml
 
+   # build/config.yml
    web:
      control_target_picker: true
 
 The control-target block in the sidebar names the machine this terminal stands on
 and opens the popover that switches it. The default is ``true``. Set it to
 ``false`` only for a terminal that reaches no machine: no control-system tool
-server and no JUPYTER panel. The bundled ``logbook``, ``knowledge`` and
-``channel-finder`` apps do.
+server and no JUPYTER panel. The bundled shared logins ``logbook``,
+``knowledge`` and ``channel-finder`` do.
 
 The setting changes what the page shows, not what the agent may do. With it
 off, the sidebar has no control-target block. A value that is not a boolean is
@@ -669,8 +698,8 @@ reported in the log and ``true`` is used.
 Offering the terminal
 ~~~~~~~~~~~~~~~~~~~~~
 
-``web.terminal: false`` removes **Open terminal** from the Agent bar's **⋯**
-menu on every login the render serves, and ``/ws/terminal`` closes with code
+``web.terminal: false`` removes **Open terminal** from the Agent pane's session
+switcher on every login the render serves, and ``/ws/terminal`` closes with code
 ``4403`` before any process starts. The default is ``true``. A value that is
 not a boolean is reported in the log and ``true`` is used; a config file that
 cannot be read closes it. ``osprey build`` refuses a profile that still states
@@ -692,6 +721,7 @@ long a change can stay invisible.
 
 .. code-block:: yaml
 
+   # build/config.yml
    web:
      file_watch_reconcile_interval_s: 2.0
 
@@ -786,10 +816,13 @@ trusted operator and no live machine behind it:
 
 .. code-block:: yaml
 
+   # build/config.yml
    dangerously_allow_bash: true
 
 It takes the boolean ``true`` and nothing else — any other value is a config
-error. Absent, the refusal stands exactly as before. When set, every
+error. Absent, the refusal stands exactly as before. It never waives the
+refusal of a tier that holds an application's launch token or a write agent
+route beside an open shell. When set, every
 ``osprey up`` prints a warning naming the tiers it waved through, and the
 closing card carries a ``dangerously_allow_bash`` row. The key belongs to
 :ref:`the protected set <config-protected-set>`, so the running agent cannot
@@ -810,67 +843,71 @@ Each entry has a ``type`` and an optional ``label``:
 - ``users`` — one card per person on the roster. ``names: hidden`` replaces the
   name cards with one sign-in button; it needs ``auth.method`` ``password`` or
   ``oidc``, and only a ``users`` entry takes it.
-- ``apps`` — one card per app in ``shared``, titled by the app's ``name:``,
-  opened by anyone on the roster (:ref:`multi-user-shared-card`).
+- ``shared`` — one card per login in ``shared``, titled by the login's
+  ``name:``, opened by anyone on the roster (:ref:`multi-user-shared-card`).
+  The retired ``apps`` reads as ``shared`` for one release, with a lint
+  warning.
 - ``links`` — your own cards, each a ``label`` and a ``url``.
 
 .. code-block:: yaml
 
+   # build/config.yml
    modules:
      web_terminals:
        landing:
          groups:
            - type: users
              label: Users
-           - type: apps
-             label: Apps
+           - type: shared
+             label: Shared logins
            - type: links
              label: Facility
              links:
                - {label: Elog, url: https://elog.example.org}
 
-Left out, the page shows ``[{type: users}, {type: apps}]``. A section with no
+Left out, the page shows ``[{type: users}, {type: shared}]``. A section with no
 cards shows no heading.
 
 ``modules.web_terminals.renders`` is the render catalog: one entry per file in
-``tiers/`` and ``apps/``, keyed by that file's name, with its ``kind``,
-``project`` and ``project_path``. ``osprey build`` writes it into
-``build/config.yml``; a profile that spells it is refused. Set a render's
-``extra_mounts``, ``seed_base`` or ``image`` at the top of its tier or app file
-instead.
+``tiers/``, keyed by that file's name, with its ``kind`` (``tier``, or
+``shared`` for a login only ``shared:`` names), ``project`` and
+``project_path``. ``osprey build`` writes it into ``build/config.yml``; a
+profile that spells it is refused. Set a render's ``extra_mounts``,
+``seed_base`` or ``image`` at the top of its login file instead.
 
 .. _config-artifact-server:
 
-``artifact_server:`` — the workspace gallery's own categories
--------------------------------------------------------------
+``artifact_server:`` — the workspace gallery's extension types
+--------------------------------------------------------------
 
-Every artifact carries a **category**, and the category decides the badge the
-gallery draws on its card. OSPREY ships a general set — ``visualization``,
-``diagnostic_report``, ``lattice_analysis`` and the rest — which is a
-laboratory's vocabulary rather than yours. ``artifact_server.categories`` adds
-your own to it, from the build profile, one dotted line per category:
+The gallery and the sidebar group artifacts by base form: ``plots``,
+``trends``, ``tables``, ``documents``, ``dashboards``, ``images``, ``data``
+(``runs`` is the script-run group, not declarable).
+``artifact_server.extension_types`` adds your own kinds, one dotted line per
+type:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
-     artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
-     artifact_server.categories.rf_conditioning: {label: RF Conditioning, color: "#38bdf8"}
+     artifact_server.extension_types.beam_study: {label: Beam study, base_form: plots}
+     artifact_server.extension_types.rf_scan:
+       {label: RF scan, base_form: tables, viewer: viewers/rf_scan.mjs}
 
-Each entry takes a ``label`` (what the badge says) and a ``color`` (a
-``#RRGGBB`` hex value, and nothing else — a malformed entry is skipped with a
-warning rather than stopping the launch). The names are yours: nothing in
-OSPREY validates the vocabulary, and a category you do not declare here is
-simply not one the gallery knows.
+Each type takes a ``label`` (what the sidebar and gallery show), a
+``base_form`` it conforms to, and an optional ``viewer``: a ``.js`` or
+``.mjs`` path relative to the project root (see
+:ref:`profile-artifact-viewer`). An installed package declares types under the
+``osprey.artifact_types`` entry-point group, its viewer inside the package.
+``osprey build`` refuses an unknown base form, a key or label that collides
+with a base form or another type, and a missing or out-of-tree viewer; at
+runtime a bad type is logged and skipped, and a bad viewer is dropped. Types
+are read when the artifact server and the MCP workspace server start, so a new
+one arrives with ``osprey build`` and a restart.
 
-An artifact handed in under an undeclared category is still stored. What it
-loses is the badge — and the save logs ``Unregistered category ... declare it
-under artifact_server.categories``, which is the one place that mismatch shows
-up. The categories are read once, when the artifact server and the MCP
-workspace server start, so a new one arrives with ``osprey build`` and a
-restart.
-
-The four commented stanzas in the shipped presets have nothing to do but say
-this: a shipped value would be one facility's vocabulary handed to every other.
+The old ``categories`` block under ``artifact_server:`` is retired:
+``osprey build`` refuses it and says to declare
+``artifact_server.extension_types`` instead.
 
 Two other keys sit in this block. ``artifact_server.max_timeseries_file_mb``
 (default 200) is the largest timeseries data file the gallery will draw as a
@@ -900,6 +937,7 @@ submitted script:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      python_executor.execution_timeout_seconds: 1800
 
@@ -920,6 +958,7 @@ set, for an analysis library that reads its own variable:
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      python_executor.child_env_passthrough: [HDF5_PLUGIN_PATH, OMP_NUM_THREADS]
 
@@ -938,6 +977,7 @@ ship an ``ariel:`` block carry it as a commented line.
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      ariel.entry_url_template: "https://logbook.example.org/entry/{entry_id}"
 
@@ -946,13 +986,46 @@ When the key is set, every entry the ARIEL tools return carries an
 ``entries_by_ids``, the rows of ``sql_query`` that select ``entry_id``, and the
 result of ``entry_publish``. The id is URL-encoded before it is filled in. The
 agent is told to link that URL as given and never to build one, so with the key
-unset it shows plain entry IDs. An entry written by ``entry_create`` and not yet
-published gets no URL, because the logbook has no page for it.
+unset it shows plain entry IDs. An entry that exists only in ARIEL gets no URL,
+because the logbook has no page for it. Every write records which kind an entry
+is in ``metadata.sync_status``, and the URL reads that alone: ``local_only`` for
+an entry ``entry_create`` wrote directly, a Logbook web save, a simulation seed,
+an entry of a Generic JSON file or a publish the logbook did not take; ``pending_sync`` or ``synced`` for an
+entry the facility logbook holds. Entries stored before the field was recorded
+everywhere are stamped once by the ``ariel_only_sync_status`` migration. A
+``sql_query`` row also gets none when looking up the ``metadata`` it does not
+select fails.
 
 A template that does not format (a misspelled placeholder, an unbalanced brace)
 is logged once as a warning and emits no URL; it never fails the read. The
 ARIEL server reads the key from the loaded configuration, so a change lands
 after ``osprey build`` and a restart of the stack.
+
+.. _config-ariel-database-readonly-uri:
+
+``ariel.database.readonly_uri`` — the SQL tool's login on your own database
+---------------------------------------------------------------------------
+
+The agent's ``sql_query`` tool connects to the logbook database as a
+SELECT-only login, never as the owner ingestion writes with. When OSPREY runs
+the database, it creates that login itself. When you name your own database
+with the ``uri`` key, name the read-only login beside it:
+
+.. code-block:: yaml
+
+   config:
+     ariel.database.uri: postgresql://ariel:${ARIEL_DB_PASSWORD}@logbook-db.example.org:5432/ariel
+     ariel.database.readonly_uri: postgresql://ariel_ro:${ARIEL_DB_READONLY_PASSWORD}@logbook-db.example.org:5432/ariel
+
+Set, the key is used verbatim on any store; a derived store needs it only to
+replace the ``<username>_ro`` login OSPREY creates. Without it the SQL tool is
+not offered on a database named with the ``uri`` key: it is left out of the agent's tools and guidance, and a call that
+arrives anyway is refused with a message naming this key. Every other ARIEL
+tool keeps working.
+
+The login must be SELECT-only. The role is the boundary: OSPREY cannot check
+its grants on a database it did not provision. A value equal to the ingestion
+login is refused when the configuration loads.
 
 .. _config-ariel-entry-text:
 
@@ -966,6 +1039,7 @@ same for ``entries_by_ids``. ``entry_get`` is never cut.
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      ariel.entry_text.listing_chars: 800
      ariel.entry_text.read_chars: 4000
@@ -977,7 +1051,7 @@ the rest.
 
 Each value must be a positive whole number, and ``read_chars`` may not be below
 ``listing_chars``. Anything else is refused when the configuration is parsed:
-the ARIEL MCP server does not start, and the ARIEL panel reports the key. The
+the ARIEL MCP server does not start, and the Logbook panel reports the key. The
 keys are read at startup, so a change lands after ``osprey build`` and a
 restart. When choosing a value, the question is whether the part of an entry
 the agent needs routinely runs past 500 characters.
@@ -995,6 +1069,7 @@ display them. ``omitted`` leaves thinking out. Any other value stops
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      claude_code.thinking.display: omitted
 
@@ -1015,6 +1090,7 @@ agent CLI to 2.1.228 or later under ``config:`` in ``profile.yml`` and run
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      claude_code.cli_version: "2.1.228"
 
@@ -1086,6 +1162,7 @@ PNG file and records the file's path in the artifact gallery.
 
 .. code-block:: yaml
 
+   # profile.yml, under config:
    config:
      screen_capture.output_dir: /srv/operator-captures
 
@@ -1158,6 +1235,10 @@ default. One row per image:
      - ``OSPREY_TEAMS_BRIDGE_IMAGE``
      - ``services.teams_bridge.image``
      - ``<project>-teams-bridge``
+   * - slack_bridge
+     - ``OSPREY_SLACK_BRIDGE_IMAGE``
+     - ``services.slack_bridge.image``
+     - ``<project>-slack-bridge``
    * - ariel_sync
      - ``OSPREY_WORKER_IMAGE``
      - ``services.ariel_sync.image``
@@ -1243,7 +1324,7 @@ An OSPREY-built default is always spelled the same way::
 
 Two stack-wide settings supply the ends of that name, so an entire deployment
 can be moved to a registry — or to a different tag — without touching any of
-the sixteen rows above:
+the rows above:
 
 .. list-table::
    :header-rows: 1
@@ -1261,10 +1342,14 @@ the sixteen rows above:
      - ``OSPREY_IMAGE_TAG``
      - ``images.tag``
      - ``local``
+   * - Platform
+     - none: set in ``profile.yml`` only
+     - ``images.platform`` (``linux/amd64`` or ``linux/arm64``)
+     - built for this host
 
 .. code-block:: yaml
 
-   # config.yml — every OSPREY-built image comes from the mirror,
+   # build/config.yml — every OSPREY-built image comes from the mirror,
    # at the tag the pipeline pushed
    images:
      registry: registry.example.org/accelerator
@@ -1298,8 +1383,8 @@ Two things about *when* and *where* this applies are worth having straight:
   deployment that never heard of them is unaffected.
 
 The axes never touch an upstream pin. Prefixing ``mongo:7`` with your
-registry would name an image that exists in no registry; mirror those through
-their own row instead.
+registry would name an image that exists in no registry.
+``images.base_registry`` moves the Docker Hub ones onto a mirror; a ``services.<name>.image`` pin moves one.
 
 .. _compose-interpolation-precedence:
 
@@ -1358,7 +1443,7 @@ the surface that refused it.
       Settings that arrive from the environment rather than from ``config.yml``.
 
    :doc:`/how-to/health-and-monitoring/configure-health-checks`
-      Putting the ``health:`` block to work, and the ``SYSTEM`` dashboard.
+      Putting the ``health:`` block to work, and the Health dashboard.
 
    :doc:`/how-to/web-terminal/operate`
       Running the terminal the ``web:`` settings render.

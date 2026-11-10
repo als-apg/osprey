@@ -45,6 +45,12 @@ logger = logging.getLogger(__name__)
 #: capitalisation-insensitive lookups or about the name itself.
 OWNER_HEADER: str = "X-Osprey-Owner"
 
+#: The header naming the calling session on an agent's call through the
+#: terminal: its MCP server entries and an application tool server's panel
+#: calls. The panel token is shared, so it is honest-path: it answers which
+#: session is asking, and is no proof of it.
+SESSION_HEADER: str = "X-Osprey-Session"
+
 #: The longest accepted name. Matches the roster username bound: a deployment
 #: names its accounts, and a value longer than this is not one of them.
 MAX_OWNER_LENGTH: int = 64

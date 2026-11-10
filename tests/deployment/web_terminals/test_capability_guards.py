@@ -13,7 +13,7 @@ shared judgement underneath them:
   (a profile plus its ``tiers/<name>.yml`` deltas) and ``osprey up`` (each
   render's rendered ``config.yml``) reach.
 
-The shipped ``control-assistant`` stack is exercised as itself throughout: its
+The shipped ``demo`` stack is exercised as itself throughout: its
 roster is exactly the shape the guards exist for (a privileged ``admin`` tier
 behind a login, a shared ``ariel`` card that is not privileged), so a
 guard that fired on it would be wrong and a guard that let a one-key edit to it
@@ -254,7 +254,7 @@ class TestRenderPrivileges:
 
 
 def _bundled_layer_config(name: str) -> dict[str, Any]:
-    """The ``config:`` block of a bundled tier or app file (``tiers/<n>``, ``apps/<n>``)."""
+    """The ``config:`` block of a bundled login file (``tiers/<n>``)."""
     from osprey.cli.build_profile_presets import _presets_dir
 
     document = yaml.safe_load((_presets_dir() / f"{name}.yml").read_text(encoding="utf-8"))
@@ -262,7 +262,7 @@ def _bundled_layer_config(name: str) -> dict[str, Any]:
 
 
 class TestShippedPresetPrivileges:
-    """The bundled tiers and apps, judged as they resolve over the shipped base."""
+    """The bundled logins, judged as they resolve over the shipped base."""
 
     @pytest.mark.parametrize(
         "layer",
@@ -270,20 +270,20 @@ class TestShippedPresetPrivileges:
             None,
             "tiers/readonly",
             "tiers/readwrite",
-            "apps/logbook",
-            "apps/knowledge",
-            "apps/channel-finder",
+            "tiers/logbook",
+            "tiers/knowledge",
+            "tiers/channel-finder",
         ],
     )
     def test_unprivileged_tiers(self, layer: str | None):
         """Everything the base floors — including the shared `logbook` card."""
-        resolved, _dir = resolve_build_profile(None, "control-assistant")
+        resolved, _dir = resolve_build_profile(None, "demo")
         layers = [resolved.config, *([_bundled_layer_config(layer)] if layer else [])]
         assert tier_privileges(*layers) == ()
 
     def test_admin_tier_holds_every_door(self):
         """The one bundled layer that opens the gallery's writes."""
-        resolved, _dir = resolve_build_profile(None, "control-assistant")
+        resolved, _dir = resolve_build_profile(None, "demo")
         assert tier_privileges(resolved.config, _bundled_layer_config("tiers/admin")) == (
             ALL_PRIVILEGES
         )
@@ -444,16 +444,16 @@ class TestAuthIsEnforced:
 
 
 def _shipped_host_config() -> dict[str, Any]:
-    resolved, _dir = resolve_build_profile(None, "control-assistant")
+    resolved, _dir = resolve_build_profile(None, "demo")
     return copy.deepcopy(resolved.config)
 
 
 def _shipped_profile_root() -> Path:
-    """The directory the shipped preset lives in, with its bundled `tiers/` and `apps/`.
+    """The directory the shipped preset lives in, with its bundled `tiers/`.
 
-    A profile carries no catalog: at profile altitude the lint reads the tier
-    and app files beside the profile, so the shipped host is linted against
-    the bundled ones.
+    A profile carries no catalog: at profile altitude the lint reads the login
+    files beside the profile, so the shipped host is linted against the
+    bundled ones.
     """
     from osprey.cli.build_profile_presets import _presets_dir
 
@@ -464,7 +464,7 @@ def _render_texts(config: dict[str, Any]):
     """Run `_layer_profile_texts` over a (possibly edited) host config."""
     from osprey.cli.profile_cmd import _layer_profile_texts
 
-    resolved, _dir = resolve_build_profile(None, "control-assistant")
+    resolved, _dir = resolve_build_profile(None, "demo")
     resolved.config = config
     return _layer_profile_texts(resolved, "Test", "")
 
@@ -477,9 +477,9 @@ class TestRenderProfileTextsGuard:
             "tiers/admin.yml",
             "tiers/readonly.yml",
             "tiers/readwrite.yml",
-            "apps/channel-finder.yml",
-            "apps/knowledge.yml",
-            "apps/logbook.yml",
+            "tiers/channel-finder.yml",
+            "tiers/knowledge.yml",
+            "tiers/logbook.yml",
         }
 
     def test_privileged_default_tier_refuses_with_the_remedy(self):
@@ -510,7 +510,7 @@ class TestRenderProfileTextsGuard:
         """`logbook` keeps its shared card — the guard is about privilege, not sharing."""
         config = _shipped_host_config()
         texts = _render_texts(config)
-        assert {"apps/logbook.yml", "apps/knowledge.yml"} <= set(texts)
+        assert {"tiers/logbook.yml", "tiers/knowledge.yml"} <= set(texts)
 
     def test_a_floorless_host_preset_refuses_the_shared_card_too(self):
         """This guard used to be fed one baseline-RELATIVE map for both its
@@ -997,7 +997,7 @@ def _rendered_repo(tmp_path: Path, *, admin_config: dict[str, Any], access: Any)
     return {
         # The deploy config's own posture is the BASELINE every render is judged
         # against, so the floor has to be here for there to be a tier split at
-        # all — which is exactly what a rendered control-assistant project has.
+        # all — which is exactly what a rendered demo project has.
         "claude_code": {"permissions": {"deny": [SETUP_TOOL]}},
         "web": {"config_panel": {"enabled": False}, "scaffold_gallery": {"write_enabled": False}},
         "modules": {
@@ -1490,18 +1490,14 @@ class TestTheUpPreflightGate:
         # The render probe has its own suite; inert here so these tests are
         # about the privilege gate rather than about any fixture's Dockerfiles.
         monkeypatch.setattr(provision, "verify_renders", lambda *a, **k: None)
-        return [
-            problem
-            for problem, _remedy in provision.web_terminal_preflight_problems(
-                config, repo_root=root
-            )
-        ]
+        blocking, _advisories = provision.web_terminal_preflight_report(config, repo_root=root)
+        return [problem for problem, _remedy in blocking]
 
     @staticmethod
     def _advisories(config: dict[str, Any], root: Path) -> list[str]:
         from osprey.deployment.web_terminals import provision
 
-        return provision.web_terminal_preflight_advisories(config, repo_root=root)
+        return provision.web_terminal_preflight_report(config, repo_root=root)[1]
 
     def test_a_hand_edited_shared_card_refuses_the_start(self, tmp_path: Path, monkeypatch):
         """THE repro: `profile.yml` untouched, one key added in the render."""

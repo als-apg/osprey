@@ -121,12 +121,38 @@ describe('systemFrame', () => {
 
   test('a compaction adds a notice that says how and how much', () => {
     const auto = systemFrame({ subtype: 'compact_boundary', trigger: 'auto', pre_tokens: 152400 });
-    expect(auto).toEqual({ closeText: true, notice: expect.stringContaining('152k') });
+    expect(auto).toEqual({
+      closeText: true,
+      activity: 'Working…',
+      notice: expect.stringContaining('152k'),
+    });
     expect(auto?.notice).toMatch(/automatically/);
 
     const manual = systemFrame({ subtype: 'compact_boundary', trigger: 'manual' })?.notice ?? '';
     expect(manual).toMatch(/compacted/);
     expect(manual).not.toMatch(/automatically|tokens/);
+  });
+
+  test('the loader folds while the conversation is compacted, and stops at the boundary', () => {
+    const container = document.createElement('div');
+    const r = createChatRenderer(container);
+    const loader = () => /** @type {HTMLElement} */ (container.querySelector('.op-loader'));
+
+    r.beginTurn();
+    expect(loader().dataset.mode).toBeUndefined();
+
+    r.handleEvent({ type: 'system', subtype: 'status', status: 'compacting' });
+    expect(loader().dataset.mode).toBe('compacting');
+    expect(loader().querySelector('.op-loader-label')?.textContent).toBe(
+      'Compacting the conversation…'
+    );
+    expect(loader().querySelectorAll('.op-loader-compact i')).toHaveLength(3);
+
+    r.handleEvent({ type: 'system', subtype: 'compact_boundary', trigger: 'manual' });
+    expect(loader().dataset.mode).toBeUndefined();
+    expect(loader().querySelector('.op-loader-label')?.textContent).toBe('Working…');
+    expect(container.querySelector('.op-notice')?.textContent).toMatch(/compacted/);
+    r.endTurn();
   });
 
   test('a background agent report settles its chip, failed when it failed', () => {

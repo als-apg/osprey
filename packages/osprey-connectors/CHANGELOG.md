@@ -20,6 +20,91 @@ and folded into the `[Unreleased]` section below when a release is cut:
 
 ## [Unreleased]
 
+## [2026.11.8] - 2026-11-10
+
+### Added
+
+- `ChannelError` carries `commands_fired`: the commands, in order, that may have gone out when a batch of commands raised it; `None` otherwise. It is not a wire field.
+- `osprey_connectors.ipc.declared_gateways(block)` classifies how a connector
+  block spells its gateways table (`GATEWAYS_NONE_DECLARED` for an explicit
+  `gateways: []`, `GATEWAYS_MISSING`, `GATEWAYS_ROWS`), and the derivation carries
+  it as `gateways_declared`; `declares_no_endpoints` now reads that verdict.
+- A connector block can say its target has nothing to probe with an explicit
+  `gateways: []`. The derivation carries that as `declares_no_endpoints`, and
+  child verification names it in plain words; a missing table is not read as
+  that statement.
+- The simulator view names its record roles (`SETPOINT`, `READBACK`, `MONITOR`, `OUTPUT`), refresh `PERIODIC`, the `COMMAND_MARK` and `MARKS`, and a `Binding` carries the `marks` its wiring record states; a view without marks reads as before.
+
+### Changed
+
+- `write_target_for_tool` places an application tool (keyed in the render's
+  `app_approvals`) on the session's control target, as the hooks do.
+- `Binding.engine_role`, `SimulatorView.bindings(engine_role=...)` and `ENGINE_ROLES` name what a model's engine says a wiring record is, apart from a channel's own `role`; the view file is schema `osprey.facility.simulator/3`.
+
+### Fixed
+
+- `osprey_connectors.ipc.encode_error` now tags a subclass of a vocabulary error
+  with its registered ancestor, so the far side rebuilds that error instead of a
+  `ConnectorInternalError`.
+- A write authorization whose holder stopped renewing its lease no longer blocks
+  another program's approval on the same channels until it expires: the
+  `auth_overlap` check reads the holder's ledgers and skips a grant only when
+  every one it finds shows its lease time passed more than a minute ago. A
+  request or grant is also refused past three ceilings -- 100000 steps, an
+  expiry 24 hours out and a 600-second lease -- whether a person approves it or
+  the program issues it itself.
+
+## [2026.11.7] - 2026-11-08
+
+### Fixed
+
+- The archive seed no longer fails a simulator view that has a model with no
+  deck. `osprey_connectors.simulation.status.is_error()` is the one rule for
+  which model statuses are errors: `ok` and `no deck` are not.
+
+## [2026.11.6] - 2026-11-08
+
+### Added
+
+- Archiver scenarios have two new event shapes. A `burst` jumps by `amplitude` at its instant and decays exponentially over `decay_s`, optionally with a slower tail (`tail_share` of the amplitude decaying over `tail_decay_s`), as a vacuum gauge does after a gas burst. A `loss` drops a channel by `amount` in one step, and only the channel's top-off seed refills it: one shot a second from the first top-off refill after the loss. Neither moves a sample before its instant.
+
+## [2026.11.5] - 2026-11-06
+
+### Added
+
+- The simulator view names its record roles (`SETPOINT`, `READBACK`, `MONITOR`, `OUTPUT`) and refresh `PERIODIC`.
+
+## [2026.11.4] - 2026-11-05
+
+### Changed
+
+- Archiver events on a shared channel no longer block a scenario set: they compose in set order in the archive, so `[vacuum-burst, rf-thermal]` now activates together. Overrides, faults, channel faults and motion still compose only on disjoint targets.
+- The package's PyPI page now lists every built-in connector by type name and the
+  client library each one needs, groups the public modules by what they are for
+  (adding the write-authorization, refusal, session-hold, recovery and
+  deployment-machine modules it left out), and links the documentation, repository,
+  issue tracker and this changelog.
+- A scenario's `still` in the simulator view is always a list of addresses; a view stating anything else is refused.
+
+### Removed
+
+- **Breaking change:** the one-current-job slots for supervised children are
+  removed: `process.JobSlots`, `ChildJob`, `ChildExit` and `ExitCause` had no
+  user left once the LATTICE panel was retired. `process.terminate` and
+  `reap_exit_code` stay. `simulation.view.TEXTURE` is now private.
+
+### Fixed
+
+- Simulation: a model that names no deck and wires no channel is left unbuilt with
+  the status `no deck` instead of failing in its engine. (#2235)
+
+### Security
+
+- `osprey_connectors.config.apply_env_chain` sets the env chain into a process
+  environment without the shell-only launch variables: a `.env` line that names
+  `PATH`, `HOME`, a runtime's start-up or loader variable, or a tool's launch
+  variable is skipped, and the names it skipped are returned.
+
 ## [2026.11.3] - 2026-11-03
 
 ### Added

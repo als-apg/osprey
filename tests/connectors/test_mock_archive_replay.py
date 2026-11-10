@@ -17,6 +17,7 @@ import pytest
 from lume.model import LUMEModel
 from lume.variables import ScalarVariable, Variable
 
+from osprey.facility.views.simulator import TRANSITIONAL_ROLE_KEY
 from osprey_connectors.simulation import composite as composite_module
 from osprey_connectors.simulation import series
 from osprey_connectors.simulation.archive import build
@@ -128,9 +129,19 @@ def _view(
                     "deck": None,
                     "wiring": [
                         {"id": "1", "address": "M:SP", "direction": "write", "default": 2.0}
-                        | {"role": "setpoint", "plane": None, "refresh": "pass"},
+                        | {
+                            "engine_role": "setpoint",
+                            TRANSITIONAL_ROLE_KEY: "setpoint",
+                            "plane": None,
+                            "refresh": "pass",
+                        },
                         {"id": "2", "address": "M:RB", "direction": "read", "default": 4.0}
-                        | {"role": "readback", "plane": None, "refresh": "pass"},
+                        | {
+                            "engine_role": "readback",
+                            TRANSITIONAL_ROLE_KEY: "readback",
+                            "plane": None,
+                            "refresh": "pass",
+                        },
                     ],
                 },
             ],
@@ -454,6 +465,27 @@ def test_a_physics_model_that_fails_to_build_stops_the_archive(
         build(_view(tmp_path), [])
 
 
+def test_a_deckless_model_is_archived_without_it_and_does_not_stop_the_archive(
+    tmp_path: Path, engine: SimpleNamespace
+) -> None:
+    del engine
+    view = _view(tmp_path)
+    deckless = {"name": "D", "engine": "stub", "served": True, "settings": {}, "deck": None}
+    for name, entry in (("variables.json", deckless | {"wiring": []}), ("served_models.json", "D")):
+        document = json.loads((view / name).read_text(encoding="utf-8"))
+        document["models"].append(entry)
+        (view / name).write_text(json.dumps(document), encoding="utf-8")
+
+    times = HOUR[:5]
+
+    archived = build(view, []).series("M:RB", times)
+    served = Composite(view, clock=lambda: float(T0))
+
+    assert served.status("D") == "no deck"
+    assert served.status("M") == "ok"
+    assert archived == [Composite(view, clock=lambda t=t: float(t)).get("M:RB") for t in times]
+
+
 @pytest.fixture
 def recorded_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[TemporaryDirectory[str]]]:
     """Every state directory ``build`` makes, none released by the collector."""
@@ -575,9 +607,9 @@ def test_importing_the_archive_module_loads_no_lume() -> None:
 
 
 @pytest.fixture
-def demo_view(built_control_assistant: BuiltProject, tmp_path: Path) -> Path:
+def demo_view(built_demo: BuiltProject, tmp_path: Path) -> Path:
     prefix = "data/simulator/"
-    for name, data in built_control_assistant.outputs[0].files.items():
+    for name, data in built_demo.outputs[0].files.items():
         if name.startswith(prefix):
             target = tmp_path / "simulator" / name[len(prefix) :]
             target.parent.mkdir(parents=True, exist_ok=True)

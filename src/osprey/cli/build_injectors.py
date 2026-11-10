@@ -6,7 +6,8 @@ registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
 ``BlueskyWebConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
-``GChatBridgeProfileConfig``, ``TeamsBridgeProfileConfig``) plus
+``GChatBridgeProfileConfig``, ``TeamsBridgeProfileConfig``,
+``SlackBridgeProfileConfig``) plus
 ``VAArchiverConfig``, whose block lives in
 :mod:`osprey.cli.build_profile_archiver`.
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
@@ -18,14 +19,25 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Iterable, Mapping, MutableMapping
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
 from osprey.agent_record.config import HISTORY_SERVICE, history_page_deployed
+from osprey.apps.errors import AppManifestError, Violation
+from osprey.apps.projection import APP_CONFIG_FILE, project_deployment, project_login
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS
-from osprey.cli.build_profile_schema import ServiceDef, osprey_declares_binding
-from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR
+from osprey.cli.build_profile_presets import bundled_services_dir, resolve_service_template
+from osprey.cli.build_profile_schema import (
+    AppEntry,
+    McpServerDef,
+    ServiceDef,
+    osprey_declares_binding,
+)
+from osprey.deployment.compose_generator import AGENT_RECORD_TEMPLATE_DIR, TEMPLATE_FILENAME
 from osprey.deployment.graphdb_service import (
     DEFAULT_TTL_PATH,
     GRAPHDB_SERVICE_NAME,
@@ -35,6 +47,7 @@ from osprey.deployment.host_binding import (
     BIND_ENV_KEY,
     BUNDLED_HOST_BINDINGS,
     LISTENS_KEY,
+    osprey_owns_binding,
 )
 from osprey.utils.config_writer import (
     anchored_append,
@@ -50,6 +63,8 @@ from osprey_connectors.logger import get_logger
 from osprey_connectors.standin import LIVE_STANDIN_PORT_KEY
 
 if TYPE_CHECKING:
+    from osprey.apps.manifest import AppManifest
+    from osprey.apps.rules import LoginSelection
     from osprey.cli.build_profile import (
         BlueskyConfig,
         BlueskyWebConfig,
@@ -57,10 +72,12 @@ if TYPE_CHECKING:
         GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
         OptimizerConfig,
+        SlackBridgeProfileConfig,
         TeamsBridgeProfileConfig,
         VAConfig,
     )
     from osprey.cli.build_profile_archiver import VAArchiverConfig
+    from osprey.cli.build_profile_model import BuildProfile
 
 logger = get_logger("build")
 
@@ -159,22 +176,6 @@ def _rebased_bundled_worker_target(target: Any, worker_port_base: int) -> str | 
     return f"{match['prefix']}{worker_port_base}{match['suffix'] or ''}"
 
 
-def _locate_pkg_services() -> Path:
-    """Locate the OSPREY package's bundled ``templates/services`` directory.
-
-    Prefers the installed ``osprey.templates`` package's location; falls back to
-    a path relative to this module for source/editable checkouts where the
-    package metadata is unavailable. Callers check ``.is_dir()`` on the result,
-    since the directory may be absent in a stripped-down install.
-    """
-    try:
-        import osprey.templates
-
-        return Path(osprey.templates.__file__).parent / "services"
-    except (ImportError, AttributeError):
-        return Path(__file__).parent.parent / "templates" / "services"
-
-
 def _user_owned_services(project_path: Path) -> set[str]:
     """Return the claimed service names from config.yml's ``scaffold.user_owned``.
 
@@ -253,7 +254,7 @@ def _copy_shared_service_partials(dest_services_root: Path) -> int:
     Returns:
         Number of partials copied.
     """
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
     if not pkg_services.is_dir():
         return 0
 
@@ -387,7 +388,7 @@ def _copy_service_templates(project_path: Path) -> int:
     config = load_config_document(config_path)
 
     # Locate the package's service templates directory
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     if not pkg_services.is_dir():
         logger.warning("Service templates directory not found. Skipping the service copy.")
@@ -400,9 +401,9 @@ def _copy_service_templates(project_path: Path) -> int:
     # Always copy the root compose template so `osprey up` works even
     # for presets with no deployed_services (the renderer references it
     # unconditionally; without it deploy fails with TemplateNotFound).
-    root_template = pkg_services / "docker-compose.yml.j2"
+    root_template = pkg_services / TEMPLATE_FILENAME
     if root_template.exists():
-        shutil.copy2(root_template, dest_services_root / "docker-compose.yml.j2")
+        shutil.copy2(root_template, dest_services_root / TEMPLATE_FILENAME)
 
     services_config = config.get("services", {})
 
@@ -499,6 +500,9 @@ def _inject_profile_services(
 
     Returns:
         Number of profile services injected.
+
+    Raises:
+        BuildProfileError: A service's template resolves to no source directory.
     """
 
     if not services:
@@ -517,23 +521,14 @@ def _inject_profile_services(
 
     count = 0
     for name, svc_def in services.items():
-        # Resolve the template source. ``osprey.<name>`` selects the framework's
-        # own bundled template (same form _copy_service_templates accepts, and the
-        # form BuildProfile.validate deliberately leaves unresolved); anything else
-        # is a directory shipped inside the profile.
-        parts = svc_def.template.split(".")
-        if parts[0] == "osprey" and len(parts) == 2:
-            src_dir = _locate_pkg_services() / parts[1]
-        else:
-            src_dir = profile_dir / svc_def.template
-
-        if not src_dir.is_dir():
-            # Warn and skip rather than raise, mirroring _copy_service_templates:
-            # one unresolvable service must not abort the whole build. A missing
-            # profile-relative dir is already a validation error, so in practice
-            # this only fires for an unknown ``osprey.<name>``.
-            logger.warning("No template for profile service %r at %s. Skipping it.", name, src_dir)
-            continue
+        source = resolve_service_template(profile_dir, svc_def.template)
+        refusal = source.refusal(name)
+        if refusal is not None:
+            # Validation has already refused a template that resolves to no
+            # source directory; reaching one here is a broken invariant, not a
+            # skippable service.
+            raise BuildProfileError(refusal)
+        src_dir = source.path
 
         # Copy template directory (skipped for claimed services)
         dest_dir = dest_services_root / name
@@ -561,13 +556,111 @@ def _inject_profile_services(
     return count
 
 
+def project_app_services(
+    build_profile: BuildProfile, manifests: Iterable[AppManifest]
+) -> dict[str, ServiceDef]:
+    """The profile's applications as ``services:`` entries, their ports cleared.
+
+    The projection is handed the profile as one mapping carrying its ``apps:``
+    block and resolved port base, and the ports the profile already spends.
+
+    Args:
+        build_profile: The resolved profile.
+        manifests: The deployment's validated manifests.
+
+    Returns:
+        One entry per projected container, by service key.
+
+    Raises:
+        AppManifestError: A projected port collides, or the facility band is full.
+    """
+    config = {
+        **build_profile.config,
+        "apps": {
+            name: {**asdict(entry), "services": _axes_as_written(entry)}
+            for name, entry in build_profile.apps.items()
+        },
+        "deployment": {"port_base": build_profile._resolved_port_base()},
+    }
+    services = project_deployment(
+        manifests, config, claimed_ports=frozenset(build_profile._claimed_ports().values())
+    )["services"]
+    collisions = build_profile.projected_port_collisions(services)
+    if collisions:
+        raise AppManifestError.from_violations(
+            [
+                Violation(
+                    services[key]["config"]["app"], f"containers.{key}.port", "port_collision", text
+                )
+                for key, text in collisions
+            ]
+        )
+    return {key: ServiceDef(**entry) for key, entry in services.items()}
+
+
+def _axes_as_written(entry: AppEntry) -> dict[str, dict[str, Any]]:
+    """An entry's per-container axes with only the keys the profile spells."""
+    return {
+        key: {axis: value for axis, value in asdict(axes).items() if value is not None}
+        for key, axes in entry.services.items()
+    }
+
+
+def write_app_configs(
+    project_path: Path, build_profile: BuildProfile, services: Mapping[str, ServiceDef]
+) -> None:
+    """Write each projected service's ``apps.<name>.config`` to its recorded file.
+
+    Args:
+        project_path: Root of the built project.
+        build_profile: The resolved profile, holding each application's config.
+        services: The projected entries, each naming its application.
+    """
+    for key, service in services.items():
+        target = project_path / "services" / key / APP_CONFIG_FILE
+        target.parent.mkdir(parents=True, exist_ok=True)
+        settings = build_profile.apps[service.config["app"]].config
+        target.write_text(yaml.safe_dump(settings, sort_keys=False), encoding="utf-8")
+
+
+def project_app_login(
+    project_path: Path,
+    manifests: Iterable[AppManifest],
+    ports: Mapping[str, Any],
+    selection: LoginSelection,
+) -> tuple[list[str], dict[str, McpServerDef]]:
+    """Write what one login's render carries of its applications into ``config.yml``.
+
+    Args:
+        project_path: Root of the built project.
+        manifests: The deployment's validated manifests.
+        ports: A config holding each projected ``services.<key>.port``.
+        selection: This render's selection.
+
+    Returns:
+        The panel ids this render adds to its own selection, and its projected
+        tool servers, for the caller's panel selection and server persistence.
+    """
+    projected = project_login(manifests, ports, selection)
+    overrides: dict[str, Any] = {
+        f"web.panels.{pid}": block for pid, block in projected["web"]["panels"].items()
+    }
+    overrides.update({f"apps.{name}": block for name, block in projected["apps"].items()})
+    overrides["dispatch.denied_app_tools"] = projected["dispatch"]["denied_app_tools"]
+    config_update_fields(project_path / "config.yml", overrides)
+    servers = {name: McpServerDef(**spec) for name, spec in projected["mcp_servers"].items()}
+    return projected["web_panels"], servers
+
+
 def _declare_bundled_host_bindings(
     project_path: Path, profile_dir: Path, services: Mapping[str, ServiceDef] | None
 ) -> None:
     """Write OSPREY's own host-binding declarations into the rendered service blocks.
 
     Each bundled host-capable template holds one fact about what it binds
-    (:data:`~osprey.deployment.host_binding.BUNDLED_HOST_BINDINGS`). Writing it
+    (:data:`~osprey.deployment.host_binding.BUNDLED_HOST_BINDINGS`), read through
+    the template a block renders from, so a service keyed apart from its template
+    (a projected application container) declares like any other. Writing it
     into the ``services.<name>`` block means the readers at ``osprey up`` — the
     host-port preflight, the off-host bind check — read one spelling whether
     OSPREY or a facility wrote it. A service is declared here only when OSPREY
@@ -588,8 +681,8 @@ def _declare_bundled_host_bindings(
         project_path: Root of the built project.
         profile_dir: Directory holding the profile, where a claimed service
             lives.
-        services: The profile's ``services:`` entries, whose templates decide
-            whether a bundled name is rendered from OSPREY's own template.
+        services: The profile's ``services:`` entries and the projected ones,
+            whose templates decide whether a block renders from OSPREY's own.
     """
     config_path = project_path / "config.yml"
     if not config_path.exists():
@@ -601,13 +694,24 @@ def _declare_bundled_host_bindings(
     services = services or {}
 
     wrote = False
-    for name, entry in BUNDLED_HOST_BINDINGS.items():
-        block = rendered.get(name)
+    for key, block in rendered.items():
         if not isinstance(block, MutableMapping):
             continue
-        if ServiceDef(template="", config=dict(block)).network_mode() != "host":
+        service = services.get(key)
+        if service is None:
+            bundled = str(key)
+            owned = osprey_declares_binding(bundled, services, profile_dir)
+        else:
+            bundled = service.template.removeprefix("osprey.")
+            owned = osprey_owns_binding(
+                bundled,
+                template=service.template,
+                claimed=(profile_dir / "services" / str(key)).is_dir(),
+            )
+        entry = BUNDLED_HOST_BINDINGS.get(bundled)
+        if entry is None or not owned:
             continue
-        if not osprey_declares_binding(name, services, profile_dir):
+        if ServiceDef(template="", config=dict(block)).network_mode() != "host":
             continue
         if not entry.binding.listens:
             block[LISTENS_KEY] = False
@@ -737,7 +841,7 @@ def _inject_dispatch(
             _trigger_yaml.dump(triggers_doc, fh)
 
     # 2. Copy bundled compose templates (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
@@ -1275,7 +1379,7 @@ def _inject_bluesky(
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "bluesky"
     if not src_dir.is_dir():
@@ -1569,7 +1673,7 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "virtual_accelerator"
     if not src_dir.is_dir():
@@ -1731,7 +1835,7 @@ def _inject_bluesky_web(bluesky_web: BlueskyWebConfig, project_path: Path) -> No
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "bluesky_web"
     if not src_dir.is_dir():
@@ -1842,7 +1946,7 @@ def _inject_nextcloud_bridge(
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "nextcloud_bridge"
     if not src_dir.is_dir():
@@ -1942,7 +2046,7 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "gchat_bridge"
     if not src_dir.is_dir():
@@ -2045,7 +2149,7 @@ def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: P
     """
 
     # 1. Copy the bundled compose template (located the same way as service templates).
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     src_dir = pkg_services / "teams_bridge"
     if not src_dir.is_dir():
@@ -2125,6 +2229,109 @@ def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: P
     )
 
 
+def _inject_slack_bridge(slack_bridge: SlackBridgeProfileConfig, project_path: Path) -> None:
+    """Wire the Slack bridge service into a built project.
+
+    1. Copy the bundled ``templates/services/slack_bridge/`` compose template
+       into ``<project>/services/slack_bridge/``.
+    2. Write ``services.slack_bridge`` config + register it in
+       ``deployed_services`` (so ``find_service_config`` resolves it,
+       mirroring :func:`_inject_teams_bridge`).
+    3. Print a post-build hint naming the Slack tokens the operator must
+       supply, and the one deployment rule the compose file cannot enforce
+       (one bridge per Slack app).
+
+    Structurally a thin mirror of :func:`_inject_teams_bridge` — down to the
+    single ``trigger`` key the template reads with no ``| default`` — minus
+    the relay: Socket Mode is an outbound connection the bridge opens itself,
+    so nothing travels beside the compose file. Like the other chat bridges,
+    this must run *after* :func:`_inject_dispatch`, which is what puts
+    ``event_dispatcher`` / ``dispatch_worker`` into ``deployed_services``; the
+    compose template gates both its ``depends_on`` and its in-network
+    ``DISPATCHER_URL``/``WORKER_URL`` on their presence there.
+
+    Args:
+        slack_bridge: Validated bridge configuration from the build profile.
+            ``BuildProfile.validate`` has already established that a
+            ``dispatch:`` block exists and that ``trigger`` names a trigger
+            declared in the resolved triggers file.
+        project_path: Root of the built project.
+    """
+
+    # 1. Copy the bundled compose template (located the same way as service templates).
+    pkg_services = bundled_services_dir()
+
+    src_dir = pkg_services / "slack_bridge"
+    if not src_dir.is_dir():
+        logger.warning("No package template for slack_bridge service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
+    dest_dir = dest_services_root / "slack_bridge"
+    _refresh_service_dir(src_dir, dest_dir, "slack_bridge", _user_owned_services(project_path))
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found. Skipping the slack_bridge config registration.")
+        return
+
+    config = load_config_document(config_path)
+
+    # ``trigger`` is the one key the compose template reads with NO ``| default``
+    # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
+    # break the render loudly rather than silently firing another facility's
+    # trigger. No ``image`` key: the service builds the local
+    # <project>-slack-bridge image on first ``osprey up`` (the template's own
+    # ``| default`` supplies that tag). Override with
+    # OSPREY_SLACK_BRIDGE_IMAGE, or set ``services.slack_bridge.image`` here, to
+    # use a prebuilt/published image. ``mentions`` is written on every build, so
+    # the template always has a value.
+    config.setdefault("services", {})
+    anchored_put(
+        config["services"],
+        "slack_bridge",
+        _carry_authored_keys(
+            config["services"],
+            "slack_bridge",
+            {
+                "path": "./services/slack_bridge",
+                "trigger": slack_bridge.trigger,
+                "mentions": slack_bridge.mentions,
+            },
+        ),
+    )
+    deployed = config.get("deployed_services", []) or []
+    if "slack_bridge" not in [str(s) for s in deployed]:
+        anchored_append(deployed, "slack_bridge")
+    config["deployed_services"] = deployed
+
+    save_config_document(config_path, config)
+
+    # 3. Post-build hint.
+    logger.debug("  ✓ Injected Slack bridge (trigger %r)", slack_bridge.trigger)
+    logger.debug(
+        "    Credentials: set SLACK_BOT_TOKEN (xoxb-) and SLACK_APP_TOKEN (xapp-, "
+        "connections:write) in the project .env before `osprey up`. These are "
+        "user-supplied. Unlike the dispatch tokens, deploy does not mint them, "
+        "and the bridge aborts at boot naming whichever is missing."
+    )
+    logger.debug(
+        "    App:         deploy exactly ONE bridge per Slack app. Socket Mode "
+        "spreads an app's events across every open connection, so a second "
+        "deployment on the same app token does not duplicate events. It silently "
+        "splits them, and each half answers only what it received. Give every "
+        "deployment its own app."
+    )
+    logger.debug(
+        "    Images:     `osprey up` builds the slack-bridge image locally "
+        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
+        "set OSPREY_SLACK_BRIDGE_IMAGE to use a published image."
+    )
+
+
 def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> None:
     """Wire the stored archiver — store plus recorder — into a built project.
 
@@ -2159,7 +2366,7 @@ def _inject_va_archiver(va_archiver: VAArchiverConfig, project_path: Path) -> No
     # 1. Copy the bundled compose templates (located the same way as service
     #    templates). The recorder ships no Dockerfile — it runs the VA's image
     #    with a different command — so there is nothing to build here either.
-    pkg_services = _locate_pkg_services()
+    pkg_services = bundled_services_dir()
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
@@ -2294,7 +2501,7 @@ def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
         optimizer: Validated optimizer configuration from the build profile.
         project_path: Root of the built project.
     """
-    src_dir = _locate_pkg_services() / "optimizer"
+    src_dir = bundled_services_dir() / "optimizer"
     if not src_dir.is_dir():
         logger.warning("No package template for the optimizer service at %s", src_dir)
         return
@@ -2322,7 +2529,6 @@ def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
     block: dict[str, Any] = {
         "path": "./services/optimizer",
         "port": optimizer.port,
-        "targets": list(optimizer.targets),
     }
     if optimizer.environments_dir:
         # Stored compose-ready: the template mounts it verbatim.
@@ -2341,7 +2547,6 @@ def _inject_optimizer(optimizer: OptimizerConfig, project_path: Path) -> None:
     save_config_document(config_path, config)
 
     logger.debug("  ✓ Injected the optimizer service (port %d)", optimizer.port)
-    logger.debug("    Targets:    %s", ", ".join(optimizer.targets))
     logger.debug(
         "    Images:     `osprey up` builds the optimizer image locally (first run is "
         "slow: the search stack is large). Use `--dev` to bake in your local checkout; "

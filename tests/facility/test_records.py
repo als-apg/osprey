@@ -118,8 +118,8 @@ def _ids(records: Iterable[Mapping[str, Any]]) -> list[str]:
     return [str(record["id"]) for record in records]
 
 
-def test_every_record_is_found_by_its_kind_and_id_slot(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_every_record_is_found_by_its_kind_and_id_slot(built_demo: Any) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
 
     for kind, key, slot in RECORD_KINDS:
@@ -146,9 +146,9 @@ def test_a_returned_record_is_the_documents_own_and_read_only() -> None:
 
 
 def test_channels_on_a_device_are_its_on_and_endpoint_channels(
-    built_control_assistant: Any,
+    built_demo: Any,
 ) -> None:
-    doc = built_control_assistant.facility
+    doc = built_demo.facility
     records = FacilityRecords(doc)
 
     for device in doc["devices"]:
@@ -248,8 +248,8 @@ def _wiring(doc: Mapping[str, Any]) -> list[tuple[str, dict[str, Any]]]:
     ]
 
 
-def test_wired_is_the_wiring_record_naming_an_address(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_wired_is_the_wiring_record_naming_an_address(built_demo: Any) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
 
     wiring = _wiring(doc)
@@ -258,8 +258,8 @@ def test_wired_is_the_wiring_record_naming_an_address(built_control_assistant: A
         assert records.wired(entry["address"]) is entry
 
 
-def test_an_address_no_model_wires_has_no_wiring_record(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_an_address_no_model_wires_has_no_wiring_record(built_demo: Any) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
 
     addresses = {entry["address"] for _model, entry in _wiring(doc)}
@@ -290,8 +290,8 @@ def test_a_selection_value_must_be_a_string() -> None:
         ChannelSelection(model=1)  # type: ignore[arg-type]
 
 
-def test_a_model_selection_is_the_models_wired_channels(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_a_model_selection_is_the_models_wired_channels(built_demo: Any) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
     device_model = {device["id"]: device.get("model") for device in doc["devices"]}
 
@@ -309,9 +309,9 @@ def test_a_model_selection_is_the_models_wired_channels(built_control_assistant:
 
 
 def test_a_place_selection_takes_the_place_and_every_place_under_it(
-    built_control_assistant: Any,
+    built_demo: Any,
 ) -> None:
-    doc = built_control_assistant.facility
+    doc = built_demo.facility
     records = FacilityRecords(doc)
     device_place = {device["id"]: device.get("place") for device in doc["devices"]}
     parents = [
@@ -388,17 +388,21 @@ def test_an_unknown_model_place_or_group_is_refused_by_name(selection: ChannelSe
 # --- wiring facets -----------------------------------------------------------------
 
 
-def test_role_and_plane_are_read_from_the_wiring_records(built_control_assistant: Any) -> None:
-    doc = built_control_assistant.facility
+def test_engine_role_and_plane_are_read_from_the_wiring_records(
+    built_demo: Any,
+) -> None:
+    doc = built_demo.facility
     records = FacilityRecords(doc)
     wiring = _wiring(doc)
 
     sr_monitors = {
-        entry["address"] for model, entry in wiring if model == "SR" and entry["role"] == "monitor"
+        entry["address"]
+        for model, entry in wiring
+        if model == "SR" and entry["engine_role"] == "monitor"
     }
     assert sr_monitors
     assert _ids(
-        records.select_channels(ChannelSelection(model="SR", role="monitor"))
+        records.select_channels(ChannelSelection(model="SR", engine_role="monitor"))
     ) == _channels_by(doc, lambda channel: channel["id"] in sr_monitors)
 
     sr_x = {
@@ -409,14 +413,16 @@ def test_role_and_plane_are_read_from_the_wiring_records(built_control_assistant
         doc, lambda channel: channel["id"] in sr_x
     )
 
-    monitors = {entry["address"] for _model, entry in wiring if entry["role"] == "monitor"}
+    monitors = {entry["address"] for _model, entry in wiring if entry["engine_role"] == "monitor"}
     seen = 0
     for place in doc["places"]:
         here = _ids(records.select_channels(ChannelSelection(place=place["id"])))
         expected = [address for address in here if address in monitors]
         seen += len(expected)
         assert (
-            _ids(records.select_channels(ChannelSelection(place=place["id"], role="monitor")))
+            _ids(
+                records.select_channels(ChannelSelection(place=place["id"], engine_role="monitor"))
+            )
             == expected
         )
     assert seen
@@ -431,23 +437,23 @@ WIRED_DOC = {
         {"id": "PLAIN", "on": {"device": "D"}, "role": "monitor", "plane": "x"},
     ],
     "models": [
-        {"name": "M", "wiring": [{"address": "MON", "role": "monitor", "plane": "x"}]},
-        {"name": "N", "wiring": [{"address": "OTHER", "role": "monitor", "plane": "y"}]},
+        {"name": "M", "wiring": [{"address": "MON", "engine_role": "monitor", "plane": "x"}]},
+        {"name": "N", "wiring": [{"address": "OTHER", "engine_role": "monitor", "plane": "y"}]},
     ],
 }
 
 
-def test_a_channels_own_role_slot_is_not_the_wiring_role() -> None:
+def test_a_channels_own_role_slot_is_not_the_engine_role() -> None:
     records = FacilityRecords(WIRED_DOC)
 
-    assert _ids(records.select_channels(ChannelSelection(place="P", role="monitor"))) == [
+    assert _ids(records.select_channels(ChannelSelection(place="P", engine_role="monitor"))) == [
         "MON",
         "OTHER",
     ]
-    assert records.select_channels(ChannelSelection(place="P", role="setpoint")) == ()
+    assert records.select_channels(ChannelSelection(place="P", engine_role="setpoint")) == ()
 
 
-def test_an_unwired_address_matches_no_role_or_plane() -> None:
+def test_an_unwired_address_matches_no_engine_role_or_plane() -> None:
     records = FacilityRecords(WIRED_DOC)
 
     assert "PLAIN" not in _ids(records.select_channels(ChannelSelection(place="P", plane="x")))
@@ -457,28 +463,30 @@ def test_an_unwired_address_matches_no_role_or_plane() -> None:
 def test_with_a_model_named_only_that_models_record_matches() -> None:
     records = FacilityRecords(WIRED_DOC)
 
-    assert _ids(records.select_channels(ChannelSelection(model="M", role="monitor"))) == ["MON"]
+    assert _ids(records.select_channels(ChannelSelection(model="M", engine_role="monitor"))) == [
+        "MON"
+    ]
     assert _ids(records.select_channels(ChannelSelection(model="M", plane="y"))) == []
     assert _ids(records.select_channels(ChannelSelection(place="P", plane="y"))) == ["OTHER"]
 
 
-def test_role_and_plane_vocabulary_is_the_schemas() -> None:
+def test_engine_role_and_plane_vocabulary_is_the_schemas() -> None:
     from osprey.facility.schema import core
 
-    for member in core.WiringRoleEnum:
-        assert ChannelSelection(place="P", role=member.value).role == member.value
+    for member in core.EngineRoleEnum:
+        assert ChannelSelection(place="P", engine_role=member.value).engine_role == member.value
     for member in core.PlaneEnum:
         assert ChannelSelection(place="P", plane=member.value).plane == member.value
 
 
-@pytest.mark.parametrize("facets", [{"role": "SHOUTED"}, {"plane": "SHOUTED"}])
-def test_a_role_or_plane_outside_the_vocabulary_is_refused_by_name(
+@pytest.mark.parametrize("facets", [{"engine_role": "SHOUTED"}, {"plane": "SHOUTED"}])
+def test_an_engine_role_or_plane_outside_the_vocabulary_is_refused_by_name(
     facets: dict[str, str],
 ) -> None:
     with pytest.raises(ValueError, match="SHOUTED"):
         ChannelSelection(place="P", **facets)
 
 
-def test_a_role_alone_names_no_scope() -> None:
+def test_an_engine_role_alone_names_no_scope() -> None:
     with pytest.raises(ValueError, match="model or a place"):
-        ChannelSelection(role="monitor")
+        ChannelSelection(engine_role="monitor")

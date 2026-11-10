@@ -26,9 +26,9 @@ from osprey.port_layout import (
     default_port,
 )
 from osprey.services.auth_sidecar.passwords import hash_password
-from osprey.utils.workspace import APPS_DIRNAME, RETIRED_LAYER_DIRS, TIERS_DIRNAME
+from osprey.utils.workspace import RETIRED_LAYER_DIRS, TIERS_DIRNAME
 from osprey_connectors.types import WRITES_KEY
-from tests._renders import app_render, tier_render
+from tests._renders import tier_render
 
 # A second, non-default base whose block the explicit per-family overrides
 # below sit in — proves the lint reads a config override rather than assuming
@@ -54,7 +54,6 @@ _CLEAN_CONFIG = {
             "web_base_port": default_port("web", 0, base=_OVERRIDE_PORT_BASE),
             "artifact_base_port": default_port("artifact", 0, base=_OVERRIDE_PORT_BASE),
             "ariel_base_port": default_port("ariel", 0, base=_OVERRIDE_PORT_BASE),
-            "lattice_base_port": default_port("lattice", 0, base=_OVERRIDE_PORT_BASE),
             "users": ["alice", "bob"],
             "default_tier": "assistant",
             "renders": {
@@ -350,7 +349,7 @@ def test_lint_missing_base_port_is_not_an_error() -> None:
     and must keep linting clean."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
-    for field in ("web_base_port", "artifact_base_port", "ariel_base_port", "lattice_base_port"):
+    for field in ("web_base_port", "artifact_base_port", "ariel_base_port"):
         del config["modules"]["web_terminals"][field]
 
     # Act
@@ -1832,8 +1831,8 @@ def _local_mode_build_profile_config(tmp_path, build_profile: str) -> dict:
 @pytest.mark.parametrize(
     "build_profile",
     [
-        "control-assistant",  # bundled preset name -- the pre-delta spelling
-        "control_assistant",  # same, underscore spelling
+        "demo",  # bundled preset name -- the pre-delta spelling
+        "demo",  # same, underscore spelling
         f"/abs/{TIERS_DIRNAME}/assistant.yml",  # absolute: could name any profile on the host
         f"../elsewhere/{TIERS_DIRNAME}/assistant.yml",  # climbs out of the profile
         f"{TIERS_DIRNAME}/../assistant.yml",  # climbs back out through the right directory
@@ -1862,21 +1861,18 @@ def test_lint_local_mode_build_profile_that_deploy_rejects_is_an_error(
 
 @pytest.mark.parametrize(
     ("build", "expected"),
-    [
-        (tier_render, f"{TIERS_DIRNAME}/assistant.yml"),
-        (app_render, f"{APPS_DIRNAME}/assistant.yml"),
-    ],
-    ids=["tier", "app"],
+    [(tier_render, f"{TIERS_DIRNAME}/assistant.yml")],
+    ids=["tier"],
 )
 def test_lint_not_a_delta_names_the_file_of_the_entry_kind(tmp_path, build, expected) -> None:
-    """The remedy names the file `osprey init` writes for the render's kind:
-    `tiers/<name>.yml` for a tier, `apps/<name>.yml` for an app."""
+    """The remedy names the file `osprey init` writes for every render:
+    `tiers/<name>.yml`, the login file."""
     # Arrange
     entry = build(
         "assistant",
         "als-assistant",
         project_path=str(tmp_path / "als-assistant"),
-        build_profile="control-assistant",
+        build_profile="demo",
     )
 
     # Act
@@ -1896,7 +1892,7 @@ def test_lint_local_mode_build_profile_shape_is_checked_even_when_rendered(tmp_p
     project_dir.mkdir()
     (project_dir / "Dockerfile").write_text("FROM scratch\n")
     (project_dir / "config.yml").write_text("project_name: als-assistant\n")
-    config = _local_mode_build_profile_config(tmp_path, "control-assistant")
+    config = _local_mode_build_profile_config(tmp_path, "demo")
 
     # Act
     errors = _errors(lint_web_terminals(config))
@@ -2363,9 +2359,9 @@ def test_lint_omitted_mcp_topology_reports_no_error() -> None:
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
 
 
-def test_lint_empty_expanded_image_tag_is_a_warning(monkeypatch) -> None:
+def test_lint_empty_expanded_image_tag_is_an_error(monkeypatch) -> None:
     """A registry-mode `image_tag` referencing an unset env var expands to empty
-    and must produce a (non-fatal) warning, never an error."""
+    and is an error naming the template and the variable."""
     # Arrange
     monkeypatch.delenv("IMAGE_TAG", raising=False)
     config = copy.deepcopy(_CLEAN_CONFIG)
@@ -2375,8 +2371,26 @@ def test_lint_empty_expanded_image_tag_is_a_warning(monkeypatch) -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    assert _errors(findings) == []
-    assert any(f.code == "web_terminals.empty_image_tag" for f in _warnings(findings))
+    [finding] = [f for f in _errors(findings) if f.code == "web_terminals.empty_image_tag"]
+    assert "'${IMAGE_TAG}'" in finding.message
+    assert "IMAGE_TAG is not set" in finding.message
+
+
+def test_lint_a_partly_empty_image_tag_is_an_error(monkeypatch) -> None:
+    """A reference that empties only part of the tag (`v${IMAGE_TAG}` gives `v`)
+    would pull the wrong image, so it is an error too."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["image_tag"] = "v${IMAGE_TAG}"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    [finding] = [f for f in _errors(findings) if f.code == "web_terminals.empty_image_tag"]
+    assert "resolved to 'v'" in finding.message
+    assert "IMAGE_TAG is not set" in finding.message
 
 
 def test_lint_empty_image_tag_in_local_mode_reports_no_warning(monkeypatch) -> None:
@@ -3222,7 +3236,7 @@ def test_lint_auth_without_tls_and_allow_insecure_http_is_a_warning() -> None:
 def test_lint_auth_insecure_http_warning_is_withheld_on_loopback(fqdn: str) -> None:
     """With the origin browsers use naming loopback the deployment is
     same-host-only, so its cookies cross no network path — the exact case the
-    escape hatch exists for (and the control-assistant preset's demo posture).
+    escape hatch exists for (and the demo preset's demo posture).
     A real hostname brings the warning back with the exposure."""
     # Arrange
     config = _auth_config({"method": "password", "allow_insecure_http": True}, tls=False, fqdn=fqdn)
@@ -4419,7 +4433,7 @@ def _profile_config(**web_terminals_overrides: object) -> dict:
                 "readonly",
                 "ca-readonly",
                 project_path="../ca-readonly",
-                build_profile="control-assistant",
+                build_profile="demo",
             ),
         },
     }
@@ -4768,14 +4782,14 @@ def test_layer_writes_returns_the_word_the_layer_states(layer, expected) -> None
     assert lint._layer_writes(layer) == expected
 
 
-def test_lint_app_render_refuses_asked() -> None:
-    """Only the literal `never` is an app's pin: `asked` arms."""
+def test_lint_shared_render_refuses_asked() -> None:
+    """Only the literal `never` is a shared login's pin: `asked` arms."""
     # Arrange / Act
-    findings = lint.lint_app_render({"config": {WRITES_KEY: "asked"}, "hooks": []})
+    findings = lint.lint_shared_render({"config": {WRITES_KEY: "asked"}, "hooks": []})
 
     # Assert
     [finding] = findings
-    assert finding.code == "web_terminals.app_render_holds_privilege"
+    assert finding.code == "web_terminals.shared_render_holds_privilege"
     assert f"{WRITES_KEY} is not pinned to never" in finding.message
 
 
@@ -5299,26 +5313,26 @@ def test_lint_open_mode_with_the_shipped_deny_list_reports_nothing(tmp_path) -> 
 
 
 def _shipped_profile_config() -> dict:
-    """The shipped `control-assistant` host preset, resolved and deep-copied.
+    """The shipped `demo` host preset, resolved and deep-copied.
 
     The one roster shape the shared-card guard exists for: a privileged
     `admin` tier (carol) behind a login, unprivileged tiers beside it.
     """
     from osprey.cli.build_profile import resolve_build_profile
 
-    resolved, _profile_dir = resolve_build_profile(None, "control-assistant")
+    resolved, _profile_dir = resolve_build_profile(None, "demo")
     return copy.deepcopy(resolved.config)
 
 
 def _shipped_profile_root() -> Path:
-    """The directory the shipped `control-assistant` preset lives in.
+    """The directory the shipped `demo` preset lives in.
 
     Its `tiers/` and `apps/` files are the renders a profile-altitude lint
     reads, so the shared-card guard sees the `admin` tier's privileges.
     """
     from osprey.cli.build_profile import resolve_build_profile
 
-    _resolved, profile_dir = resolve_build_profile(None, "control-assistant")
+    _resolved, profile_dir = resolve_build_profile(None, "demo")
     return Path(profile_dir)
 
 
@@ -5774,7 +5788,7 @@ def test_lint_control_identity_unknown_auth_method_still_checks_values() -> None
 
 
 def test_lint_control_identity_shipped_preset_reports_nothing() -> None:
-    """The shipped control-assistant preset gains no control-identity finding."""
+    """The shipped demo preset gains no control-identity finding."""
     # Arrange
     config = _shipped_profile_config()
 
@@ -5972,7 +5986,7 @@ def test_lint_live_writer_on_an_unwalled_deployment_reports_nothing(tmp_path, au
 
 
 def test_lint_live_writer_rule_is_silent_on_the_shipped_preset() -> None:
-    """The shipped control-assistant preset produces no live-writer finding."""
+    """The shipped demo preset produces no live-writer finding."""
     # Arrange
     config = _shipped_profile_config()
 
@@ -6362,3 +6376,21 @@ def test_osprey_up_refuses_a_start_over_a_carrier_collision(tmp_path, monkeypatc
     container_lifecycle._collect_unmet_preconditions(
         _history_config(), tmp_path, {}, dev_mode=False, web_terminals_enabled=False
     )
+
+
+def test_lint_username_matching_a_deployed_apps_audit_identity_is_an_error() -> None:
+    """The scaffold-time half of the render's refusal: the finding names the
+    roster entry and the application whose identity it takes."""
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["knob", "bob"]
+    config["services"]["knob-panel"] = {"app": "knob", "audit_identity": "knob"}
+    config["deployed_services"] = ["knob-panel"]
+
+    findings = [
+        f
+        for f in _errors(lint_web_terminals(config))
+        if f.code == "web_terminals.reserved_audit_identity"
+    ]
+
+    assert len(findings) == 1
+    assert "'knob'" in findings[0].message and "application 'knob'" in findings[0].message

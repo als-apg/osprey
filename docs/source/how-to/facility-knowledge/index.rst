@@ -34,7 +34,7 @@ Each tier is documented separately:
       :link: facility-rules
       :link-type: doc
 
-      The always-in-context tier -- what the ``control-assistant`` preset ships
+      The always-in-context tier -- what the ``demo`` preset ships
       in ``.claude/rules/`` and how to change it.
 
    .. grid-item-card:: The OKF Bundle

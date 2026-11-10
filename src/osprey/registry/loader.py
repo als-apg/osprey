@@ -349,20 +349,9 @@ def merge_application_with_override(
     if framework_exclusions:
         apply_framework_exclusions(merged, framework_exclusions, app_name, excluded_provider_names)
 
-    framework_service_names = {service.name for service in merged.services}
-    service_overrides = []
-
-    app_services = getattr(app_config, "services", [])
-    for app_service in app_services:
-        if app_service.name in framework_service_names:
-            merged.services = [
-                service for service in merged.services if service.name != app_service.name
-            ]
-            service_overrides.append(app_service.name)
-        merged.services.append(app_service)
-
-    if service_overrides:
-        logger.info(f"Application {app_name} overrode framework services: {service_overrides}")
+    merge_named_registrations(
+        merged.services, getattr(app_config, "services", []), "service", app_name
+    )
 
     framework_provider_keys = {(p.module_path, p.class_name) for p in merged.providers}
     provider_overrides = []
@@ -386,30 +375,9 @@ def merge_application_with_override(
     if providers_added:
         logger.info(f"Application {app_name} added {len(providers_added)} new provider(s)")
 
-    framework_connector_names = {conn.name for conn in merged.connectors}
-    connector_overrides = []
-    connectors_added = []
-
-    app_connectors = getattr(app_config, "connectors", [])
-    for app_connector in app_connectors:
-        if app_connector.name in framework_connector_names:
-            merged.connectors = [
-                conn for conn in merged.connectors if conn.name != app_connector.name
-            ]
-            connector_overrides.append(app_connector.name)
-            merged.connectors.append(app_connector)
-        else:
-            connectors_added.append(app_connector.name)
-            merged.connectors.append(app_connector)
-
-    if connector_overrides:
-        logger.info(f"Application {app_name} overrode framework connectors: {connector_overrides}")
-    if connectors_added:
-        logger.info(
-            f"Application {app_name} added {len(connectors_added)} new connector(s): "
-            f"{connectors_added}"
-        )
-
+    merge_named_registrations(
+        merged.connectors, getattr(app_config, "connectors", []), "connector", app_name
+    )
     merge_named_registrations(
         merged.ariel_search_modules,
         getattr(app_config, "ariel_search_modules", []),

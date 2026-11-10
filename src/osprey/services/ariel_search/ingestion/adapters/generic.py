@@ -80,6 +80,11 @@ class GenericJSONAdapter(FacilityAdapter):
         return Path(self.source_url).parent
 
     @property
+    def writes_local_only(self) -> bool:
+        """A write lands in a JSON file, never in a facility logbook."""
+        return True
+
+    @property
     def requires_write_auth(self) -> bool:
         """No-auth logbook: a local JSON file publishes without credentials."""
         return False

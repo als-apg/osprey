@@ -136,7 +136,7 @@ def write_simulator_view(
                             "id": "0",
                             "address": _BPM,
                             "direction": "read",
-                            "role": "monitor",
+                            "engine_role": "monitor",
                             "plane": "x",
                             "refresh": "pass",
                         }
@@ -190,7 +190,7 @@ def add_deck_models(view: Path) -> None:
                     "id": "1",
                     "address": AR_READBACK,
                     "direction": "read",
-                    "role": "monitor",
+                    "engine_role": "monitor",
                     "plane": "x",
                     "refresh": "pass",
                 }

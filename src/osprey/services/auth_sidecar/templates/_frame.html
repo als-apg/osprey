@@ -32,6 +32,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
   <title>{% block title %}{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ favicon }}">
   <style>
     {%- for block in theme_blocks %}
     {%- set pad = "  " if block["media"] else "" %}
@@ -154,5 +155,19 @@
 </head>
 <body>
   {% block card %}{% endblock %}
+  <script>
+    {#- Enter submits the sign-in form, whatever else listens on the field.
+        The browser does this on its own, but a password manager's handler
+        can swallow the keystroke; registered on the window in the capture
+        phase while the page parses, this one runs before any listener an
+        extension adds later. requestSubmit() keeps the `required` checks. #}
+    window.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" || event.isComposing) return;
+      var field = event.target;
+      if (!(field instanceof HTMLInputElement) || !field.form) return;
+      event.preventDefault();
+      field.form.requestSubmit();
+    }, true);
+  </script>
 </body>
 </html>

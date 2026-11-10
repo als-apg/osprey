@@ -345,21 +345,6 @@ def check_vocabulary(
     }
 
 
-def _status_expander(config: ARIELConfig) -> tuple[EntryExpander | None, bool]:
-    """Resolve the entry expander for status without raising.
-
-    Returns:
-        ``(expander, unusable)``: the expander or None, and whether entry
-        expansion is configured on but the vocabulary cannot back it.
-    """
-    from osprey.services.ariel_search.exceptions import ModuleConfigError
-
-    try:
-        return config.entry_expander(), False
-    except ModuleConfigError:
-        return None, True
-
-
 def _vocabulary_document(
     status: str,
     config: ARIELConfig | None,
@@ -389,7 +374,9 @@ def _vocabulary_document(
     expander = None
     if configured and status == "ok":
         assert config is not None
-        expander, _unusable = _status_expander(config)
+        from osprey.services.ariel_search.enhancement.status import status_expander
+
+        expander, _unusable = status_expander(config)
     return {
         "status": status,
         "concepts": concepts,
@@ -475,7 +462,9 @@ async def _embedding_build_verdict(
     but the vocabulary cannot back it (``vocabulary``). Otherwise the stale
     counts are computed against the running build key; with entry expansion
     on while the vocabulary is disabled that key carries no expander and the
-    reason is ``vocabulary_disabled``.
+    reason is ``vocabulary_disabled``. The running key and every reason but
+    ``schema`` come from :func:`~osprey.services.ariel_search.enhancement.status.text_embedding_build`,
+    the computation the per-entry ``text_embedding`` state shares.
 
     Args:
         config: The parsed ARIEL config.
@@ -492,44 +481,28 @@ async def _embedding_build_verdict(
         the reason no plain verdict is available (or None), and the
         configured model ``{name, dimension}`` of *table* (or None).
     """
-    from osprey.services.ariel_search.database.migrations import model_to_table_name
-    from osprey.services.ariel_search.enhancement.text_embedding.embedder import (
-        running_input_key,
-    )
+    from osprey.services.ariel_search.enhancement.status import text_embedding_build
     from osprey.services.ariel_search.vocabulary.entry import classify_build_keys
 
-    module = config.enhancement_modules.get("text_embedding")
-    match = next(
-        (
-            m
-            for m in (module.models if module else None) or []
-            if model_to_table_name(m.name) == table
-        ),
-        None,
-    )
+    build = text_embedding_build(config, table, expander=(expander, vocabulary_unusable))
     verdict: dict[str, Any] = {
         "built_with": None,
         "stale": None,
         "verdict_unavailable": None,
-        "model": {"name": match.name, "dimension": match.dimension} if match else None,
+        "model": dict(build.model) if build.model else None,
     }
-    if not config.is_enhancement_module_enabled("text_embedding"):
-        verdict["verdict_unavailable"] = "disabled"
-        return verdict
-    if match is None:
-        verdict["verdict_unavailable"] = "unconfigured"
+    if build.unavailable in ("disabled", "unconfigured"):
+        verdict["verdict_unavailable"] = build.unavailable
         return verdict
     counts = await repository.get_embedding_build_counts(table)
     if counts is None:
         verdict["verdict_unavailable"] = "schema"
         return verdict
     verdict["built_with"] = counts
-    if vocabulary_unusable:
-        verdict["verdict_unavailable"] = "vocabulary"
+    verdict["verdict_unavailable"] = build.unavailable
+    if build.running_key is None:
         return verdict
-    if config.vocabulary.expand_entries and not config.vocabulary.enabled:
-        verdict["verdict_unavailable"] = "vocabulary_disabled"
-    verdict["stale"] = classify_build_keys(counts, running_input_key(expander))
+    verdict["stale"] = classify_build_keys(counts, build.running_key)
     return verdict
 
 
@@ -676,27 +649,6 @@ async def _modules_health(
 _PICTURE_SEARCH_REASONS = frozenset({"unreachable", "model", "auth", "config"})
 
 
-def _image_embedding_marker(config: ARIELConfig) -> tuple[str | None, bool]:
-    """The completion marker of an enabled ``image_embedding`` block.
-
-    Returns:
-        ``(table, False)`` when the block resolves, ``(None, True)`` when it is
-        enabled but misconfigured, and ``(None, False)`` when it is off.
-    """
-    from osprey.services.ariel_search.database.migrations import image_embedding_target
-    from osprey.services.ariel_search.exceptions import ModuleConfigError
-
-    if not config.is_enhancement_module_enabled("image_embedding"):
-        return None, False
-    try:
-        target = image_embedding_target(
-            config.get_enhancement_module_config("image_embedding") or {}
-        )
-    except ModuleConfigError:
-        return None, True
-    return target.table, False
-
-
 def _picture_search_unavailable(
     config: ARIELConfig, health: Mapping[str, Mapping[str, Any]]
 ) -> str | None:
@@ -716,6 +668,28 @@ def _picture_search_unavailable(
     if reason == "no_reader":
         return None
     return reason if reason in _PICTURE_SEARCH_REASONS else "unreachable"
+
+
+async def _coverage(
+    config: ARIELConfig, repository: ARIELRepository
+) -> dict[str, dict[str, Any]] | None:
+    """The ``coverage`` block: the count ``/api/status`` reports, or None.
+
+    None when no registry can answer (a status run outside a project): the
+    counts follow the registry's module order, and the rest of the report has
+    always assembled without one.
+    """
+    from osprey.services.ariel_search.enhancement.status import (
+        enabled_modules,
+        store_enhancement_context,
+    )
+
+    try:
+        enabled_modules(config)
+    except Exception:  # no registry here; the status report matters more
+        return None
+    context = await store_enhancement_context(config, repository)
+    return await repository.get_enhancement_coverage(context)
 
 
 async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> dict:
@@ -759,10 +733,21 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         element carries ``built_with``, ``stale``, ``verdict_unavailable``
         and ``model`` (:func:`_embedding_build_verdict`); its ``dimension``
         stays the probed width.
+
+        ``coverage`` is the count :class:`ARIELSearchService.get_status` puts
+        in ``enhancement_coverage``: per enabled module, its ``label`` and the
+        entries in each badge-strip state (``n/a``, ``not_run``, ``pending``, ``stale``,
+        ``failed``, ``complete``), or None when no registry can answer
+        (:func:`_coverage`). It sits beside, never inside, the legacy
+        ``enhancement_modules`` counts, which keep their pre-coverage values.
     """
     from osprey.services.ariel_search import create_ariel_service
-    from osprey.services.ariel_search.attachments.compose import caption_model_id
     from osprey.services.ariel_search.config import registered_ariel_names
+    from osprey.services.ariel_search.enhancement.status import (
+        current_markers,
+        image_embedding_marker,
+        status_expander,
+    )
     from osprey.services.ariel_search.exceptions import ConfigurationError
 
     # Computed first and unconditionally: the vocabulary line must survive a
@@ -778,7 +763,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
     config = parsed
     # Resolved before the database is touched: an unusable vocabulary is a
     # verdict of its own, never a reason the status cannot be assembled.
-    expander, vocabulary_unusable = _status_expander(config)
+    expander, vocabulary_unusable = status_expander(config)
 
     try:
         service = await create_ariel_service(config)
@@ -793,13 +778,10 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                 errors.append(
                     f"{refusal.message}. {refusal.remedy}" if refusal.remedy else refusal.message
                 )
-            markers: dict[str, str] = {}
-            caption_marker = caption_model_id(config)
-            if caption_marker is not None:
-                markers["image_caption"] = caption_marker
-            image_marker, image_config_bad = _image_embedding_marker(config)
-            if image_marker is not None:
-                markers["image_embedding"] = image_marker
+            current = current_markers(config)
+            caption_marker = current["image_caption"]
+            _, image_config_bad = image_embedding_marker(config)
+            markers = {name: marker for name, marker in current.items() if marker is not None}
             if markers:
                 stats = await service.repository.get_enhancement_stats(markers=markers)
             else:
@@ -814,6 +796,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
             ]
             image_tables = await service.repository.get_image_embedding_tables()
             last_ingestion = await service.repository.get_last_ingestion()
+            coverage = await _coverage(config, service.repository)
             attachments = await _attachments_status(config, service.repository)
             captions = None
             if caption_marker is not None:
@@ -887,6 +870,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                 "vocabulary": vocabulary,
                 "attachments": attachments,
                 "captions": captions,
+                "coverage": coverage,
             }
 
     except Exception as e:
@@ -1514,6 +1498,10 @@ def _read_qmd_watermark(mirror_root: Path, *, expansion_key: str | None = None) 
     return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
+#: Read back only by the resync that writes it, under the same account.
+_QMD_WATERMARK_MODE = 0o600
+
+
 def _write_qmd_watermark(
     mirror_root: Path, moment: datetime, *, expansion_key: str | None = None
 ) -> None:
@@ -1549,9 +1537,13 @@ def _write_qmd_watermark(
     atomic_replace(
         mirror_root / QMD_WATERMARK_NAME,
         f"{serialized}\n".encode(),
-        mode=0o600,
+        mode=_QMD_WATERMARK_MODE,
         sync="required",
     )
+
+
+#: The qmd sidecar only stats it for its mtime; no other uid opens it.
+_QMD_MARKER_MODE = 0o600
 
 
 def _touch_qmd_marker(mirror_root: Path) -> bool:
@@ -1580,7 +1572,7 @@ def _touch_qmd_marker(mirror_root: Path) -> bool:
         atomic_replace(
             mirror_root / TOUCH_MARKER_NAME,
             f"{datetime.now(UTC).isoformat()}\n".encode(),
-            mode=0o600,
+            mode=_QMD_MARKER_MODE,
             sync="required",
         )
     except OSError as e:
@@ -1883,6 +1875,118 @@ FORCE_REFUSAL = (
 )
 
 
+#: Why ``enhance --entry`` refuses to run without ``--module``.
+ENTRY_NEEDS_MODULE = "--entry needs --module: name the module to re-run for that entry"
+
+
+class EntryRerunRefused(ValueError):
+    """``enhance --entry`` names an entry or a state that one re-run cannot serve."""
+
+
+def entry_rerun_refusal(module: str, entry_id: str, state: str | None, context: Any) -> str | None:
+    """Why ``enhance --module module --entry entry_id`` refuses in ``state``; None when it runs.
+
+    Only a failed or stale module is re-run for one entry. Every other state
+    names the flow that serves it, and ``text_embedding`` stale, which only a
+    table rebuild clears, names ``reembed``.
+    """
+    from osprey.services.ariel_search.enhancement.status import TEXT_EMBEDDING, rerun_command
+
+    if state is None:
+        return f"{module} is not enabled; enable it in ariel.enhancement_modules first"
+    if module == TEXT_EMBEDDING and state == "stale":
+        command = rerun_command(module, entry_id, state, context) or "osprey ariel reembed"
+        return (
+            f"{module} on entry {entry_id} is stale against the table's build key, which "
+            f"only a rebuild of the whole table clears: run {command}"
+        )
+    if state == "complete":
+        return (
+            f"{module} on entry {entry_id} is complete; nothing to re-run "
+            f"(osprey ariel enhance --module {module} --force re-runs the newest entries)"
+        )
+    if state == "not_run":
+        return (
+            f"{module} on entry {entry_id} has not run yet; osprey ariel enhance --module "
+            f"{module} (or osprey ariel watch) runs it"
+        )
+    if state == "pending":
+        return (
+            f"{module} on entry {entry_id} has a run that has not completed; osprey ariel "
+            f"enhance --module {module} (or osprey ariel watch) runs it again"
+        )
+    if state == "n/a":
+        return f"{module} does not apply to entry {entry_id}: it has no viewable picture"
+    return None
+
+
+async def _run_entry_enhance(
+    config: ARIELConfig,
+    module: str,
+    entry_id: str,
+    progress: _ProgressCb,
+    *,
+    stop_event: asyncio.Event | None,
+) -> EnhanceResult:
+    """Re-run ``module`` for one entry, the ``enhance --module M --entry ID`` path.
+
+    Refuses (:class:`EntryRerunRefused`) unless the module is failed or stale
+    for the entry (:func:`entry_rerun_refusal`). A failed module first gets the
+    entry's failures, per-picture ones included, forgotten through
+    :func:`retry_failed_entries` scoped to the entry; a stale picture module
+    first has the entry's key cleared under its advisory lock; a stale text
+    module needs no reset, its driver reads the current marker. Then the same
+    driver catch-up uses runs for that entry only, under the current marker,
+    taking the module's lock itself; no lock is held across the steps.
+    """
+    from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.enhancement.status import store_enhancement_context
+    from osprey_connectors.logger import get_logger
+
+    logger = get_logger("ariel")
+    service = await create_ariel_service(config)
+    async with service:
+        repository = service.repository
+        entry = await repository.get_entry(entry_id)
+        if entry is None:
+            raise EntryRerunRefused(f"No entry {entry_id}")
+        context = await store_enhancement_context(config, repository, entry_ids=[entry_id])
+        state = context.view(entry).get(module)
+        refusal = entry_rerun_refusal(module, entry_id, state, context)
+        if refusal is not None:
+            raise EntryRerunRefused(refusal)
+        picture = _runs_in_catchup(module)
+        if state == "stale" and picture:
+            async with _module_lock(repository.pool, module) as held:
+                if not held:
+                    _say(progress, logger, _held_lock_line(module))
+                    return EnhanceResult(entries_processed=0, module_names=[module])
+                async with repository.pool.connection() as conn:
+                    await conn.execute(
+                        _CLEAR_MODULE_KEY_SQL, {"entry_id": entry_id, "module": module}
+                    )
+    if progress:
+        progress(f"{module}: re-running entry {entry_id} ({state})")
+    if state == "failed":
+        await retry_failed_entries(config, module, progress, entry_id=entry_id)
+    if picture:
+        modules = _build_image_modules(config, [module], progress)
+        if not modules:
+            return EnhanceResult(entries_processed=0, module_names=[])
+        walked = await _drive_image_modules(
+            config,
+            modules,
+            budget=None,
+            stop_event=stop_event,
+            progress=progress,
+            entry_id=entry_id,
+        )
+        return EnhanceResult(entries_processed=walked, module_names=[m.name for m in modules])
+    return await _run_text_enhance(
+        config, module, False, 1, progress, stop_event=stop_event, entry_id=entry_id
+    )
+
+
 async def run_enhance(
     config_dict: dict,
     module: str | None,
@@ -1893,6 +1997,7 @@ async def run_enhance(
     stop_event: asyncio.Event | None = None,
     retry_failed: bool = False,
     refresh_stale: bool = False,
+    entry_id: str | None = None,
 ) -> EnhanceResult:
     """Run enhancement modules on entries.
 
@@ -1919,12 +2024,19 @@ async def run_enhance(
         refresh_stale: With ``module`` ``image_caption``, first mark the
             captions made with another prompt to be made again (see
             :func:`refresh_stale_captions`).
+        entry_id: With ``module``, re-run that module for this one entry only
+            (:func:`_run_entry_enhance`); ``force`` and ``limit`` are then unused.
 
     Raises:
         ValueError: With :data:`FORCE_REFUSAL` when ``force`` names a picture module.
+        EntryRerunRefused: ``entry_id`` names an entry or state one re-run cannot serve.
     """
     config = _ariel_config(config_dict)
     _resolve_entry_expander(config, progress)
+    if entry_id is not None:
+        if not module:
+            raise EntryRerunRefused(ENTRY_NEEDS_MODULE)
+        return await _run_entry_enhance(config, module, entry_id, progress, stop_event=stop_event)
     if module and _runs_in_catchup(module):
         if force:
             raise ValueError(FORCE_REFUSAL)
@@ -1974,6 +2086,35 @@ async def run_enhance(
     )
 
 
+#: ``(database uri, module)`` pairs whose baseline markers this process has
+#: stamped (:func:`_stamp_baseline_markers`).
+_BASELINE_STAMPED: set[tuple[str, str]] = set()
+
+
+async def _stamp_baseline_markers(
+    config: ARIELConfig, repository: Any, markers: Mapping[str, str | None]
+) -> None:
+    """Stamp the text statuses written before markers existed, once per process per module.
+
+    Runs at the start of every text stage (:func:`run_enhance`,
+    :func:`run_catchup`); after the first success for a module on a database it
+    is a no-op. "Upgrade" is that first run.
+
+    Raises:
+        DatabaseQueryError: The stamp failed; the module is stamped on a later run.
+    """
+    uri = config.database.uri
+    todo = {
+        module: marker
+        for module, marker in markers.items()
+        if marker is not None and (uri, module) not in _BASELINE_STAMPED
+    }
+    if not todo:
+        return
+    await repository.stamp_baseline_markers(todo)
+    _BASELINE_STAMPED.update((uri, module) for module in todo)
+
+
 async def _run_text_enhance(
     config: ARIELConfig,
     module: str | None,
@@ -1983,14 +2124,40 @@ async def _run_text_enhance(
     *,
     stop_event: asyncio.Event | None,
     report_empty: bool = True,
+    stale_budget_s: float | None = None,
+    entry_id: str | None = None,
 ) -> EnhanceResult:
-    """Run the text modules (``runs_inline=True``) entry-major over their owed entries."""
+    """Run the text modules (``runs_inline=True``) entry-major over their owed entries.
+
+    Each module is read under its current completion marker, so an entry it
+    completed under another marker is owed again (marker-stale).
+
+    Args:
+        stale_budget_s: Seconds marker-stale re-runs may spend in this pass; None
+            for no limit. Only those re-runs count against it, at least one runs,
+            and an entry a module never ran on (or still owes under the current
+            marker) is never held back. A stale re-run left over waits for the
+            next pass.
+        entry_id: With ``module``, run it on this one entry, whatever its state,
+            instead of reading the owed entries, under the module's advisory lock
+            ``ariel_enhance:<module>``; another process holding the lock means
+            nothing runs.
+    """
+    from contextlib import AsyncExitStack
+
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.database.repository import (
         MAX_ENHANCEMENT_ATTEMPTS,
+        marker_kwargs,
         text_mark_kwargs,
     )
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
+    from osprey.services.ariel_search.enhancement.status import (
+        IMAGE_MODULES,
+        current_markers,
+        marker_stale,
+        parse_status,
+    )
     from osprey_connectors.logger import get_logger
 
     logger = get_logger("ariel")
@@ -2009,8 +2176,30 @@ async def _run_text_enhance(
     if progress:
         progress(f"Enhancement modules: {module_names}")
 
+    current = current_markers(config)
+    markers = {name: current.get(name) for name in module_names if name not in IMAGE_MODULES}
+
+    def is_stale(entry: EnhancedLogbookEntry, name: str) -> bool:
+        """Whether ``name`` completed ``entry`` under a marker other than the current one."""
+        status = parse_status(entry.get("enhancement_status"))
+        if name not in status:
+            return False
+        stored = status.get(name)
+        stored_marker = stored.get("marker") if isinstance(stored, Mapping) else None
+        return marker_stale(name, stored_marker, markers.get(name))
+
     service = await create_ariel_service(config)
     async with service:
+        try:
+            await _stamp_baseline_markers(config, service.repository, markers)
+        except Exception as e:
+            # Without the baseline a legacy failure would be re-queued forever: the
+            # text stage does not run; the next pass stamps again.
+            logger.error(f"Text enhancement skipped: baseline marker stamp failed ({e})")
+            if progress:
+                progress(f"Text enhancement skipped: baseline marker stamp failed ({e})")
+            return EnhanceResult(entries_processed=0, module_names=module_names)
+
         # Which enhancers each entry is owed, so a module that finished an entry
         # or set it aside never runs on it again.
         owed: dict[str, set[str]] = {}
@@ -2024,29 +2213,71 @@ async def _run_text_enhance(
                     entries.append(entry)
                 owed[entry_id].update(names)
 
-        if force:
+        if entry_id is not None:
+            one = await service.repository.get_entry(entry_id)
+            if one is not None:
+                _collect([one], module_names)
+        elif force:
             _collect(await service.repository.search_by_time_range(limit=limit), module_names)
         else:
             for enhancer in enhancers:
+                marker = markers.get(enhancer.name)
                 incomplete = await service.repository.get_incomplete_entries(
                     module_name=enhancer.name,
                     limit=limit,
+                    **marker_kwargs(enhancer.name, markers),
                 )
                 _collect(incomplete, [enhancer.name])
+                if marker is not None and stale_budget_s is not None:
+                    # The marker read counts a stale marker as pending, so a stale backlog
+                    # can fill its window while the budget defers most of it. The
+                    # marker-less read never returns a completed key, so it brings in the
+                    # never-run and still-owed entries behind that window unthrottled.
+                    _collect(
+                        await service.repository.get_incomplete_entries(
+                            module_name=enhancer.name, limit=limit
+                        ),
+                        [enhancer.name],
+                    )
 
         if progress:
             progress(f"Processing {len(entries)} entries...")
 
         has_copy_state = (await service.repository.schema_facts()).has_copy_state
-        succeeded = failed = set_aside = 0
-        async with service.pool.connection() as conn:
+        succeeded = failed = set_aside = deferred = 0
+        processed = 0
+        stale_runs = 0
+        stale_spent = 0.0
+        async with AsyncExitStack() as stack:
+            if entry_id is not None:
+                for name in module_names:
+                    if not await stack.enter_async_context(
+                        _module_lock(service.repository.pool, name)
+                    ):
+                        _say(progress, logger, _held_lock_line(name))
+                        return EnhanceResult(entries_processed=0, module_names=module_names)
+            conn = await stack.enter_async_context(service.pool.connection())
             for i, entry in enumerate(entries):
                 if stop_event is not None and stop_event.is_set():
                     break
+                ran = False
                 for enhancer in enhancers:
                     if enhancer.name not in owed[entry["entry_id"]]:
                         continue
-                    mark_kwargs = text_mark_kwargs(enhancer.name, entry, has_copy_state)
+                    stale = (
+                        not force and stale_budget_s is not None and is_stale(entry, enhancer.name)
+                    )
+                    if (
+                        stale
+                        and stale_budget_s is not None
+                        and stale_runs
+                        and stale_spent >= stale_budget_s
+                    ):
+                        deferred += 1
+                        continue
+                    ran = True
+                    mark_kwargs = text_mark_kwargs(enhancer.name, entry, has_copy_state, markers)
+                    started = time.monotonic()
                     try:
                         await enhancer.enhance(entry, conn)
                         await service.repository.mark_enhancement_complete(
@@ -2061,6 +2292,7 @@ async def _run_text_enhance(
                             entry["entry_id"],
                             enhancer.name,
                             str(e),
+                            **marker_kwargs(enhancer.name, markers),
                         )
                         if attempts >= MAX_ENHANCEMENT_ATTEMPTS:
                             set_aside += 1
@@ -2068,18 +2300,28 @@ async def _run_text_enhance(
                                 f"Entry {entry['entry_id']}: {enhancer.name} failed {attempts} "
                                 f"times; it is left out of later passes ({str(e)[:200]})"
                             )
+                    finally:
+                        if stale:
+                            stale_runs += 1
+                            stale_spent += time.monotonic() - started
 
+                processed += ran
                 if (i + 1) % 10 == 0 and progress:
                     progress(f"  Processed {i + 1} entries...")
 
     if progress:
         progress(
-            f"Enhancement complete: {len(entries)} entries, {succeeded} succeeded, "
+            f"Enhancement complete: {processed} entries, {succeeded} succeeded, "
             f"{failed} failed, {set_aside} set aside after {MAX_ENHANCEMENT_ATTEMPTS} "
             "failed attempts"
         )
+        if deferred:
+            progress(
+                f"{deferred} stale re-runs wait for the next pass "
+                f"(this pass's {stale_budget_s:.0f} s share is spent)"
+            )
     return EnhanceResult(
-        entries_processed=len(entries),
+        entries_processed=processed,
         module_names=module_names,
         succeeded=succeeded,
         failed=failed,
@@ -2122,12 +2364,14 @@ async def _drive_image_modules(
     stop_event: asyncio.Event | None,
     progress: _ProgressCb,
     limit: int | None = None,
+    entry_id: str | None = None,
 ) -> int:
     """Drive each picture module once, module-major, under its advisory lock.
 
     With a ``budget``, each module gets an equal share of what is left, so one
     that finishes early leaves its rest to the next. A connection is held only
-    around the driver's own statements, never across a model call.
+    around the driver's own statements, never across a model call. With
+    ``entry_id`` the driver sees only that entry (:class:`_OneEntryRepository`).
 
     Returns:
         The entries handed to ``run_entry`` over every module.
@@ -2142,6 +2386,9 @@ async def _drive_image_modules(
     service = await create_ariel_service(config)
     async with service:
         repository = service.repository
+        if entry_id is not None:
+            # A duck-typed view: every attribute but two is the wrapped repository's.
+            repository = cast("ARIELRepository", _OneEntryRepository(repository, entry_id))
         for index, module in enumerate(modules):
             if stop_event is not None and stop_event.is_set():
                 break
@@ -2175,6 +2422,43 @@ async def _drive_image_modules(
     return walked
 
 
+class _OneEntryRepository:
+    """The repository as a picture driver sees it when it may touch one entry only.
+
+    Its to-do read returns that entry, freshly read, whatever its stored state,
+    and the set-based batch mark marks nothing, so a driver pass changes no
+    other entry. Every other attribute is the wrapped repository's.
+    """
+
+    def __init__(self, repository: Any, entry_id: str) -> None:
+        self._repository = repository
+        self._entry_id = entry_id
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._repository, name)
+
+    async def get_incomplete_entries(
+        self,
+        module_name: str | None = None,  # noqa: ARG002 - the repository signature
+        status: str | None = None,  # noqa: ARG002 - the repository signature
+        limit: int = 100,  # noqa: ARG002 - the repository signature
+        *,
+        marker: str | None = None,  # noqa: ARG002 - the repository signature
+    ) -> list[EnhancedLogbookEntry]:
+        entry = await self._repository.get_entry(self._entry_id)
+        return [] if entry is None else [entry]
+
+    async def mark_image_module_complete_batch(
+        self,
+        module_name: str,  # noqa: ARG002 - the repository signature
+        marker: str,  # noqa: ARG002 - the repository signature
+        *,
+        after: str = "",  # noqa: ARG002 - the repository signature
+        limit: int = 1000,  # noqa: ARG002 - the repository signature
+    ) -> list[str]:
+        return []
+
+
 def _module_lock(pool: Any, module: str) -> AbstractAsyncContextManager[bool]:
     """The advisory lock ``ariel_enhance:<module>`` every pass of ``module`` takes, not waiting."""
     from osprey.services.ariel_search.database import connection as connection_mod
@@ -2199,7 +2483,8 @@ def _say(progress: _ProgressCb, logger: Any, message: str) -> None:
         logger.info(message)
 
 
-#: Resets the attempt count of a module's failed entries, ``gave_up`` included.
+#: Resets the attempt count of a module's failed entries, ``gave_up`` included;
+#: ``{entry_scope}`` is empty, or narrows it to one entry (:func:`_entry_scope`).
 _RESET_ATTEMPTS_SQL = """
 UPDATE enhanced_entries
 SET enhancement_status = jsonb_set(
@@ -2209,8 +2494,20 @@ SET enhancement_status = jsonb_set(
 )
 WHERE enhancement_status->%(module)s->>'status' = 'failed'
 AND (enhancement_status->%(module)s ? 'gave_up' OR enhancement_status->%(module)s ? 'attempts')
-RETURNING entry_id
+{entry_scope}RETURNING entry_id
 """
+
+
+def _entry_scope(entry_id: str | None, column: str = "entry_id") -> tuple[str, dict[str, str]]:
+    """The clause that narrows a module-wide statement to one entry, and its parameter.
+
+    ``("", {})`` when unscoped; else ``AND <column> = %(entry_id)s`` (with a
+    trailing newline) and ``{"entry_id": entry_id}``.
+    """
+    if entry_id is None:
+        return "", {}
+    return f"AND {column} = %(entry_id)s\n", {"entry_id": entry_id}
+
 
 #: Drops a module's key from one entry's status, only when it is there.
 _CLEAR_MODULE_KEY_SQL = (
@@ -2218,7 +2515,8 @@ _CLEAR_MODULE_KEY_SQL = (
     " WHERE entry_id = %(entry_id)s AND enhancement_status ? %(module)s"
 )
 
-#: Entries holding a caption error under ``%(model)s``, ``over_image_cap`` included.
+#: Entries holding a caption error under ``%(model)s``, ``over_image_cap`` included;
+#: ``{entry_scope}`` is empty, or narrows the read to one entry.
 _CAPTION_ERROR_ENTRIES_SQL = """
 SELECT e.entry_id, e.attachments FROM enhanced_entries e
 WHERE jsonb_typeof(e.attachment_captions) = 'object'
@@ -2228,11 +2526,13 @@ AND EXISTS (
     AND jsonb_typeof(c.per_model->%(model)s) = 'object'
     AND c.per_model->%(model)s ? 'error'
 )
-ORDER BY e.entry_id
+{entry_scope}ORDER BY e.entry_id
 """
 
 
-async def retry_failed_entries(config: ARIELConfig, module: str, progress: _ProgressCb) -> int:
+async def retry_failed_entries(
+    config: ARIELConfig, module: str, progress: _ProgressCb, *, entry_id: str | None = None
+) -> int:
     """Give ``module``'s failed entries a new set of attempts.
 
     Every module: a failed status loses its ``gave_up`` and ``attempts``. The
@@ -2250,6 +2550,10 @@ async def retry_failed_entries(config: ARIELConfig, module: str, progress: _Prog
     concurrent pass cannot undo it from a stale read. When another process
     holds the lock, nothing is changed. A misconfigured ``image_embedding``
     (no current table) is reported as unavailable and changes nothing.
+
+    Args:
+        entry_id: Only this entry's failures (``enhance --entry``); every
+            entry's when None.
 
     Returns:
         The distinct entries given a new set of attempts.
@@ -2294,22 +2598,29 @@ async def retry_failed_entries(config: ARIELConfig, module: str, progress: _Prog
             if not held:
                 _say(progress, logger, _held_lock_line(module))
                 return 0
+            scope, scope_params = _entry_scope(entry_id)
             async with pool.connection() as conn:
                 cursor = await conn.execute(
-                    _RESET_ATTEMPTS_SQL, {"path": [module], "module": module}
+                    _RESET_ATTEMPTS_SQL.format(entry_scope=scope),
+                    {"path": [module], "module": module, **scope_params},
                 )
                 retried.update(row[0] for row in await cursor.fetchall())
             if module == "image_caption":
-                retried |= await _forget_caption_failures(service.repository, config, caption_cap)
+                retried |= await _forget_caption_failures(
+                    service.repository, config, caption_cap, entry_id=entry_id
+                )
             elif table is not None:
-                retried |= await _forget_embedding_failures(pool, table)
+                retried |= await _forget_embedding_failures(pool, table, entry_id=entry_id)
     if progress:
-        progress(f"{module}: {len(retried)} failed entries will be retried")
+        if entry_id is None:
+            progress(f"{module}: {len(retried)} failed entries will be retried")
+        else:
+            progress(f"{module}: entry {entry_id}'s failures will be retried")
     return len(retried)
 
 
 async def _forget_caption_failures(
-    repository: ARIELRepository, config: ARIELConfig, cap: int
+    repository: ARIELRepository, config: ARIELConfig, cap: int, *, entry_id: str | None = None
 ) -> set[str]:
     """Delete the current model's failed captions, one entry per transaction.
 
@@ -2331,8 +2642,12 @@ async def _forget_caption_failures(
     if not model_id:
         return set()
     pool = repository.pool
+    scope, scope_params = _entry_scope(entry_id, "e.entry_id")
     async with pool.connection() as conn:
-        cursor = await conn.execute(_CAPTION_ERROR_ENTRIES_SQL, {"model": model_id})
+        cursor = await conn.execute(
+            _CAPTION_ERROR_ENTRIES_SQL.format(entry_scope=scope),
+            {"model": model_id, **scope_params},
+        )
         candidates = await cursor.fetchall()
     forgotten: set[str] = set()
     for entry_id, listed in candidates:
@@ -2507,8 +2822,10 @@ def image_embedding_current_table(config: ARIELConfig) -> str:
     return image_embedding_target(module_cfg).table
 
 
-async def _forget_embedding_failures(pool: Any, table: str) -> set[str]:
-    """Delete ``table``'s skip rows, one entry per transaction."""
+async def _forget_embedding_failures(
+    pool: Any, table: str, *, entry_id: str | None = None
+) -> set[str]:
+    """Delete ``table``'s skip rows, one entry per transaction; only ``entry_id``'s when given."""
     from psycopg import sql
 
     from osprey.services.ariel_search.database.repository import ARIELRepository
@@ -2518,12 +2835,14 @@ async def _forget_embedding_failures(pool: Any, table: str) -> set[str]:
         found = await cursor.fetchone()
         if found is None or found[0] is None:
             return set()
+        scope, scope_params = _entry_scope(entry_id, "f.entry_id")
         cursor = await conn.execute(
             sql.SQL(
                 "SELECT DISTINCT f.entry_id FROM {table} t"
                 " JOIN attachment_files f ON f.attachment_id = t.attachment_id"
-                " WHERE t.skip_reason IS NOT NULL ORDER BY f.entry_id"
-            ).format(table=sql.Identifier(table))
+                " WHERE t.skip_reason IS NOT NULL " + scope + "ORDER BY f.entry_id"
+            ).format(table=sql.Identifier(table)),
+            scope_params or None,
         )
         entry_ids = [row[0] for row in await cursor.fetchall()]
     forgotten: set[str] = set()
@@ -2616,7 +2935,11 @@ async def run_catchup(
     Never fetches or renders a picture; copying is the poll's job.
 
     1. Text modules (``runs_inline=True``) catch up as :func:`run_enhance` does,
-       up to 1000 entries and with no outer timeout.
+       up to 1000 entries and with no outer timeout. Only marker-stale re-runs
+       are paced: they may spend half of ``budget_s`` while a picture module is
+       enabled, the whole of it otherwise, and at least one runs per pass.
+       Never-run and still-owed entries are read apart from the stale ones, so
+       a deferred stale backlog never holds them back.
     2. Picture modules (``runs_inline=False``) share what is left of
        ``budget_s`` module-major: each gets an equal share of the remaining
        time, so one that finishes early leaves its rest to the next. Each is
@@ -2643,8 +2966,11 @@ async def run_catchup(
     started = time.monotonic()
     if config is None:
         config = _ariel_config(config_dict)
-    text = await _run_text_enhance(config, None, False, 1000, progress, stop_event=stop_event)
     names = _catchup_module_names(config)
+    stale_share = None if budget_s is None else (budget_s / 2 if names else budget_s)
+    text = await _run_text_enhance(
+        config, None, False, 1000, progress, stop_event=stop_event, stale_budget_s=stale_share
+    )
     if not names:
         return text
     image_budget = None if budget_s is None else max(0.0, budget_s - (time.monotonic() - started))
@@ -2709,8 +3035,9 @@ def _entry_summary(entry: dict) -> dict:
     timestamp = entry.get("timestamp")
     if isinstance(timestamp, datetime):
         timestamp = timestamp.isoformat()
-    raw_text = (entry.get("raw_text") or "").strip()
-    title = raw_text.splitlines()[0][:100] if raw_text else ""
+    from osprey.services.ariel_search.subject import entry_subject
+
+    title = entry_subject(entry)[:100]
     return {
         "entry_id": entry.get("entry_id", ""),
         "timestamp": str(timestamp or ""),
@@ -3389,6 +3716,7 @@ async def seed_logbook_entries(
     (:func:`~osprey.services.ariel_search.attachments.store_native_attachment`),
     so each is copied with its viewable rendition and linked on the entry the
     moment seeding returns. No caption or picture-embedding module runs here.
+    Every seeded entry is recorded ``local_only``: it lives only in ARIEL.
 
     Args:
         config_dict: ARIEL config dict (``ARIELConfig.from_dict`` shape).
@@ -3404,15 +3732,21 @@ async def seed_logbook_entries(
         guess_mime_type,
         store_native_attachment,
     )
+    from osprey.services.ariel_search.entry_url import SIMULATION_SOURCE_SYSTEM
+    from osprey.services.ariel_search.models import SyncStatus, with_sync_status
 
     config = _ariel_config(config_dict)
     service = await create_ariel_service(config)
     pictures = pictures or {}
     count = 0
     async with service:
-        run_id = await service.repository.start_ingestion_run("Simulation")
+        run_id = await service.repository.start_ingestion_run(SIMULATION_SOURCE_SYSTEM)
         try:
             for entry in entries:
+                entry = {
+                    **entry,
+                    "metadata": with_sync_status(entry.get("metadata"), SyncStatus.LOCAL_ONLY),
+                }
                 await service.repository.upsert_entry(entry)
                 files = pictures.get(entry["entry_id"], ())
                 if files:

@@ -6,7 +6,7 @@
 # (proxy for OpenAI-protocol models, direct for Anthropic-protocol), wires the
 # LLM judge, and runs one isolated worker per (model, seed) cell.
 #
-# Add a model = add a row. Add a provider (deepseek/ollama/unsloth/vllm) = add a
+# Add a model = add a row. Add a provider (ollama/unsloth/...) = add a
 # `providers:` entry + rows that reference it. No script edits.
 #
 #   scripts/benchmark/matrix.py --dry-run     # see the resolved plan
@@ -25,7 +25,7 @@ providers:
     key_env: CBORG_API_KEY            # falls back to key_file when env unset
     key_file: ~/.cborg_key
     protocol: openai
-    judge: { via: cborg, model: google/claude-haiku-4-5 }
+    judge: { via: als-apg, model: claude-haiku-5-5 }
 
   als-apg:
     # Native als-apg endpoint (NO /v1 — the Anthropic SDK
@@ -36,31 +36,28 @@ providers:
     key_env: ALS_APG_API_KEY
     key_file: ~/.als_apg_key
     protocol: anthropic
-    judge: { via: als-apg, model: claude-haiku-4-5-20251001 }
+    judge: { via: als-apg, model: claude-haiku-5-5 }
 
-  # DwarfStar (ds4) — local DeepSeek V4 on the benchmark box (PR #252).
-  # Keyless OpenAI-compatible server → routed through the translation proxy.
-  # The model under test is local; its judge MUST stay remote (via: cborg).
-  # ONE shared server runs for the whole machine (153 GB resident, instance
-  # lock) as the _ds4 launchd daemon — do NOT start your own ds4-server, it will
-  # collide. Just point at the localhost endpoint below; any/empty key works.
-  # Health check:  curl http://127.0.0.1:8000/v1/models   (see
-  # /Users/Shared/ds4-setup.md on the Studio). Context is 32768.
-  ds4:
-    base_url: http://127.0.0.1:8000/v1
+  # vLLM — a self-hosted, keyless OpenAI-compatible server, routed through the
+  # translation proxy. Point VLLM_BASE_URL at it (default: this host's :8000).
+  # The model under test is local; its judge stays remote.
+  vllm:
+    base_url: ${VLLM_BASE_URL:-http://127.0.0.1:8000/v1}
     keyless: true
     protocol: openai
-    judge: { via: cborg, model: google/claude-haiku-4-5 }
+    judge: { via: als-apg, model: claude-haiku-5-5 }
 
 # --- defaults applied to every model row unless overridden ------------------
 defaults:
-  seeds: 3            # subjects run 3 seeds; references override to 1
+  seeds: 3
   budget_scale: 1     # price normalizer for direct cells; proxied cells run uncapped
   timeout_s: 1800     # per-test hang-breaker (scored inconclusive, not failed)
 
 # --- the grid ---------------------------------------------------------------
+# Every cell is graded by claude-haiku-5-5 on als-apg, so scores are not
+# comparable with runs graded by an earlier judge.
 models:
-  # ---- subjects: open models on CBORG, 3 seeds, OpenAI-protocol (proxy) -----
+  # ---- subjects: open models on CBORG, OpenAI-protocol (proxy) --------------
   - { id: gpt-oss-20b,         provider: cborg }
   - { id: gpt-oss-120b,        provider: cborg }
   - { id: gemma-4,             provider: cborg }
@@ -68,17 +65,13 @@ models:
   - { id: google/qwen-3-coder, provider: cborg }
   - { id: google/qwen-3,       provider: cborg }
 
-  # ---- references: Anthropic ceiling bracket via als-apg, 1 seed, direct ----
-  # budget_scale tracks per-token price so the haiku-tuned $ caps don't blow
-  # mid-query and deflate the score for a cost reason unrelated to capability.
-  - { id: claude-haiku-4-5-20251001, provider: als-apg, seeds: 1 }
-  - { id: claude-sonnet-4-6,         provider: als-apg, seeds: 1, budget_scale: 3 }
-  - { id: claude-opus-4-6,           provider: als-apg, seeds: 1, budget_scale: 6 }
+  # ---- references: Anthropic models via als-apg, direct ---------------------
+  # The suite's $ caps are sized for claude-haiku-5-5; budget_scale is each
+  # model's price ratio to it, so a cap never stops a query for cost alone.
+  - { id: claude-haiku-5-5,  provider: als-apg }
+  - { id: claude-sonnet-5-5, provider: als-apg, budget_scale: 20 }
+  - { id: claude-opus-5-5,   provider: als-apg, budget_scale: 40 }
 
-  # ---- local DeepSeek V4 on the shared ds4 server (keyless localhost) -------
-  # Local inference is free (proxied, so uncapped) but slow on the shared GPU, so
-  # run a SINGLE seed (seeds: 1) — a full 3-seed lane takes ~1.5 days. Run this
-  # lane on its own at `--parallel 1` (matrix_restart.sh launches it as the
-  # matrix_ds4 tmux session). The judge stays remote (via: cborg).
-  - { id: deepseek-v4-flash, provider: ds4, seeds: 1 }
-  - { id: deepseek-v4-pro,   provider: ds4, seeds: 1 }
+  # ---- self-hosted: a model served by vLLM (served-model-name as the id) ----
+  # Uncomment on the host that serves it; run this lane at --parallel 1.
+  # - { id: kolibri-1, provider: vllm }

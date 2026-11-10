@@ -48,22 +48,22 @@ the bash now lives in the config + launcher.
 ```yaml
 providers:
   cborg:   { base_url: https://api.cborg.lbl.gov/v1, key_file: ~/.cborg_key,
-             protocol: openai,    judge: { via: cborg,   model: google/claude-haiku-4-5 } }
+             protocol: openai,    judge: { via: als-apg, model: claude-haiku-5-5 } }
   als-apg: { base_url: ${ALS_APG_BASE_URL}, key_file: ~/.als_apg_key,
-             protocol: anthropic, judge: { via: als-apg, model: claude-haiku-4-5-20251001 } }
-  ds4:     { base_url: http://127.0.0.1:8000/v1, keyless: true,
-             protocol: openai,    judge: { via: cborg,   model: google/claude-haiku-4-5 } }
+             protocol: anthropic, judge: { via: als-apg, model: claude-haiku-5-5 } }
+  vllm:    { base_url: ${VLLM_BASE_URL:-http://127.0.0.1:8000/v1}, keyless: true,
+             protocol: openai,    judge: { via: als-apg, model: claude-haiku-5-5 } }
 models:
-  - { id: gpt-oss-20b,     provider: cborg }                              # 3 seeds (default)
-  - { id: claude-opus-4-6, provider: als-apg, seeds: 1, budget_scale: 6 } # pricey ref
-  # - { id: deepseek-v4-flash, provider: ds4 }                            # local DeepSeek
+  - { id: gpt-oss-20b,     provider: cborg }                               # 3 seeds (default)
+  - { id: claude-opus-5-5, provider: als-apg, budget_scale: 40 }           # pricey ref
+  # - { id: kolibri-1, provider: vllm }                                    # self-hosted
 ```
 
 `protocol` is per-model-overridable — required because CBORG serves `claude-*` on
 the Anthropic route and everything else on the OpenAI route under one provider.
 `judge.via` names a provider whose endpoint+key back the grader, which is always
-a reachable remote, **never the model under test** (so a local `ds4` cell judges
-via `cborg`). `budget_scale` multiplies the per-query `$` cap so a pricey
+a reachable remote, **never the model under test** (so a local `vllm` cell judges
+via `als-apg`). `budget_scale` multiplies the per-query `$` cap so a pricey
 reference model doesn't blow the haiku-tuned ceiling mid-query. It applies to
 direct (`anthropic`) cells only: a proxied model reaches the SDK under a Claude
 alias and is priced at Claude rates, so its dollar figure is fiction and the
@@ -79,27 +79,58 @@ set; nothing in them assumes a particular provider, key file, or machine.
 | `matrix.py [--config FILE] [--only SUBSTR] [--provider P] [--parallel N] [--dry-run]` | parse `matrix.yaml`, expand the seed-major grid, and run one isolated worker per not-yet-done cell. **Resumable** — cells whose summary json exists are skipped. Writes the `results/matrix.log` markers the live dashboard watches. |
 | `matrix.yaml` | the whole run, declaratively (providers, models, seeds, budgets, judges). |
 | `matrix_dashboard.py --results-dir DIR --out FILE` | render `results/*.json` → a self-contained `dashboard.html` (per-model summary + per-test heatmap). |
-| `check_e2e_coverage.py` | derive the pytest `--ignore` list from `matrix_e2e_config.json` and warn if the run stops covering the full e2e kit minus the explicit, documented exclusions. With `--check-lanes` it is a **gate** (run per cell by the worker): every in-scope test must carry exactly one benchmark-lane marker. |
-| `matrix_e2e_config.json` | single source of truth for the excluded e2e files (each with a reason). |
+| `check_e2e_coverage.py` | derive a cell's pytest selection (`--print-run-args`: the `--ignore` list from `matrix_e2e_config.json`, `-m agentic`, reruns off) and warn if the run stops covering the full e2e kit minus the explicit, documented exclusions. With `--check-lanes` it is a **gate** (run per cell by the worker): every in-scope test must carry exactly one benchmark-lane marker. |
+| `matrix_e2e_config.json` | single source of truth for the excluded e2e files (each with a reason) and the images a full run needs. |
+| `build_board_images.sh` | build the images a full run needs and record them against the checkout's revision. Run it once per revision, before the run. |
 
-### Benchmark lanes
+### Tiers
 
-Every e2e test in matrix scope declares — via a pytest marker — what its
-pass/fail measures:
+A cell runs the e2e tests that carry an `agentic(tier=..., title=..., asks=...,
+passes_if=...)` marker, each once (`-p no:rerunfailures`), so every result is a
+first attempt. The dashboard groups them by tier:
 
-- `agentic_benchmark` — **capability lane**: genuine agentic tasks (multi-tool
-  reasoning, judged answers) where the model under test can fail. This is the
-  dashboard's headline pass rate.
-- `harness_benchmark` — **harness-integrity lane**: an agent runs, but the
-  assertion is model-independent OSPREY behavior (safety hooks block the write,
-  approval flow fires, plumbing works). Scored separately so its near-constant
-  passes never pad a model's capability number.
+- **Tier 1, basic** — the stack works, the model calls the right tools, a simple
+  workflow goes through. Headline: median time and output tokens per task, with
+  an all-green check.
+- **Tier 2, benchmark** — harder tasks a capable model may still miss. Each test
+  on its own, its first-attempt result per seed.
 
-Each cell writes a `results/<model>__seed<seed>.lanes.json` manifest at pytest
-collection time (`OSPREY_E2E_LANES`, see `tests/e2e/conftest.py`); the dashboard
-joins outcomes against it. Markers on the tests are the single source of truth —
-an unmarked in-scope test fails the `--check-lanes` gate at cell startup, so the
-scope can never silently drift.
+Before a full run, run `scripts/benchmark/build_board_images.sh` on the host, once
+per revision. The machine-switch tests need `osprey-va-full` and `bench-ioc` and
+never build them, so a full cell stops at startup (`IMAGE-GATE`) unless both exist
+at the checkout's revision. A smoke run with `--select` meets this gate only if it
+selects one of those tests. The VA image
+is linux/amd64, so on Apple Silicon each cell boots it under emulation: leave memory
+for `--parallel` of them in the container VM.
+
+The plan-stack and chart-reading tests deploy a stack with a fixed project name and
+ports, so parallel cells take turns on a host-wide lock. A test's timeout and its
+reported time cover its call, not that wait or the stack build. A test that dies in
+setup never reached the model: it shows as an error, and scores neither a pass nor a
+failure. The same goes for a provider's refusal. Each cell first makes one small call to
+its model and its judge (`cell_preflight.py`), and a refusal stops the cell with the
+provider, the model and the reason; `matrix.py` runs it again on resume, and exits 1
+(`MATRIX_EXIT_1`, never `MATRIX_EXIT_0`) while any cell has not run. A full cell also
+stops at its start when its ARIEL logbook database cannot be provisioned (it needs
+`psql` and a Postgres on localhost:5432), since its logbook tests would otherwise skip.
+On a run host without one:
+
+```bash
+docker run -d --name omb-bench-ariel-pg --restart unless-stopped \
+  -e POSTGRES_USER=ariel -e POSTGRES_PASSWORD=ariel -e POSTGRES_DB=ariel \
+  -p 127.0.0.1:5432:5432 pgvector/pgvector:pg16
+``` Mid-session,
+`tests/e2e/refusals.py` holds the rule: auth, network and unserved-model refusals
+are always setup errors, a rate limit or 5xx only if no model turn happened.
+
+The other in-scope tests carry `harness_benchmark` (the assertion is OSPREY's,
+not the model's); they run in CI, not on the board. Each cell writes a
+`results/<model>__seed<seed>.lanes.json` manifest at pytest collection time
+(`OSPREY_E2E_LANES`, see `tests/e2e/conftest.py`) with every test's lane and an
+agentic test's tier and text, and records the tier with each result; the
+dashboard joins outcomes against it. Markers on the tests are the single source
+of truth — an unmarked in-scope test fails the `--check-lanes` gate at cell
+startup, so the scope can never silently drift.
 
 ## Layer B — operator/site glue (examples to copy & adapt)
 
@@ -129,15 +160,25 @@ scripts/benchmark/matrix.py --only cborg-coder --parallel 1
 scripts/benchmark/matrix.py --parallel 4
 scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
 
+# A timeless copy to publish with the docs, once a full run is in:
+scripts/benchmark/matrix_dashboard.py --results-dir results --artifact \
+    --out docs/source/_static/benchmark-dashboard.html
+
 # Full clean restart on the benchmark box + live local dashboard:
 bash scripts/benchmark/matrix_restart.sh
 scripts/benchmark/matrix_dashboard_live.sh
 ```
 
-To benchmark a local DeepSeek (`ds4`) server: start it
-(`ds4-server --ctx 100000 …`), uncomment the `ds4` rows in `matrix.yaml`, and
-`scripts/benchmark/matrix.py --provider ds4 --parallel 1` (local inference is
-slow; keep it serial so serving + testing don't contend).
+To benchmark a model on a local vLLM server: serve it, set `VLLM_BASE_URL`
+if it is not on this host's :8000, uncomment a `vllm` row in `matrix.yaml`
+naming its `--served-model-name`, and run
+`scripts/benchmark/matrix.py --provider vllm --parallel 1` (keep it serial so
+serving and testing don't contend).
+
+A smoke run of one model on a few tests:
+`scripts/benchmark/matrix.py --only gpt-oss-120b --select "vacuum_burst" --results-dir results-smoke`
+(`--select` is a pytest `-k` expression; use a fresh `--results-dir`, since a
+cell with a summary is skipped on resume).
 
 ## Prerequisites
 
@@ -145,7 +186,7 @@ slow; keep it serial so serving + testing don't contend).
   (each cell runs `pytest tests/e2e/`). On the benchmark box, in the remote
   checkout (`OSPREY_BENCH_REMOTE_REPO`).
 - A CBORG key (`~/.cborg_key`) for open models; an als-apg key (`~/.als_apg_key`)
-  for the Anthropic reference bracket. A local server (e.g. `ds4`) needs no key.
+  for the Anthropic reference bracket. A local vLLM server needs no key.
 - A live, seeded **ARIEL Postgres** for the scenario columns (rf_cavity,
   vacuum_burst); `osprey up && osprey ariel migrate && osprey ariel
   quickstart`. Those tests skip with an actionable message if it is absent. The

@@ -20,9 +20,10 @@ from osprey.cli.build_profile import list_presets
 from osprey.cli.build_profile_emit import (
     _CHANNEL_FINDER_MODE_LIST,
     _collapse_config_prefixes,
+    effective_config_subtree,
     emit_standalone_profile_yaml,
 )
-from osprey.cli.build_profile_presets import _presets_dir, list_apps
+from osprey.cli.build_profile_presets import _presets_dir
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
 from osprey_connectors.errors import BuildProfileError
 
@@ -207,7 +208,7 @@ def test_emit_rejects_a_scalar_parent_introduced_by_an_override() -> None:
     """
     with pytest.raises(BuildProfileError, match="modules.web_terminals.enabled"):
         _emit(
-            "control-assistant",
+            "demo",
             (
                 "config.modules.web_terminals=false",
                 "config.modules.web_terminals.enabled=true",
@@ -222,7 +223,7 @@ def test_an_override_scalar_replaces_the_subtree_it_names() -> None:
     whole subtree at render time, so the emitted profile says that outright
     instead of carrying the inherited leaves it is about to overwrite.
     """
-    text = _emit("control-assistant", ("config.modules.web_terminals=false",))
+    text = _emit("demo", ("config.modules.web_terminals=false",))
     config = yaml.safe_load(text)["config"]
 
     assert config["modules.web_terminals"] is False
@@ -243,7 +244,7 @@ def test_web_tier_off_override_emits_one_web_terminals_key_holding_enabled_false
     ``modules.web_terminals`` subtree with ``enabled: true`` and the override a
     dotted ``enabled: false``. Emitted uncollapsed, a facility reordering those
     two lines would re-enable the web tier."""
-    config = yaml.safe_load(_emit("control-assistant", _WEB_TERMINALS_OFF))["config"]
+    config = yaml.safe_load(_emit("demo", _WEB_TERMINALS_OFF))["config"]
 
     web_terminal_keys = [
         key for key in config if key.split(".")[:2] == ["modules", "web_terminals"]
@@ -256,14 +257,14 @@ def test_web_tier_off_override_emits_one_web_terminals_key_holding_enabled_false
     # roster is built from.
     assert subtree["default_tier"] == "readonly"
     assert {user["name"] for user in subtree["users"]} == {"alice", "bob", "carol"}
-    assert set(subtree["shared"]) == set(list_apps())
+    assert set(subtree["shared"]) == {"channel-finder", "knowledge", "logbook"}
 
 
 def test_the_collapsed_key_keeps_the_section_header_it_was_holding() -> None:
     """ruamel packs the comment block introducing the NEXT section onto the key
     before it, so deleting the folded key would take the following section's
     header with it."""
-    text = _emit("control-assistant", _WEB_TERMINALS_OFF)
+    text = _emit("demo", _WEB_TERMINALS_OFF)
 
     assert "# ── Answering webhooks (optional)" in text
     assert text.index("# ── Answering webhooks (optional)") < text.index("\ndispatch:")
@@ -368,3 +369,25 @@ def test_no_emitted_comment_freezes_a_channel_finder_mode(preset: str) -> None:
             offenders.append(line)
 
     assert not offenders
+
+
+def test_subtree_reader_ignores_a_conflict_off_its_path() -> None:
+    """A scalar/dotted conflict on an unrelated key is that key's problem, not
+    the problem of a reader asking only about ``modules.web_terminals``."""
+    config = {
+        "modules.web_terminals": {"enabled": True},
+        "modules.web_terminals.enabled": False,
+        "control_system": "epics",
+        "control_system.type": "mock",
+    }
+
+    assert effective_config_subtree(config, ("modules", "web_terminals")) == {"enabled": False}
+
+
+def test_subtree_reader_still_refuses_a_conflict_on_its_path() -> None:
+    """Scoping the fold to the path keeps the refusal for a conflict that does
+    decide the subtree being read."""
+    config = {"modules.web_terminals": True, "modules.web_terminals.enabled": False}
+
+    with pytest.raises(BuildProfileError, match="mapping"):
+        effective_config_subtree(config, ("modules", "web_terminals"))

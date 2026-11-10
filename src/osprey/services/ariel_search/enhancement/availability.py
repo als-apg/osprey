@@ -22,7 +22,7 @@ import weakref
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Literal
 
-from osprey.models.providers.health import failure_reason
+from osprey.models.providers.health import failure_reason, library_exception_classes
 from osprey.services.ariel_search.enhancement.base import HealthResult, as_health_result
 from osprey.services.ariel_search.exceptions import ModuleConfigError, ModuleUnavailable
 from osprey_connectors.logger import get_logger
@@ -77,22 +77,6 @@ def exception_chain(exc: BaseException) -> Iterator[BaseException]:
             current = current.__context__
         else:
             current = None
-
-
-def library_exception_classes(module_name: str, *names: str) -> tuple[type[BaseException], ...]:
-    """The named exception classes of a library, or none when it is not importable."""
-    import importlib
-
-    try:
-        module = importlib.import_module(module_name)
-    except ImportError:
-        return ()
-    found = []
-    for name in names:
-        cls = getattr(module, name, None)
-        if isinstance(cls, type) and issubclass(cls, BaseException):
-            found.append(cls)
-    return tuple(found)
 
 
 def unavailable_reason(exc: BaseException) -> AvailabilityReason | None:

@@ -1,0 +1,16 @@
+{
+  "_what": "Untested code blocks each docs page may have. Only shrinks: see scripts/docs/snippet_coverage.py --check. Regenerate with --update-baseline.",
+  "untested": {
+    "how-to/agent-interfaces/event-dispatch.rst": 1,
+    "how-to/apps/build-your-own-app.rst": 1,
+    "how-to/apps/index.rst": 1,
+    "how-to/apps/orbit-bump.rst": 1,
+    "how-to/bluesky/write-plans.rst": 1,
+    "how-to/control-systems/machine-repository.rst": 2,
+    "how-to/control-systems/use-connectors.rst": 1,
+    "how-to/deploy-a-facility.rst": 2,
+    "how-to/deploy-project/project-image.rst": 2,
+    "how-to/web-terminal/operate.rst": 1,
+    "how-to/web-terminal/panels.rst": 1
+  }
+}

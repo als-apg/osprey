@@ -96,7 +96,7 @@ from typing import Any
 
 # The leaf, not ``osprey.profiles.web_panels``: that module imports the shared
 # middleware, which imports this one.
-from osprey.profiles.sidecar_panels import SIDECAR_PANELS
+from osprey.profiles.sidecar_panels import SIDECAR_REGISTRY, PanelRegistry
 from osprey.utils.sensitive_env import guard_process_memory
 from osprey_connectors.identity import TERMINAL_USER_ENV, acting_identity, usable_identity
 from osprey_connectors.safety_file import atomic_replace
@@ -127,6 +127,7 @@ __all__ = [
     "get_web_credentials",
     "mint_and_announce",
     "mint_secret",
+    "panel_registry_of",
     "panel_tier_routes",
     "peek_supplied_panel_token",
     "peek_web_credentials",
@@ -299,6 +300,10 @@ def _digest(session_id: str) -> str:
     cookie-bearing request.
     """
     return hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+
+
+#: Read back only by the web terminal that writes it, under its own uid: it holds login sessions.
+_SESSIONS_FILE_MODE = 0o600
 
 
 class SessionStore:
@@ -476,7 +481,7 @@ class SessionStore:
         atomic_replace(
             self._path,
             json.dumps(payload, sort_keys=True).encode("utf-8"),
-            mode=0o600,
+            mode=_SESSIONS_FILE_MODE,
             sync="best_effort",
         )
 
@@ -1500,8 +1505,7 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/api/panels"),
         ("POST", "/api/panel-visibility"),
         ("POST", "/api/panel-op/drop"),
-        ("POST", "/api/panel-op/close-tab"),
-        ("POST", "/api/panel-op/close-tile"),
+        ("POST", "/api/panel-op/close"),
         ("POST", "/api/panel-op/open"),
         ("POST", "/api/panel-op/open-set"),
         ("POST", "/api/panel-op/open-arrangement"),
@@ -1522,22 +1526,20 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
 #: repoint anything.
 PANEL_REGISTER_ROUTE: tuple[str, str] = ("POST", "/api/panels/register")
 
-#: The verbs of one streamable-HTTP conversation: ``POST`` carries a call,
-#: ``GET`` opens the event stream, ``DELETE`` ends the session.
-_MCP_HOP_METHODS: tuple[str, ...] = ("GET", "POST", "DELETE")
 
+def panel_tier_routes(panels: PanelRegistry = SIDECAR_REGISTRY) -> frozenset[tuple[str, str]]:
+    """Every ``(method, path)`` pair the panel token may drive in a terminal serving *panels*.
 
-def panel_tier_routes() -> frozenset[tuple[str, str]]:
-    """Every ``(method, path)`` pair the panel token may drive, as of this call.
-
-    The static :data:`PANEL_TIER_ROUTES`, plus one hop per sidecar panel that
-    opts in. A sidecar may serve an MCP transport beside its pages
+    The static :data:`PANEL_TIER_ROUTES`, plus what the registered panels open
+    to the agent (:meth:`~osprey.profiles.sidecar_panels.PanelRegistry.agent_routes`).
+    A sidecar may serve an MCP transport beside its pages
     (``SidecarPanel.mcp_path``); declaring that path alone opens nothing, and
     the terminal proxy refuses it for every caller. A sidecar that also sets
     ``agent_hop`` adds exactly ``GET|POST|DELETE /panel/<id><mcp_path>`` — the
     three verbs of a streamable-HTTP conversation on the one path its transport
     answers at — so the agent in a session reaches that transport with the
-    credential it already holds.
+    credential it already holds. An application panel adds each agent route
+    its config declares, under ``/panel/<id>``.
 
     Exact pairs, like the static table and for the same reason (see
     :func:`classify`): nothing else below ``/panel/<id>/`` is opened, in any
@@ -1545,25 +1547,33 @@ def panel_tier_routes() -> frozenset[tuple[str, str]]:
     it forwards the request only when the gate admitted it on the panel token,
     and refuses an operator credential there.
 
-    Read from the registry on every call rather than frozen at import, so the
-    answer follows the registry the proxy itself consults for the same request.
-
-    A declared path that does not start with ``/`` adds nothing: spliced onto
-    the panel id it would name a route below some *other* panel id.
+    Args:
+        panels: The terminal's panel registry (:func:`panel_registry_of`); the
+            sidecars alone when the caller serves no application panel.
 
     Returns:
         A new frozenset; :data:`PANEL_TIER_ROUTES` itself is never widened.
     """
-    hops = {
-        (method, f"/panel/{panel_id}{panel.mcp_path}")
-        for panel_id, panel in SIDECAR_PANELS.items()
-        if panel.agent_hop and panel.mcp_path and panel.mcp_path.startswith("/")
-        for method in _MCP_HOP_METHODS
-    }
-    return PANEL_TIER_ROUTES | hops
+    return PANEL_TIER_ROUTES | panels.agent_routes()
 
 
-def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
+def panel_registry_of(app: Any) -> PanelRegistry:
+    """The panel registry *app* serves: ``app.state.panel_registry``, else the sidecars alone.
+
+    The web terminal builds its registry once at start-up; any other app, or
+    one that loaded no panel config, admits only the sidecars' routes.
+    """
+    registry = getattr(getattr(app, "state", None), "panel_registry", None)
+    return registry if isinstance(registry, PanelRegistry) else SIDECAR_REGISTRY
+
+
+def classify(
+    method: str | None,
+    path: str | None,
+    body_has_url: bool,
+    *,
+    panels: PanelRegistry = SIDECAR_REGISTRY,
+) -> Tier:
     """Return the credential tier a request must satisfy.
 
     Args:
@@ -1587,11 +1597,13 @@ def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
             a ``True`` default would be a parameter whose name contradicts its
             value. Making the caller decide is the only spelling with no wrong
             way to hold it.
+        panels: The terminal's panel registry (:func:`panel_registry_of`),
+            which the panel-tier routes are derived from.
 
     Returns:
         :data:`Tier.PANEL` for the handful of routes
-        :func:`panel_tier_routes` returns, and for a ``url``-free panel
-        registration.
+        :func:`panel_tier_routes` returns for *panels*, and for a ``url``-free
+        panel registration.
         :data:`Tier.OPERATOR` for everything else.
 
     The match is **exact** on both fields, and that is the security property
@@ -1608,7 +1620,7 @@ def classify(method: str | None, path: str | None, body_has_url: bool) -> Tier:
         return Tier.OPERATOR
 
     route = (method.upper(), path)
-    if route in panel_tier_routes():
+    if route in panel_tier_routes(panels):
         return Tier.PANEL
     if route == PANEL_REGISTER_ROUTE and not body_has_url:
         return Tier.PANEL

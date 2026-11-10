@@ -3,7 +3,8 @@
  * Settings module
  *
  * Settings drawer for editing OSPREY config.yml. Manages the form/raw
- * editor modes, config loading/saving, and the confirmation dialog.
+ * editor modes, config loading/saving, and the confirmation dialog. Opening
+ * and closing the drawer belong to layout.js.
  */
 
 import { configApi } from './api.js';
@@ -14,19 +15,15 @@ let configDirty = false;
 let originalRaw = '';
 
 /**
- * Take the Settings entry out of the display menu and drop the drawer.
+ * Drop the Settings drawer.
  *
  * The server refusal is the gate — `GET` and `PUT /api/config` answer 403
  * when `web.config_panel.enabled` is false — and this is its other half: a
  * control an operator cannot use should not be on screen offering itself.
- * Removing the drawer too means a stale `#settings-drawer` trigger elsewhere
- * has nothing left to open.
+ * Removing the drawer means a stale `#settings-drawer` trigger elsewhere has
+ * nothing left to open.
  */
 function removeConfigPanel() {
-  document.querySelectorAll('.display-menu-settings').forEach((btn) => btn.remove());
-  document
-    .querySelectorAll('osprey-display-menu[settings-drawer]')
-    .forEach((menu) => menu.removeAttribute('settings-drawer'));
   const drawer = document.getElementById('settings-drawer');
   if (drawer) drawer.remove();
 }

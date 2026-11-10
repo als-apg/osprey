@@ -95,7 +95,7 @@ def _build_project(output_dir: Path, name: str) -> tuple[TemplateManager, Path]:
         manager,
         project_name=name,
         output_dir=output_dir,
-        data_bundle="control_assistant",
+        data_bundle="demo",
         context={"channel_finder_mode": "hierarchical"},
     )
     return manager, project_dir
@@ -157,18 +157,19 @@ class TestBlueskyPlansTemplateExists:
 class TestBlueskyPlansPresetWiring:
     """Wiring point 3: the presets' ``skills:`` and ``exclude:`` directives."""
 
-    def test_control_assistant_lists_the_skill(self):
-        profile = yaml.safe_load(
-            (PRESETS_DIR / "control-assistant.yml").read_text(encoding="utf-8")
-        )
+    def test_demo_lists_the_skill(self):
+        profile = yaml.safe_load((PRESETS_DIR / "demo.yml").read_text(encoding="utf-8"))
         assert "bluesky-plans" in profile["skills"]
 
     def test_logbook_app_leaves_the_skill_out(self):
-        """The logbook app ships without the Bluesky server, so its own skill
-        list leaves the routing skill out: an app's lists are its whole
-        selection, never a union with the host's, and an app has no
+        """The logbook login ships without the Bluesky server, so its own skill
+        list leaves the routing skill out: a ``lists: own`` login's lists are
+        its whole selection, never a union with the host's, and a login has no
         ``exclude:`` to subtract with."""
-        profile = yaml.safe_load((PRESETS_DIR / "apps" / "logbook.yml").read_text(encoding="utf-8"))
+        profile = yaml.safe_load(
+            (PRESETS_DIR / "tiers" / "logbook.yml").read_text(encoding="utf-8")
+        )
+        assert profile["lists"] == "own"
         assert "bluesky-plans" not in (profile.get("skills") or [])
         assert "exclude" not in profile
 

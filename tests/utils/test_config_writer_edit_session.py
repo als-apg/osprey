@@ -37,7 +37,6 @@ from osprey.utils.config_writer import (
     flush_config_edits,
     load_config_document,
     save_config_document,
-    update_yaml_file,
 )
 
 SAMPLE = """\
@@ -98,9 +97,9 @@ def _recorded_edits(path: Path) -> list[Any]:
 
     Overrides first (existing keys, new nested keys, a new root section), then
     a run of ownership registrations, a duplicate that must be a no-op, a
-    removal, a whole-list replacement, a delete and the legacy nested-update
-    writer. Returns what each call returned so the two paths can be compared
-    on their results as well as on their bytes.
+    removal, a whole-list replacement and a delete. Returns what each call
+    returned so the two paths can be compared on their results as well as on
+    their bytes.
     """
     results: list[Any] = []
     results.append(
@@ -130,14 +129,6 @@ def _recorded_edits(path: Path) -> list[Any]:
         )
     )
     results.append(config_delete_field(path, "services.qmd.port"))
-    results.append(
-        update_yaml_file(
-            path,
-            {"execution": {"execution_method": "container"}},
-            create_backup=False,
-            section_comments={"execution": "Execution backend"},
-        )
-    )
     return results
 
 
@@ -193,7 +184,6 @@ class TestByteIdentity:
         text = batched.read_text(encoding="utf-8")
         assert "default_model: claude-sonnet-5" in text
         assert "# Host port" not in text  # deleted with its key
-        assert "Execution backend" in text
         assert text != SAMPLE
 
     def test_the_file_is_untouched_until_the_session_flushes(self, tmp_path: Path):
@@ -223,8 +213,8 @@ class TestRoundTripCount:
 
         _recorded_edits(path)
 
-        # Ten writers, one of which (the duplicate append) returns before saving.
-        assert counters == {"load": 10, "dump": 9}
+        # Nine writers, one of which (the duplicate append) returns before saving.
+        assert counters == {"load": 9, "dump": 8}
 
     def test_a_session_loads_once_and_dumps_once(self, tmp_path: Path, counters: dict[str, int]):
         path = _write(tmp_path / "config.yml")

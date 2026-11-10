@@ -469,6 +469,11 @@ class JupyterSidecar:
         return {"authorization": f"Bearer {self._token}"}
 
     @property
+    def token(self) -> str | None:
+        """The per-launch token, so a caller can scrub it from text it shows."""
+        return self._token
+
+    @property
     def url(self) -> str:
         """The backend URL the proxy forwards to; no trailing slash."""
         if self._port is None:

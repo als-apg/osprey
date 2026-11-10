@@ -64,8 +64,8 @@ class TestDynamicConnectorImport:
                 id="class-missing",
             ),
             pytest.param(
-                "moat",
-                "Unknown control system type: 'moat'. Available types: ['virtual_accelerator']. "
+                "site",
+                "Unknown control system type: 'site'. Available types: ['virtual_accelerator']. "
                 "Use a dotted module path for custom connectors.",
                 id="unknown-name-lists-available",
             ),
@@ -118,7 +118,7 @@ class TestControlSystemContextValidation:
         registry = ControlSystemContext()
         registry._config = MCPServerConfig(
             raw={
-                "control_system": {"type": "moat"},
+                "control_system": {"type": "site"},
                 "archiver": {"type": "custom_archiver"},
             }
         )
@@ -126,7 +126,7 @@ class TestControlSystemContextValidation:
             logging.WARNING, logger="osprey.mcp_server.control_system.server_context"
         ):
             registry._validate()
-        assert "Unknown control_system.type: moat" in caplog.text
+        assert "Unknown control_system.type: site" in caplog.text
         assert "Unknown archiver.type: custom_archiver" in caplog.text
 
 

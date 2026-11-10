@@ -1,0 +1,10 @@
+archiver:
+  type: epics_archiver
+  settings:
+    url: https://archiver.facility.edu:8443   # required
+    timeout_s: 60                              # seconds, default 60
+    retrieval_path: /retrieval                 # default; a reverse proxy may rename it
+    # auth:                                    # only when a proxy asks for a login
+    #   token_env: OSPREY_ARCHIVER_TOKEN       # the variable that holds the token
+    # tls:                                     # only for a CA the image does not trust
+    #   ca_bundle: /etc/ssl/certs/site-ca.pem  # absolute path of the CA file

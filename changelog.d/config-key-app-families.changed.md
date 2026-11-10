@@ -1,0 +1,1 @@
+`check_config_keys` now renders a deployment with applications, and the config-key manifest describes everything the build projects from one as families (`services.<app-container>.*`, `web.panels.<app-panel>.*`, `claude_code.servers.<server>.*`, `apps.<app>.*`) plus `dispatch.denied_app_tools`.

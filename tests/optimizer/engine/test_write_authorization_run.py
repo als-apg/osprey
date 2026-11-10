@@ -41,6 +41,7 @@ from osprey_optimizer.events import EventBus, EventType
 from osprey_optimizer.models.config import OptimizationConfig, VariableOverride
 from osprey_optimizer.models.exceptions import (
     AUTHORIZATION_TIMEOUT,
+    AUTHORIZATION_TOO_MANY_STEPS,
     AuthorizationEndedError,
     CancellationError,
     WriteRefusedError,
@@ -114,8 +115,8 @@ class Deployment:
         return sorted(directory.glob("*.json")) if directory.is_dir() else []
 
     def spent(self, authorization: str) -> int:
-        ledger = wa.read_ledger(self.ledger, authorization)
-        return 0 if ledger is None else len(ledger.steps)
+        path = self.ledger / f"{authorization}.ledger.json"
+        return len(wa._parse_ledger(path.read_text()).steps) if path.exists() else 0
 
     def approve(self, request_path: Path) -> wa.Grant:
         request = wa.read_request(request_path)
@@ -277,7 +278,7 @@ def test_at_allowed_the_run_self_issues_and_spends_one_step_per_evaluation_and_o
     assert deployment.spent(grant_id) == EVALUATIONS + 1
     assert deployment.requests() == []
     # Done with it, the run ends its own grant rather than leave it standing.
-    grant = wa.parse_grant((deployment.ledger / f"{grant_id}.json").read_text())
+    grant = wa._parse_grant((deployment.ledger / f"{grant_id}.json").read_text())
     assert grant.revoked is not None and grant.revoked.by == HOLDER
 
 
@@ -286,7 +287,7 @@ def test_the_channels_asked_for_are_the_setpoints_at_the_runs_window(
 ) -> None:
     deployment.switch("allowed")
     deployment.run(deployment.config(on_complete="hold"))
-    grant = wa.parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
+    grant = wa._parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
     assert dict(grant.channels) == {
         A: wa.ChannelRange(-2.0, 2.0),
         B: wa.ChannelRange(-2.0, 2.0),
@@ -294,6 +295,18 @@ def test_the_channels_asked_for_are_the_setpoints_at_the_runs_window(
     # hold writes nothing on completion: the budget is the evaluations alone.
     assert grant.steps == EVALUATIONS
     assert deployment.spent(grant.id) == EVALUATIONS
+
+
+def test_an_expiry_set_past_the_ceiling_is_held_under_it(
+    deployment: Deployment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Held a margin under the ceiling, so an approver's lagging clock still reads it."""
+    deployment.switch("allowed")
+    monkeypatch.setattr(run_auth, "EXPIRES_S", 7 * 24 * 3600.0)
+    deployment.run(deployment.config(on_complete="hold"))
+    grant = wa._parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
+    held = (wa.MAX_EXPIRES_S - run_auth._EXPIRY_MARGIN_S) * 1e9
+    assert grant.expires_at_ns - grant.issued_at_ns <= held
 
 
 def test_a_flaky_objective_read_costs_no_extra_step_and_no_extra_write(
@@ -403,6 +416,26 @@ def test_a_request_nobody_approves_ends_the_run_and_is_withdrawn(
     assert caught.value.reason == AUTHORIZATION_TIMEOUT
     assert deployment.states[-1]["state"] == "ended"
     assert deployment.requests() == []
+    assert deployment.values() == before
+
+
+@pytest.mark.parametrize("switch", ["allowed", "asked"])
+def test_a_plan_past_the_step_ceiling_ends_the_run_before_it_asks(
+    deployment: Deployment, monkeypatch: pytest.MonkeyPatch, switch: str
+) -> None:
+    """Refused up front with its own reason, not left to end ``auth_unreadable``."""
+    deployment.switch(switch)
+    monkeypatch.setattr(wa, "MAX_STEPS", EVALUATIONS - 1)
+    before = deployment.values()
+    with pytest.raises(AuthorizationEndedError) as caught:
+        deployment.run(deployment.config(on_complete="hold"))
+    assert caught.value.reason == AUTHORIZATION_TOO_MANY_STEPS
+    assert (deployment.states[-1]["state"], deployment.states[-1]["reason"]) == (
+        "ended",
+        AUTHORIZATION_TOO_MANY_STEPS,
+    )
+    assert deployment.requests() == []
+    assert not any(state.get("state") == "granted" for state in deployment.states)
     assert deployment.values() == before
 
 

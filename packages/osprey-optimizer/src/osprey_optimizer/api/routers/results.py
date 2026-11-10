@@ -21,7 +21,7 @@ from osprey_optimizer.api.environment_ops import (
 from osprey_optimizer.api.job_tracker import JobTracker
 from osprey_optimizer.api.manual_authorization import authorize_manual_write
 from osprey_optimizer.api.owner import OWNER_HEADER, owner_from_header
-from osprey_optimizer.api.security import check_target_allowed, require_launch_token
+from osprey_optimizer.api.security import require_launch_token
 from osprey_optimizer.models.api import (
     HistoricalRunDetails,
     RestorePreviewResponse,
@@ -190,7 +190,6 @@ def restore_run_initial(
     Below that login's ``allowed`` switch it answers ``403`` and writes nothing.
     """
     environment_name, target, restore_values = _resolve_restore_values(f"{env}/{timestamp}")
-    check_target_allowed(target)
     guard_environment_write(
         environment_name, target, tracker, registry, override_unhealthy=override_unhealthy
     )

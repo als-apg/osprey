@@ -313,6 +313,7 @@ def test_external_projects_must_be_a_list() -> None:
         ("timezone", "America/Los_Angeles", "system.timezone"),
         ("control_system", {"type": "epics"}, "control_system.type"),
         ("users", ["operator"], "modules.web_terminals.users"),
+        ("ci_image_prefix", "mirror.example.org/dockerhub", "images.base_registry"),
     ],
 )
 def test_a_profile_owned_key_is_rejected_naming_its_real_home(
@@ -364,7 +365,7 @@ def test_an_unknown_deploy_key_names_its_closest_spelling() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("preset", ["control-assistant", "hello-world"])
+@pytest.mark.parametrize("preset", ["demo", "hello-world"])
 def test_an_emitted_profile_offers_the_deploy_block_as_a_comment_only(preset: str) -> None:
     """Guards the emitter's double-emit foot-gun: a commented template that
     also lands as an active key would give the profile two ``deploy:`` homes,
@@ -383,7 +384,7 @@ def test_the_emitted_stub_is_a_block_the_schema_accepts() -> None:
     facility the wrong one, and it would only find out after uncommenting."""
     from osprey.cli.build_profile_emit import emit_standalone_profile_yaml
 
-    text = emit_standalone_profile_yaml("control-assistant", (), "Emitted", project_name="emitted")
+    text = emit_standalone_profile_yaml("demo", (), "Emitted", project_name="emitted")
     lines = text.splitlines()
     start = lines.index("# deploy:")
     stub = []

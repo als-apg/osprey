@@ -72,7 +72,10 @@ async def entry_publish(
             "sync_status": result.sync_status.value,
             "message": result.message,
         }
-        entry_url = build_entry_url(result.entry_id, result.source_system)
+        # A publish that ended local-only has no facility page to link.
+        entry_url = build_entry_url(
+            result.entry_id, metadata={"sync_status": result.sync_status.value}
+        )
         if entry_url is not None:
             published["entry_url"] = entry_url
 

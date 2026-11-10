@@ -54,8 +54,6 @@ from tests.e2e.sdk_helpers import (
 # ---------------------------------------------------------------------------
 
 pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available"),
@@ -100,6 +98,15 @@ def _print_trace_debug(test_name: str, result: SDKWorkflowResult) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.agentic(
+    tier=1,
+    title="Compute optics",
+    asks="Compute the beta functions at every BPM and the fractional tunes of the storage ring.",
+    passes_if=(
+        "the lattice specialist computes them read-only; the main agent does not compute them "
+        "itself"
+    ),
+)
 @pytest.mark.asyncio
 @pytest.mark.flaky(reruns=2)
 async def test_pyat_specialist_delegation(tmp_path: Path) -> None:
@@ -122,7 +129,7 @@ async def test_pyat_specialist_delegation(tmp_path: Path) -> None:
       would mean the readonly pin was ignored and would risk a write-approval
       block in headless mode.
     """
-    repo = init_project(tmp_path, "pyat_del", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "pyat_del", template="demo", provider="als-apg")
     prompt = (
         "For the storage ring, compute the horizontal and vertical beta "
         "functions at every beam position monitor and report the fractional "
@@ -295,6 +302,14 @@ def _to_workflow_result(query: str, sdk_result: SDKWorkflowResult) -> WorkflowRe
     )
 
 
+@pytest.mark.agentic(
+    tier=1,
+    title="Report lattice numbers",
+    asks="Report the tunes, the circumference and the beta functions at BPM01 and BPM03.",
+    passes_if=(
+        "every number matches the lattice within tolerance and the answer says where it came from"
+    ),
+)
 @pytest.mark.asyncio
 # The retries absorb the LLM's turn-to-turn variance and nothing else. A verdict
 # that fails on every attempt is a real regression in what the subagent computes
@@ -313,7 +328,7 @@ async def test_pyat_specialist_grounding(tmp_path: Path) -> None:
     wrong or missing number fails as readily as a missing provenance statement,
     which the judge model grades on its own.
     """
-    repo = init_project(tmp_path, "pyat_grd", template="control_assistant", provider="als-apg")
+    repo = init_project(tmp_path, "pyat_grd", template="demo", provider="als-apg")
     judge = LLMJudge(provider="als-apg")
     prompt = (
         "For the storage ring, compute and report the fractional betatron "

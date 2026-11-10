@@ -4,7 +4,7 @@ The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
 ``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``,
-``watchdogs``) plus the
+``slack_bridge``, ``watchdogs``) plus the
 checkers that hold their environment-variable names to
 :data:`~osprey_connectors.connection.ENV_NAME_RE`. Parsing, inheritance
 merging, and validation live in
@@ -188,6 +188,62 @@ class McpServerDef:
     # None means the server declares no list; [] declares that none writes.
     # Validated as written — the build never queries the server's tool list.
     writes: list[str] | None = None
+    # The render-context key that must be truthy for the server to render;
+    # a projected ``shown_when: panel`` server's is ``panel:<panel id>``.
+    condition: str | None = None
+    # The application this server is projected for; None for any other server.
+    app: str | None = None
+
+
+ListsMode = Literal["own", "add"]
+"""How a login's selection lists relate to the deployment's: ``add`` lays them
+over the deployment's own, ``own`` takes them from the login file alone."""
+
+LISTS_MODES: tuple[ListsMode, ...] = ("own", "add")
+"""The closed ``lists:`` vocabulary."""
+
+DEFAULT_LISTS_MODE: ListsMode = "add"
+"""What a login that spells no ``lists:`` means."""
+
+
+@dataclass
+class AppServiceAxes:
+    """The deployment's axes for one container of an application
+    (``apps.<name>.services.<key>``, the key being the manifest's container key).
+
+    Only the axes a deployment sets per host; everything else about the
+    container is the application's own, in its ``app.yml`` or compose fragment.
+    """
+
+    network: Any = None
+    """The container's attachment (:data:`VALID_NETWORK_MODES`); ``None`` keeps
+    :data:`DEFAULT_NETWORK_MODE`. Held as written and checked by the validator,
+    so every bad spelling is reported at once."""
+    env: Any = None
+    """Host variable names passed through to the container; ``None`` adds none."""
+
+
+@dataclass
+class AppEntry:
+    """One application in a profile's ``apps:`` block.
+
+    Listing an application turns it on; there is no ``enabled`` key. Its tool
+    server is projected by the build from its manifest, so no tool-server key
+    is written here. A login file spells only ``shown``; ``config`` and
+    ``services`` are the deployment's.
+    """
+
+    config: dict[str, Any] = field(default_factory=dict)
+    """Free-form settings, handed to the application as a rendered file."""
+    services: dict[str, AppServiceAxes] = field(default_factory=dict)
+    """Per-container axes, keyed by the manifest's container keys."""
+    shown: bool | None = None
+    """Whether the card shows the application; ``None`` takes the default its
+    ``lists:`` mode gives (shown under ``add``, hidden under ``own``)."""
+
+
+#: The keys a login may spell inside ``apps.<name>``.
+LOGIN_APP_ENTRY_KEYS = frozenset({"shown"})
 
 
 @dataclass
@@ -222,7 +278,6 @@ class EnvConfig:
     # the store or from around it. Same upper-snake names as `required`.
     pinned: list[str] = field(default_factory=list)
     defaults: dict[str, str] = field(default_factory=dict)
-    file: str | None = None  # Profile-relative path to copy as .env
 
 
 @dataclass
@@ -1127,13 +1182,6 @@ class BlueskyWebConfig:
     the key is left unspelled."""
 
 
-OPTIMIZER_TARGETS: tuple[str, ...] = ("va", "standin")
-"""Control targets an optimizer deployment may name in its ``targets:`` list.
-
-``live`` is left out on purpose: the optimizer does not drive the real machine
-yet, so a profile asking for it is refused rather than deployed."""
-
-
 @dataclass
 class OptimizerConfig:
     """Optimizer service configuration for a build profile (opt-in via the
@@ -1150,12 +1198,6 @@ class OptimizerConfig:
     publishes, at the layout's ``optimizer`` slot — filled from the profile's
     resolved base when the key is left unspelled."""
 
-    targets: list[str] = field(default_factory=lambda: ["va"])
-    """Control targets this deployment's optimizer may drive, from
-    :data:`OPTIMIZER_TARGETS`. A run naming any other target is refused by the
-    service. Each target also needs its connector block in the project's
-    ``control_system:`` section, exactly as for every other client of it."""
-
     environments_dir: str | None = None
     """Optional host directory of optimizer environment files (YAML),
     bind-mounted read-only into the service at ``/app/environments``. ``None``
@@ -1168,21 +1210,6 @@ def optimizer_errors(optimizer: OptimizerConfig) -> list[str]:
     errors: list[str] = []
     if not (1 <= optimizer.port <= 65535):
         errors.append(f"optimizer.port must be in 1..65535 (got {optimizer.port})")
-    if not optimizer.targets:
-        errors.append("optimizer.targets must name at least one control target")
-    if "live" in optimizer.targets:
-        errors.append(
-            "optimizer.targets may not include 'live': the optimizer does not drive the real "
-            f"machine yet. Allowed targets: {', '.join(OPTIMIZER_TARGETS)}"
-        )
-    unknown = [t for t in optimizer.targets if t not in OPTIMIZER_TARGETS and t != "live"]
-    if unknown:
-        errors.append(
-            f"optimizer.targets has unknown target(s) {unknown}; allowed: "
-            f"{', '.join(OPTIMIZER_TARGETS)}"
-        )
-    if len(set(optimizer.targets)) != len(optimizer.targets):
-        errors.append(f"optimizer.targets lists a target twice ({optimizer.targets})")
     return errors
 
 
@@ -1293,5 +1320,42 @@ class TeamsBridgeProfileConfig:
     mentions: bool = True
     """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
     conversation member, rendered as ``TEAMS_MENTIONS`` in the service's compose
+    template. This default is the one place the build-side default lives.
+    """
+
+
+@dataclass
+class SlackBridgeProfileConfig:
+    """Slack bridge configuration for a build profile (opt-in via the
+    ``slack_bridge:`` key).
+
+    Consumed by the build pipeline's slack-bridge-injection step
+    (``_inject_slack_bridge`` in ``build_cmd.py``) to deploy the single
+    ``slack_bridge`` service — a Socket Mode client that ingests the Slack
+    messages addressed to the bot and dispatches them through the
+    event-dispatch pair, so the block is only meaningful alongside a
+    ``dispatch:`` block.
+
+    The Slack credentials are deliberately *not* profile fields: the bot token
+    ``SLACK_BOT_TOKEN`` (``xoxb-…``) and the app-level Socket Mode token
+    ``SLACK_APP_TOKEN`` (``xapp-…``) are user-supplied runtime env (declared
+    via ``env.required``), never baked into a build. Validated by
+    :meth:`BuildProfile.validate`.
+    """
+
+    trigger: str = "slack-question"
+    """Dispatcher trigger the bridge fires (``POST /webhook/{trigger}``),
+    rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
+
+    This default is the ONLY place the ``slack-question`` name is defaulted:
+    the runtime config's ``from_env`` applies no trigger default, so a
+    hand-rolled (non-build) deployment still fails loudly on a missing trigger
+    rather than silently firing a name nobody declared. The value must name a
+    trigger declared in the ``dispatch.triggers`` file.
+    """
+
+    mentions: bool = True
+    """Whether the bridge turns the agent's ``<@ID>`` into a real @mention of a
+    channel member, rendered as ``SLACK_MENTIONS`` in the service's compose
     template. This default is the one place the build-side default lives.
     """

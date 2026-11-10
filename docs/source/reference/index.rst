@@ -26,7 +26,15 @@ lookup material; the how-to guides link here for every value they mention.
       :link-type: doc
 
       The JSON and tool shapes services exchange: health reports, connectors,
-      the Python executor, ARIEL, Channel Finder, and the facility graph.
+      the Python executor, ARIEL, Channel Finder, the facility graph, and six
+      more.
+
+   .. grid-item-card:: osprey-connectors API
+      :link: connectors-api/index
+      :link-type: doc
+
+      The Python API of the connectors package: the connector contracts, the
+      factory, the errors, and the write-safety records.
 
    .. grid-item-card:: Ports
       :link: ports
@@ -41,4 +49,5 @@ lookup material; the how-to guides link here for every value they mention.
    cli
    configuration/index
    contracts/index
+   connectors-api/index
    ports

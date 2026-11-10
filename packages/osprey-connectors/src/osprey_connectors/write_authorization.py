@@ -19,14 +19,14 @@ gateway choice and a child's report take :func:`authorized_write_verdict`.
 
 **1. Two files, two writers.** The grant is ``<authorizations dir>/<id>.json``,
 written once by the approver's process and afterwards only to mark it
-revoked (:func:`issue_grant`, :func:`revoke_grants`). The authorizations
+revoked (:func:`_issue_grant`, :func:`revoke_grants`). The authorizations
 directory is the owner's: :data:`AUTHORIZATIONS_DIR_NAME` inside the owner's
 directory of the read-only control-context tree when one is bound, else inside
 this host's :func:`~osprey_connectors.posture_store.state_dir`. The **ledger**
 is ``<ledger dir>/<id>.ledger.json``, written only by the holder: the holder
 opens it with its lease (:func:`start_lease`), its heartbeat renews the lease
 (:func:`renew_lease`), and the connector child appends one step per write call
-(:func:`spend_step`). The ledger directory is :data:`LEDGER_DIR_ENV_VAR`, else,
+(:func:`_spend`). The ledger directory is :data:`LEDGER_DIR_ENV_VAR`, else,
 on a host with no tree bound, the host's authorizations directory; under a
 bound tree with no ledger directory there is none, and every write refuses.
 The control-context record is not touched: ``control_context.json`` keeps its
@@ -43,7 +43,7 @@ there refuses (``auth_unreadable``), and so do a missing or unusable ledger
 directory and a ledger that cannot be read. A ledger that is absent has no
 lease, and refuses ``auth_lease_lapsed``.
 
-**3. The verdict.** :func:`authorization_verdict` judges one write call — a
+**3. The verdict.** :func:`_verdict` judges one write call — a
 whole batch of ``(channel, value)`` operations — in one total order: the launch
 pin (:func:`~osprey_connectors.posture_store._launch_pin_term`, read here
 because the switch verdict reaches it only with the switch on), the owner, the
@@ -57,7 +57,7 @@ that names an authorization, whenever that verdict allows or refuses only
 unknown owner, an unreadable record, a pin or a hold, and a person turning the
 switch on mid-run never lifts the bounds.
 
-**4. One write call is one step.** :func:`spend_step` takes the ledger's lock
+**4. One write call is one step.** :func:`_spend` takes the ledger's lock
 (an exclusive ``flock`` on ``<ledger>.lock`` beside it, as
 :mod:`~osprey_connectors.session_hold` takes its record's), re-judges the whole
 verdict against the ledger it read under that lock, and appends the step
@@ -75,8 +75,8 @@ is refused. The switch's own verdict has the same window.
 **5. The lease.** The holder renews ``lease_until_ns``; a lease that lapses
 ends the authorization for good — :func:`renew_lease` refuses once it has
 lapsed. Where the reader shares the holder's PID namespace, the holder's PID,
-its start time and its state are also asked (:func:`pid_namespace`,
-:func:`process_start_time`): a dead, reused or zombie PID lapses the lease
+its start time and its state are also asked (:func:`_pid_namespace`,
+:func:`_process_start_time`): a dead, reused or zombie PID lapses the lease
 before its time. From another namespace the lease time alone decides.
 
 **6. Self-issue at ``allowed``.** A holder whose owner's switch stands at
@@ -88,18 +88,23 @@ does not revive it. A grant found in the ledger directory that claims any
 other surface is not honoured at all, because the holder can write there.
 
 **7. Overlap.** Two programs steering one channel of one machine is never what
-an approver meant: :func:`auth_overlap` finds the live grant of another holder
-sharing a channel, and :func:`issue_grant` refuses ``auth_overlap`` under the
-directory's lock, so two approvals cannot both pass the check. The check reads
-the owner's own directory and the holders' self-issued grants in the ledger
-directories this process sees (:func:`self_issued_directories`); another
-owner's directory is not read. A grant file that cannot be read is logged and
-left out of the check: it refuses every write under it already, and a file
-nobody can clear from the chip must not veto every approval.
+an approver meant: :func:`_auth_overlap` finds the live grant of another holder
+sharing a channel, and :func:`_issue_grant` refuses ``auth_overlap`` under the
+directory's lock, so two approvals cannot both pass the check. A grant whose
+every ledger in sight shows its lease time passed, by a grace for clock skew,
+does not count: no write may use it. This assumes a holder keeps one ledger
+directory per authorization; :func:`start_lease` refuses only a ledger already
+in its own directory, so a second lease under the same id elsewhere is not
+covered. The check reads the owner's own directory and the holders'
+self-issued grants in the ledger directories this process sees
+(:func:`self_issued_directories`); another owner's directory is not read. A
+grant file that cannot be read is logged and left out of the check: it
+refuses every write under it already, and a file nobody can clear from the
+chip must not veto every approval.
 
 **8. Requests, approval and the stop.** A holder asks with a **request**,
 ``<ledger dir>/requests/<id>.json`` (:func:`write_request`), read the way a
-grant is read (:func:`parse_request`, :func:`list_requests`); a web terminal
+grant is read (:func:`_parse_request`, :func:`list_requests`); a web terminal
 reads the holders' requests from a read-only bind, :data:`REQUESTS_DIR_ENV_VAR`.
 A person acting as the owner approves it (:func:`approve_request`): under the
 owner's record lock, then the grants directory's — the one lock order every
@@ -111,7 +116,7 @@ grant on the machines a stop names inside its record lock
 a stop whose marks cannot be written moves the record's epoch instead, which
 ends every grant of that owner. Every lock here is created at 0o660 whatever
 the umask, because a grants directory is written by several uids through its
-group. A listing removes grants that ended more than :data:`PRUNE_AFTER_S` ago
+group. A listing removes grants that ended more than :data:`_PRUNE_AFTER_S` ago
 (:func:`prune_grants`).
 
 This module imports nothing from ``osprey`` and sits above the record and the
@@ -141,23 +146,20 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.identity import acting_identity
 from osprey_connectors.posture_store import NO_OWNER, NoOwner, WriteVerdict
 from osprey_connectors.refusals import refusal_phrase
-from osprey_connectors.safety_file import atomic_replace
+from osprey_connectors.safety_file import SHARED_FILE_MODE, atomic_replace, ensure_shared_dir
 
 logger = logging.getLogger("osprey_connectors.write_authorization")
 
 __all__ = [
-    "APPROVAL_SURFACES",
     "AUTHORIZATIONS_DIR_NAME",
     "AUTHORIZATION_ENV_VAR",
-    "COMPLETIONS",
     "LEDGER_DIR_ENV_VAR",
     "LEDGER_VIEW_DIR_ENV_VAR",
-    "PRUNE_AFTER_S",
+    "MAX_EXPIRES_S",
+    "MAX_STEPS",
     "REQUESTS_DIR_ENV_VAR",
     "REQUESTS_DIR_NAME",
-    "SCHEMA_VERSION",
     "SELF_ISSUE_SURFACE",
-    "SURFACES",
     "Approver",
     "AuthorizationRefused",
     "ChannelRange",
@@ -169,34 +171,22 @@ __all__ = [
     "WriteRequest",
     "approve_request",
     "approved_grant",
-    "auth_overlap",
-    "authorization_verdict",
     "authorizations_dir",
     "authorized_execution_verdict",
     "authorized_write_verdict",
-    "grant_in_force",
     "grant_standing",
-    "issue_grant",
     "ledger_dir",
     "list_grants",
     "list_requests",
     "listed_grants",
     "named_authorization",
-    "parse_grant",
-    "parse_ledger",
-    "parse_request",
-    "pid_namespace",
-    "process_start_time",
     "prune_grants",
-    "read_ledger",
     "read_request",
     "renew_lease",
     "requests_dir",
     "revoke_grants",
     "self_issue",
     "self_issued_directories",
-    "self_issued_grants",
-    "spend_step",
     "start_lease",
     "withdraw_request",
     "write_request",
@@ -214,11 +204,27 @@ LEDGER_DIR_ENV_VAR: Final = "OSPREY_WRITE_LEDGER_DIR"
 AUTHORIZATIONS_DIR_NAME: Final = "authorizations"
 
 #: The format of both files. Any other value is unreadable, and refuses.
-SCHEMA_VERSION: Final = 1
+_SCHEMA_VERSION: Final = 1
+
+#: The most write calls one grant or request may allow: far above any run's
+#: evaluations, so no plan, typo or forged file asks for an unbounded budget.
+MAX_STEPS: Final = 100_000
+#: The longest a grant may stand from its issue, or a request from its asking:
+#: a day, three times the optimizer's eight-hour default.
+MAX_EXPIRES_S: Final = 24 * 3600.0
+#: The longest one renewal of a lease may last: ten times the optimizer's
+#: minute, so a holder gone unseen (from another PID namespace) is found
+#: lapsed within ten minutes by the verdict, and by the overlap check a
+#: :data:`_LEASE_SKEW_GRACE_NS` later.
+_MAX_LEASE_S: Final = 600.0
+#: How long past a ledger's lease end the overlap check still counts its grant:
+#: the holder writes the lease end from its own clock, and the approver compares
+#: it against its own.
+_LEASE_SKEW_GRACE_NS: Final = 60 * 1_000_000_000
 
 #: Who recorded an approval: the web terminal's chip, the CLI, or the switch
 #: itself standing at ``allowed`` (a self-issued grant).
-SURFACES: Final = ("chip", "cli", "write_switch")
+_SURFACES: Final = ("chip", "cli", "write_switch")
 
 #: The surface of a self-issued grant.
 SELF_ISSUE_SURFACE: Final = "write_switch"
@@ -241,7 +247,6 @@ _LEDGER_READ_LIMIT: Final = 16 * 1024 * 1024
 
 _LOCK_TIMEOUT_S: Final = 5.0
 _LOCK_POLL_S: Final = 0.01
-_FILE_MODE: Final = 0o640
 
 _PROC_STAT: Final = "/proc/{pid}/stat"
 _PID_NS_LINK: Final = "/proc/self/ns/pid"
@@ -330,7 +335,7 @@ class Grant:
     def to_payload(self) -> dict[str, Any]:
         """This grant as the JSON object its file holds."""
         return {
-            "schema": SCHEMA_VERSION,
+            "schema": _SCHEMA_VERSION,
             "id": self.id,
             "owner": self.owner,
             "holder": self.holder,
@@ -381,7 +386,7 @@ class Ledger:
             to rely on the lease time alone.
         holder_start: That process's start time as the kernel states it, so a
             reused PID is not taken for it; ``None`` where nothing states it.
-        pid_ns: That process's PID namespace (:func:`pid_namespace`), so a
+        pid_ns: That process's PID namespace (:func:`_pid_namespace`), so a
             reader in another namespace does not look its PID up.
         lease_until_ns: When the lease lapses unless renewed first.
         steps: Every write call spent, in order, numbered from 1.
@@ -397,7 +402,7 @@ class Ledger:
     def to_payload(self) -> dict[str, Any]:
         """This ledger as the JSON object its file holds."""
         return {
-            "schema": SCHEMA_VERSION,
+            "schema": _SCHEMA_VERSION,
             "authorization": self.authorization,
             "holder_pid": self.holder_pid,
             "holder_start": self.holder_start,
@@ -475,6 +480,24 @@ def _finite(value: Any, what: str) -> float:
     return number
 
 
+def _within_ceilings(steps: int, start_ns: int, expires_ns: int, lease_s: float) -> None:
+    """Refuse a budget, an expiry or a lease past its ceiling.
+
+    The ceilings are :data:`MAX_STEPS`, :data:`MAX_EXPIRES_S` from *start_ns*,
+    and :data:`_MAX_LEASE_S`. Every new grant and request is written through
+    this (:func:`_issue_grant`, :func:`write_request`), so an approval and a
+    self-issue meet the same ceilings. Reading does not apply them: a file
+    already on disk past a ceiling is honoured as it was before the ceilings,
+    so readers of every version agree on it.
+    """
+    if steps > MAX_STEPS:
+        raise ValueError(f"steps {steps} is above the ceiling of {MAX_STEPS}")
+    if expires_ns - start_ns > int(MAX_EXPIRES_S * 1e9):
+        raise ValueError(f"the expiry is more than {MAX_EXPIRES_S:g} s away")
+    if lease_s > _MAX_LEASE_S:
+        raise ValueError(f"lease_s {lease_s:g} is above the ceiling of {_MAX_LEASE_S:g}")
+
+
 def _authorization_id(value: Any) -> str:
     if not isinstance(value, str) or _ID.fullmatch(value) is None:
         raise ValueError("the id is not a 32-digit lowercase hex string")
@@ -524,26 +547,27 @@ def _parse_channels(value: Any) -> dict[str, ChannelRange]:
     return channels
 
 
-def parse_grant(raw: Any) -> Grant:
+def _parse_grant(raw: Any) -> Grant:
     """A grant out of its JSON text, bytes or decoded object.
 
     Every field must be present with its type, and nothing else may be: an
     unknown schema, a missing or extra field, a repeated key, a bound that is
     not a finite number, a range with ``min`` above ``max``, a ``steps`` below
     one, an expiry not after the issue, an unknown surface — each is a grant
-    this version cannot honour.
+    this version cannot honour. The ceilings are a writer's check
+    (:func:`_within_ceilings`), not a reader's.
 
     Raises:
         ValueError: The payload is not a grant this version can read.
     """
     payload = _load_json(raw) if isinstance(raw, str | bytes | bytearray) else raw
     payload = _exact_keys(payload, _GRANT_KEYS, "the grant")
-    if payload["schema"] is not SCHEMA_VERSION:
-        raise ValueError(f"the grant's schema is not {SCHEMA_VERSION}")
+    if payload["schema"] is not _SCHEMA_VERSION:
+        raise ValueError(f"the grant's schema is not {_SCHEMA_VERSION}")
     approver = _exact_keys(payload["approver"], _APPROVER_KEYS, "the approver")
     surface = approver["surface"]
-    if surface not in SURFACES:
-        raise ValueError(f"the approver's surface {surface!r} is not one of {SURFACES}")
+    if surface not in _SURFACES:
+        raise ValueError(f"the approver's surface {surface!r} is not one of {_SURFACES}")
     revoked_raw = payload["revoked"]
     revoked = None
     if revoked_raw is not None:
@@ -558,6 +582,7 @@ def parse_grant(raw: Any) -> Grant:
     lease_s = _finite(payload["lease_s"], "lease_s")
     if lease_s <= 0:
         raise ValueError("lease_s is not positive")
+    steps = _integer(payload["steps"], "steps", 1)
     label = payload["label"]
     if not isinstance(label, str):
         raise ValueError("label is not a string")
@@ -568,7 +593,7 @@ def parse_grant(raw: Any) -> Grant:
         target=_name(payload["target"], "target"),
         switch_epoch=_integer(payload["switch_epoch"], "switch_epoch", 0),
         channels=_parse_channels(payload["channels"]),
-        steps=_integer(payload["steps"], "steps", 1),
+        steps=steps,
         issued_at_ns=issued,
         expires_at_ns=expires,
         lease_s=lease_s,
@@ -588,10 +613,10 @@ def _optional_str(value: Any, what: str) -> str | None:
     return value
 
 
-def parse_ledger(raw: Any) -> Ledger:
+def _parse_ledger(raw: Any) -> Ledger:
     """A ledger out of its JSON text, bytes or decoded object.
 
-    The same strictness as :func:`parse_grant`; the steps must be numbered
+    The same strictness as :func:`_parse_grant`; the steps must be numbered
     1, 2, … in order, each naming at least one channel.
 
     Raises:
@@ -599,8 +624,8 @@ def parse_ledger(raw: Any) -> Ledger:
     """
     payload = _load_json(raw) if isinstance(raw, str | bytes | bytearray) else raw
     payload = _exact_keys(payload, _LEDGER_KEYS, "the ledger")
-    if payload["schema"] is not SCHEMA_VERSION:
-        raise ValueError(f"the ledger's schema is not {SCHEMA_VERSION}")
+    if payload["schema"] is not _SCHEMA_VERSION:
+        raise ValueError(f"the ledger's schema is not {_SCHEMA_VERSION}")
     holder_pid = payload["holder_pid"]
     if holder_pid is not None:
         holder_pid = _integer(holder_pid, "holder_pid", 1)
@@ -789,7 +814,7 @@ def _read_grant_at(place: _Place, authorization: str) -> tuple[_Status, Grant | 
         return directory, None
     path = place.path / f"{authorization}{_GRANT_SUFFIX}"
     try:
-        grant = parse_grant(_read_no_follow(path, _GRANT_READ_LIMIT).decode("utf-8"))
+        grant = _parse_grant(_read_no_follow(path, _GRANT_READ_LIMIT).decode("utf-8"))
     except FileNotFoundError:
         return "absent", None
     except Exception as exc:  # every failure on a present grant refuses
@@ -808,7 +833,7 @@ def _read_ledger_at(place: _Place, authorization: str) -> tuple[_Status, Ledger 
         return "unreadable", None
     path = place.path / f"{authorization}{_LEDGER_SUFFIX}"
     try:
-        ledger = parse_ledger(_read_no_follow(path, _LEDGER_READ_LIMIT).decode("utf-8"))
+        ledger = _parse_ledger(_read_no_follow(path, _LEDGER_READ_LIMIT).decode("utf-8"))
     except FileNotFoundError:
         return "absent", None
     except Exception as exc:  # every failure on a present ledger refuses
@@ -881,7 +906,7 @@ def _kernel_stat(pid: int) -> tuple[str, str] | None:
         return None
 
 
-def process_start_time(pid: int) -> str | None:
+def _process_start_time(pid: int) -> str | None:
     """When *pid* started, in the kernel's own units, or ``None`` where nothing states it.
 
     Only ever compared with itself, which is what tells a holder from a process
@@ -891,7 +916,7 @@ def process_start_time(pid: int) -> str | None:
     return None if kernel is None else kernel[1]
 
 
-def pid_namespace() -> str | None:
+def _pid_namespace() -> str | None:
     """This process's PID namespace as the kernel names it, or ``None`` where nothing does.
 
     Only ever compared with another process's, which is what says whether a PID
@@ -910,7 +935,7 @@ def _holder_live(ledger: Ledger) -> bool:
     and the answer is ``True``: the lease time decides alone. ``None`` matches
     ``None``, so two processes on a platform without ``/proc`` compare.
     """
-    if ledger.holder_pid is None or ledger.pid_ns != pid_namespace():
+    if ledger.holder_pid is None or ledger.pid_ns != _pid_namespace():
         return True
     if not control_context.is_process_alive(ledger.holder_pid):
         return False
@@ -930,7 +955,7 @@ def _lease_live(ledger: Ledger, now_ns: int) -> bool:
 
 #: The operations a gateway choice or a child's report is judged on: whether
 #: the authorization would allow a write at all, every channel term skipped.
-#: Never a write's own operations: :func:`spend_step` cannot be handed it.
+#: Never a write's own operations: :func:`_spend` cannot be handed it.
 _ANY_WRITE: Final = object()
 
 
@@ -1101,13 +1126,13 @@ def _unreachable(target: Any, authorization: Any, what: str) -> WriteVerdict:
     )
 
 
-def authorization_verdict(
+def _verdict(
     section: Any,
-    target: str | None,
-    operations: Sequence[tuple[str, object]] | Mapping[str, object],
-    *,
-    authorization: str,
-    owner: str | NoOwner | None = None,
+    target: Any,
+    operations: Any,
+    authorization: Any,
+    owner: str | NoOwner | None,
+    basis: _Basis | None,
 ) -> WriteVerdict:
     """Whether one write call of *operations* may go ahead under *authorization*.
 
@@ -1130,7 +1155,7 @@ def authorization_verdict(
        ``switch_epoch`` is no longer the grant's (or there is no record).
     9. ``auth_expired`` — its expiry has passed.
     10. ``auth_revoked`` — a self-issued grant whose owner's switch is not at
-        ``allowed`` for *target* now (:func:`spend_step` then ends its lease).
+        ``allowed`` for *target* now (:func:`_spend` then ends its lease).
     11. ``auth_channel`` — the batch is empty or names a channel the grant does
         not list; ``auth_range`` — a value that is not a finite number inside
         its channel's range. The whole batch is judged before anything is
@@ -1141,17 +1166,20 @@ def authorization_verdict(
     13. ``auth_exhausted`` — every step has been spent.
 
     This reads and never writes, so it is the answer for a report or a
-    gateway choice; a write spends its step through :func:`spend_step`. It
+    gateway choice; a write spends its step through :func:`_spend`. It
     does not repeat the switch verdict's read-only, tier and hold terms:
     :func:`authorized_execution_verdict` is the composition a write path takes.
 
     Args:
         section: The ``control_system`` section of the resolved config.
         target: The control target the write lands on.
-        operations: The write call's ``(channel, value)`` pairs, or a mapping.
+        operations: The write call's ``(channel, value)`` pairs, or a mapping;
+            :data:`_ANY_WRITE` for a verdict on any write.
         authorization: The id the process names.
         owner: Whose switch the grant stands in for; ``None`` asks
             :func:`~osprey_connectors.posture_store.current_owner`.
+        basis: The record and switch verdict the caller already read, or
+            ``None`` to read them here.
 
     Returns:
         A :class:`~osprey_connectors.posture_store.WriteVerdict` whose
@@ -1159,18 +1187,6 @@ def authorization_verdict(
         Never raises: a verdict that cannot be reached refuses
         ``auth_unreadable``.
     """
-    return _verdict(section, target, operations, authorization, owner, None)
-
-
-def _verdict(
-    section: Any,
-    target: Any,
-    operations: Any,
-    authorization: Any,
-    owner: str | NoOwner | None,
-    basis: _Basis | None,
-) -> WriteVerdict:
-    """:func:`authorization_verdict` on *basis*; *operations* may be :data:`_ANY_WRITE`."""
     try:
         return _judge(section, target, operations, authorization, owner, _now_ns(), basis).verdict
     except Exception:  # a verdict that cannot be reached refuses; it never raises
@@ -1233,7 +1249,7 @@ def _locked(lock: Path) -> Iterator[None]:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     data = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
-    atomic_replace(path, data, mode=_FILE_MODE)
+    atomic_replace(path, data, mode=SHARED_FILE_MODE)
 
 
 def _ledger_lock_path(place: _Place, authorization: str) -> Path:
@@ -1271,17 +1287,17 @@ def _lapse(place: _Place, authorization: str) -> None:
         _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", lapsed.to_payload())
 
 
-def spend_step(
+def _spend(
     section: Any,
-    target: str | None,
-    operations: Sequence[tuple[str, object]] | Mapping[str, object],
-    *,
-    authorization: str,
-    owner: str | NoOwner | None = None,
+    target: Any,
+    operations: Any,
+    authorization: Any,
+    owner: str | NoOwner | None,
+    basis: _Basis | None,
 ) -> WriteVerdict:
     """Judge one write call and, when it is allowed, spend its step first.
 
-    Under the ledger's lock: the whole :func:`authorization_verdict` against
+    Under the ledger's lock: the whole :func:`_verdict` against
     the ledger read inside the lock, then one step appended (``n`` the next
     number, the time, the batch's channels) and the ledger replaced whole. An
     allowed answer means the step is on disk; the caller writes only then, so
@@ -1291,22 +1307,11 @@ def spend_step(
     A write the ledger could not record refuses ``auth_unreadable``. A
     self-issued grant refused because its switch has left ``allowed`` has its
     lease lapsed here as well, so the switch coming back does not revive it.
+    A write's own operations only: :data:`_ANY_WRITE` refuses.
 
     Returns:
-        As :func:`authorization_verdict`. Never raises.
+        As :func:`_verdict`. Never raises.
     """
-    return _spend(section, target, operations, authorization, owner, None)
-
-
-def _spend(
-    section: Any,
-    target: Any,
-    operations: Any,
-    authorization: Any,
-    owner: str | NoOwner | None,
-    basis: _Basis | None,
-) -> WriteVerdict:
-    """:func:`spend_step` on *basis*. A write's own operations only, never :data:`_ANY_WRITE`."""
     if operations is _ANY_WRITE:
         return _unreachable(target, authorization, "spend without a write")
     try:
@@ -1360,10 +1365,10 @@ def authorized_execution_verdict(
         target: The control target the write lands on.
         operations: The write call's ``(channel, value)`` pairs.
         authorization: The id the process names, or ``None``.
-        owner: As for :func:`authorization_verdict`.
+        owner: As for :func:`_verdict`.
         session_keys: As for
             :func:`~osprey_connectors.posture_store.execution_verdict`.
-        spend: Spend the step (:func:`spend_step`) rather than only judge.
+        spend: Spend the step (:func:`_spend`) rather than only judge.
 
     The record is read once: the authorization's terms are judged on the
     record the switch verdict read, and a self-issued grant's position on that
@@ -1477,8 +1482,8 @@ def start_lease(authorization: str, *, owner: str | NoOwner | None = None) -> Le
         ledger = Ledger(
             authorization=authorization,
             holder_pid=pid,
-            holder_start=process_start_time(pid),
-            pid_ns=pid_namespace(),
+            holder_start=_process_start_time(pid),
+            pid_ns=_pid_namespace(),
             lease_until_ns=now + int(grant.lease_s * 1e9),
         )
         _write_json(place.path / f"{authorization}{_LEDGER_SUFFIX}", ledger.to_payload())
@@ -1500,7 +1505,7 @@ def renew_lease(authorization: str, *, owner: str | NoOwner | None = None) -> bo
             status, ledger = _read_ledger_at(place, authorization)
             if status != "ok" or ledger is None:
                 return False
-            if ledger.holder_pid != os.getpid() or ledger.pid_ns != pid_namespace():
+            if ledger.holder_pid != os.getpid() or ledger.pid_ns != _pid_namespace():
                 return False
             if not _lease_live(ledger, now):
                 return False
@@ -1528,7 +1533,7 @@ def _grant_directory(directory: Path | None, owner: str) -> Path:
 def _prepare_directory(directory: Path) -> None:
     """Create *directory* (0o2770, as the record's) when absent; refuse a link or a file."""
     if not os.path.lexists(directory):
-        control_context._ensure_directory(directory)
+        ensure_shared_dir(directory)
     mode = os.lstat(directory).st_mode
     if not stat.S_ISDIR(mode):
         raise OSError(errno.ENOTDIR, f"{directory} is not a plain directory; nothing was written")
@@ -1564,23 +1569,58 @@ def list_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
     return tuple(grants), tuple(unreadable)
 
 
-def auth_overlap(
-    candidate: Grant, existing: Iterable[Grant], *, now_ns: int | None = None
+def _lease_ended(grant: Grant, ledger_dirs: Iterable[Path], now_ns: int) -> bool:
+    """Whether every ledger of *grant* in *ledger_dirs* shows its lease time passed.
+
+    The clock alone decides, as :func:`grant_standing` does: the holder's PID,
+    judged from the approver's process, may name another host's process. A
+    lease counts as passed only :data:`_LEASE_SKEW_GRACE_NS` after its end, so
+    an approver's clock ahead of the holder's does not free a live grant. At
+    least one ledger must be found, and each must agree, so a stale or planted
+    one in a directory searched first cannot free another's live grant. A
+    ledger found nowhere is a lease not started yet, or one out of this
+    process's sight, and an unreadable one may be live: neither has ended.
+
+    This assumes a holder keeps one ledger directory per authorization:
+    :func:`start_lease` refuses only a ledger already in its own directory, so
+    a holder that starts a second lease under the same id in another directory
+    out of this process's sight is not covered.
+    """
+    found = list(_ledgers_of(grant.id, ledger_dirs))
+    return bool(found) and all(
+        ledger is not None and now_ns >= ledger.lease_until_ns + _LEASE_SKEW_GRACE_NS
+        for ledger in found
+    )
+
+
+def _auth_overlap(
+    candidate: Grant,
+    existing: Iterable[Grant],
+    *,
+    now_ns: int | None = None,
+    ledger_dirs: Iterable[Path] = (),
 ) -> Grant | None:
     """The first grant in *existing* that *candidate* must not be issued beside, or ``None``.
 
     One that is live (not revoked, not expired), held by another holder, on
-    the same machine, and listing a channel *candidate* lists. The same holder
-    may hold two: a program runs one job at a time and is judged by its own
-    budget. A person's own writes are never blocked by a grant.
+    the same machine, listing a channel *candidate* lists, and whose lease
+    time has not passed in its ledgers in *ledger_dirs* (:func:`_lease_ended`):
+    a run that finished, failed or crashed stops renewing, so its grant stops
+    blocking once its lease runs out rather than at its expiry. A run that is
+    paused still renews, and still blocks. The same holder may hold two: a
+    program runs one job at a time and is judged by its own budget. A
+    person's own writes are never blocked by a grant.
     """
     now = _now_ns() if now_ns is None else now_ns
+    directories = tuple(ledger_dirs)
     for grant in existing:
         if grant.id == candidate.id or not grant.live_at(now):
             continue
         if grant.holder == candidate.holder or grant.target != candidate.target:
             continue
-        if set(grant.channels) & set(candidate.channels):
+        if set(grant.channels) & set(candidate.channels) and not _lease_ended(
+            grant, directories, now
+        ):
             return grant
     return None
 
@@ -1588,7 +1628,7 @@ def auth_overlap(
 def _peer_grants(peers: Iterable[Path], own: Path) -> list[Grant]:
     """The self-issued grants in the ledger directories *peers*, *own* left out.
 
-    Only a grant approved by the switch (:func:`self_issued_grants`) is
+    Only a grant approved by the switch (:func:`_self_issued_grants`) is
     counted, because only that one is honoured there. A directory that cannot
     be listed and a grant file that cannot be read are logged and skipped: the
     check is the approver's courtesy, not the boundary, and a file a holder
@@ -1602,7 +1642,7 @@ def _peer_grants(peers: Iterable[Path], own: Path) -> list[Grant]:
             continue
         seen.add(key)
         try:
-            found, unreadable = self_issued_grants(Path(peer))
+            found, unreadable = _self_issued_grants(Path(peer))
         except OSError as exc:
             logger.warning("The self-issued grants in %s cannot be listed: %s", peer, exc)
             continue
@@ -1614,7 +1654,9 @@ def _peer_grants(peers: Iterable[Path], own: Path) -> list[Grant]:
     return grants
 
 
-def issue_grant(grant: Grant, *, directory: Path | None = None, peers: Iterable[Path] = ()) -> Path:
+def _issue_grant(
+    grant: Grant, *, directory: Path | None = None, peers: Iterable[Path] = ()
+) -> Path:
     """Write *grant* as a new file, after checking it overlaps no live grant.
 
     The approver's writer. *directory* defaults to the grant's owner's
@@ -1631,14 +1673,17 @@ def issue_grant(grant: Grant, *, directory: Path | None = None, peers: Iterable[
         The path written.
 
     Raises:
-        ValueError: *grant* is not a grant this version can read back.
+        ValueError: *grant* is not a grant this version can read back, or
+            its budget, expiry or lease is past a ceiling
+            (:func:`_within_ceilings`); nothing is written.
         FileExistsError: A grant with this id exists.
         AuthorizationRefused: ``auth_overlap``.
         RuntimeError: No directory is reachable, or the lock was not acquired.
         OSError: The directory is not a plain directory, or the write failed.
     """
     payload = grant.to_payload()
-    parse_grant(json.dumps(payload))  # what is written must read back
+    _parse_grant(json.dumps(payload))  # what is written must read back
+    _within_ceilings(grant.steps, grant.issued_at_ns, grant.expires_at_ns, grant.lease_s)
     target_dir = _grant_directory(directory, grant.owner)
     _prepare_directory(target_dir)
     path = target_dir / f"{grant.id}{_GRANT_SUFFIX}"
@@ -1650,7 +1695,12 @@ def issue_grant(grant: Grant, *, directory: Path | None = None, peers: Iterable[
             logger.warning(
                 "Unreadable grants beside %s, left out of the overlap check: %s", path, unreadable
             )
-        held = auth_overlap(grant, [*existing, *_peer_grants(peers, target_dir)])
+        peers = tuple(peers)
+        held = _auth_overlap(
+            grant,
+            [*existing, *_peer_grants(peers, target_dir)],
+            ledger_dirs=(target_dir, *peers),
+        )
         if held is not None:
             raise AuthorizationRefused(
                 "auth_overlap", f"Held by {held.holder} under {held.id} ({held.label})."
@@ -1732,10 +1782,11 @@ def self_issue(
     ``write_switch``, then the verdict is taken again: if the switch moved or a
     stop came in between, the grant is removed and the issue refused. It is
     honoured afterwards only while the position stays ``allowed``; the first
-    write after it leaves ``allowed`` ends it for good (:func:`spend_step`).
+    write after it leaves ``allowed`` ends it for good (:func:`_spend`).
 
     Raises:
-        ValueError: The channels, steps, expiry or lease are malformed.
+        ValueError: The channels, steps, expiry or lease are malformed, or
+            past a ceiling (:func:`_within_ceilings`).
         AuthorizationRefused: The switch verdict's reason; ``auth_revoked``
             when it allows below ``allowed`` or moved during the issue;
             ``record_unavailable`` for a record with no epoch;
@@ -1778,7 +1829,7 @@ def self_issue(
         label=label,
     )
     place = _checked_ledger_place(grant.id, create=True)
-    path = issue_grant(grant, directory=place.path, peers=self_issued_directories())
+    path = _issue_grant(grant, directory=place.path, peers=self_issued_directories())
     try:
         if epoch_at_allowed() != epoch:
             raise AuthorizationRefused("auth_revoked", "A stop came during the issue.")
@@ -1816,7 +1867,7 @@ def self_issued_directories() -> tuple[Path, ...]:
     return tuple(found)
 
 
-def self_issued_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
+def _self_issued_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, ...]]:
     """The self-issued grants in a ledger *directory*, and the paths that could not be read.
 
     :func:`list_grants`, keeping only the grants approved by the switch
@@ -1833,7 +1884,7 @@ def self_issued_grants(directory: Path) -> tuple[tuple[Grant, ...], tuple[Path, 
     )
 
 
-def grant_in_force(
+def _grant_in_force(
     grant: Grant, record: control_context.ControlContext | None, *, now_ns: int | None = None
 ) -> bool:
     """Whether *grant* still stands against its owner's *record*: what a chip shows as live.
@@ -1856,7 +1907,7 @@ def grant_in_force(
 #: How long a revoked or expired grant is kept before a listing removes it, so
 #: a holder whose stop has just landed is still told ``auth_revoked`` (or
 #: ``auth_expired``) rather than that no authorization exists.
-PRUNE_AFTER_S: Final = 3600.0
+_PRUNE_AFTER_S: Final = 3600.0
 
 
 def _ended_at(grant: Grant) -> int:
@@ -1867,7 +1918,7 @@ def _ended_at(grant: Grant) -> int:
 
 
 def prune_grants(
-    directory: Path, *, now_ns: int | None = None, after_s: float = PRUNE_AFTER_S
+    directory: Path, *, now_ns: int | None = None, after_s: float = _PRUNE_AFTER_S
 ) -> tuple[str, ...]:
     """Remove the grants in *directory* that ended more than *after_s* ago; the ids removed.
 
@@ -1900,19 +1951,17 @@ def prune_grants(
     return tuple(removed)
 
 
-def read_ledger(directory: Path, authorization: str) -> Ledger | None:
-    """The ledger of *authorization* in *directory*, or ``None`` when absent.
+def _ledgers_of(authorization: str, ledger_dirs: Iterable[Path]) -> Iterator[Ledger | None]:
+    """Each ledger of *authorization* in *ledger_dirs*, in order; ``None`` for an unreadable one.
 
-    For a surface that shows a holder's consumption (``osprey status``); the
-    same fail-closed reader the verdict uses.
-
-    Raises:
-        ValueError: The ledger is there and cannot be read.
+    A directory that is not there, and one without the ledger, are skipped.
     """
-    status, ledger = _read_ledger_at(_Place(Path(directory)), _authorization_id(authorization))
-    if status == "unreadable":
-        raise ValueError(f"The write ledger of {authorization} cannot be read")
-    return ledger
+    for directory in ledger_dirs:
+        if not os.path.isdir(directory):
+            continue
+        status, ledger = _read_ledger_at(_Place(Path(directory)), authorization)
+        if status != "absent":
+            yield ledger
 
 
 @dataclass(frozen=True)
@@ -1921,7 +1970,7 @@ class GrantStanding:
 
     Attributes:
         grant: The grant.
-        in_force: :func:`grant_in_force`, and the holder's ledger has not
+        in_force: :func:`_grant_in_force`, and the holder's ledger has not
             ended it: a grant whose lease lapsed or whose every step is spent
             refuses the next write, so it is not shown standing.
         used: The steps the ledger counts; ``0`` while there is no ledger yet,
@@ -1950,16 +1999,10 @@ def grant_standing(
     and ``osprey status`` — answers through this, so they agree.
     """
     now = _now_ns() if now_ns is None else now_ns
-    in_force = grant_in_force(grant, record, now_ns=now)
-    for directory in ledger_dirs:
-        if not os.path.isdir(directory):
-            continue
-        try:
-            ledger = read_ledger(directory, grant.id)
-        except ValueError:
-            return GrantStanding(grant, in_force, None, None)
+    in_force = _grant_in_force(grant, record, now_ns=now)
+    for ledger in _ledgers_of(grant.id, ledger_dirs):
         if ledger is None:
-            continue
+            return GrantStanding(grant, in_force, None, None)
         used = len(ledger.steps)
         ended = now >= ledger.lease_until_ns or used >= grant.steps
         return GrantStanding(grant, in_force and not ended, used, ledger)
@@ -1985,7 +2028,7 @@ def listed_grants(
             continue
         listed.add(os.path.normpath(directory))
         try:
-            found, broken = (self_issued_grants if self_issued else list_grants)(directory)
+            found, broken = (_self_issued_grants if self_issued else list_grants)(directory)
         except OSError:
             logger.warning("Could not list the authorizations in %s", directory, exc_info=True)
             unreadable.append(directory)
@@ -2032,7 +2075,7 @@ REQUESTS_DIR_NAME: Final = "requests"
 
 #: What a run does once its evaluations are done, each a write the budget pays
 #: for: nothing, the best point found, or the values it started from.
-COMPLETIONS: Final = ("none", "apply_best", "restore")
+_COMPLETIONS: Final = ("none", "apply_best", "restore")
 
 #: A request is a few hundred bytes plus one line per channel.
 _REQUEST_READ_LIMIT: Final = 1024 * 1024
@@ -2075,7 +2118,7 @@ class WriteRequest:
         expires_at_ns: When the authorization is to end whatever happens.
         lease_s: How long one renewal of the holder's lease lasts.
         label: The run, free text.
-        completion: Which completion the run will perform (:data:`COMPLETIONS`).
+        completion: Which completion the run will perform (:data:`_COMPLETIONS`).
     """
 
     id: str
@@ -2093,7 +2136,7 @@ class WriteRequest:
     def to_payload(self) -> dict[str, Any]:
         """This request as the JSON object its file holds."""
         return {
-            "schema": SCHEMA_VERSION,
+            "schema": _SCHEMA_VERSION,
             "id": self.id,
             "owner": self.owner,
             "holder": self.holder,
@@ -2128,21 +2171,22 @@ class WriteRequest:
         )
 
 
-def parse_request(raw: Any) -> WriteRequest:
+def _parse_request(raw: Any) -> WriteRequest:
     """A request out of its JSON text, bytes or decoded object.
 
-    The grant's strictness (:func:`parse_grant`): every field present with its
+    The grant's strictness (:func:`_parse_grant`): every field present with its
     type and nothing else, no repeated key, every bound a finite number with
     ``min <= max``, ``steps`` at least one, an expiry after the request, a
-    positive lease and a known completion.
+    positive lease and a known completion. As for a grant, the ceilings are
+    checked when a request is written (:func:`write_request`), not read.
 
     Raises:
         ValueError: The payload is not a request this version can read.
     """
     payload = _load_json(raw) if isinstance(raw, str | bytes | bytearray) else raw
     payload = _exact_keys(payload, _REQUEST_KEYS, "the request")
-    if payload["schema"] is not SCHEMA_VERSION:
-        raise ValueError(f"the request's schema is not {SCHEMA_VERSION}")
+    if payload["schema"] is not _SCHEMA_VERSION:
+        raise ValueError(f"the request's schema is not {_SCHEMA_VERSION}")
     requested = _integer(payload["requested_at_ns"], "requested_at_ns", 0)
     expires = _integer(payload["expires_at_ns"], "expires_at_ns", 0)
     if expires <= requested:
@@ -2150,19 +2194,20 @@ def parse_request(raw: Any) -> WriteRequest:
     lease_s = _finite(payload["lease_s"], "lease_s")
     if lease_s <= 0:
         raise ValueError("lease_s is not positive")
+    steps = _integer(payload["steps"], "steps", 1)
     label = payload["label"]
     if not isinstance(label, str):
         raise ValueError("label is not a string")
     completion = payload["completion"]
-    if completion not in COMPLETIONS:
-        raise ValueError(f"completion {completion!r} is not one of {COMPLETIONS}")
+    if completion not in _COMPLETIONS:
+        raise ValueError(f"completion {completion!r} is not one of {_COMPLETIONS}")
     return WriteRequest(
         id=_authorization_id(payload["id"]),
         owner=_name(payload["owner"], "owner"),
         holder=_name(payload["holder"], "holder"),
         target=_name(payload["target"], "target"),
         channels=_parse_channels(payload["channels"]),
-        steps=_integer(payload["steps"], "steps", 1),
+        steps=steps,
         requested_at_ns=requested,
         expires_at_ns=expires,
         lease_s=lease_s,
@@ -2198,7 +2243,7 @@ def read_request(path: Path) -> WriteRequest:
             another id.
     """
     path = Path(path)
-    request = parse_request(_read_no_follow(path, _REQUEST_READ_LIMIT).decode("utf-8"))
+    request = _parse_request(_read_no_follow(path, _REQUEST_READ_LIMIT).decode("utf-8"))
     if path.name != f"{request.id}{_GRANT_SUFFIX}":
         raise ValueError(f"{path.name} does not name the request it holds, {request.id}")
     return request
@@ -2257,7 +2302,8 @@ def write_request(
 
     Raises:
         ValueError: The channels, steps, expiry, lease or completion are
-            malformed.
+            malformed, or the steps, expiry or lease are past a ceiling
+            (:func:`_within_ceilings`); nothing is written.
         AuthorizationRefused: ``owner_unknown``; ``auth_unreadable`` for no
             usable ledger directory.
         OSError: The write failed.
@@ -2279,7 +2325,8 @@ def write_request(
         completion=completion,
     )
     payload = request.to_payload()
-    parse_request(json.dumps(payload))  # what is written must read back
+    _parse_request(json.dumps(payload))  # what is written must read back
+    _within_ceilings(request.steps, request.requested_at_ns, request.expires_at_ns, request.lease_s)
     place = _checked_ledger_place(request.id, create=True)
     directory = place.path / REQUESTS_DIR_NAME
     _prepare_directory(directory)
@@ -2308,7 +2355,7 @@ def withdraw_request(request_id: str) -> bool:
 # -- approval -------------------------------------------------------------------
 
 #: The surfaces a person approves from.
-APPROVAL_SURFACES: Final = ("chip", "cli")
+_APPROVAL_SURFACES: Final = ("chip", "cli")
 
 
 def approve_request(
@@ -2331,7 +2378,7 @@ def approve_request(
     keeps: the record, then the grants directory): the record is read — one
     that cannot be read refuses, one that is not there is created on the
     request's machine with every switch off, and one with no epoch is given
-    one — the grant is stamped with that epoch, and :func:`issue_grant` checks
+    one — the grant is stamped with that epoch, and :func:`_issue_grant` checks
     it against every grant in the directory and the self-issued ones in
     *peers* (default: :func:`self_issued_directories`) before writing. A stop of every machine
     moving the epoch after this ends the grant; a stop of this machine that
@@ -2353,7 +2400,8 @@ def approve_request(
         The grant written.
 
     Raises:
-        ValueError: *surface* is not an approval surface.
+        ValueError: *surface* is not an approval surface, or the grant is
+            past a ceiling (:func:`_within_ceilings`); nothing is written.
         AuthorizationRefused: ``record_unavailable`` for an unreadable record;
             ``auth_expired`` for a request whose expiry has passed;
             ``auth_overlap`` from the issue; ``owner_foreign``
@@ -2362,8 +2410,8 @@ def approve_request(
         RuntimeError: A lock was not acquired in time, or no record path resolves.
         OSError: A write failed.
     """
-    if surface not in APPROVAL_SURFACES:
-        raise ValueError(f"surface {surface!r} is not one of {APPROVAL_SURFACES}")
+    if surface not in _APPROVAL_SURFACES:
+        raise ValueError(f"surface {surface!r} is not one of {_APPROVAL_SURFACES}")
     identity = approver or acting_identity()
     if record_file is None:
         if request.owner != acting_identity():
@@ -2383,7 +2431,7 @@ def approve_request(
                 approver=Approver(identity=identity, surface=surface, at_ns=now),
                 issued_at_ns=now,
             )
-            issue_grant(
+            _issue_grant(
                 grant,
                 directory=directory,
                 peers=self_issued_directories() if peers is None else peers,

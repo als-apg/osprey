@@ -25,6 +25,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, lane_control_identity
+from osprey.deployment.compose_generator import resolve_upstream_images
 from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
@@ -160,6 +161,7 @@ def _render(
             "project_root": "/tmp/proj",
         },
         "osprey_images": _image_defaults("proj"),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_version": "2026.8.1",
         "system": {"timezone": "UTC"},
         "deployment": {},
@@ -864,6 +866,7 @@ def test_redis_image_honours_a_config_override() -> None:
                     "project_root": "/tmp/proj",
                 },
                 "osprey_images": _image_defaults("proj"),
+                "upstream_images": resolve_upstream_images({}),
                 "system": {"timezone": "UTC"},
                 "deployment": {},
                 "deployed_services": ["bluesky"],
@@ -899,7 +902,7 @@ def test_dockerfile_pins_the_queueserver_version() -> None:
     deliberately chosen pair, not whatever the transitive resolve produced."""
     dockerfile = (TEMPLATE_DIR / "bluesky" / "Dockerfile").read_text(encoding="utf-8")
     assert _dockerfile_queueserver_pin()
-    assert 'pip install "bluesky-queueserver==$BLUESKY_QUEUESERVER_VERSION"' in (dockerfile)
+    assert 'pip install $lock "bluesky-queueserver==$BLUESKY_QUEUESERVER_VERSION"' in (dockerfile)
 
 
 def test_dockerfile_queueserver_pin_matches_the_lockfile() -> None:
@@ -949,15 +952,17 @@ def _dockerfile_layers() -> tuple[str, str]:
 
 
 def test_deps_layer_pip_check_is_skipped_only_on_dev_builds() -> None:
-    """The deps-layer `pip check` still runs — for non-dev builds only.
+    """The deps-layer `pip check` still runs — skipped only on a dev build that
+    primed a released framework.
 
     Asserted as one literal rather than "a pip check appears somewhere": the
     failure mode this guards against is the check being deleted outright (the
     strict release-build gate silently gone) or the guard being widened to skip
-    it always.
+    it always. A source build's lock-driven path (``$lock`` set) primes no
+    release, so it has no mismatch to excuse and checks too.
     """
     deps, _wheel = _dockerfile_layers()
-    guarded = f'&& {{ [ "${_DEV_BUILD_ARG}" = "1" ] || pip check ; }}'
+    guarded = f'&& if [ "${_DEV_BUILD_ARG}" != "1" ] || [ -n "$lock" ]; then pip check ; fi'
     assert guarded in deps, (
         "the deps layer must still run `pip check`, guarded so ONLY dev builds "
         f"skip it; expected the literal {guarded!r}"
@@ -1010,6 +1015,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                     "project_root": "/tmp/proj",
                 },
                 "osprey_images": _image_defaults("proj"),
+                "upstream_images": resolve_upstream_images({}),
                 "system": {"timezone": "UTC"},
                 "deployment": {},
                 "deployed_services": ["bluesky"],
@@ -1036,6 +1042,7 @@ def test_dev_guard_keys_on_the_build_arg_the_compose_template_passes() -> None:
                     "project_root": "/tmp/proj",
                 },
                 "osprey_images": _image_defaults("proj"),
+                "upstream_images": resolve_upstream_images({}),
                 "system": {"timezone": "UTC"},
                 "deployment": {},
                 "deployed_services": ["bluesky"],

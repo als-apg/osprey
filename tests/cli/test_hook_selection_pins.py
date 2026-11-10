@@ -19,19 +19,18 @@ import pytest
 
 from osprey.cli.build_profile import _load_preset_raw, _resolve_extends, list_presets
 from osprey.cli.build_profile_merge import render_document
-from osprey.cli.build_profile_presets import list_apps, list_tiers
-from osprey.cli.profile_root import ProfileKind
+from osprey.cli.build_profile_presets import list_tiers
 
 #: The hooks that read write posture, spelled as a profile selects them.
 WRITE_GATES = ("approval", "writes-check")
 
-#: The root preset whose ``osprey init`` scaffolds the bundled tiers and apps.
-LAYER_HOST = "control-assistant"
+#: The root preset whose ``osprey init`` scaffolds the bundled logins.
+LAYER_HOST = "demo"
 
-#: Layer directory -> the kind its files render as.
-LAYER_KINDS = {"tiers": ProfileKind.TIER, "apps": ProfileKind.APP}
+#: The directory a bundled login lives in.
+LAYER_KINDS = ("tiers",)
 
-#: preset, tier or app name -> the write gates its RESOLVED hook list carries,
+#: preset or login name -> the write gates its RESOLVED hook list carries,
 #: sorted.
 #:
 #: Resolved rather than raw, deliberately: what matters is what a facility ends
@@ -39,38 +38,34 @@ LAYER_KINDS = {"tiers": ProfileKind.TIER, "apps": ProfileKind.APP}
 #: tier inherits its root's, so a raw file can name neither gate while its
 #: resolved list names both.
 PINNED_PRESET_WRITE_GATES: dict[str, tuple[str, ...]] = {
-    "control-assistant": ("approval", "writes-check"),
+    "demo": ("approval", "writes-check"),
     "hello-world": ("approval", "writes-check"),
     "tiers/admin": ("approval", "writes-check"),
     "tiers/readonly": ("approval", "writes-check"),
     "tiers/readwrite": ("approval", "writes-check"),
-    "apps/channel-finder": ("approval", "writes-check"),
-    "apps/knowledge": ("approval", "writes-check"),
-    "apps/logbook": ("approval", "writes-check"),
+    "tiers/channel-finder": ("approval", "writes-check"),
+    "tiers/knowledge": ("approval", "writes-check"),
+    "tiers/logbook": ("approval", "writes-check"),
 }
 
 
 def _bundled_names() -> list[str]:
-    """Every bundled root preset, then every tier and app as ``<kind>/<stem>``."""
-    return (
-        list_presets()
-        + [f"tiers/{name}" for name in list_tiers()]
-        + [f"apps/{name}" for name in list_apps()]
-    )
+    """Every bundled root preset, then every login as ``tiers/<stem>``."""
+    return list_presets() + [f"tiers/{name}" for name in list_tiers()]
 
 
 def _resolved_document(preset: str) -> dict:
     """The profile document a facility gets from ``preset``.
 
-    A root preset with ``extends`` applied; a tier or app as the render it
-    makes inside :data:`LAYER_HOST`.
+    A root preset with ``extends`` applied; a login as the render it makes
+    inside :data:`LAYER_HOST`.
     """
     raw, path = _load_preset_raw(preset)
     directory, _, _stem = preset.partition("/")
     if directory in LAYER_KINDS:
         host_raw, host_path = _load_preset_raw(LAYER_HOST)
         host = _resolve_extends(host_raw, host_path)
-        return render_document(LAYER_KINDS[directory], host, raw, f"{preset}.yml")
+        return render_document(host, raw, f"{preset}.yml")
     return _resolve_extends(raw, path)
 
 
@@ -115,6 +110,8 @@ _COMMON_HOOK_FILES = frozenset(
         "osprey_hook_log.py",
         "osprey_memory_guard.py",
         "osprey_panels_context.py",
+        "osprey_plan_mode.py",
+        "osprey_prompt_render.py",
         "osprey_safety_file.py",
         "osprey_target_state.py",
         "osprey_turn_state.py",
@@ -122,8 +119,8 @@ _COMMON_HOOK_FILES = frozenset(
     }
 )
 
-#: The hook files the full control-assistant tier renders.
-_CONTROL_ASSISTANT_HOOK_FILES = _COMMON_HOOK_FILES | {
+#: The hook files the full demo tier renders.
+_DEMO_HOOK_FILES = _COMMON_HOOK_FILES | {
     "osprey_cf_feedback_capture.py",
     "osprey_limits.py",
     "osprey_notebook_update.py",
@@ -133,16 +130,16 @@ _CONTROL_ASSISTANT_HOOK_FILES = _COMMON_HOOK_FILES | {
 #: preset, tier or app name -> the exact file set its render puts in
 #: ``.claude/hooks/``.
 PINNED_PRESET_HOOK_FILES: dict[str, frozenset[str]] = {
-    "control-assistant": _CONTROL_ASSISTANT_HOOK_FILES,
+    "demo": _DEMO_HOOK_FILES,
     "hello-world": _COMMON_HOOK_FILES | {"osprey_limits.py", "osprey_writes_check.py"},
-    "tiers/admin": _CONTROL_ASSISTANT_HOOK_FILES,
-    "tiers/readonly": _CONTROL_ASSISTANT_HOOK_FILES,
-    "tiers/readwrite": _CONTROL_ASSISTANT_HOOK_FILES,
-    # An app carries every guard its host selects (``limits`` among them),
-    # whatever its own list says.
-    "apps/channel-finder": _CONTROL_ASSISTANT_HOOK_FILES,
-    "apps/knowledge": _CONTROL_ASSISTANT_HOOK_FILES,
-    "apps/logbook": _CONTROL_ASSISTANT_HOOK_FILES - {"osprey_cf_feedback_capture.py"},
+    "tiers/admin": _DEMO_HOOK_FILES,
+    "tiers/readonly": _DEMO_HOOK_FILES,
+    "tiers/readwrite": _DEMO_HOOK_FILES,
+    # A `lists: own` login carries every guard its host selects (``limits``
+    # among them), whatever its own list says.
+    "tiers/channel-finder": _DEMO_HOOK_FILES,
+    "tiers/knowledge": _DEMO_HOOK_FILES,
+    "tiers/logbook": _DEMO_HOOK_FILES - {"osprey_cf_feedback_capture.py"},
 }
 
 
@@ -177,3 +174,56 @@ def test_every_bundled_preset_renders_its_pinned_hook_files(preset: str, tmp_pat
     hooks_dir = project / ".claude" / "hooks"
     rendered = {path.name for path in hooks_dir.iterdir() if path.is_file()}
     assert rendered == PINNED_PRESET_HOOK_FILES[preset]
+
+
+# ── The plan-mode rule ships and is wired with the approval hook ─────
+
+
+def _plan_mode_rules(settings: dict) -> list[dict]:
+    return [
+        rule
+        for rule in settings.get("hooks", {}).get("PreToolUse", [])
+        if any("osprey_plan_mode.py" in hook["command"] for hook in rule["hooks"])
+    ]
+
+
+def _render(tmp_path: Path, preset: str, drop: tuple[str, ...] = ()) -> Path:
+    from osprey.cli.build_profile_presets import _nearest_preset_value
+    from osprey.cli.templates.manager import TemplateManager
+    from osprey.cli.templates.manifest import load_template_manifest
+    from tests._preset_data import bundle_data_root
+
+    bundle = _nearest_preset_value(preset, "app_template")
+    selection = load_template_manifest(preset)
+    artifacts = {kind: list(names) for kind, names in selection["artifacts"].items()}
+    artifacts["hooks"] = [name for name in artifacts.get("hooks", []) if name not in drop]
+    return TemplateManager().create_project(
+        project_name="plan-mode",
+        output_dir=tmp_path,
+        data_bundle=bundle,
+        context={"channel_finder_mode": "hierarchical"},
+        artifacts=artifacts,
+        data_root=bundle_data_root(bundle),
+    )
+
+
+def test_a_render_selecting_approval_ships_and_wires_the_plan_mode_rule(tmp_path: Path):
+    import json
+
+    project = _render(tmp_path, "demo")
+    assert "approval" in _resolved_hooks("demo")
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    rules = _plan_mode_rules(settings)
+    assert (project / ".claude" / "hooks" / "osprey_plan_mode.py").is_file()
+    assert [rule["matcher"] for rule in rules] == ["mcp__.*"]
+
+
+def test_a_render_without_approval_has_neither_the_file_nor_the_rule(tmp_path: Path):
+    import json
+
+    project = _render(tmp_path, "demo", drop=("approval",))
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    assert not (project / ".claude" / "hooks" / "osprey_plan_mode.py").exists()
+    assert _plan_mode_rules(settings) == []

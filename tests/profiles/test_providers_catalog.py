@@ -20,8 +20,8 @@ from osprey.profiles.providers import (
 from osprey_connectors.errors import BuildProfileError
 
 # The providers the packaged catalog ships: the ten chat providers the
-# control-assistant app template carried under `api.providers`, the
-# embeddings-only llama-cpp, and openrouter. Frozen here so a dropped entry is a
+# demo app template carried under `api.providers`, the
+# embeddings-only llama-cpp, openrouter and vllm. Frozen here so a dropped entry is a
 # test failure, not a silently smaller catalog.
 EXPECTED_PROVIDERS = {
     "als-apg",
@@ -36,6 +36,7 @@ EXPECTED_PROVIDERS = {
     "openai",
     "openrouter",
     "stanford",
+    "vllm",
 }
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

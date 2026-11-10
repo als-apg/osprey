@@ -91,6 +91,34 @@ def chat_uploads_dir(config: dict, project_dir: Path) -> str:
     return _spellable(str(_resolved_agent_data_root(config, project_dir) / CHAT_UPLOADS_SUBDIR))
 
 
+def agent_output_read_globs(config: dict, project_dir: Path) -> list[str]:
+    """The absolute globs over the agent's own output that settings.json lets it Read.
+
+    The artifact store (``artifacts/``) and the executors' working folders
+    (``data/``, or ``sessions/<id>/data/`` for a session-scoped run), under the
+    agent-data root as the runtime resolves it. Absolute for the reason
+    :func:`chat_uploads_dir` is: the agent runs in ``build/``, the root sits beside
+    it. Never the root itself, which also holds the control-context store and the
+    dispatch worker's Claude config; a read there still raises a card.
+    """
+    root = _spellable(str(_resolved_agent_data_root(config, project_dir)))
+    return [f"{root}/artifacts/**", f"{root}/data/**", f"{root}/sessions/*/data/**"]
+
+
+def agent_output_edit_globs(config: dict, project_dir: Path) -> list[str]:
+    """The absolute globs settings.json lets the agent's file-editing tools write.
+
+    The artifact store (``artifacts/``) and the tree the Jupyter panel serves
+    (``notebooks/``), under the agent-data root spelled as
+    :func:`agent_output_read_globs` spells it, so the template names that root one
+    way. Claude Code checks every file-editing tool (``NotebookEdit`` included)
+    against ``Edit(path)`` rules, and the memory guard holds ``NotebookEdit`` to the
+    same two trees.
+    """
+    root = _spellable(str(_resolved_agent_data_root(config, project_dir)))
+    return [f"{root}/artifacts/**", f"{root}/notebooks/**"]
+
+
 def _resolved_agent_data_root(config: dict, project_dir: Path) -> Path:
     """The render's agent-data root as an absolute path, as the runtime resolves it.
 
@@ -403,6 +431,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
     facility_facts = read_facts(project_dir, config.get("project_name", project_dir.name))
     facility = _read_facility(project_dir)
     ariel_attachment_view = _ariel_attachment_view(config)
+    ariel_sql_tool = _ariel_sql_tool(config)
     return {
         # User-owned files: regen skips these, users edit in-place
         "user_owned": (config.get("scaffold", {}) or {}).get("user_owned", []),
@@ -415,16 +444,22 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
             for event in CLAUDE_CODE_HOOK_EVENTS
             if event in declared_hooks and event not in FRAMEWORK_WIRED_EVENTS
         ],
-        # The agent-data root the rendered artifacts must agree with.
-        # settings.json grants the agent Read access to its own artifacts
-        # through it, so a literal in that template would silently stop covering
-        # the directory the moment a project relocated `agent_data.base_dir` —
-        # and the agent would be refused the files it had just written.
+        # The agent-data root the rendered artifacts must agree with, as the
+        # config spells it (relative to the repo). The prose names the root
+        # through it; settings.json names it absolutely instead, through the
+        # agent_output_*_globs below, because the agent runs in the render and a
+        # relative rule would match nothing there.
         "agent_data_root": agent_data_base_dir(config),
         # Where the operator chat stores the files operators attach, as the absolute
         # path the agent reads them by; settings.json allows exactly that
         # directory (see chat_uploads_dir).
         "chat_uploads_dir": chat_uploads_dir(config, project_dir),
+        # The agent's own output it may Read, as absolute globs (see
+        # agent_output_read_globs).
+        "agent_output_read_globs": agent_output_read_globs(config, project_dir),
+        # The agent's own trees it may Edit, spelled like the Read globs (see
+        # agent_output_edit_globs).
+        "agent_output_edit_globs": agent_output_edit_globs(config, project_dir),
         # Write tools blocked by the writes kill switch (for hook_config.json)
         "control_system_write_tools": control_system.get("write_tools", []),
         # Write tools the kill switch stops short of gating on the session's
@@ -489,10 +524,17 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # attachment_view, and the logbook templates read it to leave the tool
         # and its viewing rules out of the rendered guidance.
         "ariel_attachment_view": ariel_attachment_view,
-        # The ARIEL read tools the control-assistant CLAUDE.md tells the main
+        # Whether the ARIEL server serves sql_query: false where the profile
+        # authors `ariel.database.uri` without `ariel.database.readonly_uri`.
+        # resolve_servers reads it to withhold the tool, and the logbook
+        # templates read it to leave the tool and its SQL guidance out.
+        "ariel_sql_tool": ariel_sql_tool,
+        # The ARIEL read tools the demo CLAUDE.md tells the main
         # agent never to call itself, from the static registry entry (never
         # create_server(), which has start-up side effects).
-        "ariel_read_tools": _ariel_read_tools(ariel_attachment_view),
+        "ariel_read_tools": _ariel_read_tools(
+            {"ariel_attachment_view": ariel_attachment_view, "ariel_sql_tool": ariel_sql_tool}
+        ),
         # The interactive deny floor settings.json.j2 renders into
         # permissions.deny. Sourced from DENY_DEFAULTS so the template, the
         # build lint and the read-only-floor drift test cannot fork.
@@ -522,6 +564,10 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # absent key renders as nothing at all — the same way hook_config.json
         # once shipped with an empty write-tool list and no error to say so.
         "mixed_read_write_tools": [],
+        # Every tool plan mode refuses, fully qualified. Derived from resolved
+        # servers by build_claude_code_context below; this empty default only
+        # guarantees the key is never absent, for the reason given above.
+        "plan_mode_denied_tools": [],
         # The render's facility (custom-server) write set, fully qualified: one
         # exact name per tool a declaring server gates, the whole-server
         # matcher for a server with no list. Like mixed_read_write_tools it
@@ -542,9 +588,80 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # renders it as `showThinkingSummaries`, true unless the deployment
         # sets `claude_code.thinking.display: omitted`.
         "show_thinking_summaries": _thinking_display(config) == "summarized",
+        # Each application tool's approval declaration, keyed by its full
+        # name, and the class and guidance of each application error type, for
+        # hook_config.json. Read from the rendered `apps.<name>` leaves, so
+        # every render path writes the same file.
+        "app_approvals": _app_approvals(config),
+        "app_error_types": _app_error_types(config),
         # The code-review hook's deadline — _build_framework_hook_rules renders it
         # as both the rule's timeout and the command's --deadline.
         "code_review_deadline_s": _code_review_deadline_s(config),
+        # `panel:<id>`, true for every panel block the render shows: the
+        # condition a `shown_when: panel` application server carries, merged
+        # before resolve_servers runs like the server gates above.
+        **_shown_panel_keys(config),
+    }
+
+
+#: The class of each error type an application's tool server emits, as
+#: ``<app>.<type>``; the guidance text comes from the application's manifest.
+APP_ERROR_CLASSES: dict[str, str] = {"unreachable": "Connection", "refused": "Safety"}
+
+
+def _app_blocks(config: Mapping[str, Any]) -> list[tuple[str, Mapping[str, Any]]]:
+    apps = config.get("apps")
+    if not isinstance(apps, Mapping):
+        return []
+    return [(str(name), block) for name, block in apps.items() if isinstance(block, Mapping)]
+
+
+def _app_approvals(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Every ``apps.<name>.approval.<tool>`` entry, keyed ``mcp__<name>__<tool>``.
+
+    Each entry gains ``app``, the application name its path names.
+    """
+    declared: dict[str, Any] = {}
+    for name, block in _app_blocks(config):
+        approval = block.get("approval")
+        if not isinstance(approval, Mapping):
+            continue
+        for tool, entry in approval.items():
+            if isinstance(entry, Mapping):
+                declared[f"mcp__{name}__{tool}"] = {"app": name, **entry}
+    return declared
+
+
+def _app_error_types(config: Mapping[str, Any]) -> dict[str, dict[str, str | None]]:
+    """``{"<app>.<type>": {class, text}}`` for every application with a tool server."""
+    types: dict[str, dict[str, str | None]] = {}
+    for name, block in _app_blocks(config):
+        tools = block.get("tools")
+        if not isinstance(tools, Mapping):
+            continue
+        errors = tools.get("errors")
+        for kind, error_class in APP_ERROR_CLASSES.items():
+            text = errors.get(kind) if isinstance(errors, Mapping) else None
+            types[f"{name}.{kind}"] = {
+                "class": error_class,
+                "text": text if isinstance(text, str) and text else None,
+            }
+    return types
+
+
+def _shown_panel_keys(config: Mapping[str, Any]) -> dict[str, bool]:
+    """``{"panel:<id>": True}`` for every ``web.panels`` block the render shows."""
+    from osprey.apps.projection import PANEL_CONDITION_PREFIX
+    from osprey.profiles.web_panels import panel_spec_enabled
+
+    web = config.get("web")
+    panels = web.get("panels") if isinstance(web, Mapping) else None
+    if not isinstance(panels, Mapping):
+        return {}
+    return {
+        f"{PANEL_CONDITION_PREFIX}{pid}": True
+        for pid, block in panels.items()
+        if panel_spec_enabled(block)
     }
 
 
@@ -700,6 +817,21 @@ def _ariel_attachment_view(config: dict) -> bool:
         raise BuildProfileError(str(exc)) from exc
 
 
+def _ariel_sql_tool(config: dict) -> bool:
+    """Whether the ARIEL server serves ``sql_query``; ``True`` with no ``ariel`` mapping.
+
+    The tool is served only through a SELECT-only login, so a profile that
+    authors ``ariel.database.uri`` without ``ariel.database.readonly_uri`` gets
+    no SQL tool.
+    """
+    ariel = config.get("ariel") or {}
+    if not isinstance(ariel, Mapping):
+        return True
+    from osprey.services.ariel_search.config import sql_tool_offered
+
+    return sql_tool_offered(ariel)
+
+
 #: The ARIEL tools the main agent calls itself rather than through a logbook
 #: subagent: the two introspection tools, and the two verbs that put an entry or
 #: picture the subagent found in front of the operator.
@@ -708,20 +840,18 @@ _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL = frozenset(
 )
 
 
-def _ariel_read_tools(view_enabled: bool) -> list[str]:
+def _ariel_read_tools(ctx: Mapping) -> list[str]:
     """The ARIEL read tools only the logbook subagents call, in registry order.
 
     Every ``permissions_allow`` tool of the ``ariel`` registry entry except
-    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL``, and except
-    ``attachment_view`` while the view is off (the server then does not offer
-    it).
+    those in ``_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL`` and the optional tools
+    ``ctx`` withholds (the server then does not offer them).
     """
     from osprey.registry.mcp import FRAMEWORK_SERVERS
 
-    excluded = set(_ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL)
-    if not view_enabled:
-        excluded.add("attachment_view")
-    return [t for t in FRAMEWORK_SERVERS["ariel"].permissions_allow if t not in excluded]
+    ariel = FRAMEWORK_SERVERS["ariel"]
+    excluded = _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL | ariel.withheld_optional_tools(ctx)
+    return [t for t in ariel.permissions_allow if t not in excluded]
 
 
 _CLAUDE_CODE_MIN_CLEANUP_DAYS = 30
@@ -1024,6 +1154,7 @@ def build_claude_code_context(
         facility_write_tools,
         governed_write_tools,
         mixed_read_write_tools,
+        plan_mode_denied_tools,
         resolve_agents,
         resolve_servers,
     )
@@ -1044,6 +1175,11 @@ def build_claude_code_context(
     # classification is a property of the tool, not of the current posture,
     # and its consumers are read at run time under either one.
     ctx["mixed_read_write_tools"] = mixed_read_write_tools(ctx["servers"])
+    # The tools plan mode refuses, from the same resolved servers and for the
+    # same reason; unconditional as well, since plan mode is not a posture.
+    ctx["plan_mode_denied_tools"] = plan_mode_denied_tools(
+        ctx["servers"], ctx.get("control_system_write_tools") or []
+    )
     # The facility write set, from its one producer, unconditionally for the
     # same reason: hook_config.json renders it verbatim, and both write-target
     # twins send exactly those tools to `live` under either posture.
@@ -1461,6 +1597,33 @@ def auto_register_user_owned(project_dir: Path, canonical_name: str):
     if not config_path.exists():
         return
     config_add_to_list(config_path, ["scaffold", "user_owned"], canonical_name)
+
+
+def _installed_hooks(selected: list[str]) -> list[str]:
+    """The hooks a render installs: the selection, then what its closure ships.
+
+    A selected hook ships with every ``hooks/`` row it requires, transitively
+    (the build catalog's closure). The short names of the rows that closure adds
+    follow the selection, sorted. Invariant: a hook that ships is wired, and one
+    that does not ship is not. A hook the configuration selects rather than the
+    profile (the watchdog trigger, in the selection exactly when a watchdog is
+    enabled — :func:`watchdog_hook_selection`) is part of ``selected`` and so of
+    the closure: it ships and is wired by the same rule.
+
+    Args:
+        selected: The render's hook selection, in short-name form: the profile's
+            ``hooks:`` list after :func:`watchdog_hook_selection`.
+    """
+    from osprey.agent_runner.build_artifacts.catalog import BuildArtifactCatalog
+
+    prefix = "hooks/"
+    closure = BuildArtifactCatalog.default().closure(prefix + name for name in selected)
+    added = sorted(
+        name[len(prefix) :]
+        for name in closure
+        if name.startswith(prefix) and name[len(prefix) :] not in selected
+    )
+    return [*selected, *added]
 
 
 def _build_framework_hook_rules(
@@ -2585,9 +2748,10 @@ def create_claude_code_integration(
     # root is guaranteed present regardless of which one called.
     apply_agent_data_root(ctx, project_dir)
 
-    # Build framework hook rules from selected hooks' frontmatter
+    # Build framework hook rules from the frontmatter of every hook the render
+    # installs: the selection and the hooks its closure ships with it.
     fw_pre, fw_post = _build_framework_hook_rules(
-        ctx.get("selected_hooks", []), ctx.get("code_review_deadline_s")
+        _installed_hooks(ctx.get("selected_hooks", [])), ctx.get("code_review_deadline_s")
     )
     ctx["framework_pre_hooks"] = fw_pre
     ctx["framework_post_hooks"] = fw_post

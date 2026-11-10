@@ -45,9 +45,25 @@ Profile YAML reference
      - *required*
      - Facility data tree, relative to the profile directory (``data`` in a
        materialized profile). It is the only source of the project's ``data/``
-       tree, so a profile that names none is refused. May resolve outside the
-       profile directory; only existence and shape are checked
-       (see :ref:`profile-self-contained`).
+       tree, so a profile that names none is refused. Must resolve inside the
+       repository; a path outside it is refused (see :ref:`profile-self-contained`).
+   * - ``machine``
+     - string
+     - ``None``
+     - The facility directory of a mounted machine repository, relative to the
+       profile directory (e.g. ``vendor/example-machine/data/facility``). The
+       machine facts then come from there, and the deployment's ``data/facility/``
+       keeps only ``knowledge/``, ``ariel/`` and ``benchmarks/``. Resolved and
+       folded into the profile hash like ``data``; only the root profile may
+       state it (see :doc:`/how-to/control-systems/machine-repository`).
+   * - ``extends``
+     - string
+     - ``None``
+     - A bundled preset name, or a path relative to this file, to inherit from.
+       The parent is deep-merged under this file, recursively; a cycle is
+       refused. A tier or app file may not spell it, and an override that would
+       give a materialized profile a parent is refused (see
+       :doc:`/how-to/build-profiles`).
    * - ``provider``
      - string
      - *required*
@@ -76,26 +92,44 @@ Profile YAML reference
        spellings on one command line is an error rather than a silent
        last-one-wins; a custom connector is still addressed by its dotted
        module path under ``config``.
+   * - ``port_base``
+     - integer
+     - absent
+     - Shorthand for ``config: {deployment.port_base: ...}``, the first port of
+       the deployment's thousand-port block (see :ref:`reference-ports`). It
+       must be an integer the port layout accepts. When ``config:`` also sets
+       ``deployment.port_base``, dotted or nested, even in a child profile,
+       this value wins without a warning.
    * - ``web_panels``
      - list
      - ``[]``
-     - Panel tabs the web workspace offers beside the terminal. A framework
+     - Panels the web workspace offers beside the terminal. A framework
        panel is named by its id; your own is a list entry plus its address
        under ``config:`` (``web.panels.<id>.url`` and its siblings).
    * - ``default_panel``
      - string
      - ``None``
-     - Panel id the web terminal opens on. Must be a built-in, an entry in
-       ``web_panels``, or a custom panel backed by a ``web.panels.<id>.url``
-       setting. Renders ``web.default_panel``.
+     - Panel id the web terminal opens on. Must be an entry in
+       ``web_panels``, a panel every render serves, or the panel of an
+       application the login shows. Renders ``web.default_panel``.
    * - ``panel_presets``
      - mapping
      - ``{}``
      - Named web-terminal layouts, as label to dock layout: a tile
-       ``{tabs: [<panel id>, ...], showing?, size?}`` or a split
-       ``{split: row|column, items: [...]}``, never naming the terminal. The
+       ``{tabs: [<panel id>], size?}`` or a split
+       ``{split: row|column, items: [...]}``, never naming the terminal. A tile
+       holds one panel, so ``showing`` may be omitted, and a tile naming several
+       fails the build. The
        ``label: [ids]`` list form fails the build with the layout to write.
        Renders ``web.presets``.
+   * - ``claude_md_template``
+     - string
+     - ``CLAUDE.md.j2``
+     - The bundled ``templates/claude_code/`` template rendered as the
+       project's ``CLAUDE.md``, for a preset that ships an alternate render. A
+       name that is not a bundled render is refused. The project copy is the
+       build's, so a hand-written ``CLAUDE.md`` in the ``project/`` mirror is
+       refused.
    * - ``config``
      - mapping
      - ``{}``
@@ -117,11 +151,28 @@ Profile YAML reference
    * - ``mcp_servers``
      - mapping
      - ``{}``
-     - MCP server definitions to inject.
+     - MCP server definitions to inject (see :ref:`profile-mcp-servers`).
    * - ``services``
      - mapping
      - ``{}``
      - Container services the deployment runs (see :ref:`profile-services`).
+   * - ``deploy_services``
+     - boolean
+     - ``true``
+     - ``false`` marks an attached project: one that uses a services stack
+       another OSPREY project on the same host deploys. Its service sections
+       are still parsed and validated, but the build scaffolds no
+       ``services/`` directory and writes no ``services.*`` blocks.
+   * - ``deploy``
+     - mapping
+     - absent
+     - Where the project is built, pushed and run: ``ci``, ``host``,
+       ``registry``, ``image_source`` and ``external_projects``.
+       ``osprey scaffold ci`` renders the CI files from
+       it. When the profile configures web terminals, the build also writes
+       its image source, and its registry URL when ``config:`` names none, into
+       the rendered config the web-terminal stack reads (see
+       :doc:`/how-to/deploy-a-facility`).
    * - ``virtual_accelerator``
      - mapping
      - absent
@@ -134,6 +185,64 @@ Profile YAML reference
      - Declares a stored archive for a simulated machine: a MongoDB store and a
        recorder the deploy stands up, seeds and records into
        (see :ref:`profile-va-archiver`).
+   * - ``dispatch``
+     - mapping
+     - absent
+     - Deploys the event dispatcher and its workers
+       (see :ref:`profile-dispatch-block`).
+   * - ``bluesky``
+     - mapping
+     - absent
+     - Deploys the Bluesky stack (see :ref:`profile-bluesky`).
+   * - ``bluesky_web``
+     - mapping
+     - absent
+     - Deploys the ``bluesky-web`` sidecar that serves the ``plan``,
+       ``results`` and ``health`` panels. Its one key, ``port``, defaults to
+       the port layout's ``bluesky_web`` slot (see :ref:`reference-ports`).
+   * - ``optimizer``
+     - mapping
+     - absent
+     - Deploys the optimizer service and its Redis job store
+       (see :ref:`profile-optimizer`).
+   * - ``nextcloud_bridge`` / ``gchat_bridge`` / ``teams_bridge`` / ``slack_bridge``
+     - mapping
+     - absent
+     - Deploys one chat bridge, which hands messages to the event dispatcher,
+       so it needs a ``dispatch:`` block. Keys: ``trigger``, a trigger the
+       ``dispatch.triggers`` file declares (default ``nextcloud-question``,
+       ``gchat-question``, ``teams-question`` or ``slack-question``), and
+       ``mentions`` (default ``true``). Credentials are runtime variables,
+       never profile keys (see :ref:`how-to-chat-bridges`).
+   * - ``artifact_server``
+     - mapping
+     - ``{}``
+     - Overrides merged into the rendered ``artifact_server`` block of
+       ``config.yml``: ``host``, ``port``, ``auto_launch`` and ``extension_types``
+       (see :ref:`config-artifact-server`).
+   * - ``agent_record``
+     - mapping
+     - embedded backend
+     - Where the deployment's agent record is kept, how long, and who reads it.
+       Written into the rendered ``config.yml`` under ``agent_record`` (see
+       :doc:`/how-to/health-and-monitoring/agent-record`).
+   * - ``watchdogs``
+     - mapping
+     - ``{}``
+     - The deployment's watchdogs, by name; each one's files live in
+       ``watchdogs/<name>/`` beside the profile
+       (see :ref:`profile-watchdogs-block`).
+   * - ``apps``
+     - mapping
+     - ``{}``
+     - The applications the deployment runs, by name; each one's files live in
+       ``apps/<name>/`` beside the profile (see :doc:`/how-to/apps/index`). In
+       a login file, which of them the login's card shows.
+   * - ``lists``
+     - string
+     - ``add``
+     - Login files only: ``add`` lays the login's lists over the deployment's,
+       ``own`` takes them from the file alone (see :doc:`/how-to/build-profiles`).
    * - ``lifecycle``
      - mapping
      - ``{}``
@@ -142,7 +251,7 @@ Profile YAML reference
    * - ``env``
      - mapping
      - ``{}``
-     - Variables the deployment needs: ``required``, ``defaults``, ``file``,
+     - Variables the deployment needs: ``required``, ``defaults``,
        ``pinned``. ``env.pinned`` lists variables ``.env.shared`` decides and a
        host may not override; a deploy refuses rather than start on a
        contradicting value (see :ref:`deployment-pinned-env`). Same name pattern
@@ -240,7 +349,7 @@ the framework reads and what it falls back to when no line spells it.
      approval.enabled: true
      approval.default_policy: always
 
-That is the shape ``osprey init --preset control-assistant`` writes, with the
+That is the shape ``osprey init --preset demo`` writes, with the
 timezone changed and a per-type limits block added. Pointing the same deployment at a real machine
 (``control_system.type: epics``) is a larger edit than the one line, because
 the ``va_archiver:`` block the preset ships records a machine the deployment
@@ -254,9 +363,9 @@ rendering it. The tier key needs no change: it is target-blind
    **Connector types whose name contains a dot** are the one place the flat form
    does not work. A custom connector is named by its module path, and the build
    splits only the *first* key of each ``config:`` entry on dots — so
-   ``control_system.connector.mypkg.MoatConnector.limits_checking.enabled``
+   ``control_system.connector.mypkg.SiteConnector.limits_checking.enabled``
    renders the type's module path as two nested keys, ``mypkg`` and
-   ``MoatConnector``, instead of the one key the connector is actually called.
+   ``SiteConnector``, instead of the one key the connector is actually called.
    ``osprey build`` and ``osprey validate`` refuse that entry by name rather
    than letting it render somewhere nothing reads. Write such a type as its own
    map key under a dotted prefix, which is the one spelling that puts the block
@@ -266,7 +375,7 @@ rendering it. The tier key needs no change: it is target-blind
 
       config:
         control_system.connector:
-          mypkg.MoatConnector:
+          mypkg.SiteConnector:
             limits_checking:
               enabled: true
               mode: exclusive
@@ -389,7 +498,8 @@ Three rules follow from the catalog being the one home for these facts:
   claims it. Entries you added are not compared. The comparison is with the
   catalog this OSPREY release ships, not with the hash under ``provenance:``.
   ``osprey init --revalidate`` keeps every value in the file and adds the
-  entries and keys OSPREY ships that it lacks.
+  entries and keys OSPREY ships that it lacks, except one such a comment
+  names as absent (``# DEVIATION: providers.openrouter: …``).
 
 .. _profile-posture-floor:
 
@@ -490,7 +600,7 @@ level. Such a profile is refused, naming that key and the verb that fixes it:
 .. code-block:: bash
 
    osprey init --revalidate                            # preset from provenance:
-   osprey init --revalidate --preset control-assistant # or name it
+   osprey init --revalidate --preset demo              # or name it
 
 It writes every key the preset documents and the profile lacks into the
 profile's own ``config:`` block, each under the comment the preset documents it
@@ -565,6 +675,74 @@ preserved for the container or shell to resolve at runtime.
 **Permission wiring:** for a server named ``my_server`` with
 ``allow: ["safe_tool"]``, the build adds ``mcp__my_server__safe_tool`` to the
 allow list.
+
+Each entry under ``mcp_servers:`` takes these keys:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 12 70
+
+   * - Key
+     - Default
+     - Meaning
+   * - ``command``
+     - ``""``
+     - The executable that launches a stdio server. Excludes ``url`` and
+       ``port``; a server needs ``command`` or ``url`` (or ``port``).
+   * - ``args``
+     - ``[]``
+     - Arguments passed to ``command``.
+   * - ``env``
+     - ``{}``
+     - For a ``command`` server, variables set in the server's environment.
+       The placeholders above resolve in the values.
+   * - ``permissions``
+     - ``{}``
+     - ``allow`` and ``ask`` lists of the server's tool names. The build adds
+       ``mcp__<server>__<tool>`` to the matching permission list.
+   * - ``url``
+     - absent
+     - The address of a remote server. Excludes ``command``.
+   * - ``transport``
+     - ``http``
+     - ``http`` or ``sse``, for a ``url`` server only. A ``command`` server that
+       sets it is refused.
+   * - ``port``
+     - absent
+     - The one port an HTTP server publishes, an integer in 1--65535. With no
+       ``url``, it derives ``http://localhost:<port>/mcp``. Excludes
+       ``command``, and cannot stand in for an ``sse`` server's ``url``.
+   * - ``hooks``
+     - ``{}``
+     - ``{pre_tool_use: [<preset>, ...]}``: hook presets (``approval``,
+       ``writes_check``, ``limits``) attached to every tool of the server.
+       ``pre_tool_use`` is the only event; any other is refused, as is a value
+       that is not a list of names. An unknown preset name, and
+       ``writes_check`` on a whole server (declare ``writes`` instead), are
+       read with a warning that names the release that refuses them.
+   * - ``writes``
+     - absent
+     - The server's write tools, as bare names: no ``mcp__`` prefix, no
+       wildcard or pattern, each listed once. The build gates each one with the
+       writes-check and approval hooks. An unlisted tool is gated the same way
+       when it is in ``permissions.ask``, or in ``permissions.allow`` with a
+       destructive marker in its name. ``[]`` declares that no tool writes;
+       absent leaves gating to the server's ``hooks`` and ``permissions``.
+       A list beside the ``writes_check`` preset is refused. The build never
+       asks the server for its tool list, so a name it does not serve is not
+       caught.
+   * - ``condition``
+     - absent
+     - A render-context key that must be truthy for the server to render. A
+       server an application projects with ``shown_when: panel`` carries
+       ``panel:<panel id>``.
+   * - ``app``
+     - absent
+     - The application the server is projected for, by name (``[a-z0-9-]+``);
+       absent for any other server.
+
+A key the entry does not define is ignored with a warning that names the release
+from which it is refused.
 
 Shipping the server's code
 --------------------------
@@ -727,7 +905,7 @@ the requirement is "this tier can never move anything".
    keep the approval prompt, and strip that prompt away. ``deny`` is
    subtractable per tier, which is the direction a floor has to work in.
 
-   The bundled ``control-assistant`` preset is built exactly this way: its
+   The bundled ``demo`` preset is built exactly this way: its
    base denies the agent's own deployment-editing tool, and the ``admin``
    tier is the single delta that removes that deny. Writing the floor is
    not only a convention. A web terminal served without a login by a tier
@@ -757,9 +935,11 @@ alongside OSPREY's built-in ones.
          port: 8108
          api_key: "${TYPESENSE_API_KEY}"
 
-The ``template`` directory must contain at least ``docker-compose.yml.j2``. It is
-copied into the project's ``services/`` tree, and the service is registered in
-``config.yml``. Optional ``config`` values land under ``services.<name>``.
+The ``template`` directory must contain at least ``docker-compose.yml.j2``. A
+profile-relative template must resolve inside the repository (one outside is
+refused, see :ref:`profile-self-contained`), and its contents are folded into the
+profile hash. It is copied into the project's ``services/`` tree, and the
+service is registered in ``config.yml``. Optional ``config`` values land under ``services.<name>``.
 
 A service directory placed in the profile's ``services/`` convention directory is
 carried across the same way and marked as yours — that is what
@@ -916,7 +1096,7 @@ profile ships no channel-database inputs. What it does need is a
 comes in.
 
 A deployment that runs its own store already has one.
-``osprey init --preset control-assistant`` writes the ``services.graphdb.*``
+``osprey init --preset demo`` writes the ``services.graphdb.*``
 keys and the ``graphdb`` entry in ``deployed_services`` into the profile's
 ``config:`` block, and ``osprey up`` starts, bootstraps and seeds it — see
 :doc:`/how-to/deploy-project/index`. That profile reads, in outline:
@@ -976,7 +1156,7 @@ answers, see :doc:`/how-to/use-channel-finder`; for the corpus behind them,
 :doc:`/how-to/facility-knowledge/use-facility-graph`.
 
 The qmd sidecar behind hybrid logbook search is guarded the same way. The
-``control-assistant`` preset switches
+``demo`` preset switches
 ``ariel.search_modules.hybrid`` on and deploys the ``services.qmd`` sidecar that
 answers it, but an attached project renders ``services: {}`` — so on its own it
 would keep the mode with nothing behind it, and every logbook query would fail
@@ -992,9 +1172,9 @@ An attached project rarely has to say anything, because **the build tells it
 where the host's services are**. Every client-facing fact — the sidecar's port,
 the graph store's bolt port, the Postgres the logbook lives in, the Bluesky
 bridge, the EVENTS and BLUESKY tab URLs — is copied
-from the hosting deployment's own render into each tier and app built beside
+from the hosting deployment's own render into each login built beside
 it, so a service moved on the hosting profile moves every render with it, and
-the bundled tier and app files pin none of them. A tier or app that spells one
+the bundled login files pin none of them. A login that spells one
 of these keys with a *different* value is refused — the two copies would dial
 different places, and the build names both. (A tier inherits the hosting
 profile's ``config:`` keys, so a port moved there is spelled in every tier as
@@ -1295,9 +1475,10 @@ Lifecycle commands
 
 Lifecycle commands run shell commands at three phases of the build:
 
-- **pre_build** — before rendering (cwd: profile directory)
-- **post_build** — after git init (cwd: project directory)
-- **validate** — advisory checks that warn but don't abort (cwd: project directory)
+- **pre_build** — before the project venv exists (cwd: the repository root)
+- **post_build** — after the render, on the project venv (cwd: the built project)
+- **validate** — advisory checks that warn but don't abort, on the project venv
+  (cwd: the built project)
 
 .. code-block:: yaml
 
@@ -1316,9 +1497,15 @@ Each step requires ``name`` and ``run``. Optional: ``cwd`` (relative to the phas
 default), ``timeout`` (seconds, default 120), and ``stream`` (print output live;
 also available for all steps via ``--stream``).
 
-``{project_root}`` is replaced with the built project's absolute path. The
-project venv's ``bin/`` is prepended to ``PATH``, so ``python`` and ``pytest``
-resolve to the project's own Python.
+``{project_root}`` is replaced with the built project's absolute path.
+
+In ``post_build`` and ``validate`` the project venv's ``bin/`` leads ``PATH``, so
+``python`` and ``pytest`` resolve to the project's own Python. ``pre_build`` runs
+before that venv exists, and under ``--skip-deps`` no step gets one: those steps
+see the shell's ``PATH``.
+
+``post_build`` and ``validate`` steps see the repository's env chain, ``.env``
+over ``.env.shared``, secrets in ``.env`` included; so do ``pre_build`` steps.
 
 A step that writes JUnit XML to ``{project_root}/check_results.xml`` has its
 tests printed as an **Integration Test Results** table when it finishes: each
@@ -1365,7 +1552,7 @@ the profile starts with them in force. Seeding is append-only: a value already
 in the file — set by the operator, or minted by a deploy — always wins, and
 later ``init`` runs never rewrite one. Declare a default only for a value the
 profile's author can honestly choose for every deployment (the
-``control-assistant`` preset's demo login passwords, say); values a *site*
+``demo`` preset's login passwords, say); values a *site*
 should share across hosts belong in ``.env.shared``, which is committed with
 the repository and read by every host (see :ref:`deployment-env-chain`).
 
@@ -1390,7 +1577,8 @@ installed into the project venv and recorded in its generated ``pyproject.toml``
    uv sync               # rebuilds it from pyproject.toml
 
 Builds run with ``--skip-deps`` create no environment and no ``pyproject.toml``;
-install dependencies yourself in that mode.
+install dependencies yourself in that mode. The generated Dockerfile still
+installs every declared requirement.
 
 .. _profile-environment:
 
@@ -1453,6 +1641,8 @@ message, along with the ``inherit_exclude`` block that clears all of them.
 
 
 
+
+.. _profile-bluesky:
 
 bluesky
 =======
@@ -1528,13 +1718,15 @@ Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for
 what the stack looks like when it is up.
 
+.. _profile-optimizer:
+
 optimizer
 =========
 
 The ``optimizer:`` section deploys the optimizer service, which tunes machine
 variables against an objective with Bayesian optimization (Xopt), and the Redis
 store that keeps its jobs. The block's presence is the switch. It accepts
-exactly three keys; a misspelled or unknown key **fails the build** and prints
+exactly two keys; a misspelled or unknown key **fails the build** and prints
 the valid set:
 
 .. list-table::
@@ -1546,12 +1738,6 @@ the valid set:
    * - ``port``
      - The service's port. Defaults to its slot in the port layout, ``10082``
        at the default base (:ref:`reference-ports`).
-   * - ``targets``
-     - The control targets the optimizer may drive (default ``[va]``): ``va``,
-       ``standin``, or both. A run naming any other target is refused. The
-       ``live`` machine is **refused at build time** until the optimizer
-       supports it. Each target also needs its connector block in the
-       project's ``control_system:`` section.
    * - ``environments_dir``
      - A directory of optimizer environment files (YAML), mounted read-only
        into the service. Unset, only installed environment plugins are
@@ -1565,8 +1751,19 @@ that started it: ``POST /jobs/{id}/start`` reads that login from the
 staged ``login_tiers`` map). A run started with no owner has every write
 refused. The routes that move hardware are guarded by
 ``OPTIMIZER_LAUNCH_TOKEN``, which ``osprey up`` mints into the project ``.env``;
-the token says a caller may start a run, not whose run it is. The image is built locally on the first
+the token says a caller may start a run, not whose run it is. Drafts are not
+guarded: creating one (``POST /optimizations``), editing it (``PUT
+/jobs/{id}/config``) and selecting it (``PUT /jobs/current``) need no token. A
+draft write reads the target's setpoints and writes nothing to the machine.
+``GET /jobs/{id}/config`` returns the draft's revision in its
+``X-Config-Revision`` header, and ``POST /jobs/{id}/start`` must name it
+(``?config_revision=``): when the draft changed since it was shown, the start
+answers ``409`` rather than run. The image is built locally on the first
 ``osprey up``; set ``OSPREY_OPTIMIZER_IMAGE`` to run a published one.
+
+The agent reaches the service through the ``optimizer`` MCP server
+(:doc:`/architecture/mcp-servers`), switched on by
+``claude_code.servers.optimizer.enabled: true`` under ``config:``.
 
 A run writes only under one **write authorization** (:ref:`how-to-write-from-a-program`),
 never under the owner's switch alone, so the switch can stay off for the whole
@@ -1577,15 +1774,18 @@ run and turning it on does not widen the run:
   limits database; a step per evaluation (``n_initial + n_iterations``,
   each evaluation one write call) plus one for the completion write when
   ``on_complete`` is ``apply_best`` (the default) or ``restore``, none for
-  ``hold``; an eight-hour expiry (``OPTIMIZER_AUTHORIZATION_EXPIRES_S``) and a
-  lease the run renews every 20 seconds. An evaluation whose objective is
-  re-measured only reads it again: it writes once and spends one step.
+  ``hold``; an eight-hour expiry (``OPTIMIZER_AUTHORIZATION_EXPIRES_S``, held
+  just under 24 hours) and a lease the run renews every 20 seconds. An
+  evaluation whose objective is re-measured only reads it again: it writes
+  once and spends one step.
 * **How it gets it.** While the owner's switch for the machine stands at
   *allowed*, the run writes its own. Otherwise it writes a request, its job's
   ``write_authorization.state`` reads ``awaiting``, and the owner approves it
   from the chip or with ``osprey write-authorization approve``. A request that
   waits longer than 15 minutes (``OPTIMIZER_AUTHORIZATION_WAIT_S``) ends the
-  run ``authorization_timeout``; a cancel while it waits withdraws it.
+  run ``authorization_timeout``; a cancel while it waits withdraws it. A run
+  that needs more than 100000 steps ends ``authorization_too_many_steps``
+  before it writes or asks for anything.
 * **How it ends.** A run whose authorization is spent (``auth_exhausted``),
   stopped (``auth_revoked``), expired, lapsed (``auth_lease_lapsed``) or
   written outside (``auth_range``, ``auth_channel``) ends with that reason in
@@ -1593,6 +1793,11 @@ run and turning it on does not widen the run:
   saved, and writes nothing more. Nothing asks again. A cancelled or failed run
   writes nothing either: restoring its starting setpoints is the operator's
   call. A run that issued its own grant marks it revoked when it is done.
+  One a person approved stands until its expiry, but once the run stops
+  renewing its lease — it finished, failed or crashed — it no longer blocks
+  an approval of another program on its channels, about two minutes later,
+  when the approver can see the run's ledger; with none in sight it blocks
+  until it expires. A paused run still renews, so it still blocks.
 
 The results restore (``POST /results/{env}/{timestamp}/restore``, after its
 preview), ``PUT /environments/{name}/variables`` and ``POST
@@ -1614,6 +1819,13 @@ What these rules do not cover:
 * **The owner header is trusted.** ``X-Osprey-Owner`` is taken as given from
   any caller holding the launch token: a token holder can start runs, and
   make manual writes while that login's switch is at *allowed*, as any login.
+  While the switch is at *allowed* a run issues its own write authorization,
+  so the person who clicks Start is the only reviewer of its plan.
+* **Drafts are open to any caller.** Any caller that can reach the service can
+  edit any draft or move the current-job pointer. The revision protects a start
+  only if the token-holding panel or relay forwards the revision it displayed.
+  For a plugin environment, preparing a draft constructs the plugin with the
+  caller's ``environment_config``.
 * **The single-job slot needs Redis.** During a Redis outage longer than the
   slot's lease (about a minute) while a worker is writing, the slot can lapse
   and a second job can start.
@@ -1633,5 +1845,4 @@ there; every write is then refused ``auth_unreadable``.
 .. code-block:: yaml
 
    optimizer:
-     targets: [va, standin]
      environments_dir: optimizer/environments

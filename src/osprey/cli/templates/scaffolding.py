@@ -1,11 +1,18 @@
 """Project creation helpers: directory structure, services, data files."""
 
+from __future__ import annotations
+
 import logging
 import shutil
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 from osprey.cli.templates._rendering import render_template
 from osprey.cli.templates.preset_data import FACILITY_DATA_DIRNAME
+from osprey.facility.roots import is_vcs_metadata
+
+if TYPE_CHECKING:
+    from osprey.facility.roots import FacilityRoots
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -44,6 +51,17 @@ def _default_cli_version(ctx: dict) -> None:
     else:
         version = pinned_cli_version(ctx.get("claude_code") or {})
     ctx["claude_code_cli_version"] = version or _DEFAULT_CLAUDE_CLI_VERSION
+
+
+def _default_image_facts(ctx: dict) -> None:
+    """Expose the image facts to Dockerfile.j2's ``FROM``: the Python every image
+    is built from (:data:`~osprey.deployment.image_facts.IMAGE_PYTHON`, the one
+    the wheel fit check judges against) and the platform ``images.platform``
+    states, empty when it states none."""
+    from osprey.deployment.image_facts import IMAGE_PYTHON
+
+    ctx["image_python"] = f"{IMAGE_PYTHON[0]}.{IMAGE_PYTHON[1]}"
+    ctx.setdefault("image_platform", "")
 
 
 def project_template_for(template_root: Path, template_file: str) -> str | None:
@@ -153,7 +171,7 @@ def provider_base_url_entries() -> list[dict[str, str]]:
 
 
 # Human-readable blurbs for the deploy-minted variables, keyed by var name.
-# Prose only: the *list* of variables comes from ``_SERVICE_TOKEN_VARS``, so a
+# Prose only: the *list* of variables comes from ``service_token_vars``, so a
 # newly minted var still reaches ``.env.example`` (named by the services that
 # declare it) even with no entry here. Nothing silently drops out.
 _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
@@ -195,21 +213,23 @@ _SERVICE_TOKEN_VAR_NOTES: dict[str, str] = {
 
 
 def service_token_var_entries() -> list[dict[str, str]]:
-    """Every variable ``osprey up`` mints, for env-file templates.
+    """Every variable ``osprey up`` mints whatever the deployment, for env-file templates.
 
-    Derived from :data:`osprey.deployment.container_lifecycle._SERVICE_TOKEN_VARS`
+    Derived from :func:`osprey.deployment.container_lifecycle.service_token_vars`
     — the map the deploy path actually mints from — so the documented set
     cannot fall behind the minted set. A variable declared by more than one
-    service (``EVENT_DISPATCHER_TOKEN``) appears once, naming both.
+    service (``EVENT_DISPATCHER_TOKEN``) appears once, naming both. An
+    application's launch token is not here: the scaffold is rendered before any
+    application exists.
 
     Returns:
         Ordered list of ``{"var": <ENV_VAR>, "services": "<a, b>", "note":
         <blurb or "">}`` dicts, in declaration order.
     """
-    from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
+    from osprey.deployment.container_lifecycle import service_token_vars
 
     services_by_var: dict[str, list[str]] = {}
-    for service, token_vars in _SERVICE_TOKEN_VARS.items():
+    for service, token_vars in service_token_vars({}).items():
         for var in token_vars:
             services_by_var.setdefault(var, []).append(service)
 
@@ -256,13 +276,15 @@ def create_project_structure(
     project_template_dir = template_root / "project"
 
     _default_cli_version(ctx)
+    _default_image_facts(ctx)
 
     # Render template files (no pyproject.toml or requirements.txt -- no src/ package)
     files_to_render = [
         (CONFIG_TEMPLATE, "config.yml"),
         ("env.example.j2", ".env.example"),
         ("README.md.j2", "README.md"),
-        # Reference container image — rendered once at build; regen never touches it
+        # Reference container image — rendered into the render on every build;
+        # regenerate_claude_code never touches it
         ("Dockerfile.j2", "Dockerfile"),
     ]
 
@@ -366,6 +388,7 @@ def copy_template_data(
     ctx: dict,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
     jinja_env=None,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
     data_root: Path | None = None,
+    facility_roots: FacilityRoots | None = None,
 ):
     """Copy the profile's data tree to the project root (no src/ package).
 
@@ -386,7 +409,17 @@ def copy_template_data(
             ``data:`` key), required. Symlinks inside the tree are
             dereferenced into real files: a built project is self-contained
             and must not depend on paths under the profile directory
-            surviving.
+            surviving. Version-control metadata (``.git``) is never copied,
+            at any depth.
+        facility_roots: The deployment's resolved facility roots. When
+            mounted, every machine entry of the machine root
+            (:func:`~osprey.facility.roots.is_machine_entry`) is copied into
+            ``data/facility`` after the data tree, so the render carries one
+            facility tree: the machine's facts beside the deployment's own
+            ``knowledge/``, ``ariel/`` and ``benchmarks/``. The two never
+            collide, because the build stops on a deployment file that
+            restates a machine fact. ``None`` or a single tree copies nothing
+            more.
 
     Raises:
         ValueError: If ``data_root`` is None. Every profile declares ``data:``
@@ -423,19 +456,54 @@ def copy_template_data(
         # The benchmark query sources reach a render only through the
         # benchmarks view, so their subtree is not copied, nor a
         # facility/benchmarks/ that holds nothing else.
+        # A `.git` entry (a clone's directory, a submodule's pointer file) is
+        # version control at any depth, never data.
+        vcs = {name for name in names if is_vcs_metadata(PurePosixPath(name))}
         here = Path(directory)
         if here == root:
-            return {RUNTIME_DATA_DIR_NAME, "raw"} & set(names)
+            return vcs | ({RUNTIME_DATA_DIR_NAME, "raw"} & set(names))
         if (
             here == benchmarks.parent
             and "benchmarks" in names
             and {entry.name for entry in benchmarks.iterdir()} <= {"cross_paradigm"}
         ):
-            return {"benchmarks"}
+            return vcs | {"benchmarks"}
         if here == benchmarks and "cross_paradigm" in names:
-            return {"cross_paradigm"}
-        return set()
+            return vcs | {"cross_paradigm"}
+        return vcs
 
     # dirs_exist_ok is defensive — no build path reaches here with data/ present.
     shutil.copytree(data_root, dst_data, dirs_exist_ok=True, ignore=_skip_unrendered)
     logger.debug("Copied profile data files from %s to %s", data_root, dst_data)
+
+    if facility_roots is not None and facility_roots.mounted:
+        copy_machine_tree(facility_roots, dst_data / FACILITY_DATA_DIRNAME)
+
+
+def copy_machine_tree(roots: FacilityRoots, dst_facility: Path) -> None:
+    """Copy a mounted machine root's facts into a render's ``data/facility``.
+
+    The runtime reads one facility tree, ``data/facility``: the knowledge
+    mounts, the ARIEL vocabulary and the agent rules naming
+    ``data/facility/identity.yaml`` and ``limits.yaml`` all expect it. A
+    mounted deployment's tree is therefore assembled in the render: its own
+    content is already there from the data copy, and the machine's facts land
+    beside it. Only :func:`~osprey.facility.roots.is_machine_entry` entries are
+    copied, so the machine repository's ``.git`` and its own copies of the
+    deployment content directories stay out. Symlinks are dereferenced, as for
+    the data tree.
+
+    Args:
+        roots: The deployment's resolved, mounted facility roots.
+        dst_facility: The render's ``data/facility`` directory.
+    """
+    from osprey.facility.roots import is_machine_entry
+
+    machine = roots.machine
+
+    def _skip_non_machine(directory: str, names: list[str]) -> set[str]:
+        rel = Path(directory).relative_to(machine)
+        return {name for name in names if not is_machine_entry(roots, PurePosixPath(rel, name))}
+
+    shutil.copytree(machine, dst_facility, dirs_exist_ok=True, ignore=_skip_non_machine)
+    logger.debug("Copied the machine root %s to %s", machine, dst_facility)

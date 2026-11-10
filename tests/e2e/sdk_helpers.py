@@ -21,6 +21,7 @@ carries one handle. A repo has three zones the helpers resolve internally:
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 import json
 import math
@@ -44,7 +45,8 @@ from osprey_connectors.identity import acting_identity
 from osprey_connectors.simulation.view import SimulatorView
 from osprey_connectors.types import WRITES_KEY, baseline_target
 from osprey_connectors_tests._harness import ci_diagnostics
-from tests.e2e.profile_edits import set_pairs
+from tests.e2e import refusals
+from tests.e2e.profile_edits import e2e_scenario_pin, set_pairs
 from tests.e2e.provider import build_model, build_provider
 
 # SDK imports — skip entire module if not installed
@@ -320,6 +322,11 @@ def _assert_render_names_ariel_db(render: Path) -> None:
 #: kernel hands out from 32768.
 E2E_PORT_BASE = 25000
 
+#: Names the block for a whole run, in place of the worker's. The benchmark matrix
+#: sets it per cell: its cells are separate pytest runs, each worker 0, so without it
+#: concurrent cells share one block and one artifact gallery.
+PORT_BASE_ENV = "OSPREY_E2E_PORT_BASE"
+
 
 def e2e_port_base() -> int:
     """The ``deployment.port_base`` for a project built by this xdist worker.
@@ -330,14 +337,27 @@ def e2e_port_base() -> int:
     gallery port: whichever binds first owns it, and a test on the other
     worker then reaches a gallery holding a different stack's bearer token
     and is answered 401 (#823). One block per worker ends the sharing.
+
+    ``OSPREY_E2E_PORT_BASE`` names one block for a whole single-worker run: a
+    benchmark cell's, beside other cells' blocks. A worker past the first would
+    take the next cell's block, so that combination is refused.
     """
+    named = os.environ.get(PORT_BASE_ENV)
+    if named:
+        if ci_diagnostics.worker_index():
+            raise RuntimeError(
+                f"{PORT_BASE_ENV}={named} names one block for a single-worker run; "
+                "under pytest-xdist each worker past the first would take another "
+                "cell's block"
+            )
+        return int(named)
     return E2E_PORT_BASE + BLOCK_SIZE * ci_diagnostics.worker_index()
 
 
 def init_project(
     tmp_path: Path,
     name: str,
-    template: str = "control_assistant",
+    template: str = "demo",
     *,
     provider: str,
     model: str | None = None,
@@ -362,7 +382,7 @@ def init_project(
     ``git init`` is pure latency here.
 
     ``connector`` is pinned to the simulator served in process rather than
-    inherited from the preset: the control-assistant preset baselines on its
+    inherited from the preset: the demo preset baselines on its
     live stand-in, a deployed soft IOC that has to answer Channel Access — this
     harness runs projects without their containers, so the preset's production
     default would turn every channel read/write into a connection timeout.
@@ -381,7 +401,7 @@ def init_project(
     that want recorded history deploy a store of their own.
 
     ``virtual_accelerator.live_standin`` is nulled as the third of those pins,
-    for presets that declare a virtual accelerator at all. The control-assistant
+    for presets that declare a virtual accelerator at all. The demo
     preset ships a live stand-in on, which is a second VA container this
     harness never starts — and, before any read of it times out, the build
     derives the posture that container is meant to be met with: the ``epics``
@@ -450,6 +470,7 @@ def init_project(
         "--preset",
         template.replace("_", "-"),
         "--no-git",
+        *e2e_scenario_pin(template.replace("_", "-")),
         "--set",
         f"provider={provider}",
         "--set",
@@ -1264,14 +1285,99 @@ def _tool_events(nodes: list[dict], session_id: str, *, agent_id: str | None) ->
 # ---------------------------------------------------------------------------
 
 
-def _log_query_timing(workflow: SDKWorkflowResult) -> None:
+def _transcript_time(stamp: Any) -> float | None:
+    """Seconds since the epoch for a transcript entry's ISO ``timestamp``."""
+    if not isinstance(stamp, str):
+        return None
+    try:
+        return datetime.fromisoformat(stamp).timestamp()
+    except ValueError:
+        return None
+
+
+def model_wait(transcripts: list[list[dict[str, Any]]]) -> tuple[int, int] | None:
+    """(ms the session spent waiting on the model, ms the session spanned).
+
+    ``transcripts`` is the main session's transcript entries first, then each
+    subagent's, each in file order. One model request is the run of
+    ``assistant`` entries sharing a ``requestId`` or, behind a gateway that sends
+    none, a message id: it starts at the timestamp of
+    the entry written just before its first assistant entry (the prompt, a tool
+    result, or the CLI's own record of the request) and ends at its last one.
+    The wait is the UNION of those intervals across every transcript, clipped
+    to the main session's span. A sum would count concurrent requests — a
+    subagent's beside the main agent's — twice, which is how the SDK's
+    ``duration_api_ms`` comes to exceed the query's wall time. None when the
+    main transcript carries no timestamps.
+    """
+    if not transcripts:
+        return None
+    main = [t for e in transcripts[0] if (t := _transcript_time(e.get("timestamp"))) is not None]
+    if not main:
+        return None
+    lo, hi = min(main), max(main)
+    intervals: list[tuple[float, float]] = []
+    for entries in transcripts:
+        previous: float | None = None
+        open_requests: dict[str, list[float]] = {}
+        for entry in entries:
+            stamp = _transcript_time(entry.get("timestamp"))
+            if stamp is None:
+                continue
+            message = entry.get("message")
+            message = message if isinstance(message, dict) else {}
+            request = entry.get("requestId") or message.get("id")
+            # ``<synthetic>`` is the CLI writing its own error: no model was asked.
+            if (
+                entry.get("type") == "assistant"
+                and request
+                and message.get("model") != "<synthetic>"
+            ):
+                if request not in open_requests:
+                    open_requests[request] = [previous if previous is not None else stamp, stamp]
+                open_requests[request][1] = stamp
+            else:
+                previous = stamp
+        intervals.extend((a, b) for a, b in open_requests.values())
+    busy = 0.0
+    end = lo
+    for a, b in sorted((max(a, lo), min(b, hi)) for a, b in intervals):
+        if b <= end:
+            continue
+        busy += b - max(a, end)
+        end = b
+    return round(busy * 1000), round((hi - lo) * 1000)
+
+
+def _session_transcripts(session_id: str, render: Path) -> list[list[dict[str, Any]]]:
+    """The main session's transcript entries, then each subagent's ([] if none)."""
+    base = claude_project_dir(Path(render).resolve())
+    files = [base / f"{session_id}.jsonl"]
+    if not files[0].is_file():
+        return []
+    files += sorted((base / session_id / "subagents").glob("*.jsonl"))
+    out = []
+    for f in files:
+        entries = []
+        for line in f.read_text(encoding="utf-8").splitlines():
+            with contextlib.suppress(json.JSONDecodeError):
+                entry = json.loads(line)
+                if isinstance(entry, dict):
+                    entries.append(entry)
+        out.append(entries)
+    return out
+
+
+def _log_query_timing(workflow: SDKWorkflowResult, render: Path) -> None:
     """Append one timing record per agent query to ``OSPREY_E2E_QUERY_LOG``.
 
     The benchmark matrix points the variable at
     ``results/<model>__seed<seed>.queries.jsonl``; the dashboard reads it to show
     how long each model takes and how much of that time is spent waiting on the
-    model rather than in OSPREY's tools. The figures are the agent SDK's own
-    accounting on the final ``ResultMessage``. Off unless the variable is set.
+    model rather than in OSPREY's tools. Durations, turns and tokens are the
+    agent SDK's own accounting on the final ``ResultMessage``; the wait on the
+    model (``model_wait_ms`` over ``span_ms``) comes from the session's
+    transcripts (:func:`model_wait`). Off unless the variable is set.
     """
     path = os.environ.get("OSPREY_E2E_QUERY_LOG")
     result = workflow.result
@@ -1287,6 +1393,12 @@ def _log_query_timing(workflow: SDKWorkflowResult) -> None:
         "output_tokens": usage.get("output_tokens"),
         "is_error": getattr(result, "is_error", None),
     }
+    wait = None
+    with contextlib.suppress(OSError):
+        session_id = getattr(result, "session_id", None)
+        wait = session_id and model_wait(_session_transcripts(session_id, render))
+    if wait:
+        record["model_wait_ms"], record["span_ms"] = wait
     try:
         with open(path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
@@ -1593,7 +1705,8 @@ async def run_sdk_query(
     # them from the on-disk transcripts so delegation tests can observe them.
     _harvest_subagent_traces(workflow, pending_tools, render)
 
-    _log_query_timing(workflow)
+    _log_query_timing(workflow, render)
+    refusals.note_session(workflow.result, tool_calls=len(workflow.tool_traces))
     _persist_mcp_sidecar(workflow, repo)
     return workflow
 
@@ -1834,7 +1947,8 @@ async def run_sdk_query_with_hooks(
     _harvest_subagent_traces(workflow, pending_tools, render)
 
     workflow.hook_events = hook_events
-    _log_query_timing(workflow)
+    _log_query_timing(workflow, render)
+    refusals.note_session(workflow.result, tool_calls=len(workflow.tool_traces))
     _persist_mcp_sidecar(workflow, repo)
     return workflow
 

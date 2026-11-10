@@ -241,7 +241,20 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_approval.py",
             output_path=".claude/hooks/osprey_approval.py",
             description="Human-approval gate hook",
-            requires=("hooks/hook-log", "hooks/safety-file", "hooks/target-state"),
+            requires=(
+                "hooks/hook-log",
+                "hooks/plan-mode",
+                "hooks/prompt-render",
+                "hooks/safety-file",
+                "hooks/target-state",
+            ),
+        ),
+        BuildArtifact(
+            canonical_name="hooks/plan-mode",
+            template_path="claude/hooks/osprey_plan_mode.py",
+            output_path=".claude/hooks/osprey_plan_mode.py",
+            description="Refuses the tools that act while the session is in plan mode",
+            requires=("hooks/hook-log",),
         ),
         BuildArtifact(
             canonical_name="hooks/writes-check",
@@ -283,7 +296,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="claude/hooks/osprey_hook_log.py",
             output_path=".claude/hooks/osprey_hook_log.py",
             description="Shared hook logging utility",
-            requires=("hooks/hook-config",),
+            requires=("hooks/hook-config", "hooks/safety-file"),
         ),
         BuildArtifact(
             canonical_name="hooks/target-state",
@@ -296,7 +309,13 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/safety-file",
             template_path="claude/hooks/osprey_safety_file.py",
             output_path=".claude/hooks/osprey_safety_file.py",
-            description="Shared atomic file-replace helper",
+            description="Shared atomic file-replace and group-shared directory helper",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/prompt-render",
+            template_path="claude/hooks/osprey_prompt_render.py",
+            output_path=".claude/hooks/osprey_prompt_render.py",
+            description="Restricted approval-prompt renderer and input digest",
         ),
         BuildArtifact(
             canonical_name="hooks/hook-config",
@@ -329,7 +348,10 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/focus-validate",
             template_path="claude/hooks/osprey_focus_validate.py",
             output_path=".claude/hooks/osprey_focus_validate.py",
-            description="UserPromptSubmit hook that strips stale artifact IDs from focus_state.txt",
+            description=(
+                "UserPromptSubmit hook that injects the prompting session's gallery focus"
+                " and pins, dropping stale artifact IDs"
+            ),
             requires=("hooks/hook-log",),
         ),
         BuildArtifact(
@@ -364,7 +386,8 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="hooks/turn-state",
             template_path="claude/hooks/osprey_turn_state.py",
             output_path=".claude/hooks/osprey_turn_state.py",
-            description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns",
+            description="Reports the agent's turn edges to the web terminal, so a view switch knows when the process is between turns, and keeps a CLI launch's transcript pointer current",
+            requires=("hooks/hook-log", "hooks/safety-file"),
         ),
         BuildArtifact(
             canonical_name="hooks/watchdog-trigger",
@@ -428,6 +451,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Stage, launch, and watch a registered Bluesky plan through the shared draft",
         ),
         BuildArtifact(
+            canonical_name="skills/operating-optimizer",
+            template_path="claude/skills/operating-optimizer/SKILL.md.j2",
+            output_path=".claude/skills/operating-optimizer/SKILL.md",
+            description="Draft an optimizer run for a person to start, then monitor, pause or cancel it; renders only with the optimizer server",
+        ),
+        BuildArtifact(
             canonical_name="skills/bluesky-plans",
             template_path="claude/skills/bluesky-plans/SKILL.md.j2",
             output_path=".claude/skills/bluesky-plans/SKILL.md",
@@ -462,7 +491,7 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             canonical_name="output-styles/control-operator",
             template_path="claude/output-styles/control-operator.md.j2",
             output_path=".claude/output-styles/control-operator.md",
-            description="Communication style for the control assistant",
+            description="Communication style for the demo",
         ),
         # ── Service compose templates ────────────────────────────────
         # Directory artifacts: copied verbatim from templates/services/ into
@@ -542,6 +571,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/slack_bridge",
+            template_path="slack_bridge",
+            output_path="services/slack_bridge",
+            description="Slack bridge compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/ariel_sync",
             template_path="ariel_sync",
             output_path="services/ariel_sync",
@@ -562,6 +599,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             template_path="history",
             output_path="services/history",
             description="History page (across-users agent record) compose template",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
+            canonical_name="services/app_runtime",
+            template_path="app_runtime",
+            output_path="services/app_runtime",
+            description="Application runtime compose template (runtime: osprey containers)",
             template_root="services",
             is_directory=True,
         ),

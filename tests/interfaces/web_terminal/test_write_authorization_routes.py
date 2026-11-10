@@ -48,7 +48,7 @@ REAL_READ_CURRENT_VALUES = routes.read_current_values
 
 SESSION = "aaaaaaaa-1111-2222-3333-444444444444"
 TARGET = "standin"
-FAR_FUTURE_NS = time.time_ns() + 10 * 365 * 24 * 3600 * 10**9
+FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
 LIMITS = {
     "SR:A": {"writable": True, "min_value": 0.0, "max_value": 10.0},
@@ -156,7 +156,7 @@ def put_request(directory: Path, **fields: Any) -> wa.WriteRequest:
         "completion": "apply_best",
     }
     payload.update(fields)
-    request = wa.parse_request(payload)
+    request = wa._parse_request(payload)
     (directory / f"{request.id}.json").write_text(json.dumps(payload), encoding="utf-8")
     return request
 
@@ -440,7 +440,7 @@ class TestSelfIssued:
             approver=Approver(identity="tuning-scripts", surface="write_switch", at_ns=now),
             label="scan",
         )
-        wa.issue_grant(grant, directory=ledgers, peers=())
+        wa._issue_grant(grant, directory=ledgers, peers=())
         return grant
 
     def test_it_is_listed_as_self_issued_and_not_revocable(self, client, held):

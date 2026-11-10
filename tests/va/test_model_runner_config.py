@@ -40,7 +40,7 @@ STATUS = "T:SIM:M:STATUS"
 
 def _binding(record: dict[str, Any], role: str, plane: str | None, refresh: str) -> dict[str, Any]:
     """A wiring record stamped as the build stamps it."""
-    return {**record, "role": role, "plane": plane, "refresh": refresh}
+    return {**record, "engine_role": role, "plane": plane, "refresh": refresh}
 
 
 VIEW: dict[str, Any] = {
@@ -311,9 +311,9 @@ def _demo_view(built: BuiltProject) -> tuple[SimulatorView, dict[str, Any], dict
 
 
 def test_apply_safety_modes_unchanged_on_the_built_demo(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    view, variables, addresses = _demo_view(built_control_assistant)
+    view, variables, addresses = _demo_view(built_demo)
     served = [*addresses["channels"], *addresses["status"]]
 
     config = apply_safety(_generated(served), view)
@@ -330,9 +330,9 @@ def test_apply_safety_modes_unchanged_on_the_built_demo(
 
 
 def test_periodic_addresses_equal_the_chromaticity_channels_on_the_demo(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    view, variables, _ = _demo_view(built_control_assistant)
+    view, variables, _ = _demo_view(built_demo)
 
     chromaticity = {
         record["address"]
@@ -347,9 +347,9 @@ def test_periodic_addresses_equal_the_chromaticity_channels_on_the_demo(
 
 
 def test_a_setting_reads_back_itself_its_readback_and_its_models_computed_records_on_the_demo(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    view, variables, addresses = _demo_view(built_control_assistant)
+    view, variables, addresses = _demo_view(built_demo)
     hcm, vcm = "SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:VCM:01:CURRENT:SP"
     sr = [channel for channel in variables["channels"] if channel["owner"] == "SR"]
     paired = {channel["pair"] for channel in sr if channel["role"] == "setpoint"}
@@ -370,9 +370,9 @@ def test_a_setting_reads_back_itself_its_readback_and_its_models_computed_record
 
 
 def test_a_pass_writing_a_texture_setting_reads_no_model_alone_on_the_demo(
-    built_control_assistant: BuiltProject,
+    built_demo: BuiltProject,
 ) -> None:
-    view, variables, _ = _demo_view(built_control_assistant)
+    view, variables, _ = _demo_view(built_demo)
     texture = sorted(
         channel["address"]
         for channel in variables["channels"]

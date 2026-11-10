@@ -226,7 +226,7 @@ class TestWebLocalEntryPath:
         )
 
         entry_id = result.entry_id
-        assert result.source_system == "ARIEL Web"
+        assert result.source_system == "OSPREY Logbook Web"
         assert result.sync_status.value == "local_only"
         assert lane.mirrored_ids() == set(), "the fallback upsert must bypass the enhancers"
 
@@ -754,9 +754,9 @@ class _WriteAdapter:
     """A facility adapter that accepts a write, and optionally re-serves it.
 
     Args:
-        source_system: Adapter's reported system name. ``"Generic JSON"`` is the
-            value ``create_entry`` treats as local-only, which is what selects
-            between the two upsert sites.
+        source_system: Adapter's reported system name. ``"Generic JSON"`` declares
+            ``writes_local_only``, as :class:`GenericJSONAdapter` does, which is
+            what selects between the two upsert sites.
         refetch: ``raw_text`` the re-ingestion poll finds, or ``None`` for an
             adapter whose ``fetch_entries`` yields nothing.
     """
@@ -765,6 +765,7 @@ class _WriteAdapter:
 
     def __init__(self, source_system: str, *, refetch: str | None) -> None:
         self.source_system_name = source_system
+        self.writes_local_only = source_system == "Generic JSON"
         self._refetch = refetch
         self.created_id = "facility-9001"
 

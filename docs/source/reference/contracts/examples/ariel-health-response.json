@@ -1,0 +1,11 @@
+{
+  "status": "healthy",
+  "message": "ARIEL service healthy",
+  "config_status": "ok",
+  "service": {
+    "entry_count": 48291,
+    "last_ingestion": "2026-09-30T08:00:00Z",
+    "enabled_search_modules": ["keyword"],
+    "enabled_enhancement_modules": ["text_embedding"]
+  }
+}

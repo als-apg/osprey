@@ -77,20 +77,23 @@ ERROR_CLASS_MAP = {
     # envelope; "control system" only when the controls server says so.
     "connection_error": "Connection",
     "timeout_error": "Connection",
-    # One channel's device did not answer; the control system as a whole did.
+    # One channel did not answer; the envelope states whether the target does.
     "channel_unreachable": "Connection",
     "service_unavailable": "Connection",
     # A switch that was attempted and did not complete: the destination did
     # not answer, and the previous target is still active.
     "target_switch_failed": "Connection",
     "bluesky_bridge_unreachable": "Connection",
+    "optimizer_unreachable": "Connection",
     "phoebus_unreachable": "Connection",
     "gallery_unreachable": "Connection",
     "web_terminal_unreachable": "Connection",
     # The panel tools' workspace is not there to answer: no Web Terminal is
-    # running, or no browser showing the dock answered the op in time.
+    # running, or no browser shows the dock. A browser that did not answer an
+    # op in time may still apply it: the agent reads the panels again.
     "no_web_terminal": "Connection",
     "no_dock_client": "Connection",
+    "no_dock_answer": "Connection",
     # The agent record did not answer, or could not yet serve the read in
     # full; the read comes back once it does.
     "record_unavailable": "Connection",
@@ -114,6 +117,9 @@ ERROR_CLASS_MAP = {
     "limits_violation": "Validation",
     # This deployment simply has no such target to switch to.
     "target_switch_unavailable": "Validation",
+    # The optimizer's 409: the job is not in the state the request needs (a
+    # draft edited after its start, a pause of a job that is not running).
+    "optimizer_conflict": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
     # A panel url that is not a root-relative path or an http(s) URL: pass one.
@@ -147,17 +153,14 @@ ERROR_CLASS_MAP = {
     "invalid_item": "Validation",
     # A page offset outside an earlier answer: the message names the range.
     "bad_offset": "Validation",
-    # A lattice figure that is not computed for the inputs on screen: the
-    # message names its status and the suggestion the step that fixes it.
-    "figure_not_current": "Validation",
-    # A lattice figure the selected model cannot draw: pick another figure.
-    "figure_unavailable": "Validation",
     # Panel-tool refusals the agent fixes by changing the request: re-read the
-    # layout and retry with its rev, leave the terminal out of a layout, open
-    # as tabs or give an exact layout, or leave a panel in its own window alone.
+    # layout and retry with its rev, leave the terminal out of a layout, give
+    # an exact layout or open fewer panels, put one panel in each tile, or
+    # leave a panel in its own window alone.
     "stale_base": "Validation",
     "terminal_in_layout": "Validation",
     "too_many_for_side": "Validation",
+    "one_panel_per_tile": "Validation",
     "popped_out": "Validation",
     # The reviewer refused this code: revise it and resubmit.
     "review_blocked": "Validation",
@@ -182,7 +185,6 @@ ERROR_CLASS_MAP = {
     "nothing_answered": "Unanswered",
     # ---- Execution: the user's own code (or document source) is wrong.
     "execution_error": "Execution",
-    "lattice_error": "Execution",
     "compilation_error": "Execution",
     # ---- Safety: a gate said no. Explain the constraint; never work around
     # it, never touch its configuration. Falling through to Internal used to
@@ -242,6 +244,10 @@ ERROR_CLASS_MAP = {
     # the operator, not a policy gate the agent should explain.
     "permission_denied": "Internal",
     "bluesky_bridge_error": "Internal",
+    # A 5xx (or other unclassed answer) from the optimizer; details.status and
+    # details.detail say which. A 404, 409 or 422 is relayed as not_found,
+    # optimizer_conflict or validation_error instead.
+    "optimizer_error": "Internal",
     "phoebus_error": "Internal",
     "phoebus_open_failed": "Internal",
     "gallery_error": "Internal",
@@ -253,17 +259,37 @@ ERROR_CLASS_MAP = {
 }
 
 
-def _detect_error(tool_response: str | dict | None) -> tuple[str | None, str | None]:
+def _classify_type(error_type: str, app_error_types: object) -> tuple[str, str | None]:
+    """Map an ``error_type`` to ``(error_class, app_guidance_text)``.
+
+    An application's dotted ``<app>.<type>`` is looked up in ``app_error_types``
+    (the rendered ``hook_config.json`` key, ``{"<app>.<type>": {class, text}}``)
+    first; framework types are undotted, so the two maps cannot collide. A
+    missing or malformed map, entry or class falls through to
+    ``ERROR_CLASS_MAP`` exactly as before, never raising.
+    """
+    entry = app_error_types.get(error_type) if isinstance(app_error_types, dict) else None
+    if isinstance(entry, dict) and isinstance(entry.get("class"), str):
+        text = entry.get("text")
+        return entry["class"], text if isinstance(text, str) else None
+    return ERROR_CLASS_MAP.get(error_type, "Internal"), None
+
+
+def _detect_error(
+    tool_response: str | dict | None, app_error_types: object = None
+) -> tuple[str | None, str | None, str | None]:
     """Detect a structured error in the tool response.
 
     OSPREY tools now return ``CallToolResult(isError=True, ...)`` for every
     failure. The PostToolUse hook input surfaces this as a dict with
     ``isError: true`` and a ``content`` list of text blocks; the first text
     block carries the structured envelope JSON. Returns
-    ``(error_class, error_message)`` or ``(None, None)`` if no error detected.
+    ``(error_class, error_message, app_guidance_text)``, the last ``None``
+    unless an application's error-type entry carries a text, or
+    ``(None, None, None)`` if no error detected.
     """
     if not isinstance(tool_response, dict) or tool_response.get("isError") is not True:
-        return None, None
+        return None, None, None
 
     for block in tool_response.get("content", []) or []:
         if not isinstance(block, dict) or block.get("type") != "text":
@@ -274,14 +300,12 @@ def _detect_error(tool_response: str | dict | None) -> tuple[str | None, str | N
             continue
         if isinstance(parsed, dict) and parsed.get("error") is True:
             error_type = parsed.get("error_type", "unknown")
-            return (
-                ERROR_CLASS_MAP.get(error_type, "Internal"),
-                parsed.get("error_message", str(parsed)),
-            )
+            error_class, text = _classify_type(error_type, app_error_types)
+            return error_class, parsed.get("error_message", str(parsed)), text
 
     # isError=True but no structured envelope (shouldn't happen for OSPREY
     # tools, but cover the case so guidance still fires).
-    return "Internal", "Tool returned an error"
+    return "Internal", "Tool returned an error", None
 
 
 def main():
@@ -292,20 +316,25 @@ def main():
     tool_name = hook_input.get("tool_name", "")
 
     # Only inspect OSPREY tools (prefixes loaded from hook_config.json)
-    _prefixes = load_hook_config().get("server_prefixes", [])
+    config = load_hook_config()
+    _prefixes = config.get("server_prefixes", [])
     if not any(tool_name.startswith(p) for p in _prefixes):
         sys.exit(0)
 
     tool_response = hook_input.get("tool_response")
-    error_class, error_message = _detect_error(tool_response)
+    error_class, error_message, app_text = _detect_error(
+        tool_response, config.get("app_error_types")
+    )
 
     if error_class is None:
         log_hook("error-guidance", hook_input, status="no-error")
         sys.exit(0)
 
     # Inject guidance reminder
+    app_line = f"Application guidance: {app_text}\n" if app_text else ""
     guidance = (
-        f"ERROR DETECTED [{error_class}]: {error_message}\n\n"
+        f"ERROR DETECTED [{error_class}]: {error_message}\n"
+        f"{app_line}\n"
         "Follow the error-handling protocol (.claude/rules/error-handling.md):\n"
         "- Report the error clearly to the user with actionable next steps.\n"
         "- Do NOT debug infrastructure, write mock data, or work around the failure.\n"

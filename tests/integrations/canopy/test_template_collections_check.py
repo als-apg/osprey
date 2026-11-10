@@ -1,7 +1,7 @@
-"""The control-assistant template's facility collection passes CANOPY's check.
+"""The demo template's facility collection passes CANOPY's check.
 
 The template ships one facility collection (``data/canopy/collections/
-control-assistant.json``), OSPREY's own data: ``default: true``, the
+demo.json``), OSPREY's own data: ``default: true``, the
 ``facility/overview`` and ``sr/orbit-feedback`` screens from the template's own
 library, and three named tools (Orbit, RF thermal, Septum pulse) that open the
 preset's trace, correlation and waveform default views.
@@ -30,12 +30,12 @@ from osprey.cli.templates.scaffolding import copy_template_data
 from osprey.integrations.canopy import LIBRARY_SUBPATH
 
 COLLECTIONS_SUBPATH = Path("data/canopy/collections")
-TEMPLATE_COLLECTION = "control-assistant.json"
+TEMPLATE_COLLECTION = "demo.json"
 
 
 @pytest.fixture(scope="module")
 def template_app() -> Path:
-    root = Path(TemplateManager().template_root) / "apps" / "control_assistant"
+    root = Path(TemplateManager().template_root) / "apps" / "demo"
     assert (root / COLLECTIONS_SUBPATH).is_dir(), root
     return root
 
@@ -49,7 +49,7 @@ def project(template_app: Path, tmp_path: Path) -> Path:
         Path(TemplateManager().template_root),
         project,
         "unused",
-        "control_assistant",
+        "demo",
         {},
         data_root=template_app / "data",
     )
@@ -83,7 +83,7 @@ class TestWhatTheTemplateShips:
 
     def test_the_collection_names_its_screens_and_tools(self, template_app):
         doc = json.loads((template_app / COLLECTIONS_SUBPATH / TEMPLATE_COLLECTION).read_bytes())
-        assert doc["name"] == "Control assistant"
+        assert doc["name"] == "Demo"
         assert doc["default"] is True
         assert doc["description"] == (
             "The facility overview and orbit feedback screens with Orbit, RF thermal "

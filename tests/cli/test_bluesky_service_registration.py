@@ -18,7 +18,7 @@ from ruamel.yaml import YAML
 from osprey.bluesky_bridge_connection import LANE_KEYS, SECOND_LANE_KEYS, lane_control_identity
 from osprey.cli.build_cmd import _inject_bluesky
 from osprey.cli.build_profile import BlueskyConfig, _parse_profile
-from osprey.deployment.compose_generator import find_service_config
+from osprey.deployment.compose_generator import find_service_config, resolve_upstream_images
 from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
@@ -180,6 +180,7 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
             "project_root": str(project_path),
         },
         "osprey_images": _image_defaults("p"),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_version": "",
         "system": {"timezone": "UTC"},
         "deployment": {},

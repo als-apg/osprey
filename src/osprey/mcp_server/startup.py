@@ -1,10 +1,15 @@
 """MCP server lifecycle: startup timing, logging setup, and entry point."""
 
+from __future__ import annotations
+
 import logging
 import sys
 import time
 from contextlib import contextmanager
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from fastmcp import FastMCP
 
 logger = logging.getLogger("osprey.mcp_server.startup")
 
@@ -59,13 +64,11 @@ def prime_config_builder() -> None:
                 get_config_builder(config_path=osprey_config, set_as_default=True)
             logger.info("Main ConfigBuilder primed from OSPREY_CONFIG: %s", osprey_config)
             try:
-                from osprey.stores.type_registry import load_categories_from_config
+                from osprey.stores.type_registry import load_extension_types
 
-                n = load_categories_from_config()
-                if n:
-                    logger.info("Loaded %d custom category/ies from config", n)
+                load_extension_types()
             except Exception as exc:
-                logger.warning("Custom category loading failed (non-fatal): %s", exc)
+                logger.warning("Extension type loading failed (non-fatal): %s", exc)
         except Exception as exc:
             logger.warning("ConfigBuilder priming failed (non-fatal): %s", exc)
 
@@ -160,6 +163,22 @@ def install_audit_middleware(server: Any, label: str) -> None:
     from osprey.mcp_server.audit_middleware import AuditMiddleware
 
     server.add_middleware(AuditMiddleware())
+
+
+def application_server(name: str) -> FastMCP:
+    """A new FastMCP server named *name*, for an application's tools to register on.
+
+    The application SDK's ``create_server()`` builds every application tool
+    server here and hands it to the application, so an application module
+    constructs no server of its own and its server reaches
+    :func:`run_mcp_server` like every framework server.
+
+    Args:
+        name: The application's name, which the server is listed under.
+    """
+    from fastmcp import FastMCP
+
+    return FastMCP(name)
 
 
 def run_mcp_server(server_module: str) -> None:

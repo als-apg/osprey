@@ -114,6 +114,8 @@ _HOOK_VARS = (
     "OSPREY_CONTROL_OWNER",
     "OSPREY_CONTROL_CONTEXT_TREE",
     "OSPREY_WEB_PORT",
+    # The bearer an application tool's approval prompt reads the panel's state with.
+    "OSPREY_PANEL_TOKEN",
     "OSPREY_WEB_UX",
     "BLUESKY_BRIDGE_URL",
     # The record: the acting identity's own spool directory, which every
@@ -146,6 +148,8 @@ _SEAM_IMPORTABLE_HOOKS = frozenset(
         "osprey_memory_guard",
         "osprey_notebook_update",
         "osprey_panels_context",
+        "osprey_plan_mode",
+        "osprey_prompt_render",
         "osprey_safety_file",
         "osprey_workspace_delta",
         "osprey_writes_check",
@@ -223,6 +227,30 @@ def ask_reason(result):
     return output["permissionDecisionReason"]
 
 
+def error_response(error_type, message, suggestions=None):
+    """An OSPREY tool error as PostToolUse sees it.
+
+    A CallToolResult-shaped dict: ``isError=True`` with the structured envelope
+    (``common.make_error``) inside the first text content block.
+    """
+    return {
+        "isError": True,
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "error": True,
+                        "error_type": error_type,
+                        "error_message": message,
+                        "suggestions": suggestions or [],
+                    }
+                ),
+            }
+        ],
+    }
+
+
 def pending_review_items(root):
     """The items in the feedback hook's ``pending_reviews.json`` under *root*, or ``{}``.
 
@@ -262,6 +290,12 @@ def approval(hook_module, monkeypatch):
     for name in ("BLUESKY_BRIDGE_URL", "BLUESKY_VA_BRIDGE_URL", "BLUESKY_LIVE_BRIDGE_URL"):
         monkeypatch.delenv(name, raising=False)
     return module
+
+
+@pytest.fixture
+def error_guidance(hook_module):
+    """The `osprey_error_guidance` module, imported through the test seam."""
+    return hook_module("osprey_error_guidance")
 
 
 @pytest.fixture
@@ -397,6 +431,26 @@ def _no_session_posture(session_posture_leak_guard, monkeypatch):  # noqa: ARG00
     body, which runs after both fixtures.
     """
     monkeypatch.delenv("OSPREY_CONTROL_OWNER", raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _no_cli_transcript_pointer(tmp_path, monkeypatch):
+    """Keep every hook test from writing a real CLI transcript pointer.
+
+    The turn-state hook writes ``<agent-data root>/cli-transcripts/<launch>``
+    whenever ``OSPREY_TERMINAL_SESSION`` carries the host prefix and
+    ``OSPREY_CLI_LAUNCH`` is set — exactly the environment of a suite run from
+    an ``osprey chat`` shell. Both are deleted here, and the in-process hook's
+    pointer root is aimed at this test's ``tmp_path``, so a test that sets them
+    again still writes nowhere but there. Neither variable is on the
+    ``_HOOK_VARS`` allowlist, so a subprocess hook run never inherits them.
+    """
+    import osprey.templates.claude_code.claude.hooks.osprey_turn_state as turn_state
+
+    monkeypatch.delenv("OSPREY_TERMINAL_SESSION", raising=False)
+    monkeypatch.delenv("OSPREY_CLI_LAUNCH", raising=False)
+    monkeypatch.setattr(turn_state, "_pointer_root", lambda _payload=None: str(tmp_path))
     yield
 
 

@@ -34,8 +34,6 @@ from tests.e2e.ariel_picture import FIXTURES, PictureCase, run_picture_case
 from tests.e2e.sdk_helpers import HAS_SDK
 
 pytestmark = [
-    pytest.mark.e2e,
-    pytest.mark.agentic_benchmark,
     pytest.mark.requires_e2e_provider,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
 ]
@@ -56,6 +54,12 @@ CASE = PictureCase(
 )
 
 
+@pytest.mark.agentic(
+    tier=2,
+    title="Find a value only a plot shows",
+    asks="What is the run identifier of the sector 9 orbit drift study in the logbook?",
+    passes_if="the run id, which only the plot's pixels carry",
+)
 @pytest.mark.asyncio
 async def test_agent_finds_the_run_id_in_an_unmentioned_plot(
     tmp_path: Path,

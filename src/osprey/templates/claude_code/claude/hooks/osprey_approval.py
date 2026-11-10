@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse, PostToolUse, PostToolUseFailure, Stop, StopFailure
-tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire, mcp__canopy__new_screen, mcp__canopy__patch_node, mcp__canopy__add_node, mcp__canopy__remove_node, mcp__canopy__convert_legacy, mcp__canopy__delete_draft, mcp__canopy__request_push
+tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, pyaml_measure, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire, pause_job, cancel_job, mcp__canopy__new_screen, mcp__canopy__patch_node, mcp__canopy__add_node, mcp__canopy__remove_node, mcp__canopy__convert_legacy, mcp__canopy__delete_draft, mcp__canopy__request_push
 safety_layer: 2
 ---
 
@@ -29,11 +29,18 @@ stdin ──► Parse JSON
              YES
               │
               ▼
+         plan mode, and the plan-mode
+         rule denies it?  ──YES──► EXIT, no decision
+              │
+             NO
+              │
+              ▼
          Load config.yml
               │
               ▼
-  (governed tools leave this flow after the denies:
-   see "The write switch's position" below)
+  (application tools and the other governed tools leave
+   this flow after the denies: see "The write switch's
+   position" below)
               │
               ▼
   Is this call a write, and is the deployment
@@ -55,6 +62,12 @@ stdin ──► Parse JSON
      │
     NO
      │
+     ▼
+  application tool (app_approvals)?  ──YES──► its declaration describes,
+     │                                        the switch's position decides:
+    NO                                        DENY with its guidance, or
+     │                                        asked ──► ASK bound to what it showed
+     │                                        allowed ──► EXIT (allow), bound and stamped
      ▼
   enabled: false?  ──YES──► EXIT (allow)
      │
@@ -94,6 +107,21 @@ per-target narrowing in the control-context record counts the same way as a
 config disarm, because `osprey_writes_check` reads the same record. A target
 whose write tier is not stated has the tier `never`, so its writes defer here
 like any other refusal; silence never means a prompt.
+
+## Application tools
+
+A tool keyed in `hook_config.json`'s `app_approvals` (by full name) is governed
+by construction — its server declares it in `writes:` — so the switch's position
+decides it as below, and its declaration describes the call: an OSPREY header
+(application, tool, target, machine words, "this call writes", the position),
+the rendered template and display lines over the call's input and the state
+read from `/panel/<panel_id><state_path>`. The call is bound to
+`approved_target` and the declared `bind` fields; at `asked` it is put to a
+person bound to what the prompt showed, at `allowed` it runs bound and stamped
+the same way. It is refused, never asked, when its `require` is unmet, when the
+state cannot be read within the pre-flight budget, or when the render does not
+hand the tool to the switch. A dispatch job runs no tool that binds fetched
+state or that `dispatch.denied_app_tools` names.
 
 ## The write switch's position
 
@@ -216,6 +244,13 @@ try:
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None  # type: ignore[assignment]  # the sibling is absent
 
+# The plan-mode rule, a sibling script like the reader above. Guarded the same
+# way: a render without it has no early exit below, so the hook asks as before.
+try:
+    import osprey_plan_mode as _plan_mode
+except Exception:  # pragma: no cover - render without the plan-mode rule
+    _plan_mode = None  # type: ignore[assignment]  # the sibling is absent
+
 # The shared, stdlib-only file helper the stamps are written through, a sibling
 # script like the reader above. Guarded the same way: without it no stamp is
 # written, which every caller already treats as "no stamp".
@@ -223,6 +258,15 @@ try:
     import osprey_safety_file as _safety_file
 except Exception:  # pragma: no cover - render without the helper
     _safety_file = None  # type: ignore[assignment]  # the sibling is absent
+
+# The shared, stdlib-only prompt renderer, a sibling script like the two above.
+# Its control-character escaper is the one every label on this prompt goes
+# through (`_sanitize_label`). Guarded the same way; without it the labels fall
+# back to a stricter escape of their own.
+try:
+    import osprey_prompt_render as _prompt_render
+except Exception:  # pragma: no cover - render without the renderer
+    _prompt_render = None  # type: ignore[assignment]  # the sibling is absent
 
 #: When this hook process entered, as a `time.monotonic` instant.
 #:
@@ -479,7 +523,31 @@ def build_allow_output() -> dict:
     }
 
 
-def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
+# Canonical lowercase session UUID — must equal the grammar of
+# ``osprey.interfaces.web_terminal.session_key._SESSION_KEY_RE`` (the hub 422s
+# any other ``transcript_id``); mirrored here because the hook adds no import.
+_FOCUS_TRANSCRIPT_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+# Must equal ``WATCHDOG_SESSION_PREFIX`` in ``osprey.interfaces.web_terminal``.
+_WATCHDOG_SESSION_PREFIX = "watchdog-"
+
+
+def _focus_transcript(session_id) -> str | None:
+    """The session an automatic focus belongs to, or ``None`` for an unscoped focus.
+
+    Only a canonical session UUID qualifies, and never inside a dispatch run
+    (``OSPREY_DISPATCH_RUN_ID`` set, or ``OSPREY_DISPATCH_RUN == "1"``) or a
+    watchdog-prefixed terminal session: those runs belong to no operator session.
+    """
+    if not isinstance(session_id, str) or _FOCUS_TRANSCRIPT_ID.fullmatch(session_id) is None:
+        return None
+    if os.environ.get("OSPREY_DISPATCH_RUN_ID") or os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        return None
+    if (os.environ.get("OSPREY_TERMINAL_SESSION") or "").startswith(_WATCHDOG_SESSION_PREFIX):
+        return None
+    return session_id
+
+
+def _focus_artifact(gallery_base_url: str, artifact_id: str, session_id=None) -> None:
     """Fire-and-forget POST to bring an artifact into focus in the gallery.
 
     Carries ``Authorization: Bearer <OSPREY_PANEL_TOKEN>`` whenever that
@@ -494,6 +562,10 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     already shows the call another way (the chat's approval card) may
     leave its own selection alone.
 
+    *session_id* is the hook payload's ``session_id``: it is sent as
+    ``transcript_id`` when :func:`_focus_transcript` accepts it, so the focus
+    lands in that session only; otherwise the focus goes unscoped.
+
     Non-fatal: silently swallows errors so focus failures never block approval.
     A gallery that refuses the call — 401 included — is a focus failure like any
     other and is swallowed the same way.
@@ -501,7 +573,11 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
     try:
         import urllib.request
 
-        data = json.dumps({"artifact_id": artifact_id, "automatic": True}).encode()
+        body = {"artifact_id": artifact_id, "automatic": True}
+        transcript = _focus_transcript(session_id)
+        if transcript is not None:
+            body["transcript_id"] = transcript
+        data = json.dumps(body).encode()
         headers = {"Content-Type": "application/json"}
         token = (os.environ.get("OSPREY_PANEL_TOKEN") or "").strip()
         if token:
@@ -637,11 +713,6 @@ def _bridge_post_json(base_url: str, path: str, body, timeout: float):
         return None
 
 
-# Unicode code points that render as a line/paragraph break in some terminals
-# in addition to the C0 control range (< 0x20) and DEL (0x7f) escaped below.
-_UNICODE_LINE_BREAKS = ("\x85", "\u2028", "\u2029")
-
-
 def _sanitize_label(text) -> str:
     """Escape control characters in an agent-influenced single-line label.
 
@@ -653,17 +724,21 @@ def _sanitize_label(text) -> str:
     by character content, and `PlanMetadata.name` carries no character
     constraint. An embedded newline would otherwise forge a fake enrichment line
     (e.g. a spoofed "Validation status: PASSED") on the human approval prompt.
-    Escaping the C0 range, DEL, and the unicode line breaks to a visible
-    ``\\xNN`` token keeps every label on one line and makes any tampering legible
-    to the approver rather than silently dropped. The `Plan source` block is
-    deliberately NOT run through this — it is rendered verbatim (and clearly
-    delimited) so the approver sees the real, possibly multi-line, plan body.
+    The prompt renderer's control-character escaper turns every control, format
+    character (a bidi override, a zero-width mark), line or paragraph separator,
+    private-use and unassigned code point into a visible ``\\x`` token carrying
+    its codepoint, which keeps every label on one line, in the order it was
+    written, and makes any tampering legible to the approver rather than silently
+    dropped. Without the renderer beside this hook, every character Python does
+    not call printable is escaped instead — stricter, never weaker. The `Plan
+    source` block is deliberately NOT run through this — it is rendered verbatim
+    (and clearly delimited) so the approver sees the real, possibly multi-line,
+    plan body.
     """
+    if _prompt_render is not None:
+        return str(_prompt_render.escape_control(text))
     return "".join(
-        ch
-        if (ch >= " " and ch != "\x7f" and ch not in _UNICODE_LINE_BREAKS)
-        else f"\\x{ord(ch):02x}"
-        for ch in str(text)
+        ch if (ch == " " or ch.isprintable()) else f"\\x{ord(ch):02x}" for ch in str(text)
     )
 
 
@@ -1407,6 +1482,24 @@ def _describe_manual_fire(tool_input, _config, _hook_input=None, _read_record=No
     return lines
 
 
+def _describe_pause_job(tool_input, _config, _hook_input=None, _read_record=None) -> list[str]:
+    """Name the optimizer job a pause would stop, from the call alone."""
+    job = _sanitize_label(str(tool_input.get("job_id")))
+    return [
+        f"Pause optimizer job {job}: the machine stays at the last point it evaluated, "
+        "and only a person can resume it."
+    ]
+
+
+def _describe_cancel_job(tool_input, _config, _hook_input=None, _read_record=None) -> list[str]:
+    """Name the optimizer job a cancel would end, and that it cannot be undone."""
+    job = _sanitize_label(str(tool_input.get("job_id")))
+    return [
+        f"Cancel optimizer job {job}: this cannot be undone, on_complete does not run, "
+        "and the machine stays at the last point it evaluated."
+    ]
+
+
 #: Tool short name -> describer, for tools described from the CALL rather than
 #: from anything this hook would have to reach for. A third table beside the two
 #: above because that is the distinction that decides what a describer may
@@ -1418,6 +1511,8 @@ def _describe_manual_fire(tool_input, _config, _hook_input=None, _read_record=No
 #: registers.
 _CALL_DESCRIBERS = {
     "manual_fire": _describe_manual_fire,
+    "pause_job": _describe_pause_job,
+    "cancel_job": _describe_cancel_job,
 }
 
 
@@ -1843,9 +1938,10 @@ def _budgeted_preview_lines(base_url: str, plan_name, plan_args, deadline: float
     What a slow bridge yields therefore depends on which budget binds. With
     more than the bridge's own budget left (~10 s of polling plus at most one
     in-flight RPC) the bridge answers first and the approver reads its
-    `preview_timed_out`; with less, this client gives up first and the
-    budget-spent line says so. A preview the deadline cut — skipped because
-    nothing was left, or cut off mid-fetch — renders that line either way. A
+    refusal, `function_timeout`, which is not retryable; with less, this
+    client gives up first and the budget-spent line says so. A preview the
+    deadline cut — skipped because nothing was left, or cut off mid-fetch —
+    renders that line either way. A
     preview that failed for any other reason (an unreachable bridge, a
     refusal) keeps its own reason word: those name something the approver can
     act on, where a spent budget names only this prompt's own impatience.
@@ -2769,6 +2865,10 @@ _REVIEW_OUTCOME_WORDS = {
 }
 
 
+#: The settle a run's stored result head implies, by its ``run_status``.
+_SETTLE_FOR_RUN_STATUS = {"succeeded": "ran", "failed": "failed", "not_run": "not_run"}
+
+
 #: The artifact-metadata field holding what the code review said about the previewed code.
 _REVIEW_FINDINGS_KEY = "code_review"
 
@@ -2821,7 +2921,7 @@ def _review_outcome_state(outcome: str, stamp) -> str:
 
 
 def _create_pre_execution_notebook(
-    code: str, exec_mode: str, config: dict, review=None
+    code: str, exec_mode: str, config: dict, review=None, tool_use_id=None, session_id=None
 ) -> tuple[str | None, str | None]:
     """Save the review notebook for *code* as ``(gallery URL, artifact id)``.
 
@@ -2831,12 +2931,18 @@ def _create_pre_execution_notebook(
 
     *review* is what the code review said ahead of the prompt, kept in the
     entry's metadata so that settling the notebook can write it out again.
+    *tool_use_id* is the asked call's id: a valid one files the notebook as
+    that run's ``preview`` part (``exec_id``); anything else leaves it standing alone.
+    *session_id* is the hook payload's session, passed on to the gallery focus.
     """
     artifact_id = None
     try:
         from osprey.stores.artifact_store import RUN_RECORD_KEY, ArtifactStore
 
-        metadata = {"exec_mode": exec_mode or "", RUN_RECORD_KEY: True}
+        call_id = _valid_tool_use_id(tool_use_id) or ""
+        metadata = {"exec_mode": exec_mode or "", RUN_RECORD_KEY: True, "run_part": "preview"}
+        if call_id:
+            metadata["call_id"] = call_id
         if review:
             metadata[_REVIEW_FINDINGS_KEY] = review
         # The hook is a one-shot process, so it must not start a gallery of its
@@ -2851,6 +2957,7 @@ def _create_pre_execution_notebook(
             mime_type="application/x-ipynb+json",
             tool_source="osprey_approval",
             metadata=metadata,
+            exec_id=call_id,
         )
         artifact_id = entry.id
 
@@ -2862,7 +2969,7 @@ def _create_pre_execution_notebook(
             return None, artifact_id
 
         # Fire-and-forget POST to switch gallery focus to this notebook
-        _focus_artifact(base_url, artifact_id)
+        _focus_artifact(base_url, artifact_id, session_id)
 
         return f"{base_url}#focus", artifact_id
     except Exception:
@@ -2875,6 +2982,11 @@ def _settle_review(stamp, outcome: str) -> None:
     Only the status line and the gallery description change: the code and the mode
     are read back from the notebook and written again as they were. A stamp with no
     review id, or a review no longer in the store, is left alone.
+
+    When the run's result head is already stored, its ``run_status`` decides the
+    outcome (a ``PostToolUseFailure`` for a call the executor refused before launch
+    reads ``not_run``). The outcome is merged into the entry's metadata as
+    ``settled``, keeping every other writer's keys.
     """
     try:
         artifact_id = stamp.get(REVIEW_ARTIFACT_KEY)
@@ -2893,6 +3005,13 @@ def _settle_review(stamp, outcome: str) -> None:
         )
         code = next(cell.source for cell in notebook.cells if cell.cell_type == "code")
         exec_mode = entry.metadata.get("exec_mode", "")
+        group = store.run_group(entry.exec_id) if entry.exec_id else None
+        if (
+            group is not None
+            and group.run_status is not None
+            and group.roles.get(group.head_id) == "result"
+        ):
+            outcome = _SETTLE_FOR_RUN_STATUS.get(group.run_status, outcome)
         state = _review_outcome_state(outcome, stamp)
         store.replace_file(
             artifact_id,
@@ -2901,6 +3020,7 @@ def _settle_review(stamp, outcome: str) -> None:
             ),
             description=_review_description(exec_mode, state),
         )
+        store.merge_entry_metadata({artifact_id: {"settled": outcome}})
     except Exception:
         return
 
@@ -3598,6 +3718,338 @@ def _bound_input(tool_input, binding) -> dict:
     return {**kept, **binding}
 
 
+# ---------------------------------------------------------------------------
+# Application tools: the declared approval
+# ---------------------------------------------------------------------------
+# An application declares how a call of each of its write tools is put to a
+# person: a prompt template over the call's input and the application's state,
+# the state route that state is read from, and the approved fields the call is
+# bound to. The render writes each declaration into `hook_config.json` under
+# `app_approvals`, keyed by the tool's full name. Every failure on this path
+# refuses the call with the application's own guidance; nothing here degrades
+# to a prompt that shows less than the declaration asked for.
+
+#: The `hook_config.json` key holding every application tool's declaration.
+APP_APPROVALS_KEY = "app_approvals"
+
+#: The rendered config list of application tools a dispatch job never runs.
+_APP_DENIED_IN_JOBS = ("dispatch", "denied_app_tools")
+
+#: The largest state body the prompt reads; a larger one refuses the call.
+_APP_STATE_MAX_BYTES = 256 * 1024
+
+#: The panel token the state fetch presents, as the web terminal exports it.
+_PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"  # noqa: S105 -- names an environment variable
+_WEB_PORT_ENV = "OSPREY_WEB_PORT"
+
+#: The guidance shown when the declaration carries none of its own.
+_APP_FALLBACK_GUIDANCE = "Check the application's approval declaration and call the tool again."
+
+#: What the header says of every application call: the declaration cannot
+#: suppress it, because the tool is in the render's write set.
+_APP_WRITES_LINE = "This call writes."
+
+
+class _AppRefused(Exception):
+    """An application call is refused before any person is asked.
+
+    Attributes:
+        kind: ``unreachable`` or ``refused``, the guidance text it is shown with.
+        detail: What failed, as one line.
+    """
+
+    def __init__(self, kind: str, detail: str) -> None:
+        super().__init__(detail)
+        self.kind = kind
+        self.detail = detail
+
+
+def _deny_app_call(hook_input, tool_name, reason, audit_reason):
+    """Emit an application call's refusal as a deny and exit 0. Does not return."""
+    # logging must never cost the deny
+    with contextlib.suppress(Exception):
+        log_hook("approval", hook_input, status="deny", detail=audit_reason)
+    # the audit trail must never cost the deny
+    with contextlib.suppress(Exception):
+        emit_audit(
+            "approval",
+            hook_input,
+            decision=AUDIT_DECISION_REFUSED,
+            subject=tool_name,
+            reason=audit_reason,
+        )
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+    json.dump(output, sys.stdout)
+    sys.exit(0)
+
+
+def _app_guidance(entry, kind) -> str:
+    """The declaration's guidance text for *kind*, or the fallback."""
+    errors = entry.get("errors") if isinstance(entry, dict) else None
+    text = errors.get(kind) if isinstance(errors, dict) else None
+    return text if isinstance(text, str) and text.strip() else _APP_FALLBACK_GUIDANCE
+
+
+def _app_job_refusal(config, tool_name, entry) -> str | None:
+    """Why a dispatch job may not run *tool_name*, or ``None`` when it may.
+
+    A job has no panel token, so a tool that binds the application's state
+    cannot be shown to anyone. The deployment's list of tools denied in jobs is
+    the one the dispatch worker reads; a job whose render carries no readable
+    list runs no application tool.
+    """
+    if entry.get("state_path"):
+        return "it binds the application's live state, which a job cannot read"
+    node = config
+    for key in _APP_DENIED_IN_JOBS:
+        node = node.get(key) if isinstance(node, dict) else None
+    if not isinstance(node, list):
+        return "the render's list of tools denied in jobs (dispatch.denied_app_tools) is unreadable"
+    if tool_name in node:
+        return "the deployment denies it in jobs (dispatch.denied_app_tools)"
+    return None
+
+
+def _app_state(entry, deadline) -> dict:
+    """The application's state for this prompt, fetched through the web terminal.
+
+    ``GET http://127.0.0.1:$OSPREY_WEB_PORT/panel/<panel_id><state_path>`` with
+    the panel token as bearer, within what is left of *deadline*. ``{}`` for a
+    declaration with no state route.
+
+    Raises:
+        _AppRefused: ``unreachable`` for any failure to read a JSON object of at
+            most :data:`_APP_STATE_MAX_BYTES` bytes in time.
+    """
+    state_path = entry.get("state_path")
+    if not state_path:
+        return {}
+    panel_id = entry.get("panel_id")
+    if not isinstance(panel_id, str) or not isinstance(state_path, str):
+        raise _AppRefused("refused", "the declaration names no panel and state route")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", panel_id) or not state_path.startswith("/"):
+        raise _AppRefused("refused", "the declaration's panel or state route is malformed")
+    port = (os.environ.get(_WEB_PORT_ENV) or "").strip()
+    token = (os.environ.get(_PANEL_TOKEN_ENV) or "").strip()
+    if not port.isdigit() or not token:
+        raise _AppRefused("unreachable", "no web terminal to read the application's state from")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise _AppRefused("unreachable", "the prompt's time to read the state is spent")
+    import urllib.request
+
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/panel/{panel_id}{state_path}",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=remaining) as resp:
+            body = resp.read(_APP_STATE_MAX_BYTES + 1)
+    except Exception as exc:
+        raise _AppRefused("unreachable", "the application's state could not be read") from exc
+    if len(body) > _APP_STATE_MAX_BYTES:
+        raise _AppRefused("unreachable", "the application's state is larger than a prompt reads")
+    try:
+        state = json.loads(body)
+    except ValueError as exc:
+        raise _AppRefused("unreachable", "the application's state is not JSON") from exc
+    if not isinstance(state, dict):
+        raise _AppRefused("unreachable", "the application's state is not a JSON object")
+    return state
+
+
+def _approved_field(item) -> str:
+    """The ``approved_*`` field a ``bind`` entry names, refusing any other spelling."""
+    field = item.get("field") if isinstance(item, dict) else None
+    if (
+        not isinstance(field, str)
+        or not field.startswith(APPROVED_FIELD_PREFIX)
+        or field == _APPROVED_TARGET_KEY
+    ):
+        raise _AppRefused("refused", f"the declaration binds {field!r}, not an approved field")
+    return field
+
+
+def _app_binding(entry, tool_input, state, target) -> dict:
+    """The approved fields of this call: the target, then every bound entry.
+
+    A ``state_fields`` entry whose key is absent from the state is not bound;
+    ``require`` decides whether the call may still be asked. Every input digest
+    is required: one over a key the input lacks refuses before the prompt, with
+    the sentence the application SDK refuses the same call with.
+
+    Raises:
+        _AppRefused: ``refused`` for a malformed entry or a digest the input
+            cannot produce.
+    """
+    bind = entry.get("bind") or {}
+    if not isinstance(bind, dict):
+        raise _AppRefused("refused", "the declaration's bind is not a mapping")
+    binding = {_APPROVED_TARGET_KEY: target}
+    for item in bind.get("state_fields") or ():
+        field = _approved_field(item)
+        key = item.get("key")
+        if not isinstance(key, str):
+            raise _AppRefused("refused", f"{field} names no state key")
+        value = state.get(key)
+        if value is None:
+            continue
+        if not isinstance(value, (str, int, float, bool)):
+            raise _AppRefused("refused", f"the state's {key!r} is not a single value")
+        binding[field] = value
+    for item in bind.get("input_digests") or ():
+        field = _approved_field(item)
+        over = item.get("over")
+        if not isinstance(over, list) or not over or not all(isinstance(k, str) for k in over):
+            raise _AppRefused("refused", f"{field} is over no input keys")
+        missing = [key for key in over if key not in tool_input]
+        if missing:
+            keys = ", ".join(f"`{key}`" for key in missing)
+            raise _AppRefused(
+                "refused", f"`{field}` is bound over {keys}, which the call does not carry"
+            )
+        try:
+            binding[field] = _prompt_render.input_digest(tool_input, over)
+        except Exception as exc:
+            raise _AppRefused("refused", f"{field} cannot be computed from the input") from exc
+    return binding
+
+
+def _app_requirement_unmet(entry, binding) -> str | None:
+    """What of the declaration's ``require`` the binding leaves unmet, or ``None``.
+
+    Every ``all_of`` field bound, and exactly one field of each ``one_of`` group.
+    """
+    require = entry.get("require") or {}
+    if not isinstance(require, dict):
+        return "the declaration's require is not a mapping"
+    all_of = require.get("all_of") or []
+    groups = require.get("one_of") or []
+    if not isinstance(all_of, list) or not isinstance(groups, list):
+        return "the declaration's require is malformed"
+    missing = [name for name in all_of if name not in binding]
+    if missing:
+        return f"{', '.join(map(str, missing))} could not be bound"
+    for group in groups:
+        if not isinstance(group, list) or not group:
+            return "the declaration's require is malformed"
+        bound = [name for name in group if name in binding]
+        if len(bound) != 1:
+            return f"exactly one of {', '.join(map(str, group))} must be bound, not {len(bound)}"
+    return None
+
+
+def _app_prompt(entry, tool_name, tool_input, state, target, hook_input, position) -> str:
+    """The prompt detail: the header the declaration cannot suppress, then its text."""
+    template = entry.get("prompt")
+    if not isinstance(template, str):
+        raise _AppRefused("refused", "the declaration has no prompt")
+    try:
+        rendered = _prompt_render.render_prompt(template, input=tool_input, state=state)
+        lines_key = entry.get("display_lines_key")
+        lines = _prompt_render.render_display_lines(state.get(lines_key)) if lines_key else []
+    except Exception as exc:
+        raise _AppRefused("refused", f"the prompt cannot be rendered: {exc}") from exc
+    app = _sanitize_label(entry.get("app") or "")
+    header = [
+        f"Application: {app}",
+        f"Tool: {_sanitize_label(tool_name)}",
+        _KIND_WORDS[_target_kind(target, hook_input)],
+        _APP_WRITES_LINE,
+        f"Write switch: {position}",
+    ]
+    return "\n".join([*header, "", rendered, *lines])
+
+
+def _app_approval(hook_input, tool_name, short_name, tool_input, config, entry):
+    """Decide an application tool's call from its declaration and the switch. Does not return.
+
+    Reached only after the write verdict allowed the call (``main`` defers a
+    refused write before this) and the approval section is valid; its policy
+    is not read, as for every governed tool. Refuses, with the application's
+    guidance, a tool the render does not hand to the switch, a declaration it
+    cannot read, and a call whose ``require`` is unmet; otherwise the switch's
+    position decides: at ``asked`` the call is put to a person bound to what
+    the prompt showed, at ``allowed`` it runs bound and stamped the same way. A
+    dispatch job is asked either way, with the dispatch policy as approver,
+    except for a tool a job may not run.
+    """
+    if not isinstance(entry, dict):
+        _deny_app_call(
+            hook_input,
+            tool_name,
+            f"{tool_name} not run: its approval declaration is malformed. {_APP_FALLBACK_GUIDANCE}",
+            "app_declaration_invalid",
+        )
+    if not is_governed(tool_name):
+        _deny_app_call(
+            hook_input,
+            tool_name,
+            f"{tool_name} not run: the render does not hand it to the write switch. "
+            f"{_app_guidance(entry, 'refused')}",
+            "app_not_gated",
+        )
+    if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        refusal = _app_job_refusal(config, tool_name, entry)
+        if refusal is not None:
+            _deny_app_call(
+                hook_input,
+                tool_name,
+                f"{tool_name} is not run in a dispatch job: {refusal}.",
+                "app_denied_in_jobs",
+            )
+
+    # A write the hook cannot place keeps its prompt, as any governed write does.
+    position = _governed_position(config, tool_name, short_name, tool_input, hook_input)
+    if position != _POSITION_ALLOWED:
+        position = _POSITION_ASKED
+    try:
+        if _prompt_render is None or _target_state is None:
+            raise _AppRefused("unreachable", "the approval prompt's helpers are missing")
+        state = _app_state(entry, _preview_deadline())
+        kept = _bound_input(tool_input, {})
+        read_record = _record_reader(hook_input)
+        target = _guarded_run_binding(hook_input, read_record)[_APPROVED_TARGET_KEY]
+        binding = _app_binding(entry, kept, state, target)
+        unmet = _app_requirement_unmet(entry, binding)
+        if unmet is not None:
+            raise _AppRefused("refused", unmet)
+        reason = _app_prompt(entry, tool_name, kept, state, target, hook_input, position)
+    except _AppRefused as refused:
+        _deny_app_call(
+            hook_input,
+            tool_name,
+            f"{tool_name} not run: {refused.detail}. {_app_guidance(entry, refused.kind)}",
+            f"app_{refused.kind}",
+        )
+    except Exception:
+        _deny_app_call(
+            hook_input,
+            tool_name,
+            f"{tool_name} not run: its approval prompt failed. {_app_guidance(entry, 'refused')}",
+            "app_refused",
+        )
+
+    bound = _bound_input(kept, binding)
+    if position == _POSITION_ALLOWED:
+        _allow_switch(hook_input, tool_name, short_name, read_record(), bound, binding, reason)
+    log_hook("approval", hook_input, status="ask", detail=f"position=asked tool={tool_name}")
+    _emit_ask(
+        build_approval_output(reason, hook_input, read_record, bound),
+        hook_input,
+        binding,
+        position=_POSITION_ASKED,
+    )
+    sys.exit(0)
+
+
 # -- pyaml_measure ------------------------------------------------------------
 #
 # A measurement runs on the pyAML view the build recorded in the render. The
@@ -3796,7 +4248,12 @@ def _describe_ask(hook_input, tool_name, short_name, tool_input, config, read_re
         exec_mode = tool_input.get("execution_mode", "")
         if isinstance(code, str) and code.strip():
             gallery_link, review_id = _create_pre_execution_notebook(
-                code, exec_mode, config, review_text
+                code,
+                exec_mode,
+                config,
+                review_text,
+                hook_input.get("tool_use_id"),
+                hook_input.get("session_id"),
             )
             if gallery_link:
                 lines.append(f"\nApproval preview: {gallery_link}")
@@ -3858,7 +4315,15 @@ def _allow_governed(hook_input, tool_name, short_name, tool_input):
     if bound is None:
         _allow_unmapped_measure(hook_input)
     _lines, updated_input, binding = bound
-    record = read_record()
+    _allow_switch(hook_input, tool_name, short_name, read_record(), updated_input, binding)
+
+
+def _allow_switch(hook_input, tool_name, short_name, record, updated_input, binding, reason=None):
+    """Run a call the switch approved, with the records an ask leaves. Does not return.
+
+    *reason* is the ask envelope's text in a dispatch run; the framework's names
+    the tool and the position, an application's is its prompt.
+    """
     _stamp_write_approval(hook_input, record)
     if short_name == _LANE_ADDRESSED_TOOL:
         _null_queue_start_stamps(hook_input)
@@ -3876,7 +4341,8 @@ def _allow_governed(hook_input, tool_name, short_name, tool_input):
     _stamp_ask(hook_input, approved=binding, position=_POSITION_ALLOWED)
     log_hook("approval", hook_input, status="allow", detail=f"position=allowed tool={short_name}")
     if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
-        reason = f"Tool: {short_name}\nWrite switch: {_POSITION_ALLOWED}"
+        if reason is None:
+            reason = f"Tool: {short_name}\nWrite switch: {_POSITION_ALLOWED}"
         output = _ask_envelope(reason, hook_input, record, updated_input)
     else:
         output = build_allow_output()
@@ -3953,6 +4419,11 @@ def main():
     tool_input = hook_input.get("tool_input", {})
     short_name = short_tool_name(tool_name, _prefixes)
 
+    # Plan mode: the plan-mode rule denies this call, and an ask here would win over its deny.
+    if _plan_mode is not None and _plan_mode.plan_mode_denies(hook_input):
+        log_hook("approval", hook_input, status="defer", detail=f"plan_mode tool={short_name}")
+        sys.exit(0)
+
     config = load_osprey_config(hook_input)
     approval_config = config.get("approval", {})
 
@@ -4020,8 +4491,15 @@ def main():
             _APPROVAL_CONFIG_INVALID_REASON.format(value=approval_config["enabled"]),
         )
 
-    # The switch's position decides for a governed tool; the policy below is
-    # not read for one.
+    # An application tool is governed by construction (its server declares it
+    # in `writes:`) and its declaration describes the call; the switch's
+    # position decides for it and for every other governed tool, and the
+    # policy below is not read for one.
+    app_approvals = load_hook_config().get(APP_APPROVALS_KEY)
+    if isinstance(app_approvals, dict) and tool_name in app_approvals:
+        _app_approval(
+            hook_input, tool_name, short_name, tool_input, config, app_approvals[tool_name]
+        )
     if is_governed(tool_name):
         _governed_main(config, tool_name, short_name, tool_input, hook_input)
 
@@ -4087,7 +4565,12 @@ def main():
                 review_id = None
                 if code.strip():
                     gallery_link, review_id = _create_pre_execution_notebook(
-                        code, exec_mode, config, review_text
+                        code,
+                        exec_mode,
+                        config,
+                        review_text,
+                        hook_input.get("tool_use_id"),
+                        hook_input.get("session_id"),
                     )
                     if gallery_link:
                         reason_parts.append(f"\nApproval preview: {gallery_link}")

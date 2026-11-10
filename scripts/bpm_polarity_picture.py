@@ -60,6 +60,9 @@ BUMP_NOISE_SEED = 17
 #: The corrector step the response is measured with, in radians.
 STEP_RAD = 1e-5
 
+#: Metres per unit of each position unit a monitor may read in.
+METRES_PER_UNIT = {"m": 1.0, "mm": 1e-3}
+
 
 @dataclass(frozen=True)
 class BumpTest:
@@ -149,7 +152,7 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     horizontal = [
         a
         for a in polarity
-        if by_address[a].role == "monitor"
+        if by_address[a].engine_role == "monitor"
         and by_address[a].plane == "x"
         and by_address[a].element is not None
     ]
@@ -169,8 +172,8 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     for binding in model.bindings:
         if binding.element is None:
             continue
-        is_monitor = binding.role == "monitor" and binding.plane == "x"
-        is_corrector = binding.role == "setpoint" and binding.plane == "x"
+        is_monitor = binding.engine_role == "monitor" and binding.plane == "x"
+        is_corrector = binding.engine_role == "setpoint" and binding.plane == "x"
         if not (is_monitor or is_corrector):
             continue
         index = _element_index(lattice, binding.element)
@@ -203,13 +206,16 @@ def bump_test(view: SimulatorView, scenario: str = SCENARIO) -> BumpTest:
     for _, record in monitors:
         monitor = record.address
         unit = view.channel(monitor).unit
-        if unit != "m":
-            raise ValueError(f"{monitor} reads in {unit!r}, not 'm'")
-        slope = float(matrix[rows.index(monitor), 0] / rad_per_unit)  # m/rad == um/urad
+        if unit not in METRES_PER_UNIT:
+            raise ValueError(
+                f"{monitor} reads in {unit!r}, not one of {', '.join(METRES_PER_UNIT)}"
+            )
+        metres = METRES_PER_UNIT[unit]
+        slope = float(matrix[rows.index(monitor), 0] / rad_per_unit) * metres  # m/rad == um/urad
         noise = (view.seed(monitor) or {}).get("noise") or {}
         if "relative" in noise:
             raise ValueError(f"{monitor} carries relative noise; the picture needs absolute")
-        noise_um = float(noise.get("absolute", 0.0)) * 1e6
+        noise_um = float(noise.get("absolute", 0.0)) * metres * 1e6
         sign = polarity.get(monitor, 1)
         values = sign * slope * KICKS_URAD + rng.normal(0.0, noise_um, KICKS_URAD.size)
         slopes.append(slope)

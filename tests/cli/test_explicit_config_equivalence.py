@@ -76,7 +76,7 @@ slow'``. On their own::
     uv run --extra dev pytest tests/cli/test_explicit_config_equivalence.py -q
 
 A full run is minutes, not seconds: each cell is a real ``osprey build``, and a
-control-assistant cell derives a large virtual-accelerator channel set. Each cell
+demo cell derives a large virtual-accelerator channel set. Each cell
 is therefore built once per module and shared between the tests that read it.
 Under the repo's ``--dist loadgroup`` scheduler an unmarked file goes to one
 worker whole (``tests/README.md``), so that cache holds in the parallel lane too
@@ -218,27 +218,10 @@ class Delta:
 #: Provider catalog entries ``providers.yml`` carries beyond the frozen fixtures.
 #: Every render lists the whole catalog under ``api.providers``, so every document
 #: of every frozen cell gains them.
-_CATALOG_ADDITIONS = ("openrouter",)
+_CATALOG_ADDITIONS: tuple[str, ...] = ("vllm",)
 
-
-#: The leaves the three-way write switch moves in every render, root, tier or
-#: app: the governed tools' per-tool approval policies retire, so the presets no
-#: longer spell ``approval.tools.channel_write: always`` or
-#: ``approval.tools.execute: selective`` and the position decides instead.
-def _retired_governed_policies(document: str) -> tuple[Delta, ...]:
-    return (
-        Delta(document=document, path="approval.tools.channel_write", fixture="always"),
-        Delta(document=document, path="approval.tools.execute", fixture="selective"),
-    )
-
-
-#: The control-assistant renders the feature moves: its root and its
-#: ``readwrite`` tier open at ``asked`` instead of ``allowed``. ``admin``,
-#: ``readonly`` and the apps keep their writes posture.
-_ASKED_RENDERS = ("root", "readwrite")
-
-#: Every render a control-assistant cell freezes.
-_CONTROL_ASSISTANT_RENDERS = (
+#: Every render a demo cell freezes.
+_DEMO_RENDERS = (
     "root",
     "admin",
     "channel-finder",
@@ -247,37 +230,6 @@ _CONTROL_ASSISTANT_RENDERS = (
     "readonly",
     "readwrite",
 )
-
-
-#: The control-assistant renders that show the CANOPY panel and open on it: the
-#: root and its login tiers. The apps render the panel's block switched off and
-#: keep their own default tab.
-_CANOPY_RENDERS = ("root", "admin", "readonly", "readwrite")
-
-
-def _canopy_panel_deltas(document: str) -> tuple[Delta, ...]:
-    """The leaves the CANOPY panel adds to one control-assistant render."""
-    shown = document in _CANOPY_RENDERS
-    deltas = [
-        Delta(document=document, path="web.panels.canopy.enabled", fixture=ABSENT, live=shown),
-        Delta(
-            document=document,
-            path="web.panels.canopy.home_screen",
-            fixture=ABSENT,
-            live="facility/overview",
-        ),
-        Delta(
-            document=document,
-            path="web.panels.canopy.vole_bytes_max",
-            fixture=ABSENT,
-            live=268435456,
-        ),
-    ]
-    if shown:
-        deltas.append(
-            Delta(document=document, path="web.default_panel", fixture=ABSENT, live="canopy")
-        )
-    return tuple(deltas)
 
 
 def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
@@ -295,50 +247,24 @@ def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
-def _control_assistant_deltas() -> tuple[Delta, ...]:
-    deltas: list[Delta] = []
-    for document in _CONTROL_ASSISTANT_RENDERS:
-        deltas.extend(_retired_governed_policies(document))
-        deltas.extend(_canopy_panel_deltas(document))
-        if document in _ASKED_RENDERS:
-            deltas.append(
-                Delta(
-                    document=document,
-                    path="control_system.writes",
-                    fixture="allowed",
-                    live="asked",
-                )
-            )
-    return tuple(deltas)
-
-
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
 #: the cell directory as ``cells.json`` spells it. A cell absent from this
 #: mapping must equal its fixture exactly. See the module docstring for how to
 #: spell a delta. The fixtures stay frozen at the baseline: the render-identity
 #: proof is the baseline render plus exactly these leaves.
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
-    "hello-world/unset": _retired_governed_policies("root") + _catalog_addition_deltas("root"),
+    "hello-world/unset": _catalog_addition_deltas("root"),
     **{
-        f"control-assistant/{mode}": _control_assistant_deltas()
-        + _catalog_addition_deltas(*_CONTROL_ASSISTANT_RENDERS)
+        f"demo/{mode}": _catalog_addition_deltas(*_DEMO_RENDERS)
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },
 }
 
 #: Logins whose staged tier posture each cell is allowed to differ from its
 #: frozen ``staged/login_tiers.yml`` by, as ``login -> (fixture, live)`` — the
-#: login-map twin of :data:`CELL_DELTAS`, exact in both directions. A login that
-#: lands on the deployment's default or on ``readwrite`` follows that render's
-#: ``control_system.writes`` from ``allowed`` to ``asked``; one granted another
-#: tier (``admin``'s ``allowed``, ``readonly``'s ``never``) does not move.
-STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {
-    f"control-assistant/{mode}": {
-        "alice": ("allowed", "asked"),
-        "osprey-freeze-builder": ("allowed", "asked"),
-    }
-    for mode in ("in_context", "hierarchical", "middle_layer", "graph")
-}
+#: login-map twin of :data:`CELL_DELTAS`, exact in both directions. Empty while
+#: the fixtures match the live render.
+STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {}
 
 #: Build-relative ``config.yml`` documents a cell's build gains over the count
 #: its freeze recorded, keyed by cell directory — the completeness twin of
@@ -439,12 +365,22 @@ class Refused(NamedTuple):
     reason: str
 
 
+class Broken(NamedTuple):
+    """A cell whose build raised; recorded once and returned to every later caller.
+
+    Attributes:
+        reason: The exception's type and message.
+    """
+
+    reason: str
+
+
 class CellRenderer:
     """Builds each cell at most once per module and hands out the result.
 
-    A cell is a real ``osprey init`` + ``osprey build``; a control-assistant cell
-    costs minutes. Several tests read the same cell, so the outcome — rendered or
-    refused — is cached under the cell directory.
+    A cell is a real ``osprey init`` + ``osprey build``; a demo cell
+    costs minutes. Several tests read the same cell, so the outcome — rendered, refused
+    or broken — is cached under the cell directory.
     """
 
     def __init__(self, root: Path) -> None:
@@ -452,23 +388,28 @@ class CellRenderer:
         root: An existing directory to build the cells under.
         """
         self._root = root
-        self._outcomes: dict[str, Rendered | Refused] = {}
+        self._outcomes: dict[str, Rendered | Refused | Broken] = {}
 
-    def attempt(self, cell: Cell) -> Rendered | Refused:
-        """Build *cell*, or return why the CLI refused it.
+    def attempt(self, cell: Cell) -> Rendered | Refused | Broken:
+        """Build *cell*, or return why the CLI refused it or the build raised.
 
         Args:
             cell: The cell to build.
 
         Returns:
-            The cached :class:`Rendered` or :class:`Refused` for this cell.
+            The cached :class:`Rendered`, :class:`Refused` or :class:`Broken` for
+            this cell.
         """
         if cell.directory not in self._outcomes:
-            self._outcomes[cell.directory] = self._build(cell)
+            try:
+                outcome: Rendered | Refused | Broken = self._build(cell)
+            except Exception as error:
+                outcome = Broken(f"{type(error).__name__}: {error}")
+            self._outcomes[cell.directory] = outcome
         return self._outcomes[cell.directory]
 
     def render(self, cell: Cell) -> Rendered:
-        """Build *cell*, failing the test if the CLI refuses it.
+        """Build *cell*, failing the test if the CLI refuses it or the build raised.
 
         Args:
             cell: The cell to build.
@@ -482,6 +423,8 @@ class CellRenderer:
                 f"{cell.directory}: osprey {outcome.stage} refused a cell the baseline "
                 f"renders.\n{outcome.reason}"
             )
+        if isinstance(outcome, Broken):
+            pytest.fail(f"{cell.directory}: the build of this cell raised.\n{outcome.reason}")
         return outcome
 
     def _build(self, cell: Cell) -> Rendered | Refused:
@@ -842,6 +785,30 @@ def test_a_list_difference_names_what_it_gained_and_lost() -> None:
     line = _describe("root", "api.providers", ["a", "b"], ["a", "c"])
     assert "gains ['c']" in line
     assert "loses ['b']" in line
+
+
+def test_a_raised_build_is_recorded_once(tmp_path: Path) -> None:
+    """A build that raised is not re-run; every caller gets the same outcome."""
+    cell = CELLS[0]
+    renderer = CellRenderer(tmp_path)
+    calls: list[Cell] = []
+
+    def raising_build(built: Cell) -> Rendered | Refused:
+        calls.append(built)
+        raise RuntimeError("capture incomplete")
+
+    renderer._build = raising_build  # type: ignore[method-assign]
+
+    first = renderer.attempt(cell)
+    second = renderer.attempt(cell)
+
+    assert calls == [cell]
+    assert isinstance(first, Broken)
+    assert second is first
+    assert "capture incomplete" in first.reason
+    with pytest.raises(pytest.fail.Exception, match="capture incomplete"):
+        renderer.render(cell)
+    assert calls == [cell]
 
 
 # ─────────────────────────────────────────────────────────────────────────────

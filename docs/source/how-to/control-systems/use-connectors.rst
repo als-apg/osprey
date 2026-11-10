@@ -12,33 +12,20 @@ so moving from the simulator to real hardware is a change of
 One API, whatever the machine
 -----------------------------
 
-The Python API is the same for every connector. The simulator served in
-process answers for the addresses of the built facility file without hardware
-or network access, which is what makes it the development and R&D default. Run
-``osprey build`` first; the simulator refuses an address outside the facility
-file:
+The Python API is the same for every connector, and works from a script of your
+own with no deployment at all (:doc:`use-connectors-standalone`). The simulator
+served in process answers for the addresses of the built facility file without
+hardware or network access, which is what makes it the development and R&D
+default. Run ``osprey build`` first, and run the script from the deployment; the
+simulator refuses an address outside the facility file. This script reads the
+beam current, a channel of the example facility ``osprey build`` starts from:
 
-.. code-block:: python
+.. literalinclude:: examples/read_simulator.py
+   :language: python
+   :caption: read_simulator.py
 
-   from osprey_connectors.factory import ConnectorFactory, register_builtin_connectors
-
-   register_builtin_connectors()   # registers the built-in names; idempotent
-
-   # The simulator in process - serves the addresses of the built facility file
-   connector = await ConnectorFactory.create_control_system_connector({
-       'type': 'virtual_accelerator',
-       'connector': {
-           'virtual_accelerator': {
-               'serving': 'in_process',
-               'response_delay_ms': 10
-           }
-       }
-   })
-
-   channel_value = await connector.read_channel('SR:BEAM:CURRENT')
-   print(f"Value: {channel_value.value} {channel_value.metadata.units}")
-
-   await connector.disconnect()
+The examples on this page are files the test suite runs against a soft IOC and
+a built simulator view.
 
 A state channel (EPICS mbbi/bi/bo, PVAccess NTEnum) reads as its integer state
 index, with the state names alongside it in the metadata: ``value`` is the
@@ -83,21 +70,9 @@ Pick a control system
 
       EPICS Channel Access, pointed at a gateway:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-epics.yml
+         :language: yaml
 
-         control_system:
-           type: epics
-           connector:
-             epics:
-               gateways:
-                 # EPICS uses one process-wide CA context, so the connector points at a
-                 # single gateway. When writes are armed for this connector type and a
-                 # write_access gateway is set, writes route through it; otherwise the
-                 # connector uses read_only (so a read-only deployment rejects writes at
-                 # the network layer as well).
-                 read_only:   { address: cagw.facility.edu, port: 5064 }
-                 write_access: { address: cagw.facility.edu, port: 5084 }
-               timeout_s: 5.0
 
       ``timeout_s`` bounds every Channel Access call given no timeout of its
       own. A ``timeout_s`` that is not a positive number of seconds is refused
@@ -119,21 +94,9 @@ Pick a control system
       and the connector reads them through pvAccess, while every other address
       keeps using Channel Access. One deployment covers both:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-epics-pva.yml
+         :language: yaml
 
-         control_system:
-           type: epics
-           connector:
-             epics:
-               timeout_s: 5.0
-               pva_channels:
-                 - "*:IMAGE*"
-                 - "BL:CAM?:ARRAY"
-               pva_gateway:
-                 address: pvagw.facility.edu   # or "cam1 cam2 cam3" for many servers
-                 use_name_server: false
-               gateways:
-                 read_only: { address: cagw.facility.edu, port: 5064 }
 
       Patterns are matched with ``fnmatch.fnmatchcase`` -- case-sensitive, and
       the same on every operating system. Addresses stay exactly as you write
@@ -211,13 +174,9 @@ Pick a control system
       (``FACILITY/DEVICE/LOCATION/PROPERTY``). The ENS comes from the DOOCS
       installation's environment, and the block takes one option:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-doocs.yml
+         :language: yaml
 
-         control_system:
-           type: doocs
-           connector:
-             doocs:
-               timeout_s: 5.0   # optional; seconds per ENS lookup, read or set
 
       A read that does not answer within ``timeout_s`` (or the call's own
       timeout) raises ``TimeoutError``. A set that does not return within it
@@ -250,14 +209,9 @@ Pick a control system
       in the connector block overrides that environment for this connector
       alone:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-tango.yml
+         :language: yaml
 
-         control_system:
-           type: tango
-           connector:
-             tango:
-               tango_host: db.facility.edu:10000   # optional; default TANGO_HOST
-               timeout_s: 5.0                      # seconds per device call
 
       A read or write given no timeout of its own is bounded by ``timeout_s``
       too, with the same answers as DOOCS: a read that runs out raises
@@ -297,10 +251,9 @@ Pick a control system
       physics, so correctors move, BPMs respond, and plans actually run (the
       simulator in process can't run plans):
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/control-system-virtual-accelerator.yml
+         :language: yaml
 
-         control_system:
-           type: virtual_accelerator
 
       See :doc:`use-virtual-accelerator` for running it and
       :doc:`/architecture/virtual-accelerator` for how it works.
@@ -308,10 +261,10 @@ Pick a control system
    .. tab-item:: Your own
       :sync: custom
 
-      LabVIEW, MOAT, or any other stack OSPREY does not ship a
-      connector for: write a custom connector against the same interface and
-      register it with ``ConnectorFactory``. It then selects by name exactly
-      like the in-tree ones. The seam -- the class to subclass, the pinning
+      Any other stack OSPREY does not ship a connector for: write a custom
+      connector against the same interface and register it with
+      ``ConnectorFactory``. It then selects by name exactly like the in-tree
+      ones. The seam -- the class to subclass, the pinning
       test, and how registration works -- is documented in
       :doc:`/contributing/extending-osprey`.
 
@@ -335,28 +288,18 @@ independently of the control system:
       History for the addresses of the built facility file — the development
       default:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mock.yml
+         :language: yaml
 
-         archiver:
-           type: mock_archiver
 
    .. tab-item:: EPICS
       :sync: epics
 
       The EPICS Archiver Appliance:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-epics.yml
+         :language: yaml
 
-         archiver:
-           type: epics_archiver
-           settings:
-             url: https://archiver.facility.edu:8443   # required
-             timeout_s: 60                              # seconds, default 60
-             retrieval_path: /retrieval                 # default; a reverse proxy may rename it
-             # auth:                                    # only when a proxy asks for a login
-             #   token_env: OSPREY_ARCHIVER_TOKEN       # the variable that holds the token
-             # tls:                                     # only for a CA the image does not trust
-             #   ca_bundle: /etc/ssl/certs/site-ca.pem  # absolute path of the CA file
 
       ``url`` is the appliance's root (or the reverse proxy's). The connector
       reads through the appliance's retrieval servlet, mounted at ``/retrieval``
@@ -384,12 +327,9 @@ independently of the control system:
       DOOCS *local histories* — only meaningful alongside ``type: doocs``, and
       needing the same environment-supplied ``doocs4py``:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-doocs.yml
+         :language: yaml
 
-         archiver:
-           type: doocs_archiver
-           settings:
-             avg_window: 20    # optional centered moving average, in seconds
 
    .. tab-item:: MongoDB
       :sync: mongodb
@@ -397,20 +337,9 @@ independently of the control system:
       For facilities that store time-series PV data in MongoDB rather than an
       EPICS Archiver Appliance:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mongodb.yml
+         :language: yaml
 
-         archiver:
-           type: mongodb_archiver
-           settings:
-             host: mongodb.facility.edu
-             port: 27017
-             name: archiver_db
-             collection: pv_data
-             auth:
-               source: admin
-               username: readonly
-               password_env: MONGODB_READONLY_PASSWORD
-             timeout_s: 60     # seconds, default 60
 
       The collection holds one document per instant: a ``date`` field plus one
       field per channel sampled at that instant. A channel's field name is its
@@ -430,20 +359,9 @@ independently of the control system:
       A store behind TLS, in a replica set or behind x509 is named by ``url``, a
       MongoDB connection string, in place of ``host`` and ``port``:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mongodb-url.yml
+         :language: yaml
 
-         archiver:
-           type: mongodb_archiver
-           settings:
-             url: mongodb+srv://your-cluster.example.com/?tls=true
-             name: archiver_db
-             collection: pv_data
-             auth:                # optional with a url
-               source: admin
-               username: readonly
-               password_env: MONGODB_READONLY_PASSWORD
-             tls:                 # only for a CA the image does not trust
-               ca_bundle: /etc/ssl/certs/site-ca.pem
 
       The url wins over ``host``, ``port`` and the ``OSPREY_ARCHIVER_MONGODB_*``
       address overrides. It may not carry a user, a password or a key-file
@@ -482,23 +400,16 @@ independently of the control system:
       own server and protocol -- so a deployment inside the facility's network
       needs only the type:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mya-minimal.yml
+         :language: yaml
 
-         archiver:
-           type: mya_archiver
 
       To name a different myquery host, a non-production MYA deployment, or the
       zone it reads query bounds in:
 
-      .. code-block:: yaml
+      .. literalinclude:: examples/archiver-mya.yml
+         :language: yaml
 
-         archiver:
-           type: mya_archiver
-           settings:
-             myquery_server: myquery.facility.edu
-             deployment: ops        # MYA deployment to query
-             timeout_s: 60          # seconds per request
-             timezone: America/New_York   # default: system.timezone
 
       MYA takes no ``auth:`` or ``tls:``: its client sends every request
       itself, so the connector refuses both rather than ignore them. A site CA
@@ -541,12 +452,9 @@ Every archiver takes its settings from one block, ``settings:``, beside the
 ``type`` that selects it. A connector of your own is selected by its dotted
 module path and configured the same way:
 
-.. code-block:: yaml
+.. literalinclude:: examples/archiver-custom.yml
+   :language: yaml
 
-   archiver:
-     type: my_facility.connectors.FacilityArchiver
-     settings:
-       server: history.facility.edu
 
 In a profile's ``config:`` block that is ``archiver.settings.server:
 history.facility.edu``. The block is handed to the connector's ``connect()``
@@ -575,23 +483,17 @@ machine's switch can stay off throughout, and moving it to *asked* or
 **1. Ask.** The program writes a request into its ledger directory
 (``OSPREY_WRITE_LEDGER_DIR``; on a host with no deployment, its own state
 directory). Spell each channel exactly as it will be written, and count the
-completion write (``apply_best`` or ``restore``) in ``steps``:
+completion write (``apply_best`` or ``restore``) in ``steps``. The steps below
+are taken from one program,
+:download:`write_from_a_program.py <examples/write_from_a_program.py>`, which
+the test suite runs against a stand-in soft IOC, approving its request as the
+person would:
 
-.. code-block:: python
-
-   import time
-
-   from osprey_connectors import write_authorization as wa
-
-   request = wa.write_request(
-       "standin",
-       {"SR:CORRECTOR:H1": (-0.5, 0.5), "SR:CORRECTOR:H2": (-0.5, 0.5)},
-       steps=41,                                  # 40 evaluations + apply_best
-       expires_at_ns=time.time_ns() + 2 * 3600 * 10**9,
-       lease_s=30.0,
-       label="injector tuning 7",
-       completion="apply_best",
-   )
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: ask begins
+   :end-before: # docs: ask ends
+   :dedent: 4
 
 The holder is the program's acting identity; the owner is the login the run
 stands in for (``OSPREY_CONTROL_OWNER`` in a container). A program's container
@@ -606,12 +508,11 @@ stays there.
 (:ref:`web-terminal-approve-program`) or with ``osprey write-authorization
 approve``. The grant carries the request's id, so the program polls for it:
 
-.. code-block:: python
-
-   while (grant := wa.approved_grant(request.id)) is None:
-       time.sleep(2)
-   wa.withdraw_request(request.id)
-   wa.start_lease(grant.id)        # once, by the process that renews it
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: wait begins
+   :end-before: # docs: wait ends
+   :dedent: 4
 
 ``approved_grant`` raises ``AuthorizationRefused`` for a grant that is there
 and does not stand (revoked, expired, unreadable, another holder's).
@@ -619,16 +520,24 @@ and does not stand (revoked, expired, unreadable, another holder's).
 **3. Write.** Name the authorization to the connector pool once the lease is
 open, and renew the lease from a heartbeat at a fraction of ``lease_s``. A
 handle taken before the lease started selected the read gateway, and its
-writes are refused ``switching`` (nothing spent) like any other refusal:
+writes are refused ``switching`` (nothing spent) like any other refusal. The
+program builds its pool from the deployment's own configuration,
+``ConnectorHostPool(get_config_value("control_system", {}),
+config_file=default_config_path())``:
 
-.. code-block:: python
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: write begins
+   :end-before: # docs: write ends
+   :dedent: 4
 
-   connector = await pool.connector("standin", owner=grant.owner, authorization=grant.id)
-   results = await connector.write_multiple_channels(
-       [("SR:CORRECTOR:H1", 0.12), ("SR:CORRECTOR:H2", -0.03)], confirm=True
-   )
-   ...
-   wa.renew_lease(grant.id)        # False: the lease has lapsed, stop
+and, between write calls, renews its lease:
+
+.. literalinclude:: examples/write_from_a_program.py
+   :language: python
+   :start-after: # docs: renew begins
+   :end-before: # docs: renew ends
+   :dedent: 4
 
 One write call is one step, a batch included, and the step is spent before
 anything is put: a batch with an unlisted channel or a value out of range

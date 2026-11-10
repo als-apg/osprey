@@ -22,7 +22,7 @@ Three claims, against a real Neo4j + neosemantics store:
   with that digest's prefix and no different-corpora warning.
 
 The project is a real ``osprey init`` + ``osprey build`` of the
-control-assistant preset. Its rendered ``config.yml`` is pointed at the graph
+demo preset. Its rendered ``config.yml`` is pointed at the graph
 view and at the throwaway store's published port after every build, and the
 staging step is the deploy's own ``_bootstrap_and_seed_graphdb``, run exactly
 as ``osprey up`` runs it once the store answers.
@@ -46,11 +46,10 @@ import pytest
 import yaml
 
 from osprey.deployment import container_lifecycle
-from osprey.services.facility_knowledge.seeder import graph_seeder
+from osprey.services.graph_store import seeder as graph_seeder
 from tests._graphdb_container import GRAPHDB_TEST_PASSWORD, graphdb_store_published_port
 
 pytestmark = [
-    pytest.mark.e2e,
     pytest.mark.slow,
     # dockerbuild: a real Neo4j store under testcontainers -- runs in the
     # dedicated graph-reseed-e2e CI job, never the shared e2e-tests lane (the
@@ -198,11 +197,11 @@ def store_port(graphdb_plugin_dir: Path) -> Iterator[int]:
 
 @pytest.fixture(scope="module")
 def repo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
-    """A control-assistant deployment repo with the store's password in ``.env``."""
+    """A demo deployment repo with the store's password in ``.env``."""
     tmp = tmp_path_factory.mktemp("graph-reseed")
     repo = tmp / "reseed"
     try:
-        _osprey("init", str(repo), "--preset", "control-assistant", "--no-git", cwd=tmp)
+        _osprey("init", str(repo), "--preset", "demo", "--no-git", cwd=tmp)
         env_path = repo / ".env"
         existing = env_path.read_text(encoding="utf-8") if env_path.is_file() else ""
         if existing and not existing.endswith("\n"):

@@ -42,7 +42,7 @@ class HealthResult(NamedTuple):
     reason: str | None
 
 
-def _classes(module_name: str, *names: str) -> tuple[type[BaseException], ...]:
+def library_exception_classes(module_name: str, *names: str) -> tuple[type[BaseException], ...]:
     """The named exception classes of *module_name*, or none when it is not importable."""
     try:
         module = importlib.import_module(module_name)
@@ -58,7 +58,9 @@ def _classes(module_name: str, *names: str) -> tuple[type[BaseException], ...]:
 
 def _http_status(exc: BaseException) -> int | None:
     """The HTTP status carried by a ``requests`` or ``httpx`` status error, if any."""
-    status_errors = _classes("requests", "HTTPError") + _classes("httpx", "HTTPStatusError")
+    status_errors = library_exception_classes("requests", "HTTPError") + library_exception_classes(
+        "httpx", "HTTPStatusError"
+    )
     if not (status_errors and isinstance(exc, status_errors)):
         return None
     response = getattr(exc, "response", None)
@@ -89,16 +91,18 @@ def failure_reason(exc: BaseException) -> FailureReason | None:
     """
     unreachable = (
         (ConnectionError,)
-        + _classes("requests", "ConnectionError")
-        + _classes("httpx", "ConnectError")
-        + _classes("litellm", "APIConnectionError")
+        + library_exception_classes("requests", "ConnectionError")
+        + library_exception_classes("httpx", "ConnectError")
+        + library_exception_classes("litellm", "APIConnectionError")
     )
     if isinstance(exc, unreachable):
         return "unreachable"
 
-    if isinstance(exc, _classes("litellm", "AuthenticationError", "PermissionDeniedError")):
+    if isinstance(
+        exc, library_exception_classes("litellm", "AuthenticationError", "PermissionDeniedError")
+    ):
         return "auth"
-    if isinstance(exc, _classes("litellm", "NotFoundError")):
+    if isinstance(exc, library_exception_classes("litellm", "NotFoundError")):
         return "model"
 
     status = _http_status(exc)

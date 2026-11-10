@@ -5,7 +5,7 @@ Written into ``<render>/data/simulator/``::
     served_models.json   {schema: osprey.facility.served_models/1, models: [...]}
     addresses.json       {schema: osprey.facility.addresses/1, channels: [...], status: [...]}
     decks/<model><suffix>   a byte copy of each deck-bearing model's deck, under its own suffix
-    variables.json       {schema: osprey.facility.simulator/2, code, models: [...], channels: [...]}
+    variables.json       {schema: osprey.facility.simulator/3, code, models: [...], channels: [...]}
     seeds.json           {schema: osprey.facility.seeds/2, seeds: {<address>: <seed record>}}
     scenarios.json       {schema: osprey.facility.scenarios/3, scenarios: [...]}
     scenarios/<name>/    a byte copy of each file a scenario's logbook entries attach
@@ -47,8 +47,8 @@ file a logbook entry's ``attachments`` names, relative to the facility's
 ``simulator_wiring`` gives one model's wiring entries: each wired address with
 its element (or slices), engine block and calibration, plus the slots the build
 filled from the channel, its limits record and the model's engine (direction,
-unit, default, value_range, role, plane, refresh) and, for a waveform channel,
-its ``value_type`` and ``shape``.
+unit, default, value_range, engine_role, plane, refresh, marks) and, for a waveform
+channel, its ``value_type`` and ``shape``.
 """
 
 from __future__ import annotations
@@ -115,6 +115,7 @@ _SCENARIO_BLOCKS = (
     "overrides",
     "archiver",
     "logbook",
+    "sessions",
     "drivers",
     "couple",
     "noise",
@@ -141,9 +142,10 @@ _WIRING_ENTRY_KEYS = (
     "unit",
     "default",
     "value_range",
-    "role",
+    "engine_role",
     "plane",
     "refresh",
+    "marks",
 )
 
 #: The channels and models last wired and each model's wiring of them, keyed on
@@ -186,11 +188,21 @@ def simulator_wiring(records: FacilityRecords, model: str) -> list[dict[str, Any
     return copy.deepcopy(wiring)
 
 
+#: The key a wiring entry also carries its ``engine_role`` under: transitional
+#: copy for connectors <2026.11.8; removed by the floor bump to >=2026.11.8.
+#: Those releases read a wiring record's engine role as ``role`` and refuse an
+#: entry without it. Nothing reads it back.
+TRANSITIONAL_ROLE_KEY = "role"
+
+
 def _wire(records: FacilityRecords, entry: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Compute :func:`simulator_wiring` of ``entry`` without the per-build memo."""
     return [
         {
             **{key: copy.deepcopy(record[key]) for key in _WIRING_ENTRY_KEYS if key in record},
+            # Transitional copy for connectors <2026.11.8; removed by the floor
+            # bump to >=2026.11.8.
+            **({TRANSITIONAL_ROLE_KEY: record["engine_role"]} if "engine_role" in record else {}),
             **_waveform(records.record("channel", str(record["address"])) or {}),
         }
         for record in entry.get("wiring", [])

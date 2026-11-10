@@ -77,7 +77,8 @@ def _ctx(view: bool) -> dict:
         "facility_name": "Test Facility",
         "facility_permissions": {},
         "ariel_attachment_view": view,
-        "ariel_read_tools": _ariel_read_tools(view),
+        "ariel_sql_tool": True,
+        "ariel_read_tools": _ariel_read_tools({"ariel_attachment_view": view}),
     }
     ctx["servers"] = resolve_servers({}, ctx)
     ctx["agents"] = resolve_agents({}, ctx, resolved_servers=ctx["servers"])
@@ -227,7 +228,7 @@ def _do_not_call(rendered: str) -> set[str]:
 
 
 @pytest.mark.parametrize("view", VIEW_FLAGS)
-def test_control_assistant_do_not_call_list_is_the_read_tools(view):
+def test_demo_do_not_call_list_is_the_read_tools(view):
     expected = (
         set(FRAMEWORK_SERVERS["ariel"].permissions_allow) - _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL
     )
@@ -262,7 +263,7 @@ def test_ariel_read_tools_follow_the_flag(view):
         for t in FRAMEWORK_SERVERS["ariel"].permissions_allow
         if t not in _ARIEL_TOOLS_THE_MAIN_AGENT_MAY_CALL and (view or t != "attachment_view")
     ]
-    assert _ariel_read_tools(view) == expected
+    assert _ariel_read_tools({"ariel_attachment_view": view}) == expected
 
 
 def test_config_derived_context_sets_both_keys(tmp_path):

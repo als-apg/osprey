@@ -182,7 +182,7 @@ def test_only_the_chain_and_the_valve_closed_switches_carry_gates():
 
 
 class Served:
-    """The composite the in-process simulator builds from the control-assistant view."""
+    """The composite the in-process simulator builds from the demo view."""
 
     def __init__(self, view: Path) -> None:
         from osprey_connectors.simulation.composite import Composite
@@ -200,9 +200,9 @@ class Served:
 
 
 @pytest.fixture(scope="module")
-def served(built_control_assistant: BuiltProject) -> Served:
+def served(built_demo: BuiltProject) -> Served:
     pytest.importorskip("at")
-    return Served(built_control_assistant.build_dir / "data" / "simulator")
+    return Served(built_demo.build_dir / "data" / "simulator")
 
 
 def _ungated(served: Served, held: dict[str, Any]) -> list[str]:

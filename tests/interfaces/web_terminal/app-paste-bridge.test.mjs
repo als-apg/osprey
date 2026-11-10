@@ -70,6 +70,7 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/sidebar-artifacts
 }));
 
 import { initIframePasteBridge } from '../../../src/osprey/interfaces/web_terminal/static/js/app.js';
+import { emitChat } from '../../../src/osprey/interfaces/web_terminal/static/js/chat-events.js';
 
 /** The chat's input, in the shape the insert seam looks for. */
 function mountChatInput() {
@@ -132,6 +133,26 @@ describe('initIframePasteBridge: chat', () => {
     post({ type: 'osprey-paste-to-terminal', text: ADDRESSES });
 
     expect(input.value).toBe(`set these to nominal:\n${ADDRESSES}`);
+    expect(term.paste).not.toHaveBeenCalled();
+  });
+});
+
+describe('initIframePasteBridge: while a turn streams', () => {
+  test('holds the addresses and appends them, unsent, when the chat reports the turn over', () => {
+    document.documentElement.removeAttribute('data-agent-surface');
+    const input = mountChatInput();
+    input.value = 'set these to nominal:';
+    input.disabled = true;
+
+    post({ type: 'osprey-paste-to-terminal', text: ADDRESSES });
+    post({ type: 'osprey-paste-to-terminal', text: 'SR:BPM4:X' });
+    expect(input.value).toBe('set these to nominal:');
+    expect(document.querySelectorAll('.undo-notice')).toHaveLength(1);
+
+    input.disabled = false;
+    emitChat('busy', { busy: false });
+
+    expect(input.value).toBe(`set these to nominal:\n${ADDRESSES}\nSR:BPM4:X`);
     expect(term.paste).not.toHaveBeenCalled();
   });
 });

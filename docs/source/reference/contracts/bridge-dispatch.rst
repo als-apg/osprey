@@ -20,24 +20,8 @@ The request
 The bridge ``POST``\ s to ``<dispatcher>/webhook/<trigger>`` with a Bearer
 token. The body is the question plus whatever context the engine assembled:
 
-.. code-block:: json
-
-   {
-     "question": "now plot that over 24 hours",
-     "asker": {"id": "users/111", "name": "Alice"},
-     "room": {"members": [{"id": "users/111", "name": "Alice"},
-                          {"id": "users/222", "name": "Carol"},
-                          {"id": "users/333", "name": null}],
-              "mentions": "To @mention a member of this room, write <@ID> ..."},
-     "conversation_so_far": [{"question": "...", "answer": "...", "ts": 1757000000.0,
-                              "run_id": "run-...", "artifacts": [],
-                              "asked_by": {"id": "users/222", "name": "Carol"}}],
-     "prior_answer_runs": ["3f2b…"],
-     "reply_to": {"sender": "Alice", "text": "the vacuum trace from this morning"},
-     "input_files": [{"filename": "trace.png", "mime": "image/png",
-                      "content_b64": "...", "ingest": true}],
-     "skipped_attachments": [{"filename": "scan.h5", "reason": "..."}]
-   }
+.. literalinclude:: examples/bridge-dispatch-payload.json
+   :language: json
 
 Only ``question`` is always present. ``asker`` is present whenever the chat
 system told the bridge who sent the message. A text-only message whose sender
@@ -66,7 +50,8 @@ list, and that list, not the payload, is the security control.
 ========
 
 Who is in the conversation. Present only when the bridge can list the room
-(Google Chat, Microsoft Teams and Nextcloud Talk):
+(Google Chat, Microsoft Teams, Nextcloud Talk, and Slack outside one-to-one
+direct messages):
 
 .. list-table::
    :header-rows: 1
@@ -178,9 +163,8 @@ be replayed at all is ``agent_record.retention_days``.
 Present only when the message quotes or replies to another one, and only when
 the chat system has such a mechanic at all:
 
-.. code-block:: json
-
-   {"sender": "Alice", "text": "the vacuum trace from this morning"}
+.. literalinclude:: examples/bridge-dispatch-reply-to.json
+   :language: json
 
 ``text`` is the quoted message, truncated by the adapter to its own limit. Two
 further fields appear when the **quoted** message had attachments:

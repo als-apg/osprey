@@ -56,6 +56,9 @@ _EXPECTED_KEYS = {
     "mixed_read_write_tools",
     "lane_addressed_tools",
     "measurement",
+    "app_approvals",
+    "app_error_types",
+    "plan_mode_denied_tools",
 }
 
 
@@ -82,13 +85,13 @@ def _create_project(tmp_path):
     manager = TemplateManager()
     name = f"hook-config-{_PROJECT_COUNTER}"
 
-    profile, _preset_dir = resolve_build_profile(None, preset="control-assistant")
+    profile, _preset_dir = resolve_build_profile(None, preset="demo")
 
     def render(context: dict | None) -> Path:
         project = manager.create_project(
             project_name=name,
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             data_root=bundle_data_root(),
             context={"channel_finder_mode": "hierarchical", **(context or {})},
             force=True,
@@ -107,9 +110,9 @@ def _create_project(tmp_path):
     manager.generate_manifest(
         project_dir,
         name,
-        "control-assistant",
+        "demo",
         {},
-        artifacts=manager._effective_artifacts("control_assistant", None),
+        artifacts=manager._effective_artifacts("demo", None),
     )
     return manager, project_dir
 
@@ -487,6 +490,8 @@ def test_absent_servers_key_renders_empty_lists_silently():
 
     assert set(config) == _EXPECTED_KEYS
     assert config.pop("measurement") == {}
+    assert config.pop("app_approvals") == {}
+    assert config.pop("app_error_types") == {}
     assert all(value == [] for value in config.values())
 
 
@@ -497,6 +502,8 @@ def test_rendered_file_is_valid_json_on_a_bare_render():
 
     assert set(config) == _EXPECTED_KEYS
     assert config.pop("measurement") == {}
+    assert config.pop("app_approvals") == {}
+    assert config.pop("app_error_types") == {}
     for value in config.values():
         assert isinstance(value, list)
 
@@ -523,3 +530,64 @@ def test_build_path_context_carries_the_mixed_list(tmp_path):
     built = _hook_config(project_dir)
     assert built["mixed_read_write_tools"] == regen_ctx["mixed_read_write_tools"]
     assert built["mixed_read_write_tools"], "default render should carry python execute"
+
+
+# ---------------------------------------------------------------------------
+# plan_mode_denied_tools
+# ---------------------------------------------------------------------------
+
+
+def _plan_mode_exemptions():
+    """Every tool the registry keeps callable in plan mode, fully qualified."""
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    return {
+        f"mcp__{sdef.name}__{tool}"
+        for sdef in FRAMEWORK_SERVERS.values()
+        for tool in sdef.plan_mode_allowed
+    }
+
+
+def _assert_plan_mode_list_populated(config):
+    denied = config["plan_mode_denied_tools"]
+    assert "mcp__controls__channel_write" in denied
+    assert _plan_mode_exemptions().isdisjoint(denied)
+
+
+def test_both_render_paths_carry_the_plan_mode_list(tmp_path):
+    manager, project_dir = _create_project(tmp_path)
+    _assert_plan_mode_list_populated(_hook_config(project_dir))
+    _assert_plan_mode_list_populated(_regenerate(manager, project_dir))
+
+
+def test_build_path_context_carries_the_plan_mode_list(tmp_path):
+    """create_project's own context derives the plan-mode list as the regen path does."""
+    from osprey.registry.mcp import plan_mode_denied_tools
+
+    manager, project_dir = _create_project(tmp_path)
+    built = _hook_config(project_dir)
+    config = yaml.safe_load((project_dir / "config.yml").read_text())
+    regen_ctx = claude_code.build_claude_code_context(
+        manager.template_root, manager.jinja_env, project_dir, config
+    )
+
+    assert regen_ctx["plan_mode_denied_tools"] == plan_mode_denied_tools(
+        regen_ctx["servers"], regen_ctx.get("control_system_write_tools") or []
+    )
+    assert set(built["plan_mode_denied_tools"]) <= set(regen_ctx["plan_mode_denied_tools"])
+    assert built["plan_mode_denied_tools"], "default render should deny channel_write"
+
+
+def test_absent_plan_mode_key_renders_an_empty_list():
+    manager = TemplateManager()
+    rendered = _render_direct(
+        manager,
+        {
+            "servers": [{"name": "controls", "enabled": True, "hooks_pre": []}],
+            "control_system_write_tools": [],
+        },
+    )
+
+    config = json.loads(rendered)
+    assert config["plan_mode_denied_tools"] == []
+    assert set(config) == _EXPECTED_KEYS

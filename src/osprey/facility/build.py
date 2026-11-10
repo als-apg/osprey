@@ -37,7 +37,9 @@ LATER_STAGES: tuple[tuple[str, Stage], ...] = (
 )
 
 
-def build_facility(facility_dir: Path, *, project_name: str) -> FacilityDocument:
+def build_facility(
+    facility_dir: Path, *, project_name: str, content_dir: Path | None = None
+) -> FacilityDocument:
     """Build the facility file in memory.
 
     Args:
@@ -45,6 +47,8 @@ def build_facility(facility_dir: Path, *, project_name: str) -> FacilityDocument
             is zero sources.
         project_name: The project's name, folded into the identity ``code``
             when there is no ``identity.yaml``.
+        content_dir: The content root when mounted, where the knowledge pages
+            are read; ``None`` means ``facility_dir``.
 
     Returns:
         The facility file.
@@ -52,11 +56,13 @@ def build_facility(facility_dir: Path, *, project_name: str) -> FacilityDocument
     Raises:
         FacilityBuildError: The first error of the first stage that fails.
     """
-    return build_facility_with_warnings(facility_dir, project_name=project_name)[0]
+    return build_facility_with_warnings(
+        facility_dir, project_name=project_name, content_dir=content_dir
+    )[0]
 
 
 def build_facility_with_warnings(
-    facility_dir: Path, *, project_name: str
+    facility_dir: Path, *, project_name: str, content_dir: Path | None = None
 ) -> tuple[FacilityDocument, list[FacilityBuildWarning]]:
     """Build the facility file in memory, with the warnings of the build.
 
@@ -65,6 +71,8 @@ def build_facility_with_warnings(
             is zero sources.
         project_name: The project's name, folded into the identity ``code``
             when there is no ``identity.yaml``.
+        content_dir: The content root when mounted, where the knowledge pages
+            are read; ``None`` means ``facility_dir``.
 
     Returns:
         The facility file and the warnings the stages found, in the order
@@ -73,7 +81,9 @@ def build_facility_with_warnings(
     Raises:
         FacilityBuildError: The first error of the first stage that fails.
     """
-    report = run_stages(facility_dir, project_name=project_name, later=LATER_STAGES)
+    report = run_stages(
+        facility_dir, project_name=project_name, later=LATER_STAGES, content_dir=content_dir
+    )
     report.raise_first()
     document = report.validated.document
     if document is None:

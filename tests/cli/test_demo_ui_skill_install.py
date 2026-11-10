@@ -12,6 +12,7 @@ the live panel inventory instead of guessing IDs, and restoring the starting
 layout -- must survive future edits.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -54,10 +55,8 @@ class TestDemoUiTemplateExists:
 class TestDemoUiPresetWiring:
     """Wiring point 3: the preset's ``skills:`` directive."""
 
-    def test_control_assistant_lists_the_skill(self):
-        profile = yaml.safe_load(
-            (PRESETS_DIR / "control-assistant.yml").read_text(encoding="utf-8")
-        )
+    def test_demo_lists_the_skill(self):
+        profile = yaml.safe_load((PRESETS_DIR / "demo.yml").read_text(encoding="utf-8"))
         assert "demo-ui" in profile["skills"]
 
 
@@ -82,15 +81,22 @@ class TestDemoUiSkillStructure:
     def test_choreographs_the_panel_tools(self, skill_text):
         """These are the workspace MCP tools the demo drives -- a rename in
         ``workspace/tools/panel_tools.py`` must fail here, not on stage."""
-        for tool in ("list_panels", "open_panel", "add_panel_to_rail", "remove_panel_from_rail"):
+        for tool in (
+            "list_panels",
+            "open_panel",
+            "close_panel",
+            "add_panel_to_rail",
+            "remove_panel_from_rail",
+        ):
             assert tool in skill_text, f"Missing panel tool: {tool}"
+        # One close verb: a tile shows one panel, so it closes with it.
+        assert set(re.findall(r"close_panel\w*", skill_text)) == {"close_panel"}
 
     def test_choreographs_the_artifact_tools(self, skill_text):
         for tool in (
             "create_interactive_plot",
             "artifact_register",
             "artifact_focus",
-            "artifact_pin",
         ):
             assert tool in skill_text, f"Missing artifact tool: {tool}"
 
@@ -127,13 +133,13 @@ class TestDemoUiSkillStructure:
 class TestDemoUiInstall:
     """End-to-end: the skill must actually land on disk via the standard build path."""
 
-    def test_control_assistant_build_installs_the_skill(self, tmp_path):
+    def test_demo_build_installs_the_skill(self, tmp_path):
         manager = TemplateManager()
         project_dir = create_project_as_built(
             manager,
             project_name="demo-ui-install-test",
             output_dir=tmp_path,
-            data_bundle="control_assistant",
+            data_bundle="demo",
             context={"channel_finder_mode": "hierarchical"},
         )
 

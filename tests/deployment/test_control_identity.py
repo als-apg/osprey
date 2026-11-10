@@ -56,8 +56,8 @@ class TestValidateLeafModule:
     def test_validate_constants(self) -> None:
         assert CONTROL_IDENTITY_CONTAINER_PATH == "/opt/osprey/control_identity/control_identity.py"
         assert CANONICAL_NAME == {1000: "osprey", 0: "root"}
-        assert IDENTITY_RE.pattern == r"^[a-z_][a-z0-9_-]{0,31}\Z"
-        assert RESERVED_RE.pattern == r"^(root|osprey(-[a-z0-9_-]*)?)\Z"
+        assert IDENTITY_RE.pattern == r"^[a-z_][a-z0-9._-]{0,31}\Z"
+        assert RESERVED_RE.pattern == r"^(root|osprey([-.][a-z0-9._-]*)?)\Z"
 
     def test_validate_base_image_accounts_exclude_osprey_owned_names(self) -> None:
         assert "root" not in BASE_IMAGE_ACCOUNTS
@@ -79,6 +79,14 @@ class TestValidateIdentity:
         validate_identity(name)
         validate_identity(name, allow_service=True)
 
+    @pytest.mark.parametrize(
+        "name",
+        ["alice.smith", "a.b.c", "alice.", "_a.b", "first.last-2", "a." + "b" * 30],
+    )
+    def test_validate_accepts_dotted_names(self, name: str) -> None:
+        validate_identity(name)
+        validate_identity(name, allow_service=True)
+
     @pytest.mark.parametrize("value", [None, 1000, b"alice", ["alice"], {"name": "alice"}])
     def test_validate_refuses_non_string(self, value: object) -> None:
         with pytest.raises(ValueError, match="string"):
@@ -92,10 +100,13 @@ class TestValidateIdentity:
             "1alice",
             "-alice",
             "al ice",
-            "alice.b",
             "alicé",
             "a" * 33,
             "alice$",
+            ".alice",
+            ".",
+            "..",
+            "a." + "b" * 31,
         ],
     )
     def test_validate_refuses_bad_charset(self, name: str) -> None:
@@ -122,15 +133,25 @@ class TestValidateIdentity:
         with pytest.raises(ValueError, match="reserved"):
             validate_identity(name, allow_service=True)
 
+    @pytest.mark.parametrize("name", ["osprey.", "osprey.x", "osprey.optimizer"])
+    def test_validate_refuses_dotted_osprey_names_even_for_services(self, name: str) -> None:
+        with pytest.raises(ValueError, match="reserved"):
+            validate_identity(name)
+        with pytest.raises(ValueError, match="reserved"):
+            validate_identity(name, allow_service=True)
+
     @pytest.mark.parametrize(
-        "name", ["osprey-", "osprey-bluesky", "osprey-bluesky-va", "osprey-x_1"]
+        "name", ["osprey-", "osprey-bluesky", "osprey-bluesky-va", "osprey-x_1", "osprey-a.b"]
     )
     def test_validate_reserves_service_names_for_osprey(self, name: str) -> None:
         with pytest.raises(ValueError, match="reserved"):
             validate_identity(name)
         validate_identity(name, allow_service=True)
 
-    @pytest.mark.parametrize("name", ["ospreyx", "osprey_x", "rooter", "xroot", "my-osprey"])
+    @pytest.mark.parametrize(
+        "name",
+        ["ospreyx", "osprey_x", "rooter", "xroot", "my-osprey", "my.osprey", "ospreyx.y", "root.x"],
+    )
     def test_validate_reserved_match_is_anchored(self, name: str) -> None:
         validate_identity(name)
 
@@ -426,6 +447,17 @@ class TestApplyCli:
             if line.split(":")[2] == "1000"
         ]
         assert uid_lines == ["alice:x:1000:1000::/home/osprey:/bin/bash", OSPREY_LINE]
+
+    def test_apply_script_dotted_name_resolves_first_for_uid(self, tmp_path: Path) -> None:
+        passwd, group = _write_targets(tmp_path)
+        assert _run_script(*_apply_args(1000, "alice.smith", passwd, group)).returncode == 0
+        uid_lines = [
+            line
+            for line in passwd.read_text(encoding="utf-8").splitlines()
+            if line.split(":")[2] == "1000"
+        ]
+        assert uid_lines == ["alice.smith:x:1000:1000::/home/osprey:/bin/bash", OSPREY_LINE]
+        assert "alice.smith" in group.read_text(encoding="utf-8")
 
     def test_apply_script_service_name_for_root(self, tmp_path: Path) -> None:
         group_text = "root:x:0:\nwheel:x:10:root\n"

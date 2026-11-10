@@ -64,19 +64,17 @@ def test_prime_config_builder_noop_without_env(monkeypatch):
     gcb.assert_not_called()
 
 
-def test_prime_config_builder_primes_and_loads_categories(monkeypatch):
+def test_prime_config_builder_primes_and_loads_extension_types(monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/does-not-matter/config.yml")
     with (
         patch("osprey_connectors.config.get_config_builder") as gcb,
-        patch(
-            "osprey.stores.type_registry.load_categories_from_config", return_value=2
-        ) as load_cat,
+        patch("osprey.stores.type_registry.load_extension_types", return_value={}) as load_ext,
     ):
         startup.prime_config_builder()
     gcb.assert_called_once()
     assert gcb.call_args.kwargs["config_path"] == "/tmp/does-not-matter/config.yml"
     assert gcb.call_args.kwargs["set_as_default"] is True
-    load_cat.assert_called_once()
+    load_ext.assert_called_once()
 
 
 def test_prime_config_builder_expands_vars(monkeypatch):
@@ -84,7 +82,7 @@ def test_prime_config_builder_expands_vars(monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", "$MYROOT/config.yml")
     with (
         patch("osprey_connectors.config.get_config_builder") as gcb,
-        patch("osprey.stores.type_registry.load_categories_from_config", return_value=0),
+        patch("osprey.stores.type_registry.load_extension_types", return_value={}),
     ):
         startup.prime_config_builder()
     assert gcb.call_args.kwargs["config_path"] == "/opt/osprey/config.yml"
@@ -107,20 +105,20 @@ def test_prime_config_builder_swallows_priming_failure(monkeypatch):
     assert any("priming failed" in msg.lower() for msg in logged)
 
 
-def test_prime_config_builder_survives_category_load_failure(monkeypatch):
-    """Category loading is best-effort; its failure doesn't abort priming."""
+def test_prime_config_builder_survives_extension_type_load_failure(monkeypatch):
+    """Extension type loading is best-effort; its failure doesn't abort priming."""
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/config.yml")
     with (
         patch("osprey_connectors.config.get_config_builder"),
         patch(
-            "osprey.stores.type_registry.load_categories_from_config",
+            "osprey.stores.type_registry.load_extension_types",
             side_effect=RuntimeError("registry down"),
         ),
         patch.object(startup, "logger") as mock_logger,
     ):
         startup.prime_config_builder()  # must not raise
     logged = [str(c) for c in mock_logger.warning.call_args_list]
-    assert any("category loading failed" in msg.lower() for msg in logged)
+    assert any("extension type loading failed" in msg.lower() for msg in logged)
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,1 @@
+The guarded-run contract page states the lock's place and modes, the holder record and every refusal as tables, and a docs test holds each to the runtime; the partial-answers page's `missing` example is checked against the tools that state it.

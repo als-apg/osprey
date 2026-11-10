@@ -30,13 +30,35 @@ class SoftIOC:
     here and closed in ``stop()`` once the process is reaped.
     """
 
-    def __init__(self, directory: Path, name: str, prefix: str, seed: float) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        name: str,
+        prefix: str = "",
+        seed: float = 0.0,
+        *,
+        records: str | None = None,
+    ) -> None:
+        """Start the IOC and wait until it serves.
+
+        Args:
+            directory: Where the database and the log are written.
+            name: The stem of those two files.
+            prefix: The prefix of the default ``SP`` and ``RB`` records.
+            seed: The value both default records start at.
+            records: An EPICS database to serve instead of the two default
+                records, for a test that needs records of its own.
+        """
         self._reservation = contextlib.ExitStack()
         self.port = self._reservation.enter_context(reserved_port())
         database = directory / f"{name}.db"
         database.write_text(
-            f'record(ao, "{prefix}:SP") {{ field(VAL, "{seed}") field(PREC, "3") }}\n'
-            f'record(ai, "{prefix}:RB") {{ field(VAL, "{seed}") field(PREC, "3") }}\n'
+            records
+            if records is not None
+            else (
+                f'record(ao, "{prefix}:SP") {{ field(VAL, "{seed}") field(PREC, "3") }}\n'
+                f'record(ai, "{prefix}:RB") {{ field(VAL, "{seed}") field(PREC, "3") }}\n'
+            )
         )
         # Output to a file, never an unread pipe: an IOC that fills a pipe
         # nobody drains blocks, and the file is what a failure message quotes.

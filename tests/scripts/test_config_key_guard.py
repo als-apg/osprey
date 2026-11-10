@@ -102,7 +102,7 @@ def test_approval_matcher_parser_extracts_tool_names():
     and every governed set comes back empty — and equal to nothing.
     """
     guard = make_guard()
-    assert guard.governed_tools("control-assistant")
+    assert guard.governed_tools("demo")
 
 
 def test_line_anchored_regexes_are_matched_with_re_m():
@@ -268,7 +268,7 @@ def test_mode_3_deleted_key_in_a_preset_config_override_goes_red():
     guard.check_deleted()
     assert "resurrection" in modes(guard)
     assert "preset config override" in details(guard)
-    assert "control-assistant.yml" in details(guard)
+    assert "demo.yml" in details(guard)
 
 
 def test_mode_3_deleted_key_in_the_loader_defaults_goes_red():
@@ -281,69 +281,6 @@ def test_mode_3_deleted_key_in_the_loader_defaults_goes_red():
     guard.check_deleted()
     assert "resurrection" in modes(guard)
     assert "synthesizes" in details(guard)
-
-
-def test_an_exempt_commented_example_does_not_go_red():
-    """Deleted keys documented commented on purpose; see the manifest.
-
-    Each left what OSPREY SHIPS while staying live in its reader, so the
-    commented line beside that prose documents an override that works. The
-    exemption is narrow, which the second half asserts: the same key spelled
-    LIVE in a preset is still a resurrection.
-    """
-    guard = make_guard()
-    exempt = MANIFEST["deleted_commented_examples"]
-    assert exempt, "the manifest is supposed to record the deliberate exemptions"
-
-    for key in exempt:
-        assert key in MANIFEST["deleted"]
-        assert guard.commented_preset_overrides(key) == []
-
-    guard.check_deleted()
-    guard.check_deleted_commented_examples()
-    assert guard.result.ok, details(guard)
-
-
-def test_an_exemption_for_a_key_that_was_never_deleted_goes_red():
-    def exempt_a_live_key(manifest):
-        manifest["deleted_commented_examples"]["cli.theme"] = "not deleted at all"
-
-    guard = make_guard(exempt_a_live_key)
-    guard.check_deleted_commented_examples()
-    assert "resurrection" in modes(guard)
-    assert "not on the deleted list" in details(guard)
-
-
-def test_an_exemption_with_no_reason_goes_red():
-    """An exemption is only as good as the reason recorded beside it.
-
-    A blank one reads as "someone waved this through" and is the shape the next
-    retired key gets added under, so the empty arm has its own control. Both
-    spellings of blank are exercised, because the check strips before testing
-    and a whitespace-only reason is the one that would otherwise pass.
-    """
-
-    for blank in ("", "   "):
-
-        def blank_the_reason(manifest, blank=blank):
-            manifest["deleted_commented_examples"]["ariel.database.uri"] = blank
-
-        guard = make_guard(blank_the_reason)
-        guard.check_deleted_commented_examples()
-        assert "resurrection" in modes(guard), f"a reason of {blank!r} must not pass"
-        assert "gives no reason" in details(guard)
-
-
-def test_an_exemption_no_preset_uses_any_more_goes_red():
-    """An unused exemption is a hole waiting for the next retired key."""
-
-    def exempt_a_key_no_preset_documents(manifest):
-        manifest["deleted_commented_examples"]["facility_name"] = "nothing documents this"
-
-    guard = make_guard(exempt_a_key_no_preset_documents)
-    guard.check_deleted_commented_examples()
-    assert "resurrection" in modes(guard)
-    assert "is unused" in details(guard)
 
 
 def test_commented_preset_override_of_a_deleted_key_is_detected(tmp_path):
@@ -431,16 +368,39 @@ def test_the_manifest_is_not_scanned_as_source(monkeypatch):
         guard_module._TEXT_CACHE.clear()
 
 
+# The orphan-site controls below replace the manifest's sites with their
+# synthetic one, so the check scans only what the control is about; the real
+# sites' green verdict is test_guard_is_green_on_this_tree's.
+
+#: Cheap clean sites to put ahead of a control's synthetic site, as the real
+#: ones were: a root under an absent path (skipped) and then a clean root in
+#: one site, and a clean site after it, so the synthetic site is only reached
+#: by a scan that goes on past a skipped root, a clean root and a clean key.
+_EARLIER_CLEAN_SITES = [
+    {
+        "root": ["src/osprey/connectors", "src/osprey/deployment/host_ports.py"],
+        "regex": "(?!)",
+        "why": "a skipped root, then a clean one",
+    },
+    {"root": "src/osprey/deployment/host_ports.py", "regex": "(?!)", "why": "a clean site"},
+]
+
+
 def test_mode_4_orphan_site_regex_matching_again_goes_red():
     def resurrect_a_code_site(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {"root": "src/osprey/templates", "regex": "osprey", "why": "negative control"}
-        ]
+        assert "src/osprey/connectors" in [e["path"] for e in manifest["absent_paths"]]
+        manifest["orphan_sites"] = {
+            "earlier": _EARLIER_CLEAN_SITES,
+            "synthetic": [
+                {"root": "src/osprey/templates", "regex": "osprey", "why": "negative control"}
+            ],
+        }
 
     guard = make_guard(resurrect_a_code_site)
     guard.check_orphan_sites()
     assert "orphan-site" in modes(guard)
     assert "synthetic" in details(guard)
+    assert "earlier" not in details(guard)
 
 
 def test_mode_4_scans_every_root_of_a_multi_root_site():
@@ -452,16 +412,18 @@ def test_mode_4_scans_every_root_of_a_multi_root_site():
     """
 
     def resurrect_under_the_second_root(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {
-                "root": [
-                    "src/osprey/templates",
-                    "packages/osprey-connectors/src/osprey_connectors",
-                ],
-                "regex": "class MockArchiverConnector",
-                "why": "negative control: matches only under the connectors root",
-            }
-        ]
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {
+                    "root": [
+                        "src/osprey/templates",
+                        "packages/osprey-connectors/src/osprey_connectors",
+                    ],
+                    "regex": "class MockArchiverConnector",
+                    "why": "negative control: matches only under the connectors root",
+                }
+            ]
+        }
 
     guard = make_guard(resurrect_under_the_second_root)
     guard.check_orphan_sites()
@@ -471,7 +433,7 @@ def test_mode_4_scans_every_root_of_a_multi_root_site():
 
 def test_mode_5_all_presets_parity_miss_goes_red():
     def demand_parity_where_none_exists(manifest):
-        # web.theme is live in control-assistant, commented in hello-world and
+        # web.theme is live in demo, commented in hello-world and
         # absent from the two standalones — deliberately per-preset.
         manifest["keys"]["web.theme"]["all-templates"] = True
 
@@ -518,20 +480,20 @@ def test_a_same_value_key_stated_differently_goes_red(key: str, value: Any):
 
 
 def test_a_same_value_mark_on_a_divergent_key_goes_red():
-    # hooks.debug is false in hello-world and true in control-assistant, on purpose.
+    # hooks.debug is false in hello-world and true in demo, on purpose.
     guard = make_guard(mark_same_value("hooks.debug"))
     guard.check_parity()
     assert "parity" in modes(guard)
     text = details(guard)
     assert "hooks.debug" in text
     assert "False in ['hello-world']" in text
-    assert "control-assistant" in text
+    assert "demo" in text
 
 
 @pytest.mark.parametrize(
     ("key", "message"),
     [
-        # web.theme is live only in control-assistant; services.qmd.port
+        # web.theme is live only in demo; services.qmd.port
         # reaches the union only through the layout fill, which no preset writes.
         ("web.theme", "compares nothing"),
         ("services.qmd.port", "compares nothing"),
@@ -571,7 +533,7 @@ def test_the_parity_table_names_exactly_the_value_marked_keys():
             assert not keys[key].get("same-value"), f"{key} diverges but carries same-value"
 
 
-CONTROL_ASSISTANT = "src/osprey/profiles/presets/control-assistant.yml"
+DEMO = "src/osprey/profiles/presets/demo.yml"
 HELLO_WORLD = "src/osprey/profiles/presets/hello-world.yml"
 
 
@@ -612,7 +574,7 @@ def test_panel_port_stanzas_are_reconciled_with_the_live_registry():
 def test_mode_6_marker_naming_a_panel_that_does_not_exist_goes_red(tmp_path):
     """A count-based check cannot see this: renaming preserves the count."""
     root = copy_presets(tmp_path)
-    victim = root / CONTROL_ASSISTANT
+    victim = root / DEMO
     before = victim.read_text()
     victim.write_text(before.replace("osprey:panel-port okf", "osprey:panel-port okf_panel"))
     assert victim.read_text().count(guard_module.PANEL_PORT_MARKER) == before.count(
@@ -646,12 +608,10 @@ def test_mode_6_full_set_documented_nowhere_goes_red(tmp_path):
     drifted — so this asserts the third claim's own message specifically.
     """
     root = copy_presets(tmp_path)
-    reference = root / CONTROL_ASSISTANT
-    reference.write_text(
-        reference.read_text().replace("# osprey:panel-port lattice_dashboard", "#")
-    )
+    reference = root / DEMO
+    reference.write_text(reference.read_text().replace("# osprey:panel-port system_health", "#"))
     minimal = root / HELLO_WORLD
-    minimal.write_text(minimal.read_text() + "\n# osprey:panel-port lattice_dashboard\n")
+    minimal.write_text(minimal.read_text() + "\n# osprey:panel-port system_health\n")
 
     guard = make_guard(root=root)
     markers = guard.panel_port_markers()
@@ -716,7 +676,7 @@ def test_a_rendered_key_marked_unrendered_goes_red():
     direction the phantom check exists to catch: a key that starts being shipped
     keeps a marking saying nothing ships it, and the prose beside it goes on
     describing a commented example while a preset writes the key live. The
-    virtual-accelerator ``limits_checking`` paths, live in ``control-assistant``,
+    virtual-accelerator ``limits_checking`` paths, live in ``demo``,
     are keys of that kind.
 
     The failure has to name the source, because the fix is to say what ships it.
@@ -731,7 +691,7 @@ def test_a_rendered_key_marked_unrendered_goes_red():
     guard.check_phantom_keys()
     assert "phantom-key" in modes(guard)
     assert "web.theme" in details(guard)
-    assert "control-assistant" in details(guard), "the failure must name what renders it"
+    assert "demo" in details(guard), "the failure must name what renders it"
 
 
 def test_manifest_defaults_column_is_complete():
@@ -753,7 +713,7 @@ def test_manifest_defaults_column_is_complete():
 def test_manifest_self_consistency_holds_without_rendering():
     """Every manifest-only check, run together against the live manifest.
 
-    These four ask nothing of the render: they read the manifest and the
+    These ask nothing of the render: they read the manifest and the
     source tree. Running them as one test says plainly which properties survive
     independently of the render matrix.
     """
@@ -762,6 +722,7 @@ def test_manifest_self_consistency_holds_without_rendering():
     guard.check_covered_by_chains()
     guard.check_evidence()
     guard.check_evidence_vacuity()
+    guard.check_preset_counts()
     assert guard.result.ok, details(guard)
 
 
@@ -886,6 +847,152 @@ def test_note_on_a_literal_default_goes_red():
     assert "cli.theme" in details(guard)
 
 
+@pytest.mark.parametrize(
+    "note",
+    [
+        "Commented in the two presets that ship an `ariel:` block.",
+        "Unset in all four presets.",
+        "Present in both root presets.",
+        "Present in both the presets.",
+        "Set in both of the presets.",
+        "Unset in two of the presets.",
+        "Stated in both the shipped presets.",
+        "Two presets per deployment state it.",
+    ],
+)
+def test_a_note_counting_presets_goes_red(note):
+    """A count of presets restates `render_contexts.presets` and goes stale."""
+
+    def count_the_presets(manifest):
+        manifest["keys"]["cli.theme"]["note"] = note
+
+    guard = make_guard(count_the_presets)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert "cli.theme" in details(guard)
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "Commented in the presets.",
+        "Present in every root preset.",
+        "no two presets state it",
+        "at least two presets stating",
+        "fewer than two presets",
+        "the one preset whose tree ships it",
+        "the same one the presets ship",
+        "One preset's config as its deploying build writes it.",
+        "One preset is narrower than attaching it to a whole server suggests",
+        "one job per preset",
+    ],
+)
+def test_a_note_naming_the_presets_without_a_count_stays_green(note):
+    def name_the_presets(manifest):
+        manifest["keys"]["cli.theme"]["note"] = note
+
+    guard = make_guard(name_the_presets)
+    guard.check_preset_counts()
+    assert guard.result.ok, details(guard)
+
+
+def _copy_preset_pages(root: Path, pages: tuple[str, ...]) -> None:
+    for rel in pages:
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT / rel, target)
+
+
+@pytest.mark.parametrize("rel", guard_module.PRESET_PROSE_FILES)
+def test_a_page_counting_presets_goes_red(tmp_path, rel):
+    """A page that describes presets is read by the same check as the manifest."""
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    page.write_text(
+        page.read_text(encoding="utf-8") + "\nPresent in the two presets.\n", encoding="utf-8"
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert f"{rel}:" in details(guard)
+
+
+def test_a_count_wrapped_across_lines_goes_red(tmp_path):
+    """Markdown wraps; a count split by a line break is still a count."""
+    rel = "scripts/config_key_parity.md"
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    text = page.read_text(encoding="utf-8") + "\nMust appear in both shipped\nroot presets.\n"
+    page.write_text(text, encoding="utf-8")
+    line = text.splitlines().index("Must appear in both shipped") + 1
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert f"{rel}:{line} " in details(guard)
+
+
+@pytest.mark.parametrize("missing", guard_module.PRESET_PROSE_FILES)
+def test_a_missing_preset_page_goes_red(tmp_path, missing):
+    """The guard names the pages it reads; a moved page must move the guard too."""
+    present = tuple(rel for rel in guard_module.PRESET_PROSE_FILES if rel != missing)
+    _copy_preset_pages(tmp_path, present)
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert missing in details(guard)
+
+
+def test_a_count_inside_a_declared_exception_stays_green(tmp_path, monkeypatch):
+    """A declared phrase excuses the count inside it and nothing beside it."""
+    rel = "scripts/config_key_parity.md"
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    page = tmp_path / rel
+    page.write_text(
+        page.read_text(encoding="utf-8") + "\nThe lane (two presets) runs nightly.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(
+        guard_module.PRESET_COUNT_EXCEPTIONS, rel, {"The lane (two presets)": "a planted name"}
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert guard.result.ok, details(guard)
+
+
+def test_an_exception_excuses_nothing_outside_its_own_file(tmp_path, monkeypatch):
+    """A declared phrase copied into another listed page is a count there."""
+    declared = ".github/workflows/ci.yml"
+    phrase = "The lane (two presets)"
+    rel = "scripts/config_key_parity.md"
+    monkeypatch.setitem(guard_module.PRESET_COUNT_EXCEPTIONS, declared, {phrase: "a planted name"})
+    _copy_preset_pages(tmp_path, guard_module.PRESET_PROSE_FILES)
+    for holder in (declared, rel):
+        page = tmp_path / holder
+        page.write_text(page.read_text(encoding="utf-8") + f"\n{phrase}\n", encoding="utf-8")
+
+    guard = make_guard(root=tmp_path)
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert f"{rel}:" in details(guard)
+
+
+def test_an_exception_its_file_does_not_hold_goes_red(monkeypatch):
+    """An exception leaves with the text it excused."""
+    rel = "scripts/config_key_parity.md"
+    phrase = "A lane no file names (two presets)"
+    monkeypatch.setitem(guard_module.PRESET_COUNT_EXCEPTIONS, rel, {phrase: "a planted name"})
+
+    guard = make_guard()
+    guard.check_preset_counts()
+    assert modes(guard) == ["preset-count"]
+    assert phrase in details(guard)
+    assert rel in details(guard)
+
+
 def test_dangling_covered_by_chain_goes_red():
     def point_at_a_missing_parent(manifest):
         manifest["keys"]["approval.tools.execute"] = {"covered-by": "not.a.manifest.key"}
@@ -922,7 +1029,7 @@ def test_governed_claims_are_the_logbook_and_channel_finder_apps():
     claims = MANIFEST["governed_sets"]["claims"]
     assert set(claims) == {"logbook", "channel-finder"}
     for name, claim in claims.items():
-        assert claim["preset"] == f"{guard_module.PRESET_DIR}/apps/{name}.yml"
+        assert claim["preset"] == f"{guard_module.PRESET_DIR}/tiers/{name}.yml"
         assert claim["exhaustive"] is True
 
 
@@ -947,7 +1054,7 @@ def test_the_logbook_claim_is_measured_from_the_app_render():
 
 def test_missing_keeps_asset_goes_red():
     def point_at_a_deleted_asset(manifest):
-        manifest["keeps"] = [{"path": "src/osprey/templates/apps/control_assistant/gone.json.j2"}]
+        manifest["keeps"] = [{"path": "src/osprey/templates/apps/demo/gone.json.j2"}]
 
     guard = make_guard(point_at_a_deleted_asset)
     guard.check_keeps()
@@ -965,9 +1072,11 @@ def test_resurrected_absent_path_goes_red():
 
 def test_missing_orphan_site_root_goes_red():
     def name_a_root_that_is_gone(manifest):
-        manifest["orphan_sites"]["synthetic"] = [
-            {"root": "src/osprey/never_existed", "regex": "x", "why": "negative control"}
-        ]
+        manifest["orphan_sites"] = {
+            "synthetic": [
+                {"root": "src/osprey/never_existed", "regex": "x", "why": "negative control"}
+            ]
+        }
 
     guard = make_guard(name_a_root_that_is_gone)
     guard.check_orphan_sites()
@@ -1007,7 +1116,7 @@ def test_a_self_test_key_a_preset_also_spells_goes_red():
     rendering its branch, and the self-test would go on passing — silence in the
     one place the manifest built a tripwire. The mutation walks one path up from
     the real ``ariel_server_on`` key to its parent block, which the framework
-    template and two presets all render, so it is the realistic way this rots:
+    template and every preset render, so it is the realistic way this rots:
     an edit that keeps the key plausible while dropping what made it decisive.
     """
 
@@ -1129,6 +1238,84 @@ def test_a_missing_union_size_goes_red():
     assert str(len(guard.union())) in details(guard)
 
 
+# ── the keys a deployment's applications project ─────────────────────────
+
+APPLICATION_ROOT = "tests/config/application_deployment"
+
+
+def test_a_projected_key_with_no_row_goes_red():
+    def drop_the_row(manifest):
+        del manifest["keys"]["apps.<app>.tools.read"]
+
+    guard = make_guard(drop_the_row)
+    guard.check_unmapped_keys()
+
+    assert modes(guard) == ["unmapped-key"]
+    assert "apps.<app>.tools.read" in details(guard)
+    assert guard_module.APPLICATION_SOURCE in details(guard)
+
+
+def test_a_family_row_nothing_projects_goes_red():
+    def invent_a_leaf(manifest):
+        manifest["keys"]["services.<app-container>.invented"] = {
+            "covered-by": "services.<app-container>",
+            "default": "n/a",
+        }
+
+    guard = make_guard(invent_a_leaf)
+    guard.check_phantom_keys()
+    assert modes(guard) == ["phantom-key"]
+    assert "services.<app-container>.invented" in details(guard)
+
+
+def test_a_projected_row_still_flagged_unrendered_goes_red():
+    def flag_it(manifest):
+        manifest["keys"]["claude_code.servers.<server>.writes"]["rendered"] = False
+
+    guard = make_guard(flag_it)
+    guard.check_phantom_keys()
+    assert modes(guard) == ["phantom-key"]
+    assert "marked rendered: false" in details(guard)
+
+
+def test_a_doctored_app_yml_is_a_different_render(tmp_path):
+    """The render's input is the deployment's files, not only the render it starts from."""
+    make_guard().union()  # the fixture's own render is now held for the process
+
+    copied = tmp_path / "deployment"
+    shutil.copytree(REPO_ROOT / APPLICATION_ROOT, copied)
+    app_yml = copied / "apps" / "gauge" / "app.yml"
+    app = yaml.safe_load(app_yml.read_text())
+    del app["tools"]["approval"]
+    app_yml.write_text(yaml.safe_dump(app))
+
+    def point_at_the_copy(manifest):
+        manifest["render_contexts"]["application_deployment"]["root"] = str(copied)
+
+    guard = make_guard(point_at_the_copy)
+    guard.check_phantom_keys()
+    assert "phantom-key" in modes(guard)
+    assert "apps.<app>.approval.<tool>.prompt" in details(guard)
+
+
+def test_the_family_spelling_replaces_instance_names_only():
+    families = MANIFEST["render_contexts"]["application_deployment"]["families"]
+    spell = guard_module.family_spelling
+
+    assert spell("apps.gauge.approval.gauge_set.bind.state_fields", families) == (
+        "apps.<app>.approval.<tool>.bind.state_fields"
+    )
+    assert spell("services.gauge.roster_grant.panel_id", families) == (
+        "services.<app-container>.roster_grant.panel_id"
+    )
+    assert spell("web.panels.gauge.url", families) == "web.panels.<app-panel>.url"
+    assert spell("claude_code.servers.gauge.writes", families) == (
+        "claude_code.servers.<server>.writes"
+    )
+    assert spell("web.panels", families) == "web.panels"
+    assert spell("dispatch.denied_app_tools", families) == "dispatch.denied_app_tools"
+
+
 def _render_one_provider(guard: Any, block: dict[str, Any]) -> None:
     guard._rendered = {"framework": [{"api": {"providers": {"gw": block}}}]}
 
@@ -1161,7 +1348,7 @@ def test_a_well_shaped_provider_passes():
     assert "provider-shape" not in modes(guard)
 
 
-# ── back-test: developer-time, behind a flag ─────────────────────────────
+# ── back-test: behind a flag, needs git history ──────────────────────────
 
 
 def _baseline_commit() -> str:
@@ -1181,7 +1368,7 @@ def _baseline_reachable() -> bool:
 
 needs_baseline = pytest.mark.skipif(
     not _baseline_reachable(),
-    reason="merge-base commit unavailable (shallow clone); back-test is developer-time",
+    reason="merge-base commit unavailable (shallow clone); the back-test needs history",
 )
 
 
@@ -1263,13 +1450,13 @@ APP_ONLY_KEYS = (
 )
 
 
-def test_the_apps_context_composes_every_bundled_app():
-    from osprey.cli.build_profile_presets import list_apps
+def test_the_shared_context_composes_every_bundled_shared_login():
+    shared = {"channel-finder", "knowledge", "logbook"}
 
     guard = make_guard()
-    assert set(guard.resolved_apps()) == set(list_apps())
+    assert set(guard.resolved_apps()) == shared
     rendered = guard.rendered()
-    for name in list_apps():
+    for name in shared:
         assert name in rendered, f"{name} is not a union source under its own name"
 
 
@@ -1283,7 +1470,7 @@ def test_an_app_only_key_has_its_writer_in_the_apps_context(key: str):
 
 def test_dropping_the_apps_context_strands_the_app_only_keys():
     def drop_the_apps(manifest):
-        manifest["render_contexts"]["apps"] = []
+        manifest["render_contexts"]["shared"] = []
 
     guard = make_guard(drop_the_apps)
     guard.check_phantom_keys()
@@ -1299,7 +1486,7 @@ def test_an_app_renders_as_the_host_with_the_app_over_it():
     cfg = guard.render_one("channel-finder")
     # The app's own field decides the derived pipeline mode, not the host's.
     assert cfg["channel_finder"]["pipeline_mode"] == "hierarchical"
-    assert guard.render_one("control-assistant")["channel_finder"]["pipeline_mode"] == "graph"
+    assert guard.render_one("demo")["channel_finder"]["pipeline_mode"] == "graph"
     # A host fact survives; the app's switch wins; the write boundary is pinned.
     assert cfg["approval"]["enabled"] is True
     assert cfg["claude_code"]["servers"]["python"]["enabled"] is False
@@ -1331,7 +1518,7 @@ def test_parity_expects_the_root_presets_alone():
 
 def test_an_app_host_outside_the_root_presets_is_refused():
     def host_an_app(manifest):
-        manifest["render_contexts"]["host"] = f"{guard_module.PRESET_DIR}/apps/logbook.yml"
+        manifest["render_contexts"]["host"] = f"{guard_module.PRESET_DIR}/tiers/logbook.yml"
 
     with pytest.raises(ValueError, match="render_contexts.host"):
         make_guard(host_an_app).resolved_apps()

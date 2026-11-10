@@ -4,7 +4,9 @@ A write route under ``/api/panel-op/`` checks what the server can check, relays 
 ``panel_op`` frame addressed to the current dock client on a channel that never
 drops frames, and waits for that client's ``/api/panel-op-result``. The result
 route records the layout as the client's report and mints the ``rev`` the write
-returns. Every refusal is named and changes nothing.
+returns. Every refusal is named and changes nothing, except ``no_dock_answer``:
+the client did not answer in time and may still apply the op, so its outcome
+is unknown, and an answer that comes later is recorded as the client's report.
 
 The dock client is played by the test: it reads the relayed frame from a real
 :class:`FileEventBroadcaster` subscription and answers over the same app.
@@ -23,6 +25,7 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.web_terminal import file_watcher
 from osprey.interfaces.web_terminal.dock_layout import layout_keys, normalize_layout
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster
+from osprey.interfaces.web_terminal.presets import ONE_PANEL_PER_TILE_TEXT
 from osprey.interfaces.web_terminal.routes import files, panel_ops
 from osprey.interfaces.web_terminal.routes.panel_ops import dock_stream_closed
 from osprey.interfaces.web_terminal.routes.panel_ops import router as ops_router
@@ -43,8 +46,21 @@ LAYOUT = normalize_layout(
     }
 )
 
-#: The layout a dock answers with after opening LATTICE beside ARIEL.
+#: The layout a dock answers with after opening LATTICE: it takes ARIEL's tile,
+#: and ARIEL leaves the dock (it keeps its rail entry).
 AFTER = {
+    "split": "row",
+    "items": [
+        {"tile": "t1", "tabs": ["lattice"], "showing": "lattice", "size": 0.6},
+        {"tile": "t2", "tabs": ["terminal"], "showing": "terminal", "size": 0.4},
+    ],
+}
+
+#: The layout a dock answers with after closing ARIEL's tile: the terminal alone.
+TERMINAL_ONLY = {"tile": "t2", "tabs": ["terminal"], "showing": "terminal"}
+
+#: A tree the dock grammar allows but OSPREY's dock never shows: two panels in one tile.
+CROWDED = {
     "split": "row",
     "items": [
         {"tile": "t1", "tabs": ["ariel", "lattice"], "showing": "lattice", "size": 0.6},
@@ -137,12 +153,97 @@ async def test_open_relays_a_frame_to_the_current_client_and_returns_the_new_rev
     assert result.status_code == 200
     assert result.json()["rev"] == 4
     assert resp.status_code == 200
+    # The dock answered with LATTICE in ARIEL's tile: a default open (a split)
+    # that fell back to replacing, which the answer says.
     assert resp.json() == {
         "status": "ok",
         "layout": normalize_layout(AFTER),
         "popouts": [],
         "rev": 4,
+        "placed": "replaced",
+        "replaced": "ariel",
+        "note": "no room for a new tile: lattice replaced ariel, which stays on the rail",
     }
+
+
+#: LATTICE opened in a tile of its own below ARIEL's: the default open.
+SPLIT_BELOW = {
+    "split": "row",
+    "items": [
+        {
+            "split": "column",
+            "size": 0.6,
+            "items": [
+                {"tile": "t1", "tabs": ["ariel"], "showing": "ariel", "size": 0.5},
+                {"tile": "t3", "tabs": ["lattice"], "showing": "lattice", "size": 0.5},
+            ],
+        },
+        {"tile": "t2", "tabs": ["terminal"], "showing": "terminal", "size": 0.4},
+    ],
+}
+
+
+async def test_an_open_that_made_a_new_tile_says_so():
+    app = _app()
+    resp, frame, _ = await _write(
+        app, "/api/panel-op/open", {"member": "lattice"}, _layout_answer(SPLIT_BELOW)
+    )
+    assert frame["args"] == {"member": "lattice"}  # the dock's default: a split
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["placed"] == "new_tile"
+    assert "replaced" not in body and "note" not in body
+
+
+async def test_an_explicit_replace_is_relayed_and_reported_without_a_note():
+    app = _app()
+    resp, frame, _ = await _write(
+        app, "/api/panel-op/open", {"member": "lattice", "place": "replace"}, _layout_answer()
+    )
+    assert frame["args"] == {"member": "lattice", "place": "replace"}
+    body = resp.json()
+    assert (body["placed"], body["replaced"]) == ("replaced", "ariel")
+    assert "note" not in body
+
+
+async def test_an_open_of_a_panel_on_screen_reports_focused():
+    app = _app()
+    resp, _, _ = await _write(
+        app, "/api/panel-op/open", {"member": "ariel"}, _layout_answer(LAYOUT)
+    )
+    assert resp.json()["placed"] == "focused"
+
+
+async def test_a_split_target_tile_and_edge_are_relayed():
+    app = _app()
+    body = {"member": "lattice", "place": "split", "tile": "t2", "edge": "left"}
+    resp, frame, _ = await _write(app, "/api/panel-op/open", body, _layout_answer(SPLIT_BELOW))
+    assert resp.status_code == 200
+    assert frame["args"] == {"member": "lattice", "place": "split", "tile": "t2", "edge": "left"}
+
+
+@pytest.mark.parametrize(
+    ("extra", "reason"),
+    [
+        ({"place": "replace", "edge": "left"}, "invalid_target"),
+        ({"place": "replace", "tile": "t2"}, "terminal_not_agent_movable"),
+        ({"tile": "t9"}, "unknown_tile"),
+    ],
+)
+async def test_bad_open_placements_are_refused_by_name_and_relay_nothing(extra, reason):
+    app = _app()
+    resp, frame, _ = await _write(app, "/api/panel-op/open", {"member": "lattice", **extra})
+    assert resp.status_code == 422
+    assert resp.json()["reason"] == reason
+    assert frame is None
+
+
+@pytest.mark.parametrize("extra", [{"place": "beside"}, {"edge": "middle"}])
+async def test_an_open_placement_outside_the_vocabulary_is_a_bad_request(extra):
+    app = _app()
+    resp, frame, _ = await _write(app, "/api/panel-op/open", {"member": "lattice", **extra})
+    assert resp.status_code == 422
+    assert frame is None
 
 
 async def test_the_result_is_recorded_as_the_clients_current_report():
@@ -153,10 +254,7 @@ async def test_the_result_is_recorded_as_the_clients_current_report():
     assert state.dock_layout == normalize_layout(AFTER)
     assert state.dock_layout_rev == 4
     assert state.dock_client_id == CLIENT
-    assert [key for key in layout_keys(state.dock_layout) if key != "terminal"] == [
-        "ariel",
-        "lattice",
-    ]
+    assert [key for key in layout_keys(state.dock_layout) if key != "terminal"] == ["lattice"]
     assert state.layout_dock is True
     assert isinstance(state.layout_ts, float)
     with TestClient(app) as client:
@@ -165,6 +263,7 @@ async def test_the_result_is_recorded_as_the_clients_current_report():
 
 
 async def test_open_records_one_open_panel_row_and_puts_the_panel_on_the_rail():
+    """The panel the open replaced keeps its rail entry: it is one click away."""
     app = _app()
     page = app.state.broadcaster.subscribe("other-page")
     await _write(app, "/api/panel-op/open", {"member": "lattice"}, _layout_answer())
@@ -222,7 +321,66 @@ async def test_a_result_may_name_pop_outs_and_the_server_holds_them():
         assert client.get("/api/panels").json()["popouts"] == ["lattice"]
 
 
-async def test_a_pop_out_that_is_also_a_tab_is_a_refused_result():
+async def test_a_result_with_a_null_layout_and_the_agent_detached_is_recorded():
+    """The Agent pane alone left for its window: the dock is empty, and says so."""
+    app = _app(dock_layout=TERMINAL_ONLY)
+    resp, _, result = await _write(
+        app, "/api/panel-op/open", {"member": "lattice"}, _popped_answer(None, ["terminal"])
+    )
+    assert result.status_code == 200
+    assert result.json()["layout"] is None
+    assert result.json()["popouts"] == ["terminal"]
+    assert resp.status_code == 200
+    assert app.state.dock_layout is None
+    assert app.state.dock_popouts == ["terminal"]
+    assert app.state.layout_dock is True
+
+
+async def test_a_result_with_a_null_layout_and_no_pop_outs_is_an_empty_dock():
+    """An op that emptied the dock settles at once, and empty is what the server holds."""
+    app = _app(dock_layout=TERMINAL_ONLY)
+    resp, _, result = await _write(
+        app, "/api/panel-op/open", {"member": "lattice"}, _popped_answer(None, [])
+    )
+    assert result.status_code == 200
+    assert result.json()["layout"] is None
+    assert result.json()["popouts"] == []
+    assert resp.status_code == 200
+    assert app.state.dock_layout is None
+    assert app.state.dock_popouts == []
+    assert app.state.layout_dock is True
+
+
+async def test_a_result_with_neither_a_layout_key_nor_a_refusal_is_refused(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    _, _, result = await _write(
+        app,
+        "/api/panel-op/open",
+        {"member": "lattice"},
+        lambda frame: {"request_id": frame["request_id"], "client_id": CLIENT},
+    )
+    assert result.status_code == 422
+
+
+async def test_a_result_with_both_a_null_layout_and_a_refusal_is_refused(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    _, _, result = await _write(
+        app,
+        "/api/panel-op/open",
+        {"member": "lattice"},
+        lambda frame: {
+            "request_id": frame["request_id"],
+            "client_id": CLIENT,
+            "layout": None,
+            "refusal": "popped_out",
+        },
+    )
+    assert result.status_code == 422
+
+
+async def test_a_pop_out_that_is_also_in_the_layout_is_a_refused_result():
     app = _app()
     resp, _, result = await _write(
         app, "/api/panel-op/open", {"member": "lattice"}, _popped_answer(AFTER, ["lattice"])
@@ -235,15 +393,15 @@ async def test_a_pop_out_that_is_also_a_tab_is_a_refused_result():
 @pytest.mark.parametrize(
     ("path", "body"),
     [
-        ("close-tab", {"key": "lattice"}),
+        ("close", {"key": "lattice"}),
         ("drop", {"base_rev": 3, "source": {"tab": "lattice"}, "target": {"outer": "left"}}),
         (
             "drop",
             {"base_rev": 3, "source": {"new": {"panel": "lattice"}}, "target": {"outer": "left"}},
         ),
-        ("open-set", {"members": ["lattice", "ariel"], "as": "tabs"}),
+        ("open-set", {"members": ["lattice", "ariel"], "as": "side"}),
     ],
-    ids=["close-tab", "drop-tab", "drop-new", "open-set"],
+    ids=["close", "drop-tab", "drop-new", "open-set"],
 )
 async def test_a_popped_out_panel_is_never_moved_or_closed(path, body):
     app = _app(dock_popouts=["lattice"])
@@ -296,13 +454,15 @@ async def test_no_dock_client_is_refused_at_once():
     assert frame is None
 
 
-async def test_a_dock_that_never_answers_is_no_dock_client(monkeypatch):
+async def test_a_dock_that_does_not_answer_in_time_leaves_the_outcome_unknown(monkeypatch):
+    """The frame went out, so the dock may still apply the op: the write never says it did not."""
     monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
     app = _app()
     resp, frame, _ = await _write(app, "/api/panel-op/open", {"member": "lattice"})
 
     assert resp.status_code == 409
-    assert resp.json()["reason"] == "no_dock_client"
+    assert resp.json()["reason"] == "no_dock_answer"
+    assert resp.json()["rev"] == 3
     assert frame["type"] == "panel_op"
     assert app.state.panel_ops == {}
     assert app.state.dock_layout_rev == 3
@@ -339,6 +499,132 @@ async def test_a_pending_request_id_cannot_be_reused():
     assert frame is None
 
 
+# ---- a dock that answers after the write gave up ---- #
+
+
+async def _late(
+    app: FastAPI, body: dict, answer: Callable[[dict], dict], request_id: str = "r1"
+) -> tuple[httpx.Response, httpx.Response]:
+    """POST an ``open`` the dock client does not answer in time, then play its late answer.
+
+    Returns the write's response and the late answer's.
+    """
+    page = app.state.broadcaster.subscribe(CLIENT)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://wt") as client:
+        resp = await client.post("/api/panel-op/open", json={"request_id": request_id, **body})
+        late = await client.post("/api/panel-op-result", json=answer(page.get_nowait()))
+    app.state.broadcaster.unsubscribe(page)
+    return resp, late
+
+
+async def test_a_late_answer_is_recorded_as_the_clients_report(monkeypatch):
+    """A dock that applies the op after the write gave up still answers, and the server keeps it.
+
+    The write has already returned, so the answer changes what the panels read
+    says (layout, rev, current client) and nothing else: no rail entry and no
+    activity row for an op the agent was told may not have happened.
+    """
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app(dock_client_id=CLIENT)
+    resp, late = await _late(app, {"member": "lattice"}, _layout_answer())
+
+    assert resp.json()["reason"] == "no_dock_answer"
+    assert late.status_code == 200
+    assert late.json()["rev"] == 4
+    assert late.json()["layout"] == normalize_layout(AFTER)
+    assert app.state.dock_layout == normalize_layout(AFTER)
+    assert app.state.dock_layout_rev == 4
+    assert app.state.dock_client_id == CLIENT
+    assert app.state.visible_panels == ["ariel"]
+    assert _activity(app) == []
+
+
+async def test_a_late_answer_is_checked_like_a_report(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    bad = {"tile": "t1", "tabs": ["nope"], "showing": "nope"}
+    _, late = await _late(app, {"member": "lattice"}, _layout_answer(bad))
+
+    assert late.status_code == 422
+    assert app.state.dock_layout == LAYOUT
+    assert app.state.dock_layout_rev == 3
+
+
+async def test_a_late_refusal_records_nothing(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    _, late = await _late(app, {"member": "lattice"}, _refusal_answer("stale_base"))
+
+    assert late.status_code == 200
+    assert app.state.dock_layout == LAYOUT
+    assert app.state.dock_layout_rev == 3
+
+
+async def test_a_late_answer_from_another_client_is_refused_and_the_dock_can_still_answer(
+    monkeypatch,
+):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+
+    def other(frame: dict) -> dict:
+        return {"request_id": frame["request_id"], "client_id": "page-2", "layout": AFTER}
+
+    _, late = await _late(app, {"member": "lattice"}, other)
+    assert late.status_code == 403
+    assert app.state.dock_layout == LAYOUT
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://wt") as client:
+        answer = {"request_id": "r1", "client_id": CLIENT, "layout": AFTER}
+        assert (await client.post("/api/panel-op-result", json=answer)).status_code == 200
+    assert app.state.dock_layout == normalize_layout(AFTER)
+
+
+async def test_a_late_answer_counts_once(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    _, late = await _late(app, {"member": "lattice"}, _layout_answer())
+    assert late.status_code == 200
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://wt") as client:
+        again = {"request_id": "r1", "client_id": CLIENT, "layout": LAYOUT}
+        assert (await client.post("/api/panel-op-result", json=again)).status_code == 404
+    assert app.state.dock_layout == normalize_layout(AFTER)
+
+
+async def test_an_unanswered_request_id_cannot_be_reused(monkeypatch):
+    """A second write under its id could otherwise take the first op's late answer as its own."""
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    app = _app()
+    first, _, _ = await _write(app, "/api/panel-op/open", {"member": "lattice"})
+    assert first.json()["reason"] == "no_dock_answer"
+
+    again, frame, _ = await _write(app, "/api/panel-op/open", {"member": "lattice"})
+    assert again.json()["reason"] == "duplicate_request"
+    assert frame is None
+
+
+async def test_only_the_newest_unanswered_requests_are_kept(monkeypatch):
+    monkeypatch.setattr(panel_ops, "OP_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(panel_ops, "UNANSWERED_CAP", 1)
+    app = _app()
+    page = app.state.broadcaster.subscribe(CLIENT)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://wt") as client:
+        for request_id in ("r1", "r2"):
+            resp = await client.post(
+                "/api/panel-op/open", json={"request_id": request_id, "member": "lattice"}
+            )
+            assert resp.json()["reason"] == "no_dock_answer"
+        oldest = {"request_id": "r1", "client_id": CLIENT, "layout": AFTER}
+        newest = {"request_id": "r2", "client_id": CLIENT, "layout": AFTER}
+        assert (await client.post("/api/panel-op-result", json=oldest)).status_code == 404
+        assert (await client.post("/api/panel-op-result", json=newest)).status_code == 200
+    app.state.broadcaster.unsubscribe(page)
+
+
 # ---- drop ---- #
 
 
@@ -366,7 +652,7 @@ async def test_drop_relays_source_target_and_base_rev():
     body = {
         "base_rev": 3,
         "source": {"new": {"panel": "lattice"}},
-        "target": {"tile": "t1", "zone": "tab", "index": 0},
+        "target": {"tile": "t1", "edge": "left"},
     }
     resp, frame, _ = await _write(app, "/api/panel-op/drop", body, _layout_answer())
 
@@ -374,7 +660,7 @@ async def test_drop_relays_source_target_and_base_rev():
     assert frame["base_rev"] == 3
     assert frame["args"] == {
         "source": {"new": {"panel": "lattice"}},
-        "target": {"tile": "t1", "zone": "tab", "index": 0},
+        "target": {"tile": "t1", "edge": "left"},
     }
     assert resp.status_code == 200
     assert _activity(app) == [("drop_panel", "lattice")]
@@ -397,12 +683,11 @@ async def test_the_terminal_is_never_a_drop_source(source):
 @pytest.mark.parametrize(
     "target",
     [
-        {"tile": "t1", "zone": "centre"},
         {"tile": "t2", "edge": "bottom"},
         {"border": {"tile": "t1", "side": "right"}},
         {"outer": "top"},
     ],
-    ids=["centre", "edge", "border", "outer"],
+    ids=["edge", "border", "outer"],
 )
 async def test_each_target_form_is_relayed(target):
     app = _app()
@@ -428,14 +713,6 @@ async def test_each_target_form_is_relayed(target):
         ({"tab": "ariel"}, {"border": {"tile": "t1"}}, "invalid_target"),
         ({"tab": "ariel"}, {"tile": "t9", "edge": "left"}, "unknown_tile"),
         ({"tab": "ariel"}, {"border": {"tile": "t9", "side": "left"}}, "unknown_tile"),
-        # The Agent pane is always its own tile: no tab is dropped into it.
-        ({"tab": "ariel"}, {"tile": "t2", "zone": "centre"}, "terminal_not_agent_movable"),
-        ({"tab": "ariel"}, {"tile": "t2", "zone": "tab", "index": 0}, "terminal_not_agent_movable"),
-        (
-            {"new": {"panel": "lattice"}},
-            {"tile": "t2", "zone": "centre"},
-            "terminal_not_agent_movable",
-        ),
     ],
 )
 async def test_bad_drops_are_refused_by_name(source, target, reason):
@@ -447,48 +724,65 @@ async def test_bad_drops_are_refused_by_name(source, target, reason):
     assert frame is None
 
 
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [
+        ({"tab": "ariel"}, {"tile": "t1", "zone": "centre"}),
+        ({"new": {"panel": "lattice"}}, {"tile": "t1", "zone": "tab", "index": 0}),
+        ({"tab": "ariel"}, {"tile": "t2", "zone": "centre"}),
+        ({"new": {"panel": "lattice"}}, {"tile": "t9", "zone": "tab", "index": 1}),
+    ],
+    ids=["centre", "header", "agent-pane", "unknown-tile"],
+)
+async def test_a_drop_into_a_tile_is_refused_one_panel_per_tile(source, target):
+    """A tile shows one panel: a ``zone`` target, whatever tile it names, is no target."""
+    app = _app()
+    body = {"base_rev": 3, "source": source, "target": target}
+    resp, frame, _ = await _write(app, "/api/panel-op/drop", body)
+    assert resp.status_code == 422
+    assert resp.json()["reason"] == "one_panel_per_tile"
+    assert resp.json()["detail"].startswith(ONE_PANEL_PER_TILE_TEXT)
+    assert frame is None
+
+
 # ---- close ---- #
 
 
-async def test_close_tab_relays_the_key_without_a_base_rev():
+async def test_close_relays_the_key_without_a_base_rev():
     app = _app()
     resp, frame, _ = await _write(
-        app, "/api/panel-op/close-tab", {"key": "ariel"}, _layout_answer()
+        app, "/api/panel-op/close", {"key": "ariel"}, _layout_answer(TERMINAL_ONLY)
     )
-    assert frame["args"] == {"key": "ariel"}
+    assert (frame["op"], frame["args"]) == ("close", {"key": "ariel"})
     assert "base_rev" not in frame
     assert resp.status_code == 200
-    assert _activity(app) == [("close_panel_tab", "ariel")]
+    assert resp.json()["layout"] == normalize_layout(TERMINAL_ONLY)
+    assert _activity(app) == [("close_panel", "ariel")]
+    assert app.state.visible_panels == ["ariel"]
 
 
-async def test_the_terminal_tab_is_never_an_agent_close_target():
+async def test_the_terminal_is_never_an_agent_close_target():
     app = _app()
-    resp, frame, _ = await _write(app, "/api/panel-op/close-tab", {"key": "terminal"})
+    resp, frame, _ = await _write(app, "/api/panel-op/close", {"key": "terminal"})
+    assert resp.status_code == 422
     assert resp.json()["reason"] == "terminal_not_agent_movable"
     assert frame is None
 
 
-async def test_close_tile_relays_the_tile():
+async def test_close_of_an_unknown_panel_is_refused():
     app = _app()
-    resp, frame, _ = await _write(
-        app, "/api/panel-op/close-tile", {"tile": "t1", "base_rev": 3}, _layout_answer()
-    )
-    assert (frame["args"], frame["base_rev"]) == ({"tile": "t1"}, 3)
-    assert _activity(app) == [("close_panel_tile", "t1")]
-    assert resp.status_code == 200
-
-
-async def test_a_tile_holding_the_terminal_is_never_closed_by_an_agent():
-    app = _app()
-    resp, frame, _ = await _write(app, "/api/panel-op/close-tile", {"tile": "t2", "base_rev": 3})
-    assert resp.json()["reason"] == "terminal_not_agent_movable"
+    resp, frame, _ = await _write(app, "/api/panel-op/close", {"key": "nope"})
+    assert resp.status_code == 422
+    assert resp.json()["reason"] == "unknown_key"
     assert frame is None
 
 
-async def test_close_tile_behind_the_rev_is_stale():
-    app = _app()
-    resp, _, _ = await _write(app, "/api/panel-op/close-tile", {"tile": "t1", "base_rev": 1})
-    assert resp.json()["reason"] == "stale_base"
+def test_close_is_the_one_close_route():
+    """One close verb: the tile goes with the one panel it shows."""
+    paths = {route.path for route in ops_router.routes}
+    assert {path for path in paths if path.startswith("/api/panel-op/close")} == {
+        "/api/panel-op/close"
+    }
 
 
 # ---- /api/panel-op-result ---- #
@@ -514,7 +808,7 @@ async def test_a_result_from_another_client_is_refused(monkeypatch):
 
     resp, _, result = await _write(app, "/api/panel-op/open", {"member": "lattice"}, other)
     assert result.status_code == 403
-    assert resp.json()["reason"] == "no_dock_client"
+    assert resp.json()["reason"] == "no_dock_answer"
     assert app.state.dock_layout == LAYOUT
 
 
@@ -544,6 +838,24 @@ async def test_a_refused_result_layout_refuses_the_write():
     assert resp.status_code == 409
     assert resp.json()["reason"] == "invalid_result"
     assert app.state.dock_layout == LAYOUT
+
+
+async def test_a_result_with_two_panels_in_a_tile_refuses_the_write():
+    """The dock's holder never answers with a crowded tile; the server refuses one anyway."""
+    app = _app()
+    resp, _, result = await _write(
+        app, "/api/panel-op/open", {"member": "lattice"}, _layout_answer(CROWDED)
+    )
+    assert result.status_code == 422
+    assert result.json()["detail"] == (
+        f"layout.items[0].tabs: one_panel_per_tile: {ONE_PANEL_PER_TILE_TEXT}"
+    )
+    assert resp.status_code == 409
+    assert resp.json()["reason"] == "invalid_result"
+    assert "one_panel_per_tile" in resp.json()["detail"]
+    assert (app.state.dock_layout, app.state.dock_layout_rev) == (LAYOUT, 3)
+    assert app.state.visible_panels == ["ariel"]
+    assert _activity(app) == []
 
 
 async def test_an_unchanged_result_keeps_the_rev():

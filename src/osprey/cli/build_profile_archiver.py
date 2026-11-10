@@ -131,7 +131,7 @@ _KNOWN_VA_ARCHIVER_KEYS: frozenset[str] = frozenset()  # populated below
 class VAArchiverConfig:
     """The parsed ``va_archiver:`` block — one store, one timeline.
 
-    The defaults describe the store a control-assistant deployment wants
+    The defaults describe the store a demo deployment wants
     without being told: two days of dense history behind a month of coarse
     history, sampled every ten seconds, compressed. They are chosen to fit the
     documented storage budget at the shipped channel count; raising
@@ -426,8 +426,9 @@ def va_archiver_errors(
     if not ENV_NAME_RE.match(cfg.password_env):
         errors.append(
             f"va_archiver.password_env must be an environment variable NAME "
-            f"(letters, digits, underscores), got {cfg.password_env!r}. The "
-            f"password itself belongs in the deployment's .env, never in the profile."
+            f"(letters, digits and underscores, not starting with a digit), got "
+            f"{cfg.password_env!r}. The password itself belongs in the deployment's .env, "
+            f"never in the profile."
         )
 
     if cfg.host is not None and not cfg.host.strip():

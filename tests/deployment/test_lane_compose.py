@@ -40,7 +40,10 @@ from osprey.bluesky_bridge_connection import (
     lane_control_identity,
     lane_env_prefix,
 )
-from osprey.deployment.compose_generator import repo_relative_mount_source
+from osprey.deployment.compose_generator import (
+    repo_relative_mount_source,
+    resolve_upstream_images,
+)
 from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
@@ -188,7 +191,7 @@ def _context(
     the generator precomputes it for exactly this template, so a hand-supplied
     value would exercise the gate without exercising what decides it.
     """
-    from osprey.deployment.compose_generator import _bluesky_lane_write_posture
+    from osprey.deployment.compose_generator import drives_target_write_posture
 
     section = (
         control_system
@@ -197,7 +200,7 @@ def _context(
     )
     services: dict[str, Any] = dict(lanes)
     services["virtual_accelerator"] = {"port": va_port}
-    posture = _bluesky_lane_write_posture(services, section)
+    posture = drives_target_write_posture(services, section)
     for lane_key, armed in posture.items():
         services[lane_key] = {**services[lane_key], "writes_enabled": armed}
     context: dict[str, Any] = {
@@ -207,6 +210,7 @@ def _context(
             "repo_id": "abc123def456",
         },
         "osprey_images": _image_defaults("proj"),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_version": "2026.8.1",
         "system": {"timezone": "UTC"},
         "deployment": {},
@@ -1066,12 +1070,12 @@ def test_a_single_lanes_posture_is_the_deployment_wide_one() -> None:
     here is a rendered one: a retired ``writes_enabled`` leaf the build did not
     rewrite arms nothing (D2; row ``tier-absent-old-armed-flat``).
     """
-    from osprey.deployment.compose_generator import _bluesky_lane_write_posture
+    from osprey.deployment.compose_generator import drives_target_write_posture
 
     lane = {"bluesky": {"port": BLUESKY_PORT}}
 
     def posture(control_system: dict[str, Any] | None) -> bool:
-        return _bluesky_lane_write_posture(lane, control_system)["bluesky"]
+        return drives_target_write_posture(lane, control_system)["bluesky"]
 
     assert posture({"writes": "allowed"}) is True
     assert posture({"writes": "asked"}) is True
