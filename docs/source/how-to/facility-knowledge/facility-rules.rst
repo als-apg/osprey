@@ -10,6 +10,8 @@ They load into the main agent's context at the start of every session, the same
 way ``CLAUDE.md`` does. Several of them carry facility-specific operating
 context.
 
+To change a rule, see `Changing a rule`_.
+
 
 What the ``demo`` preset ships
 ===========================================
@@ -101,13 +103,16 @@ Changing a rule
 There are two ways to edit a rule.
 
 **Edit the Markdown directly.** Each rule the agent loads is a file under
-``build/.claude/rules/``, and ``build/`` is disposable — so the facility
-description you edit is the copy in your repo, at ``rules/facility.md``.
-``osprey init`` writes it there and lists it as ``rules/facility``, so every
-build copies it into the render.
-The framework-generated rules *are* re-rendered by ``osprey build``; to keep an
-edit to one of those, claim it into the profile first with ``osprey scaffold
-claim rules/safety`` (:ref:`profile-claim`).
+``build/.claude/rules/``, and ``build/`` is disposable, so edit the copy in
+your repo:
+
+* **The facility description is yours.** Edit ``rules/facility.md`` in your
+  repo. ``osprey init`` writes it there and lists it as ``rules/facility``, so
+  every build copies it into the render.
+* **The framework-generated rules are re-rendered.** ``osprey build`` writes
+  them again from the framework. To keep an edit to one of those, claim it
+  into the profile first with ``osprey scaffold claim rules/safety``
+  (:ref:`profile-claim`).
 
 **Through the web terminal.** ``osprey web`` exposes the agent's ``.claude/``
 files in the browser: edit a rule in the setup editor, or use the scaffold
@@ -119,13 +124,16 @@ Answer provenance (verify-first)
 
 Beyond the ``.claude/rules/`` files, the agent's *answer posture* is set by two
 framework-generated artifacts — the ``control-operator`` output-style and the
-generated ``CLAUDE.md``. Both instruct the agent to answer **verify-first**: for
-a factual question it queries the appropriate tool or source first and leads with
-that result, naming the source; anything it cannot back with a tool is flagged
-plainly and up front — never a confident lead with a buried caveat, and never an
-answer followed by an optional offer to verify. A multi-tool or research answer
-closes with an explicit provenance summary — the sources it used and a brief
-confidence/scope note — while single reads stay terse.
+generated ``CLAUDE.md``. Both instruct the agent to answer **verify-first**:
+
+* For a factual question it queries the appropriate tool or source first, and
+  leads with that result, naming the source.
+* Anything it cannot back with a tool is flagged plainly and up front. It never
+  leads confidently with a buried caveat, and never follows an answer with an
+  optional offer to verify.
+* A multi-tool or research answer closes with an explicit provenance summary:
+  the sources it used and a brief confidence/scope note. Single reads stay
+  terse.
 
 Because it ships in framework-generated artifacts, the claimed-artifact caveat
 from `Changing a rule`_ applies. A deployment that has ``osprey scaffold

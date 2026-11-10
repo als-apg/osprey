@@ -144,6 +144,8 @@ export function initChat(containerId = 'operator-container') {
 
   /** Transforms the feature modules apply to each prompt as it is sent. */
   const sendTransforms = /** @type {Array<(prompt: string) => string>} */ ([]);
+  /** Commands the feature modules answer in the browser instead of sending. */
+  const localCommands = /** @type {Array<(prompt: string) => boolean>} */ ([]);
 
   /** In-flight turn handle, or null when idle. */
   let handle = /** @type {import('./chat-client.js').ChatAbortHandle | null} */ (null);
@@ -238,9 +240,7 @@ export function initChat(containerId = 'operator-container') {
 
   const isPinned = () =>
     messages.scrollHeight - messages.scrollTop - messages.clientHeight < STICK_THRESHOLD;
-  const scrollToBottom = () => {
-    messages.scrollTop = messages.scrollHeight;
-  };
+  const scrollToBottom = () => void (messages.scrollTop = messages.scrollHeight);
 
   /** Take the first-contact block away; the log is the conversation from here. */
   function dismissInvitation() {
@@ -444,9 +444,7 @@ export function initChat(containerId = 'operator-container') {
     setOverlayMessage(HANDOFF_PENDING_MESSAGE, true);
     renderElapsed();
     if (ticker === null) ticker = window.setInterval(renderElapsed, 1000);
-    setOverlayAction(HANDOFF_INTERRUPT_LABEL, () => {
-      void runHandoff(true);
-    });
+    setOverlayAction(HANDOFF_INTERRUPT_LABEL, () => void runHandoff(true));
   }
 
   /**
@@ -649,14 +647,17 @@ export function initChat(containerId = 'operator-container') {
   /**
    * Submit the current input as a new turn. While one streams, the message is
    * queued instead. A slash command is not: it stays in the box until the turn
-   * ends, because what it does may depend on the turn it would follow.
+   * ends, because what it does may depend on the turn it would follow. A
+   * command a feature answers itself (`/mcp`) runs at once and is never sent.
    */
   function submit() {
     const prompt = textarea.value.trim();
-    if (transitioning || !prompt || (streaming && prompt.startsWith('/'))) return;
+    const local = !transitioning && localCommands.some((answer) => answer(prompt));
+    if (!local && (transitioning || !prompt || (streaming && prompt.startsWith('/')))) return;
     textarea.value = '';
     autoResize();
-    if (streaming) queue.add(prompt);
+    if (local) slash.close();
+    else if (streaming) queue.add(prompt);
     else send(prompt, () => queue.returnToInput(prompt));
   }
 
@@ -792,6 +793,7 @@ export function initChat(containerId = 'operator-container') {
     renderer,
     getKey: () => boundKey,
     onBeforeSend: (transform) => void sendTransforms.push(transform),
+    onLocalCommand: (answer) => void localCommands.push(answer),
     scrollToBottom,
     onNewSession: startConversation,
   });

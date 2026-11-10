@@ -1,4 +1,4 @@
-alice: allowed
+alice: asked
 bob: never
 carol: allowed
-osprey-freeze-builder: allowed
+osprey-freeze-builder: asked

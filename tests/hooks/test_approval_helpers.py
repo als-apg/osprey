@@ -57,6 +57,28 @@ def test_sanitize_label_escapes_line_breaking_code_points(approval, raw, escaped
     assert result == f"before{escaped}after"
 
 
+@pytest.mark.parametrize(
+    ("raw", "escaped"),
+    [("\u202e", "\\x202e"), ("\u200b", "\\x200b"), ("\x9b", "\\x9b")],
+    ids=["bidi-override", "zero-width-space", "c1-csi"],
+)
+def test_sanitize_label_escapes_invisible_and_reordering_code_points(approval, raw, escaped):
+    """A label cannot reorder or hide part of the prompt the approver reads.
+
+    The label is escaped by the prompt renderer's control-character escaper, so
+    a bidi override, a zero-width mark or a C1 control shows as its codepoint.
+    """
+    assert approval._sanitize_label(f"before{raw}after") == f"before{escaped}after"
+
+
+def test_sanitize_label_delegates_to_the_prompt_renderer(approval):
+    """One escaper serves the hook's labels and an application's prompt values."""
+    assert approval._prompt_render is not None
+    assert approval._sanitize_label("a\u202eb") == approval._prompt_render.escape_control(
+        "a\u202eb"
+    )
+
+
 def test_sanitize_label_passes_ordinary_text_through(approval):
     """Printable text — including non-ASCII — is returned byte for byte.
 

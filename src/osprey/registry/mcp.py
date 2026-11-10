@@ -23,7 +23,7 @@ from osprey.phoebus_agent_access import DRIVE_TOOL, READ, READ_WRITE, SERVER_TEM
 # The leaf, not ``osprey.profiles.web_panels``: that module loads starlette and
 # the web credential module, which a registry every build imports must not.
 from osprey.profiles.sidecar_panels import SIDECAR_PANELS, SidecarPanel
-from osprey.utils.owner_header import OWNER_HEADER
+from osprey.utils.owner_header import OWNER_HEADER, SESSION_HEADER
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
 from osprey_connectors.identity import IDENTITY_ENV_LADDER
 from osprey_connectors.posture_store import (
@@ -33,6 +33,7 @@ from osprey_connectors.posture_store import (
     DISPATCH_RUN_ENV_VAR,
     LAUNCH_POSTURE_ENV_VAR,
 )
+from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR
 from osprey_connectors.workspace import RENDERED_CONFIG_RELPATH
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,10 @@ class ServerDefinition:
     # Read by the headless block, the audit and the kill switch through
     # ``_server_to_dict``'s ``writes`` key and :func:`facility_write_tools`.
     writes: tuple[str, ...] | None = None
+    # The application a projected tool server serves (``mcp_servers.<n>.app``);
+    # ``None`` for every other server. Its declared writes get the preflight
+    # approval budget and reach the session's control target, not ``live``.
+    app: str | None = None
 
     def withheld_optional_tools(self, ctx: Mapping) -> frozenset[str]:
         """The optional tools ``ctx`` withholds: those whose key, or its default, is falsy."""
@@ -812,7 +817,7 @@ _SPELLED_SERVERS: dict[str, ServerDefinition] = {
         # fired from a held session.
         headers={
             "Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}",
-            "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+            SESSION_HEADER: "${OSPREY_SESSION_ID:-}",
         },
         # Conditional on the EVENTS panel, read through the same predicate that
         # grants the dispatcher token itself (see the ctx key's own comment in
@@ -904,7 +909,7 @@ def derive_panel_servers(
             url=f"{PANEL_PROXY_ORIGIN}/panel/{panel_id}{panel.mcp_path}",
             headers={
                 "Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}",
-                "X-Osprey-Session": "${OSPREY_SESSION_ID:-}",
+                SESSION_HEADER: "${OSPREY_SESSION_ID:-}",
             },
             condition=f"{PANEL_DECLARED_CONDITION_PREFIX}{panel_id}",
             permissions_allow=list(panel.mcp_allow),
@@ -1516,6 +1521,10 @@ POSTURE_SESSION_ENV = "OSPREY_POSTURE_SESSION"
 #: value would file a session's records under another session's name.
 TERMINAL_SESSION_ENV = "OSPREY_TERMINAL_SESSION"
 
+#: The session a write's hold is read for. Spelled here because its connectors
+#: owner, ``posture_store._SESSION_KEY_ENV_VAR``, is private.
+SESSION_ID_ENV = "OSPREY_SESSION_ID"
+
 #: The per-target posture a python-executor sandbox was LAUNCHED under.
 #: Imported rather than re-spelled: unlike the names above, its owner
 #: (:mod:`osprey_connectors.posture_store`) is a package the registry may
@@ -1590,6 +1599,10 @@ DISPATCH_RUN_ENV = DISPATCH_RUN_ENV_VAR
 #: makes a process a dispatch job, whose owner is "no owner". A spec that could
 #: set it could present that ownerless answer where an owner's narrowing should
 #: have been read; its only legitimate source is the dispatch launcher.
+#: ``OSPREY_SESSION_ID`` and ``OSPREY_SESSION_HOLD_DIR`` decide which session's
+#: hold a write is judged against: the spawn sites stamp both and the agent's
+#: MCP children inherit them. A spec that could set either could name another
+#: session or a hold root with no flags in it, which sheds the hold.
 NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     *IDENTITY_ENV_LADDER,
     POSTURE_ENV_VAR,
@@ -1602,6 +1615,8 @@ NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     CONTROL_CONTEXT_TREE_ENV,
     CONTROL_CONTEXT_DIR_ENV,
     DISPATCH_RUN_ENV,
+    SESSION_ID_ENV,
+    HOLD_DIR_ENV_VAR,
 )
 
 #: Env markers a server spec's ``env:`` may not set — the framework owns them.
@@ -1898,6 +1913,8 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
                 continue
             custom = _custom_server_from_spec(name, spec)
             if custom is not None:
+                if custom.condition and not ctx.get(custom.condition):
+                    custom.default_enabled = False
                 _warn_writes_without_live_target(custom, ctx)
                 servers[name] = custom
 
@@ -1930,9 +1947,10 @@ def _warn_writes_without_live_target(sdef: ServerDefinition, ctx: dict) -> None:
     Judged only when the caller put the ``control_system:`` section in ctx as
     ``control_system_section``: a caller that did not has not said the target
     is missing, and guessing either way would be a warning about nothing or
-    silence about something.
+    silence about something. An application's server is not judged: its writes
+    reach the session's control target, which need not be ``live``.
     """
-    if not sdef.writes or "control_system_section" not in ctx:
+    if not sdef.writes or sdef.app or "control_system_section" not in ctx:
         return
     from osprey_connectors.types import TARGET_LIVE, target_configured
 
@@ -2198,9 +2216,14 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
             "tool with writes-check and approval; drop 'writes_check' from "
             "hooks.pre_tool_use."
         )
+    app = spec.get("app")
+    # An application's approval may read the panel's state before it asks, so
+    # its writes carry the preflight budget; a prompt that fetches nothing
+    # answers well inside it.
+    approval = _APPROVAL_PREFLIGHT if app else _APPROVAL
     if writes is not None:
         hooks_pre.extend(
-            HookRule(matcher=f"mcp__{name}__{tool}", hooks=[_WRITES_CHECK, _APPROVAL])
+            HookRule(matcher=f"mcp__{name}__{tool}", hooks=[_WRITES_CHECK, approval])
             for tool in _declared_write_rule_tools(name, writes, spec.get("permissions", {}))
         )
     if pre_presets:
@@ -2260,9 +2283,11 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
         permissions_ask=perms.get("ask", []),
         hooks_pre=hooks_pre,
         hooks_post=[_post_error(f"mcp__{name}__.*")]
-        if perms.get("allow") or perms.get("ask")
+        if perms.get("allow") or perms.get("ask") or app
         else [],
         writes=writes,
+        condition=spec.get("condition"),
+        app=app,
     )
 
 

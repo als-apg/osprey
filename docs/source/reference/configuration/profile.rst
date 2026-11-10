@@ -232,6 +232,17 @@ Profile YAML reference
      - The deployment's watchdogs, by name; each one's files live in
        ``watchdogs/<name>/`` beside the profile
        (see :ref:`profile-watchdogs-block`).
+   * - ``apps``
+     - mapping
+     - ``{}``
+     - The applications the deployment runs, by name; each one's files live in
+       ``apps/<name>/`` beside the profile (see :doc:`/how-to/apps/index`). In
+       a login file, which of them the login's card shows.
+   * - ``lists``
+     - string
+     - ``add``
+     - Login files only: ``add`` lays the login's lists over the deployment's,
+       ``own`` takes them from the file alone (see :doc:`/how-to/build-profiles`).
    * - ``lifecycle``
      - mapping
      - ``{}``
@@ -719,6 +730,15 @@ Each entry under ``mcp_servers:`` takes these keys:
        A list beside the ``writes_check`` preset is refused. The build never
        asks the server for its tool list, so a name it does not serve is not
        caught.
+   * - ``condition``
+     - absent
+     - A render-context key that must be truthy for the server to render. A
+       server an application projects with ``shown_when: panel`` carries
+       ``panel:<panel id>``.
+   * - ``app``
+     - absent
+     - The application the server is projected for, by name (``[a-z0-9-]+``);
+       absent for any other server.
 
 A key the entry does not define is ignored with a warning that names the release
 from which it is refused.
@@ -1151,9 +1171,9 @@ An attached project rarely has to say anything, because **the build tells it
 where the host's services are**. Every client-facing fact — the sidecar's port,
 the graph store's bolt port, the Postgres the logbook lives in, the Bluesky
 bridge, the EVENTS and BLUESKY tab URLs — is copied
-from the hosting deployment's own render into each tier and app built beside
+from the hosting deployment's own render into each login built beside
 it, so a service moved on the hosting profile moves every render with it, and
-the bundled tier and app files pin none of them. A tier or app that spells one
+the bundled login files pin none of them. A login that spells one
 of these keys with a *different* value is refused — the two copies would dial
 different places, and the build names both. (A tier inherits the hosting
 profile's ``config:`` keys, so a port moved there is spelled in every tier as
@@ -1705,7 +1725,7 @@ optimizer
 The ``optimizer:`` section deploys the optimizer service, which tunes machine
 variables against an objective with Bayesian optimization (Xopt), and the Redis
 store that keeps its jobs. The block's presence is the switch. It accepts
-exactly three keys; a misspelled or unknown key **fails the build** and prints
+exactly two keys; a misspelled or unknown key **fails the build** and prints
 the valid set:
 
 .. list-table::
@@ -1717,12 +1737,6 @@ the valid set:
    * - ``port``
      - The service's port. Defaults to its slot in the port layout, ``10082``
        at the default base (:ref:`reference-ports`).
-   * - ``targets``
-     - The control targets the optimizer may drive (default ``[va]``): ``va``,
-       ``standin``, or both. A run naming any other target is refused. The
-       ``live`` machine is **refused at build time** until the optimizer
-       supports it. Each target also needs its connector block in the
-       project's ``control_system:`` section.
    * - ``environments_dir``
      - A directory of optimizer environment files (YAML), mounted read-only
        into the service. Unset, only installed environment plugins are
@@ -1822,5 +1836,4 @@ there; every write is then refused ``auth_unreadable``.
 .. code-block:: yaml
 
    optimizer:
-     targets: [va, standin]
      environments_dir: optimizer/environments

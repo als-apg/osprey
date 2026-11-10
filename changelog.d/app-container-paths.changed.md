@@ -1,0 +1,1 @@
+An application container that runs the project image now resolves its config, guarded-run directory and limits database under its own image root, and no longer bind-mounts the limits file. A bridge container's Channel Access name server is now the gateway the render's write tier selects: read-only unless the tier arms writes.

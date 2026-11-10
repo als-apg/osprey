@@ -39,10 +39,10 @@ REQUESTS = [
     (
         environments,
         "read_observables",
-        {"name": "lin", "names": ["q", "r"], "target": "va"},
+        {"name": "lin", "names": ["q", "r"]},
         "GET",
         "/environments/lin/observables",
-        {"target": ["va"], "names": ["q", "r"]},
+        {"target": [SESSION_TARGET], "names": ["q", "r"]},
     ),
     (environments, "list_presets", {"name": "lin"}, "GET", "/environments/lin/presets", {}),
     (
@@ -56,10 +56,10 @@ REQUESTS = [
     (
         environments,
         "initial_bounds",
-        {"name": "lin", "preset": "phase", "target": "live"},
+        {"name": "lin", "preset": "phase"},
         "GET",
         "/environments/lin/initial-bounds",
-        {"target": ["live"], "preset": ["phase"]},
+        {"target": [SESSION_TARGET], "preset": ["phase"]},
     ),
     (jobs, "list_jobs", {}, "GET", "/jobs", {}),
     (jobs, "get_job", {"job_id": "j1"}, "GET", "/jobs/j1", {}),
@@ -140,30 +140,32 @@ async def test_a_run_id_that_is_not_env_slash_timestamp_is_refused_unsent(optimi
     assert optimizer.requests == []
 
 
+_DRAFT_TOOLS = [("create_draft", {}), ("update_draft", {"job_id": "j1"})]
 _NO_TARGET = {"environment_name": "lin", "preset": "phase"}
-_OWN_TARGET = {"environment_name": "lin", "control_target": "va", "n_iterations": 5}
 
 
-@pytest.mark.parametrize(
-    ("name", "kwargs", "config", "sent_body"),
-    [
-        ("create_draft", {}, _NO_TARGET, {**_NO_TARGET, "control_target": SESSION_TARGET}),
-        ("create_draft", {}, _OWN_TARGET, _OWN_TARGET),
-        # update_draft fills nothing: the service refuses a config with no target.
-        ("update_draft", {"job_id": "j1"}, _NO_TARGET, _NO_TARGET),
-        ("update_draft", {"job_id": "j1"}, _OWN_TARGET, _OWN_TARGET),
-    ],
-)
-async def test_only_create_draft_names_the_sessions_control_target(
-    optimizer, name, kwargs, config, sent_body
-):
+@pytest.mark.parametrize(("name", "kwargs"), _DRAFT_TOOLS)
+@pytest.mark.parametrize("config", [_NO_TARGET, {**_NO_TARGET, "control_target": SESSION_TARGET}])
+async def test_a_draft_is_for_the_sessions_control_target(optimizer, name, kwargs, config):
     given = dict(config)
     out = json.loads(await _tool(jobs, name)(config=config, **kwargs))
     (sent,) = optimizer.requests
-    assert json.loads(sent.content) == sent_body
+    assert json.loads(sent.content) == {**_NO_TARGET, "control_target": SESSION_TARGET}
     assert config == given
     if name == "create_draft":
-        assert out["control_target"] == sent_body["control_target"]
+        assert out["control_target"] == SESSION_TARGET
+
+
+@pytest.mark.parametrize(("name", "kwargs"), _DRAFT_TOOLS)
+async def test_a_draft_for_another_target_is_refused_unsent(optimizer, name, kwargs):
+    assert SESSION_TARGET != "live"
+    with assert_raises_error(error_type="validation_error") as ctx:
+        await _tool(jobs, name)(config={**_NO_TARGET, "control_target": "live"}, **kwargs)
+    assert optimizer.requests == []
+    assert ctx["envelope"]["details"] == {
+        "control_target": "live",
+        "session_control_target": SESSION_TARGET,
+    }
 
 
 @pytest.mark.parametrize(("headers", "revision"), [({"X-Config-Revision": "7"}, "7"), ({}, None)])
@@ -188,25 +190,12 @@ _REFUSALS = [
         "validation_error",
         [{"loc": ["names"]}],
     ),
-    (
-        "environment_status",
-        httpx.Response(403, json={"detail": "does not drive 'live' (allowed: standin, va)"}),
-        "optimizer_target_refused",
-        "does not drive 'live' (allowed: standin, va)",
-    ),
-    # A 403 on a request that named no target is not a target refusal.
     ("get_job", httpx.Response(403, json={"detail": "forbidden"}), "optimizer_error", "forbidden"),
     (
         "update_draft",
         httpx.Response(409, json={"detail": "expected status 'created', got 'running'"}),
         "optimizer_conflict",
         "expected status 'created', got 'running'",
-    ),
-    (
-        "create_draft",
-        httpx.Response(403, json={"detail": "does not drive 'live' (allowed: va)"}),
-        "optimizer_target_refused",
-        "does not drive 'live' (allowed: va)",
     ),
     ("get_job", httpx.Response(503, text="upstream down"), "optimizer_error", "upstream down"),
     ("list_models", httpx.Response(500, json={"detail": "boom"}), "optimizer_error", "boom"),
@@ -215,10 +204,8 @@ _REFUSALS = [
 _KWARGS = {
     "get_job": (jobs, {"job_id": "j1"}),
     "read_observables": (environments, {"name": "lin", "names": ["q"]}),
-    "environment_status": (environments, {"name": "lin"}),
     "list_models": (results, {}),
-    "update_draft": (jobs, {"job_id": "j1", "config": {"control_target": "va"}}),
-    "create_draft": (jobs, {"config": {"environment_name": "lin"}}),
+    "update_draft": (jobs, {"job_id": "j1", "config": {"control_target": SESSION_TARGET}}),
 }
 
 
@@ -234,13 +221,6 @@ async def test_a_non_2xx_is_typed_by_its_status(optimizer, name, response, error
         await _tool(module, name)(**kwargs)
     assert ctx["envelope"]["details"] == {"status": response.status_code, "detail": detail}
     assert str(response.status_code) in ctx["envelope"]["error_message"]
-
-
-async def test_a_target_refusal_hints_to_name_the_target(optimizer):
-    optimizer.respond = lambda _r: httpx.Response(403, json={"detail": "allowed: va"})
-    with assert_raises_error(error_type="optimizer_target_refused") as ctx:
-        await _tool(environments, "initial_bounds")(name="lin")
-    assert any("`target`" in hint for hint in ctx["envelope"]["suggestions"])
 
 
 async def test_a_2xx_body_that_is_not_json_is_an_error_envelope(optimizer):

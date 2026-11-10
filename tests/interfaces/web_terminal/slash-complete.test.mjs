@@ -117,6 +117,8 @@ describe('attachSlashComplete', () => {
     ]);
     const builtin = kindTag({ name: 'clear', description: '', argument_hint: '', kind: 'builtin' });
     expect(builtin.textContent).toBe('built-in');
+    const browser = kindTag({ name: 'mcp', description: '', argument_hint: '', kind: 'browser' });
+    expect(browser.textContent).toBe('built-in');
   });
 
   test('typing narrows by fuzzy match', async () => {

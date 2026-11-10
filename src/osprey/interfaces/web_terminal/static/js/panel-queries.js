@@ -46,6 +46,18 @@ export function visiblePanelsExcept(panels, visible, activeId) {
 export function standaloneUrl(panels, state, panelId) {
   if (!state?.url) return null;
   const panel = panels.find((p) => p.id === panelId);
-  const path = panel?.path && panel.path !== '/' ? panel.path : '';
-  return state.url + path;
+  return panelUiUrl(state.url, panel?.path);
+}
+
+/**
+ * A service panel's UI URL: its base plus its UI path, joined on one slash. A
+ * path of "/" frames the mount as the directory it is, so a page's relative
+ * URLs (`static/panel.js`) resolve inside the mount, not one segment above it.
+ * @param {string} url the already-proxied root-relative base
+ * @param {string | undefined} path the catalog path, if any
+ * @returns {string}
+ */
+export function panelUiUrl(url, path) {
+  if (!path) return url;
+  return url.endsWith('/') && path.startsWith('/') ? url + path.slice(1) : url + path;
 }

@@ -24,8 +24,8 @@ _UNREACHABLE_HINTS = [
 ]
 
 
-def default_target() -> str:
-    """The deployment's current control target (va, standin or live)."""
+def control_target() -> str:
+    """The session's control target (va, standin or live): the machine every read describes."""
     return resolve_target_situation().control_target
 
 
@@ -37,7 +37,7 @@ def _detail(resp: httpx.Response) -> Any:
     return body.get("detail") if isinstance(body, dict) else body
 
 
-def _refuse(method: str, path: str, resp: httpx.Response, named_target: bool) -> NoReturn:
+def _refuse(method: str, path: str, resp: httpx.Response) -> NoReturn:
     """Raise the error envelope for a non-2xx answer, typed by what the caller can do."""
     status = resp.status_code
     detail = _detail(resp)
@@ -53,17 +53,6 @@ def _refuse(method: str, path: str, resp: httpx.Response, named_target: bool) ->
             "optimizer_conflict",
             message,
             ["The job or run is not in the state this needs; the detail says which."],
-            details=details,
-        )
-    if status == 403 and named_target:
-        make_error(
-            "optimizer_target_refused",
-            message,
-            [
-                "This optimizer does not serve that target; the detail lists the ones it does.",
-                "Name one of those: `target` on a read, `control_target` in a draft's config. "
-                "The answer then concerns that machine, not the session's current one: say so.",
-            ],
             details=details,
         )
     make_error("optimizer_error", message, details=details)
@@ -84,11 +73,9 @@ async def request(
 
     Raises ``ToolError`` through ``make_error``: ``optimizer_unreachable`` when
     no answer came (a timeout says the service may still be working);
-    ``not_found`` (404), ``validation_error`` (422), ``optimizer_conflict`` (409),
-    ``optimizer_target_refused`` (403 on a request naming a ``target`` or a
-    ``control_target``) or ``optimizer_error`` (any other
-    non-2xx, or a 2xx whose body is not JSON), with ``details`` holding the
-    HTTP ``status`` and the service's ``detail``.
+    ``not_found`` (404), ``validation_error`` (422), ``optimizer_conflict`` (409)
+    or ``optimizer_error`` (any other non-2xx, or a 2xx whose body is not JSON),
+    with ``details`` holding the HTTP ``status`` and the service's ``detail``.
     """
     url = f"{optimizer_url(load_osprey_config())}{path}"
     try:
@@ -120,8 +107,7 @@ async def request(
             _UNREACHABLE_HINTS,
         )
     if not resp.is_success:
-        named_target = "target" in (params or {}) or "control_target" in (json_body or {})
-        _refuse(method, path, resp, named_target=named_target)
+        _refuse(method, path, resp)
     try:
         body = resp.json()
     except ValueError:
