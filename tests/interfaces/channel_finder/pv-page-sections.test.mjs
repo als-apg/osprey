@@ -77,6 +77,7 @@ test('a history renders its cells as text and an empty one says so', () => {
 });
 
 const FEED = { target: 'live', service: 'kafka', label: 'kafka', rehearsal: false };
+const RETENTION = 'Retention unknown: how far back the service keeps rows is not known';
 
 /** @param {HTMLElement} frame */
 const footer = (frame) =>
@@ -114,4 +115,27 @@ test('every section shows its caveats in its footer', () => {
   }
   const bare = factsSection(/** @type {any} */ ({ ...sections[1], caveats: [] }));
   expect(bare.querySelector('footer')).toBeNull();
+});
+
+test('a history whose retention is unknown says so, with or without rows', () => {
+  /** @param {any} fields */
+  const history = (fields) =>
+    factsSection({
+      section: 'put_history',
+      outcome: 'found',
+      source: /** @type {any} */ (SOURCE),
+      rows: [],
+      truncated: false,
+      caveats: [],
+      ...fields,
+    });
+  const row = { at: '2026-11-04T14:20:00.000Z', pv: 'A', old: '1', new: '2' };
+
+  expect(footer(history({ rows: [row], retention_known: false }))).toEqual([RETENTION]);
+  const empty = history({ retention_known: false });
+  expect(empty.textContent).toContain('No rows recorded');
+  expect(footer(empty)).toEqual([RETENTION]);
+  expect(history({ rows: [row], retention_known: true }).querySelector('footer')).toBeNull();
+  const down = history({ outcome: 'unavailable', reason: 'no answer within 6 s' });
+  expect(down.querySelector('footer')).toBeNull();
 });
