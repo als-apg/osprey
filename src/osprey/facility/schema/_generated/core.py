@@ -1686,8 +1686,8 @@ class Measurement(ConfiguredBaseModel):
     linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
 
     kinds: Optional[list[str]] = Field(default=None, description="""The measurement kinds the model allows, each a kind registered under the osprey.facility.kinds entry points; the build refuses any other.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
-    groups: Optional[MeasurementGroups] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Facility', 'Device', 'Measurement']} })
-    instruments: Optional[MeasurementInstruments] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
+    groups: Optional[Any] = Field(default=None, description="""`{<role>: <group id> | [<group id>, ...]}`, each group role a listed kind uses; a role naming several groups takes their members together. A role is the pyAML view's (bpm, hcor, vcor, quad, sext) or one a listed kind declares; the build refuses any other.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Facility', 'Device', 'Measurement']} })
+    instruments: Optional[Any] = Field(default=None, description="""`{<role>: <channel address>}`, each instrument role a listed kind uses: the pyAML view's (tune, rf) or one a listed kind declares; the build refuses any other.""", json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     n_step: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     n_avg_meas: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     fit_order: Optional[int] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
@@ -1697,29 +1697,6 @@ class Measurement(ConfiguredBaseModel):
     quad_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     sextu_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
     frequency_delta: Optional[float] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['Measurement']} })
-
-
-class MeasurementGroups(ConfiguredBaseModel):
-    """
-    Group ids; a role naming several groups takes their members together.
-    """
-    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
-
-    bpm: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    hcor: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    vcor: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    quad: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-    sext: Optional[list[str]] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementGroups']} })
-
-
-class MeasurementInstruments(ConfiguredBaseModel):
-    """
-    Channel addresses.
-    """
-    linkml_meta: ClassVar[LinkMLMeta] = LinkMLMeta({'from_schema': 'https://narad.example.org/schema/osprey.facility.core'})
-
-    tune: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
-    rf: Optional[str] = Field(default=None, json_schema_extra = { "linkml_meta": {'domain_of': ['MeasurementInstruments']} })
 
 
 class Limits(ConfiguredBaseModel):
@@ -1845,8 +1822,6 @@ Curve.model_rebuild()
 LinearCurve.model_rebuild()
 TableCurve.model_rebuild()
 Measurement.model_rebuild()
-MeasurementGroups.model_rebuild()
-MeasurementInstruments.model_rebuild()
 Limits.model_rebuild()
 LimitRecord.model_rebuild()
 Scenario.model_rebuild()

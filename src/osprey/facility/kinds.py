@@ -25,6 +25,10 @@ The fields a declaration states:
 * ``members``: each group or instrument role the kind uses, with its
   requirement (:data:`REQUIREMENTS`), judged per member against the model's
   wiring at build;
+* ``member_sorts``: what each member the pyAML view does not ship
+  (:data:`SHIPPED_SORTS`) names in the measurement file, one of
+  :data:`MEMBER_SORTS`; the file names every member, shipped or not, under
+  ``groups:`` or ``instruments:``;
 * ``stepped_roles``: the roles whose setpoints a measurement steps; a kind with
   none writes no stepped entry and is never measured;
 * ``tool_keys``: the measurement-file keys the kind's tool takes;
@@ -38,7 +42,8 @@ The fields a declaration states:
   (:func:`plan_problems` states the vocabulary);
 * ``description``: the one line the agent is told about the kind;
 * ``measurement_schema``: the pydantic model the kind's own measurement
-  sub-block is validated by, or ``None`` when it has none;
+  sub-block ``kind_blocks.<kind>`` is validated by, or ``None`` when it has
+  none;
 * ``view_section``: the writer of the kind's pyAML tool section;
 * optional ``facts_writer``, ``build_stops`` and ``settings_from_measurement``.
 """
@@ -68,12 +73,15 @@ __all__ = [
     "KindRegistryError",
     "KindStop",
     "KindTool",
+    "MEMBER_SORTS",
+    "SHIPPED_SORTS",
     "ViewContext",
     "ViewSection",
     "block_problems",
     "builtin_kinds",
     "kind_source",
     "kind_table_row",
+    "member_sorts",
     "plan_problems",
     "registered",
 ]
@@ -87,6 +95,23 @@ BUILTIN_DISTRIBUTION = "osprey-framework"
 #: How a member is judged against the model: named and wired by the model,
 #: named and present in the facility, or neither required.
 REQUIREMENTS = ("wired", "exists", "optional")
+
+#: What a member names in the measurement file: a group under ``groups:``
+#: standing for the monitors or the setpoints its devices carry, or one channel
+#: under ``instruments:``.
+MEMBER_SORTS = ("monitors", "setpoints", "instrument")
+
+#: The member roles the pyAML view writes an array or a device for, each with
+#: its sort; every other member is sorted by the kind declaring it.
+SHIPPED_SORTS: Mapping[str, str] = {
+    "bpm": "monitors",
+    "hcor": "setpoints",
+    "vcor": "setpoints",
+    "quad": "setpoints",
+    "sext": "setpoints",
+    "tune": "instrument",
+    "rf": "instrument",
+}
 
 #: How the measure script sizes a step: a magnet or group of magnets held to
 #: half each setpoint's ``max_step``, the RF span, or a chromaticity monitor's
@@ -221,9 +246,9 @@ class ViewSection:
 class KindDeclaration:
     """One measurement kind, as its package declares it.
 
-    Every field is required except ``facts_writer``, ``build_stops`` and
-    ``settings_from_measurement``; :func:`registered` refuses a declaration whose
-    values the build cannot use.
+    Every field is required except ``member_sorts``, ``facts_writer``,
+    ``build_stops`` and ``settings_from_measurement``; :func:`registered`
+    refuses a declaration whose values the build cannot use.
     """
 
     name: str
@@ -240,6 +265,7 @@ class KindDeclaration:
     description: str
     measurement_schema: type[BaseModel] | None
     view_section: Callable[[ViewContext], ViewSection] | None
+    member_sorts: Mapping[str, str] = field(default_factory=dict)
     facts_writer: Callable[[Mapping[str, Any], Mapping[str, Any]], Mapping[str, Any]] | None = None
     build_stops: Callable[[Mapping[str, Any], Any], Iterable[KindStop]] | None = None
     settings_from_measurement: Callable[..., Mapping[str, Any]] | None = None
@@ -247,7 +273,7 @@ class KindDeclaration:
 
 #: The declaration's field names, the only hooks a mapping declaration may name.
 _FIELDS = tuple(f.name for f in fields(KindDeclaration))
-_OPTIONAL = frozenset({"facts_writer", "build_stops", "settings_from_measurement"})
+_OPTIONAL = frozenset({"member_sorts", "facts_writer", "build_stops", "settings_from_measurement"})
 
 
 def _source(entry: Any) -> str:
@@ -310,6 +336,22 @@ def _declaration_problems(declaration: KindDeclaration) -> Iterator[tuple[str, s
     for role in (*declaration.stepped_roles, *declaration.corrector_roles):
         if role not in declaration.members:
             yield (f"it steps role {role}, which is not one of its members", f"declare {role}")
+    for role, sort in declaration.member_sorts.items():
+        if role not in declaration.members:
+            yield (f"it sorts role {role}, which is not one of its members", f"declare {role}")
+        elif sort not in MEMBER_SORTS:
+            yield (f"member {role} has sort {sort!r}", f"give it one of {', '.join(MEMBER_SORTS)}")
+        elif role in SHIPPED_SORTS and sort != SHIPPED_SORTS[role]:
+            yield (
+                f"member {role} has sort {sort}; the pyAML view names {role} {SHIPPED_SORTS[role]}",
+                f"drop member_sorts[{role!r}]",
+            )
+    for role in declaration.members:
+        if role not in SHIPPED_SORTS and role not in declaration.member_sorts:
+            yield (
+                f"member {role} states no sort",
+                f"state member_sorts[{role!r}] as one of {', '.join(MEMBER_SORTS)}",
+            )
     if declaration.stepped_roles or declaration.measure_plan:
         yield from (
             (problem, "use the measure-plan words OSPREY offers")
@@ -458,7 +500,38 @@ def _load() -> tuple[dict[str, KindDeclaration], dict[str, str]]:
         sources[name] = source
         declaration = _declaration(entry.load(), name, source)
         (builtin if source == "built-in" else others)[name] = declaration
-    return {**builtin, **dict(sorted(others.items()))}, sources
+    found = {**builtin, **dict(sorted(others.items()))}
+    sorted_by: dict[str, tuple[str, str]] = {}
+    for name, declaration in found.items():
+        for role, sort in declaration.member_sorts.items():
+            sorter, earlier = sorted_by.setdefault(role, (name, sort))
+            if earlier != sort:
+                raise KindRegistryError(
+                    name,
+                    sources[name],
+                    f"member {role} has sort {sort}; kind {sorter} ({sources[sorter]}) "
+                    f"sorts it {earlier}",
+                    f"give member {role} the sort {earlier}, or name the role differently",
+                )
+    return found, sources
+
+
+def member_sorts(declarations: Iterable[KindDeclaration]) -> dict[str, str]:
+    """The sort of every member role the measurement file may name, given the kinds it lists.
+
+    The shipped roles (:data:`SHIPPED_SORTS`) and each listed kind's own; a
+    role is named under ``instruments:`` when its sort is ``instrument`` and
+    under ``groups:`` otherwise.
+
+    Args:
+        declarations: The kinds the file lists.
+    """
+    sorts = dict(SHIPPED_SORTS)
+    for declaration in declarations:
+        for role in declaration.members:
+            if role not in sorts:
+                sorts[role] = declaration.member_sorts[role]
+    return sorts
 
 
 def kind_table_row(declaration: KindDeclaration) -> dict[str, Any]:

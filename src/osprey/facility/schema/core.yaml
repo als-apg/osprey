@@ -716,11 +716,18 @@ classes:
           the osprey.facility.kinds entry points; the build refuses any other.
         multivalued: true
       groups:
-        range: MeasurementGroups
-        inlined: true
+        range: Any
+        description: >-
+          `{<role>: <group id> | [<group id>, ...]}`, each group role a listed
+          kind uses; a role naming several groups takes their members
+          together. A role is the pyAML view's (bpm, hcor, vcor, quad, sext) or
+          one a listed kind declares; the build refuses any other.
       instruments:
-        range: MeasurementInstruments
-        inlined: true
+        range: Any
+        description: >-
+          `{<role>: <channel address>}`, each instrument role a listed kind
+          uses: the pyAML view's (tune, rf) or one a listed kind declares; the
+          build refuses any other.
       n_step:
         range: integer
       n_avg_meas:
@@ -739,26 +746,6 @@ classes:
         range: float
       frequency_delta:
         range: float
-
-  MeasurementGroups:
-    description: Group ids; a role naming several groups takes their members together.
-    attributes:
-      bpm:
-        multivalued: true
-      hcor:
-        multivalued: true
-      vcor:
-        multivalued: true
-      quad:
-        multivalued: true
-      sext:
-        multivalued: true
-
-  MeasurementInstruments:
-    description: Channel addresses.
-    attributes:
-      tune:
-      rf:
 
   Limits:
     attributes:
