@@ -1,7 +1,8 @@
 """Every config key the reference section documents must really exist.
 
 ``docs/source/reference/configuration/`` is the operator-facing catalogue of
-``config.yml`` settings. A key that appears there and nowhere in the shipped
+``config.yml`` settings, and the CLI reference, the ports page and the contract
+pages name keys the same way. A key that appears there and nowhere in the shipped
 code is worse than an undocumented one: the reader copies it into their own
 config, nothing happens, and there is no error to tell them why. The reverse
 drift is just as quiet — a key gets renamed or retired in the code, the guard
@@ -27,7 +28,8 @@ documenting one is the resurrection the guard is named after.
 Scope is deliberately narrow. Only inline literals whose whole content is a
 dotted path rooted at one of the known top-level config sections are checked,
 so ordinary prose, file paths, CLI verbs, environment variables and YAML
-snippets in code blocks pass by untouched. The directory is allowed not to
+snippets in code blocks pass by untouched (``test_config_yaml_blocks`` reads
+those). The directory is allowed not to
 exist yet: the reference section is being built out, and a sweep that hard
 -failed on an absent tree would block its own scaffolding.
 """
@@ -52,62 +54,34 @@ _REFERENCE_DIR = "docs/source/reference/configuration"
 #: column at run time and a wheel carries only src/osprey.
 _MANIFEST_PATH = "src/osprey/profiles/config_key_manifest.yml"
 
+#: The pages this sweep reads beside the configuration reference, relative to
+#: the repo root. The CLI reference, the ports page and the contract pages
+#: name config keys as inline literals too (``deployment.port_base``,
+#: ``provenance.deviation_marker``), and a reader copies them just the same.
+_EXTRA_PAGES = ("docs/source/reference/cli.rst", "docs/source/reference/ports.rst")
+_EXTRA_GLOBS = ("docs/source/reference/contracts/*.rst",)
+
+
+def _manifest_sections() -> tuple[str, ...]:
+    """The first segment of every key the manifest declares."""
+    path = _REPO_ROOT / _MANIFEST_PATH
+    keys = yaml.safe_load(path.read_text(encoding="utf-8"))["keys"]
+    return tuple(sorted({str(key).split(".")[0] for key in keys}))
+
+
 #: Top-level sections of ``config.yml``. A dotted literal has to start with one
 #: of these to be treated as a config key at all — the bar that keeps prose
 #: like ``osprey.version`` or ``docs.source`` out of the sweep.
 #:
-#: ``facility`` earns its place the moment the reference page documents a
-#: ``facility.*`` key: without it such a literal is not recognised as a key at
-#: all, so it slips the docs↔manifest cross-check as a vacuous pass. The
-#: pattern below anchors a literal dot after the section name, so the entry
-#: cannot swallow ``facility_knowledge.*`` or the retired ``facility_name``.
-#:
-#: ``deployment`` earns its place for the same reason, now that the ports page
-#: documents ``deployment.port_base`` — the one knob that moves a deployment's
-#: whole thousand-port block.
-#:
-#: ``artifact_server`` and ``python_executor`` earn theirs the same way: each
-#: has a key the reference page now documents, and a section name missing from
-#: this tuple turns its keys into prose the sweep never looks at.
-#:
-#: ``ariel`` joins for the same reason: the reference page documents
-#: ``ariel.entry_url_template``, and the profile page already names three
-#: ``ariel.*`` keys that the sweep could not see without it.
-#:
-#: ``phoebus`` belongs here because the reference page documents the Phoebus
-#: bridge's keys, and a section name missing from this tuple turns its keys into
-#: prose the sweep never looks at. The anchored dot keeps ``phoebus_drive`` and
-#: the other underscore spellings out.
-#:
-#: ``audit`` joins because the reference page documents
-#: ``audit.tool_call.enabled`` and ``audit.tool_call.max_inline_bytes``, and
-#: without the entry those literals are prose the sweep never checks.
-#:
-#: ``screen_capture`` earns its place the same way, now that the reference
-#: documents ``screen_capture.output_dir``.
-_SECTIONS = (
-    "facility",
-    "deployment",
-    "artifact_server",
-    "python_executor",
-    "health",
-    "web",
-    "control_system",
-    "archiver",
-    "bluesky",
-    "services",
-    "deployed_services",
-    "approval",
-    "hooks",
-    "claude_code",
-    "artifacts",
-    "agent_data",
-    "file_paths",
-    "ariel",
-    "phoebus",
-    "audit",
-    "screen_capture",
-)
+#: Read off the manifest rather than listed by hand: a hand list missed every
+#: section added after it was written, and a section missing here turns its
+#: keys into prose the sweep never looks at (``modules.web_terminals.*`` was
+#: one). ``facility`` is the one addition: the manifest declares no
+#: ``facility.*`` key, so a ``facility.*`` literal is a key the code does not
+#: read and must be flagged, not passed as prose. The pattern below anchors a
+#: literal dot after the section name, so the entry cannot swallow
+#: ``facility_knowledge.*`` or the retired ``facility_name``.
+_SECTIONS = tuple(sorted({*_manifest_sections(), "facility"}))
 
 #: An RST inline literal: ``like this``. Content may not span lines or contain
 #: a backtick, which is exactly what Sphinx itself accepts.
@@ -121,18 +95,33 @@ _KEY_PATTERN = re.compile(r"^(?:" + "|".join(_SECTIONS) + r")\.[a-z0-9_.-]+$")
 
 #: Documented keys that are deliberately absent from the manifest, each with
 #: the reason it is allowed to be. Keyed by the dotted key so that an edit to
-#: the surrounding prose does not silently inherit the exemption. Empty by
-#: design: an exemption here is a promise to a reader that the key works, made
+#: the surrounding prose does not silently inherit the exemption. Keep it
+#: short: an exemption here is a promise to a reader that the key works, made
 #: without the guard's evidence behind it, so every entry needs an argument.
-_EXEMPTIONS: dict[str, str] = {}
+_EXEMPTIONS: dict[str, str] = {
+    "api.js": "a file of the ARIEL frontend, named in the contract's module table",
+    "facility.json": "a file name on the channel-finder contract page, not a key",
+    "provenance.deviation_marker": (
+        "a key of the build profile's top-level provenance: block, read by the "
+        "profile loader (cli/build_profile_load.py), never a config.yml key"
+    ),
+    "ariel.database.uri": (
+        "recorded as deleted so no preset renders it live, but an explicit uri "
+        "is still read and wins (services/ariel_search/config.py); the "
+        "manifest's deleted_commented_examples names the same exception"
+    ),
+}
 
 
 def _reference_pages(root_dir: Path | None = None) -> list[Path]:
-    """Every ``.rst`` page in the configuration reference directory."""
-    base = (root_dir if root_dir is not None else _REPO_ROOT) / _REFERENCE_DIR
-    if not base.is_dir():
-        return []
-    return sorted(base.glob("*.rst"))
+    """Every ``.rst`` page in the configuration reference, and the extra pages."""
+    root = root_dir if root_dir is not None else _REPO_ROOT
+    base = root / _REFERENCE_DIR
+    pages = sorted(base.glob("*.rst")) if base.is_dir() else []
+    pages += [root / page for page in _EXTRA_PAGES if (root / page).is_file()]
+    for pattern in _EXTRA_GLOBS:
+        pages += sorted(root.glob(pattern))
+    return pages
 
 
 def _documented_keys(root_dir: Path | None = None) -> list[tuple[str, int, str]]:
@@ -171,7 +160,7 @@ def _declared_keys(root_dir: Path | None = None) -> set[str]:
 def _deleted_keys(root_dir: Path | None = None) -> set[str]:
     """Every dotted path the manifest records as retired and not to come back."""
     deleted = _manifest(root_dir).get("deleted") or []
-    return {str(entry) for entry in deleted}
+    return {str(entry["path"] if isinstance(entry, dict) else entry) for entry in deleted}
 
 
 def _undeclared_hits(
