@@ -1866,6 +1866,7 @@ LANES: tuple[Lane, ...] = (
         "test_check_b_served.py",
     ),
     _va("va-bluesky-deploy-e2e", "test_bluesky_lanes.py"),
+    Lane("changes", "reads the pull request's files", ("scripts/ci/docs_only.py",)),
     Lane("plugin-smoke", "plugin install", _PLUGIN_TREES),
     Lane(
         "channel-finder-benchmarks",
