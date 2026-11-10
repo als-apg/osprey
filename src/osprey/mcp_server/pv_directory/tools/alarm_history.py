@@ -7,10 +7,7 @@ from typing import Any
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from osprey.mcp_server.pv_directory.server import ToolContext
 from osprey.mcp_server.pv_directory.tools._channel import answer, check_limit, since_of
-
-PREDICATE = "pv_directory_alarm_log"
 
 
 async def alarm_history(pv: str, since: str | None = None, limit: int = 20) -> str:
@@ -44,7 +41,7 @@ async def alarm_history(pv: str, since: str | None = None, limit: int = 20) -> s
     )
 
 
-def register(server: FastMCP, ctx: ToolContext) -> Any:  # noqa: ARG001 - the registration contract
+def register(server: FastMCP) -> Any:
     """Register :func:`alarm_history` on *server*."""
     return server.tool(
         alarm_history,

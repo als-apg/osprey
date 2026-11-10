@@ -7,10 +7,7 @@ from typing import Any
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from osprey.mcp_server.pv_directory.server import ToolContext
 from osprey.mcp_server.pv_directory.tools._channel import answer
-
-PREDICATE = "pv_directory_alarm_config"
 
 
 async def alarm_config(pv: str) -> str:
@@ -34,7 +31,7 @@ async def alarm_config(pv: str) -> str:
     return await answer("alarm_config", pv, lambda facts, name: facts.alarm_config(name))
 
 
-def register(server: FastMCP, ctx: ToolContext) -> Any:  # noqa: ARG001 - the registration contract
+def register(server: FastMCP) -> Any:
     """Register :func:`alarm_config` on *server*."""
     return server.tool(
         alarm_config,

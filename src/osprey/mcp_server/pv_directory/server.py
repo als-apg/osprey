@@ -4,10 +4,11 @@ FastMCP server over the control system's own directory of channel addresses,
 for the session's current control target. Every tool is a read.
 
 The unconditional tools register with ``@mcp.tool()`` when their module is
-imported. A gated tool module declares ``PREDICATE`` and exposes
-``register(server, ctx)``; :func:`create_server` imports every module under
-``tools/`` and calls ``register`` on each gated module whose predicate holds, so
-adding a tool module never edits this file. Tools reach the services through
+imported. A gated tool module exposes ``register(server)``; its gate is the
+``optional_tools`` entry of ``FRAMEWORK_SERVERS["pv-directory"]`` keyed by the
+module's name. :func:`create_server` imports every module under ``tools/`` and
+calls ``register`` on each gated module whose key holds, so adding a tool module
+never edits this file. Tools reach the services through
 :func:`get_tool_context` at call time.
 
 Usage:
@@ -113,19 +114,24 @@ def build_tool_context(config: Mapping[str, Any], *, project_dir: Path | None) -
 
 
 def register_tools(server: FastMCP, context: ToolContext) -> list[str]:
-    """Import every tool module; register each gated one whose predicate holds.
+    """Import every tool module; register each gated one whose key holds.
+
+    A module is gated when the server's ``optional_tools`` names it; the entry's
+    key is looked up in ``context.predicates``.
 
     Returns:
         The gated modules registered, by name.
     """
     from osprey.mcp_server.pv_directory import tools
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
 
+    optional_tools = FRAMEWORK_SERVERS["pv-directory"].optional_tools
     registered = []
     for found in sorted(pkgutil.iter_modules(tools.__path__), key=lambda found: found.name):
         module = importlib.import_module(f"{tools.__name__}.{found.name}")
-        predicate = getattr(module, "PREDICATE", None)
-        if predicate is not None and context.predicates[predicate]:
-            module.register(server, context)
+        offer = optional_tools.get(found.name)
+        if offer is not None and context.predicates[offer.key]:
+            module.register(server)
             registered.append(found.name)
     return registered
 

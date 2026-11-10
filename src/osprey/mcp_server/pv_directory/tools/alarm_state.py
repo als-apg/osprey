@@ -14,7 +14,6 @@ from mcp.types import ToolAnnotations
 
 from osprey.mcp_server.errors import answer_map, make_error, refuse_nothing_answered
 from osprey.mcp_server.pv_directory.server import (
-    ToolContext,
     get_tool_context,
     panel_link,
     refuse_unavailable,
@@ -23,7 +22,6 @@ from osprey.services.pv_directory.origin import normalise_address
 
 logger = logging.getLogger("osprey.mcp_server.pv_directory.tools.alarm_state")
 
-PREDICATE = "pv_directory_alarm_state"
 
 #: The most names one call looks up.
 MAX_NAMES = 50
@@ -95,7 +93,7 @@ def _no_backend(section: Mapping[str, Any]) -> bool:
     )
 
 
-def register(server: FastMCP, ctx: ToolContext) -> Any:  # noqa: ARG001 - the registration contract
+def register(server: FastMCP) -> Any:
     """Register :func:`alarm_state` on *server*."""
     return server.tool(
         alarm_state,
