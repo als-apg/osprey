@@ -49,8 +49,8 @@ def declares(provider_class: type, flag: str) -> bool:
 
     Args:
         provider_class: A provider class as the registry hands it out.
-        flag: One of ``requires_api_key``, ``requires_base_url``,
-            ``requires_model_id`` or ``supports_proxy``.
+        flag: One of ``requires_api_key``, ``requires_base_url`` or
+            ``supports_proxy``.
 
     Returns:
         True only when the class sets *flag* to ``True``.
@@ -81,7 +81,6 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
         description: User-friendly description (e.g., "Anthropic (Claude models)")
         requires_api_key: Whether provider requires API key for authentication
         requires_base_url: Whether provider requires custom base URL
-        requires_model_id: Whether provider requires model ID specification
         supports_proxy: Whether provider supports HTTP proxy configuration
         default_base_url: Default API endpoint URL if applicable
         base_url_env_var: Name of an env var that, when set, overrides every
@@ -162,7 +161,6 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
     )
     requires_api_key: bool = NotImplemented
     requires_base_url: bool = NotImplemented
-    requires_model_id: bool = NotImplemented
     supports_proxy: bool = NotImplemented
     default_base_url: str | None = None
     base_url_env_var: str | None = None  # Env var overriding all base_url sources (opt-in)
@@ -225,7 +223,6 @@ class BaseProvider(ABC):  # noqa: B024 - every endpoint has a "not served" defau
     _REQUIRED_FLAGS: tuple[str, ...] = (
         "requires_api_key",
         "requires_base_url",
-        "requires_model_id",
         "supports_proxy",
     )
 

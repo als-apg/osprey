@@ -1037,6 +1037,29 @@ describe('live updates', () => {
   });
 });
 
+describe('a row menu across a redraw', () => {
+  test('Escape gives focus to the row a redraw drew in place of the one the menu opened from', async () => {
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    const menus = await import(`${JS}/sidebar-artifact-menus.js`);
+    const before = artifactRowEl('a2');
+    before.focus();
+    expect(menus.openTreeMenu(before, 0, 0)).toBe(true);
+    expect(document.querySelector('.rail-context-menu')).not.toBeNull();
+
+    // A listing or a frame redraws the tree while the menu is open.
+    document.dispatchEvent(new Event('osprey-sidebar-rendered'));
+    expect(before.isConnected).toBe(false);
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    );
+
+    expect(document.querySelector('.rail-context-menu')).toBeNull();
+    expect(document.activeElement).toBe(artifactRowEl('a2'));
+  });
+});
+
 /* ---- the highlight ------------------------------------------------------ */
 
 describe('the highlight: at most one row, the one the Artifacts panel shows', () => {

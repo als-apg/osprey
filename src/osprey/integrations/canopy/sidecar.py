@@ -458,6 +458,10 @@ def data_keys_text(read_key: str, write_key: str | None = None) -> str:
 # -- the sidecar -------------------------------------------------------------------
 
 
+#: Read by the CANOPY backend this sidecar spawns, under the sidecar's own uid.
+_SESSIONS_FILE_MODE = 0o600
+
+
 class CanopySidecar:
     """One user's CANOPY: FRONT and DATA behind two held sockets.
 
@@ -1000,7 +1004,7 @@ class CanopySidecar:
             atomic_replace(
                 key_dir / SESSIONS_FILENAME,
                 json.dumps(keys).encode(),
-                mode=0o600,
+                mode=_SESSIONS_FILE_MODE,
                 sync="best_effort",
             )
         except OSError:

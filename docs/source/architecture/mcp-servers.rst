@@ -4,10 +4,16 @@ MCP Servers
 OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
 servers. The OSPREY agent discovers servers from ``.mcp.json`` at startup and calls
-tools via stdio JSON-RPC. The **10 core in-tree servers** below are the ones a
-deployment normally renders. The ``phoebus`` server, last on this page, ships
-in-tree too but is off unless a deployment switches it on; build profiles can
-inject additional servers beyond these.
+tools via stdio JSON-RPC. This page lists every server that ships in-tree,
+with every tool each one can register. The **10 core servers** are the ones a
+deployment normally renders: ``control_system``, the four channel-finder
+variants, ``workspace``, ``python_executor``, ``ariel``,
+``osprey_facility_knowledge`` and ``graph``. Four more ship in-tree but are off
+by default: ``phoebus``, ``optimizer``, ``bluesky`` and ``health``. A profile
+enables one with ``claude_code.servers.<name>.enabled: true``. The
+``demo`` preset enables ``bluesky`` and ``health``; ``phoebus`` and
+``optimizer`` stay off in every preset. Build profiles can inject additional servers beyond
+these.
 
 .. raw:: html
    :file: ../_diagrams/mcp-server-map.html
@@ -33,7 +39,10 @@ safety-limits enforcement on all write operations.
 **Tools:**
 
 - ``channel_read`` -- Read current values from one or more control system channels.
-- ``channel_write`` -- Write values to one or more control system channels (requires human approval).
+- ``channel_write`` -- Write values to one or more control system channels. Every write
+  goes through the writes check and the limits check. The write switch's position then
+  decides: at *off* the write is refused, at *asked* the operator approves it at a prompt,
+  and at *allowed* it runs unprompted (see :ref:`architecture-safety-chain-order`).
 - ``archiver_read`` -- Retrieve historical archived data for one or more channels over a
   time range. ``processing`` selects the per-bin aggregation (``raw``, ``mean``, ``min``,
   ``max``, ``median``, ``std``, ``count``) and ``bin_size`` sets the bin width in seconds;
@@ -46,6 +55,12 @@ safety-limits enforcement on all write operations.
   write-gated and under what constraints (lookup, pattern match, summary). Not a channel
   roster -- an unlisted channel may still exist; use channel-finder to discover what channels
   exist.
+- ``control_target`` -- Report which control system the deployment points at (``live``,
+  ``va`` or ``standin``), each target's endpoints and reachability, and whether the session
+  may move to it now. Read-only: it connects to nothing.
+- ``control_target_set`` -- Point the deployment's control-system tools at another target.
+  The target belongs to the deployment, so every session on it moves too (requires human
+  approval).
 
 
 Channel Finding
@@ -233,6 +248,8 @@ never names it.
 - ``submit_response`` -- Submit a formatted response to the web terminal.
 - ``facility_description`` -- Get the hand-written facility description and the build's generated facts page (places with device counts, device classes with their groups, models, and the signals and roles the channels use).
 - ``prior_answer_read`` -- Read the full text of an earlier answer a chat bridge replayed shortened (dispatched runs only).
+- ``provenance_locator`` -- Return the telemetry coordinates (session id, service name, time
+  window) that locate this session in the agent record, for a filed issue to carry.
 
 **Setup / Diagnostics:**
 
@@ -256,6 +273,15 @@ boundary with limits enforcement and timeout protection, not a sandbox; see
 
 - ``execute`` -- Execute Python code with safety checks, process isolation, and timeout.
 - ``execute_file`` -- Execute a Python file from the workspace with the same safety envelope as ``execute``.
+
+Two more tools are registered only when the render's facility facts record a pyAML view
+(see :doc:`/how-to/measure-with-pyaml`):
+
+- ``pyaml_measure`` -- Measure a response matrix or the chromaticity with pyAML on the
+  control target. It steps setpoints, so it is a write: see :ref:`A pyAML tool
+  <architecture-safety-chain-pyaml-tool>`.
+- ``model_response_matrix`` -- Solve a served model's orbit response to its correctors on
+  the model alone. Read-only.
 
 
 ARIEL
@@ -412,3 +438,87 @@ targets its profile lists (``va`` and ``standin`` today), and refuses any other.
 - ``list_results`` -- List the stored runs.
 - ``get_result`` -- Read one stored run: config, best point and evaluated records.
 - ``list_models`` -- List the saved surrogate model files.
+
+
+Bluesky
+-------
+
+``bluesky``
+~~~~~~~~~~~
+
+Package: ``osprey.mcp_server.bluesky``
+
+A thin HTTP client of the facility-side Bluesky bridge. It lists plans and
+devices, and stages a shared plan draft. It queues and starts that draft, stops
+a run and reads run data. It also writes and validates session plans. It is off
+by default and enabled with ``claude_code.servers.bluesky.enabled: true``; the
+``demo`` preset enables it. ``queue_add`` and
+``queue_start`` can set hardware in motion, so they are governed writes, like
+``channel_write``: the writes check runs first, then the write switch's position
+decides whether the operator is asked. See :doc:`/how-to/bluesky/queue`.
+
+**Plans and devices:**
+
+- ``list_plans`` -- List the plans registered on the bridge, with each plan's metadata,
+  provenance and parameter schema.
+- ``get_plan_source`` -- Read one plan's source text as it sits on disk.
+- ``list_devices`` -- List the device names this deployment's plans accept, one page at a
+  time.
+
+**Draft:**
+
+- ``get_draft`` -- Read the shared plan draft, its revision and its lane.
+- ``set_draft`` -- Create or edit the shared plan draft; every open Bluesky panel shows
+  the edit live.
+- ``clear_draft`` -- Clear the shared plan draft.
+
+**Authoring:**
+
+- ``write_plan`` -- Write a session-tier plan file on the bridge; the bridge never runs
+  it (requires human approval).
+- ``validate_plan`` -- Validate a written session plan with the static checks and a
+  mock-device dry run (requires human approval).
+
+**Queue:**
+
+- ``queue_status`` -- Report whether this deployment can run plans at all or is
+  browse-only.
+- ``queue_list`` -- Read the queue: pending items, the running item and the manager's
+  state.
+- ``queue_add`` -- Add the shared draft, at a pinned revision, to the queue. Starts
+  nothing on a stopped queue.
+- ``queue_start`` -- Start draining the queue: every pending item runs, in order.
+- ``queue_stop`` -- Stop the queue after the running item finishes, or withdraw a
+  pending stop (requires human approval).
+- ``queue_remove`` -- Remove one pending item from the queue (requires human approval).
+
+**Runs:**
+
+- ``list_runs`` -- List the runs OSPREY queued, newest first.
+- ``get_run`` -- Read one run's lifecycle status.
+- ``get_run_data`` -- Read a bounded window of a run's data.
+- ``get_run_figure`` -- Read a run's figure, bounded to a fixed point budget.
+- ``stop_run`` -- Abort the running plan now. Data collected so far is kept and the
+  hardware stays where the plan left it (requires human approval).
+
+
+Health
+------
+
+``health``
+~~~~~~~~~~
+
+Package: ``osprey.mcp_server.health``
+
+Runs the facility health suite for the agent. It is off by default and enabled
+with ``claude_code.servers.health.enabled: true``; the ``demo`` preset
+enables it. Its tools take only a category filter, so every probe they run is
+declared in config and read-only.
+See :doc:`/how-to/health-and-monitoring/configure-health-checks`.
+
+**Tools:**
+
+- ``health_check`` -- Run the cached poll tier: config load, connector reachability,
+  provider canaries, archiver freshness and other fast read-only checks.
+- ``health_check_full`` -- Run the full tier, which adds the costly ``on_demand`` checks
+  the poll tier reports as skipped (requires human approval).

@@ -42,21 +42,9 @@ dispatcher trigger the bridge fires — that trigger decides what the agent is
 allowed to do with a chat question — and whether the agent may @mention people.
 The block is only meaningful next to a ``dispatch:`` block:
 
-.. code-block:: yaml
-
-   gchat_bridge:
-     trigger: gchat-question        # default; must exist in your triggers file
-     mentions: true            # default; false posts @mentions as plain text
-
-   dispatch:
-     triggers: my_triggers.yml      # the file that trigger must be declared in
-     worker_count: 1
-
-   env:
-     required:
-       - GCHAT_SA_KEY
-       - GCHAT_SUBSCRIPTION
-       - GCHAT_APP_ID
+.. literalinclude:: ../examples/profile-gchat-bridge.yml
+   :language: yaml
+   :caption: profile.yml
 
 .. note::
 
@@ -173,9 +161,10 @@ These are the ones you create and set yourself.
           agent reads the rest only if it needs it. ``0`` always sends every
           answer in full.
       * - ``GITLAB_URL``, ``GITLAB_PROJECT``, ``GITLAB_ISSUES_TOKEN``
-        - Where to file an issue when a question is finally given up on. Leave
-          unset if you have no such host: nothing is filed and nothing is
-          checked.
+        - Optional alert host. With ``GITLAB_URL`` and ``GITLAB_ISSUES_TOKEN``
+          set, the bridge holds queued questions while ``GITLAB_PROJECT`` has an
+          open ``osprey-alert`` issue, or while GitLab cannot be reached. Leave
+          them unset to skip the check.
       * - ``APP_VERSION_DISPLAY``
         - A release label shown with each acknowledgement, so a conversation
           shows which version answered. Omitted when unset.
