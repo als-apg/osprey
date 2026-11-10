@@ -49,6 +49,7 @@
         "section": "directory",
         "outcome": "found",
         "source": {"target": "live", "service": "channelfinder", "label": "All PVs", "rehearsal": false},
+        "caveats": [],
         "origin": "curated",
         "detail_properties": ["iocName", "recordType"],
         "record": {
@@ -77,6 +78,7 @@
         "section": "alarm_state",
         "outcome": "found",
         "source": {"target": "live", "service": "phoebus_alarm_server", "label": "phoebus_alarm_server", "rehearsal": false},
+        "caveats": [],
         "record": {
           "severity": "MINOR",
           "status": "HIGH",
@@ -91,6 +93,7 @@
         "section": "alarm_config",
         "outcome": "found",
         "source": {"target": "live", "service": "phoebus_alarm_server", "label": "phoebus_alarm_server", "rehearsal": false},
+        "caveats": [],
         "label": "live configuration",
         "record": {
           "in_tree": "yes",
@@ -106,6 +109,7 @@
         "section": "alarm_history",
         "outcome": "unavailable",
         "source": {"target": "live", "service": "alarm_logger", "label": "alarm_logger", "rehearsal": false},
+        "caveats": [],
         "rows": [],
         "reason": "no answer within 6 s"
       },
@@ -113,6 +117,7 @@
         "section": "put_history",
         "outcome": "found",
         "source": {"target": "live", "service": "put_log", "label": "put_log", "rehearsal": false},
+        "caveats": [],
         "rows": [
           {
             "at": "2026-11-04T14:20:00.000Z",
@@ -125,8 +130,7 @@
           }
         ],
         "truncated": false,
-        "retention_known": true,
-        "caveats": []
+        "retention_known": true
       }
     ]
   },

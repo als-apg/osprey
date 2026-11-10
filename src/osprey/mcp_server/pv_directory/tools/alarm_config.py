@@ -28,7 +28,8 @@ async def alarm_config(pv: str) -> str:
 
     Returns:
         JSON object: ``name`` as asked, ``lookup`` as looked up, ``outcome``,
-        ``source``, ``record``, ``label`` and ``links``.
+        ``source``, ``caveats`` (the deployment's notes on that source),
+        ``record``, ``label`` and ``links``.
     """
     return await answer("alarm_config", pv, lambda facts, name: facts.alarm_config(name))
 

@@ -298,6 +298,7 @@ async def test_every_configured_section_answers(tmp_path: Path) -> None:
     assert sections["alarm_history"]["rows"][0]["user"] == "operator one"
     assert sections["put_history"]["rows"][0]["user"] == "operator two"
     assert "reason" not in sections["put_history"]
+    assert all(section["caveats"] == [] for section in answer["sections"])
 
 
 async def test_an_unconfigured_section_is_absent(tmp_path: Path) -> None:
@@ -517,7 +518,8 @@ async def test_alarm_state_on_va_from_the_replay(
     pytest.importorskip("osprey_connectors.alarm_state._replay")
     monkeypatch.setattr(ConnectorFactory, "create_alarm_state_connector", _REAL_ALARM_STATE)
     record.move("va", 1)
-    section = {"alarm_state": {"replay_file": "demo:example-alarms"}}
+    caveats = ["replayed, not live"]
+    section = {"alarm_state": {"replay_file": "demo:example-alarms", "caveats": caveats}}
     directory = service.DirectoryService(_config(tmp_path, VA_BUILD, section), project_dir=tmp_path)
     page = facts.Facts(directory, _config(tmp_path, VA_BUILD, section))
 
@@ -529,9 +531,88 @@ async def test_alarm_state_on_va_from_the_replay(
     assert state["record"]["severity"] == "MAJOR"
     assert state["record"]["stale"] is False
     assert state["source"]["target"] == "va"
+    assert state["caveats"] == caveats
     config = sections["alarm_config"]
     assert config["label"] == "live configuration"
     assert config["record"]["in_tree"] == "yes"
+    assert config["caveats"] == caveats
+
+
+# -- caveats --------------------------------------------------------------------
+
+
+async def test_each_section_carries_the_caveats_of_its_configured_source(tmp_path: Path) -> None:
+    FakeDirectory.records = _records(_record("SR:BPM1"))
+    FakeAlarmState.state = contract.AlarmStateRecord(severity="MINOR")
+    FakeAlarmState.config = contract.AlarmConfigRecord(in_tree="yes", label="live configuration")
+    section = {
+        **FACILITY,
+        "caveats": ["names only, no values"],
+        "alarm_state": {**KAFKA, "caveats": ["covers the SR tree only"]},
+        "alarm_log": {**ALARM_LOG, "caveats": ["the logger keeps 30 days"]},
+        "put_log": PUT_LOG,
+    }
+    page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    sections = _sections(await page.pv_facts("SR:BPM1"))
+
+    assert sections["directory"]["caveats"] == ["names only, no values"]
+    assert sections["alarm_state"]["caveats"] == ["covers the SR tree only"]
+    assert sections["alarm_config"]["caveats"] == ["covers the SR tree only"]
+    assert sections["put_history"]["caveats"] == []
+    assert (await page.alarm_state("SR:BPM1"))["caveats"] == ["covers the SR tree only"]
+    assert (await page.alarm_config("SR:BPM1"))["caveats"] == ["covers the SR tree only"]
+
+
+async def test_the_logged_configuration_carries_the_logger_caveats(tmp_path: Path) -> None:
+    FakeAlarmState.config = contract.Unavailable("no message from the feed yet")
+    FakeAlarmLog.config = contract.AlarmConfigRecord(
+        in_tree="yes", label="last logged configuration"
+    )
+    section = {
+        **FACILITY,
+        "alarm_state": {**KAFKA, "caveats": ["covers the SR tree only"]},
+        "alarm_log": {**ALARM_LOG, "caveats": ["the logger keeps 30 days"]},
+    }
+    page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    config = _sections(await page.pv_facts("SR:BPM1"))["alarm_config"]
+
+    assert config["label"] == "last logged configuration"
+    assert config["caveats"] == ["the logger keeps 30 days"]
+
+
+async def test_a_section_with_no_source_or_that_raised_carries_no_caveats(
+    tmp_path: Path, record: _Record, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    section = {**EVERY_SERVICE, "caveats": ["d"], "alarm_state": {**KAFKA, "caveats": ["s"]}}
+    page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    async def refuse() -> Any:
+        raise RuntimeError("snapshot broke")
+
+    monkeypatch.setattr(page._service, "snapshot", refuse)
+    raised = _sections(await page.pv_facts("SR:BPM1"))["alarm_state"]
+
+    assert raised["outcome"] == "unavailable"
+    assert raised["reason"] == "the service failed: snapshot broke"
+    assert raised["caveats"] == []
+
+    record.move("va", 1)
+    sections = _sections(await _facts(_config(tmp_path, VA_BUILD, section), tmp_path).pv_facts("X"))
+    for key in ("alarm_state", "alarm_config", "alarm_history", "put_history"):
+        assert sections[key]["caveats"] == [], key
+
+
+async def test_a_history_that_did_not_answer_carries_its_source_caveats(tmp_path: Path) -> None:
+    FakeAlarmLog.delay = 5.0
+    section = {**FACILITY, "alarm_log": {**ALARM_LOG, "caveats": ["the logger keeps 30 days"]}}
+    page = _facts(_config(tmp_path, LIVE_BUILD, section), tmp_path)
+
+    history = _sections(await asyncio.wait_for(page.pv_facts("SR:BPM1"), 3.0))["alarm_history"]
+
+    assert history["outcome"] == "unavailable"
+    assert history["caveats"] == ["the logger keeps 30 days"]
 
 
 # -- the IOC page -------------------------------------------------------------
@@ -704,5 +785,6 @@ async def test_modules_blocked_every_section_answers_the_floor(
     assert len(sections) == 5
     for key, section in sections.items():
         assert {field: section[field] for field in expected} == expected, key
+        assert section["caveats"] == [], key
     assert {field: ioc[field] for field in expected} == expected
     assert ioc["health_pvs"] == []
