@@ -72,7 +72,7 @@ held BPM at its aim.
 The ⋯ menu after the toggle adds two wider MML lists, ``[-2 -1 1 2]`` and
 ``[-3 -1 1 3]``, and *Use all correctors of the plane*, which overrides the
 rule (an *all correctors* chip shows it). On a large ring the approval card
-then shows a summary line, the largest-|Δ| rows and every row without a
+then shows a summary line, the largest-``|Δ|`` rows and every row without a
 tolerance in full, and names all other correctors; the panel's confirm card
 lists every row.
 
