@@ -75,3 +75,43 @@ test('a history renders its cells as text and an empty one says so', () => {
   });
   expect(empty.textContent).toContain('No rows recorded');
 });
+
+const FEED = { target: 'live', service: 'kafka', label: 'kafka', rehearsal: false };
+
+/** @param {HTMLElement} frame */
+const footer = (frame) =>
+  [...frame.querySelectorAll('footer.pvp-footer p')].map((line) => line.textContent);
+
+test('every section shows its caveats in its footer', () => {
+  const caveats = ['covers the SR tree only'];
+  const sections = [
+    {
+      section: 'directory',
+      outcome: 'not_listed',
+      source: /** @type {any} */ ({ ...SOURCE, label: 'All PVs' }),
+      record: null,
+      caveats,
+    },
+    {
+      section: 'alarm_state',
+      outcome: 'found',
+      source: /** @type {any} */ (FEED),
+      record: /** @type {any} */ ({ severity: 'MINOR', status: 'HIGH', stale: false }),
+      caveats,
+    },
+    {
+      section: 'alarm_config',
+      outcome: 'unavailable',
+      source: /** @type {any} */ (FEED),
+      record: null,
+      reason: 'alarm feed still loading',
+      caveats,
+    },
+  ];
+  for (const payload of sections) {
+    const frame = factsSection(/** @type {any} */ (payload));
+    expect(footer(frame), payload.section).toEqual(caveats);
+  }
+  const bare = factsSection(/** @type {any} */ ({ ...sections[1], caveats: [] }));
+  expect(bare.querySelector('footer')).toBeNull();
+});

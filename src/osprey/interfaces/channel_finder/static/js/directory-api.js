@@ -104,7 +104,8 @@ import { state } from './state.js';
  */
 
 /**
- * One section of the PV facts; an unconfigured section is absent. `origin` and
+ * One section of the PV facts; an unconfigured section is absent. `caveats`
+ * are the deployment's notes on the section's source. `origin` and
  * `detail_properties` are the directory section's.
  * @typedef {{
  *   section: 'directory'|'alarm_state'|'alarm_history'|'alarm_config'|'put_history',
@@ -114,12 +115,25 @@ import { state } from './state.js';
  *   record?: DirectoryRecord|AlarmStateRecord|AlarmConfigRecord|null,
  *   truncated?: boolean,
  *   retention_known?: boolean,
- *   caveats?: string[],
+ *   caveats: string[],
  *   origin?: 'curated'|'directory'|'unknown',
  *   detail_properties?: string[],
  *   reason?: string,
  *   label?: string,
  * }} PvFactsSection
+ */
+
+/**
+ * The PV facts. `outcome` says whether the PV is known at all: `found` when
+ * the directory lists it, `not_listed` when it does not but another section
+ * found something, `unknown` when nothing did, `unavailable` (with `reason`)
+ * when the directory gave no answer.
+ * @typedef {{
+ *   name: string,
+ *   outcome: 'found'|'not_listed'|'unknown'|'unavailable',
+ *   reason?: string,
+ *   sections: PvFactsSection[],
+ * }} PvFacts
  */
 
 /**
@@ -229,7 +243,7 @@ export function countDirectory(q) {
 
 /**
  * @param {string} name
- * @returns {Promise<{ name: string, sections: PvFactsSection[] }>}
+ * @returns {Promise<PvFacts>}
  */
 export function fetchPvFacts(name) {
   return fetchJSON(`/api/directory/pv/${encodeURIComponent(name)}`);

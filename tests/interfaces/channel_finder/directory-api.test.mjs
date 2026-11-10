@@ -82,9 +82,9 @@ describe('directory-api routes', () => {
   });
 
   test('pv and ioc encode the name as one segment', async () => {
-    const fetchMock = stubFetch();
+    const fetchMock = stubFetch({ name: 'SR01:X/Y', outcome: 'unknown', sections: [] });
     const { fetchPvFacts, fetchIocFacts } = await import(DIRECTORY_API_MODULE);
-    await fetchPvFacts('SR01:X/Y');
+    expect((await fetchPvFacts('SR01:X/Y')).outcome).toBe('unknown');
     expect(lastCall(fetchMock).url).toBe('/api/directory/pv/SR01%3AX%2FY');
     await fetchIocFacts('ioc a');
     expect(lastCall(fetchMock).url).toBe('/api/directory/ioc/ioc%20a');

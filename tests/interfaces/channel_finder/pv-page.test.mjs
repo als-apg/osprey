@@ -220,6 +220,7 @@ describe('sections', () => {
       section: 'alarm_config',
       outcome: 'unavailable',
       source: { target: 'va', service: 'none', label: 'All PVs', rehearsal: false },
+      caveats: [],
       record: null,
       reason: 'not available for this target',
     });
@@ -275,6 +276,7 @@ describe('alarm state', () => {
       section: 'alarm_state',
       outcome: 'unavailable',
       source: FIXTURE['pv/{name}'].sections[1].source,
+      caveats: [],
       record: null,
       reason: 'alarm feed still loading',
     });
@@ -519,25 +521,38 @@ describe('current value and states', () => {
     expect(section(container, 'value')?.textContent).toContain('no answer');
   });
 
-  test('a PV nothing knows of is a state with a search of the directory', async () => {
-    const facts = {
-      name: NAME,
-      sections: [
-        {
-          section: 'directory',
-          outcome: 'not_listed',
-          source: FIXTURE['pv/{name}'].sections[0].source,
-          origin: 'unknown',
-          detail_properties: [],
-          record: null,
-        },
-        { ...clone(FIXTURE['pv/{name}'].sections[3]) },
-      ],
-    };
-    const { container } = await mountAt({ answers: { facts } });
+  /** @param {string} outcome */
+  const unlisted = (outcome) => ({
+    name: NAME,
+    outcome,
+    sections: [
+      {
+        section: 'directory',
+        outcome: 'not_listed',
+        source: FIXTURE['pv/{name}'].sections[0].source,
+        caveats: [],
+        origin: 'unknown',
+        detail_properties: [],
+        record: null,
+      },
+      { ...clone(FIXTURE['pv/{name}'].sections[4]) },
+    ],
+  });
+
+  test('a PV the facts call unknown is a state with a search of the directory', async () => {
+    const { container } = await mountAt({ answers: { facts: unlisted('unknown') } });
     const stateEl = /** @type {HTMLElement} */ (container.querySelector('.osprey-state'));
     expect(stateEl.textContent).toContain(`${NAME} is not listed in All PVs`);
     /** @type {HTMLButtonElement} */ (stateEl.querySelector('button')).click();
     expect(location.hash).toBe(`#/allpvs?q=${encodeURIComponent(NAME)}`);
+  });
+
+  test('a PV not listed that another section found shows the page', async () => {
+    const { container } = await mountAt({ answers: { facts: unlisted('not_listed') } });
+    expect(container.querySelector('.osprey-state')).toBeNull();
+    const chip = container.querySelector('.pvp-head [data-slot="listing"]');
+    expect(chip?.textContent).toBe('not listed');
+    expect(section(container, 'put_history')?.querySelector('tbody td')).not.toBeNull();
+    expect(section(container, 'put_history')?.textContent).toContain('operator');
   });
 });

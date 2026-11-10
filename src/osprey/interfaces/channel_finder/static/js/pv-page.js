@@ -45,6 +45,7 @@ import {
   valueText,
 } from './pv-page-sections.js';
 
+/** @typedef {import('./directory-api.js').PvFacts} PvFacts */
 /** @typedef {import('./directory-api.js').PvFactsSection} PvFactsSection */
 /** @typedef {import('./directory-api.js').LogbookSection} LogbookSection */
 /** @typedef {import('./directory-api.js').ValueRow} ValueRow */
@@ -374,33 +375,16 @@ async function fillActions(actions, name, plotCheck) {
 // ---- The page ----
 
 /**
- * Whether the facts know nothing of the PV: the directory does not list it
- * and no other section found anything.
- * @param {PvFactsSection[]} sections
- * @returns {boolean}
- */
-function unknownRecord(sections) {
-  const directory = sections.find((section) => section.section === 'directory');
-  if (directory?.outcome !== 'not_listed') return false;
-  return sections.every(
-    (section) =>
-      section.section === 'directory' ||
-      section.outcome !== 'found' ||
-      (!section.record && !section.rows?.length)
-  );
-}
-
-/**
  * @param {HTMLElement} container
  * @param {string} name
  * @returns {Promise<void>}
  */
 async function load(container, name) {
   renderState(container, { icon: 'refresh', message: `Loading ${name}…` });
-  /** @type {PvFactsSection[]} */
-  let sections;
+  /** @type {PvFacts} */
+  let facts;
   try {
-    sections = (await fetchPvFacts(name)).sections;
+    facts = await fetchPvFacts(name);
   } catch (err) {
     if (mounted?.container !== container) return;
     renderState(container, {
@@ -413,7 +397,7 @@ async function load(container, name) {
   }
   if (mounted?.container !== container || mounted.name !== name) return;
 
-  if (unknownRecord(sections)) {
+  if (facts.outcome === 'unknown') {
     const label = state.directory?.label ?? 'All PVs';
     renderState(container, {
       icon: 'search',
@@ -429,7 +413,7 @@ async function load(container, name) {
   }
 
   /** @type {Map<string, PvFactsSection>} */
-  const bySection = new Map(sections.map((section) => [section.section, section]));
+  const bySection = new Map(facts.sections.map((section) => [section.section, section]));
   const page = node('div', 'pv-page');
   page.append(header(name, bySection));
   for (const id of SECTION_ORDER) {
