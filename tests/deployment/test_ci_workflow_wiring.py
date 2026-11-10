@@ -3509,6 +3509,46 @@ def test_gchat_job_installs_the_gchat_extra__mutation_drops_extra() -> None:
 
 
 _JUNIT_RE = re.compile(r"--junitxml=(\S+)")
+#: What every zero-skip gate runs on the junit reports its lane's pytest steps write.
+SKIP_GATE_SCRIPT = "scripts/ci/junit_no_skips.py"
+_SKIP_GATE_PARTIAL = "--allow-partial-skips"
+
+
+def _skip_gate_code(gate: str) -> str:
+    """The gate's shell, comments dropped and continuation lines joined."""
+    joined = re.sub(r"\\\n\s*", " ", gate)
+    return "\n".join(line for line in joined.splitlines() if not line.strip().startswith("#"))
+
+
+def _skip_gate_call(gate: str) -> str:
+    """The gate's call of ``SKIP_GATE_SCRIPT`` as one line, or ``""`` when it has none."""
+    return next(
+        (line for line in _skip_gate_code(gate).splitlines() if SKIP_GATE_SCRIPT in line), ""
+    )
+
+
+def _skip_gate_reads(gate: str) -> set[str]:
+    """The junit reports the gate's shell names (as arguments, or in an array it passes)."""
+    return set(re.findall(r"[\w./-]+\.xml\b", _skip_gate_code(gate)))
+
+
+def _assert_skip_gate_fails_the_job(gate: str, *, partial_skips_allowed: bool = False) -> None:
+    """The gate runs the script, and nothing swallows its exit status.
+
+    The script itself (any skip, an empty collection or a missing report exits 1)
+    is pinned by tests/scripts/test_junit_no_skips.py.
+    """
+    call = _skip_gate_call(gate)
+    assert call, f"the gate must read the junit skipped count by running {SKIP_GATE_SCRIPT}"
+    assert "||" not in call and "set +e" not in gate, "the gate must fail the job, not just print"
+    if not partial_skips_allowed:
+        assert _SKIP_GATE_PARTIAL not in call, "the gate must fail on any skip, not a lane-wide one"
+
+
+def _swallow_skip_gate_exit(gate: str) -> str:
+    """*gate* with its script call's exit status discarded: it prints, never fails."""
+    assert _skip_gate_call(gate), f"no {SKIP_GATE_SCRIPT} call — mutation is stale"
+    return gate.rstrip() + " || true\n"
 
 
 def _junit_reports_written(wf: dict[str, Any]) -> list[str]:
@@ -3529,10 +3569,9 @@ def test_gchat_job_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
         f"every pytest step in '{GCHAT_JOB}' must write a --junitxml report; got {reports}"
     )
     gate = _find_named_step(workflow, GCHAT_JOB, GCHAT_SKIP_GATE_STEP)["run"]
-    unread = [r for r in reports if r not in gate]
+    unread = [r for r in reports if r not in _skip_gate_reads(gate)]
     assert unread == [], f"'{GCHAT_SKIP_GATE_STEP}' never reads: {unread}"
-    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
-    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+    _assert_skip_gate_fails_the_job(gate)
 
 
 def test_gchat_job_fails_on_any_skipped_test__mutation_drops_a_junit_report() -> None:
@@ -3550,7 +3589,7 @@ def test_gchat_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> N
     decorative: the job still reports success over a lane that ran nothing."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, GCHAT_JOB, GCHAT_SKIP_GATE_STEP)
-    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    step["run"] = _swallow_skip_gate_exit(step["run"])
     with pytest.raises(AssertionError, match="must fail the job"):
         test_gchat_job_fails_on_any_skipped_test(mutated)
 
@@ -3717,10 +3756,9 @@ def test_teams_job_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
         f"every pytest step in '{TEAMS_JOB}' must write a --junitxml report; got {reports}"
     )
     gate = _find_named_step(workflow, TEAMS_JOB, TEAMS_SKIP_GATE_STEP)["run"]
-    unread = [r for r in reports if r not in gate]
+    unread = [r for r in reports if r not in _skip_gate_reads(gate)]
     assert unread == [], f"'{TEAMS_SKIP_GATE_STEP}' never reads: {unread}"
-    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
-    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+    _assert_skip_gate_fails_the_job(gate)
 
 
 def test_teams_job_fails_on_any_skipped_test__mutation_drops_the_junit_report() -> None:
@@ -3737,8 +3775,17 @@ def test_teams_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> N
     decorative: the job still reports success over a lane that ran nothing."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, TEAMS_JOB, TEAMS_SKIP_GATE_STEP)
-    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    step["run"] = _swallow_skip_gate_exit(step["run"])
     with pytest.raises(AssertionError, match="must fail the job"):
+        test_teams_job_fails_on_any_skipped_test(mutated)
+
+
+def test_teams_job_fails_on_any_skipped_test__mutation_tolerates_partial_skips() -> None:
+    """The lane-wide mode warns on a partial skip, which this lane must not."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TEAMS_JOB, TEAMS_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace(SKIP_GATE_SCRIPT, f"{SKIP_GATE_SCRIPT} {_SKIP_GATE_PARTIAL}")
+    with pytest.raises(AssertionError, match="must fail on any skip"):
         test_teams_job_fails_on_any_skipped_test(mutated)
 
 
@@ -3839,10 +3886,9 @@ def test_slack_job_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
         f"every pytest step in '{SLACK_JOB}' must write a --junitxml report; got {reports}"
     )
     gate = _find_named_step(workflow, SLACK_JOB, SLACK_SKIP_GATE_STEP)["run"]
-    unread = [r for r in reports if r not in gate]
+    unread = [r for r in reports if r not in _skip_gate_reads(gate)]
     assert unread == [], f"'{SLACK_SKIP_GATE_STEP}' never reads: {unread}"
-    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
-    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+    _assert_skip_gate_fails_the_job(gate)
 
 
 def test_slack_job_fails_on_any_skipped_test__mutation_drops_the_junit_report() -> None:
@@ -3856,7 +3902,7 @@ def test_slack_job_fails_on_any_skipped_test__mutation_drops_the_junit_report() 
 def test_slack_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, SLACK_JOB, SLACK_SKIP_GATE_STEP)
-    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    step["run"] = _swallow_skip_gate_exit(step["run"])
     with pytest.raises(AssertionError, match="must fail the job"):
         test_slack_job_fails_on_any_skipped_test(mutated)
 
@@ -4128,9 +4174,10 @@ def test_model_free_lane_fails_on_any_skipped_test(workflow: dict[str, Any]) -> 
         f"'{NO_MODEL_RUN_STEP}' must write exactly one --junitxml report; got {reports}"
     )
     gate = _find_named_step(workflow, NO_MODEL_JOB, NO_MODEL_SKIP_GATE_STEP)["run"]
-    assert reports[0] in gate, f"'{NO_MODEL_SKIP_GATE_STEP}' never reads: {reports[0]}"
-    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
-    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+    assert reports[0] in _skip_gate_reads(gate), (
+        f"'{NO_MODEL_SKIP_GATE_STEP}' never reads: {reports[0]}"
+    )
+    _assert_skip_gate_fails_the_job(gate)
 
 
 def test_model_free_lane_fails_on_any_skipped_test__mutation_drops_the_junit_report() -> None:
@@ -4147,7 +4194,7 @@ def test_model_free_lane_fails_on_any_skipped_test__mutation_gate_stops_failing(
     decorative: the job still reports success over a lane that ran nothing."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_SKIP_GATE_STEP)
-    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    step["run"] = _swallow_skip_gate_exit(step["run"])
     with pytest.raises(AssertionError, match="must fail the job"):
         test_model_free_lane_fails_on_any_skipped_test(mutated)
 
@@ -4313,15 +4360,16 @@ def test_record_lane_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None
         f"'{RECORD_E2E_RUN_STEP}' must write exactly one --junitxml report; got {reports}"
     )
     gate = _find_named_step(workflow, RECORD_E2E_JOB, RECORD_E2E_SKIP_GATE_STEP)["run"]
-    assert reports[0] in gate, f"'{RECORD_E2E_SKIP_GATE_STEP}' never reads: {reports[0]}"
-    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
-    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+    assert reports[0] in _skip_gate_reads(gate), (
+        f"'{RECORD_E2E_SKIP_GATE_STEP}' never reads: {reports[0]}"
+    )
+    _assert_skip_gate_fails_the_job(gate)
 
 
 def test_record_lane_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, RECORD_E2E_JOB, RECORD_E2E_SKIP_GATE_STEP)
-    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    step["run"] = _swallow_skip_gate_exit(step["run"])
     with pytest.raises(AssertionError, match="must fail the job"):
         test_record_lane_fails_on_any_skipped_test(mutated)
 
@@ -5321,10 +5369,9 @@ def test_scan_agentic_job_fails_on_any_skipped_test(workflow: dict[str, Any]) ->
         f"every pytest step in '{SCAN_AGENTIC_JOB}' must write a --junitxml report; got {reports}"
     )
     gate = _find_named_step(workflow, SCAN_AGENTIC_JOB, SCAN_AGENTIC_SKIP_GATE_STEP)["run"]
-    unread = [r for r in reports if r not in gate]
+    unread = [r for r in reports if r not in _skip_gate_reads(gate)]
     assert unread == [], f"'{SCAN_AGENTIC_SKIP_GATE_STEP}' never reads: {unread}"
-    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
-    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+    _assert_skip_gate_fails_the_job(gate)
 
 
 def test_scan_agentic_job_fails_on_any_skipped_test__mutation_drops_the_junit_report() -> None:
@@ -5342,7 +5389,7 @@ def test_scan_agentic_job_fails_on_any_skipped_test__mutation_gate_stops_failing
     decorative: the job still reports success over a lane that ran nothing."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, SCAN_AGENTIC_JOB, SCAN_AGENTIC_SKIP_GATE_STEP)
-    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    step["run"] = _swallow_skip_gate_exit(step["run"])
     with pytest.raises(AssertionError, match="must fail the job"):
         test_scan_agentic_job_fails_on_any_skipped_test(mutated)
 
@@ -7554,7 +7601,7 @@ def test_va_live_cells_split_the_suites_once(workflow: dict[str, Any]) -> None:
     assert _find_named_step(workflow, VA_LIVE_JOB, ALS_LANE_STEP).get("if") == "matrix.als_lane"
     gate = _find_named_step(workflow, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)
     assert gate.get("env", {}).get("ALS_LANE") == "${{ matrix.als_lane }}", gate.get("env")
-    assert 'os.environ["ALS_LANE"] == "true"' in gate["run"], "the gate must require the report"
+    assert '"$ALS_LANE" == "true"' in gate["run"], "the gate must require the report"
 
 
 def test_va_live_cells_split_the_suites_once__mutation_names_a_suite_in_two_cells() -> None:
@@ -7758,9 +7805,10 @@ def test_live_va_lane_fails_on_any_skipped_test(
         f"{job_name}: the run step must write exactly one --junitxml report; got {reports}"
     )
     gate = _find_named_step(wf, job_name, VA_LIVE_SKIP_GATE_STEP)["run"]
-    assert reports[0] in gate, f"'{VA_LIVE_SKIP_GATE_STEP}' in {job_name} never reads {reports[0]}"
-    assert 'get("skipped"' in gate, f"{job_name}: the gate must read the junit skipped count"
-    assert "sys.exit(1)" in gate, f"{job_name}: the gate must fail the job, not just print"
+    assert reports[0] in _skip_gate_reads(gate), (
+        f"'{VA_LIVE_SKIP_GATE_STEP}' in {job_name} never reads {reports[0]}"
+    )
+    _assert_skip_gate_fails_the_job(gate)
 
 
 @pytest.mark.parametrize("job_name", sorted(VA_LIVE_LANE_RUN_STEPS))
@@ -7833,7 +7881,9 @@ def test_als_lane_report_goes_through_the_zero_skip_gate(
     run_step = _find_named_step(wf, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
     assert reports[0] not in _junit_reports_written_by([run_step]), reports
     gate = _find_named_step(wf, VA_LIVE_JOB, VA_LIVE_SKIP_GATE_STEP)["run"]
-    assert reports[0] in gate, f"'{VA_LIVE_SKIP_GATE_STEP}' never reads {reports[0]}"
+    assert reports[0] in _skip_gate_reads(gate), (
+        f"'{VA_LIVE_SKIP_GATE_STEP}' never reads {reports[0]}"
+    )
 
 
 def test_als_lane_report_goes_through_the_zero_skip_gate__mutation_drops_it() -> None:
@@ -9728,10 +9778,9 @@ def test_full_chain_auth_job_fails_on_any_skipped_test(workflow: dict[str, Any])
         f"every pytest step in '{FULL_CHAIN_JOB}' must write a --junitxml report; got {reports}"
     )
     gate = _find_named_step(workflow, FULL_CHAIN_JOB, FULL_CHAIN_SKIP_GATE_STEP)["run"]
-    unread = [r for r in reports if r not in gate]
+    unread = [r for r in reports if r not in _skip_gate_reads(gate)]
     assert unread == [], f"'{FULL_CHAIN_SKIP_GATE_STEP}' never reads: {unread}"
-    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
-    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+    _assert_skip_gate_fails_the_job(gate)
 
 
 def test_full_chain_auth_job_fails_on_any_skipped_test__mutation_drops_the_report() -> None:
@@ -9747,7 +9796,7 @@ def test_full_chain_auth_job_fails_on_any_skipped_test__mutation_gate_stops_fail
     the job still reports success over a lane that ran nothing."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, FULL_CHAIN_JOB, FULL_CHAIN_SKIP_GATE_STEP)
-    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    step["run"] = _swallow_skip_gate_exit(step["run"])
     with pytest.raises(AssertionError, match="must fail the job"):
         test_full_chain_auth_job_fails_on_any_skipped_test(mutated)
 
@@ -9769,11 +9818,12 @@ def test_privilege_split_lane_fails_on_a_lane_wide_skip(workflow: dict[str, Any]
     )
     step = _find_named_step(workflow, PRIVSPLIT_JOB, PRIVSPLIT_SKIP_GATE_STEP)
     gate = step["run"]
-    unread = [r for r in reports if r not in gate]
+    unread = [r for r in reports if r not in _skip_gate_reads(gate)]
     assert unread == [], f"'{PRIVSPLIT_SKIP_GATE_STEP}' never reads: {unread}"
-    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
-    assert "skipped == total" in gate, "the gate must fail on a module that skipped in full"
-    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+    assert _skip_gate_call(gate), (
+        f"the gate must fail on a module that skipped in full, by running {SKIP_GATE_SCRIPT}"
+    )
+    _assert_skip_gate_fails_the_job(gate, partial_skips_allowed=True)
     assert step.get("if") == AUDIT_2C_STEP_IF, (
         f"'{PRIVSPLIT_SKIP_GATE_STEP}' must carry `if: {AUDIT_2C_STEP_IF}`, or a red "
         "step ahead of it skips the very check that reads what the run proved"
@@ -9792,11 +9842,15 @@ def test_privilege_split_lane_fails_on_a_lane_wide_skip__mutation_drops_a_report
 def test_privilege_split_lane_fails_on_a_lane_wide_skip__mutation_gate_tolerates_all_skipped() -> (
     None
 ):
-    """Downgrading the all-skipped arm to a warning is the whole regression: the
-    lane goes back to reporting success over a module that built nothing."""
+    """A gate that reads the reports without failing on an all-skipped module is
+    the whole regression: the lane goes back to reporting success over a module
+    that built nothing. The script's lane-wide mode is pinned in
+    tests/scripts/test_junit_no_skips.py."""
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, PRIVSPLIT_JOB, PRIVSPLIT_SKIP_GATE_STEP)
-    step["run"] = step["run"].replace("skipped == total", "skipped < 0")
+    assert SKIP_GATE_SCRIPT in step["run"], "no skip-gate script call — mutation is stale"
+    # The gate reads the reports with a tool that only summarises them.
+    step["run"] = step["run"].replace(SKIP_GATE_SCRIPT, "scripts/ci/junit_summary.py")
     with pytest.raises(AssertionError, match="skipped in full"):
         test_privilege_split_lane_fails_on_a_lane_wide_skip(mutated)
 
@@ -12161,7 +12215,32 @@ def _expand_shell_loops(run: str) -> str:
     return loop.sub(_unroll, run)
 
 
-def _record_cleanup_gaps(run: str, project: str) -> list[str]:
+#: The script the stack lanes' cleanup steps run, one compose project per argument.
+STACK_CLEANUP_SCRIPT = "scripts/ci/cleanup_stacks.sh"
+_STACK_CLEANUP_CALL = re.compile(
+    rf"^[ \t]*{re.escape(STACK_CLEANUP_SCRIPT)}((?:[ \t]+[\w.-]+)*)[ \t]*$", re.MULTILINE
+)
+
+
+def _expand_cleanup_script_calls(run: str, script: str | None = None) -> str:
+    """*run* with each ``STACK_CLEANUP_SCRIPT`` call replaced by the script's own
+    loop over the projects the call names, so its removals read as names.
+
+    *script* stands in for the script's text (a mutation of it); the loop header
+    must stay ``for project in "$@"; do``, or nothing unrolls and every removal
+    reads as a gap.
+    """
+    body = script if script is not None else (REPO_ROOT / STACK_CLEANUP_SCRIPT).read_text()
+    joined = re.sub(r"\\\n[ \t]*", " ", run)
+
+    def _inline(match: re.Match[str]) -> str:
+        projects = " ".join(match.group(1).split())
+        return body.replace('for project in "$@"; do', f"for project in {projects}; do")
+
+    return _STACK_CLEANUP_CALL.sub(_inline, joined)
+
+
+def _record_cleanup_gaps(run: str, project: str, script: str | None = None) -> list[str]:
     """What *run* fails to remove of *project*'s agent record, its ClickHouse
     store and the store's data volume.
 
@@ -12170,7 +12249,7 @@ def _record_cleanup_gaps(run: str, project: str) -> list[str]:
     """
     from osprey.deployment.compose_generator import resolve_project_name
 
-    expanded = _expand_shell_loops(run)
+    expanded = _expand_shell_loops(_expand_cleanup_script_calls(run, script))
     removed = set(_CONTAINER_REMOVAL.findall(expanded))
     name = resolve_project_name({"project_name": project})
     gaps = [
@@ -12194,7 +12273,7 @@ def _stack_capable_jobs(wf: dict[str, Any]) -> set[str]:
     jobs = {job for f in _dockerbuild_marked_e2e_files() for job in _jobs_running_e2e_file(wf, f)}
     for job, spec in _jobs(wf).items():
         for step in spec.get("steps") or []:
-            run = str(step.get("run", ""))
+            run = _expand_cleanup_script_calls(str(step.get("run", "")))
             if _OSPREY_UP.search(run):
                 jobs.add(job)
             if step.get("if") == "always()" and (
@@ -12292,8 +12371,6 @@ def test_every_stack_lane_owes_the_record_cleanup__mutation_stale_exemption() ->
 @pytest.mark.parametrize(
     ("job", "step_name", "dropped"),
     [
-        ("bluesky-queue-e2e", STACK_CLEANUP_STEP, "queue-e2e-agent-record"),
-        ("e2e-tests", STACK_CLEANUP_STEP, "suproj-agent-record-clickhouse"),
         (
             "auth-perimeter-e2e",
             "Clean up any stranded auth-perimeter resources",
@@ -12319,6 +12396,43 @@ def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_removal(
         AssertionError, match=rf"'{re.escape(job)}': \[[^\]]*'{re.escape(dropped)}'"
     ):
         test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+@pytest.mark.parametrize(
+    ("job", "project", "dropped"),
+    [
+        ("bluesky-queue-e2e", "queue-e2e", "queue-e2e-agent-record"),
+        ("e2e-tests", "suproj", "suproj-agent-record-clickhouse"),
+    ],
+)
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_a_project_from_the_call(
+    job: str, project: str, dropped: str
+) -> None:
+    """A project left off a lane's cleanup-script call is a gap naming that lane."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, job, STACK_CLEANUP_STEP)
+    before = step["run"]
+    step["run"] = re.sub(
+        rf"(?<=[ \t]){re.escape(project)}(?=[ \t]*(?:\\)?$)", "", before, flags=re.MULTILINE
+    )
+    assert step["run"] != before, f"no {project} in '{job}'s cleanup call — mutation is stale"
+    with pytest.raises(
+        AssertionError, match=rf"'{re.escape(job)}': \[[^\]]*'{re.escape(dropped)}'"
+    ):
+        test_stack_lanes_remove_the_agent_record_by_name(mutated)
+
+
+def test_stack_lanes_remove_the_agent_record_by_name__mutation_script_drops_a_removal() -> None:
+    """The removals live in the script, so a removal dropped there is a gap in every
+    lane that calls it."""
+    script = (REPO_ROOT / STACK_CLEANUP_SCRIPT).read_text()
+    mutated = "\n".join(
+        line for line in script.splitlines() if "agent-record-clickhouse" not in line
+    )
+    assert mutated != script, "no store removal in the script — mutation is stale"
+    run = _cleanup_step_run(_load_workflow(), "bluesky-queue-e2e", STACK_CLEANUP_STEP)
+    assert _record_cleanup_gaps(run, "queue-e2e") == []
+    assert _record_cleanup_gaps(run, "queue-e2e", mutated) == ["queue-e2e-agent-record-clickhouse"]
 
 
 def test_stack_lanes_remove_the_agent_record_by_name__mutation_drops_the_loop_removal() -> None:
@@ -13261,6 +13375,46 @@ def _check_pr_lane_exit(wf: dict[str, Any], event: str, revalidate: str, result:
     return done.returncode
 
 
+def _require_success_exit(wf: dict[str, Any], result: str) -> tuple[int, str]:
+    """Run the gate's own `require_success` on one job result; return its exit code and output."""
+    run = _gate_run_text(wf)
+    start = run.index("require_success() {")
+    function = run[start : run.index("\n}\n", start) + 3]
+    done = subprocess.run(
+        ["bash", "-ec", f'{function}require_success "❌ Some job failed" "{result}"'],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return done.returncode, done.stdout
+
+
+def test_the_gate_fails_an_always_on_job_on_anything_but_success(
+    workflow: dict[str, Any],
+) -> None:
+    """An always-on job's result passes the gate only as `success`: a skip, a
+    cancel or a failure each fail it, with the job's own message."""
+    assert _require_success_exit(workflow, "success") == (0, "")
+    for result in ("failure", "skipped", "cancelled", ""):
+        code, out = _require_success_exit(workflow, result)
+        assert code != 0, f"an always-on job's '{result}' result passes the gate"
+        assert out == "❌ Some job failed\n", out
+
+
+def test_the_gate_fails_an_always_on_job_on_anything_but_success__mutation_passes_a_skip() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    original = step["run"]
+    step["run"] = original.replace(
+        'if [[ "$2" != "success" ]]; then',
+        'if [[ "$2" != "success" && "$2" != "skipped" ]]; then',
+        1,
+    )
+    assert step["run"] != original, "no result test in require_success — mutation is stale"
+    with pytest.raises(AssertionError, match="'skipped' result passes the gate"):
+        test_the_gate_fails_an_always_on_job_on_anything_but_success(mutated)
+
+
 def test_the_gate_fails_a_skipped_lane_on_a_revalidation_run(workflow: dict[str, Any]) -> None:
     """A green revalidation run vouches for every lane on its sha, so a lane
     that skipped there fails the gate. Elsewhere a skip still passes."""
@@ -13704,9 +13858,10 @@ def test_every_nightly_checkout_drops_its_credentials(nightly: dict[str, Any]) -
 CANOPY_CONTRACT_JOB = "canopy-contract"
 CANOPY_CONTRACT_GATE_FAILURE = "❌ CANOPY contract failed"
 _CANOPY_ALWAYS_ON_CHECK_RE = re.compile(
-    r'if \[\[ "\$\{\{\s*needs\.'
+    r'^[ \t]*require_success "(?P<message>[^"\n]*)" "\$\{\{\s*needs\.'
     + re.escape(CANOPY_CONTRACT_JOB)
-    + r'\.result\s*\}\}" != "success" \]\]; then\n(?:\s*#[^\n]*\n)*\s*echo "(?P<message>[^"\n]*)"\n\s*exit 1\n'
+    + r'\.result\s*\}\}"\n',
+    re.MULTILINE,
 )
 _COMMIT_LITERAL_RE = re.compile(r"\b[0-9a-f]{40}\b")
 #: The install step's requirement for each distribution, the environment
@@ -15644,7 +15799,12 @@ def test_the_classifier_runs_on_every_event_and_forces_full_on_the_label(
 
 def test_the_gate_requires_the_classifier_to_succeed(workflow: dict[str, Any]) -> None:
     assert CHANGES_JOB in _jobs(workflow)[GATE_JOB]["needs"]
-    assert '"${{ needs.changes.result }}" != "success"' in _gate_run_text(workflow)
+    # Read through require_success, which fails the gate on anything but "success".
+    assert re.search(
+        r'^\s*require_success "[^"\n]*" "\$\{\{ needs\.changes\.result \}\}"$',
+        _gate_run_text(workflow),
+        re.MULTILINE,
+    ), "the gate must require the classifier's success"
 
 
 def _pr_lanes_naming_docs_tests(wf: dict[str, Any]) -> list[str]:

@@ -1070,31 +1070,10 @@ jobs:
 
     - name: Fail the lane on any skipped watchdog browser test
       run: |
-        # The chromium fixture skips when its binary is absent, and pytest's
-        # exit code cannot tell "everything passed" from "everything was
-        # skipped". The junit report is read instead: zero skips, and a
-        # non-zero test count so an empty selection cannot pass either.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-watchdog-browser.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        failed = False
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            failed = True
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            failed = True
-        if failed:
-            sys.exit(1)
-        print("every watchdog browser test ran; none skipped")
-        PY
+        # The chromium fixture skips without its binary, and pytest exits 0 on an
+        # all-skipped run, so the junit report is read instead.
+        uv run python scripts/ci/junit_no_skips.py junit-watchdog-browser.xml \
+          --message "every watchdog browser test ran; none skipped"
 
     # Container start/stop changes the host's network, and every Chromium then
     # fails in-flight requests (ERR_NETWORK_CHANGED). Beside the parallel workers
@@ -1499,96 +1478,25 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p queue-e2e down || true
-        docker rm -f queue-e2e-agent-record || true
-        docker rm -f queue-e2e-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^queue-e2e_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-bluesky-deploy down || true
-        docker rm -f osprey-e2e-bluesky-deploy-agent-record || true
-        docker rm -f osprey-e2e-bluesky-deploy-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-catalog down || true
-        docker rm -f osprey-e2e-catalog-agent-record || true
-        docker rm -f osprey-e2e-catalog-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-tiled down || true
-        docker rm -f osprey-e2e-tiled-agent-record || true
-        docker rm -f osprey-e2e-tiled-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p panels-proj down || true
-        docker rm -f panels-proj-agent-record || true
-        docker rm -f panels-proj-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^panels-proj_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p plan-agentic down || true
-        docker rm -f plan-agentic-agent-record || true
-        docker rm -f plan-agentic-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^plan-agentic_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p orm-roundtrip down || true
-        docker rm -f orm-roundtrip-agent-record || true
-        docker rm -f orm-roundtrip-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^orm-roundtrip_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p grid-scan-roundtrip down || true
-        docker rm -f grid-scan-roundtrip-agent-record || true
-        docker rm -f grid-scan-roundtrip-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p bump-roundtrip down || true
-        docker rm -f bump-roundtrip-agent-record || true
-        docker rm -f bump-roundtrip-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^bump-roundtrip_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p preflight-probe down || true
-        docker rm -f preflight-probe-agent-record || true
-        docker rm -f preflight-probe-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^preflight-probe_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p sandbox-escape down || true
-        docker rm -f sandbox-escape-agent-record || true
-        docker rm -f sandbox-escape-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^sandbox-escape_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-dispatch down || true
-        docker rm -f osprey-e2e-dispatch-agent-record || true
-        docker rm -f osprey-e2e-dispatch-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-overlay down || true
-        docker rm -f osprey-e2e-overlay-agent-record || true
-        docker rm -f osprey-e2e-overlay-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p suproj down || true
-        docker rm -f suproj-agent-record || true
-        docker rm -f suproj-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^suproj_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-va-substrate down || true
-        docker rm -f osprey-e2e-va-substrate-agent-record || true
-        docker rm -f osprey-e2e-va-substrate-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p lane-e2e down || true
-        docker rm -f lane-e2e-agent-record || true
-        docker rm -f lane-e2e-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^lane-e2e_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-agent-record down || true
-        docker rm -f osprey-e2e-agent-record-agent-record || true
-        docker rm -f osprey-e2e-agent-record-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-agent-record_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p osprey-e2e-host-record down || true
-        docker rm -f osprey-e2e-host-record-agent-record || true
-        docker rm -f osprey-e2e-host-record-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-host-record_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh \
+          queue-e2e \
+          osprey-e2e-bluesky-deploy \
+          osprey-e2e-catalog \
+          osprey-e2e-tiled \
+          panels-proj \
+          plan-agentic \
+          orm-roundtrip \
+          grid-scan-roundtrip \
+          bump-roundtrip \
+          preflight-probe \
+          sandbox-escape \
+          osprey-e2e-dispatch \
+          osprey-e2e-overlay \
+          suproj \
+          osprey-e2e-va-substrate \
+          lane-e2e \
+          osprey-e2e-agent-record \
+          osprey-e2e-host-record
 
   e2e-no-model:
     name: Model-Free E2E (the tests/e2e files that reach no gateway)
@@ -1651,27 +1559,8 @@ jobs:
       run: |
         # A skip here means the lane is wrong about its runner; pytest's exit code
         # cannot tell all-passed from all-skipped, so the junit report is read.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-e2e-no-model.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        failed = False
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            failed = True
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            failed = True
-        if failed:
-            sys.exit(1)
-        print("✅ every model-free E2E test ran; none skipped")
-        PY
+        uv run python scripts/ci/junit_no_skips.py junit-e2e-no-model.xml \
+          --message "✅ every model-free E2E test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -1732,30 +1621,9 @@ jobs:
 
     - name: Fail the lane on any skipped test
       run: |
-        # A skip here is the lane being wrong about its own runner, and
-        # pytest's exit code cannot tell "everything passed" from "everything
-        # was skipped" — so the junit report is read instead.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-agent-record-e2e.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        failed = False
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            failed = True
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            failed = True
-        if failed:
-            sys.exit(1)
-        print("✅ every agent record replay test ran; none skipped")
-        PY
+        # A skip here is the lane being wrong about its own runner, as in e2e-no-model.
+        uv run python scripts/ci/junit_no_skips.py junit-agent-record-e2e.xml \
+          --message "✅ every agent record replay test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -1766,11 +1634,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-agent-record down || true
-        docker rm -f osprey-e2e-agent-record-agent-record || true
-        docker rm -f osprey-e2e-agent-record-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-agent-record_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh osprey-e2e-agent-record
 
   channel-finder-benchmarks:
     name: Channel-Finder MCP Benchmarks (on demand)
@@ -1969,11 +1833,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-dispatch down || true
-        docker rm -f osprey-e2e-dispatch-agent-record || true
-        docker rm -f osprey-e2e-dispatch-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-dispatch_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh osprey-e2e-dispatch
 
   single-user-narrowing-e2e:
     name: Single-User Narrowing E2E (full Docker stack + owner-narrowed dispatch run)
@@ -2020,11 +1880,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p suproj down || true
-        docker rm -f suproj-agent-record || true
-        docker rm -f suproj-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^suproj_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh suproj
 
   host-record-e2e:
     name: Host Record E2E (host sessions record without a container; the stack takes the record over)
@@ -2062,27 +1918,10 @@ jobs:
 
     - name: Fail the lane on any skipped test
       run: |
-        # The module's only skip paths are "no docker" and "no claude CLI",
-        # and this lane exists to have both; pytest exits 0 on an all-skipped
-        # run, so the junit report is read instead.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-host-record.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            sys.exit(1)
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            sys.exit(1)
-        print("✅ every host record test ran; none skipped")
-        PY
+        # The module's only skip paths are "no docker" and "no claude CLI", and this
+        # lane exists to have both.
+        uv run python scripts/ci/junit_no_skips.py junit-host-record.xml \
+          --message "✅ every host record test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -2093,11 +1932,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-host-record down || true
-        docker rm -f osprey-e2e-host-record-agent-record || true
-        docker rm -f osprey-e2e-host-record-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-host-record_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh osprey-e2e-host-record
 
   dispatch-overlay-e2e:
     name: Dispatch Overlay E2E (overlay skill/data/trigger visibility, full Docker stack)
@@ -2144,11 +1979,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-overlay down || true
-        docker rm -f osprey-e2e-overlay-agent-record || true
-        docker rm -f osprey-e2e-overlay-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-overlay_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh osprey-e2e-overlay
 
   bluesky-deploy-e2e:
     name: Bluesky Deploy E2E (bluesky bridge, full Docker stack)
@@ -2189,11 +2020,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-bluesky-deploy down || true
-        docker rm -f osprey-e2e-bluesky-deploy-agent-record || true
-        docker rm -f osprey-e2e-bluesky-deploy-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-bluesky-deploy_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh osprey-e2e-bluesky-deploy
 
   optimizer-deploy-e2e:
     name: Optimizer Deploy E2E (optimizer + Redis job store, full Docker stack)
@@ -2261,11 +2088,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p panels-proj down || true
-        docker rm -f panels-proj-agent-record || true
-        docker rm -f panels-proj-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^panels-proj_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh panels-proj
 
   va-substrate-equivalence-e2e:
     name: VA Substrate Equivalence E2E (virtual accelerator + bluesky bridge, full Docker stack)
@@ -2304,11 +2127,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-va-substrate down || true
-        docker rm -f osprey-e2e-va-substrate-agent-record || true
-        docker rm -f osprey-e2e-va-substrate-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-va-substrate_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh osprey-e2e-va-substrate
 
   orm-roundtrip-e2e:
     name: ORM + Grid Scan Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
@@ -2381,26 +2200,11 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p orm-roundtrip down || true
-        docker rm -f orm-roundtrip-agent-record || true
-        docker rm -f orm-roundtrip-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^orm-roundtrip_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p grid-scan-roundtrip down || true
-        docker rm -f grid-scan-roundtrip-agent-record || true
-        docker rm -f grid-scan-roundtrip-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^grid-scan-roundtrip_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p bump-roundtrip down || true
-        docker rm -f bump-roundtrip-agent-record || true
-        docker rm -f bump-roundtrip-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^bump-roundtrip_" \
-          | xargs -r docker volume rm -f || true
-        docker compose -p preflight-probe down || true
-        docker rm -f preflight-probe-agent-record || true
-        docker rm -f preflight-probe-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^preflight-probe_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh \
+          orm-roundtrip \
+          grid-scan-roundtrip \
+          bump-roundtrip \
+          preflight-probe
 
   bluesky-queue-e2e:
     name: Bluesky Queue E2E (queueserver + Redis + Tiled + VA, full Docker stack)
@@ -2441,11 +2245,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p queue-e2e down || true
-        docker rm -f queue-e2e-agent-record || true
-        docker rm -f queue-e2e-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^queue-e2e_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh queue-e2e
 
   scan-agentic-e2e:
     name: Scan Stack Agentic E2E (agent-driven ORM + grid scans on the deployed queue stack)
@@ -2491,43 +2291,10 @@ jobs:
 
     - name: Fail the lane on any skipped test
       run: |
-        # Every way this lane can skip is a CI misconfiguration, not a
-        # legitimate environment gap: no container runtime, no SDK, no `claude`
-        # CLI, no provider key. Each turns the job into a green check over a
-        # lane that deployed nothing and measured nothing, and pytest's exit
-        # code cannot express the difference.
-        #
-        # The `claude` CLI case is the live one, not a hypothetical:
-        # claude-agent-sdk (0.2.136) bundles its own CLI and installs no
-        # `claude` console script, so the module's
-        # `is_claude_code_available()` skipif can fire on a runner where the
-        # SDK would in fact work — silently reducing this lane to its offline
-        # floor/judge checks while both agent runs vanish.
-        #
-        # Safe alongside the live tests' `flaky(reruns=2)`: pytest-rerunfailures
-        # does not record rerun attempts as testcases, so an absorbed sampling
-        # flake leaves the skipped count at zero.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-scan-agentic-e2e.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        failed = False
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            failed = True
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            failed = True
-        if failed:
-            sys.exit(1)
-        print("✅ every scan-stack agentic test ran; none skipped")
-        PY
+        # Every skip here is a CI misconfiguration (no runtime, SDK, `claude` CLI or key).
+        # Reruns are not testcases, so a flake absorbed by `flaky(reruns=2)` skips nothing.
+        uv run python scripts/ci/junit_no_skips.py junit-scan-agentic-e2e.xml \
+          --message "✅ every scan-stack agentic test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -2538,11 +2305,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p plan-agentic down || true
-        docker rm -f plan-agentic-agent-record || true
-        docker rm -f plan-agentic-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^plan-agentic_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh plan-agentic
 
   archiver-world-e2e:
     name: Archiver World E2E (VA + mongodb store + recorder, full Docker stack)
@@ -2664,11 +2427,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-tiled down || true
-        docker rm -f osprey-e2e-tiled-agent-record || true
-        docker rm -f osprey-e2e-tiled-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-tiled_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh osprey-e2e-tiled
 
   bluesky-catalog-e2e:
     name: Bluesky Catalog E2E (layered plan catalog, full Docker stack)
@@ -2705,11 +2464,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p osprey-e2e-catalog down || true
-        docker rm -f osprey-e2e-catalog-agent-record || true
-        docker rm -f osprey-e2e-catalog-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^osprey-e2e-catalog_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh osprey-e2e-catalog
 
   bluesky-sandbox-escape-e2e:
     name: Bluesky Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
@@ -2748,11 +2503,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p sandbox-escape down || true
-        docker rm -f sandbox-escape-agent-record || true
-        docker rm -f sandbox-escape-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^sandbox-escape_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh sandbox-escape
 
   nextcloud-talk-bridge-e2e:
     name: Nextcloud Talk Bridge E2E (real Talk server + dispatch stack)
@@ -2878,27 +2629,8 @@ jobs:
       run: |
         # Every skip here is a CI misconfiguration (no runtime, image, extra or key),
         # so both junit reports must show zero skips and a non-zero count.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        failed = False
-        for report in ("junit-gchat-fixture-smoke.xml", "junit-gchat-bridge-e2e.xml"):
-            total = skipped = 0
-            for suite in ET.parse(report).getroot().iter("testsuite"):
-                total += int(suite.get("tests", 0))
-                skipped += int(suite.get("skipped", 0))
-            print(f"{report}: {total} test(s), {skipped} skipped")
-            if total == 0:
-                print(f"::error::{report} collected no tests")
-                failed = True
-            if skipped:
-                print(f"::error::{report} reports {skipped} skipped test(s)")
-                failed = True
-        if failed:
-            sys.exit(1)
-        print("✅ every Google Chat test ran; none skipped")
-        PY
+        uv run python scripts/ci/junit_no_skips.py junit-gchat-fixture-smoke.xml junit-gchat-bridge-e2e.xml \
+          --message "✅ every Google Chat test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -2944,24 +2676,8 @@ jobs:
       run: |
         # The module declares no skip, so any skip (most likely a missing `teams`
         # extra) is a misconfiguration pytest reports as success.
-        uv run --no-sync python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-teams-bridge-e2e.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            sys.exit(1)
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            sys.exit(1)
-        print("✅ every Microsoft Teams test ran; none skipped")
-        PY
+        uv run --no-sync python scripts/ci/junit_no_skips.py junit-teams-bridge-e2e.xml \
+          --message "✅ every Microsoft Teams test ran; none skipped"
     # No `engine:` input: this lane runs no container.
     - name: Capture failure diagnostics
       if: failure()
@@ -3001,27 +2717,10 @@ jobs:
 
     - name: Fail the lane on any skipped test
       run: |
-        # Neither file declares a skip, so any skip is a CI misconfiguration
-        # that pytest reports as success. Zero skips, and a non-zero test count
-        # so an empty selection cannot pass either.
-        uv run --no-sync python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-slack-bridge-e2e.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            sys.exit(1)
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            sys.exit(1)
-        print("✅ every Slack test ran; none skipped")
-        PY
+        # Neither file declares a skip, so any skip is a CI misconfiguration that
+        # pytest reports as success.
+        uv run --no-sync python scripts/ci/junit_no_skips.py junit-slack-bridge-e2e.xml \
+          --message "✅ every Slack test ran; none skipped"
     # No `engine:` input: this lane runs no container.
     - name: Capture failure diagnostics
       if: failure()
@@ -3075,37 +2774,10 @@ jobs:
     - name: Fail the lane on a lane-wide skip
       if: success() || failure()
       run: |
-        # Not the zero-skip gate: the audit module has documented per-test guards. A
-        # report that collected nothing or skipped everything fails the lane; a partial
-        # skip is a warning.
-        uv run python - <<'PY'
-        import os
-        import sys
-        import xml.etree.ElementTree as ET
-
-        failed = False
-        for report in ("junit-privilege-split.xml", "junit-audit-two-container.xml"):
-            if not os.path.exists(report):
-                print(f"::error::{report} was never written — the step that writes it did not finish")
-                failed = True
-                continue
-            total = skipped = 0
-            for suite in ET.parse(report).getroot().iter("testsuite"):
-                total += int(suite.get("tests", 0))
-                skipped += int(suite.get("skipped", 0))
-            print(f"{report}: {total} test(s), {skipped} skipped")
-            if total == 0:
-                print(f"::error::{report} collected no tests")
-                failed = True
-            elif skipped == total:
-                print(f"::error::{report} skipped every one of its {total} test(s)")
-                failed = True
-            elif skipped:
-                print(f"::warning::{report} skipped {skipped} of {total} test(s)")
-        if failed:
-            sys.exit(1)
-        print("✅ both privilege-split modules ran")
-        PY
+        # Not the zero-skip gate: the audit module has documented per-test guards, so a
+        # report fails only on no tests or every test skipped; a partial skip warns.
+        uv run python scripts/ci/junit_no_skips.py junit-privilege-split.xml junit-audit-two-container.xml --allow-partial-skips \
+          --message "✅ both privilege-split modules ran"
 
     - name: Capture failure diagnostics
       if: failure()
@@ -3646,24 +3318,8 @@ jobs:
       run: |
         # The only skip paths are "no runtime" and "daemon not responding", both CI
         # misconfigurations here, so a skip fails the lane.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-full-chain-auth.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            sys.exit(1)
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            sys.exit(1)
-        print("✅ every full-chain auth test ran; none skipped")
-        PY
+        uv run python scripts/ci/junit_no_skips.py junit-full-chain-auth.xml \
+          --message "✅ every full-chain auth test ran; none skipped"
 
     # Before the teardown below (see deploy-e2e).
     - name: Capture failure diagnostics
@@ -4177,36 +3833,10 @@ jobs:
 
     - name: Fail the lane on any skipped test
       run: |
-        # Same gate, same argument as scan-agentic-e2e: every way this lane can
-        # skip is a CI misconfiguration rather than a legitimate environment
-        # gap, and pytest's exit code cannot express the difference. The live
-        # one here is `OSPREY_VA_E2E_ENABLE`: unset, every module collects
-        # cleanly and skips in full, and the job goes green having built two
-        # images and measured nothing. The other is the Bluesky lane scenario,
-        # which skips when the queueserver client stack is not importable —
-        # it is a core dependency, so a skip there means the install step
-        # produced something narrower than `uv sync --extra dev` promises.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-target-switch-e2e.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        failed = False
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            failed = True
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            failed = True
-        if failed:
-            sys.exit(1)
-        print("✅ every control-target switch test ran; none skipped")
-        PY
+        # Every skip is a CI misconfiguration, as in scan-agentic-e2e; the live one is an
+        # unset `OSPREY_VA_E2E_ENABLE`, which skips every module in full.
+        uv run python scripts/ci/junit_no_skips.py junit-target-switch-e2e.xml \
+          --message "✅ every control-target switch test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -4273,43 +3903,10 @@ jobs:
 
     - name: Fail the lane on any skipped test
       run: |
-        # Same gate, same argument as scan-agentic-e2e: every way this lane can
-        # skip is a CI misconfiguration rather than a legitimate environment
-        # gap — no SDK, no `claude` CLI, no docker, no provider key — and each
-        # turns the job into a green check over a lane that built two images,
-        # deployed nothing and measured nothing. pytest's exit code cannot
-        # express the difference.
-        #
-        # The `claude` CLI case is the live one, not a hypothetical: a fresh
-        # runner has no `claude` on PATH until the lane installs the pinned
-        # one, so this module's `is_claude_code_available()` skipif can fire —
-        # and because that skipif is module-wide here, it takes all ten tests
-        # with it.
-        #
-        # Safe alongside two scenarios' `flaky(reruns=2)`: pytest-rerunfailures
-        # does not record rerun attempts as testcases, so an absorbed sampling
-        # flake leaves the skipped count at zero.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-target-switch-agentic-e2e.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        failed = False
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            failed = True
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            failed = True
-        if failed:
-            sys.exit(1)
-        print("✅ every control-target switch agentic test ran; none skipped")
-        PY
+        # As scan-agentic-e2e (no SDK, `claude` CLI, docker or key); the CLI skipif is
+        # module-wide here, so it would take every test with it.
+        uv run python scripts/ci/junit_no_skips.py junit-target-switch-agentic-e2e.xml \
+          --message "✅ every control-target switch agentic test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -4400,41 +3997,12 @@ jobs:
       env:
         ALS_LANE: ${{ matrix.als_lane }}
       run: |
-        # The gate reads the reports rather than pytest's exit codes because an
-        # exit code cannot express the difference: a run that skipped every
-        # test it collected exits 0. Each step skips one way: the tests/va/e2e
-        # modules without `OSPREY_VA_E2E_ENABLE`, and the real-facility lane without
-        # `OSPREY_ALS_LANE_STAND_IN`. Unset, either collects cleanly and skips,
-        # and the job goes green having built an image and measured nothing.
-        # One report per step, each named here; the real-facility lane's only
-        # in the cell that runs it, read from the matrix rather than from
-        # whether the file exists, so a cell that should have run it and did
-        # not reds here.
-        uv run python - <<'PY'
-        import os
-        import sys
-        import xml.etree.ElementTree as ET
-
-        reports = ["junit-va-live-e2e.xml"]
-        if os.environ["ALS_LANE"] == "true":
-            reports.append("junit-als-lane.xml")
-        failed = False
-        for report in reports:
-            total = skipped = 0
-            for suite in ET.parse(report).getroot().iter("testsuite"):
-                total += int(suite.get("tests", 0))
-                skipped += int(suite.get("skipped", 0))
-            print(f"{report}: {total} test(s), {skipped} skipped")
-            if total == 0:
-                print(f"::error::{report} collected no tests")
-                failed = True
-            if skipped:
-                print(f"::error::{report} reports {skipped} skipped test(s)")
-                failed = True
-        if failed:
-            sys.exit(1)
-        print("✅ every live virtual accelerator test ran; none skipped")
-        PY
+        # One report per step. The real-facility lane's is read from the matrix, not from
+        # whether the file exists, so a cell that should have run it and did not reds.
+        reports=(junit-va-live-e2e.xml)
+        if [[ "$ALS_LANE" == "true" ]]; then reports+=(junit-als-lane.xml); fi
+        uv run python scripts/ci/junit_no_skips.py "${reports[@]}" \
+          --message "✅ every live virtual accelerator test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -4484,36 +4052,10 @@ jobs:
 
     - name: Fail the lane on any skipped test
       run: |
-        # The gate reads the report rather than pytest's exit code because the
-        # exit code cannot express the difference: a run that skipped every
-        # test it collected exits 0. Three ways this module skips, each a CI
-        # misconfiguration rather than a legitimate environment gap:
-        # `OSPREY_VA_E2E_ENABLE` unset, which greens the lane having built an
-        # image and measured nothing; `docker` absent from PATH, which the
-        # assert step above should already have caught; and
-        # `osprey-va-full:latest` not present, which means the build step
-        # produced nothing under the tag the fixtures name.
-        uv run python - <<'PY'
-        import sys
-        import xml.etree.ElementTree as ET
-
-        report = "junit-va-bluesky-deploy-e2e.xml"
-        total = skipped = 0
-        for suite in ET.parse(report).getroot().iter("testsuite"):
-            total += int(suite.get("tests", 0))
-            skipped += int(suite.get("skipped", 0))
-        print(f"{report}: {total} test(s), {skipped} skipped")
-        failed = False
-        if total == 0:
-            print(f"::error::{report} collected no tests")
-            failed = True
-        if skipped:
-            print(f"::error::{report} reports {skipped} skipped test(s)")
-            failed = True
-        if failed:
-            sys.exit(1)
-        print("✅ every plan deployment test ran; none skipped")
-        PY
+        # Each skip path (`OSPREY_VA_E2E_ENABLE` unset, no docker, no osprey-va-full
+        # image) is a CI misconfiguration, so any skip fails the lane.
+        uv run python scripts/ci/junit_no_skips.py junit-va-bluesky-deploy-e2e.xml \
+          --message "✅ every plan deployment test ran; none skipped"
     - name: Capture failure diagnostics
       if: failure()
       uses: ./.github/actions/capture-ci-diagnostics
@@ -4524,11 +4066,7 @@ jobs:
     - name: Clean up any stranded stack resources
       if: always()
       run: |
-        docker compose -p lane-e2e down || true
-        docker rm -f lane-e2e-agent-record || true
-        docker rm -f lane-e2e-agent-record-clickhouse || true
-        docker volume ls -q --filter "name=^lane-e2e_" \
-          | xargs -r docker volume rm -f || true
+        scripts/ci/cleanup_stacks.sh lane-e2e
 
     - name: Clean up the target images
       # Only the image: `osprey down` in the module owns the containers.
@@ -4720,7 +4258,7 @@ jobs:
 
     steps:
     - name: Check all jobs status
-      # Both shapes BLOCK: always-on jobs must be "success"; pull-request-scoped
+      # Both shapes BLOCK: always-on jobs (require_success) must be "success"; PR-scoped
       # lanes (check_pr_lane) may be "skipped", except on a revalidation dispatch,
       # where every lane must run. Dependabot and unlabelled PRs pass with a note
       # in the run summary. actor/head_ref go through `env:`, never `${{ }}` in
@@ -4734,90 +4272,34 @@ jobs:
         HAS_FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
         DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
       run: |
-        # The classifier must succeed: every pull-request-scoped lane needs it,
-        # so a failed `changes` job skips them all, and check_pr_lane below
-        # reads a skip as a pass.
-        if [[ "${{ needs.changes.result }}" != "success" ]]; then
-          echo "❌ Changed-path classifier failed; the e2e lanes that need it did not run"
-          exit 1
-        fi
-        if [[ "${{ needs.test.result }}" != "success" ]]; then
-          echo "❌ Tests failed"
-          exit 1
-        fi
-        if [[ "${{ needs.serial-suites.result }}" != "success" ]]; then
-          echo "❌ Serial suites failed (pty, wall-clock budgets or live Channel Access)"
-          exit 1
-        fi
-        if [[ "${{ needs.dependency-floor.result }}" != "success" ]]; then
-          echo "❌ Archiver suite failed at the declared dependency floor"
-          exit 1
-        fi
-        if [[ "${{ needs.optimizer.result }}" != "success" ]]; then
-          echo "❌ Optimizer suite failed"
-          exit 1
-        fi
-        if [[ "${{ needs.connectors-standalone.result }}" != "success" ]]; then
-          echo "❌ Connectors suite failed without the framework installed"
-          exit 1
-        fi
-        if [[ "${{ needs.connectors-compat-plan.result }}" != "success" ]]; then
-          echo "❌ Connectors compatibility plan failed (supported releases or connectors floor)"
-          exit 1
-        fi
-        if [[ "${{ needs.connectors-compat.result }}" != "success" ]]; then
-          echo "❌ Connectors HEAD broke a supported framework release"
-          exit 1
-        fi
-        if [[ "${{ needs.framework-at-connectors-floor.result }}" != "success" ]]; then
-          echo "❌ Framework HEAD failed at its declared connectors floor"
-          exit 1
-        fi
-        if [[ "${{ needs.lint.result }}" != "success" ]]; then
-          # Also covers the Tier 0 config-key resurrection guard, folded into
-          # that job.
-          echo "❌ Lint checks or the config-key resurrection guard failed"
-          exit 1
-        fi
-        if [[ "${{ needs.docs.result }}" != "success" ]]; then
-          echo "❌ Documentation build failed"
-          exit 1
-        fi
-        if [[ "${{ needs.package.result }}" != "success" ]]; then
-          # Also covers the lean connectors wheel, folded into that job.
-          echo "❌ Package build or the lean connectors wheel check failed"
-          exit 1
-        fi
-        if [[ "${{ needs.static-checks.result }}" != "success" ]]; then
-          echo "❌ Tier 0 static checks failed"
-          exit 1
-        fi
-        if [[ "${{ needs.plugin-smoke.result }}" != "success" ]]; then
-          echo "❌ Plugin marketplace smoke failed (the osprey plugin no longer installs)"
-          exit 1
-        fi
-        if [[ "${{ needs.visual-theming.result }}" != "success" ]]; then
-          echo "❌ Behavioral theming suite failed"
-          exit 1
-        fi
-        if [[ "${{ needs.visual-theming-agent.result }}" != "success" ]]; then
-          echo "❌ Watchdog browser / visual regression suite failed"
-          exit 1
-        fi
-        if [[ "${{ needs.frontend-js.result }}" != "success" ]]; then
-          echo "❌ Frontend JS (typecheck + vitest) failed"
-          exit 1
-        fi
-        if [[ "${{ needs.build-boot-smoke.result }}" != "success" ]]; then
-          echo "❌ Tier 1 build + boot smoke failed"
-          exit 1
-        fi
-        if [[ "${{ needs.canopy-contract.result }}" != "success" ]]; then
-          # The lane reports success itself when the change does not need
-          # the contract, so a skip is never a pass here.
-          echo "❌ CANOPY contract failed"
-          exit 1
-        fi
+        require_success() {
+          # $1 = failure message, $2 = needs.<job>.result; anything but "success" fails.
+          if [[ "$2" != "success" ]]; then
+            echo "$1"
+            exit 1
+          fi
+        }
+        # changes first: a failed classifier skips every PR lane, which check_pr_lane passes.
+        require_success "❌ Changed-path classifier failed; the e2e lanes that need it did not run" "${{ needs.changes.result }}"
+        require_success "❌ Tests failed" "${{ needs.test.result }}"
+        require_success "❌ Serial suites failed (pty, wall-clock budgets or live Channel Access)" "${{ needs.serial-suites.result }}"
+        require_success "❌ Archiver suite failed at the declared dependency floor" "${{ needs.dependency-floor.result }}"
+        require_success "❌ Optimizer suite failed" "${{ needs.optimizer.result }}"
+        require_success "❌ Connectors suite failed without the framework installed" "${{ needs.connectors-standalone.result }}"
+        require_success "❌ Connectors compatibility plan failed (supported releases or connectors floor)" "${{ needs.connectors-compat-plan.result }}"
+        require_success "❌ Connectors HEAD broke a supported framework release" "${{ needs.connectors-compat.result }}"
+        require_success "❌ Framework HEAD failed at its declared connectors floor" "${{ needs.framework-at-connectors-floor.result }}"
+        require_success "❌ Lint checks or the config-key resurrection guard failed" "${{ needs.lint.result }}"
+        require_success "❌ Documentation build failed" "${{ needs.docs.result }}"
+        require_success "❌ Package build or the lean connectors wheel check failed" "${{ needs.package.result }}"
+        require_success "❌ Tier 0 static checks failed" "${{ needs.static-checks.result }}"
+        require_success "❌ Plugin marketplace smoke failed (the osprey plugin no longer installs)" "${{ needs.plugin-smoke.result }}"
+        require_success "❌ Behavioral theming suite failed" "${{ needs.visual-theming.result }}"
+        require_success "❌ Watchdog browser / visual regression suite failed" "${{ needs.visual-theming-agent.result }}"
+        require_success "❌ Frontend JS (typecheck + vitest) failed" "${{ needs.frontend-js.result }}"
+        require_success "❌ Tier 1 build + boot smoke failed" "${{ needs.build-boot-smoke.result }}"
+        # canopy-contract reports success itself when not needed, so a skip never passes.
+        require_success "❌ CANOPY contract failed" "${{ needs.canopy-contract.result }}"
         check_pr_lane() {
           # $1 = human-readable lane name, $2 = needs.<job>.result
           if [[ "$2" == "skipped" && "$EVENT_NAME" == "workflow_dispatch" && "$REVALIDATE" == "true" ]]; then
