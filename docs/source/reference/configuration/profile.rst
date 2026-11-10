@@ -284,7 +284,7 @@ Profile YAML reference
      - Which preset this profile was materialized from, that preset's hash, and
        the hash of the ``providers.yml`` beside it. Written by the
        materialization; ``osprey validate`` and ``osprey build`` say when that
-       preset has moved on (see :ref:`profile-preset-drift`). A
+       preset has changed since (see :ref:`profile-preset-drift`). A
        ``deviation_marker`` key an earlier release read is accepted and
        ignored; ``osprey init --revalidate`` removes it.
 
@@ -493,8 +493,8 @@ Three rules follow from the catalog being the one home for these facts:
 - The file is yours to edit, like ``profile.yml``: ``osprey validate`` refuses
   and lists no difference from the catalog OSPREY ships.
   ``osprey init --revalidate`` keeps every value in the file and adds the
-  entries and keys OSPREY ships that it lacks, except one such a comment
-  names as absent (``# DEVIATION: providers.openrouter: …``).
+  entries and keys OSPREY added since the repository last took the catalog.
+  An entry or key you deleted is not added back.
 
 .. _profile-posture-floor:
 
@@ -567,16 +567,22 @@ it up; :ref:`architecture-safety-chain-code-review` says what it does.
 
 .. _profile-preset-drift:
 
-Preset drift
-============
+Preset updates
+==============
 
 A profile ``osprey init`` wrote records the preset it came from under
 ``provenance:``. From then on the profile is yours: no difference from the
 preset is refused or listed, whether you changed a value, added a key or dropped
-a list member. When the preset bundled with your OSPREY has changed since
-``osprey init`` wrote the profile, ``osprey validate`` and ``osprey build``
-print one line saying so. The same holds for each tier file, against the
-bundled tier it names.
+a list member. ``osprey init`` also keeps a plain copy of what the presets
+produced, so OSPREY can tell a preset's later changes from your edits. When a
+preset bundled with your OSPREY has changed since the repository last took it,
+``osprey validate`` and ``osprey build`` print one line saying so, and
+``osprey init --revalidate`` applies the changes. It applies a change only
+where you kept the preset's old value, and leaves your own edits alone. The
+same holds for each tier file, against the bundled tier it names, and for
+``providers.yml`` and ``triggers.yml``. An application copied into ``apps/`` is
+code: when the preset's copy changes, ``--revalidate`` says so once and copies
+nothing.
 
 A profile written before the ``config:`` block carried everything spells only
 what its facility changed, and still names a packaged app template at its top
@@ -587,11 +593,12 @@ level. Such a profile is refused, naming that key and the verb that fixes it:
    osprey init --revalidate                            # preset from provenance:
    osprey init --revalidate --preset demo              # or name it
 
-It writes every key the preset documents and the profile lacks into the
-profile's own ``config:`` block, each under the comment the preset documents it
-with, drops that retired key, and refreshes ``providers.yml``. It only adds —
-nothing already in the file is touched — and your deployment's own selections
-are left for you and named in the output.
+Such a profile has no record of what its preset said when it was written, so
+this once it writes every key the preset documents and the profile lacks into
+the profile's own ``config:`` block, each under the comment the preset
+documents it with, drops that retired key, and refreshes ``providers.yml``. It
+only adds — nothing already in the file is touched — and your deployment's own
+selections are left for you and named in the output.
 
 .. _profile-mcp-servers:
 
