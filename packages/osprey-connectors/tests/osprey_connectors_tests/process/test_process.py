@@ -156,6 +156,10 @@ async def test_a_child_that_ignores_sigterm_is_killed():
     assert process.returncode == -signal.SIGKILL
 
 
+#: Seconds a child that has closed its pipe gets to finish exiting on a loaded host.
+_EXIT_WAIT_S = 30.0
+
+
 @posix_only
 async def test_terminate_returns_the_reaped_code():
     exited = await asyncio.create_subprocess_exec(
@@ -164,8 +168,10 @@ async def test_terminate_returns_the_reaped_code():
         "import os\nprint('exiting', flush=True)\nos._exit(3)\n",
         stdout=asyncio.subprocess.PIPE,
     )
-    # The pipe closes only when the child dies, so terminate meets an exited child.
+    # The pipe closes while the child dies, before it has exited; the wait makes
+    # terminate meet an exited child.
     assert await asyncio.wait_for(exited.stdout.read(), 10.0) == b"exiting\n"
+    await asyncio.wait_for(exited.wait(), _EXIT_WAIT_S)
     assert await terminate(exited, 0.5) == 3
 
     sleeping = await asyncio.create_subprocess_exec(

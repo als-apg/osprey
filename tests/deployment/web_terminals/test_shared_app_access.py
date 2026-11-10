@@ -7,7 +7,8 @@ import json
 import pytest
 import yaml
 
-from osprey.deployment.web_terminals.lint import lint_web_terminals
+from osprey.cli.build_profile_merge import shared_login_names
+from osprey.deployment.web_terminals.lint import _tier_catalog, lint_web_terminals
 from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.deployment.web_terminals.roster import (
     expand_tier_principals,
@@ -16,7 +17,7 @@ from osprey.deployment.web_terminals.roster import (
     roster_entries,
 )
 from osprey.services.auth_sidecar.app import ENV_ROSTER_ACCESS_PREFIX, AuthSettings
-from tests._renders import app_render, tier_render
+from tests._renders import tier_render
 
 EXPERT_ACCESS = ["tier:admin", "user:expert@example.org"]
 
@@ -28,8 +29,8 @@ def _web_terminals(*, method: str = "oidc", shared: list | None = None) -> dict:
         "renders": {
             "viewer": tier_render("viewer", "demo-viewer"),
             "admin": tier_render("admin", "demo-admin"),
-            "search": app_render("search", "demo-search"),
-            "panel": app_render("panel", "demo-panel"),
+            "search": tier_render("search", "demo-search"),
+            "panel": tier_render("panel", "demo-panel"),
         },
         "users": [
             {"name": "alice", "index": 0, "tier": "admin", "oidc_subject": "alice@example.org"},
@@ -140,3 +141,12 @@ def test_the_valid_shape_lints_clean_of_these_codes():
         "web_terminals.tier_principal_admits_nobody",
         "web_terminals.access_principal_without_idp",
     }
+
+
+def test_a_mapping_item_is_sealed_like_a_bare_name():
+    host = {"config": {"modules": {"web_terminals": {"shared": ["search", {"name": "panel"}, 7]}}}}
+    assert shared_login_names(host) == {"search", "panel"}
+
+
+def test_a_mapping_item_is_no_tier_a_person_can_be_given():
+    assert "panel" not in _tier_catalog(_web_terminals())

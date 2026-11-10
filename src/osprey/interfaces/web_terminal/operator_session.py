@@ -406,11 +406,6 @@ _SVG_CALLOUT_GUIDE = (
 _TERMINAL_TASK_STATUSES = frozenset({"completed", "failed", "stopped", "killed"})
 
 
-#: The deny for an ask that is not a write on a render whose tier allows no writes:
-#: nobody can approve a tool call on it, and it is not a write to refuse by reason.
-_NOT_ARMED_MESSAGE = "This deployment does not arm writes, so the operator cannot approve it."
-
-
 @dataclass(frozen=True)
 class _RenderFacts:
     """What the chat reads from the render its child runs in, once at start.
@@ -449,7 +444,7 @@ def _read_render(project_dir: str) -> _RenderFacts:
     try:
         config = yaml.safe_load((Path(project_dir) / "config.yml").read_text(encoding="utf-8"))
     except Exception:
-        logger.warning("Could not read the render's config; chat approvals stay off", exc_info=True)
+        logger.warning("Could not read the render's config; chat writes stay off", exc_info=True)
         return _NO_RENDER
     if not isinstance(config, dict):
         return _NO_RENDER
@@ -1252,11 +1247,11 @@ class OperatorSession:
             writes, target = await asyncio.to_thread(
                 _place_write, self._render, tool_name, tool_input, self._child_stamped()
             )
-            if not self._render.tier_allows:
-                if not writes:
-                    return PermissionResultDeny(message=_NOT_ARMED_MESSAGE)
-                # The tier verdict (C-FRAME): the refusal text carries the trailer,
-                # so the tool_result this deny becomes carries ``refusal``.
+            # A write on a render whose tier allows none is refused with the tier
+            # verdict (C-FRAME): the refusal text carries the trailer, so the
+            # tool_result this deny becomes carries ``refusal``. Any other ask is
+            # the operator's to answer on a card, whatever the tier.
+            if writes and not self._render.tier_allows:
                 from osprey_connectors.refusals import refusal_text
 
                 machine = target["machine_kind"] if target else None

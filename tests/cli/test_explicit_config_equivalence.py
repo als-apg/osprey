@@ -218,24 +218,7 @@ class Delta:
 #: Provider catalog entries ``providers.yml`` carries beyond the frozen fixtures.
 #: Every render lists the whole catalog under ``api.providers``, so every document
 #: of every frozen cell gains them.
-_CATALOG_ADDITIONS = ("openrouter", "vllm")
-
-
-#: The leaves the three-way write switch moves in every render, root, tier or
-#: app: the governed tools' per-tool approval policies retire, so the presets no
-#: longer spell ``approval.tools.channel_write: always`` or
-#: ``approval.tools.execute: selective`` and the position decides instead.
-def _retired_governed_policies(document: str) -> tuple[Delta, ...]:
-    return (
-        Delta(document=document, path="approval.tools.channel_write", fixture="always"),
-        Delta(document=document, path="approval.tools.execute", fixture="selective"),
-    )
-
-
-#: The demo renders the feature moves: its root and its
-#: ``readwrite`` tier open at ``asked`` instead of ``allowed``. ``admin``,
-#: ``readonly`` and the apps keep their writes posture.
-_ASKED_RENDERS = ("root", "readwrite")
+_CATALOG_ADDITIONS: tuple[str, ...] = ("vllm",)
 
 #: Every render a demo cell freezes.
 _DEMO_RENDERS = (
@@ -247,44 +230,6 @@ _DEMO_RENDERS = (
     "readonly",
     "readwrite",
 )
-
-
-#: The demo renders that show the CANOPY panel and open on it: the
-#: root and its login tiers. The apps render the panel's block switched off and
-#: keep their own default tab.
-_CANOPY_RENDERS = ("root", "admin", "readonly", "readwrite")
-
-
-def _canopy_panel_deltas(document: str) -> tuple[Delta, ...]:
-    """The leaves the CANOPY panel adds to one demo render."""
-    shown = document in _CANOPY_RENDERS
-    deltas = [
-        Delta(document=document, path="web.panels.canopy.enabled", fixture=ABSENT, live=shown),
-        Delta(
-            document=document,
-            path="web.panels.canopy.home_screen",
-            fixture=ABSENT,
-            live="facility/overview",
-        ),
-        Delta(
-            document=document,
-            path="web.panels.canopy.vole_bytes_max",
-            fixture=ABSENT,
-            live=268435456,
-        ),
-    ]
-    if shown:
-        deltas.append(
-            Delta(document=document, path="web.default_panel", fixture=ABSENT, live="canopy")
-        )
-    return tuple(deltas)
-
-
-def _retired_lattice_panel_deltas(document: str) -> tuple[Delta, ...]:
-    """The retired LATTICE tab's block, gone from each render that showed it."""
-    if document not in _CANOPY_RENDERS:
-        return ()
-    return (Delta(document=document, path="web.panels.lattice.enabled", fixture=True, live=ABSENT),)
 
 
 def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
@@ -302,50 +247,24 @@ def _catalog_addition_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
-def _demo_deltas() -> tuple[Delta, ...]:
-    deltas: list[Delta] = []
-    for document in _DEMO_RENDERS:
-        deltas.extend(_retired_governed_policies(document))
-        deltas.extend(_canopy_panel_deltas(document))
-        deltas.extend(_retired_lattice_panel_deltas(document))
-        if document in _ASKED_RENDERS:
-            deltas.append(
-                Delta(
-                    document=document,
-                    path="control_system.writes",
-                    fixture="allowed",
-                    live="asked",
-                )
-            )
-    return tuple(deltas)
-
-
 #: Every leaf each cell is allowed to differ from its frozen fixture by, keyed by
 #: the cell directory as ``cells.json`` spells it. A cell absent from this
 #: mapping must equal its fixture exactly. See the module docstring for how to
 #: spell a delta. The fixtures stay frozen at the baseline: the render-identity
 #: proof is the baseline render plus exactly these leaves.
 CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
-    "hello-world/unset": _retired_governed_policies("root") + _catalog_addition_deltas("root"),
+    "hello-world/unset": _catalog_addition_deltas("root"),
     **{
-        f"demo/{mode}": _demo_deltas() + _catalog_addition_deltas(*_DEMO_RENDERS)
+        f"demo/{mode}": _catalog_addition_deltas(*_DEMO_RENDERS)
         for mode in ("in_context", "hierarchical", "middle_layer", "graph")
     },
 }
 
 #: Logins whose staged tier posture each cell is allowed to differ from its
 #: frozen ``staged/login_tiers.yml`` by, as ``login -> (fixture, live)`` — the
-#: login-map twin of :data:`CELL_DELTAS`, exact in both directions. A login that
-#: lands on the deployment's default or on ``readwrite`` follows that render's
-#: ``control_system.writes`` from ``allowed`` to ``asked``; one granted another
-#: tier (``admin``'s ``allowed``, ``readonly``'s ``never``) does not move.
-STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {
-    f"demo/{mode}": {
-        "alice": ("allowed", "asked"),
-        "osprey-freeze-builder": ("allowed", "asked"),
-    }
-    for mode in ("in_context", "hierarchical", "middle_layer", "graph")
-}
+#: login-map twin of :data:`CELL_DELTAS`, exact in both directions. Empty while
+#: the fixtures match the live render.
+STAGED_LOGIN_DELTAS: dict[str, dict[str, tuple[Any, Any]]] = {}
 
 #: Build-relative ``config.yml`` documents a cell's build gains over the count
 #: its freeze recorded, keyed by cell directory — the completeness twin of

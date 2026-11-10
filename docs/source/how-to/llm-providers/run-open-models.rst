@@ -3,9 +3,10 @@
 Run Open & Local Models
 =======================
 
-OSPREY runs Claude Code as its agent harness, and the model behind it is a
-configuration choice. This guide covers running the OSPREY agent on
-**open-weight and locally hostable models**.
+Use this guide to run the OSPREY agent on **open-weight and locally hostable
+models**. It shows how to route such a model, which open models are known to
+work, and how to benchmark one yourself. OSPREY runs Claude Code as its agent
+harness, and the model behind it is a configuration choice.
 
 Two independent axes
 --------------------
@@ -26,13 +27,13 @@ local ``Anthropic ↔ OpenAI`` translation proxy it starts for any OpenAI-protoc
 provider. How that translation works, and the routing every provider follows
 (:ref:`diagram <provider-routing-diagram>`), are in :doc:`configure-providers`.
 
-One nuance for CBORG: the built-in ``cborg`` provider uses CBORG's
-Anthropic-compatible endpoint, which serves the **Claude** models — those go
-direct, with no proxy. CBORG's *open* models live on its OpenAI-compatible side,
-so to run one you add your own provider entry pointing there. It then goes
-through the translation proxy like any other OpenAI endpoint:
+CBORG needs one extra step. The built-in ``cborg`` provider uses CBORG's
+Anthropic-compatible endpoint, which serves the **Claude** models. Those go
+direct, with no proxy. CBORG's *open* models live on its OpenAI-compatible
+side. To run one, add your own provider entry that points there; it then goes
+through the translation proxy like any other OpenAI endpoint.
 
-In ``providers.yml``, beside the deployment's ``profile.yml``:
+Add the entry in ``providers.yml``, beside the deployment's ``profile.yml``:
 
 .. code-block:: yaml
 
@@ -54,10 +55,10 @@ The entry names ``gpt-oss-120b`` as its default, so the profile needs no
 ``model:``. The provider serves no Claude models, so the build prints one line
 saying Claude Code's haiku, sonnet and opus aliases point at ``gpt-oss-120b``.
 
-A provider you add yourself takes its key from ``<NAME>_API_KEY`` — uppercased,
-dashes to underscores — so ``cborg-open`` reads ``CBORG_OPEN_API_KEY``. Put
-``CBORG_OPEN_API_KEY=<your CBORG key>`` in the repo's ``.env``; the same CBORG
-key serves both entries.
+A provider you add yourself takes its key from ``<NAME>_API_KEY``, with the
+name uppercased and dashes turned to underscores. So ``cborg-open`` reads
+``CBORG_OPEN_API_KEY``. Put ``CBORG_OPEN_API_KEY=<your CBORG key>`` in the
+repo's ``.env``. The same CBORG key serves both entries.
 
 Any model ID from CBORG's catalogue works in the ``models`` list. The provider
 list and the keys behind it are in :doc:`configure-providers`.
@@ -70,12 +71,12 @@ server elsewhere and list its ``--served-model-name`` under the entry's
 Which models are known to work
 ------------------------------
 
-For an agentic system "runs" means sustaining a multi-step tool-calling loop across
-the **full OSPREY end-to-end suite**, not just emitting plausible text. The
-following open families were verified to complete that suite end-to-end:
+These open families were verified to complete the **full OSPREY end-to-end
+suite**. For an agentic system, "runs" means sustaining a multi-step
+tool-calling loop across that suite, not just emitting plausible text.
 
 - ``gpt-oss`` (20B and 120B)
-- ``gemma``
+- ``gemma`` (``gemma-4``)
 - ``cborg-coder``
 - ``qwen-3`` / ``qwen-3-coder``
 

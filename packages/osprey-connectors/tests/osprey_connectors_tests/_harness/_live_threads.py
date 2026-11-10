@@ -13,9 +13,9 @@ contract of every such process:
   names each non-daemon thread other than the main thread, with its name and
   Python stack, and each non-daemon ``multiprocessing.active_children()``
   entry, with its name and pid. An idle ``ThreadPoolExecutor`` worker, parked
-  on its empty work queue, is not one the interpreter waits for: its own
-  atexit hook releases it before that join. Such workers are left out of the
-  count and named on one trailing line instead.
+  on its empty work queue, is not one the interpreter should wait for, so its
+  executor is shut down here. Such workers are left out of the count and named
+  on one trailing line, with where and during which test the executor was made.
 * It runs the final garbage collection itself, timed, and names it when it
   takes longer than ``SLOW_CLEANUP_SECONDS``. It collects only what is already
   garbage and leaves the heap as interpreter teardown expects it, so every
@@ -37,22 +37,27 @@ contract of every such process:
 
 ``atexit`` offers no way to list its callbacks, so ``atexit.register`` and
 ``atexit.unregister`` are wrapped when this module is imported: callbacks
-registered earlier are counted, not named.
+registered earlier are counted, not named. ``ThreadPoolExecutor.__init__`` is
+wrapped the same way, so an executor made earlier has no recorded maker.
 
 The stacks come from ``sys._current_frames()`` read under the GIL, so no frame
 can change underneath the walk. ``faulthandler.dump_traceback_later`` walks
 frames without the GIL and is not safe in this suite --
 ``ci_diagnostics.py`` records why.
 
-The report observes and nothing more. It waits at most ``GRACE_SECONDS`` in
-total for threads the interpreter would join anyway, writes each line once,
-never raises, and never kills a thread or process or exits the interpreter.
+The report observes, with one exception: at the end of a process it shuts down
+the idle executors it names. A report made while tests still run leaves them
+alone, because later tests may submit to them. It waits at most
+``GRACE_SECONDS`` in total for threads the interpreter would join anyway, writes
+each line once, never raises, and never kills a thread or process or exits the
+interpreter.
 """
 
 from __future__ import annotations
 
 import atexit
 import concurrent.futures.thread
+import functools
 import gc
 import multiprocessing
 import os
@@ -60,9 +65,11 @@ import sys
 import threading
 import time
 import traceback
+import weakref
 from collections.abc import Callable, Generator
+from concurrent.futures import ThreadPoolExecutor
 from types import FrameType
-from typing import Any, TextIO
+from typing import Any, NamedTuple, TextIO
 
 import pytest
 
@@ -88,9 +95,15 @@ EXIT_BOUND_SECONDS = 10.0
 #: The exit watch's thread name.
 WATCH_THREAD_NAME = "osprey-exit-watch"
 
+#: What the idle line says of an executor the record does not hold.
+_UNKNOWN_ORIGIN = "created before the record started"
+
 #: Every callback registered through ``atexit.register`` since this module was
 #: imported, with the names it is reported by.
 _exit_callbacks: list[tuple[Callable[..., Any], str]] = []
+
+#: Where, and during which test, each live executor was made.
+_executor_origins: weakref.WeakKeyDictionary[ThreadPoolExecutor, str] = weakref.WeakKeyDictionary()
 
 
 def _callback_name(func: Callable[..., Any]) -> str:
@@ -115,6 +128,22 @@ _original_unregister = atexit.unregister
 atexit.register = _recording_register
 atexit.unregister = _recording_unregister
 
+_original_executor_init = ThreadPoolExecutor.__init__
+
+
+@functools.wraps(_original_executor_init)
+def _recording_executor_init(self: ThreadPoolExecutor, *args: Any, **kwargs: Any) -> None:
+    _original_executor_init(self, *args, **kwargs)
+    caller = sys._getframe(1)
+    origin = f"created at {caller.f_code.co_filename}:{caller.f_lineno}"
+    current = os.environ.get("PYTEST_CURRENT_TEST")
+    if current is not None:
+        origin += f" during {current.rpartition(' (')[0]}"
+    _executor_origins[self] = origin
+
+
+ThreadPoolExecutor.__init__ = _recording_executor_init  # type: ignore[method-assign]
+
 
 def registered_exit_callbacks() -> list[str]:
     """Every exit callback registered since this module was imported, oldest first.
@@ -137,18 +166,48 @@ def registered_exit_callbacks() -> list[str]:
 _EXECUTOR_WORKER_CODE = concurrent.futures.thread._worker.__code__
 
 
-def _idle_executor_worker(thread: threading.Thread, frames: dict[int, FrameType]) -> bool:
-    """Whether *thread* is an executor worker parked on an empty work queue."""
+class _IdleWorker(NamedTuple):
+    """An executor worker parked on its empty queue; ``executor`` is ``None`` once collected."""
+
+    thread: threading.Thread
+    executor: ThreadPoolExecutor | None
+    work_queue: Any
+
+
+def _idle_worker(thread: threading.Thread, frames: dict[int, FrameType]) -> _IdleWorker | None:
+    """*thread* as an idle worker, or ``None`` when it is not one."""
     frame = frames.get(thread.ident) if thread.ident is not None else None
     if frame is None or frame.f_code is not _EXECUTOR_WORKER_CODE:
-        return False
+        return None
     try:
-        return bool(frame.f_locals["work_queue"].empty())
+        work_queue = frame.f_locals["work_queue"]
+        if not work_queue.empty():
+            return None
+        return _IdleWorker(thread, frame.f_locals["executor_reference"](), work_queue)
     except (KeyError, AttributeError):
-        return False
+        return None
 
 
-def _lingering_threads(grace: float) -> tuple[list[threading.Thread], list[threading.Thread]]:
+def _idle_executor_worker(thread: threading.Thread, frames: dict[int, FrameType]) -> bool:
+    """Whether *thread* is an executor worker parked on an empty work queue."""
+    return _idle_worker(thread, frames) is not None
+
+
+def _shut_down(worker: _IdleWorker) -> None:
+    """Let *worker* leave its loop, through its executor while that still exists."""
+    if worker.executor is None:
+        worker.work_queue.put(None)
+    else:
+        worker.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def _named(worker: _IdleWorker) -> str:
+    """*worker*'s name and where its executor came from, as the idle line says them."""
+    origin = None if worker.executor is None else _executor_origins.get(worker.executor)
+    return f"{worker.thread.name} ({origin or _UNKNOWN_ORIGIN})"
+
+
+def _lingering_threads(grace: float) -> tuple[list[threading.Thread], list[_IdleWorker]]:
     """The threads the interpreter will wait for, and the idle executor workers.
 
     Idle workers are set aside before the grace join: they never finish on
@@ -159,8 +218,9 @@ def _lingering_threads(grace: float) -> tuple[list[threading.Thread], list[threa
         t for t in threading.enumerate() if t is not main and not t.daemon and t.is_alive()
     ]
     frames = sys._current_frames()
-    idle = [t for t in candidates if _idle_executor_worker(t, frames)]
-    threads = [t for t in candidates if t not in idle]
+    idle = [w for w in (_idle_worker(t, frames) for t in candidates) if w is not None]
+    parked = {w.thread for w in idle}
+    threads = [t for t in candidates if t not in parked]
     deadline = time.monotonic() + grace
     for thread in threads:
         remaining = deadline - time.monotonic()
@@ -183,13 +243,18 @@ def _write(stream: TextIO, text: str) -> None:
             pass
 
 
-def report_live_threads(stream: TextIO, grace: float = GRACE_SECONDS) -> int:
+def report_live_threads(
+    stream: TextIO, grace: float = GRACE_SECONDS, *, shut_down_idle: bool = False
+) -> int:
     """Write every non-daemon thread and child process still running to *stream*.
 
     Args:
         stream: Where the report goes; nothing is written when nothing is left.
         grace: Seconds, shared by all threads, to wait for threads that are
             already finishing before they count.
+        shut_down_idle: Shut down each idle worker's executor. Only the end of
+            a process asks for it: a report made while tests still run would
+            take a shared executor away from the tests after it.
 
     Returns:
         The number of threads and processes reported; idle executor workers
@@ -219,11 +284,12 @@ def report_live_threads(stream: TextIO, grace: float = GRACE_SECONDS) -> int:
             for child in children:
                 lines.append(f"--- child process '{child.name}' (pid {child.pid}) ---\n")
         if idle:
-            names = ", ".join(t.name for t in idle)
-            lines.append(
-                f"[{worker}] {len(idle)} idle executor worker(s) not counted; "
-                f"the interpreter releases them at exit: {names}\n"
-            )
+            if shut_down_idle:
+                for parked in idle:
+                    _shut_down(parked)
+            state = "shut down, not counted" if shut_down_idle else "not counted"
+            names = ", ".join(_named(parked) for parked in idle)
+            lines.append(f"[{worker}] {len(idle)} idle executor worker(s) {state}: {names}\n")
         if not lines:
             return 0
         stream.write("".join(lines))
@@ -345,7 +411,7 @@ def pytest_unconfigure() -> Generator[None, None, None]:
     try:
         return (yield)
     finally:
-        report_live_threads(sys.stderr)
+        report_live_threads(sys.stderr, shut_down_idle=True)
         final_collection(sys.stderr)
         try:
             if _in_worker():

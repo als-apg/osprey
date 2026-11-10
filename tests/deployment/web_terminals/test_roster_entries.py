@@ -18,10 +18,10 @@ import pytest
 
 from osprey.deployment.web_terminals import roster
 from osprey.deployment.web_terminals.roster import (
-    app_titles_in,
     authored_people,
     freeze_user_indices,
     is_app_entry,
+    login_titles_in,
     normalize_users,
     roster_entries,
     roster_people,
@@ -53,7 +53,7 @@ def _subtree(**extra: Any) -> dict[str, Any]:
 
 def test_people_are_byte_identical_to_normalize_users() -> None:
     subtree = _subtree(shared=["logbook", "knowledge"])
-    entries = roster_entries(subtree, app_titles=TITLES)
+    entries = roster_entries(subtree, shared_titles=TITLES)
     people = [entry for entry in entries if not is_app_entry(entry)]
     assert people == normalize_users(PEOPLE)
     # No marker is added to a person: a roster without `shared:` reads exactly
@@ -66,7 +66,7 @@ def test_roster_without_shared_is_the_people_list() -> None:
 
 
 def test_people_come_first_in_roster_order() -> None:
-    entries = roster_entries(_subtree(shared=["logbook"]), app_titles=TITLES)
+    entries = roster_entries(_subtree(shared=["logbook"]), shared_titles=TITLES)
     assert [entry["name"] for entry in entries] == ["alice", "bob", "carol", "logbook"]
 
 
@@ -75,7 +75,7 @@ def test_people_come_first_in_roster_order() -> None:
 
 def test_each_shared_name_derives_one_app_entry() -> None:
     subtree = _subtree(shared=["logbook", "knowledge", "channel-finder"])
-    apps = [entry for entry in roster_entries(subtree, app_titles=TITLES) if is_app_entry(entry)]
+    apps = [entry for entry in roster_entries(subtree, shared_titles=TITLES) if is_app_entry(entry)]
     assert apps == [
         {
             "kind": "app",
@@ -105,13 +105,13 @@ def test_each_shared_name_derives_one_app_entry() -> None:
 
 
 def test_slot_follows_position_in_shared() -> None:
-    entries = roster_entries(_subtree(shared=["knowledge", "logbook"]), app_titles=TITLES)
+    entries = roster_entries(_subtree(shared=["knowledge", "logbook"]), shared_titles=TITLES)
     slots = {entry["name"]: entry["index"] for entry in entries if is_app_entry(entry)}
     assert slots == {"knowledge": INDEX_MAX, "logbook": INDEX_MAX - 1}
 
 
 def test_app_entry_is_shared_with_the_whole_roster() -> None:
-    entries = roster_entries(_subtree(shared=["logbook"]), app_titles=TITLES)
+    entries = roster_entries(_subtree(shared=["logbook"]), shared_titles=TITLES)
     (app,) = [entry for entry in entries if is_app_entry(entry)]
     assert roster.entry_is_shared(app)
     assert roster.access_wire_value(roster.resolve_access_principals(app)) == "any"
@@ -124,13 +124,13 @@ def test_title_falls_back_to_the_app_name() -> None:
 
 
 def test_blank_title_falls_back_to_the_app_name() -> None:
-    entries = roster_entries(_subtree(shared=["logbook"]), app_titles={"logbook": ""})
+    entries = roster_entries(_subtree(shared=["logbook"]), shared_titles={"logbook": ""})
     (app,) = [entry for entry in entries if is_app_entry(entry)]
     assert app["display_name"] == "logbook"
 
 
 def test_unreadable_shared_items_are_skipped_without_moving_slots() -> None:
-    entries = roster_entries(_subtree(shared=[42, "", "knowledge"]), app_titles=TITLES)
+    entries = roster_entries(_subtree(shared=[42, "", "knowledge"]), shared_titles=TITLES)
     apps = [entry for entry in entries if is_app_entry(entry)]
     assert [(entry["name"], entry["index"]) for entry in apps] == [("knowledge", INDEX_MAX - 2)]
 
@@ -146,7 +146,7 @@ def test_absent_subtree_has_no_roster(subtree: Any) -> None:
 
 
 def test_apps_are_listed_even_without_people() -> None:
-    entries = roster_entries({"shared": ["logbook"]}, app_titles=TITLES)
+    entries = roster_entries({"shared": ["logbook"]}, shared_titles=TITLES)
     assert [entry["name"] for entry in entries] == ["logbook"]
 
 
@@ -202,30 +202,31 @@ def test_bare_list_drift_warning_reads_people_only() -> None:
     assert _codes(bare) == _codes({**bare, "shared": ["logbook", "knowledge"]})
 
 
-# ── App titles from the repo's apps/ ─────────────────────────────────────────
+# ── Shared-card titles from the repo's tiers/ ────────────────────────────────
 
 
-def test_app_titles_in_reads_each_app_files_name(tmp_path: Path) -> None:
-    apps = tmp_path / "apps"
+def test_login_titles_in_reads_each_login_files_name(tmp_path: Path) -> None:
+    apps = tmp_path / "tiers"
     apps.mkdir()
     (apps / "logbook.yml").write_text("# comment\nname: Logbook Research\n", encoding="utf-8")
     (apps / "knowledge.yml").write_text("name: Facility Knowledge\n", encoding="utf-8")
     (apps / "untitled.yml").write_text("claude_md_template: x.j2\n", encoding="utf-8")
     (apps / "broken.yml").write_text("name: [unterminated\n", encoding="utf-8")
     (apps / "notes.txt").write_text("name: ignored\n", encoding="utf-8")
-    assert app_titles_in(apps) == {
+    assert login_titles_in(apps) == {
         "logbook": "Logbook Research",
         "knowledge": "Facility Knowledge",
     }
 
 
-def test_app_titles_in_a_missing_directory_is_empty(tmp_path: Path) -> None:
-    assert app_titles_in(tmp_path / "apps") == {}
+def test_login_titles_in_a_missing_directory_is_empty(tmp_path: Path) -> None:
+    assert login_titles_in(tmp_path / "tiers") == {}
 
 
-def test_bundled_app_presets_carry_their_titles() -> None:
-    bundled = REPO_ROOT / "src" / "osprey" / "profiles" / "presets" / "apps"
-    assert app_titles_in(bundled) == TITLES
+def test_bundled_shared_logins_carry_their_titles() -> None:
+    bundled = REPO_ROOT / "src" / "osprey" / "profiles" / "presets" / "tiers"
+    titles = login_titles_in(bundled)
+    assert {name: titles[name] for name in TITLES} == TITLES
 
 
 # ── Readers that must see the app cards ──────────────────────────────────────

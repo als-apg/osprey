@@ -171,14 +171,8 @@ Switching confirmation off
 ``confirm`` is a per-channel boolean in the limits database, sitting beside
 ``writable``, which every entry states:
 
-.. code-block:: json
-
-   {
-     "SHUTTER:OPEN_CMD": {
-       "writable": true,
-       "confirm": false
-     }
-   }
+.. literalinclude:: examples/limits-confirm-off.json
+   :language: json
 
 A channel's own entry decides; an entry that does not state ``confirm``, or a
 channel with no entry, has confirmation on. The database holds no ``defaults``

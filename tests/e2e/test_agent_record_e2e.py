@@ -335,22 +335,58 @@ class Replay:
     large: dict[str, dict[str, Any]]
 
 
-def _replay_fixtures(project_dir: Path) -> Replay:
-    """Copy every captured fixture's transcripts into *project_dir*.
+def _line_time(line: bytes) -> str | None:
+    value = json.loads(line).get("timestamp")
+    return value if isinstance(value, str) else None
 
-    Each replayed session's expected keys, and its oversized bodies, are what
-    the record's own parser derives from every line of the session's main and
-    subagent files.
+
+def _fixture_times_moved(data: bytes, shift: timedelta) -> bytes:
+    """*data* with each line's ``timestamp`` moved by *shift*, every other byte kept.
+
+    A captured session is days old, and the record skips a line older than its
+    retention; replayed as it was captured, a fixture would age out of the record.
+    """
+    out: list[bytes] = []
+    for line in data.splitlines(keepends=True):
+        stamp = _line_time(line) if line.strip() else None
+        if stamp is not None:
+            moved = datetime.fromisoformat(stamp) + shift
+            new = moved.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+            line = line.replace(f'"timestamp":"{stamp}"'.encode(), f'"timestamp":"{new}"'.encode())
+        out.append(line)
+    return b"".join(out)
+
+
+def _replay_fixtures(project_dir: Path) -> Replay:
+    """Copy every captured fixture's transcripts into *project_dir*, their lines made recent.
+
+    Every line time moves by one shift, which puts the newest captured line at
+    now and keeps each line's distance to the others. Each replayed session's
+    expected keys, and its oversized bodies, are what the record's own parser
+    derives from every line of the session's main and subagent files as replayed.
     """
     sessions: dict[str, set[str]] = {}
     large: dict[str, dict[str, Any]] = {}
-    for fixture in _fixture_dirs():
+    fixtures = _fixture_dirs()
+    stamps = [
+        datetime.fromisoformat(stamp)
+        for fixture in fixtures
+        for path in (fixture / "transcripts").rglob("*.jsonl")
+        for line in path.read_bytes().splitlines()
+        if line.strip() and (stamp := _line_time(line)) is not None
+    ]
+    assert stamps, f"no captured fixture line carries a timestamp under {FIXTURE_ROOT}"
+    shift = datetime.now(UTC) - max(stamps)
+    for fixture in fixtures:
         shutil.copytree(fixture / "transcripts", project_dir, dirs_exist_ok=True)
         for path in sorted((fixture / "transcripts").rglob("*.jsonl")):
+            target = project_dir / path.relative_to(fixture / "transcripts")
+            replayed = _fixture_times_moved(path.read_bytes(), shift)
+            target.write_bytes(replayed)
             relpath = f"{project_dir.name}/{path.relative_to(fixture / 'transcripts').as_posix()}"
             entries = [
                 entry
-                for line in path.read_bytes().splitlines()
+                for line in replayed.splitlines()
                 for entry in parse_line(HOST_IDENTITY, relpath, line)
             ]
             session = path.stem if path.parent == fixture / "transcripts" else path.parts[-3]
