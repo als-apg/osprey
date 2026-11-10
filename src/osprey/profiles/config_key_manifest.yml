@@ -3137,11 +3137,11 @@ keys:
   # ── Health suite ────────────────────────────────────────────────────
   # The `health:` section is unset in all five templates — the built-in checks
   # have usable defaults, so a facility writes a block only to ADD its own
-  # checks or retune the timing. Only the three sub-blocks the configuration
-  # reference names as dotted paths (`categories`, `auto`, `disk`) are carried
-  # here; the scalar suite settings
-  # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`) are documented as
-  # bare leaf names and read straight off the same mapping.
+  # checks or retune the timing. The keys carried here are the ones the
+  # configuration reference names as dotted paths: the sub-blocks
+  # (`categories`, `auto`, `disk`) and the scalar suite settings
+  # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`), all read off the
+  # same mapping.
   health.categories:
     rendered: false
     evidence: 'categories_raw = health\.get\("categories"\) or \{\}'
