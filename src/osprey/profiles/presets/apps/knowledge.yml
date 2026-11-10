@@ -88,6 +88,8 @@ config:
   claude_code.servers.health.enabled: false
   # The logbook is the `logbook` app's.
   claude_code.servers.ariel.enabled: false
+  # Channel records and alarms are the `channel-finder` app's.
+  claude_code.servers.pv-directory.enabled: false
   # Kept on: `osprey_workspace` (the Workspace tab), `osprey_facility_knowledge`
   # (the bundle), `channel-finder` and `graph` (the store both read). The event
   # dispatcher renders only with the EVENTS panel, which no app carries.

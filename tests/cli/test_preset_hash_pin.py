@@ -43,8 +43,8 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "apps/channel-finder": (
         "sha256:2e35415afcd9927741408391f7f40a2fe2635f3c39c193463e4c2998d9ab0094"
     ),
-    "apps/knowledge": ("sha256:ff403d3df3b38db9d6cc27c34d5d8b4180120d63d5f70c690da1e569ac3a47b5"),
-    "apps/logbook": ("sha256:f6820d02f5bb2b2afbaee291a243718b7aa8218bbfc9a0b810438e435e1e4932"),
+    "apps/knowledge": ("sha256:b0654d8a71a0689cee5330de5cff4d86c50a38288f08c46a01f7560669c3d8da"),
+    "apps/logbook": ("sha256:4aeca0c3ef9a4449cd4adfebdcd77f9f2b6657942ee7585c1f2e72ce707a72d7"),
 }
 
 
