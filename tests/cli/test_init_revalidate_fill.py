@@ -194,6 +194,20 @@ def _to_old_shape(
     return removed
 
 
+def _as_older_repo(repo: Path) -> None:
+    """Make *repo* one an earlier OSPREY wrote: no saved copy, and presets moved on since.
+
+    Such a repo has no record of what its preset said, so ``--revalidate``
+    fills it the old way, once: everything the preset has and it lacks.
+    """
+    shutil.rmtree(repo / ".osprey", ignore_errors=True)
+    profile = repo / "profile.yml"
+    text = profile.read_text(encoding="utf-8")
+    for key in ("preset_hash", "providers_hash"):
+        text = text.replace(f"  {key}: sha256:", f"  {key}: sha256:01d", 1)
+    profile.write_text(text, encoding="utf-8")
+
+
 def _without_top_level_block(text: str, key: str) -> str:
     """Drop the top-level ``key:`` block — the shape a profile predating it has."""
     out: list[str] = []
@@ -513,6 +527,7 @@ def test_a_nested_preset_branch_fills_its_leaves(runner: CliRunner, tmp_path: Pa
         encoding="utf-8",
     )
     dropped = _drop_nested_leaf(profile)
+    _as_older_repo(repo)
 
     assert _revalidate(runner, repo).exit_code == 0
 
@@ -709,6 +724,7 @@ def test_providers_refreshes_packaged_entries_and_keeps_yours_on_every_run(
     _init(runner, repo, "hello-world")
     catalog = repo / PROVIDERS_FILENAME
     catalog.write_text("providers:\n" + SITE_GATEWAY, encoding="utf-8")
+    _as_older_repo(repo)
 
     for _ in range(2):
         result = _revalidate(runner, repo)
@@ -734,6 +750,7 @@ def test_providers_refresh_is_in_the_diff_and_restamps_the_hash(
     profile = repo / "profile.yml"
     catalog = repo / PROVIDERS_FILENAME
     catalog.write_text("providers:\n" + SITE_GATEWAY, encoding="utf-8")
+    _as_older_repo(repo)
 
     result = _revalidate(runner, repo)
     assert result.exit_code == 0, result.output
@@ -819,6 +836,7 @@ def test_a_deploy_block_keeps_image_source_out_of_the_config_block(
     text += "deploy:\n  ci: gitlab\n  image_source: local\n  host:\n    name: demo-deploy\n"
     text += "    user: osprey\n    project_path: /opt/demo\n"
     profile.write_text(text, encoding="utf-8")
+    _as_older_repo(repo)
 
     result = _revalidate(runner, repo)
     assert result.exit_code == 0, result.output
@@ -926,6 +944,7 @@ def test_an_old_demo_profile_without_shared_does_not_gain_it(
     profile = repo / "profile.yml"
     _edit_round_trip(profile, lambda doc: doc["config"]["modules.web_terminals"].pop("shared"))
     assert "shared" not in _profile_data(profile)["config"]["modules.web_terminals"]
+    _as_older_repo(repo)
 
     result = _revalidate(runner, repo)
     assert result.exit_code == 0, result.output

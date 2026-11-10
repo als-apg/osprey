@@ -339,6 +339,8 @@ _RETIRED_PROFILE_SWAPS: tuple[tuple[str, str], ...] = (
         "requires_osprey_version: '>=2026.10.0'\n",
         "requires_osprey_version: '>=2026.9.0'\n",
     ),
+    #: The previous release's preset, which has moved on since.
+    ("  preset_hash: sha256:", "  preset_hash: sha256:01d"),
     (
         "# `osprey init --revalidate` applies what the presets changed since.\n",
         "# `osprey profile expand --providers` refreshes the packaged entries in it.\n",

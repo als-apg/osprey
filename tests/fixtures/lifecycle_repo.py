@@ -2351,7 +2351,7 @@ in `profile.yml`, not the folder name.
 | Generated files | `build/` | no | no, safe to delete |
 | The agent's memory and record | `var/agent_data/`, `var/agent_record/` | no | yes |
 
-In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `watchdogs/`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
+In full, the first row is: `profile.yml`, `providers.yml`, `data/`, `tiers/`, `apps/`, `.osprey/`, `triggers.yml`, `web-terminal-context/`, `.env.example`, `watchdogs/`, `rules/`, `.gitignore`, `.env.shared`, `README.md`, `ci-extra.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`.
 
 `build/` is generated from your settings every time you run `osprey build`.
 Deleting it is always safe: no settings, no keys and no agent memory live there.
