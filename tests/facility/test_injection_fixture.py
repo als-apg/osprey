@@ -69,7 +69,7 @@ def test_the_fixture_states_the_chain_the_task_asks_for() -> None:
 def test_each_channel_carries_its_role_refresh_and_direction(view: SimulatorView) -> None:
     bindings = {b.address: b for b in view.bindings(model=MODEL)}
     assert set(bindings) == set(EXPECTED)
-    found = {a: (b.role, b.refresh, b.direction) for a, b in bindings.items()}
+    found = {a: (b.engine_role, b.refresh, b.direction) for a, b in bindings.items()}
     assert found == EXPECTED
 
 

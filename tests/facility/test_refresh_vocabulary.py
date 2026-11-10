@@ -20,7 +20,7 @@ RECORD: dict[str, Any] = {"address": "SR:DCCT", "direction": "read", "element": 
 
 
 def _description(refresh: Any) -> dict[str, Any]:
-    return {"role": "monitor", "plane": None, "refresh": refresh}
+    return {"engine_role": "monitor", "plane": None, "refresh": refresh}
 
 
 def test_the_vocabulary_is_the_four_words() -> None:

@@ -128,7 +128,7 @@ class TestEntryPoint:
 def test_describe(address: str, role: str, refresh: str):
     record = next(r for r in _wiring() if r["address"] == address)
     description = engine.describe(record)
-    assert description["role"] == role
+    assert description["engine_role"] == role
     assert description["refresh"] == refresh
     assert description["plane"] is None
 

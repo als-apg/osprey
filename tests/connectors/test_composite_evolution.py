@@ -150,7 +150,7 @@ def _timed_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _described(role: str, refresh: str) -> dict[str, Any]:
-    return {"role": role, "plane": None, "refresh": refresh}
+    return {"engine_role": role, "plane": None, "refresh": refresh}
 
 
 def _view(path: Path, *, engine: str = "timed", scenarios: list[dict[str, Any]] | None = None):

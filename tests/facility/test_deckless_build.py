@@ -118,12 +118,12 @@ def test_deckless_engine_model_builds_with_each_setpoint_started(tmp_path: Path)
         assert records[address]["default"] == start, address
         assert "default" in records[address]["provenance"]["defaults"], address
         assert records[address]["direction"] == "write"
-        assert records[address]["role"] == "setpoint"
+        assert records[address]["engine_role"] == "setpoint"
     for address in READINGS:
         assert "default" not in records[address], address
         assert "default" not in records[address]["provenance"]["defaults"], address
         assert records[address]["direction"] == "read"
-        assert records[address]["role"] == "output"
+        assert records[address]["engine_role"] == "output"
     assert records["SRC"]["value_range"] == [0.0, 10.0]
 
 
@@ -222,7 +222,7 @@ def test_wiring_rules_do_not_load_the_lattice_engine(
 
 #: sha256 of the lattice-only tree's facility file, compact sorted-key JSON,
 #: frozen from the build before deckless start values existed.
-LATTICE_ONLY_DIGEST = "5872a35aba3d7c886c63347da2ed5da0bded3c4844c11cd2f2da3dc5e55fce32"
+LATTICE_ONLY_DIGEST = "c90a867bfc937232dc2d02b8ff299b198066037ff0dcab41f087a8a26b13c923"
 
 
 def _lattice_tree() -> dict[str, Any]:

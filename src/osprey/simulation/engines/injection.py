@@ -26,7 +26,7 @@ offset, period and coefficient is facility data; this module names none.
 The module states:
 
 * :func:`locate` and :func:`prepare` -- refusals: there is no deck to read;
-* :func:`describe` -- a record's role and refresh from its ``signal``;
+* :func:`describe` -- a record's engine_role and refresh from its ``signal``;
 * :func:`start_values` -- each setpoint's start value, with no deck;
 * :func:`build` -- the :class:`InjectionModel` serving one model's wiring;
 * :func:`advance`, :func:`client_write`, :func:`next_deadline` and
@@ -197,7 +197,7 @@ def describe(wiring_record: Any) -> Mapping[str, Any]:
     entry = _read(wiring_record)
     role = "setpoint" if entry.signal in _SETPOINTS else "output"
     return {
-        "role": role,
+        "engine_role": role,
         "plane": None,
         "refresh": _REFRESH.get(entry.signal, _EVENT),
         "kind": entry.quantity or entry.signal,
