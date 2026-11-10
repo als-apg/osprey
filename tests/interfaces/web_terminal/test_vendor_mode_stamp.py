@@ -1,8 +1,8 @@
 """The hub page says where its terminal assets come from.
 
 terminal.js reads ``<html data-vendor>`` to pick its boot-failure sentence; the
-attribute is present only in CDN mode, so an offline image's notice names the
-image rather than the CDN.
+attribute is present only in CDN mode, so an offline page's notice names this
+server rather than the CDN.
 """
 
 from __future__ import annotations
