@@ -625,6 +625,8 @@ UNIT_SELECTION = UnitSelection(
         ("tests/e2e", "e2e-tests"),
         ("tests/va/test_apply_fault.py", "live-ca"),
         ("tests/va/test_lume_pva_seam.py", "live-ca"),
+        ("tests/va/test_timed_passes_live.py", "live-ca"),
+        ("tests/va/test_injection_live.py", "live-ca"),
         ("tests/integration/test_build_boot.py", "build-boot-smoke"),
         ("tests/integration/test_preset_static.py", "static-checks"),
         ("tests/integration/test_preset_build.py", "static-checks"),
@@ -1885,6 +1887,8 @@ CHECKS: tuple[Check, ...] = (
         scope=(
             "tests/va/test_apply_fault.py",
             "tests/va/test_lume_pva_seam.py",
+            "tests/va/test_timed_passes_live.py",
+            "tests/va/test_injection_live.py",
             "scripts/va/live_ca/**",
             "src/osprey/services/virtual_accelerator/**",
         ),

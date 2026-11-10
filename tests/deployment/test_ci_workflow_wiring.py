@@ -1265,6 +1265,8 @@ UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
     {
         "tests/va/test_apply_fault.py",
         "tests/va/test_lume_pva_seam.py",
+        "tests/va/test_timed_passes_live.py",
+        "tests/va/test_injection_live.py",
     }
 )
 

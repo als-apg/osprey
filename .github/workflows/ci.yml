@@ -553,7 +553,7 @@ jobs:
     # The cap is the three step caps plus the minutes of setup around them
     # (checkout, uv, the install, the pinned CLI). test_ci_workflow_wiring.py
     # holds the sum, so a step cap raised alone cannot eat the margin.
-    timeout-minutes: 50
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -633,7 +633,7 @@ jobs:
     - name: Run live Channel Access suites in isolation
       # One pytest process per module via the live-CA gate — the same venue
       # rule the local certification uses. --pva asserts pcaspy, p4p and
-      # lume-pva-apg import before pytest runs, because the seam test skips
+      # lume-pva-apg import before pytest runs, because the PVA suites skip
       # whole at import when any is missing. The gate fails unless every module exits
       # 0 with zero skips and at least one pass, which closes the gap the
       # in-sweep venue guard cannot: a skipped live suite fails THIS step even
@@ -642,10 +642,10 @@ jobs:
       # to a timing suite is load that suite would measure.
       #
       # The cap clears the gate's own per-module limit (MODULE_TIMEOUT_S, five
-      # minutes) for both modules, so a module that hangs is ended and named by
-      # the gate before the step cap fires.
+      # minutes) for all four modules, so a module that hangs is ended and
+      # named by the gate before the step cap fires.
       if: matrix.os == 'ubuntu-latest'
-      timeout-minutes: 15
+      timeout-minutes: 25
       run: uv run python scripts/check.py run live-ca
 
   dependency-floor:
