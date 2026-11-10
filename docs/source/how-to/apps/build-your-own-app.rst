@@ -21,11 +21,12 @@ current; use any name of lower-case letters, digits and dashes.
      operator approves
    - Which logins show the app, and which may write with it
    - How to give the agent a skill, and the same reach as the operator
+   - How an app carries a subagent, and which parts an app can leave out
 
    **Prerequisites:** a deployment repository made with ``osprey init``
    (:doc:`/how-to/build-profiles`) that builds and starts; Node and npm on the
    machine where you run ``osprey app check``, for the panel's JavaScript
-   checks and tests. Read :doc:`index` first for what the three parts are.
+   checks and tests. Read :doc:`index` first for what the parts of an app are.
 
 Make it run
 ===========
@@ -132,7 +133,8 @@ preset): the panel shows the readback, and the agent's write tool is denied.
 
 From here the app is ordinary code. The sections below go through the parts
 in the order you will touch them: the manifest, the backend, the tool server,
-the panel and its tests, then writes, logins and skills. Run ``osprey app
+the panel and its tests, then writes, logins, skills and subagents. Run
+``osprey app
 check`` as you go and ``osprey build && osprey up -d`` to see a change in the
 terminal.
 
@@ -145,7 +147,7 @@ copied:
 .. literalinclude:: ../../../../src/osprey/apps/scaffold-app/app.yml
    :language: yaml
 
-Three blocks, one per part:
+Three blocks, one per part the scaffold runs:
 
 ``containers``
    The backend. ``runtime: osprey`` runs the app's Python package on the
@@ -168,6 +170,18 @@ Three blocks, one per part:
    The tool server: the Python module to run beside the agent, the tools that
    only read, and the tools that write under ``approval``. ``errors`` are the
    two sentences the agent sees when the backend does not answer or refuses.
+
+Each block is optional, and so are ``skills`` and ``agents``; an ``app.yml``
+with none of the five is refused. Leave out what the app does not have:
+
+- without ``panel``, the app has no sidebar row;
+- without ``tools``, the agent gets no tools from it;
+- without ``containers``, nothing runs for the app in the deployment. A
+  ``panel`` then has nothing to serve it and is refused, and so is a write
+  tool (an ``approval`` entry), which needs a container with
+  ``drives_target: true``. The tool server of such an app only reads or
+  computes: it keeps nothing between calls and opens no data store of the
+  deployment. Anything that holds state is a backend.
 
 Every key is listed under `Manifest keys`_. Unknown keys are refused, and a
 key that belongs to the container's compose file (``volumes``, ``ports``,
@@ -429,6 +443,79 @@ Then:
 Orbit bump's skill is the worked example (:ref:`how-to-orbit-bump-agent`);
 :doc:`/contributing/agent-skills` gives the format.
 
+.. _how-to-apps-subagents:
+
+Subagents
+=========
+
+A subagent is an agent the main agent hands a task to. It works in its own
+context with its own tool list and returns an answer, so a task that reads a
+lot — a search, a comparison over many records — does not fill the main
+conversation. An app carries its own: list the name under ``agents:`` in
+``app.yml`` and write ``agents/<name>.md`` in the app's directory, one file
+per agent. The build installs it into every login that shows the app.
+
+.. code-block:: markdown
+
+   ---
+   name: trim-history
+   description: Finds and summarises earlier trims of a corrector.
+   tools:
+     - mcp__corrector-trim__list_trims
+     - mcp__corrector-trim__read_trim
+   delegates:
+     - list_trims
+     - read_trim
+   delegation: >-
+     For questions about earlier trims, delegate to trim-history; do not
+     call {delegated_tools} yourself.
+   ---
+
+   You answer questions about earlier trims of one corrector. ...
+
+The frontmatter keys:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Key
+     - Meaning
+   * - ``name``
+     - The agent's name; equals the file name.
+   * - ``description``
+     - What the agent is for; the main agent routes by it.
+   * - ``tools``
+     - The tools the agent may call. Required: an app's agent lists its
+       tools. A tool of the app is written ``mcp__<app>__<tool>`` and must be
+       in the app's ``tools.read`` or ``tools.approval``.
+   * - ``delegation``
+     - The note the main agent's brief carries for this agent: when to hand
+       it a task.
+   * - ``delegates``
+     - Tools of the app the main agent is told to leave to this agent. Their
+       names replace ``{delegated_tools}`` in ``delegation``.
+   * - ``summary``, ``disallowedTools``, ``maxTurns``
+     - Optional, as in any agent file.
+
+The text below the frontmatter is the agent's instructions, copied as written.
+
+Four keys an agent file may carry elsewhere are refused in an app:
+
+- ``model`` — the deployment sets each agent's model
+  (``claude_code.agent_models``);
+- ``hooks`` — an app ships no hook code; it declares facts in ``app.yml`` and
+  OSPREY's hooks act on them;
+- ``mcpServers`` — an app's tools are its ``tools:`` server;
+- ``permissionMode`` — the login's tier and the write switch decide.
+
+A listed agent without its file, an agent name two apps share, and a name of
+one of OSPREY's own agents each fail the build.
+
+An app needs neither a skill nor a subagent. Use a skill when the main agent
+should do the task itself and needs to know how; use a subagent when the task
+is better done out of the main conversation; an app may carry both.
+
 Dependencies
 ============
 
@@ -438,7 +525,7 @@ your app needs under ``dependencies`` — orbit bump adds ``numpy`` — and the
 build installs it with the wheel. A package that would change a version the
 framework pins is refused by ``osprey app check``.
 
-The panel's files and the skill are included in the wheel by the
+The panel's files, the skill and any agent file are included in the wheel by the
 ``force-include`` block, so the installed package carries them; leave that
 block as it is.
 
@@ -458,6 +545,8 @@ Every level refuses unknown keys. Defaults in brackets.
        its tool server's name.
    * - ``summary``
      - One sentence about the app.
+   * - ``containers``
+     - Optional. Required by ``panel`` and by any ``tools.approval`` entry.
    * - ``containers.<key>``
      - One container; the key is its service name. Exactly one of
        ``runtime: osprey`` (the app's package on the project image) or
@@ -517,6 +606,9 @@ Every level refuses unknown keys. Defaults in brackets.
        the CDN).
    * - ``skills``
      - The skills the app carries, each ``skills/<name>/SKILL.md``.
+   * - ``agents``
+     - The subagents the app carries, each ``agents/<name>.md``
+       (`Subagents`_).
 
 The command reference is :ref:`osprey app <cli-osprey-app>`; the SDK's names
 are listed in ``osprey.apps.sdk``.

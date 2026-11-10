@@ -12,23 +12,49 @@ changing OSPREY itself: the app lives in your deployment repository, is built
 and started with the rest of the deployment, and writes to the machine only
 through the same chain as every other write.
 
-An app has three parts, all described by one file, ``apps/<name>/app.yml``:
+An app is made of up to five parts, all described by one file,
+``apps/<name>/app.yml``. None is required by itself; an app has at least one
+and carries only the parts its task needs:
 
 - a **backend container** — a small web service, in Python, that holds the
   app's code and state, reads the machine and writes it;
 - a **panel** — the page the operator opens from the sidebar, served by the
   backend and shown inside the web terminal;
 - a **tool server** — an MCP server that gives the agent tools for the same
-  task, each tool calling the backend.
+  task;
+- **skills** — instructions that tell the agent when and how to use the app;
+- **subagents** — agents of the app's own that the main agent hands a task
+  to, each with the tools it needs.
 
-Panel and tools share one backend, so what the agent computes is what the
-operator sees in the panel, and what the operator sets in the panel is what the
-agent reads back.
+Two parts depend on the backend:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Part
+     - Needs a backend
+   * - Panel
+     - Always: the backend serves the page and holds what it shows.
+   * - Tool server
+     - For a tool that writes to the machine, and for any state the tools
+       keep. A tool server without a backend only reads or computes: it keeps
+       nothing between calls and opens no data store of the deployment.
+   * - Skills, subagents
+     - Never.
+
+So an app can be a skill and a subagent with no code of its own, a set of
+read-only tools, a backend with a panel, or all five. The diagram shows the
+full shape, the one this section builds:
 
 .. raw:: html
    :file: ../../_diagrams/apps.html
 
-``osprey build`` turns ``app.yml`` into the three parts; ``osprey up`` starts
+With a panel and a tool server over one backend, what the agent computes is
+what the operator sees in the panel, and what the operator sets in the panel is
+what the agent reads back.
+
+``osprey build`` turns ``app.yml`` into the parts it lists; ``osprey up`` starts
 them with the rest of the deployment. OSPREY ships one app,
 :doc:`orbit bump <orbit-bump>`, off in the ``demo`` preset, which this section
 uses as its example; ``osprey app new`` copies a minimal scaffold for your own.
@@ -40,6 +66,7 @@ uses as its example; ``osprey app new`` copies a minimal scaffold for your own.
    - What an app looks like to the operator and to the agent
    - When a task is an app, and when it is a skill, a Python run or a
      Bluesky plan instead
+   - Which parts an app can have, and which of them yours needs
    - What you write — one manifest, one Python package, one page — and
      what OSPREY supplies
    - How an app's writes stay inside the login's tier, the write switch and
@@ -94,10 +121,17 @@ and the manifest says which tools only read and which write:
 - a **write tool** is listed under ``approval`` in ``app.yml``, so every call
   meets the tier, the write switch and the approval before the tool runs.
 
-An app can also carry a **skill**: a ``SKILL.md`` that tells the agent when to
+An app can carry a **skill**: a ``SKILL.md`` that tells the agent when to
 use the app and how to read its answers. Orbit bump's skill says, for instance,
 to compute first, show the operator the plan, and only then ask to apply it.
-The build installs the skill into every login that shows the app.
+
+An app can carry a **subagent**: an agent of its own, with its own
+instructions and tool list, that the main agent hands a task to. The main
+agent's brief gets one note per subagent saying when to delegate, and the work
+runs in the subagent's context instead of filling the main one — the right
+shape for a task that reads a lot to answer a little, such as a search.
+
+The build installs skills and subagents into every login that shows the app.
 
 The agent reaches the backend only at the routes the manifest declares, through
 the web terminal, under the login's name — never directly, never as another
@@ -108,9 +142,9 @@ sentence you wrote for that case in ``app.yml`` (``errors.unreachable``,
 When to build an app
 ====================
 
-An app is the right shape when a task needs **its own state and its own view,
-for the operator and the agent alike, the same in every session**. Other
-shapes cover the rest:
+The full shape — backend, panel and tools — is right when a task needs **its
+own state and its own view, for the operator and the agent alike, the same in
+every session**. Other shapes cover the rest:
 
 .. list-table::
    :header-rows: 1
@@ -123,7 +157,8 @@ shapes cover the rest:
        and switch (:doc:`/architecture/python-executor`).
    * - To tell the agent how to do a task with the tools it already has
      - A skill — instructions, no code of your own runs
-       (:doc:`/contributing/agent-skills`).
+       (:doc:`/contributing/agent-skills`). Put it in an app with no other
+       part when it should be switched per login like an app.
    * - A measurement sequence with a queue, a run record and live plots
      - A Bluesky plan (:doc:`/how-to/bluesky/index`).
    * - An existing web page of your facility in the sidebar
@@ -149,7 +184,7 @@ all of it from the scaffold, with your name in place:
 .. code-block:: text
 
    apps/corrector-trim/
-     app.yml                 the manifest: name, container, panel, tools
+     app.yml                 the manifest: name and the parts the app has
      pyproject.toml          the Python package the backend and tools are in
      corrector_trim/
        __init__.py           the app's name and the routes the two sides share
@@ -160,10 +195,16 @@ all of it from the scaffold, with your name in place:
        index.html            the page, using the terminal's design tokens
        panel.js              reads the backend's state and shows it
        panel.css
+     skills/
+       corrector-trim/
+         SKILL.md            the skill: when and how the agent uses the app
      tests/
        panel.test.js         Vitest over the panel
 
-Everything in it is ordinary FastAPI, JavaScript and YAML. What OSPREY
+The scaffold is the full shape with one skill. Delete the parts your app does
+not need, with their blocks in ``app.yml``; add a subagent as one file,
+``agents/<name>.md``. Everything in it is ordinary FastAPI, JavaScript, YAML
+and Markdown. What OSPREY
 supplies, so the app does not have to:
 
 - **the connection to the machine** — the backend asks for a connector and
@@ -178,7 +219,8 @@ supplies, so the app does not have to:
   MCP server with the right name, and the approval card, the stamp and the
   re-check on the tool side come from the manifest's ``approval`` entry;
 - **the build** — the wheel, the image, the container, the port, the config
-  file, the state directory, the skill's installation per login.
+  file, the state directory, the installation of skills and subagents per
+  login.
 
 App code imports OSPREY only through ``osprey.apps.sdk`` (plus
 ``osprey.facility.kinds`` and the public ``osprey_connectors`` modules). Every
@@ -214,7 +256,7 @@ Where to go next
 
 - :doc:`build-your-own-app` — from ``osprey app new`` to a running panel and
   tools on your deployment: the manifest, the backend, the tool server, the
-  panel, writes and approvals, logins and skills.
+  panel, writes and approvals, logins, skills and subagents.
 - :doc:`orbit-bump` — the bundled example, read as an operator, as the agent,
   and as its source.
 - :ref:`osprey app <cli-osprey-app>` — the command reference.
