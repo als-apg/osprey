@@ -124,8 +124,9 @@ def _menu_key(page: Page, target: Locator, *, aria: str | None = None) -> list[s
     expect(menu).to_have_count(1, timeout=5_000)
     if aria is not None:
         expect(menu).to_have_attribute("aria-label", aria)
-    assert page.evaluate("(sel) => document.activeElement?.closest(sel) != null", _MENU), (
-        "focus is not on the menu"
+    # The menu takes the focus once it is drawn: waited on, not read at once.
+    page.wait_for_function(
+        "(sel) => document.activeElement?.closest(sel) != null", arg=_MENU, timeout=5_000
     )
     labels = _labels(menu)
     page.keyboard.press("Escape")
@@ -454,14 +455,12 @@ def test_the_menu_key_opens_the_rail_tile_and_dock_menus(tmp_path, chromium_brow
         labels = _menu_key(page, page.locator(f"{_AGENT_TILE} .agent-bar-new"))
         assert "Close Agent pane" in labels, labels
 
-        # Close every tile: the dock is one empty slot.
+        # Close every tile, one at a time, each close seen before the next: the
+        # dock is one empty slot.
         tiles = page.locator("#dock-root .tile-tab")
-        for _ in range(10):
-            if tiles.count() == 0:
-                break
+        for left in range(tiles.count() - 1, -1, -1):
             tiles.first.locator('.tile-tab-actions button[aria-label^="Close"]').click()
-            page.wait_for_timeout(300)
-        expect(tiles).to_have_count(0, timeout=5_000)
+            expect(tiles).to_have_count(left, timeout=5_000)
         labels = _menu_key(page, page.locator("#dock-root"), aria="Dock")
         assert labels == ["Open panel", "Reset layout"], labels
         assert dock.errors == []
