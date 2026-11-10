@@ -240,7 +240,8 @@ def parse_agent_record_block(
             message. Range and value rules are :func:`agent_record_errors`'.
     """
     # Imported here: compose_generator imports this module at import time.
-    from osprey.deployment.compose_generator import hub_image, resolve_base_registry
+    from osprey.deployment.compose_generator import resolve_base_registry
+    from osprey.deployment.upstream_images import hub_image
 
     if base_registry is None:
         base_registry = resolve_base_registry(raw)

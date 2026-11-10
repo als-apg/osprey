@@ -1402,7 +1402,7 @@ def transcripts_copy_image(env: Mapping[str, str] | None = None, base_registry: 
     not given), when set and not blank, else :data:`TRANSCRIPTS_COPY_IMAGE` on
     *base_registry*, the registry standing in for docker.io (``""`` for none).
     """
-    from osprey.deployment.compose_generator import hub_image
+    from osprey.deployment.upstream_images import hub_image
 
     source = os.environ if env is None else env
     override = (source.get(TRANSCRIPTS_COPY_IMAGE_ENV) or "").strip()

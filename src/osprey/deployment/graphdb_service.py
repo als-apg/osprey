@@ -74,6 +74,7 @@ from typing import Any
 
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, resolve_bind_address
+from osprey.deployment.upstream_images import UPSTREAM_IMAGES
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.utils.config_paths import resolve_render_relative_path
 
@@ -113,18 +114,9 @@ __all__ = [
 #: refusal text, and the registries that key off it cannot drift apart.
 GRAPHDB_SERVICE_NAME = "graphdb"
 
-#: Image the store runs by default, overridable per project.
-#:
-#: Pinned to the 5.26 LTS line rather than tracking a newer Neo4j: neosemantics
-#: (n10s) — the plugin that imports RDF, without which the store has no way to
-#: load the corpus at all — is installed at container start from its plugin
-#: manifest (https://neo4j-labs.github.io/neosemantics/versions.json), and 5.26
-#: is the newest server line that manifest covers; it does so patch-by-patch,
-#: where older lines get at most a single frozen entry. The pin is therefore a
-#: statement about the plugin's release cadence, not about Neo4j's, and it can
-#: move as soon as n10s ships for a newer server. Check the manifest — and the
-#: supported-set pin test beside this module's config tests — before bumping.
-DEFAULT_IMAGE = "neo4j:5.26-community"
+#: Image the store runs by default, overridable per project: the catalogue's
+#: ``graphdb`` entry, which carries why it is pinned where it is.
+DEFAULT_IMAGE = UPSTREAM_IMAGES["graphdb"]
 
 #: Container-internal port the Neo4j image serves bolt on. Fixed by the image,
 #: so it is the same number in every deployment no matter which host port that
