@@ -11,6 +11,8 @@ import { envDetails, storedConfig } from './_fixtures.mjs';
 import {
   CHANGED_NOTICE,
   CONFLICT_NOTICE,
+  OWNER_UNKNOWN_NOTICE,
+  REVIEWED_NOTICE,
   SWITCHED_NOTICE,
   approvalInit,
   authorizationNote,
@@ -112,6 +114,10 @@ describe('rangePercent and variableRows', () => {
     expect(rangePercent(0, 1, 5, 5)).toBeNull();
     expect(rangePercent(null, 1, 0, 1)).toBeNull();
   });
+  test('an inverted window (max below min) has no range %', () => {
+    expect(rangePercent(18, -18, -180, 180)).toBeNull();
+    expect(rangePercent(5, 5, 0, 10)).toBe(0);
+  });
   test('rows carry the resolved bounds, step, max step and range %', () => {
     const rows = variableRows(storedConfig(), envDetails());
     expect(rows[0]).toMatchObject({
@@ -144,7 +150,7 @@ describe('the revision / Start gate', () => {
   test('the first rendering of a draft enables Start with that revision', () => {
     const s = reduceApproval(approvalInit(), draft('r1'));
     expect(s.revision).toBe('r1');
-    expect(startGate(s, created, ready)).toEqual({ enabled: true, reason: null });
+    expect(startGate(s, created, ready)).toEqual({ enabled: true, reason: null, warning: null });
   });
 
   test('the same revision again changes nothing', () => {
@@ -160,6 +166,8 @@ describe('the revision / Start gate', () => {
     s = reduceApproval(s, { type: 'reviewed' });
     expect(startGate(s, created, ready).enabled).toBe(true);
     expect(s.revision).toBe('r2');
+    // The notice keeps its place, so nothing below it (Start) moves.
+    expect(s.notice).toBe(REVIEWED_NOTICE);
   });
 
   test('a 409 holds Start; the refetched revision keeps the conflict notice', () => {
@@ -190,6 +198,7 @@ describe('the revision / Start gate', () => {
     expect(startGate(s, created)).toEqual({
       enabled: false,
       reason: "Direction unverified: the draft's environment is loading.",
+      warning: null,
     });
   });
 
@@ -201,6 +210,55 @@ describe('the revision / Start gate', () => {
     expect(startGate(s, created, { ...ready, starting: true }).enabled).toBe(false);
     const noRev = reduceApproval(approvalInit(), { ...draft('r1'), revision: null });
     expect(startGate(noRev, created, ready).enabled).toBe(false);
+  });
+
+  test.each(['completed', 'error', 'cancelled'])(
+    'an ended (%s) job asks for a new draft',
+    (status) => {
+      const s = reduceApproval(approvalInit(), draft('r1'));
+      expect(startGate(s, { job_id: 'j1', status }, ready).reason).toBe(
+        `This job has ended (${status}). Create a new draft.`
+      );
+    }
+  );
+
+  test('a job under way says so', () => {
+    const s = reduceApproval(approvalInit(), draft('r1'));
+    expect(startGate(s, { job_id: 'j1', status: 'running' }, ready).reason).toBe(
+      'This job is already under way (running); Start is only for a new draft.'
+    );
+  });
+
+  test('a session naming no account warns before Start but does not hold it', () => {
+    const s = reduceApproval(approvalInit(), draft('r1'));
+    expect(startGate(s, created, { ...ready, ownerKnown: false })).toEqual({
+      enabled: true,
+      reason: null,
+      warning: OWNER_UNKNOWN_NOTICE,
+    });
+  });
+
+  test.each([
+    ['a named owner', true],
+    ['an unanswered session read', null],
+  ])('%s neither warns nor holds', (_label, ownerKnown) => {
+    const s = reduceApproval(approvalInit(), draft('r1'));
+    expect(startGate(s, created, { ...ready, ownerKnown })).toEqual({
+      enabled: true,
+      reason: null,
+      warning: null,
+    });
+  });
+
+  test('no owner warning for a readonly draft or a job that is not a draft', () => {
+    const readonly = reduceApproval(approvalInit(), {
+      ...draft('r1'),
+      config: storedConfig({ execution_mode: 'readonly' }),
+    });
+    expect(startGate(readonly, created, { ...ready, ownerKnown: false }).warning).toBeNull();
+    const s = reduceApproval(approvalInit(), draft('r1'));
+    const ended = { job_id: 'j1', status: 'error' };
+    expect(startGate(s, ended, { ...ready, ownerKnown: false }).warning).toBeNull();
   });
 
   test('only the service draft-changed 409 counts as a draft change', () => {

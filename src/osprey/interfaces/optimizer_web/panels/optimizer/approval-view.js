@@ -10,11 +10,19 @@
  * the observable's default (or a direction not yet verified, while the
  * draft's environment loads), an unresolved variable.
  *
+ * Start never moves under the cursor: the review notice keeps its place once
+ * acknowledged (it reads "Reviewed" instead), the review button's slot is
+ * held, invisible, whenever the operator does not need it, and the owner line
+ * (which arrives with `relay/session`, possibly late) sits beside Start in its
+ * row rather than above it. Review only applies
+ * to a CREATED draft; an ended job's card shows neither.
+ *
  * @module approval-view
  */
 
 import { h, fmt, replaceChildren } from './hyperscript.js';
 import {
+  REVIEWED_NOTICE,
   fixedFeatureChannels,
   initialSamples,
   objectiveDirection,
@@ -183,7 +191,9 @@ export function approvalVariables(config, env, readbacks = {}) {
  *   env: EnvironmentDetails|null,
  *   models: ModelFileInfo[]|null,
  *   readbacks?: Record<string, number|null>,
- *   gate: { enabled: boolean, reason: string|null },
+ *   gate: import('./approval-model.js').StartGate,
+ *   status: string|null,
+ *   owner?: string|null,
  *   startError?: string|null,
  * }} view
  * @param {{ onStart: () => void, onReviewed: () => void }} handlers
@@ -201,6 +211,8 @@ export function renderApproval(root, view, handlers) {
     return;
   }
   const config = approval.config;
+  const draft = view.status === 'created';
+  const noticeTone = approval.notice === REVIEWED_NOTICE ? 'banner-ok' : 'banner-warn';
   replaceChildren(
     root,
     h(
@@ -213,8 +225,8 @@ export function renderApproval(root, view, handlers) {
         text: approval.revision ? `revision ${approval.revision.slice(0, 10)}` : 'no revision',
       })
     ),
-    approval.notice
-      ? h('div', { class: 'banner banner-warn', role: 'status', text: approval.notice })
+    draft && approval.notice
+      ? h('div', { class: `banner ${noticeTone}`, role: 'status', text: approval.notice })
       : null,
     approvalFields(config, env, models),
     approvalVariables(config, env, view.readbacks),
@@ -223,14 +235,31 @@ export function renderApproval(root, view, handlers) {
       : null,
     h(
       'div',
-      { class: 'foot-row' },
-      h('span', { class: 'muted', text: gate.reason || 'Start runs exactly what is shown above.' }),
-      approval.needsReview
+      { class: 'foot-row start-row' },
+      // Beside Start, never above it: the session's answer may arrive after
+      // the card is on screen, and the row keeps Start at its top either way.
+      h(
+        'div',
+        { class: 'start-note' },
+        h('span', {
+          class: 'muted',
+          text: gate.reason || 'Start runs exactly what is shown above.',
+        }),
+        gate.warning
+          ? h('span', { class: 'start-owner start-owner-warn', role: 'status', text: gate.warning })
+          : draft && view.owner
+            ? h('span', { class: 'muted start-owner', text: `Starts as ${view.owner}.` })
+            : null
+      ),
+      // The slot is held while unneeded, so Start keeps its place either way.
+      draft
         ? h('button', {
             type: 'button',
-            class: 'osprey-btn',
-            id: 'reviewed-btn',
+            class: approval.needsReview ? 'osprey-btn' : 'osprey-btn slot-reserved',
+            id: approval.needsReview ? 'reviewed-btn' : null,
             text: 'I have reviewed this draft',
+            disabled: !approval.needsReview,
+            'aria-hidden': approval.needsReview ? null : 'true',
             onclick: handlers.onReviewed,
           })
         : null,

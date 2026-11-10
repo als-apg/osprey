@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { cwd } from 'node:process';
 
-import { test, expect, beforeEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, vi } from 'vitest';
 
 import { envDetails, storedConfig } from './_fixtures.mjs';
 import { createApi } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/api-client.js';
@@ -27,6 +27,11 @@ function sidecar() {
     /** Paths whose answer waits until the test resolves the promise. */
     /** @type {Record<string, Promise<void>|undefined>} */
     held: {},
+    /** What `relay/session` answers; unset, it is not routed (the read fails). */
+    /** @type {{ owner: string|null }|undefined} */
+    session: undefined,
+    /** The service's clamp on a created draft's bounds: its ceiling for every max. */
+    clampMax: Infinity,
   };
   /** @type {{ method: string, url: string }[]} */
   const calls = [];
@@ -61,6 +66,31 @@ function sidecar() {
         body: { job_id: startMatch[1], status: 'submitted' },
       };
       return new Response(JSON.stringify(reply.body), { status: reply.status });
+    }
+    if (method === 'GET' && path === '/relay/session' && world.session) {
+      return new Response(JSON.stringify(world.session), { status: 200 });
+    }
+    if (method === 'POST' && path === '/relay/optimizations') {
+      const sent = JSON.parse(String(init?.body));
+      const overrides = Object.fromEntries(
+        Object.entries(sent.variable_overrides).map(([name, o]) => [
+          name,
+          { .../** @type {any} */ (o), max: Math.min(/** @type {any} */ (o).max, world.clampMax) },
+        ])
+      );
+      world.jobs.j2 = {
+        status: 'created',
+        revision: 'rev-j2',
+        config: { ...sent, variable_overrides: overrides },
+      };
+      return new Response(JSON.stringify({ job_id: 'j2', status: 'created' }), { status: 200 });
+    }
+    const putMatch = method === 'PUT' && path.match(/^\/relay\/jobs\/([^/]+)\/config$/);
+    if (putMatch && world.jobs[putMatch[1]]) {
+      world.jobs[putMatch[1]].config = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ job_id: putMatch[1], status: 'created' }), {
+        status: 200,
+      });
     }
     const jobMatch = method === 'GET' && path.match(/^\/jobs\/([^/]+)(\/config)?$/);
     if (jobMatch && jobMatch[1] !== 'current') {
@@ -291,4 +321,127 @@ test("a start the service did not answer in time says so, not 'unreachable'", as
   await vi.waitFor(() =>
     expect(document.querySelector('#approval-card .banner-err')?.textContent).toBe(detail)
   );
+});
+
+test('a session naming no account warns before Start, and Start stays enabled', async () => {
+  const stub = sidecar();
+  stub.world.session = { owner: null };
+  const panel = createPanel({
+    api: createApi({ prefix: '', fetchImpl: stub.fetchImpl }),
+    setTimer: vi.fn(() => 1),
+    clearTimer: vi.fn(),
+  });
+  clearInterval(await panel.boot());
+  const card = () => document.querySelector('#approval-card');
+  await vi.waitFor(() => expect(card()?.textContent).toContain('names no account'));
+  expect(panel.state.ownerKnown).toBe(false);
+  await vi.waitFor(() =>
+    expect(/** @type {HTMLButtonElement} */ (document.querySelector('#start-btn')).disabled).toBe(
+      false
+    )
+  );
+});
+
+test('a named session says whose the run is; a failed session read says nothing', async () => {
+  const named = sidecar();
+  named.world.session = { owner: 'op1' };
+  const panel = createPanel({
+    api: createApi({ prefix: '', fetchImpl: named.fetchImpl }),
+    setTimer: vi.fn(() => 1),
+    clearTimer: vi.fn(),
+  });
+  clearInterval(await panel.boot());
+  await vi.waitFor(() =>
+    expect(document.querySelector('#approval-card .start-owner')?.textContent).toBe(
+      'Starts as op1.'
+    )
+  );
+
+  const { panel: unknown } = await bootPanel();
+  expect(unknown.state.ownerKnown).toBeNull();
+  expect(document.querySelector('#approval-card')?.textContent).not.toContain('names no account');
+});
+
+test('a created draft re-seeds the form from the stored draft and names a clamped bound', async () => {
+  const { world } = await bootPanel();
+  world.clampMax = 10;
+  world.current = 'j2';
+  /** @type {HTMLButtonElement} */ (document.querySelector('#create-draft-btn')).click();
+  const form = () => document.querySelector('#form-card');
+  await vi.waitFor(() =>
+    expect(form()?.textContent).toContain(
+      "Draft created — phase_a max 18 → 10 (adjusted by the service to the environment's range and step)."
+    )
+  );
+  const max = /** @type {HTMLInputElement} */ (form()?.querySelector('[aria-label="phase_a max"]'));
+  expect(max.value).toBe('10');
+});
+
+describe('an update a poll overtakes', () => {
+  /**
+   * Boot, hold the PUT, let `during` change the world and poll, then release.
+   *
+   * @param {(world: any, panel: any) => Promise<void>} during
+   */
+  async function updateWhilePolled(during) {
+    const booted = await bootPanel();
+    const held = gate();
+    booted.world.held['/relay/jobs/j1/config'] = held.promise;
+    const update = () =>
+      /** @type {HTMLButtonElement} */ (document.querySelector('#update-draft-btn'));
+    await vi.waitFor(() => expect(update().disabled).toBe(false));
+    update().click();
+    await vi.waitFor(() =>
+      expect(
+        booted.calls.some((c) => c.method === 'PUT' && c.url === '/relay/jobs/j1/config')
+      ).toBe(true)
+    );
+    await during(booted.world, booted.panel);
+    held.open();
+    return booted;
+  }
+
+  test('the job cleared mid-write: the saved message shows, nothing throws', async () => {
+    const { calls } = await updateWhilePolled(async (world, panel) => {
+      world.current = null;
+      await panel.poller.now();
+      expect(panel.state.job).toBeNull();
+    });
+    const put = calls.findIndex((c) => c.method === 'PUT');
+    await vi.waitFor(() =>
+      expect(document.querySelector('#form-card')?.textContent).toContain('Draft updated.')
+    );
+    // The read-back still names the job written, not whatever the poll left.
+    expect(calls.slice(put).some((c) => c.method === 'GET' && c.url === '/jobs/j1/config')).toBe(
+      true
+    );
+  });
+
+  test("the job switched mid-write: the form is not re-seeded from either draft's read-back", async () => {
+    const { calls, panel } = await updateWhilePolled(async (world, p) => {
+      world.jobs.j3 = {
+        status: 'created',
+        revision: 'rev-j3',
+        config: storedConfig({
+          variable_overrides: {
+            phase_a: { min: -7, max: 7, step_size: 0.5 },
+            sol_b: { min: 2, max: 4, step_size: 0.01 },
+          },
+        }),
+      };
+      world.current = 'j3';
+      await p.poller.now();
+      await vi.waitFor(() => expect(p.state.formJobId).toBe('j3'));
+    });
+    await vi.waitFor(() =>
+      expect(document.querySelector('#form-card')?.textContent).toContain('Draft updated.')
+    );
+    // The read-back is of the draft that was written, and the form stays on j3.
+    expect(calls.some((c) => c.method === 'GET' && c.url === '/jobs/j1/config')).toBe(true);
+    const max = /** @type {HTMLInputElement} */ (
+      document.querySelector('#form-card [aria-label="phase_a max"]')
+    );
+    expect(max.value).toBe('7');
+    expect(panel.state.job.job_id).toBe('j3');
+  });
 });

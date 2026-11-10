@@ -7,4 +7,6 @@ rather than run; a different draft replacing the one on screen, or a draft
 whose environment has not loaded to verify its objective direction, holds
 Start until the operator has looked. The sidecar alone holds `OPTIMIZER_LAUNCH_TOKEN`, and attaches
 it only to start and resume; every write it relays names the operator who made
-it, from the roster secret their terminal presented.
+it, from the roster secret their terminal presented, and the panel warns before
+Start when the session names no account, since the service may then refuse the
+run's writes (`owner_unknown`).

@@ -9,6 +9,8 @@ The router is mounted on a local app with the optimizer faked by
   browser-supplied ``X-Osprey-Owner`` is dropped.
 - **Start binds to the browser's revision**: forwarded verbatim, and a start
   without one is refused 400 before the service is called.
+- **The session route reports only the gate's owner**, behind the gate, and
+  never a browser-supplied one.
 - **Bodies and outcomes pass through verbatim**; an unreachable service is a
   502 and one that does not answer in time a 504.
 """
@@ -24,7 +26,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WebAuthMiddleware
 from osprey.interfaces.optimizer_web import relay
-from osprey.interfaces.web_auth import WebCredentials
+from osprey.interfaces.web_auth import BIND_HOST_ENV, TERMINAL_USER_ENV, WebCredentials
 from osprey.utils.owner_header import OWNER_HEADER
 from tests.interfaces.optimizer_web._relay import (
     OPTIMIZER_URL,
@@ -295,6 +297,57 @@ def test_no_owner_header_when_nothing_stamped_the_connection() -> None:
         client.post("/relay/jobs/job-1/pause", headers={OWNER_HEADER: "bob"})
 
     assert OWNER_HEADER not in seen[0].headers
+
+
+# ---------------------------------------------------------------------------
+# Session: the owner the panel's writes would carry, before Start
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.no_auth_seam
+@pytest.mark.parametrize(
+    ("secret", "owner"),
+    [(_OP1_SECRET, "op1"), (_UNNAMED_SECRET, None), (_OWN_SECRET, None)],
+    ids=["roster-login", "unnamed-roster-secret", "sidecar-deployment-secret"],
+)
+def test_the_session_reports_the_gates_owner_and_ignores_a_forged_header(
+    secret: str, owner: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The sidecar's compose shape: a bind host and no terminal user, so the
+    # deployment-wide secret authorises without naming anyone.
+    monkeypatch.setenv(BIND_HOST_ENV, "0.0.0.0")
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    app, seen, _ = _gated_recording_app()
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/relay/session", headers={OPERATOR_SECRET_HEADER: secret, OWNER_HEADER: "bob"}
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"owner": owner}
+    assert seen == []
+
+
+@pytest.mark.no_auth_seam
+def test_the_session_is_behind_the_gate() -> None:
+    app, seen, _ = _gated_recording_app()
+
+    with TestClient(app) as client:
+        response = client.get("/relay/session", headers={OWNER_HEADER: "bob"})
+
+    assert response.status_code == 401
+    assert "bob" not in response.text
+    assert seen == []
+
+
+def test_the_session_names_nobody_when_nothing_stamped_the_connection() -> None:
+    app, _, _ = recording_app(relay.router)
+
+    with TestClient(app) as client:
+        response = client.get("/relay/session", headers={OWNER_HEADER: "bob"})
+
+    assert response.json() == {"owner": None}
 
 
 # ---------------------------------------------------------------------------

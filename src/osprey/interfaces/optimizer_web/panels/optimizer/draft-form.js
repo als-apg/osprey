@@ -158,7 +158,14 @@ export function renderDraftForm(root, form, ctx, handlers) {
           { class: 'constraint-row' },
           select(
             c.observable,
-            [['', '—'], ...observables.map((o) => /** @type {[string,string]} */ ([o, o]))],
+            [
+              ['', '—'],
+              // The objective is not offered (validation refuses it), unless
+              // this row already names it, so the picker shows what is stored.
+              ...observables
+                .filter((o) => o !== form.objective || o === c.observable)
+                .map((o) => /** @type {[string,string]} */ ([o, o])),
+            ],
             (val) => (c.observable = val),
             { 'aria-label': 'Constraint observable' }
           ),
@@ -239,7 +246,10 @@ export function renderDraftForm(root, form, ctx, handlers) {
               (o) => /** @type {[string,string]} */ ([o, o])
             ),
           ],
-          (val) => (form.objective = val),
+          (val) => {
+            form.objective = val;
+            renderConstraints();
+          },
           { id: 'objective-select' }
         )
       ),

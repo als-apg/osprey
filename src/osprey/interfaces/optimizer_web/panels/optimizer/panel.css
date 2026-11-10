@@ -251,6 +251,35 @@ body {
   flex: 1 1 auto;
 }
 
+/* Holds a button's place while it is not needed, so its neighbours never move. */
+.slot-reserved {
+  visibility: hidden;
+}
+
+/* Approval foot: the note column grows downward beside Start and the buttons
+   never wrap below it, so nothing above Start changes height. */
+.start-row {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.start-note {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.start-row > .osprey-btn {
+  flex: 0 0 auto;
+}
+
+.start-owner-warn {
+  font-size: var(--text-md);
+  color: var(--color-accent-secondary-light);
+}
+
 /* ---- Run ---- */
 
 .progress {

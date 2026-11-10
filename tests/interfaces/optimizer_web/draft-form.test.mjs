@@ -88,6 +88,20 @@ test('a locked form disables both submits and says why', () => {
   expect(root.textContent).toContain('A run is running');
 });
 
+test('the constraint picker does not offer the objective, and follows a new one', () => {
+  const { root } = setup();
+  [...root.querySelectorAll('button')].find((b) => b.textContent === 'Add constraint')?.click();
+  const options = () =>
+    [...root.querySelectorAll('[aria-label="Constraint observable"] option')].map(
+      (o) => /** @type {HTMLOptionElement} */ (o).value
+    );
+  expect(options()).toEqual(['', 'loss', 'plain']);
+  const objective = /** @type {HTMLSelectElement} */ (root.querySelector('#objective-select'));
+  objective.value = 'loss';
+  objective.dispatchEvent(new Event('change'));
+  expect(options()).toEqual(['', 'charge', 'plain']);
+});
+
 test('constraints are added and edited in the state', () => {
   const { root, form } = setup();
   const add = [...root.querySelectorAll('button')].find((b) => b.textContent === 'Add constraint');

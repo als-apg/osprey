@@ -104,4 +104,16 @@ describe('createApi', () => {
     });
     expect(await down.get('service/health')).toMatchObject({ ok: false, status: 0 });
   });
+
+  test.each([
+    [200, { owner: 'op1' }, { owner: 'op1', ownerKnown: true }],
+    [200, { owner: null }, { owner: null, ownerKnown: false }],
+    [404, { detail: 'no route' }, { owner: null, ownerKnown: null }],
+    [200, {}, { owner: null, ownerKnown: null }],
+  ])('session() reads relay/session: %i %j', async (status, body, expected) => {
+    const fetchImpl = vi.fn(async () => respond(status, body));
+    const api = createApi({ prefix: '/panel/optimizer', fetchImpl });
+    expect(await api.session()).toEqual(expected);
+    expect(/** @type {any} */ (fetchImpl.mock.calls[0])[0]).toBe('/panel/optimizer/relay/session');
+  });
 });

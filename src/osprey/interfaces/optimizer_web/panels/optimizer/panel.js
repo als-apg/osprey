@@ -10,7 +10,9 @@
  * sends. The Start button carries the job and revision it was rendered for,
  * and a click refuses when the state has moved on since; it never fetches a
  * revision of its own. The approval card reads the draft's own environment
- * (not the form's pickers) and holds Start until it has.
+ * (not the form's pickers) and holds Start until it has. At load it asks
+ * `relay/session` which account this session's writes carry, and warns
+ * before Start when it names none.
  *
  * No auto-restore anywhere: a cancelled or failed run holds the machine where
  * it is, and restoring is the operator's call (results restore, PR 5).
@@ -20,18 +22,19 @@
 
 import { panelApiPrefix } from '/design-system/js/dom.js';
 import { subscribe } from '/design-system/js/theme-manager.js';
-import { createApi, seg } from './api-client.js';
+import { createApi, readbackValues, saveDraft, seg } from './api-client.js';
 import { createPoller, isActive } from './poller.js';
 import {
   approvalEnvKey,
   approvalInit,
+  emptyApprovalEnv,
   isDraftChangedConflict,
   reduceApproval,
   startGate,
 } from './approval-model.js';
 import { renderApproval } from './approval-view.js';
 import { renderDraftForm } from './draft-form.js';
-import { buildConfig, formFromConfig, formFromEnv } from './draft-model.js';
+import { buildConfig, formFromConfig, formFromEnv, savedMessage } from './draft-model.js';
 import { renderLivePlot, rethemeLivePlot } from './live-plot.js';
 import { renderRunStatus } from './run-view.js';
 import { h, replaceChildren } from './hyperscript.js';
@@ -49,42 +52,6 @@ function byId(doc, id) {
   const node = doc.getElementById(id);
   if (!node) throw new Error(`optimizer panel: missing #${id}`);
   return node;
-}
-
-/**
- * The numeric value of each PVReading in a `GET .../variables` body.
- *
- * @param {Record<string, unknown>|null} readings
- * @returns {Record<string, number|null>}
- */
-function readbackValues(readings) {
-  return Object.fromEntries(
-    Object.entries(readings || {}).map(([name, r]) => {
-      const v = /** @type {any} */ (r)?.value;
-      return [name, typeof v === 'number' && Number.isFinite(v) ? v : null];
-    })
-  );
-}
-
-/**
- * The approval card's own read of the stored draft's environment, keyed by
- * {@link approvalEnvKey} and independent of the form's pickers.
- *
- * @typedef {{
- *   key: string,
- *   details: import('./approval-model.js').EnvironmentDetails|null,
- *   readbacks: Record<string, number|null>,
- *   models: any[]|null,
- *   error: string|null,
- * }} ApprovalEnv
- */
-
-/**
- * @param {string} key
- * @returns {ApprovalEnv}
- */
-function emptyApprovalEnv(key) {
-  return { key, details: null, readbacks: {}, models: null, error: null };
 }
 
 /**
@@ -135,6 +102,9 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
     runKey: '',
     /** The approval card's own read of the draft's environment. */
     approvalEnv: emptyApprovalEnv(''),
+    /** The account `relay/session` named; `ownerKnown` is null until it answers. */
+    owner: /** @type {string|null} */ (null),
+    ownerKnown: /** @type {boolean|null} */ (null),
   };
 
   /** @param {string|null} text */
@@ -265,7 +235,14 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
     void refreshLed();
   }
 
-  /** @param {'create'|'update'} kind */
+  /**
+   * Save the form as a new draft or over the current one, then re-seed the
+   * form from what the service stored. The job and environment are captured
+   * before the write: a poll during it may replace or clear `state.job`, and
+   * the form is re-seeded only while it still belongs to that same draft.
+   *
+   * @param {'create'|'update'} kind
+   */
   async function submitDraft(kind) {
     if (!state.form) return;
     const { config, errors } = buildConfig(state.form, {
@@ -276,16 +253,21 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
       state.formMessage = { tone: 'err', text: errors.join(' ') };
       return renderForm();
     }
-    const res =
-      kind === 'create'
-        ? await api.post('relay/optimizations', config)
-        : await api.put(`relay/jobs/${seg(state.job.job_id)}/config`, config);
-    if (!res.ok) {
-      state.formMessage = { tone: 'err', text: res.error || 'the draft was refused' };
-    } else {
-      const verb = kind === 'create' ? 'created' : 'updated';
-      state.formMessage = { tone: 'ok', text: `Draft ${verb}. Review it, then Start.` };
-      if (kind === 'create' && res.data?.job_id) state.formJobId = res.data.job_id;
+    const env = state.env;
+    const jobId = kind === 'update' ? state.job?.job_id || null : null;
+    try {
+      if (kind === 'update' && !jobId) throw new Error('the draft is gone; nothing was saved');
+      const { error, id, stored } = await saveDraft(api, jobId, config);
+      if (kind === 'create' && id) state.formJobId = id;
+      // Re-seed only while the form still belongs to that draft and environment.
+      const ours = state.env === env && (jobId ? state.job?.job_id : state.formJobId) === id;
+      if (stored && env && ours) state.form = formFromConfig(stored, env);
+      state.formMessage = error ? { tone: 'err', text: error } : savedMessage(kind, config, stored);
+    } catch (err) {
+      state.formMessage = {
+        tone: 'err',
+        text: `Saving failed: ${err instanceof Error ? err.message : String(err)}`,
+      };
     }
     renderForm();
     await poller.now();
@@ -330,10 +312,11 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
     const gate = startGate(state.approval, state.job, {
       starting: state.starting,
       envLoaded: loaded,
+      ownerKnown: state.ownerKnown,
     });
     const failed = !loaded && state.approvalEnv.error && gate.reason?.startsWith('Direction');
     return failed
-      ? { enabled: false, reason: `Direction unverified: ${state.approvalEnv.error}` }
+      ? { ...gate, enabled: false, reason: `Direction unverified: ${state.approvalEnv.error}` }
       : gate;
   }
 
@@ -440,6 +423,8 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
         models: loaded ? state.approvalEnv.models : null,
         readbacks: loaded ? state.approvalEnv.readbacks : {},
         gate: approvalGate(),
+        status: state.job?.status ?? null,
+        owner: state.owner,
         startError: state.startError,
       },
       {
@@ -581,6 +566,8 @@ export function createPanel({ api, doc = document, setTimer, clearTimer }) {
       setChip('connecting', 'connecting…');
       renderForm();
       renderApprovalCard();
+      // Which account this session's writes carry; a failed read leaves it unknown.
+      void api.session().then((owner) => (Object.assign(state, owner), renderApprovalCard()));
       await loadEnvironments();
       void refreshLed();
       poller.start();

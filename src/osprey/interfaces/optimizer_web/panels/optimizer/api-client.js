@@ -90,6 +90,35 @@ export function seg(segment) {
 }
 
 /**
+ * The numeric value of each PVReading in a `GET .../variables` body.
+ *
+ * @param {Record<string, unknown>|null} readings
+ * @returns {Record<string, number|null>}
+ */
+export function readbackValues(readings) {
+  return Object.fromEntries(
+    Object.entries(readings || {}).map(([name, r]) => {
+      const v = /** @type {any} */ (r)?.value;
+      return [name, typeof v === 'number' && Number.isFinite(v) ? v : null];
+    })
+  );
+}
+
+/**
+ * The owner a `relay/session` answer names: `ownerKnown` is `false` when it
+ * named nobody, `null` when the read failed or answered something else.
+ *
+ * @param {{ ok: boolean, data: any }} result
+ * @returns {{ owner: string|null, ownerKnown: boolean|null }}
+ */
+export function sessionOwner(result) {
+  const owner =
+    result.ok && result.data && typeof result.data === 'object' ? result.data.owner : undefined;
+  if (typeof owner === 'string' && owner) return { owner, ownerKnown: true };
+  return { owner: null, ownerKnown: owner === null ? false : null };
+}
+
+/**
  * @param {{ prefix: string, fetchImpl?: typeof fetch }} options
  */
 export function createApi({ prefix, fetchImpl }) {
@@ -153,7 +182,29 @@ export function createApi({ prefix, fetchImpl }) {
      * @param {unknown} body
      */
     put: (path, body) => request('PUT', path, { body }),
+    /** The owner this session's writes carry, as the gate minted it ({@link sessionOwner}). */
+    session: async () => sessionOwner(await request('GET', 'relay/session')),
   };
 }
 
 /** @typedef {ReturnType<typeof createApi>} Api */
+
+/**
+ * Save a draft — over `jobId`, or as a new one when it is null — and read
+ * back what the service stored (it may snap or clamp bounds). The job id is
+ * the caller's, captured before the write, never re-read from shared state.
+ *
+ * @param {Api} api
+ * @param {string|null} jobId
+ * @param {unknown} config
+ * @returns {Promise<{ error: string|null, id: string|null, stored: any }>}
+ */
+export async function saveDraft(api, jobId, config) {
+  const res = jobId
+    ? await api.put(`relay/jobs/${seg(jobId)}/config`, config)
+    : await api.post('relay/optimizations', config);
+  if (!res.ok) return { error: res.error || 'the draft was refused', id: null, stored: null };
+  const id = jobId || res.data?.job_id || null;
+  const back = id ? await api.get(`jobs/${seg(id)}/config`) : null;
+  return { error: null, id, stored: back?.ok ? back.data : null };
+}

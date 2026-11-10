@@ -9,6 +9,8 @@ gate matched, through the service's own allowlist) on every write, and
 resume only. Start forwards nothing but the ``config_revision`` the panel
 rendered the draft under, refused 400 here without one; the sidecar never
 fetches a revision itself, so Start approves what the operator read.
+``GET /relay/session`` reports that same owner to the panel, so it can say
+before Start that a session naming no account may have its run's writes refused.
 """
 
 from __future__ import annotations
@@ -46,6 +48,11 @@ MISSING_REVISION_BODY: dict[str, str] = {
 }
 
 
+def _owner(request: Request) -> str | None:
+    """The account the auth gate matched for this request, or ``None`` when it named nobody."""
+    return owner_from_header(getattr(request.state, OWNER_STATE_KEY, None))
+
+
 async def _forward_write(
     request: Request,
     method: str,
@@ -66,7 +73,7 @@ async def _forward_write(
     headers: dict[str, str] = {}
     if content:
         headers["content-type"] = request.headers.get("content-type", "application/json")
-    owner = owner_from_header(getattr(request.state, OWNER_STATE_KEY, None))
+    owner = _owner(request)
     if owner:
         headers[OWNER_HEADER] = owner
     if arm:
@@ -85,6 +92,16 @@ async def _forward_write(
     except httpx.RequestError as exc:
         return failure_response(exc)
     return relay_response(response)
+
+
+@router.get("/session")
+def session(request: Request) -> dict[str, str | None]:
+    """The owner a write from this session would carry: only what the gate minted.
+
+    Behind the gate like every relay route; an inbound ``X-Osprey-Owner`` is
+    never read. ``{"owner": null}`` means the credential named no account.
+    """
+    return {"owner": _owner(request)}
 
 
 @router.post("/optimizations")

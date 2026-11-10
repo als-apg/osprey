@@ -11,7 +11,12 @@
  * The start gate is a small reducer: the revision Start sends is the one that
  * rendered the approval surface; a different revision, or a different draft
  * replacing one already on screen, re-renders the surface and holds Start
- * until the operator has looked again.
+ * until the operator has looked again. It also warns, without holding, when
+ * the session names no account (`relay/session`): an owner-less start falls
+ * back to the service's own account, unless the service is bound to a
+ * control-context tree (then it is refused `owner_unknown`); even the
+ * fallback is refused when a `login_tiers` map exists that does not list that
+ * account. Either refusal comes before any write.
  *
  * @module approval-model
  */
@@ -147,7 +152,9 @@ export function fixedFeatureChannels(config, models) {
 }
 
 /**
- * The search window's width as a percentage of the variable's safety range.
+ * The search window's width as a percentage of the variable's safety range;
+ * null (rendered "—") when a bound is missing, the range is empty, or the
+ * window is inverted (max below min).
  *
  * @param {number|null|undefined} min
  * @param {number|null|undefined} max
@@ -157,6 +164,7 @@ export function fixedFeatureChannels(config, models) {
  */
 export function rangePercent(min, max, safetyMin, safetyMax) {
   if (min == null || max == null || safetyMin == null || safetyMax == null) return null;
+  if (max < min) return null;
   const span = safetyMax - safetyMin;
   if (!(span > 0) || !Number.isFinite(span)) return null;
   return ((max - min) / span) * 100;
@@ -201,6 +209,27 @@ export function approvalEnvKey(config) {
   return [name, target || '', ...(variables || [])].join('|');
 }
 
+/**
+ * The approval card's own read of the stored draft's environment, keyed by
+ * {@link approvalEnvKey} and independent of the form's pickers.
+ *
+ * @typedef {{
+ *   key: string,
+ *   details: EnvironmentDetails|null,
+ *   readbacks: Record<string, number|null>,
+ *   models: any[]|null,
+ *   error: string|null,
+ * }} ApprovalEnv
+ */
+
+/**
+ * @param {string} key
+ * @returns {ApprovalEnv}
+ */
+export function emptyApprovalEnv(key) {
+  return { key, details: null, readbacks: {}, models: null, error: null };
+}
+
 /* ------------------------------------------------------------------ */
 /* Start gate                                                          */
 /* ------------------------------------------------------------------ */
@@ -232,6 +261,14 @@ export const SWITCHED_NOTICE =
 export const CONFLICT_NOTICE =
   'The draft changed before Start reached the service, so nothing started. ' +
   'It is shown again below; review it before starting.';
+/** Takes the review notice's place once acknowledged, so nothing below it moves. */
+export const REVIEWED_NOTICE = 'Reviewed. Start runs exactly what is shown below.';
+export const OWNER_UNKNOWN_NOTICE =
+  "This session names no account, so the run's writes may be refused (owner_unknown). " +
+  'Open the panel from a roster login.';
+
+/** Statuses a job never leaves (the service's `JobStatus.is_terminal`). */
+export const TERMINAL_STATUSES = Object.freeze(['completed', 'error', 'cancelled']);
 
 /**
  * @param {ApprovalState} state
@@ -263,7 +300,7 @@ export function reduceApproval(state, event) {
         notice: state.notice === CONFLICT_NOTICE ? CONFLICT_NOTICE : CHANGED_NOTICE,
       };
     case 'reviewed':
-      return { ...state, needsReview: false, notice: null };
+      return { ...state, needsReview: false, notice: state.notice ? REVIEWED_NOTICE : null };
     case 'conflict':
       return { ...state, needsReview: true, notice: CONFLICT_NOTICE };
     case 'clear':
@@ -274,31 +311,60 @@ export function reduceApproval(state, event) {
 }
 
 /**
+ * Why a job that is not a CREATED draft cannot be started.
+ *
+ * @param {string} status
+ * @returns {string}
+ */
+function notADraftReason(status) {
+  if (TERMINAL_STATUSES.includes(status)) {
+    return `This job has ended (${status}). Create a new draft.`;
+  }
+  return `This job is already under way (${status}); Start is only for a new draft.`;
+}
+
+/**
+ * @typedef {{ enabled: boolean, reason: string|null, warning: string|null }} StartGate
+ */
+
+/**
  * Whether Start may be clicked now, and why not.
  *
  * `envLoaded` says the draft's own environment has been read, so its
  * direction and per-write limits on the surface are verified, not blank.
+ * `ownerKnown` is what `relay/session` said: `false` when it named no
+ * account, `null` when it has not answered. Only `false` warns, and it never
+ * holds Start: an owner-less start falls back to the service's own account,
+ * unless the service is bound to a control-context tree (then it is refused
+ * `owner_unknown`), and even the fallback is refused when a `login_tiers` map
+ * exists that does not list that account. Any such refusal happens before a
+ * write. A readonly run writes nothing, so it is not warned. The service
+ * stays the authority.
  *
  * @param {ApprovalState} state
  * @param {{ job_id: string, status: string }|null} job
- * @param {{ starting?: boolean, envLoaded?: boolean }} [flags]
- * @returns {{ enabled: boolean, reason: string|null }}
+ * @param {{ starting?: boolean, envLoaded?: boolean, ownerKnown?: boolean|null }} [flags]
+ * @returns {StartGate}
  */
-export function startGate(state, job, { starting = false, envLoaded = false } = {}) {
-  if (!job) return { enabled: false, reason: 'No draft to start.' };
-  if (job.status !== 'created') return { enabled: false, reason: `The job is ${job.status}.` };
-  if (state.jobId !== job.job_id || !state.config) {
-    return { enabled: false, reason: 'The draft is still loading.' };
-  }
-  if (!state.revision) {
-    return { enabled: false, reason: 'The service sent no draft revision; Start cannot name one.' };
-  }
-  if (state.needsReview) return { enabled: false, reason: 'Review the changed draft first.' };
-  if (!envLoaded) {
-    return { enabled: false, reason: "Direction unverified: the draft's environment is loading." };
-  }
-  if (starting) return { enabled: false, reason: 'Starting…' };
-  return { enabled: true, reason: null };
+export function startGate(
+  state,
+  job,
+  { starting = false, envLoaded = false, ownerKnown = null } = {}
+) {
+  const warning =
+    job?.status === 'created' && ownerKnown === false && state.config?.execution_mode !== 'readonly'
+      ? OWNER_UNKNOWN_NOTICE
+      : null;
+  /** @param {string|null} reason */
+  const held = (reason) => ({ enabled: false, reason, warning });
+  if (!job) return held('No draft to start.');
+  if (job.status !== 'created') return held(notADraftReason(job.status));
+  if (state.jobId !== job.job_id || !state.config) return held('The draft is still loading.');
+  if (!state.revision) return held('The service sent no draft revision; Start cannot name one.');
+  if (state.needsReview) return held('Review the changed draft first.');
+  if (!envLoaded) return held("Direction unverified: the draft's environment is loading.");
+  if (starting) return held('Starting…');
+  return { enabled: true, reason: null, warning };
 }
 
 /**

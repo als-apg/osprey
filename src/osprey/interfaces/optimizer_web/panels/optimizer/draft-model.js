@@ -8,6 +8,9 @@
  * own, so fields it does not edit (surrogate model, environment config,
  * execution mode) survive an update untouched.
  *
+ * After a save the form is re-seeded from the STORED draft, and
+ * {@link boundChanges} names every bound the service moved on the way in.
+ *
  * @module draft-model
  */
 
@@ -35,6 +38,8 @@
  *   vars: FormVar[],
  * }} FormState
  */
+
+import { fmt } from './hyperscript.js';
 
 export const ON_COMPLETE_OPTIONS = Object.freeze(['apply_best', 'restore', 'hold']);
 export const DEFAULT_ITERATIONS = 20;
@@ -152,6 +157,8 @@ export function buildConfig(form, { environment, target }) {
   for (const c of form.constraints) {
     if (!c.observable || !c.type || c.value == null || !Number.isFinite(c.value)) {
       errors.push('Each constraint needs an observable, a relation and a threshold.');
+    } else if (c.observable === form.objective) {
+      errors.push(`${c.observable} is the objective; it cannot also be a constraint.`);
     } else if (c.observable in constraints) {
       errors.push(`Only one constraint per observable (${c.observable}).`);
     } else {
@@ -189,6 +196,52 @@ export function buildConfig(form, { environment, target }) {
       model_file: form.modelFile || null,
     },
     errors: [],
+  };
+}
+
+/**
+ * Every tuned bound the stored draft holds at a value other than the one sent,
+ * as `"<name> max 400 → 300"`. The service clamps a window to the
+ * environment's range and snaps it to the variable's step grid
+ * (`safety_min + n*step`), so a stored bound is rarely bit-identical to the
+ * sent one; bounds are compared as the form displays them ({@link fmt}), so
+ * float noise from the snap never reads as a change.
+ *
+ * @param {OptimizationConfig} sent
+ * @param {OptimizationConfig} stored
+ * @returns {string[]}
+ */
+export function boundChanges(sent, stored) {
+  /** @type {string[]} */
+  const changes = [];
+  const kept = stored.variable_overrides || {};
+  for (const [name, asSent] of Object.entries(sent.variable_overrides || {})) {
+    for (const bound of /** @type {const} */ (['min', 'max'])) {
+      const before = asSent[bound];
+      const after = kept[name]?.[bound];
+      if (before != null && after != null && fmt(before) !== fmt(after)) {
+        changes.push(`${name} ${bound} ${fmt(before)} → ${fmt(after)}`);
+      }
+    }
+  }
+  return changes;
+}
+
+/**
+ * The form's message after a save: which bounds the service moved, if any.
+ *
+ * @param {'create'|'update'} kind
+ * @param {OptimizationConfig} sent
+ * @param {OptimizationConfig|null} stored  The stored draft, when it could be read back.
+ * @returns {{ tone: string, text: string }}
+ */
+export function savedMessage(kind, sent, stored) {
+  const verb = kind === 'create' ? 'created' : 'updated';
+  const changes = stored ? boundChanges(sent, stored) : [];
+  if (!changes.length) return { tone: 'ok', text: `Draft ${verb}. Review it, then Start.` };
+  return {
+    tone: 'warn',
+    text: `Draft ${verb} — ${changes.join('; ')} (adjusted by the service to the environment's range and step). Review it, then Start.`,
   };
 }
 

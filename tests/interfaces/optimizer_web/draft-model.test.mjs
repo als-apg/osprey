@@ -8,10 +8,12 @@ import { test, expect, describe } from 'vitest';
 
 import { envDetails, storedConfig } from './_fixtures.mjs';
 import {
+  boundChanges,
   buildConfig,
   formFromConfig,
   formFromEnv,
   parseNumber,
+  savedMessage,
 } from '../../../src/osprey/interfaces/optimizer_web/panels/optimizer/draft-model.js';
 
 const WHERE = { environment: 'injector', target: 'va' };
@@ -98,11 +100,69 @@ describe('formFromConfig → buildConfig', () => {
     ]);
   });
 
+  test('a constraint on the objective is refused', () => {
+    const form = formFromEnv(envDetails());
+    form.constraints.push({ observable: 'charge', type: 'GREATER_THAN', value: 1 });
+    expect(buildConfig(form, WHERE).errors).toContain(
+      'charge is the objective; it cannot also be a constraint.'
+    );
+  });
+
   test('no selected variable is an error, never "all variables"', () => {
     const form = formFromEnv(envDetails());
     for (const v of form.vars) v.include = false;
     expect(buildConfig(form, WHERE).errors).toContain('Select at least one variable.');
   });
+});
+
+test('boundChanges names each bound the stored draft moved, and nothing else', () => {
+  const sent = storedConfig({
+    variable_overrides: {
+      phase_a: { min: -18, max: 400, step_size: 0.5 },
+      sol_b: { min: 0, max: 2, step_size: 0.01 },
+    },
+  });
+  const stored = storedConfig({
+    variable_overrides: {
+      phase_a: { min: -18, max: 180, step_size: 0.5 },
+      sol_b: { min: 0, max: 2, step_size: 0.01 },
+    },
+  });
+  expect(boundChanges(sent, stored)).toEqual(['phase_a max 400 → 180']);
+  expect(boundChanges(stored, stored)).toEqual([]);
+});
+
+test('boundChanges ignores the float noise of the service snapping to its step grid', () => {
+  // The service stores safety_min + n*step: -180 + 1627*0.1 and 0 + 23*0.05.
+  const snappedMin = -180 + 1627 * 0.1;
+  const snappedMax = 23 * 0.05;
+  expect(snappedMin).not.toBe(-17.3);
+  expect(snappedMax).not.toBe(1.15);
+  const sent = storedConfig({
+    variable_overrides: { phase_a: { min: -17.3, max: 1.15, step_size: 0.1 } },
+  });
+  const stored = storedConfig({
+    variable_overrides: { phase_a: { min: snappedMin, max: snappedMax, step_size: 0.1 } },
+  });
+  expect(boundChanges(sent, stored)).toEqual([]);
+  expect(savedMessage('update', sent, stored)).toEqual({
+    tone: 'ok',
+    text: 'Draft updated. Review it, then Start.',
+  });
+});
+
+test('a real snap is named, as the service adjusting the bound, not as a limit', () => {
+  const sent = storedConfig({
+    variable_overrides: { sol_b: { min: 0, max: 0.33, step_size: 0.1 } },
+  });
+  const stored = storedConfig({
+    variable_overrides: { sol_b: { min: 0, max: 3 * 0.1, step_size: 0.1 } },
+  });
+  expect(boundChanges(sent, stored)).toEqual(['sol_b max 0.33 → 0.3']);
+  const msg = savedMessage('create', sent, stored);
+  expect(msg.tone).toBe('warn');
+  expect(msg.text).toContain("adjusted by the service to the environment's range and step");
+  expect(msg.text).not.toContain('environment limit');
 });
 
 test('parseNumber: blank is null, junk is null', () => {
