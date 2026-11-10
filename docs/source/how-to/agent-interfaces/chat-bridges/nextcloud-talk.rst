@@ -46,18 +46,9 @@ Add a ``nextcloud_bridge:`` block to your build profile. Two settings: which
 dispatcher trigger the bridge fires — that trigger decides what the agent is
 allowed to do with a chat question — and whether the agent may @mention people:
 
-.. code-block:: yaml
-
-   nextcloud_bridge:
-     trigger: nextcloud-question    # default; must exist in your triggers file
-     mentions: true                # default; false posts @mentions as plain text
-
-   env:
-     required:
-       - NEXTCLOUD_BASE_URL
-       - NEXTCLOUD_BOT_ACCOUNT
-       - NEXTCLOUD_APP_PASSWORD
-       - NEXTCLOUD_ROOMS
+.. literalinclude:: ../examples/profile-nextcloud-bridge.yml
+   :language: yaml
+   :caption: profile.yml
 
 .. note::
 
@@ -154,6 +145,11 @@ Runtime settings
           follow-up (default 3000). A longer one is sent as its opening, and the
           agent reads the rest only if it needs it. ``0`` always sends every
           answer in full.
+      * - ``GITLAB_URL``, ``GITLAB_PROJECT``, ``GITLAB_ISSUES_TOKEN``
+        - Optional alert host. With ``GITLAB_URL`` and ``GITLAB_ISSUES_TOKEN``
+          set, the bridge holds queued questions while ``GITLAB_PROJECT`` has an
+          open ``osprey-alert`` issue, or while GitLab cannot be reached. Leave
+          them unset to skip the check.
       * - ``DEDUP_PATH``, ``OFFSETS_PATH``
         - Where the bridge keeps what it remembers: the questions it has
           answered and how far it has read in each room. Both default to files
