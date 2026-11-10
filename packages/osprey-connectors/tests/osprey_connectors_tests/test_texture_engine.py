@@ -802,3 +802,64 @@ def test_a_gate_beside_a_linear_seed_scales_the_weighted_sum():
     model.set({_GUN_ON: "FALSE"})
 
     assert model.held(["T:SUM"])["T:SUM"] == pytest.approx(open_sum * 0.5)
+
+
+# --------------------------------------------------------------------------
+# reach: what a write to a settable channel can change
+# --------------------------------------------------------------------------
+
+
+def test_reach_names_every_settable_channel_and_no_other():
+    model = _model()
+
+    assert set(model.reach()) == {
+        address for address, variable in model.supported_variables.items() if not variable.read_only
+    }
+
+
+def test_a_lone_setpoint_reaches_itself_alone():
+    assert _model().reach()["T:LONE:SP"] == {"T:LONE:SP"}
+
+
+def test_a_setpoint_reaches_its_echo_and_the_linear_channels_downstream():
+    variables, seeds = _view()
+    variables["channels"].append(_channel("T:CHAIN"))
+    seeds["seeds"]["T:CHAIN"] = {"linear": {"T:SUM": 0.5}}
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+
+    assert model.reach()["T:HEAT:SP"] == {"T:HEAT:SP", "T:HEAT:RB", "T:SUM", "T:CHAIN"}
+
+
+def test_a_setpoint_reaches_the_gates_its_echo_blocks_and_the_gates_behind_them():
+    reach = _gate_model().reach()
+
+    gated = {_GATED_SUM, _GATED_VALID, _GATED_LAMP, _GATED_COUNT, _CHAINED}
+    assert reach[_PADDLE_SP] == {_PADDLE_SP, _PADDLE_RB} | gated
+    assert reach[_GUN_ON] == {_GUN_ON} | gated
+
+
+def test_a_pulse_driver_and_its_enable_reach_the_waveform():
+    reach = _pulse_model()[0].reach()
+
+    assert reach[_SEK_SP] == {_SEK_SP, _SEK_WAVE}
+    assert reach[_SEK_ON] == {_SEK_ON, _SEK_WAVE}
+
+
+@pytest.mark.parametrize("build", [_view, _gate_view, _pulse_view])
+def test_a_write_changes_no_held_value_outside_its_reach(build):
+    variables, seeds = build()
+    model = TextureModel(variables, seeds, clock=lambda: T0)
+    names = list(model.supported_variables)
+    writes = {"float": 0.5, "bool": None, "int": 1}
+
+    for address, reach in model.reach().items():
+        channel = next(c for c in variables["channels"] if c["address"] == address)
+        value = writes[channel["value_type"]]
+        if value is None:
+            value = "FALSE" if model.held([address])[address] == "TRUE" else "TRUE"
+        before = model.held(names)
+        model.set({address: value})
+        after = model.held(names)
+        changed = {name for name in names if not np.array_equal(before[name], after[name])}
+        assert changed <= reach, address
+        model.reset()

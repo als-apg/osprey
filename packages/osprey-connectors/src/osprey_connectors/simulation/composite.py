@@ -723,6 +723,15 @@ class Composite(LUMEModel):
         self._refresh()
         return self._moving
 
+    def texture_reach(self) -> dict[str, frozenset[str]]:
+        """What a write to each settable texture channel can change, by address.
+
+        The channel, the readback it echoes into, and the texture channels
+        derived from either. No physics model reads a texture channel, so the
+        write changes nothing else.
+        """
+        return self._texture.reach()
+
     def get(self, names: list[str] | str) -> dict[str, Any] | Any:
         """Read channels, each as its variable declares it; a waveform as an array of its shape.
 
