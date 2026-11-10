@@ -35,14 +35,6 @@ _DANGEROUS_CALLS = {
     "compile": "Dynamic code compilation",
 }
 
-# Substring signals that stay substrings: each names a module or a dotted
-# attribute rather than a call, so there is no bare-name call to key on.
-_DANGEROUS_PATTERNS = [
-    ("open(", "File operations - ensure proper handling"),
-    ("subprocess", "Subprocess usage - potential security risk"),
-    ("os.system", "System command execution"),
-]
-
 _PROHIBITED_IMPORTS = ["subprocess", "os.system", "eval", "exec"]
 
 
@@ -64,37 +56,6 @@ def _dangerous_call_issues(code: str) -> list[str]:
         if warning is not None and warning not in found:
             found.append(warning)
     return found
-
-
-def check_security(code: str) -> list[str]:
-    """Check for dangerous code patterns. Returns list of issues."""
-    issues = [f"Security risk: {warning}" for warning in _dangerous_call_issues(code)]
-    for pattern, warning in _DANGEROUS_PATTERNS:
-        if pattern in code:
-            if pattern in ["open(", "subprocess"]:
-                issues.append(f"Warning: {warning}")
-            else:
-                issues.append(f"Security risk: {warning}")
-    return issues
-
-
-def check_imports(code: str) -> list[str]:
-    """Check for prohibited imports via AST. Returns list of issues."""
-    issues: list[str] = []
-    try:
-        tree = ast.parse(code)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                issues.extend(
-                    f"Prohibited import detected: {alias.name}"
-                    for alias in node.names
-                    if alias.name in _PROHIBITED_IMPORTS
-                )
-            elif isinstance(node, ast.ImportFrom) and node.module in _PROHIBITED_IMPORTS:
-                issues.append(f"Prohibited import detected: {node.module}")
-    except SyntaxError:
-        pass  # Syntax errors handled by check_syntax
-    return issues
 
 
 # Control-system client libraries a readonly run may not import. Reads go
@@ -146,17 +107,28 @@ def quick_safety_check(code: str) -> tuple[bool, list[str]]:
     This is the main public API for MCP tools.
     Combines syntax, security, and import checks.
     """
-    all_issues = []
-    all_issues.extend(check_syntax(code))
+    all_issues = check_syntax(code)
 
     # Only run security/import checks if syntax is valid
     if not any("Syntax error" in i for i in all_issues):
-        security_issues = check_security(code)
-        import_issues = check_imports(code)
+        all_issues.extend(f"Security risk: {warning}" for warning in _dangerous_call_issues(code))
+        # A substring, not a call: ``os.system`` names a dotted attribute, so
+        # there is no bare-name call to key on.
+        if "os.system" in code:
+            all_issues.append("Security risk: System command execution")
 
-        # Only block on high-risk patterns (exec/eval/__import__)
-        high_risk = [i for i in security_issues if "Security risk:" in i]
-        all_issues.extend(high_risk)
-        all_issues.extend(import_issues)
+        try:
+            tree = ast.parse(code)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    all_issues.extend(
+                        f"Prohibited import detected: {alias.name}"
+                        for alias in node.names
+                        if alias.name in _PROHIBITED_IMPORTS
+                    )
+                elif isinstance(node, ast.ImportFrom) and node.module in _PROHIBITED_IMPORTS:
+                    all_issues.append(f"Prohibited import detected: {node.module}")
+        except SyntaxError:
+            pass  # Syntax errors handled by check_syntax
 
     return (len(all_issues) == 0, all_issues)
