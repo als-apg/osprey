@@ -356,7 +356,13 @@ uv run python scripts/va/capture_nominals.py --check tests/facility/golden/nomin
 reads, and keep that number from falling. Every `code-block`, `literalinclude`
 and `::` literal block is counted; `scripts/docs/snippet_coverage.yml` is the
 hand-kept ledger of which tests read which pages and languages, and how
-(`runs`, `checks` or `pins`). A claim under `pending:` (a test on an open pull
+(`runs`, `checks`, `pins` or, weakest, `parses`: only the language's parser
+reads the block). A block only a `parses` claim reads counts as tested and is
+also reported as parse-only. Blocks nothing in the repository can read (a
+network install, a host service, a third-party tool, a chat with the model, an
+illustration) are listed under `not_testable:` with a reason and a one-line
+why; they get their own column and the ratchet does not count them. A claim
+under `pending:` (a test on an open pull
 request) counts as soon as its test file is on disk, so the pull requests can
 merge in any order. The default output is a Markdown table, the pages with the
 most untested blocks first, with the line of each untested block; `--page`
@@ -364,7 +370,9 @@ narrows it to one page and lists what tests the rest, and `--json` is for
 scripts. `--check` fails when a page has more untested blocks than
 `snippet_coverage_baseline.json` allows, or fewer (shrink the allowance with
 `--update-baseline`; while a pending claim has landed this is only noted), or when a claim
-names a missing test, a page its test never names, or no block;
+names a missing test, a page its test never names, or no block, or when a
+`not_testable:` entry is stale, lacks a known reason or a why, or names a block
+a real claim reads;
 `tests/docs/test_snippet_coverage.py` runs the same check in CI.
 
 ---
