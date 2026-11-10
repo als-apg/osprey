@@ -4,9 +4,9 @@
 Connect the Agent to Phoebus Displays
 =====================================
 
-How to let the agent open, read and drive the displays of a running Phoebus
-product through the ``phoebus`` MCP server, which is off in every preset until
-a deployment switches it on.
+This page shows you how to let the agent open, read and drive the displays of
+a running Phoebus product. The agent does this through the ``phoebus`` MCP
+server. The server is off in every preset until a deployment switches it on.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -58,8 +58,8 @@ The server has eight tools, one per bridge operation:
      - Clicks an action control or types a value into a text control on a
        display.
 
-The seven tools other than ``phoebus_drive`` read displays or open them and
-run without a prompt. ``phoebus_drive`` is offered only under
+The seven tools other than ``phoebus_drive`` read or open displays, and they
+run without a prompt. The agent is offered ``phoebus_drive`` only under
 ``phoebus.agent_access: read_write``, and then it is always asked.
 
 Before you start
@@ -67,36 +67,46 @@ Before you start
 
 The server talks to the **agent bridge**, an HTTP server that runs inside a
 Phoebus product built with it. By default the bridge listens on
-``http://127.0.0.1:7979``. It has to be reachable from wherever the
-``phoebus`` server runs; this is the check the server's own error message
-suggests:
+``http://127.0.0.1:7979``.
+
+Check that the bridge answers from the host where the ``phoebus`` server runs.
+This is the check the server's own error message suggests:
 
 .. code-block:: bash
 
    curl http://127.0.0.1:7979/displays
 
-A bridge that answers returns a JSON list of the open displays. The bridge's
-port can be changed with the ``org.phoebus.applications.bridge.web/port``
-preference in a Phoebus settings file. When it is, ``phoebus.port`` must be set
-to the same number.
+A bridge that answers returns a JSON list of the open displays.
+
+To move the bridge to another port, set the
+``org.phoebus.applications.bridge.web/port`` preference in a Phoebus settings
+file. Then set ``phoebus.port`` to the same number.
 
 Enable the server
 =================
 
-Switch the server on and name the bridge in the profile's ``config:`` block:
+#. Switch the server on and name the bridge in the profile's ``config:``
+   block:
 
-.. code-block:: yaml
+   .. code-block:: yaml
 
-   config:
-     claude_code.servers.phoebus.enabled: true
-     phoebus.host: 127.0.0.1
-     phoebus.port: 7979
+      config:
+        claude_code.servers.phoebus.enabled: true
+        phoebus.host: 127.0.0.1
+        phoebus.port: 7979
 
-Then run ``osprey build`` and restart the stack. The build writes the
-server's ``PHOEBUS_BRIDGE_URL`` into its entry as
-``${PHOEBUS_BRIDGE_URL:-http://<phoebus.host>:<phoebus.port>}``. A
-``PHOEBUS_BRIDGE_URL`` in the agent's environment therefore wins over both
-keys; without one, the keys decide.
+#. Run ``osprey build``. The build writes the server's ``PHOEBUS_BRIDGE_URL``
+   into its entry as
+   ``${PHOEBUS_BRIDGE_URL:-http://<phoebus.host>:<phoebus.port>}``.
+
+#. Restart the stack.
+
+#. Ask the agent to list the open Phoebus displays. It calls
+   ``phoebus_list_displays``, which lists the same displays as the ``curl``
+   check.
+
+If the agent's environment sets ``PHOEBUS_BRIDGE_URL``, that value wins over
+both keys. Otherwise the keys decide.
 
 Register your panels
 ====================
@@ -109,13 +119,14 @@ Register your panels
    config:
      phoebus.panels.overview: /opt/displays/overview.bob
 
-A value may be an absolute path, a ``file:`` URL, or a path relative to the
-directory of the rendered ``config.yml`` --- the project's ``build/``
-directory, not the profile's. The path is handed to the Phoebus process, so it
-must name a file that process can read. A name that is not registered is
-refused, and the refusal lists the names that are. ``phoebus_panel_lookup``
-answers the other way round: given a display path, it returns the name that
-opens it.
+A value can be an absolute path, a ``file:`` URL, or a relative path. A
+relative path is relative to the directory of the rendered ``config.yml``.
+That is the project's ``build/`` directory, not the profile's. The path is
+handed to the Phoebus process, so it must name a file that process can read.
+
+The server refuses a name that is not registered, and the refusal lists the
+names that are. ``phoebus_panel_lookup`` answers the other way round: given a
+display path, it returns the name that opens it.
 
 The names belong to the deployment. OSPREY ships none.
 
@@ -123,31 +134,32 @@ Several terminals, one Phoebus
 ==============================
 
 Every tool that takes a ``display`` argument defaults to ``"active"``, the
-display that has focus in Phoebus. With several web terminals on one bridge,
-that focus is shared, so two terminals working at once can resolve
-``"active"`` to each other's display.
+display that has focus in Phoebus. Several web terminals on one bridge share
+that focus. Two terminals working at once can then resolve ``"active"`` to
+each other's display. To prevent this, require a handle:
 
 .. code-block:: yaml
 
    config:
      phoebus.require_handle: true
 
-With this key set, ``"active"`` is refused. Callers pass the handle
-``phoebus_open_panel`` returned (``"handle:d-3"``) or an explicit display name
-from ``phoebus_list_displays``. ``PHOEBUS_REQUIRE_HANDLE`` (``1``/``true``/``yes``/``on``
-or ``0``/``false``/``no``/``off``) outranks the key either way.
+With this key set, the server refuses ``"active"``. Callers pass the handle
+that ``phoebus_open_panel`` returned (``"handle:d-3"``), or an explicit display
+name from ``phoebus_list_displays``. The ``PHOEBUS_REQUIRE_HANDLE`` environment
+variable outranks the key either way. It accepts
+``1``/``true``/``yes``/``on`` or ``0``/``false``/``no``/``off``.
 
-A multi-user web-terminal deployment stamps ``PHOEBUS_REQUIRE_HANDLE=1`` on
-every terminal whose project runs a Phoebus server. Elsewhere the switch is off
-by default and is turned on with ``phoebus.require_handle: true`` or
-``PHOEBUS_REQUIRE_HANDLE=1``. ``phoebus.require_handle: false`` keeps
-``"active"`` in a multi-user deployment too.
+A multi-user web-terminal deployment sets ``PHOEBUS_REQUIRE_HANDLE=1`` on every
+terminal whose project runs a Phoebus server. Elsewhere the switch is off by
+default. Turn it on with ``phoebus.require_handle: true`` or
+``PHOEBUS_REQUIRE_HANDLE=1``. To keep ``"active"`` in a multi-user deployment
+too, set ``phoebus.require_handle: false``.
 
 Data Browser plots and snapshots
 ================================
 
-``phoebus_open_databrowser`` writes a ``.plt`` and opens it live. The archiver
-bound into it comes from ``PHOEBUS_ARCHIVER_URL``, else
+``phoebus_open_databrowser`` writes a ``.plt`` and opens it live. The plot's
+archiver comes from ``PHOEBUS_ARCHIVER_URL`` if it is set, otherwise from
 ``phoebus.archiver_url``. With neither set, the plot has no archiver binding
 and shows live values only.
 
@@ -163,8 +175,8 @@ the PNG snapshots. By default they go to ``plots/`` and ``screenshots/`` under
 A second Phoebus
 ================
 
-A second instance of the server is declared with ``extends`` and given its own
-bridge URL in its ``env:``. ``phoebus2`` is only an example name:
+To add a second instance of the server, declare it with ``extends`` and give
+it its own bridge URL in its ``env:``. ``phoebus2`` is only an example name:
 
 .. code-block:: yaml
 
@@ -173,24 +185,32 @@ bridge URL in its ``env:``. ``phoebus2`` is only an example name:
      claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL: "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
 
 The clone reads the same ``phoebus.*`` keys as the first instance, so only the
-URL tells the two apart. Its ``phoebus_drive`` is offered and asked like the original's.
+URL tells the two apart. Its ``phoebus_drive`` is offered and asked like the
+original's.
 
 What guards a drive
 ===================
 
 The agent is offered ``phoebus_drive`` only where the build profile sets
 ``phoebus.agent_access: read_write``. Under the default, ``read``, the tool is
-left out of the agent's tool list and permissions, and the server refuses a
-call to it by the key's name. Under ``read_write`` every drive passes the
-write verdict (:ref:`write-safety-config`) and then the approval
-prompt, is refused while the control target is switched away from the
-deployment's baseline (:doc:`switch-control-target`), and is audited as a tool
-call. The key is all or nothing, because a panel runs whatever its widgets are
-wired to, so finer control --- per panel, widget, channel or mode --- belongs to
-the EPICS gateway or access security the Phoebus product connects through.
+left out of the agent's tool list and permissions. The server also refuses a
+call to it, and the refusal names the key.
 
-A drive does not pass through a connector: the bridge performs it inside the Phoebus process,
-through that product's own PV connections. Synthetic mode, the default, runs
-the display's confirm dialogs and enable rules; semantic mode bypasses them. So
-OSPREY's channel-limits check does not apply to a drive, in either mode. Keep
-``phoebus_drive`` for displays whose controls may be driven as they stand.
+Under ``read_write``, every drive:
+
+- passes the write verdict (:ref:`write-safety-config`) and then the approval
+  prompt;
+- is refused while the control target is switched away from the deployment's
+  baseline (:doc:`switch-control-target`);
+- is audited as a tool call.
+
+The key is all or nothing, because a panel runs whatever its widgets are wired
+to. Finer control (per panel, widget, channel or mode) belongs to the EPICS
+gateway or access security that the Phoebus product connects through.
+
+A drive does not pass through a connector. The bridge performs it inside the
+Phoebus process, through that product's own PV connections. Synthetic mode,
+the default, runs the display's confirm dialogs and enable rules. Semantic mode
+bypasses them. In either mode, OSPREY's channel-limits check does not apply to
+a drive. Keep ``phoebus_drive`` for displays whose controls may be driven as
+they stand.

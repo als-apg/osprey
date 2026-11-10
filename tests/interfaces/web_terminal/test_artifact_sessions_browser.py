@@ -883,7 +883,12 @@ def test_open_in_new_window_keeps_the_artifact_the_tile_showed(hub, page):
     expect(frame.locator(marker)).to_have_count(0, timeout=_TIMEOUT_MS)
     expect(frame.locator("#preview-content .preview-viewport")).to_be_visible()
 
-    popup.locator(".attached-window-root > .tile-tab button.tile-tab-reattach").click()
+    # Reattach closes the window it is clicked in: wait for that close, not for the
+    # click's own after-checks, which would read a page that is going away.
+    with popup.expect_event("close"):
+        popup.locator(".attached-window-root > .tile-tab button.tile-tab-reattach").click(
+            no_wait_after=True
+        )
     docked = page.frame_locator(_ARTIFACTS_FRAME)
     expect(docked.locator("#preview-content .preview-viewport")).to_be_visible(timeout=_TIMEOUT_MS)
     expect(docked.locator("#preview-empty")).to_be_hidden()

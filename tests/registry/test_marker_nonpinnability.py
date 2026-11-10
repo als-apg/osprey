@@ -72,7 +72,7 @@ from osprey.registry.mcp import (
     TOOL_PREFIX_ENV,
     resolve_servers,
 )
-from osprey_connectors import posture_store
+from osprey_connectors import posture_store, session_hold
 from osprey_connectors.identity import AUDIT_IDENTITY_ENV as IDENTITY_MODULE_AUDIT_IDENTITY_ENV
 from osprey_connectors.identity import IDENTITY_ENV_LADDER, TERMINAL_USER_ENV
 from tests.registry._ctx import render_ctx, resolve_one
@@ -92,6 +92,9 @@ _OWNER_MARKER_LITERALS = (
 
 #: The dispatch-run marker, spelled out for the same reason as the owner side.
 _DISPATCH_MARKER_LITERAL = "OSPREY_DISPATCH_RUN"
+
+#: The session-hold pair, spelled out for the same reason as the owner side.
+_HOLD_MARKER_LITERALS = ("OSPREY_SESSION_ID", "OSPREY_SESSION_HOLD_DIR")
 
 
 def _spec_for_path(path: str, marker: str) -> dict:
@@ -136,6 +139,8 @@ class TestMarkerSpellings:
             "OSPREY_CONTROL_CONTEXT_TREE",
             "OSPREY_CONTROL_CONTEXT_DIR",
             "OSPREY_DISPATCH_RUN",
+            "OSPREY_SESSION_ID",
+            "OSPREY_SESSION_HOLD_DIR",
         )
 
     def test_the_terminal_session_marker_is_the_envelope_spelling(self):
@@ -186,6 +191,20 @@ class TestMarkerSpellings:
         assert DISPATCH_RUN_ENV is posture_store.DISPATCH_RUN_ENV_VAR
         assert DISPATCH_RUN_ENV == _DISPATCH_MARKER_LITERAL
         assert DISPATCH_RUN_ENV in NON_PINNABLE_AUDIT_MARKERS
+
+    def test_the_hold_markers_are_non_pinnable(self):
+        """They decide which session's hold a write is judged against, so a pin
+        could name another session or a hold root with no flags in it.
+        """
+        for marker in _HOLD_MARKER_LITERALS:
+            assert marker in NON_PINNABLE_AUDIT_MARKERS
+
+    def test_the_hold_markers_are_the_connectors_spellings(self):
+        """Pinned against the modules that read them."""
+        from osprey.registry import mcp
+
+        assert mcp.SESSION_ID_ENV == posture_store._SESSION_KEY_ENV_VAR
+        assert mcp.HOLD_DIR_ENV_VAR == session_hold.HOLD_DIR_ENV_VAR
 
     def test_the_agent_data_root_is_non_pinnable(self):
         """The directory the posture answer is READ OUT OF, not only the answer.
@@ -260,6 +279,14 @@ class TestRemovedOnEveryLaunchPath:
             # (A spec against a framework NAME contributes no env at all; see
             # test_framework_override_spec_env_never_merges below.)
             assert srv["env"]["KEEP_ME"] == "kept"
+
+    @pytest.mark.parametrize("marker", _HOLD_MARKER_LITERALS)
+    @pytest.mark.parametrize("path", ["framework-override", "extends-clone", "custom-spec"])
+    def test_a_pinned_hold_marker_is_absent_from_the_resolved_env(self, marker, path):
+        """Spelled from the literals, so dropping one from the tuple fails here."""
+        name = _PATH_SERVER[path]
+        srv = resolve_one({"servers": {name: _spec_for_path(path, marker)}}, name)
+        assert marker not in srv["env"]
 
     @pytest.mark.parametrize("path", ["framework-override", "extends-clone", "custom-spec"])
     def test_all_markers_pinned_at_once_are_all_removed(self, path):

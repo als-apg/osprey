@@ -1,0 +1,35 @@
+# The starting point of a new application: one panel over one channel, one read tool,
+# one write tool. The channel is the deployment's: apps.scaffold-app.config.channel.
+name: scaffold-app
+summary: Shows one channel of the control target and sets it on approval.
+containers:
+  scaffold-app:
+    runtime: osprey
+    command: [python, -m, scaffold_app.server]
+    health: /health
+    drives_target: true
+    state: var/scaffold-app
+panel:
+  label: Scaffold
+  container: scaffold-app
+  launch_token: true
+  agent_routes:
+    - [GET, /api/state]
+    - [POST, /api/write]
+  roster_grant: {single_user_alias: true}
+tools:
+  module: scaffold_app.tools
+  read: [read_channel]
+  approval:
+    - tool: set_channel
+      prompt: Set {{ state.channel }} to {{ input.value }}, now {{ state.readback }}.
+      state_path: /api/state
+      bind:
+        state_fields:
+          - {field: approved_readback, key: readback}
+      require:
+        all_of: [approved_target, approved_readback]
+  errors:
+    unreachable: The panel's backend is not answering; check its container with osprey health.
+    refused: The value was not written. Read the channel again and ask for a new approval.
+skills: [scaffold-app]

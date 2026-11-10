@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 import click
 
 from osprey.deployment.compose_merge import MERGED_COMPOSE_FILENAME
-from osprey.utils.workspace import LAYER_DIR_KINDS, STATE_ZONE_DIRS
+from osprey.utils.workspace import APPS_DIRNAME, LAYER_DIR_KINDS, STATE_ZONE_DIRS
 from osprey_connectors.dotenv import ENV_SHARED_FILENAME
 from osprey_connectors.errors import BuildProfileError
 from osprey_connectors.logger import get_logger
@@ -118,6 +118,10 @@ def _repo_gitignore() -> str:
 # and the next `osprey init` puts its contents back. Never committed either
 # way — for the seconds it exists it is a second copy of files already tracked.
 /{HELD_SOURCE_ZONE_DIRNAME}/
+
+# APPLICATION VENDOR FILES — fetched by `osprey build` into each application's
+# panel from its `vendor:` list. Build output inside the source zone.
+/{APPS_DIRNAME}/*/panel/vendor/
 
 # SECRETS — provider keys you set plus the tokens `osprey up` mints, and the
 # lock file the write-back path creates beside them. Two exceptions carry no
@@ -1591,6 +1595,10 @@ def _revalidate(directory: Path | None, *, preset: str | None, conflicts: dict[s
             f"Claim one with a `# {result.deviation_marker}: <why>` comment above its line, "
             f"or in the key's name. `osprey validate --drift=warn` reports them without refusing."
         )
+    if result.app_drift:
+        output.report("Applications that differ from what `osprey init` copied (left as they are):")
+        for line in result.app_drift:
+            output.note(line)
     if result.manual_steps:
         output.report("Left for you to do by hand:")
         for step in result.manual_steps:
@@ -1918,8 +1926,7 @@ def _report(
 #: What a layer directory's row in :func:`_entry_list` says its files are, by
 #: the kind word the directory's files are read as.
 _LAYER_ENTRY_NOTES: dict[str, str] = {
-    "tier": "access levels of your assistant",
-    "app": "separate assistants on offer",
+    "tier": "the logins of your assistant",
 }
 
 

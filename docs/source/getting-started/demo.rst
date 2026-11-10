@@ -59,7 +59,7 @@ are still gated behind the human-approval prompt.
 
 Unlike ``hello-world``, the preset ships a **full facility description** under
 ``data/facility/`` (places, devices, channels, groups, models and limits), from
-which ``osprey build`` writes the channel database and every other file a
+which ``osprey build`` writes the facility graph and every other file a
 service reads (:doc:`/how-to/describe-your-facility`), a **seeded electronic
 logbook**, and an **archive of its own** — a real store this project deploys,
 seeds and records into — plus a set of sub-agents and operator skills.
@@ -107,6 +107,10 @@ works. The duration at the end of each step is how long that slice took:
      ...
      · archive base: seeded 57,600 documents x 2,908 channels (2026-07-12 09:14 to 2026-08-11 09:14 UTC) in 96.3s (14.2s)
 
+The counts and durations above are an example from an earlier run. Yours
+depend on how many channels your facility serves and on the retention
+settings.
+
 Each of those documents holds one instant across every channel, which is why
 the count is in the tens of thousands rather than the millions. Expect a minute
 or two on a first deploy — it is writing, not hanging. Later deploys check what
@@ -132,8 +136,8 @@ same safety hooks, then adds production capabilities. The most visible additions
    * - Capability
      - What it adds
    * - **Channel finder** (sub-agent)
-     - Resolve channels from a natural-language description by exploring a channel
-       database — no need to know PV names.
+     - Resolve channels from a natural-language description by searching the
+       facility knowledge graph — no need to know PV names.
    * - **Logbook search** (sub-agents)
      - ``logbook-search`` and ``logbook-deep-research`` query a seeded operations
        logbook for past events.
@@ -170,11 +174,11 @@ terminal with ``osprey chat``; the web terminal from Hello World
 Step 3: Find Channels by Description
 -------------------------------------
 
-This is the headline capability. In Hello World you had to know the exact PV:
+This is the headline capability. Until now you had to know the exact PV, as in Hello World:
 
 .. code-block:: text
 
-   You: Read channel SR:BEAM:CURRENT
+   You: Read channel SR:DIAG:DCCT:01:CURRENT:RB
 
 With the demo, you describe the channel in plain language and the
 agent figures out the PV for you:
@@ -183,8 +187,8 @@ agent figures out the PV for you:
 
    You: Read the current in the booster's defocusing quadrupole
 
-The main agent delegates to the **channel-finder** sub-agent, which explores the
-channel database and resolves your description to a real PV before reading it.
+The main agent delegates to the **channel-finder** sub-agent, which searches the
+facility knowledge graph and resolves your description to a real PV before reading it.
 The exact wording depends on your ``CLAUDE.md`` and output style, but you'll see
 something like:
 
@@ -210,17 +214,25 @@ scheme:
 The first resolves to ``SR:DIAG:DCCT:01:CURRENT:RB`` (the storage-ring DC current
 transformer); the second resolves to the ``SR:MAG:HCM:*:CURRENT:SP`` family.
 
-**How it works.** The channel database is organized as a hierarchy whose
-levels are the facility's place levels, then the device's class, the device and
-one leaf per channel (``machine : sector : class : device : leaf`` in the
-demo facility, so ``SR:MAG:HCM:01:CURRENT:SP`` is the leaf
-``SR : SECT1 : HCorrector : SR/HCM01 : current_setpoint``), and the channel-finder
-agent navigates it systematically: it checks prior examples
-(``view_examples``), explores the available options at each level
-(``get_options``), then constructs and validates the final addresses
-(``build_channels``). It **never fabricates PV names** — every channel it returns
-comes from the database. For a deeper look at the finder and its other search
-strategies, see :doc:`../how-to/use-channel-finder`.
+**How it works.** The preset runs the ``graph`` channel finder. It answers
+from the facility knowledge graph that ``osprey build`` writes from the
+facility file. The channel-finder agent works with five tools:
+
+- **Keyword lookup.** ``search_channels`` reads the search index that
+  ``osprey build`` derives from the graph. It matches your words against each
+  channel's address, description, device, signals and class names, and returns
+  the matches a page at a time with counts that help narrow the search.
+- **Graph queries.** For questions about structure, such as what a device
+  carries or how classes relate, the agent queries the graph store that
+  ``osprey up`` loads. It adapts an example from ``example_queries``, can check
+  the graph's labels and properties with ``get_schema``, then runs the query
+  with ``read_cypher``.
+- **The rules.** ``capabilities`` tells the agent how addresses are spelled and
+  which tool fits which question.
+
+The agent **never fabricates PV names**: every address it returns is one the
+graph holds. For the other search strategies, see
+:doc:`../how-to/use-channel-finder`.
 
 Step 4: Search the Electronic Logbook
 --------------------------------------
@@ -340,8 +352,8 @@ panel tabs, focusing artifacts, composing layouts.
 Step 7: Tune the Assistant and Go to Production
 ------------------------------------------------
 
-**Choose a channel-finder strategy.** The preset defaults to ``hierarchical``
-mode, which scales to large facilities with thousands of channels. For a small
+**Choose a channel-finder strategy.** The preset defaults to ``graph`` mode,
+which answers from the facility knowledge graph this deployment runs. For a small
 facility (under ~1,000 channels) the ``in_context`` strategy can be simpler and
 faster. The strategy is a build-time choice, so set it and rebuild:
 
@@ -422,8 +434,8 @@ search, historical plotting, and operator skills. Where to go next:
   the BLUESKY panel, all against the Virtual Accelerator.
   :doc:`../how-to/bluesky/run-first-plan` walks through it in ten minutes.
 - **Channel finder in depth**: :doc:`../how-to/use-channel-finder` compares the
-  hierarchical, in-context, and middle-layer strategies and explains the database
-  format.
+  graph, hierarchical, in-context, and middle-layer strategies and explains
+  each one's data format.
 - **Web terminal**: :doc:`../how-to/web-terminal/operate` launches the browser UI and
   its panels with ``osprey web``.
 - **Start your own deployment**: trim ``demo`` down to what your facility

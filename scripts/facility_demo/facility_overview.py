@@ -179,6 +179,10 @@ class MissingScreenError(GeneratorError):
     """A section area would open a screen the library does not hold."""
 
 
+class UnitMismatchError(GeneratorError):
+    """A channel the screens scale reads in another unit than the drawing's constants."""
+
+
 # --------------------------------------------------------------------------- records
 
 
@@ -1383,7 +1387,7 @@ def orbit_rms_formulas(records: Records) -> list[dict[str, Any]]:
             {
                 "name": f"orbit_rms_{plane}",
                 "kind": "scalar",
-                "expression": rounded(f"sqrt(({terms}) / {len(names)}) * 1e6", 1),
+                "expression": rounded(f"sqrt(({terms}) / {len(names)}) * {UM_PER_ORBIT_UNIT:g}", 1),
                 "bindings": bindings,
             }
         )
@@ -1618,11 +1622,15 @@ STRAIGHT_WIDTHS = {
 }
 STRAIGHT_MIN_GAP = 6
 STRAIGHT_NAME_ROWS = 3
-# The orbit drawn at the BPMs: a reading of ORBIT_FULL_SCALE_M draws full size, and a
+# The unit the storage-ring BPM positions read in, and the µm in one of it: every orbit
+# constant below is in ORBIT_UNIT, and a readout in µm multiplies by UM_PER_ORBIT_UNIT.
+ORBIT_UNIT = "mm"
+UM_PER_ORBIT_UNIT = 1e3
+# The orbit drawn at the BPMs: a reading of ORBIT_FULL_SCALE draws full size, and a
 # reading's magnitude tints it OK below the first edge, MINOR below the second, MAJOR
 # beyond.
-ORBIT_FULL_SCALE_M = 50e-6
-ORBIT_BANDS_M = (50e-6, 100e-6)
+ORBIT_FULL_SCALE = 0.05
+ORBIT_BANDS = (0.05, 0.1)
 ORBIT_SCREEN = "sr/orbit-feedback"
 # The orbit band under the strip: its top below the beam, a bar's half height, its height.
 ORBIT_BAND_TOP = 172
@@ -2045,8 +2053,8 @@ class SectorDrawing:
             pvs=[{"name": valid, "trigger": True}, {"name": position, "trigger": True}],
             conditions=[
                 {"expression": f"not ({flag_on('{0}')})", "value": ALARM_DISCONNECTED},
-                {"expression": f"abs({{1}}) < {ORBIT_BANDS_M[0]:g}", "value": ALARM_OK},
-                {"expression": f"abs({{1}}) < {ORBIT_BANDS_M[1]:g}", "value": MINOR},
+                {"expression": f"abs({{1}}) < {ORBIT_BANDS[0]:g}", "value": ALARM_OK},
+                {"expression": f"abs({{1}}) < {ORBIT_BANDS[1]:g}", "value": MINOR},
             ],
             default=ALARM_MAJOR,
         )
@@ -2060,7 +2068,7 @@ class SectorDrawing:
         """
         s, r, top = self.screen, self.records, self.y + ORBIT_BAND_TOP
         half, bar = ORBIT_BAR_HALF, 16
-        k = half / ORBIT_FULL_SCALE_M
+        k = half / ORBIT_FULL_SCALE
         s.polyline([(self.xs, top - 6), (self.x1, top - 6)], BOX_BORDER, 1)
         s.label(
             self.x0, top, self.xs - self.x0 - 16, 18, "Orbit at the BPMs", size=12, align="right"
@@ -2070,8 +2078,9 @@ class SectorDrawing:
             top + 20,
             self.xs - self.x0 - 16,
             16,
-            f"bar full height ±{ORBIT_FULL_SCALE_M * 1e6:g} µm · green < {ORBIT_BANDS_M[0] * 1e6:g}, "
-            f"amber < {ORBIT_BANDS_M[1] * 1e6:g}",
+            f"bar full height ±{ORBIT_FULL_SCALE * UM_PER_ORBIT_UNIT:g} µm · green < "
+            f"{ORBIT_BANDS[0] * UM_PER_ORBIT_UNIT:g}, "
+            f"amber < {ORBIT_BANDS[1] * UM_PER_ORBIT_UNIT:g}",
             size=10,
             align="right",
         )
@@ -2509,7 +2518,7 @@ class SectorDrawing:
             for fx, plane in ((cx0 + 140, "x"), (cx0 + 258, "y")):
                 ref = s.formula(
                     f"bpm{b:02d}_{plane}_um",
-                    rounded("{p} * 1e6", 1),
+                    rounded(f"{{p}} * {UM_PER_ORBIT_UNIT:g}", 1),
                     {"p": r.need(f"{channel}:POSITION:{plane.upper()}")},
                 )
                 s.field(fx, ry, 110, ref, units=False, precision=1, parent=bpm)
@@ -3131,8 +3140,20 @@ def _absorber_detail(d: SectorDrawing, parts: SectorParts, top: float) -> float:
 # --------------------------------------------------------------------------- CLI
 
 
+def check_orbit_unit(records: Records) -> None:
+    """Refuse SR BPM positions that do not read in ORBIT_UNIT, the orbit constants' unit."""
+    for plane in ("X", "Y"):
+        for name in records.devices("SR:DIAG:BPM", f"POSITION:{plane}"):
+            unit = records.by_id[name].get("unit")
+            if unit != ORBIT_UNIT:
+                raise UnitMismatchError(
+                    f"{name} reads in {unit!r}; the orbit drawing is in {ORBIT_UNIT!r}"
+                )
+
+
 def render(records: Records, library: Path) -> dict[str, str]:
     """The generated screen files by library-relative path."""
+    check_orbit_unit(records)
     docs = {
         OVERVIEW_ID: facility_overview(records).document(),
         BOOSTER_ID: booster_overview(records).document(),

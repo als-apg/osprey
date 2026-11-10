@@ -40,7 +40,6 @@ class OllamaProviderAdapter(BaseProvider):
     description = "Ollama (local models)"
     requires_api_key = False
     requires_base_url = True
-    requires_model_id = True
     supports_proxy = False
     default_base_url = "http://localhost:11434"
     default_model_id = "mistral:7b"  # Mistral 7B as recommended default

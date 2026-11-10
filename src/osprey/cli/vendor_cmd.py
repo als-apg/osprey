@@ -28,19 +28,32 @@ def vendor():
         "intercept TLS. Also enabled by OSPREY_VENDOR_INSECURE=1."
     ),
 )
-def fetch(quiet: bool, insecure: bool) -> None:
-    """Download all vendor assets declared in the manifest.
+@click.option(
+    "--target",
+    "-t",
+    "targets",
+    multiple=True,
+    metavar="DIR",
+    help=(
+        "Fetch only the assets for this manifest target directory (repeatable), "
+        "e.g. tuning/static/vendor/. Default: every target."
+    ),
+)
+def fetch(quiet: bool, insecure: bool, targets: tuple[str, ...]) -> None:
+    """Download the vendor assets declared in the manifest.
 
     Run this once on firewalled deployments before starting 'osprey web'
-    with OSPREY_OFFLINE=1. In default CDN mode this command is optional.
+    with OSPREY_OFFLINE=1. In default CDN mode this command is optional,
+    except for package-based targets a panel always loads locally, which an
+    image fetches with --target.
     """
     from osprey.interfaces.vendor import fetch_all
 
     if not quiet:
         report("Fetching vendor assets...")
     try:
-        downloaded = fetch_all(quiet=quiet, insecure=insecure)
-    except RuntimeError as exc:
+        downloaded = fetch_all(quiet=quiet, insecure=insecure, targets=targets or None)
+    except (RuntimeError, ValueError) as exc:
         fail("Could not fetch the vendor assets", str(exc))
         raise SystemExit(1) from exc
     if downloaded:

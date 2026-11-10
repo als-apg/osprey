@@ -1,0 +1,17 @@
+dispatcher:
+  dispatch_target: http://dispatch-worker-1:10011  # worker URL
+  max_concurrent_runs: 2
+  max_queue_depth: 50
+
+triggers:
+  - name: hello-dispatch
+    source: webhook                # webhook, cron or epics_ca
+    action:
+      prompt: >-
+        Reply with a single sentence confirming the pipeline works.
+      allowed_tools: []            # tools this run may use
+      max_turns: 25                # optional; defaults to dispatch.max_turns
+    on_error:                      # optional: retry if the worker is unreachable
+      action: retry
+      max_retries: 2
+      backoff_sec: 1.0

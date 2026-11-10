@@ -919,6 +919,52 @@ describe('the viewer', () => {
     expect(tree().querySelector('.osprey-list-row[data-id="u1"]')).toBeNull();
   });
 
+  test('showArtifact of an artifact the tree has not loaded shows that artifact (#2497)', async () => {
+    // A subagent's run part: listed under no loaded group, fetched by id.
+    server.byId.sub1 = art('sub1', 'documents', '2026-10-30T07:00:00Z');
+    await boot();
+    expect(shown()).toBe('a3');
+    mod.showArtifact('sub1');
+    await settle();
+    expect(shown()).toBe('sub1');
+    expect(requests(`/api/sessions/${T1}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
+      { artifact_id: 'sub1' },
+    ]);
+  });
+
+  test('the latest pick wins over a slower fetch for an earlier one', async () => {
+    server.byId.sub1 = art('sub1', 'documents', '2026-10-30T07:00:00Z');
+    /** @type {() => void} */
+    let answer = () => {};
+    const gate = new Promise((resolve) => (answer = () => resolve(undefined)));
+    fetchMock.mockImplementation(async (/** @type {string} */ url, /** @type {any} */ init) => {
+      if (String(url).includes('/api/artifacts/sub1')) await gate;
+      return route(url, init);
+    });
+    await boot();
+    mod.showArtifact('sub1');
+    await settle();
+    mod.showArtifact('a2');
+    await settle();
+    expect(shown()).toBe('a2');
+    answer();
+    await settle();
+    expect(shown()).toBe('a2');
+    expect(requests(`/api/sessions/${T1}/last-artifact`, 'PUT').map((r) => r.body)).toEqual([
+      { artifact_id: 'a2' },
+    ]);
+  });
+
+  test('showArtifact of an artifact that is gone leaves the shown one alone', async () => {
+    await boot();
+    mod.showArtifact('a2');
+    await settle();
+    expect(shown()).toBe('a2');
+    mod.showArtifact('gone');
+    await settle();
+    expect(shown()).toBe('a2');
+  });
+
   test('the tile menu keeps its artifact verbs', async () => {
     await boot();
     expect(mocks.setServiceMenuExtras).toHaveBeenCalledWith('artifacts', expect.any(Function));
@@ -1034,6 +1080,29 @@ describe('live updates', () => {
       'updated',
       expect.objectContaining({ title: 'Renamed' })
     );
+  });
+});
+
+describe('a row menu across a redraw', () => {
+  test('Escape gives focus to the row a redraw drew in place of the one the menu opened from', async () => {
+    await boot();
+    click(/** @type {Element} */ (tree().querySelector(`[data-group-head="${T1}:plots"]`)));
+    await settle();
+    const menus = await import(`${JS}/sidebar-artifact-menus.js`);
+    const before = artifactRowEl('a2');
+    before.focus();
+    expect(menus.openTreeMenu(before, 0, 0)).toBe(true);
+    expect(document.querySelector('.rail-context-menu')).not.toBeNull();
+
+    // A listing or a frame redraws the tree while the menu is open.
+    document.dispatchEvent(new Event('osprey-sidebar-rendered'));
+    expect(before.isConnected).toBe(false);
+    document.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+    );
+
+    expect(document.querySelector('.rail-context-menu')).toBeNull();
+    expect(document.activeElement).toBe(artifactRowEl('a2'));
   });
 });
 

@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 from osprey.agent_record import contract as record_contract
 from osprey.agent_record.client import ClientAnswer
 from osprey.agent_runner.tool_names import DISPATCH_DENIED_TOOLS
+from osprey.agent_runner.tool_policy import make_pretooluse_hook
 from osprey.mcp_server.dispatch_worker import dispatch_api
 from tests._live import wait_until
 from tests.agent_record.fakes import FakeRecordClient
@@ -82,6 +83,7 @@ def client(monkeypatch, worker_record):
         owner=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
         prior_answer_runs=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
         session_id=None,
+        agent_surfaces=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
     ):
         if session_id is not None:
             worker_record.answer(session_id, _CANNED_RESULT["text_output"])
@@ -255,12 +257,13 @@ def test_is_denied_matrix(tool, expected):
         ("mcp__plugin_playwright_playwright__browser_click", True),
         ("mcp__claude_ai_Gmail__search", True),
         ("mcp__controls__channel_read", False),
-        ("mcp__pluginx__ping", False),
+        ("mcp__pluginx__ping", True),
     ],
 )
 def test_plugin_and_connector_tools_are_denied(tool, expected):
-    """Every plugin server's and claude.ai connector's tools are refused; a server
-    whose name only resembles the namespace is not."""
+    """Every plugin server's and claude.ai connector's tools are refused. With no
+    rendered app-tool list, as here, a server outside the framework's own is
+    refused too, though its name only resembles the namespace."""
     assert dispatch_api._is_denied(tool) is expected
 
 
@@ -1285,6 +1288,82 @@ def test_dispatch_request_drops_malformed_prior_answer_runs_instead_of_refusing(
     _wait_for_terminal(client, resp.json()["run_id"])
 
     assert captured["prior_answer_runs"] == [_RUN]
+
+
+# ---------------------------------------------------------------------------
+# A job's subagents, read from the render once
+# ---------------------------------------------------------------------------
+
+
+def _render_with_agents_dir(monkeypatch, tmp_path) -> Any:
+    """A render with no ``dispatch`` section, wired as the compose service wires it."""
+    render = tmp_path / "build"
+    agents_dir = render / ".claude" / "agents"
+    agents_dir.mkdir(parents=True)
+    (render / "config.yml").write_text("control_system:\n  type: mock\n")
+    monkeypatch.setenv("CONFIG_FILE", str(render / "config.yml"))
+    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
+    return agents_dir
+
+
+def test_one_job_parses_its_agents_once_for_the_deny_list_and_the_run(
+    client, monkeypatch, tmp_path
+):
+    """The deny list and the run see one parse, so they agree on the subagents.
+
+    The agent file goes away after the first parse: a second read would hand
+    one consumer a different subagent set than the other.
+    """
+    agent = _render_with_agents_dir(monkeypatch, tmp_path) / "knob-agent.md"
+    agent.write_text("---\nname: knob-agent\ntools: mcp__knob__set\n---\n")
+    real_parse = dispatch_api.parse_project_agents
+    calls = []
+
+    def _parse_then_delete(project_dir):
+        calls.append(project_dir)
+        surfaces = real_parse(project_dir)
+        agent.unlink(missing_ok=True)
+        return surfaces
+
+    monkeypatch.setattr(dispatch_api, "parse_project_agents", _parse_then_delete)
+    captured = _capture_run_dispatch(monkeypatch)
+
+    _wait_for_terminal(client, _dispatch(client))
+
+    assert len(calls) == 1
+    assert captured["agent_surfaces"] == {"knob-agent": frozenset({"mcp__knob__set"})}
+    assert "mcp__knob__*" in captured["denied_tools"]
+
+
+def test_subagent_surfaces_are_discovered_from_the_render(client, monkeypatch, tmp_path):
+    """Declared subagents are read from the render's ``.claude/agents/``.
+
+    SAFETY surface. The allowlist is enforced per-context: a subagent is held to
+    its own declared tools, and delegation to an agent the parser never saw is
+    denied outright. Reading the repo root instead of the render finds no agent
+    files at all — which stays fail-closed (every delegation denied) but costs
+    dispatch its subagents silently, so pin the discovery path itself.
+    """
+    agents_dir = _render_with_agents_dir(monkeypatch, tmp_path)
+    (agents_dir / "channel-finder.md").write_text(
+        "---\nname: channel-finder\ntools: mcp__channel-finder__search\n---\n"
+    )
+    # A decoy at the repo root: the parser must NOT pick this up.
+    root_agents = tmp_path / ".claude" / "agents"
+    root_agents.mkdir(parents=True)
+    (root_agents / "impostor.md").write_text("---\nname: impostor\ntools: Bash\n---\n")
+    captured = _capture_run_dispatch(monkeypatch)
+
+    _wait_for_terminal(client, _dispatch(client))
+
+    hook = make_pretooluse_hook(["Read"], captured["agent_surfaces"], ())
+    delegate = {"tool_name": "Task", "tool_input": {"subagent_type": "channel-finder"}}
+    assert asyncio.run(hook(delegate, "t", None)) == {}
+    # The repo-root file is not the agent surface — delegating to it is denied.
+    impostor = {"tool_name": "Task", "tool_input": {"subagent_type": "impostor"}}
+    assert (
+        asyncio.run(hook(impostor, "t", None))["hookSpecificOutput"]["permissionDecision"] == "deny"
+    )
 
 
 # ---------------------------------------------------------------------------
