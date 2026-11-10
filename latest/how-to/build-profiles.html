@@ -795,10 +795,10 @@ only where its path, <code class="docutils literal notranslate"><span class="pre
 artifact for wiring, checks and the brief, and supplies only the content.
 Listing both in one render is a build error. A path naming no file fails the build; a file no list names
 reaches no render, and the build warns. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> names the facility
-description it seeds by its path. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> turns a bare
-entry into the path wherever the repo ships the file, and names every other
-unnamed one in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and each login, so an existing deployment’s renders
-stay as they were.</p>
+description it seeds by its path. On a profile whose lists name nothing by path
+yet, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> turns a bare entry into the path wherever the
+repo ships the file, and names every other unnamed one in <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and
+each login, so its renders stay as they were.</p>
 <p>A <code class="docutils literal notranslate"><span class="pre">hooks:</span></code> list names a <code class="docutils literal notranslate"><span class="pre">hooks/&lt;file&gt;</span></code> only to replace an OSPREY hook; any
 other entry is refused. Your own hooks are wired, and copied, by their
 <code class="docutils literal notranslate"><span class="pre">claude_code.hooks</span></code> declaration (see <a class="reference internal" href="#profile-custom-hooks"><span class="std std-ref">Custom hooks</span></a>).</p>

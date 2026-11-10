@@ -604,9 +604,9 @@ under <code class="docutils literal notranslate"><span class="pre">config:</span
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">default_panel</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
-<td><p>Panel id the web terminal opens on. Must be a built-in, an entry in
-<code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, or a custom panel backed by a <code class="docutils literal notranslate"><span class="pre">web.panels.&lt;id&gt;.url</span></code>
-setting. Renders <code class="docutils literal notranslate"><span class="pre">web.default_panel</span></code>.</p></td>
+<td><p>Panel id the web terminal opens on. Must be an entry in
+<code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, a panel every render serves, or the panel of an
+application the login shows. Renders <code class="docutils literal notranslate"><span class="pre">web.default_panel</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">panel_presets</span></code></p></td>
 <td><p>mapping</p></td>
@@ -1023,7 +1023,8 @@ two disagree on having is refused unless a <code class="docutils literal notrans
 claims it. Entries you added are not compared. The comparison is with the
 catalog this OSPREY release ships, not with the hash under <code class="docutils literal notranslate"><span class="pre">provenance:</span></code>.
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span> <span class="pre">--revalidate</span></code> keeps every value in the file and adds the
-entries and keys OSPREY ships that it lacks.</p></li>
+entries and keys OSPREY ships that it lacks, except one such a comment
+names as absent (<code class="docutils literal notranslate"><span class="pre">#</span> <span class="pre">DEVIATION:</span> <span class="pre">providers.openrouter:</span> <span class="pre">…</span></code>).</p></li>
 </ul>
 </section>
 <section id="the-posture-floor">

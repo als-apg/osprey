@@ -739,7 +739,9 @@ because your own routes will do the same:</p>
 to the backend; <code class="docutils literal notranslate"><span class="pre">owner_from_header</span></code> reads it and <code class="docutils literal notranslate"><span class="pre">owner_target</span></code> turns it
 into that login’s control target, the machine its chip points at. The backend
 never chooses a machine itself, and the same route answers two operators from
-two machines when their chips differ.</p>
+two machines when their chips differ. Two Channel Access machines are the
+exception: a process has one Channel Access context, so <code class="docutils literal notranslate"><span class="pre">build_connector</span></code>
+refuses a second until the backend restarts.</p>
 <p><strong>It writes through the connector, under that login.</strong> <code class="docutils literal notranslate"><span class="pre">build_connector</span></code>
 asks OSPREY for a connector to the target; <code class="docutils literal notranslate"><span class="pre">bind_owner</span></code> names whose write it
 is; <code class="docutils literal notranslate"><span class="pre">write_channel_checked</span></code> is the write. The connector asks the write
