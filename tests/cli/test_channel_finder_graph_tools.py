@@ -2,10 +2,11 @@
 
 Two claims, and the second is what makes the first worth asserting:
 
-1. **The subagent's vocabulary is exactly its paradigm's.**
+1. **The subagent's vocabulary is exactly its paradigm's, plus the PV directory.**
    ``channel-finder.md.j2`` renders ``CHANNEL_FINDER_TOOLS_BY_PIPELINE[mode]``
-   qualified with ``mcp__channel-finder__``, plus ``submit_response``. Nothing
-   else reaches the list — not even on a project that enables other servers.
+   qualified with ``mcp__channel-finder__``, the ``pv-directory`` tools when the
+   project configures a ``pv_directory`` section (demo does), plus
+   ``submit_response``. No other server's tools reach the list.
 
 2. **The standalone ``graph`` server is not on it, in any paradigm.**
    That server belongs to the main agent (``tests/cli/test_graph_agent_surface.py``
@@ -46,6 +47,16 @@ _FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---", re.DOTALL)
 
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 
+#: The ``pv-directory`` tools demo's section serves: no alarm log, no put log.
+_DEMO_PV_DIRECTORY_TOOLS = [
+    "mcp__pv-directory__alarm_config",
+    "mcp__pv-directory__alarm_state",
+    "mcp__pv-directory__directory_properties",
+    "mcp__pv-directory__directory_search",
+    "mcp__pv-directory__ioc_record",
+    "mcp__pv-directory__pv_record",
+]
+
 #: The one line of the terminology partial that no other paradigm's partial
 #: carries — proof that ``_terminology/graph.md.j2`` was included and not one of
 #: its siblings.
@@ -79,6 +90,7 @@ def _expected_frontmatter_tools(mode: str) -> list[str]:
     """
     return [
         *(f"mcp__channel-finder__{tool}" for tool in CHANNEL_FINDER_TOOLS_BY_PIPELINE[mode]),
+        *_DEMO_PV_DIRECTORY_TOOLS,
         _SUBMIT_RESPONSE,
     ]
 
@@ -139,17 +151,18 @@ def _demo(tmp_path: Path, name: str, mode: str, *, deploy_services: bool = True)
 
 
 # ---------------------------------------------------------------------------
-# The subagent's list is its paradigm's vocabulary, and nothing else
+# The subagent's list is its paradigm's vocabulary plus the PV directory
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
 def test_frontmatter_is_exactly_the_paradigm_vocabulary(tmp_path, mode):
-    """Every registered paradigm renders its own tools, plus ``submit_response``.
+    """Every registered paradigm renders its own tools, the PV directory's, and
+    ``submit_response``.
 
     Asserted as the whole list rather than as a subset: a tool that arrives from
-    somewhere other than the paradigm's registry entry is the failure this
-    catches, and a subset assertion would let it through.
+    somewhere other than the paradigm's or the PV directory's registry entry is
+    the failure this catches, and a subset assertion would let it through.
     """
     _manager, project_dir = _demo(tmp_path, f"cf-vocab-{mode}", mode)
 
@@ -166,7 +179,7 @@ def test_no_paradigm_puts_the_graph_server_on_the_subagent(tmp_path, mode):
     ``services.graphdb`` block, so the server is enabled and its four
     permissions ARE in ``settings.json``. What must be empty is the subagent's
     frontmatter — the main agent can query the store; the channel-finder
-    subagent is confined to its paradigm's tools.
+    subagent is confined to its paradigm's tools and the PV directory's.
     """
     _manager, project_dir = _demo(tmp_path, f"cf-nograph-{mode}", mode)
 
@@ -200,6 +213,7 @@ def test_graph_paradigm_renders_the_four_channel_finder_tools(tmp_path):
         "mcp__channel-finder__get_schema",
         "mcp__channel-finder__read_cypher",
         "mcp__channel-finder__search_channels",
+        *_DEMO_PV_DIRECTORY_TOOLS,
         _SUBMIT_RESPONSE,
     ]
 

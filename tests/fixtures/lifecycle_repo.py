@@ -677,6 +677,15 @@ config:
   # channel_finder.web.port: <a port outside this deployment's block>
   # channel_finder.web.auto_launch: true
 
+  # ── PV directory ───────────────────────────────────────────────────────────
+  # The All PVs view and the agent's PV record tools. With no `type` they list
+  # the simulator's channels and IOC health PVs; `alarm_state.replay_file`
+  # plays a packaged alarm feed. Off: `osprey set config.pv_directory=null`,
+  # or `pv_directory: null` in a profile that extends this one.
+  pv_directory:
+    alarm_state:
+      replay_file: demo:example-alarms
+
   # ── Human-in-the-loop approval ─────────────────────────────────────────────
   # The THIRD guard: a write that passed the master switch and the limits check
   # still pauses for a yes/no prompt, unless its slider stands at `allowed`.

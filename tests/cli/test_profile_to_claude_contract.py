@@ -281,18 +281,25 @@ def test_external_server_command_placeholder_resolves_to_interpreter(tmp_path):
 
 _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
     "channel-finder": {
-        # tools: rendered from CHANNEL_FINDER_TOOLS_BY_PIPELINE['hierarchical']
-        #        + mcp__osprey_workspace__submit_response, and nothing else.
+        # tools: rendered from CHANNEL_FINDER_TOOLS_BY_PIPELINE['hierarchical'],
+        #        the pv-directory tools the demo's section serves (no alarm log,
+        #        no put log), + mcp__osprey_workspace__submit_response.
         # The subagent gets exactly its paradigm's vocabulary: the `graph`
         # server this fixture's render also enables (demo ships a
         # `services.graphdb` block) is a MAIN-agent server and stays off this
-        # list. The tool list is read from the registry rather than spelled out,
-        # so it cannot drift from what the render uses.
+        # list. The channel-finder list is read from the registry rather than
+        # spelled out, so it cannot drift from what the render uses.
         "tools": [
             *(
                 f"mcp__channel-finder__{t}"
                 for t in CHANNEL_FINDER_TOOLS_BY_PIPELINE["hierarchical"]
             ),
+            "mcp__pv-directory__alarm_config",
+            "mcp__pv-directory__alarm_state",
+            "mcp__pv-directory__directory_properties",
+            "mcp__pv-directory__directory_search",
+            "mcp__pv-directory__ioc_record",
+            "mcp__pv-directory__pv_record",
             "mcp__osprey_workspace__submit_response",
         ],
         "disallowedTools": [
