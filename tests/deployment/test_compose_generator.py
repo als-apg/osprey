@@ -3698,8 +3698,7 @@ def test_worker_template_fallback_matches_worker_image_target_python_fallback() 
 #
 # One `--dev` deploy stages the SAME wheel into many build contexts (every
 # Dockerfile-bearing service context, the project-image root, each render
-# project), and rebuild_deployment renders the compose files twice (its own
-# prepare_compose_files + the delegated deploy_up's). The isolated-env
+# project), and one process may render the compose files more than once. The isolated-env
 # `python -m build` takes tens of seconds, so it is memoized per process:
 # built at most once, copied per context. Staging is also scoped to build
 # contexts that actually contain a Dockerfile — pure-image services
@@ -3949,11 +3948,11 @@ def test_dev_wheel_builds_once_across_service_and_project_staging(
     assert len(locks) == 1 and next(iter(locks)), "the lock constraints differ between contexts"
 
 
-def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
+def test_dev_wheel_builds_once_across_repeated_renders(
     tmp_path: Path, spy_wheel_build: list, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``rebuild_deployment`` runs ``prepare_compose_files`` twice (its own call
-    plus the delegated ``deploy_up``'s) — the wheel build must still run once."""
+    """Two ``prepare_compose_files`` calls in one process — the wheel build must
+    still run once."""
     config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
     _copy_service_templates(tmp_path)
 
