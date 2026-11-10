@@ -64,7 +64,7 @@ from osprey.facility.records import ChannelSelection, FacilityRecords
 from osprey.facility.scenarios import scenario_logbook
 from osprey.facility.views import ViewInputs, view_bytes
 from osprey_connectors.simulation import STILL_SCENARIO
-from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE
+from osprey_connectors.simulation.values import DEFAULT_VALUE_TYPE, is_waveform
 from osprey_connectors.simulation.view import (
     ADDRESSES_FILE,
     ADDRESSES_SCHEMA,
@@ -227,7 +227,7 @@ def served_deck_path(model: Mapping[str, Any]) -> str | None:
 
 def _waveform(channel: Mapping[str, Any]) -> dict[str, Any]:
     """A waveform channel's ``value_type`` and ``shape``; nothing for any other channel."""
-    if channel.get("value_type") != "waveform":
+    if not is_waveform(channel.get("value_type")):
         return {}
     return {"value_type": "waveform", "shape": list(channel.get("shape") or [])}
 
