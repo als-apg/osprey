@@ -937,7 +937,7 @@ class _GraphSessionStub:
     connections: list[tuple[str, str, str]] = field(default_factory=list)
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> _GraphSessionStub:
-        from osprey.services.facility_knowledge.seeder import graph_seeder
+        from osprey.services.graph_store import seeder as graph_seeder
 
         @contextmanager
         def _open_session(uri: str, username: str, password: str, **_: object):

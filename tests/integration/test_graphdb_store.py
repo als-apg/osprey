@@ -1,7 +1,7 @@
 """End-to-end coverage of the graph store against a real Neo4j + neosemantics.
 
 This is the only place the seeding primitives in
-:mod:`osprey.services.facility_knowledge.seeder.graph_seeder` meet an actual
+:mod:`osprey.services.graph_store.seeder` meet an actual
 n10s plugin.  Every other graphdb test mocks the driver, which can prove the
 call shapes but not the two things that decide whether the feature works: that
 ``n10s.graphconfig.init`` with :data:`~...graph_seeder.N10S_GRAPH_CONFIG`
@@ -182,7 +182,7 @@ def test_bootstrap_seed_and_force_reseed(seeder_store: WatchedStore, demo_ttl: s
     a store that stops answering fails this test naming the store rather than
     as a count that came out wrong.
     """
-    from osprey.services.facility_knowledge.seeder import graph_seeder
+    from osprey.services.graph_store import seeder as graph_seeder
 
     expected_sha = graph_seeder.ttl_sha256(demo_ttl)
 

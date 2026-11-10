@@ -7,7 +7,8 @@ resolved by :mod:`osprey.deployment.graphdb_service` and the seeding policy
 deploy-time ``_stage_graphdb_store`` staging step from the primitives below.
 
 **neo4j is imported lazily** (inside :func:`open_session`), never at module top,
-mirroring the ``rdflib`` treatment in :mod:`.ttl_seeder`: importing this module
+mirroring the ``rdflib`` treatment in
+:mod:`osprey.services.facility_knowledge.seeder.ttl_seeder`: importing this module
 must not pull the driver into the runtime read path's ``sys.modules``, which is
 guarded by ``tests/services/facility_knowledge/test_import_isolation.py``.
 
@@ -550,3 +551,23 @@ def wipe(session: Session) -> None:
         session: An open driver session.
     """
     session.run(_WIPE_CYPHER).consume()
+
+
+# ---------------------------------------------------------------------------
+# IRI names
+# ---------------------------------------------------------------------------
+
+
+def local_name(iri: str) -> str:
+    """Return the local name fragment of an IRI (after the last ``/`` or ``#``).
+
+    This is the single source of truth for IRI → local-name derivation.  It is
+    exported from the ``seeder`` subpackage and reused by the knowledge CLI so
+    that stub *placement* (the bundle filename) and stub *identity* (the OKF §2
+    concept ID) are computed by exactly one rule, including ``#``-fragment IRIs.
+    """
+    for sep in ("#", "/"):
+        idx = iri.rfind(sep)
+        if idx != -1:
+            return iri[idx + 1 :]
+    return iri

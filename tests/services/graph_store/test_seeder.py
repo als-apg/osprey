@@ -15,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from osprey.services.facility_knowledge.seeder import graph_seeder
-from osprey.services.facility_knowledge.seeder.graph_seeder import (
+from osprey.services.graph_store import seeder as graph_seeder
+from osprey.services.graph_store.seeder import (
     COMMIT_SIZE,
     CONFIG_DRIFT_MESSAGE,
     N10S_GRAPH_CONFIG,
@@ -623,7 +623,7 @@ class TestLazyNeo4jImport:
 
     def test_module_import_does_not_load_neo4j(self):
         source = (
-            "from osprey.services.facility_knowledge.seeder import graph_seeder\n"
+            "from osprey.services.graph_store import seeder as graph_seeder\n"
             "import sys\n"
             "assert 'neo4j' not in sys.modules, 'neo4j imported at module scope'\n"
         )

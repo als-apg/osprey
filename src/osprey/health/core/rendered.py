@@ -122,11 +122,11 @@ def _baked(root: Path, rel: str) -> bool:
     """Whether ``root/rel`` is a graph agent file the seeder baked after the build.
 
     ``osprey up`` rewrites the snapshot region of these agent prompts in place
-    (:mod:`osprey.services.facility_knowledge.seeder.prompt_snapshot`), so their
+    (:mod:`osprey.services.graph_store.prompt_snapshot`), so their
     checksum differs from the build's by design. A file carrying its complete
     marker pair is that writer's output, not drift.
     """
-    from osprey.services.facility_knowledge.seeder.prompt_snapshot import (
+    from osprey.services.graph_store.prompt_snapshot import (
         SNAPSHOT_BEGIN,
         SNAPSHOT_END,
         TARGET_FILENAMES,
