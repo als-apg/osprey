@@ -153,7 +153,7 @@ with no OSPREY, and the status-quo card. On "nothing yet" every value is `?`.
   era knowledge unless its fingerprint matched. `references/migration-legacy.md` loads
   from `references/discover.md` on the early fingerprint, never from here.
 - Inventory from files and CLI output only: `osprey profile card --json`,
-  `osprey validate --drift=warn`, `osprey profile artifacts`, and `osprey scaffold list`
+  `osprey validate`, `osprey profile artifacts`, and `osprey scaffold list`
   only once `build/.osprey-manifest.json` exists (else `?`). Era repos run no verb.
 - Framework version: `build/.osprey-manifest.json` `creation.osprey_version`, or `?` when
   the repo was never built. `requires_osprey_version` is a schema floor, shown as one.
@@ -252,7 +252,7 @@ ships `code:` only.
      (`import mml: replaced the bundled <name> facility (<n> files)`) and refuses only
      hand-written records of the kinds it writes, naming each file with the new-repo
      remedy.
-8. `osprey validate --drift=warn` after every change. Drift from the preset is expected.
+8. `osprey validate` after every change. A difference from the preset is never refused.
 9. Core four, hardwired, resolved before wrap-up. **Provider, its key, and each agent's
    model**: the list is `providers.yml` beside the profile; `osprey init` writes
    `.env.example`, never `.env`, so the key goes into a `.env` you create from it, and a
@@ -331,10 +331,7 @@ still `open`, ask once whether to launch the scout now, all or some, or leave th
 later resume. A candidate the reviewer thinks is already covered is verified against the
 live repo first; its status moves on evidence.
 
-Wrap-up: drop the `provenance:` key — while it is there a plain `osprey validate` refuses
-every difference from the preset that no `# DEVIATION:` comment claims, and this profile,
-not the preset, is now the source of truth. Then run a final `osprey validate` and
-`osprey build` fixing what they raise, set `status: complete`, and move anything
+Wrap-up: run a final `osprey validate` and `osprey build`, fixing what they raise, set `status: complete`, and move anything
 unresolved to Open or Deferred. Close on a wrap-up card of next steps, read from the
 repo's README and `osprey <command> --help`.
 

@@ -75,7 +75,7 @@ sections 4 and 5 run no verb at all.
 | Command | What it yields |
 | --- | --- |
 | `osprey profile card --json` | Users, tiers, apps, provider, control system, panels, services |
-| `osprey validate --drift=warn` | Validity, advisory warnings, plus one `⚠ preset drift:` line per unmarked difference |
+| `osprey validate` | Validity, advisory warnings, and one line when the preset has moved on since `osprey init` |
 | `osprey scaffold list` | Framework-managed and claimed artifacts. Run **only** when `build/.osprey-manifest.json` exists |
 | `osprey profile artifacts` | The menu the six profile lists can name. Installation-wide: it takes no `--repo` and reads no repo |
 
@@ -89,13 +89,13 @@ about the profile, not an error. A hello-world deployment emits only `agent` and
 not be read, for example a roster name with no file under `tiers/` or `apps/`.
 Each such warning is a card line, not a silent omission.
 
-**`osprey validate --drift=warn`** passes and reports. Drift is a difference from the
-preset the profile came from, so a profile with no `provenance:` has nothing to drift
-from and reports none. The comparison is against the preset bundled with the osprey that
-runs the command, so the count moves when the installed framework does: the `drift` row
-names that version. Put the count on the card and offer the list.
+**`osprey validate`** never refuses a difference from the preset the profile came from:
+the profile is the user's to edit. When the preset bundled with the osprey that runs the
+command has changed since `osprey init` (by its hash under `provenance:`), it prints one
+line saying so. Put `update available` on the card's `update` row then, `update none`
+otherwise; a profile with no `provenance:` has nothing to compare and reads `update n/a`.
 
-Validate also prints advisory `⚠` lines that are not drift — a privileged terminal with no
+Validate also prints advisory `⚠` lines — a privileged terminal with no
 login wall, a bar item whose panel is not selected. They are findings, not failures. Append
 each to the card row it concerns, and give it the `warnings` row when it concerns none.
 
@@ -272,7 +272,7 @@ Two rules for what goes where:
 absent `auth:` means) and `none` stand none.
 
 An era repo has no verb behind FRAMEWORK, so its lines read `requires n/a · built with ?
-· extends <preset|none>`, `drift n/a (era repo)`, `artifacts ? (never built here)`. An
+· extends <preset|none>`, `update n/a (era repo)`, `artifacts ? (never built here)`. An
 early-era repo adds an OBSOLETE box, one line per path with why it is gone.
 
 A facility with no OSPREY draws the second STATUS QUO form in `references/cards.md`:

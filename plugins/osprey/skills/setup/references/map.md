@@ -141,7 +141,7 @@ no other. It is what keeps the profile complete and the data facility-owned.
    copied in step 1. Files nothing points at are invisible to the build.
 7. **Ledger.** One row per path and per service block that landed, in the same step
    (`SKILL.md`, INTERVIEW.md format).
-8. `osprey validate --drift=warn`.
+8. `osprey validate`.
 
 Worked example, the facility knowledge bundle:
 
@@ -242,8 +242,7 @@ a hello-world base. Run all seven steps, in order.
    So the host's minimum list is exactly the `default_panel` values the surviving apps
    name. Extra panels are legal, but each one is a tab this deployment has to serve,
    so add them through the feature port above, not by habit.
-7. `osprey validate --drift=warn`, then `osprey build`. Drift warnings are expected here
-   and are not marked.
+7. `osprey validate`, then `osprey build`.
 
    The build writes into the SOURCE zone as well as `build/`: it seeds
    `web-terminal-context/<roster user>/.gitkeep`, one directory per roster entry. Delete
