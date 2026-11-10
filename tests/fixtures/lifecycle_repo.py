@@ -1375,8 +1375,7 @@ services:
 # bump ships with OSPREY (strip, model bump, approval-gated apply):
 # `osprey init --preset demo --set 'apps.orbit-bump={}'` copies it into
 # apps/orbit-bump/ and lists it as
-# apps:
-#   orbit-bump: {}
+# apps: {orbit-bump: {}}
 
 # ── Build checks ─────────────────────────────────────────────────────────────
 # `canopy-payload` copies the prebuilt CANOPY payload (the wheels, the viewer,
