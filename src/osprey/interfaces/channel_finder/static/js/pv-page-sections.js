@@ -42,6 +42,7 @@ export const NO_TARGET = 'not available for this target';
 const STALE_FEED = 'stale (the alarm feed is not updating)';
 /** The rows a history carries at most (the facts service's limit). */
 const HISTORY_LIMIT = 20;
+const RETENTION_UNKNOWN = 'Retention unknown: how far back the service keeps rows is not known';
 
 /** EPICS alarm severities by their wire number. */
 const SEVERITIES = ['NO_ALARM', 'MINOR', 'MAJOR', 'INVALID'];
@@ -260,14 +261,18 @@ function alarmConfigSection(section) {
 }
 
 /**
- * The footer of a section: the caveats of its source and, when the service
- * cut a history's rows, that only the newest are shown.
+ * The footer of a section: the caveats of its source and, on a history that
+ * answered, that only the newest rows are shown or that its retention is not
+ * known.
  * @param {PvFactsSection} section
  * @returns {HTMLElement|null}
  */
 function sectionFooter(section) {
   const lines = [...section.caveats];
   if (section.truncated) lines.push(`Newest ${HISTORY_LIMIT} rows shown`);
+  if (section.outcome !== 'unavailable' && section.retention_known === false) {
+    lines.push(RETENTION_UNKNOWN);
+  }
   if (!lines.length) return null;
   const footer = node('footer', 'pvp-footer');
   for (const line of lines) footer.append(node('p', 'pvp-note', line));
