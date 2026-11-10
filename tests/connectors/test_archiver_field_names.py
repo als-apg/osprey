@@ -7,12 +7,12 @@ import json
 import subprocess
 import sys
 from datetime import UTC, datetime
+from urllib.parse import unquote
 
 import pytest
 
 from osprey_connectors.archiver._field_names import (
     _RESERVED_FIELDS,
-    channel_address,
     field_name,
 )
 from tests._builds import BuiltProject
@@ -71,12 +71,13 @@ def test_the_table_is_the_reserved_list() -> None:
 @pytest.mark.parametrize(("name", "field"), RESERVED.items())
 def test_a_reserved_name_is_stored_with_its_first_character_escaped(name: str, field: str) -> None:
     assert field_name(name) == field
-    assert channel_address(field) == name
+    assert unquote(field, errors="strict") == name
 
 
 @pytest.mark.parametrize("address", EVERY_ADDRESS)
 def test_every_address_round_trips(address: str) -> None:
-    assert channel_address(field_name(address)) == address
+    # Every escape is a ``%XX`` of an ASCII byte, so percent-decoding reverses it.
+    assert unquote(field_name(address), errors="strict") == address
 
 
 @pytest.mark.parametrize("address", EVERY_ADDRESS)
@@ -119,12 +120,6 @@ def test_an_address_storable_before_encodes_to_itself(
     assert view["channels"]
     for address in addresses:
         assert field_name(address) == address
-
-
-@pytest.mark.parametrize("field", ["A%2", "A%zz", "A%2e"])
-def test_an_unescaped_percent_is_refused(field: str) -> None:
-    with pytest.raises(ValueError, match="not an archive field name"):
-        channel_address(field)
 
 
 def test_an_empty_address_is_refused() -> None:

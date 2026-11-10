@@ -26,7 +26,6 @@ if TYPE_CHECKING:
         scrub_epics_env,
     )
     from osprey_connectors.ipc._launch import (
-        SETTLE_TIMEOUT_S,
         AttributedReader,
         host_env,
         kill_host,
@@ -51,13 +50,10 @@ if TYPE_CHECKING:
         raised_by_child,
     )
     from osprey_connectors.ipc._verification import (
-        DEFAULT_PVA_PORT,
         GATEWAYS_MISSING,
         GATEWAYS_NONE_DECLARED,
         GATEWAYS_ROWS,
-        MODE_ADDR_LIST,
         MODE_NAME_SERVER,
-        ROLE_PVA,
         ROLE_READ_ONLY,
         ROLE_WRITE_ACCESS,
         Endpoint,
@@ -70,13 +66,11 @@ if TYPE_CHECKING:
         derive_endpoints,
         live_collision,
         subsection,
-        verify_child_report,
         verify_host_report,
     )
 
 __all__ = [
     "scrub_epics_env",
-    "SETTLE_TIMEOUT_S",
     "AttributedReader",
     "host_env",
     "kill_host",
@@ -95,13 +89,10 @@ __all__ = [
     "ChildUnresponsiveError",
     "ConnectorHostProxy",
     "raised_by_child",
-    "DEFAULT_PVA_PORT",
     "GATEWAYS_MISSING",
     "GATEWAYS_NONE_DECLARED",
     "GATEWAYS_ROWS",
-    "MODE_ADDR_LIST",
     "MODE_NAME_SERVER",
-    "ROLE_PVA",
     "ROLE_READ_ONLY",
     "ROLE_WRITE_ACCESS",
     "Endpoint",
@@ -114,7 +105,6 @@ __all__ = [
     "derive_endpoints",
     "live_collision",
     "subsection",
-    "verify_child_report",
     "verify_host_report",
     "FrameDecodeError",
     "FrameEncodeError",
@@ -123,7 +113,6 @@ __all__ = [
 #: Public name -> the module that defines it, for the names resolved lazily.
 _LAZY_EXPORTS: dict[str, str] = {
     "scrub_epics_env": "osprey_connectors.ipc._host",
-    "SETTLE_TIMEOUT_S": "osprey_connectors.ipc._launch",
     "AttributedReader": "osprey_connectors.ipc._launch",
     "host_env": "osprey_connectors.ipc._launch",
     "kill_host": "osprey_connectors.ipc._launch",
@@ -142,13 +131,10 @@ _LAZY_EXPORTS: dict[str, str] = {
     "ChildUnresponsiveError": "osprey_connectors.ipc._proxy",
     "ConnectorHostProxy": "osprey_connectors.ipc._proxy",
     "raised_by_child": "osprey_connectors.ipc._proxy",
-    "DEFAULT_PVA_PORT": "osprey_connectors.ipc._verification",
     "GATEWAYS_MISSING": "osprey_connectors.ipc._verification",
     "GATEWAYS_NONE_DECLARED": "osprey_connectors.ipc._verification",
     "GATEWAYS_ROWS": "osprey_connectors.ipc._verification",
-    "MODE_ADDR_LIST": "osprey_connectors.ipc._verification",
     "MODE_NAME_SERVER": "osprey_connectors.ipc._verification",
-    "ROLE_PVA": "osprey_connectors.ipc._verification",
     "ROLE_READ_ONLY": "osprey_connectors.ipc._verification",
     "ROLE_WRITE_ACCESS": "osprey_connectors.ipc._verification",
     "Endpoint": "osprey_connectors.ipc._verification",
@@ -161,7 +147,6 @@ _LAZY_EXPORTS: dict[str, str] = {
     "derive_endpoints": "osprey_connectors.ipc._verification",
     "live_collision": "osprey_connectors.ipc._verification",
     "subsection": "osprey_connectors.ipc._verification",
-    "verify_child_report": "osprey_connectors.ipc._verification",
     "verify_host_report": "osprey_connectors.ipc._verification",
 }
 

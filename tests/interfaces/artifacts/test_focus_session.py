@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from osprey.interfaces.artifacts.app import create_app
 from osprey.stores import session_ledger
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 
 KEY_A = "11111111-1111-4111-8111-111111111111"
 KEY_B = "22222222-2222-4222-8222-222222222222"
@@ -35,12 +35,12 @@ def state_dir(tmp_path, monkeypatch) -> Path:
     monkeypatch.setenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, str(bound))
     monkeypatch.delenv("OSPREY_SESSION_ID", raising=False)
     monkeypatch.delenv("OSPREY_ARTIFACT_ORIGIN", raising=False)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     path = bound / session_ledger.STORE_FILENAME
     rows = [[KEY_A, T_A, session_ledger.EPOCH], [KEY_B, T_B, session_ledger.EPOCH]]
     path.write_text(json.dumps({"rows": rows}))
     yield bound
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture

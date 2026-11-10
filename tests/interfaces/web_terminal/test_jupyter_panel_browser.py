@@ -76,6 +76,7 @@ import pytest
 import requests
 import yaml
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces._serving import run_app_server
 from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
 from osprey_connectors import posture_store
@@ -548,7 +549,7 @@ def _control_target_lab(
     document["agent_data"] = {"base_dir": str(root)}
     config.write_text(yaml.safe_dump(document), encoding="utf-8")
 
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.setenv("OSPREY_CONFIG", str(config))
     monkeypatch.setenv("CONFIG_FILE", str(config))
     monkeypatch.setenv("OSPREY_WEB_THEME", "dark")

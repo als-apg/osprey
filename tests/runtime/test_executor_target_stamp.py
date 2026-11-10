@@ -29,6 +29,7 @@ from typing import Any
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
 from osprey_connectors import control_context, posture_store
@@ -51,7 +52,7 @@ def state_root(tmp_path, monkeypatch):
     """
     root = tmp_path / "var" / "agent_data"
     state_dir_under(root).mkdir(parents=True)
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(root))
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
     control_context.invalidate_cache()
@@ -120,7 +121,7 @@ def write_report(
         "targets": {},
         "updated_at": datetime.now(UTC).isoformat(),
     }
-    path = control_context.report_path_under(root, pid)
+    path = control_context._report_path_under(root, pid)
     path.write_text(json.dumps(payload), encoding="utf-8")
     control_context.invalidate_cache()
     return path
@@ -330,7 +331,7 @@ class TestDeploymentRecordLookup:
         assert host_executor._control_context_record() is None
 
     def test_an_unresolvable_root_is_not_an_error(self, tmp_path, monkeypatch):
-        monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "never-created"))
+        monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path / "never-created"))
         control_context.invalidate_cache()
 
         assert host_executor._control_context_record() is None

@@ -232,7 +232,7 @@ def switch_for(tree: Path, owner: str, state: str, target: str = _TARGET) -> Pat
     ).to_payload()
     payload["switch"] = {target: state}
     path = write_payload(tree / owner / control_context.RECORD_FILENAME, payload)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     return path
 
 
@@ -264,7 +264,7 @@ def control_context_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
     posture_store._owner_var.set(NO_OWNER)
     yield tree
     posture_store._owner_var.set(NO_OWNER)
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
 
 @pytest.fixture
@@ -566,7 +566,7 @@ def test_an_unmounted_tree_refuses_every_owners_write_as_record_unavailable(
     monkeypatch.setenv(
         posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, str(control_context_tree.parent / "unmounted")
     )
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
@@ -606,7 +606,7 @@ def test_a_tree_without_its_marker_refuses_every_owners_write_as_record_unavaila
     """
     plan_function, logger_name = wrapped_plan
     (control_context_tree / posture_store.CONTROL_TREE_MARKER_NAME).unlink()
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
 
     with caplog.at_level(logging.WARNING, logger=logger_name):
         with pytest.raises(FailedStatus) as failure:
@@ -637,7 +637,7 @@ def plant_unreadable_record(tree: Path, owner: str) -> Path:
     path = tree / owner / control_context.RECORD_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("this is not a control-context record\n", encoding="utf-8")
-    posture_store.invalidate_cache()
+    control_context.invalidate_cache()
     return path
 
 

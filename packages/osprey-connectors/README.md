@@ -117,7 +117,7 @@ removed; the table maps each old path to the public spelling that replaces it.
 | `osprey.connectors.honesty` | `osprey_connectors.honesty` |
 | `osprey.connectors.control_system`, `.control_system.base`, `.control_system.limits_validator` | `osprey_connectors.control_system` |
 | `osprey.connectors.control_system.*_connector` | built through `osprey_connectors.factory.ConnectorFactory` |
-| `osprey.connectors.archiver`, `.archiver.base`, `.archiver._timerange` | `osprey_connectors.archiver` |
+| `osprey.connectors.archiver`, `.archiver.base` | `osprey_connectors.archiver` |
 | `osprey.connectors.archiver.*_archiver_connector` | built through `osprey_connectors.factory.ConnectorFactory` |
 | `osprey.errors` | `osprey_connectors.errors` |
 | `osprey.utils.config` | `osprey_connectors.config` |

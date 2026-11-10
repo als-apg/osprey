@@ -36,7 +36,6 @@ __all__ = [
     "ENGINE_ROLES",
     "MARKS",
     "MONITOR",
-    "NO_VIEW_MESSAGE",
     "OUTPUT",
     "PERIODIC",
     "PLANES",
@@ -115,7 +114,7 @@ COMMAND_MARK = "command"
 MARKS = (COMMAND_MARK,)
 
 #: The text a missing view reports.
-NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
+_NO_VIEW_MESSAGE = "no simulator view at {path}: run osprey build"
 
 #: The keys a wiring record's description adds.
 _DESCRIPTION_KEYS = ("engine_role", "plane", "refresh")
@@ -319,7 +318,7 @@ class SimulatorView:
         self._channel_records: Mapping[str, Channel] | None = None
         self._envelopes: dict[tuple[str, ...], dict[str, float]] = {}
         if not (self.path / ADDRESSES_FILE).is_file():
-            raise NoSimulatorView(NO_VIEW_MESSAGE.format(path=self.path))
+            raise NoSimulatorView(_NO_VIEW_MESSAGE.format(path=self.path))
         self.document(ADDRESSES_FILE)
 
     @classmethod

@@ -28,6 +28,7 @@ from typing import Any
 
 import pytest
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors import control_context
 from osprey_connectors.honesty import VA_MOCK_ARCHIVER_WHY
@@ -1894,13 +1895,21 @@ def test_a_deployment_that_built_no_simulator_vouches_for_no_endpoint() -> None:
 DATA_PID = 48213
 
 
+def _statement_reports() -> list:
+    """The display-only reports on disk, read the way a view that shows the machine would."""
+    from osprey_connectors import control_context
+
+    reports = (control_context.read_report(path) for path in control_context.report_paths())
+    return [report for report in reports if report is not None and report.display_only]
+
+
 def _display_only_report_on_disk(tmp_path, monkeypatch) -> None:
     """Lay down DATA's report, and nothing else, in a scratch state directory."""
     import json
 
     from osprey_connectors import control_context, posture_store
 
-    monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path))
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     control_context.invalidate_cache()
     path = control_context.report_path(DATA_PID)
@@ -1943,7 +1952,7 @@ def test_with_only_a_display_only_report_live_a_switch_takes_the_no_server_path(
     _display_only_report_on_disk(tmp_path, monkeypatch)
     try:
         reports = control_context.live_reports(is_alive=lambda pid: True)
-        assert control_context.live_statement_reports(is_alive=lambda pid: True)
+        assert _statement_reports()
     finally:
         control_context.invalidate_cache()
 
@@ -1975,7 +1984,7 @@ def test_an_unfiltered_display_only_report_would_be_named_by_the_gate(
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     _display_only_report_on_disk(tmp_path, monkeypatch)
     try:
-        unfiltered = control_context.live_statement_reports(is_alive=lambda pid: True)
+        unfiltered = _statement_reports()
     finally:
         control_context.invalidate_cache()
 

@@ -484,11 +484,11 @@ def test_restated_store_names_match_the_package():
     assert reader.CONTROL_CONTEXT_TREE_ENV_VAR == posture_store.CONTROL_CONTEXT_TREE_ENV_VAR
     assert reader.CONTROL_TREE_MARKER_NAME == posture_store.CONTROL_TREE_MARKER_NAME
     assert reader.LAUNCH_POSTURE_ENV_VAR == posture_store.LAUNCH_POSTURE_ENV_VAR
-    assert reader.LAUNCH_POSTURE_ALL_TARGETS == posture_store.LAUNCH_POSTURE_ALL_TARGETS
+    assert reader.LAUNCH_POSTURE_ALL_TARGETS == posture_store._LAUNCH_POSTURE_ALL_TARGETS
     assert reader.RECORD_READ_LIMIT == posture_store._RECORD_READ_LIMIT
     assert reader.HOLD_DIR_ENV_VAR == session_hold.HOLD_DIR_ENV_VAR
     assert reader.HOLD_RECORD_NAME == session_hold.RECORD_NAME
-    assert reader.HOLD_SCHEMA_VERSION == session_hold.SCHEMA_VERSION
+    assert reader.HOLD_SCHEMA_VERSION == session_hold._SCHEMA_VERSION
     assert reader.HOLD_RECORD_READ_LIMIT == session_hold._RECORD_READ_LIMIT
     assert reader.HOLD_SESSION_ENV_VAR == posture_store._SESSION_KEY_ENV_VAR
     assert reader._HOLD_SAFE_KEY == session_hold._SAFE_KEY.pattern

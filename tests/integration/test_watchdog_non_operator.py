@@ -41,6 +41,7 @@ from osprey.agent_record.client import URL_ENV
 from osprey.agent_record.contract import KIND_AUDIT
 from osprey.agent_runner import runner
 from osprey.agent_runner.runner import WATCHDOG_SKIP_ENV_VAR
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.cli.query_cmd import query
 from osprey.dispatch import server as dispatch_server
 from osprey.dispatch.sources.webhook import WebhookSource
@@ -48,7 +49,7 @@ from osprey.mcp_server.dispatch_worker import dispatch_api, sdk_runner
 from osprey.services.watchdog.definitions import load_watchdogs
 from osprey.services.watchdog.engines.decision import QUESTION_ID
 from osprey.services.watchdog.verdict import SURFACE_SAFETY_WATCHDOG
-from osprey_connectors.posture_store import AGENT_DATA_ROOT_ENV_VAR, DISPATCH_RUN_ENV_VAR
+from osprey_connectors.posture_store import DISPATCH_RUN_ENV_VAR
 from osprey_connectors.session_hold import HOLD_DIR_ENV_VAR, ensure_session, open_flags
 from tests._builds import copy_build
 from tests._live import wait_until
@@ -175,7 +176,7 @@ def _environment(
     saved = dict(os.environ)
     for name in _AMBIENT:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "agent_data"))
+    monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(tmp_path / "agent_data"))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     deployment.jev.calls = 0
     yield

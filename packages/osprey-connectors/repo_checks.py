@@ -12,7 +12,7 @@ Standard library only, for the reason ``scripts/check.py`` gives.
 from __future__ import annotations
 
 import ast
-from collections.abc import Mapping, Set
+from collections.abc import Mapping
 from pathlib import Path
 
 import check_kit as kit
@@ -30,9 +30,24 @@ USER_ROOTS = ("src", "packages/*/src")
 
 #: Names that are public with no user in the tree, each with the reason.
 EXTENSION_POINTS: Mapping[str, str] = {
+    "osprey_connectors.archiver.ArchiverMetadata": (
+        "an archiver's get_metadata answers in this type"
+    ),
+    "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
+    "osprey_connectors.connection.Credential": "a connector author declares its credentials",
+    "osprey_connectors.connection.Login": "a connector author declares how it logs in",
+    "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.factory.BuiltinConnector": (
+        "the framework reads each built-in's fields in this type"
+    ),
+    "osprey_connectors.honesty.ArchiverPairing": (
+        "every archiver-pairing judgement answers in this type"
+    ),
     "osprey_connectors.ipc.ConnectorHostError": "a caller catches every host failure by its base",
     "osprey_connectors.ipc.ConnectorHostLostError": "a caller tells a lost host from the others",
-    "osprey_connectors.ipc.ConnectorHostStartError": "a caller tells a failed start from the others",
+    "osprey_connectors.ipc.ConnectorHostStartError": (
+        "a caller tells a failed start from the others"
+    ),
     "osprey_connectors.ipc.ConnectorHostUnresponsiveError": (
         "a caller tells an unresponsive host from the others"
     ),
@@ -52,171 +67,73 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.ipc.GATEWAYS_ROWS": (
         "a caller names the verdict that a target declares gateway rows"
     ),
+    "osprey_connectors.ipc.LiveCollision": "a live-collision check answers in this type",
+    "osprey_connectors.ipc.PooledConnector": (
+        "the pool hands every caller its connector in this type"
+    ),
+    "osprey_connectors.ipc.READONLY": "a caller asks the pool for a readonly child by this value",
     "osprey_connectors.ipc.declared_gateways": (
         "transitional: its framework user lands with the connectors floor bump to "
         ">=2026.11.8 (#2592)"
     ),
-    "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
-    "osprey_connectors.connection.Credential": "a connector author declares its credentials",
-    "osprey_connectors.connection.Login": "a connector author declares how it logs in",
-    "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.recovery.Recovery": "a recovery answers what it did in this type",
+    "osprey_connectors.recovery.Supervised": "a supervisor's target meets this protocol",
     "osprey_connectors.safety_file.SHARED_DIR_MODE": (
         "transitional: its framework users land with the connectors floor bump to "
         ">=2026.11.8 (#2571)"
     ),
+    "osprey_connectors.simulation.archive.FingerprintComparison": (
+        "a fingerprint comparison answers in this type"
+    ),
+    "osprey_connectors.simulation.archive.SeedReport": (
+        "a seeding run reports, and reports progress, in this type"
+    ),
+    "osprey_connectors.simulation.composite.WriteRefusedError": (
+        "a caller reads which channel a refused write names"
+    ),
+    "osprey_connectors.simulation.logbook.PlotSeries": "a plot spec lists its series in this type",
     "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
         "the framework's archive rewrite reads the burst window"
     ),
     "osprey_connectors.simulation.series.loss_refill_bound": (
         "the framework's archive rewrite reads the loss refill bound"
     ),
+    "osprey_connectors.simulation.state.Overlap": "a composition check answers in this type",
+    "osprey_connectors.simulation.view.Binding": "a view lists its wiring records in this type",
     "osprey_connectors.simulation.view.COMMAND_MARK": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.Channel": "a view answers a channel in this type",
+    "osprey_connectors.simulation.view.ENGINE_ROLES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.MARKS": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.PLANES": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
+    "osprey_connectors.simulation.view.REFRESH": "a word of the wiring vocabulary",
+    "osprey_connectors.types.LIMITS_MODE_EXCLUSIVE": (
+        "a word of the limits-mode vocabulary a config states"
+    ),
+    "osprey_connectors.types.SERVED": "a word of the serving vocabulary a config states",
     "osprey_connectors.write_authorization.Approver": "a grant says who approved it in this type",
     "osprey_connectors.write_authorization.ChannelRange": (
         "a grant and a request bound each channel in this type"
     ),
-    "osprey_connectors.write_authorization.GrantStanding": "every grant listing answers in this type",
+    "osprey_connectors.write_authorization.GrantStanding": (
+        "every grant listing answers in this type"
+    ),
     "osprey_connectors.write_authorization.Ledger": (
         "a lease and a grant listing return the holder's ledger in this type"
     ),
-    "osprey_connectors.write_authorization.LedgerStep": "a ledger lists its spent steps in this type",
+    "osprey_connectors.write_authorization.LedgerStep": (
+        "a ledger lists its spent steps in this type"
+    ),
     "osprey_connectors.write_authorization.Revocation": (
         "a revoked grant says whose stop ended it in this type"
     ),
+    "osprey_connectors.write_target.UNRESOLVED": (
+        "a caller tells an unplaced write by this sentinel"
+    ),
+    "osprey_connectors.write_target.Unresolved": "an unplaced write answers in this type",
 }
-
-#: Interim: the listed names that had no user when this check was added. Each
-#: leaves this set when it is made private or declared in EXTENSION_POINTS; the
-#: set only shrinks, and an entry that gains a user or leaves ``__all__`` fails.
-UNUSED_BASELINE: frozenset[str] = frozenset(
-    {
-        "osprey_connectors.archive_targets.ADDRESS_SETTINGS",
-        "osprey_connectors.archive_targets.APPLIANCE_TARGETS",
-        "osprey_connectors.archive_targets.ARCHIVER_SECTION_KEY",
-        "osprey_connectors.archive_targets.DEFAULT_ADDRESS_SETTING",
-        "osprey_connectors.archive_targets.NO_TARGETS",
-        "osprey_connectors.archive_targets.STORE_ARCHIVERS",
-        "osprey_connectors.archive_targets.STORE_TARGETS",
-        "osprey_connectors.archiver.ArchiverMetadata",
-        "osprey_connectors.archiver.Processing",
-        "osprey_connectors.archiver.aggregate_series",
-        "osprey_connectors.archiver.channel_address",
-        "osprey_connectors.archiver.decimate_raw",
-        "osprey_connectors.archiver.long_frame",
-        "osprey_connectors.archiver.reject_non_numeric",
-        "osprey_connectors.archiver.require_datetime",
-        "osprey_connectors.archiver.resolve_processing",
-        "osprey_connectors.archiver.to_utc",
-        "osprey_connectors.control_context.REACHABLE_STATES",
-        "osprey_connectors.control_context.REPORT_APPLIED",
-        "osprey_connectors.control_context.REPORT_APPLYING",
-        "osprey_connectors.control_context.REPORT_FAILED",
-        "osprey_connectors.control_context.SCHEMA_VERSION",
-        "osprey_connectors.control_context.WRITES_STATEMENT_KEYS",
-        "osprey_connectors.control_context.is_foreign_process",
-        "osprey_connectors.control_context.live_report_payloads",
-        "osprey_connectors.control_context.live_statement_reports",
-        "osprey_connectors.control_context.parse_posture",
-        "osprey_connectors.control_context.parse_report",
-        "osprey_connectors.control_context.posture_mirror",
-        "osprey_connectors.control_context.report_path_under",
-        "osprey_connectors.control_context.state_dir",
-        "osprey_connectors.factory.BuiltinConnector",
-        "osprey_connectors.honesty.ArchiverPairing",
-        "osprey_connectors.ipc.DEFAULT_PVA_PORT",
-        "osprey_connectors.ipc.LiveCollision",
-        "osprey_connectors.ipc.MODE_ADDR_LIST",
-        "osprey_connectors.ipc.PooledConnector",
-        "osprey_connectors.ipc.READONLY",
-        "osprey_connectors.ipc.ROLE_PVA",
-        "osprey_connectors.ipc.SETTLE_TIMEOUT_S",
-        "osprey_connectors.ipc.verify_child_report",
-        "osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR",
-        "osprey_connectors.posture_store.LAUNCH_POSTURE_ALL_TARGETS",
-        "osprey_connectors.posture_store.LOGIN_TIERS_KEY",
-        "osprey_connectors.posture_store.VALID_POSTURES",
-        "osprey_connectors.posture_store.agent_data_root",
-        "osprey_connectors.posture_store.invalidate_cache",
-        "osprey_connectors.recovery.Origin",
-        "osprey_connectors.recovery.Recovery",
-        "osprey_connectors.recovery.Supervised",
-        "osprey_connectors.session_hold.EXCERPT_LIMIT",
-        "osprey_connectors.session_hold.SCHEMA_VERSION",
-        "osprey_connectors.settle.POLL_INTERVAL_S",
-        "osprey_connectors.simulation.ACTIVE_SCENARIOS_FILENAME",
-        "osprey_connectors.simulation.DEFAULT_SCENARIO",
-        "osprey_connectors.simulation.Overlap",
-        "osprey_connectors.simulation.STATUS_NO_DECK",
-        "osprey_connectors.simulation.archive.FingerprintComparison",
-        "osprey_connectors.simulation.archive.SeedReport",
-        "osprey_connectors.simulation.channel_faults.DISCONNECTED",
-        "osprey_connectors.simulation.channel_faults.FROZEN",
-        "osprey_connectors.simulation.coerce",
-        "osprey_connectors.simulation.composed_set",
-        "osprey_connectors.simulation.composite.ENGINE_GROUP",
-        "osprey_connectors.simulation.composite.INSTANCES",
-        "osprey_connectors.simulation.composite.STATUS_NO_DECK",
-        "osprey_connectors.simulation.composite.UDF",
-        "osprey_connectors.simulation.composite.WriteRefusedError",
-        "osprey_connectors.simulation.logbook.PlotSeries",
-        "osprey_connectors.simulation.overlap_record",
-        "osprey_connectors.simulation.parse_active_state",
-        "osprey_connectors.simulation.pulse.AMPLITUDE_DRIFT_FRACTION",
-        "osprey_connectors.simulation.pulse.DRIFT_PERIOD_S",
-        "osprey_connectors.simulation.pulse.EDGE_JITTER_SAMPLES",
-        "osprey_connectors.simulation.pulse.FALL_TAU_SAMPLES",
-        "osprey_connectors.simulation.pulse.FLAT_TOP_DROOP",
-        "osprey_connectors.simulation.pulse.FLAT_TOP_SAMPLES",
-        "osprey_connectors.simulation.pulse.MAX_TIMING_DRIFT_SAMPLES",
-        "osprey_connectors.simulation.pulse.NOISE_FRACTION",
-        "osprey_connectors.simulation.pulse.RINGING_AMPLITUDE_FRACTION",
-        "osprey_connectors.simulation.pulse.RINGING_COMPONENTS",
-        "osprey_connectors.simulation.pulse.RINGING_DAMPING_SAMPLES",
-        "osprey_connectors.simulation.pulse.RINGING_LONGEST_PERIOD_SAMPLES",
-        "osprey_connectors.simulation.pulse.RINGING_PERIOD_RATIO",
-        "osprey_connectors.simulation.pulse.RISE_SAMPLES",
-        "osprey_connectors.simulation.pulse.RISE_START_SAMPLE",
-        "osprey_connectors.simulation.pulse.SHAPE_CONSTANT_NAMES",
-        "osprey_connectors.simulation.pulse.TRACE_POINTS",
-        "osprey_connectors.simulation.pulse.shape_version",
-        "osprey_connectors.simulation.read_active_state",
-        "osprey_connectors.simulation.resolve_active_scenarios",
-        "osprey_connectors.simulation.scenario_targets",
-        "osprey_connectors.simulation.topoff.DECAY_FORM",
-        "osprey_connectors.simulation.topoff.LIFETIME_KEY",
-        "osprey_connectors.simulation.topoff.REFILL_PHASE",
-        "osprey_connectors.simulation.topoff.SECONDS_PER_HOUR",
-        "osprey_connectors.simulation.topoff.SHAPE_CONSTANT_NAMES",
-        "osprey_connectors.simulation.topoff.TOPOFF_KEY",
-        "osprey_connectors.simulation.topoff.shape",
-        "osprey_connectors.simulation.topoff.shape_version",
-        "osprey_connectors.simulation.validate_composition",
-        "osprey_connectors.simulation.values.VALUE_TYPES",
-        "osprey_connectors.simulation.values.WAVEFORM",
-        "osprey_connectors.simulation.view.Binding",
-        "osprey_connectors.simulation.view.Channel",
-        "osprey_connectors.simulation.view.ENGINE_ROLES",
-        "osprey_connectors.simulation.view.NO_VIEW_MESSAGE",
-        "osprey_connectors.simulation.view.PLANES",
-        "osprey_connectors.simulation.view.REFRESH",
-        "osprey_connectors.simulation.write_active_state",
-        "osprey_connectors.standin.ARCHIVER_RECORDER_SERVICE",
-        "osprey_connectors.standin.DEPLOYED_SERVICES_KEY",
-        "osprey_connectors.standin.archive_belongs_to_standin",
-        "osprey_connectors.types.CLI_ARCHIVER_TYPES",
-        "osprey_connectors.types.LIMITS_MODE_EXCLUSIVE",
-        "osprey_connectors.types.SERVED",
-        "osprey_connectors.types.TRANSPORT_DOOCS",
-        "osprey_connectors.types.TRANSPORT_TANGO",
-        "osprey_connectors.write_target.FALLBACK_WRITE_TOOLS",
-        "osprey_connectors.write_target.UNRESOLVED",
-        "osprey_connectors.write_target.Unresolved",
-    }
-)
 
 
 def _module_name(relative: Path) -> str:
@@ -311,18 +228,12 @@ def _uses(tree: ast.Module, package: str | None) -> set[tuple[str, str]]:
     return uses
 
 
-def stray_exports(
-    root: Path,
-    extension_points: Mapping[str, str] | None = None,
-    baseline: Set[str] | None = None,
-) -> list[str]:
+def stray_exports(root: Path, extension_points: Mapping[str, str] | None = None) -> list[str]:
     """One line per listed name in the tree at *root* that nothing outside its module uses.
 
-    A stale entry of *extension_points* (no ``__all__`` lists it) or of
-    *baseline* (it has gained a user, or no ``__all__`` lists it) is a line too.
+    A stale entry of *extension_points* (no ``__all__`` lists it) is a line too.
     """
     declared = EXTENSION_POINTS if extension_points is None else extension_points
-    interim = UNUSED_BASELINE if baseline is None else baseline
     source_root = root / PACKAGE_SRC
     exports = _exports(source_root)
     users: dict[tuple[str, str], set[Path]] = {}
@@ -346,17 +257,9 @@ def stray_exports(
         for name, line in names:
             dotted = f"{module}.{name}"
             listed.add(dotted)
-            used = bool(users.get((module, name), set()) - {path})
             if dotted in declared:
                 continue
-            if dotted in interim:
-                if used:
-                    lines.append(
-                        f"{where}:{line}: {dotted} is in UNUSED_BASELINE and has a user "
-                        "outside its module; remove it from UNUSED_BASELINE"
-                    )
-                continue
-            if not used:
+            if not users.get((module, name), set()) - {path}:
                 lines.append(
                     f"{where}:{line}: {dotted} is listed in __all__ and nothing outside its "
                     "module uses it; make it private or declare it in EXTENSION_POINTS"
@@ -365,11 +268,6 @@ def stray_exports(
         f"{OWN_FILE}: {dotted} is in EXTENSION_POINTS and no __all__ lists it; "
         "remove it from EXTENSION_POINTS"
         for dotted in sorted(set(declared) - listed)
-    )
-    lines.extend(
-        f"{OWN_FILE}: {dotted} is in UNUSED_BASELINE and no __all__ lists it; "
-        "remove it from UNUSED_BASELINE"
-        for dotted in sorted(set(interim) - listed)
     )
     return lines
 

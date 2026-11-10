@@ -1774,7 +1774,7 @@ def write_verdict(section, target, *, owner=None, ignore_launch_pin=False, hook_
 # The stdlib twin of ``osprey_connectors.session_hold``'s reader. The hold's key
 # is ``OSPREY_SESSION_ID``, which is not :func:`session_key`'s variable.
 
-#: Mirror ``session_hold.HOLD_DIR_ENV_VAR``, ``RECORD_NAME``, ``SCHEMA_VERSION``,
+#: Mirror ``session_hold.HOLD_DIR_ENV_VAR``, ``RECORD_NAME``, ``_SCHEMA_VERSION``,
 #: ``_RECORD_READ_LIMIT`` and ``posture_store._SESSION_KEY_ENV_VAR``.
 HOLD_DIR_ENV_VAR = "OSPREY_SESSION_HOLD_DIR"
 HOLD_RECORD_NAME = "record.json"
