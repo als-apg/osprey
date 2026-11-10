@@ -274,8 +274,8 @@ export function panelUrl(panelId, rest) {
 }
 
 /**
- * The CANOPY Data Browser url for `names`, in the panel's row order so a repeat
- * Plot matches the tab already open.
+ * The CANOPY Data Browser url for `names`, in selection order so a repeat
+ * Plot of an unchanged selection matches the tab already open.
  * @param {string[]} names
  * @returns {string|null}
  */

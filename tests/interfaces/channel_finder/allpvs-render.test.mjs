@@ -63,7 +63,7 @@ describe('allpvs-render', () => {
   });
 
   test('directory text is escaped and the links are encoded', () => {
-    const box = parse(tableHtml(page(), new Map(), null, ''));
+    const box = parse(tableHtml(page(), new Set(), null, ''));
     expect(box.querySelector('script, b')).toBeNull();
     expect(box.querySelector('td.desc')?.textContent).toBe('<script>x</script>');
     const [pv, ioc] = [...box.querySelectorAll('a')].map((a) => a.getAttribute('href'));
@@ -73,7 +73,7 @@ describe('allpvs-render', () => {
 
   test('a value cell is pending, read, silent or failed', () => {
     const cell = (/** @type {any} */ values, reason = '') =>
-      parse(tableHtml(page(), new Map(), values, reason)).querySelector('td.allpvs-value');
+      parse(tableHtml(page(), new Set(), values, reason)).querySelector('td.allpvs-value');
     expect(cell(null)?.textContent).toBe('…');
     const found = cell(
       new Map([

@@ -15,7 +15,9 @@
  * its sidebar toggle (panel-toolbar.js). The words it searches are
  * `state.scopeQuery`, shared with the curated view. Current values are read for
  * the rows shown, once per page and on Refresh, through the panel's values
- * route. Plot and Send hand the selection to the host, only inside one.
+ * route. The selection is a basket: it survives new words, filter changes and
+ * paging until "clear" or unmount, and Plot and Send hand it to the host, in
+ * the order it was selected, only inside one.
  */
 
 import { renderState, clearState } from '/design-system/js/panel-state.js';
@@ -62,7 +64,7 @@ const SIDEBAR_KEY = 'cf-allpvs-filters';
  *   answer: DirectoryPage|null,
  *   values: Map<string, ValueRow>|null,
  *   valuesReason: string,
- *   selected: Map<string, number>,
+ *   selected: Set<string>,
  *   searchSeq: number,
  *   valuesSeq: number,
  *   canPlot: boolean,
@@ -109,7 +111,7 @@ export function mountAllPvs(container, params = {}) {
     answer: null,
     values: null,
     valuesReason: '',
-    selected: new Map(),
+    selected: new Set(),
     searchSeq: 0,
     valuesSeq: 0,
     canPlot: false,
@@ -162,11 +164,10 @@ function onWords(words) {
   }, SEARCH_DEBOUNCE_MS);
 }
 
-/** Search again from the first page, with nothing selected. */
+/** Search again from the first page. */
 function restart() {
   if (!view) return;
   view.page = 0;
-  view.selected.clear();
   void runSearch();
 }
 
@@ -332,10 +333,9 @@ function renderTable() {
   head.indeterminate = !head.checked && answer.rows.some((row) => selected.has(row.name));
 }
 
-/** The selected names, in row order. */
+/** The selected names, in selection order. */
 function selectedNames() {
-  const selected = /** @type {View} */ (view).selected;
-  return [...selected].sort((a, b) => a[1] - b[1]).map(([name]) => name);
+  return [.../** @type {View} */ (view).selected];
 }
 
 /** The pager, the selection and the actions on it. */
@@ -420,11 +420,10 @@ function onChange(event) {
   const box = event.target instanceof HTMLInputElement ? event.target : null;
   if (!box) return;
   if (box.dataset.action === 'select-page') {
-    const offset = view.page * PAGE_SIZE;
-    view.answer.rows.forEach((row, index) => {
-      if (box.checked) view?.selected.set(row.name, offset + index);
-      else view?.selected.delete(row.name);
-    });
+    for (const row of view.answer.rows) {
+      if (box.checked) view.selected.add(row.name);
+      else view.selected.delete(row.name);
+    }
     renderTable();
     renderActions();
     return;
@@ -434,8 +433,8 @@ function onChange(event) {
 }
 
 /**
- * Select or deselect a row of the current page, keeping its place in the
- * result set so a hand-off lists the selection in row order.
+ * Select or deselect a row of the current page; a selected row joins the end
+ * of the selection.
  * @param {string} name
  */
 function toggleRow(name) {
@@ -443,9 +442,8 @@ function toggleRow(name) {
   if (view.selected.has(name)) {
     view.selected.delete(name);
   } else {
-    const index = view.answer.rows.findIndex((row) => row.name === name);
-    if (index < 0) return;
-    view.selected.set(name, view.page * PAGE_SIZE + index);
+    if (!view.answer.rows.some((row) => row.name === name)) return;
+    view.selected.add(name);
   }
   view.csvStatus = '';
   renderTable();

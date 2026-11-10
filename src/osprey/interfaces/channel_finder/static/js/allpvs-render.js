@@ -134,7 +134,7 @@ function valueCell(row, read, reason) {
 /**
  * The rows of one page.
  * @param {DirectoryPage} answer
- * @param {Map<string, number>} selected
+ * @param {Set<string>} selected
  * @param {Map<string, ValueRow>|null} values - null while unread
  * @param {string} valuesReason
  * @returns {string}

@@ -89,7 +89,7 @@ function answer(status, body) {
  *   values?: any,
  *   csv?: { status: number, body: string },
  *   query?: string,
- *   params?: Record<string, string>,
+ *   params?: Record<string, string|string[]>,
  * }} Setup
  */
 
@@ -143,11 +143,13 @@ async function mount(setup = {}) {
   const container = /** @type {HTMLElement} */ (document.getElementById('view-container'));
   view.mountAllPvs(container, params);
   unmount = view.unmountAllPvs;
-  return { state, container, fetchMock, searches, postMessage, labels };
+  return { state, view, container, fetchMock, searches, postMessage, labels };
 }
 
 /** @param {HTMLElement} root */
-const rows = (root) => [...root.querySelectorAll('tbody tr')];
+const rows = (root) => [
+  .../** @type {NodeListOf<HTMLElement>} */ (root.querySelectorAll('tbody tr')),
+];
 
 /** @param {HTMLElement} root @param {string} label */
 function button(root, label) {
@@ -316,7 +318,7 @@ describe('search and filters', () => {
 });
 
 describe('Plot and Send', () => {
-  test('Plot posts the Canopy url with pv in row order', async () => {
+  test('Plot posts the Canopy url with pv in selection order', async () => {
     const { container, postMessage } = await mount();
     await vi.waitFor(() => expect(plot(container)).not.toBeNull());
     select(container, 1);
@@ -326,7 +328,7 @@ describe('Plot and Send', () => {
       {
         type: 'osprey:navigate',
         panel: 'canopy',
-        url: '/u/a/panel/canopy/embed/@trace?pv=DEMO%3ABPM01%3AX&pv=DEMO%3ABPM01%3AHEARTBEAT&range=-1h',
+        url: '/u/a/panel/canopy/embed/@trace?pv=DEMO%3ABPM01%3AHEARTBEAT&pv=DEMO%3ABPM01%3AX&range=-1h',
       },
       window.location.origin
     );
@@ -341,6 +343,18 @@ describe('Plot and Send', () => {
     expect(plot(container)?.disabled).toBe(true);
     expect(plot(container)?.textContent).toBe('Plot (max 12)');
     expect(plot(container)?.title).toBe('Data Browser takes at most 12 PVs');
+  });
+
+  test('Send pastes the selection in selection order', async () => {
+    const { container, postMessage } = await mount();
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    select(container, 1);
+    select(container, 0);
+    send(container)?.click();
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'osprey-paste-to-terminal', text: 'DEMO:BPM01:HEARTBEAT DEMO:BPM01:X' },
+      window.location.origin
+    );
   });
 
   test('Send pastes the selection to the assistant', async () => {
@@ -370,6 +384,103 @@ describe('Plot and Send', () => {
     await vi.waitFor(() => expect(rows(container)[0].textContent).toContain('0.125'));
     expect(plot(container)).toBeNull();
     expect(send(container)).not.toBeNull();
+  });
+});
+
+describe('the selection basket', () => {
+  /**
+   * A found page of rows named after the searched words, `<words>:<i>`.
+   * @param {string} url
+   */
+  function byWords(url) {
+    const q = new URL(url, 'http://x').searchParams.get('q') || 'PV';
+    const page = pageOf(2);
+    return {
+      ...page,
+      rows: page.rows.map((/** @type {any} */ row, /** @type {number} */ i) => ({
+        ...row,
+        name: `${q}:${i}`,
+      })),
+    };
+  }
+
+  /** @param {HTMLElement} root */
+  const selection = (root) => root.querySelector('.allpvs-actions')?.textContent ?? '';
+
+  test('new words keep it, and Plot posts it in selection order', async () => {
+    const { container, postMessage, searches } = await mount({ search: byWords, query: 'A' });
+    await vi.waitFor(() => expect(rows(container)[0]?.dataset.name).toBe('A:0'));
+    select(container, 0);
+
+    const input = /** @type {HTMLInputElement} */ (document.getElementById('cf-search'));
+    input.value = 'B';
+    input.dispatchEvent(new Event('input'));
+    await vi.waitFor(() => expect(rows(container)[0]?.dataset.name).toBe('B:0'));
+    expect(searches.at(-1)).toContain('q=B');
+    expect(selection(container)).toContain('1 selected');
+    select(container, 1);
+    expect(selection(container)).toContain('2 selected');
+
+    plot(container)?.click();
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        type: 'osprey:navigate',
+        panel: 'canopy',
+        url: '/u/a/panel/canopy/embed/@trace?pv=A%3A0&pv=B%3A1&range=-1h',
+      },
+      window.location.origin
+    );
+  });
+
+  test('a facet change and paging keep it; clear empties it', async () => {
+    const { container, searches } = await mount({ search: pageOf(60) });
+    await vi.waitFor(() => expect(rows(container).length).toBeGreaterThan(1));
+    select(container, 0);
+    select(container, 1);
+
+    const sidebar = /** @type {HTMLElement} */ (document.querySelector('.osprey-panel-sidebar'));
+    /** @type {HTMLButtonElement} */ (
+      sidebar.querySelector('[data-facet="origin"][data-value="curated"]')
+    ).click();
+    await vi.waitFor(() => expect(searches.at(-1)).toContain('origin=curated'));
+    await vi.waitFor(() => expect(rows(container).length).toBeGreaterThan(1));
+    expect(selection(container)).toContain('2 selected');
+
+    /** @type {HTMLButtonElement} */ (container.querySelector('[data-action="next"]')).click();
+    await vi.waitFor(() => expect(searches.at(-1)).toContain('page=1'));
+    await vi.waitFor(() => expect(selection(container)).toContain('page 2'));
+    expect(selection(container)).toContain('2 selected');
+
+    button(container, 'clear')?.click();
+    expect(selection(container)).not.toContain('selected');
+  });
+
+  test('the select-page box adds the page in row order after what is selected', async () => {
+    const { container, postMessage } = await mount({ search: pageOf(3) });
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(3));
+    select(container, 2);
+    const head = () =>
+      /** @type {HTMLInputElement} */ (container.querySelector('[data-action="select-page"]'));
+    head().click();
+    expect(selection(container)).toContain('3 selected');
+    send(container)?.click();
+    expect(postMessage).toHaveBeenCalledWith(
+      { type: 'osprey-paste-to-terminal', text: 'PV:2 PV:0 PV:1' },
+      window.location.origin
+    );
+    head().click();
+    expect(selection(container)).not.toContain('selected');
+  });
+
+  test('a new mount starts with nothing selected', async () => {
+    const { view, container } = await mount();
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    select(container, 0);
+    expect(selection(container)).toContain('1 selected');
+    view.unmountAllPvs();
+    view.mountAllPvs(container, {});
+    await vi.waitFor(() => expect(rows(container)).toHaveLength(2));
+    expect(selection(container)).not.toContain('selected');
   });
 });
 
