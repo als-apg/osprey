@@ -1098,27 +1098,10 @@ Resolves the profile and runs the full consistency check — convention
 directories, the data tree, service templates, lifecycle steps, environment
 variables — reporting every problem found, not just the first.
 
-It also compares the profile with the preset it was materialized from, so a
-line the preset gained after ``osprey init`` (a panel, a hook, a permission)
-does not go missing silently. Only *structural* differences are refused — a
-key or list member one document has and the other has not. One you mean is
-claimed once, with a comment above the line:
-
-.. code-block:: yaml
-
-   config:
-     # DEVIATION: this deployment reads the facility's own knowledge graph
-     services.graphdb.uri: bolt://graph.facility.example:7687
-
-Unclaimed structural differences fail the check (``--drift=warn`` only reports
-them); a stale marker is reported too. The tag defaults to ``DEVIATION`` and is
-set by ``provenance.deviation_marker``.
-
-A key both documents carry with *different values* — ``web.theme: dark`` where
-the preset says ``light`` — is only reported, never refused. The profile is the
-source of truth for what this deployment runs, so an edited setting needs no
-marker, and a preset that changes a value in a later release does not fail a
-build that was fine yesterday.
+The profile is yours to edit. No difference from the preset it was
+materialized from is refused or listed. When the preset bundled with your
+OSPREY has changed since ``osprey init`` wrote the profile, ``validate`` and
+``osprey build`` print one line saying so.
 
 
 What the build does

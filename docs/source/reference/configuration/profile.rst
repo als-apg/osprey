@@ -283,12 +283,10 @@ Profile YAML reference
      - *written*
      - Which preset this profile was materialized from, that preset's hash, and
        the hash of the ``providers.yml`` beside it. Written by the
-       materialization; ``osprey validate`` compares the profile with that
-       preset and refuses unmarked *structural* differences, while a key both
-       carry with different values is only reported (see
-       :ref:`profile-preset-drift`). The one key you may add is
-       ``deviation_marker``, the tag of the ``# <TAG>: <why>`` comment that
-       marks a difference as deliberate (default ``DEVIATION``).
+       materialization; ``osprey validate`` and ``osprey build`` say when that
+       preset has moved on (see :ref:`profile-preset-drift`). A
+       ``deviation_marker`` key an earlier release read is accepted and
+       ignored; ``osprey init --revalidate`` removes it.
 
 
 Configuration overrides
@@ -492,11 +490,8 @@ Three rules follow from the catalog being the one home for these facts:
   place to declare the provider.
 - ``provider:`` naming an entry the file does not declare is refused, and the
   message lists the names it does declare.
-- ``osprey validate`` compares each entry OSPREY ships with the one in the file,
-  key by key, as preset drift: a value you changed is a note, a key or model the
-  two disagree on having is refused unless a ``# DEVIATION:`` comment above it
-  claims it. Entries you added are not compared. The comparison is with the
-  catalog this OSPREY release ships, not with the hash under ``provenance:``.
+- The file is yours to edit, like ``profile.yml``: ``osprey validate`` refuses
+  and lists no difference from the catalog OSPREY ships.
   ``osprey init --revalidate`` keeps every value in the file and adds the
   entries and keys OSPREY ships that it lacks.
 
@@ -575,22 +570,12 @@ Preset drift
 ============
 
 A profile ``osprey init`` wrote records the preset it came from under
-``provenance:``. ``osprey validate`` compares the two and splits what it finds:
-
-- A **structural** difference — a key, block or list member one document has
-  and the other has not — is refused, with both ``file:line`` references,
-  unless a ``# DEVIATION: <why>`` comment within three lines above the line
-  claims it (for a line the profile does not have, a comment anywhere naming
-  the key or member). ``--drift=warn`` reports these and passes.
-- A **value** difference on a key both documents carry is only reported. Your
-  profile is the source of truth, and a preset that changes a value in a newer
-  OSPREY release should not fail your build.
-
-So the external-store recipe below, which takes ``graphdb`` out of
-``deployed_services`` and adds ``services.graphdb.uri`` and ``.username``, is
-three structural differences and wants marker comments; changing ``web.theme``
-from the preset's ``light`` to ``dark`` is a value difference and wants
-nothing.
+``provenance:``. From then on the profile is yours: no difference from the
+preset is refused or listed, whether you changed a value, added a key or dropped
+a list member. When the preset bundled with your OSPREY has changed since
+``osprey init`` wrote the profile, ``osprey validate`` and ``osprey build``
+print one line saying so. The same holds for each tier file, against the
+bundled tier it names.
 
 A profile written before the ``config:`` block carried everything spells only
 what its facility changed, and still names a packaged app template at its top
@@ -1123,15 +1108,9 @@ taking away:
 
    channel_finder_mode: graph
    config:
-     # DEVIATION: the graph store is the facility's, not this deployment's
      services.graphdb.uri: bolt://graph.facility.org:7687
      services.graphdb.username: neo4j
-     # DEVIATION: graphdb is the facility's store, so deployed_services drops it
      deployed_services: [postgresql, qmd]
-
-Those are structural differences from the preset — two added keys and a dropped
-list member — which is why the marker comments are there. Without them
-``osprey validate`` refuses the profile (:ref:`profile-preset-drift`).
 
 The procedure that goes with those keys — the password to place, what is minted
 and seeded on each path, and how to load a corpus into a store OSPREY does not

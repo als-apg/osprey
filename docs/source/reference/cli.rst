@@ -233,7 +233,7 @@ Check the deployment profile without building.
 
 .. code-block:: bash
 
-   osprey validate [TARGET] [--repo DIRECTORY] [--drift error|warn]
+   osprey validate [TARGET] [--repo DIRECTORY]
 
 With no argument, validates the deployment repository enclosing the working
 directory. ``TARGET`` names a different profile to check instead — a tier
@@ -246,28 +246,10 @@ then lints the declared web stack against the config a build would render. Every
 problem found is reported, not just the first. Exits 0 when the profile is
 valid, 2 with the accumulated errors when it is not, so a CI job can gate on it.
 
-A profile ``osprey init`` wrote is also compared with the preset it came from,
-tier and app files included, and the two kinds of difference are treated
-differently.
-
-**Structural** differences are refused: a key or list member the preset has and
-the profile lacks, one the profile adds that the preset does not know, or an
-``exclude:`` of something the preset keeps. Each is reported with both
-``file:line`` references unless a ``# DEVIATION: <why>`` comment within three
-lines above the profile line claims it (for a missing line, a comment anywhere
-naming the key or member). The tag is set by ``provenance.deviation_marker``; a
-marker that no longer marks a difference is reported as stale.
-``--drift=warn`` prints them and passes.
-
-**Value** differences — a key both documents carry, set to different values —
-are always only reported, on every setting. The profile is the source of truth,
-so a preset that changes a value in a later OSPREY release turns up as a note
-rather than failing a build that was fine yesterday.
-
-``osprey build`` prints the same list under ``-v`` and, whenever the bundled
-preset's hash differs from the recorded one, a one-line note that the preset
-has moved on. A ``providers.yml`` that no longer matches the packaged catalog
-is reported the same way — as a note, never a refusal.
+The profile is yours to edit, so no difference from the preset ``osprey init``
+wrote it from is refused or listed, in ``profile.yml``, a tier or app file, or
+``providers.yml``. When the bundled preset has changed since, ``validate`` and
+``osprey build`` print one line saying so.
 
 .. code-block:: bash
 

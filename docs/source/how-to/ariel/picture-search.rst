@@ -506,9 +506,9 @@ Upgrade notes
 =============
 
 **Profile keys.** An existing deployment's ``profile.yml`` is explicit and does
-not gain the new keys; ``osprey validate`` lists them as drift. Add the lines
-shown below, or run ``osprey init --revalidate`` (it writes every lacking leaf,
-with the side effects named below); until then
+not gain the new keys. Add the lines shown below, or run
+``osprey init --revalidate`` (it writes every lacking leaf, with the side effect
+named below); until then
 ``image_caption`` and ``image_embedding`` keep their code defaults (off) and the
 view tool its default (on).
 
@@ -540,9 +540,8 @@ packaged entry:
        models:                         # the name llama-server advertises (--alias)
          - qwen3-vl-embedding-2b
 
-``osprey init --revalidate`` also writes it, with side effects: it fills in every
-key the profile leaves to its preset and stamps provenance, which turns on the
-strict preset-drift check (see :ref:`Preset drift <profile-preset-drift>`).
+``osprey init --revalidate`` also writes it, with a side effect: it fills in
+every key the profile leaves to its preset and stamps provenance.
 
 **Search indexes.** The upgrade builds a v2 full-text index and a trigram index
 over attachment text, and keeps the v1 indexes (the full-text index and, with
