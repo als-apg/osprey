@@ -1994,8 +1994,8 @@ def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
 
     One resolver feeds it,
     :func:`~osprey.deployment.compose_generator.resolve_site_build_args`: the
-    ``images.*`` block (the site CA, pip's proxy bypass list and the two index
-    URLs) and the top-level ``offline`` key, read exactly as
+    ``images.*`` block (the site CA, pip's proxy bypass list, the two index
+    URLs and the base-image registry) and the top-level ``offline`` key, read exactly as
     :func:`osprey.interfaces.vendor.is_offline` reads it, so build-time
     vendoring and the runtime check that decides whether to SERVE the vendored
     assets cannot disagree. A deployment that sets ``offline: true`` and gets an

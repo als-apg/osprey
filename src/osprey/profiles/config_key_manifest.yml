@@ -296,6 +296,17 @@ keys:
       The second index, consulted after `images.pip_index_url`; same layering
       and the same empty-versus-unset handling.
     default: ''
+  images.base_registry:
+    rendered: false
+    evidence: '"OSPREY_BASE_REGISTRY": "base_registry"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the
+      presets. The registry path every shipped recipe pulls its base image
+      from, passed as the OSPREY_BASE_REGISTRY build arg to the project,
+      render and sidecar builds and to every compose-built service. Unset, the
+      recipes' own default docker.io/library stands. A trailing slash is
+      dropped. OSPREY_BASE_REGISTRY overrides it in the environment.
+    default: ''
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
     default: {}

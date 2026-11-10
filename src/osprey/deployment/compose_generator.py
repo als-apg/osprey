@@ -1836,14 +1836,15 @@ def _image_axis_block(config):
 #: The site's build-time network settings, as ``Dockerfile ARG -> images.<key>``.
 #:
 #: These are the knobs a site network needs and the public internet does not: a
-#: TLS-intercepting proxy's CA, the proxy bypass list pip is given, and an
-#: internal package index. They are axes in the same sense ``images.registry``
-#: and ``images.tag`` are — one value per deployment, carried by every image
-#: OSPREY builds — which is why they share the block and its precedence rules
-#: rather than growing a section of their own.
+#: TLS-intercepting proxy's CA, the proxy bypass list pip is given, an internal
+#: package index, and the registry path the recipes pull their base images from,
+#: for a site that mirrors Docker Hub. They are axes in the same sense
+#: ``images.registry`` and ``images.tag`` are — one value per deployment,
+#: carried by every image OSPREY builds — which is why they share the block and
+#: its precedence rules rather than growing a section of their own.
 #:
 #: The ARG name doubles as the environment override, exactly as the two axes
-#: above use ``OSPREY_IMAGE_REGISTRY``/``OSPREY_IMAGE_TAG``: three of the four
+#: above use ``OSPREY_IMAGE_REGISTRY``/``OSPREY_IMAGE_TAG``: three of the five
 #: are names pip and the CA layer already read, so a build host that exports
 #: them for its own tooling does not then have to spell them again for OSPREY.
 SITE_IMAGE_AXES = {
@@ -1851,6 +1852,7 @@ SITE_IMAGE_AXES = {
     "PIP_NO_PROXY": "pip_no_proxy",
     "PIP_INDEX_URL": "pip_index_url",
     "PIP_EXTRA_INDEX_URL": "pip_extra_index_url",
+    "OSPREY_BASE_REGISTRY": "base_registry",
 }
 
 
@@ -1866,6 +1868,9 @@ def resolve_site_image_axes(config):
     and passing one with an empty value is not the same as not passing it. The
     Dockerfiles declare each ARG with a default that means "no site setting",
     so an unset axis leaves the argv a deployment produces today unchanged.
+
+    ``base_registry`` loses any trailing ``/``, so both spellings of a mirror
+    path resolve alike and ``/`` alone counts as unset.
 
     ``site_ca`` is a HOST path here — the file the operator points at. Staging
     it into a build context and rewriting the value to the name COPY can reach
@@ -1883,6 +1888,8 @@ def resolve_site_image_axes(config):
     resolved = {}
     for arg_name, key in SITE_IMAGE_AXES.items():
         value = _image_axis(arg_name, f"images.{key}", images.get(key), "")
+        if arg_name == "OSPREY_BASE_REGISTRY":
+            value = value.rstrip("/")
         if value:
             resolved[arg_name] = value
     return resolved

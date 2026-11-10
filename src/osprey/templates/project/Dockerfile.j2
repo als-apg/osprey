@@ -62,8 +62,12 @@
 #   OSPREY_SITE_CA      name of a site CA file staged in the build context, for
 #                       networks where a proxy re-signs TLS with its own CA.
 #                       Unset (the default), the CA layer is a no-op.
+#   OSPREY_BASE_REGISTRY  registry path the base image is pulled from (default
+#                       docker.io/library, Docker Hub's official images); set it
+#                       to a site mirror of Docker Hub.
 
-FROM python:3.12-slim
+ARG OSPREY_BASE_REGISTRY="docker.io/library"
+FROM ${OSPREY_BASE_REGISTRY}/python:3.12-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
 # OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework declares only

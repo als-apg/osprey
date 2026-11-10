@@ -127,7 +127,7 @@ Build Arguments
 
 - the top-level ``offline`` key
 - the ``images.site_ca`` / ``images.pip_no_proxy`` / ``images.pip_index_url``
-  / ``images.pip_extra_index_url`` block
+  / ``images.pip_extra_index_url`` / ``images.base_registry`` block
 
 It resolves them once and hands them to the three images built from these
 recipes: the project image, each web-terminal image and the login sidecar, and
@@ -163,6 +163,10 @@ shell, the same way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
    * - ``PIP_EXTRA_INDEX_URL``
      - ``""``
      - A second index, consulted after the first. Same handling.
+   * - ``OSPREY_BASE_REGISTRY``
+     - ``docker.io/library``
+     - Registry path the base image is pulled from. Point it at a site mirror
+       of Docker Hub's official images.
    * - ``OSPREY_OFFLINE``
      - ``"0"``
      - ``"1"`` vendors web assets (JS/CSS/fonts) into the image via

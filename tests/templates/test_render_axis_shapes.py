@@ -122,6 +122,7 @@ _SITE_IMAGE_BUILD_ARGS = {
     "PIP_NO_PROXY": "internal.example.org,.example.org",
     "PIP_INDEX_URL": "https://mirror.example.org/simple",
     "PIP_EXTRA_INDEX_URL": "https://extra.example.org/simple",
+    "OSPREY_BASE_REGISTRY": "mirror.example.org/dockerhub/library",
 }
 
 #: The mirror path the ``ariel-sync-qmd-mirror`` scenario configures. Written
