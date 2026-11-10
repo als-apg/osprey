@@ -305,6 +305,26 @@ def test_the_sweep_reads_ariel_keys(tmp_path: Path) -> None:
     )
 
 
+def test_the_sweep_reads_pv_directory_keys(tmp_path: Path) -> None:
+    """A ``pv_directory.*`` literal is a checked key, not prose.
+
+    Pins the ``pv_directory`` entry in :data:`_SECTIONS`: a nested key the page
+    documents must resolve, and a misspelled one is flagged.
+    """
+    fake_root = tmp_path / "repo"
+    _write_page(
+        fake_root,
+        "pv_directory.rst",
+        "PV directory\n============\n\n"
+        "Set ``pv_directory.display.filter_cap`` to bound a filter.\n"
+        "Set ``pv_directory.not_a_real_key`` to do nothing.\n",
+    )
+
+    assert [hit[2] for hit in _undeclared_hits(docs_root=fake_root)] == [
+        "pv_directory.not_a_real_key"
+    ], "the sweep should flag the bogus pv_directory key and pass the declared one"
+
+
 def test_a_declared_key_is_not_flagged(tmp_path: Path) -> None:
     """The other half of the control: a real key must survive the sweep.
 
