@@ -70,8 +70,10 @@ CA_CLIENT_ENV: dict[str, str | None] = {
     "EPICS_CA_SERVER_PORT": None,
     "EPICS_CA_NAME_SERVERS": None,
 }
-# Read by libca when the process's first CA context is created, which may be
-# another module's; point_at does not carry it.
+# import-time required because libca reads the repeater port when the first CA
+# context in the process is created, which may be another module's, before any
+# of this module's fixtures run; point_at does not carry it. The port is held
+# for the process unless the environment pins one.
 if _IN_PYTEST and "EPICS_CA_REPEATER_PORT" not in os.environ:
     os.environ["EPICS_CA_REPEATER_PORT"] = str(hold_ports(1)[0])
 
