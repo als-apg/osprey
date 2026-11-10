@@ -31,8 +31,8 @@ from osprey_connectors.write_authorization import (
     Approver,
     ChannelRange,
     Grant,
-    issue_grant,
-    parse_ledger,
+    _issue_grant,
+    _parse_ledger,
     revoke_grants,
     start_lease,
 )
@@ -160,7 +160,7 @@ def approve(monkeypatch: pytest.MonkeyPatch, *, name: bool = True, **fields: Any
     }
     values.update(fields)
     grant = Grant(**values)
-    issue_grant(grant)
+    _issue_grant(grant)
     start_lease(grant.id)
     if name:
         monkeypatch.setenv(wa.AUTHORIZATION_ENV_VAR, grant.id)
@@ -170,7 +170,7 @@ def approve(monkeypatch: pytest.MonkeyPatch, *, name: bool = True, **fields: Any
 def steps(grant: Grant) -> int:
     directory = wa.ledger_dir()
     assert directory is not None
-    ledger = parse_ledger((directory / f"{grant.id}.ledger.json").read_text())
+    ledger = _parse_ledger((directory / f"{grant.id}.ledger.json").read_text())
     return len(ledger.steps)
 
 

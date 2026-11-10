@@ -108,7 +108,6 @@ _NET_PATCH_TARGETS: tuple[tuple[str, str], ...] = (
 def render_net_guard(
     *,
     denied_ports: Iterable[int],
-    refusal_prefix: str | None = None,
 ) -> str:
     """Render the network guard as source code to embed in a child script.
 
@@ -120,16 +119,14 @@ def render_net_guard(
             open, and the caller skips emission entirely rather than shipping
             an inert guard (``ExecutionWrapper._get_net_guard`` does exactly
             that).
-        refusal_prefix: Leading text on every refusal. Defaults to
-            :data:`NET_GUARD_REFUSAL_PREFIX`.
 
     Returns:
         Left-aligned Python source. Indent it yourself (``textwrap.indent``)
         if it lands inside a block.
 
     Raises:
-        ValueError: On an empty port set, a port outside 1–65535, a
-            non-integer port, or an empty ``refusal_prefix``.
+        ValueError: On an empty port set, a port outside 1–65535, or a
+            non-integer port.
     """
     ports: list[int] = []
     for port in denied_ports:
@@ -145,10 +142,6 @@ def render_net_guard(
         )
     denied = tuple(sorted(set(ports)))
 
-    prefix = NET_GUARD_REFUSAL_PREFIX if refusal_prefix is None else refusal_prefix
-    if not prefix.strip():
-        raise ValueError("refusal_prefix must be non-empty — refusals are matched by their prefix")
-
     ports_text = ", ".join(str(port) for port in denied)
 
     return textwrap.dedent(
@@ -161,7 +154,7 @@ def render_net_guard(
 
         _OSPREY_NET_DENIED = frozenset({denied!r})
         _OSPREY_NET_PORTS_TEXT = {ports_text!r}
-        _OSPREY_NET_PREFIX = {prefix!r}
+        _OSPREY_NET_PREFIX = {NET_GUARD_REFUSAL_PREFIX!r}
         _OSPREY_NET_TARGETS = {_NET_PATCH_TARGETS!r}
         _OSPREY_NET_HOLDERS = {{
             "socket": _osprey_net_socket,

@@ -29,7 +29,7 @@ from tests.e2e.sdk_helpers import (
     run_sdk_query_with_hooks,
 )
 
-pytestmark = pytest.mark.agentic_benchmark
+pytestmark = pytest.mark.harness_benchmark
 
 # The two ways an agent makes a plot. They are equivalent capabilities and the
 # agent picks between them — itself or through the data-visualizer — so the test

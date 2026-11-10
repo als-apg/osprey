@@ -67,9 +67,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // The server's last-active key wins over this browser's, before either
   // surface reads the pointer: both bind from it once, synchronously.
   await resumeLastActive();
-  // Guarded: xterm.js loads from a CDN by default (local only in
-  // OSPREY_OFFLINE), so a network blip must degrade the terminal card, not
-  // kill the whole boot.
+  // A missing xterm.js asset is reported in the pane by initTerminal itself;
+  // this guard keeps any other terminal init failure from killing the rest of
+  // the boot.
   try {
     initTerminal('terminal-container');
     // A tab that opted into the terminal reopens straight onto its prompt.

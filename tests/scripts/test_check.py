@@ -1863,6 +1863,59 @@ def test_a_file_under_a_tests_directory_without_test_modules_widens() -> None:
     assert selected("quick", "tests/fixtures/config.yml")["pytest"].state == check.WHOLE
 
 
+_CONNECTORS_TESTS = "packages/osprey-connectors/tests/osprey_connectors_tests"
+_TEST_ONLY = [
+    "tests/cli/__init__.py",
+    "tests/cli/test_main.py",
+    "tests/empty/__init__.py",
+    f"{_CONNECTORS_TESTS}/__init__.py",
+    f"{_CONNECTORS_TESTS}/test_session_hold.py",
+    f"{_CONNECTORS_TESTS}/ipc/__init__.py",
+    f"{_CONNECTORS_TESTS}/ipc/test_pool_soft_ioc.py",
+]
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        (
+            f"{_CONNECTORS_TESTS}/test_session_hold.py",
+            (f"{_CONNECTORS_TESTS}/test_session_hold.py",),
+        ),
+        (f"{_CONNECTORS_TESTS}/ipc/__init__.py", fw.WIDENS_SWEEP_HELPER),
+        ("tests/cli/__init__.py", ("tests/cli",)),
+        ("tests/empty/__init__.py", fw.WIDENS_NO_TEST_MODULE),
+        ("tests/__init__.py", fw.WIDENS_ROOT_PACKAGE),
+        ("packages/osprey-connectors/tests/conftest.py", fw.WIDENS_ROOT_CONFTEST),
+        (f"{_CONNECTORS_TESTS}/_soft_ioc.py", fw.WIDENS_SWEEP_HELPER),
+        ("packages/osprey-connectors/src/osprey_connectors/epics.py", fw.WIDENS_UNMIRRORED),
+        ("packages/osprey-optimizer/tests/test_bounds.py", fw.WIDENS_UNMIRRORED),
+        ("pyproject.toml", fw.WIDENS_PROJECT),
+    ],
+    ids=[
+        "packages-test-file",
+        "packages-test-package-init-widens",
+        "tests-package-init",
+        "init-without-test-modules-widens",
+        "top-level-init-widens",
+        "packages-conftest-widens",
+        "packages-test-helper-widens",
+        "packages-source-widens",
+        "packages-outside-sweep-roots-widens",
+        "pyproject-widens",
+    ],
+)
+def test_a_test_only_path_selects_only_its_tests(
+    path: str, expected: tuple[str, ...] | str
+) -> None:
+    got = fw._select_pytest([path], _TEST_ONLY)
+    if isinstance(expected, str):
+        assert got == check.Selection(check.WHOLE)
+        assert got.reason == f"{path}: {expected}"
+    else:
+        assert got == check.Selection(check.PATHS, expected)
+
+
 def test_a_new_check_naming_a_script_makes_it_shaping(monkeypatch: pytest.MonkeyPatch) -> None:
     extra = check.Check("plots", "invariant", check.BOTH, ("python3", "scripts/scenario_plots.py"))
     checks = (*check.CHECKS, extra)

@@ -514,6 +514,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "LogbookWebSourceMigration",
         None,  # Always runs
     ),
+    (
+        "ariel_only_sync_status",
+        "osprey.services.ariel_search.database.ariel_only_sync_status_migration",
+        "ArielOnlySyncStatusMigration",
+        None,  # Always runs
+    ),
 ]
 
 

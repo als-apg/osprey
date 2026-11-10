@@ -451,13 +451,13 @@ Suite timing
 
 Three scalar settings tune the suite as a whole:
 
-- ``suite_timeout_s`` (default 30) — the wall-clock budget bounding all
+- ``health.suite_timeout_s`` (default 30) — the wall-clock budget bounding all
   poll-class categories collectively. It is also the default budget for a
   poll-class callable category.
-- ``on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
+- ``health.on_demand_timeout_s`` — the wall-clock budget bounding all on_demand
   categories collectively (only relevant under ``--full``). When omitted it
   defaults to the sum of the selected on_demand categories' budgets.
-- ``interval_s`` — the minimum interval between server-side re-runs. When
+- ``health.interval_s`` — the minimum interval between server-side re-runs. When
   omitted it derives as ``max(60, 2 × suite_timeout_s)``; an explicit value must
   be greater than ``suite_timeout_s`` or the config is rejected. This value is
   validated but not yet enforced by ``osprey health`` itself.
@@ -987,11 +987,14 @@ When the key is set, every entry the ARIEL tools return carries an
 result of ``entry_publish``. The id is URL-encoded before it is filled in. The
 agent is told to link that URL as given and never to build one, so with the key
 unset it shows plain entry IDs. An entry that exists only in ARIEL gets no URL,
-because the logbook has no page for it: one ``entry_create`` wrote directly
-(``source_system`` ``ARIEL MCP``) or one saved local-only (``metadata.sync_status``
-``local_only``, such as a Logbook web save or a publish the logbook did not take).
-A ``sql_query`` row also gets none when looking up the ``source_system`` or
-``metadata`` it does not select fails.
+because the logbook has no page for it. Every write records which kind an entry
+is in ``metadata.sync_status``, and the URL reads that alone: ``local_only`` for
+an entry ``entry_create`` wrote directly, a Logbook web save, a simulation seed,
+an entry of a Generic JSON file or a publish the logbook did not take; ``pending_sync`` or ``synced`` for an
+entry the facility logbook holds. Entries stored before the field was recorded
+everywhere are stamped once by the ``ariel_only_sync_status`` migration. A
+``sql_query`` row also gets none when looking up the ``metadata`` it does not
+select fails.
 
 A template that does not format (a misspelled placeholder, an unbalanced brace)
 is logged once as a warning and emits no URL; it never fails the read. The
@@ -1380,8 +1383,8 @@ Two things about *when* and *where* this applies are worth having straight:
   deployment that never heard of them is unaffected.
 
 The axes never touch an upstream pin. Prefixing ``mongo:7`` with your
-registry would name an image that exists in no registry; mirror those through
-their own row instead.
+registry would name an image that exists in no registry.
+``images.base_registry`` moves the Docker Hub ones onto a mirror; a ``services.<name>.image`` pin moves one.
 
 .. _compose-interpolation-precedence:
 

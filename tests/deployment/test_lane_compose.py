@@ -40,7 +40,10 @@ from osprey.bluesky_bridge_connection import (
     lane_control_identity,
     lane_env_prefix,
 )
-from osprey.deployment.compose_generator import repo_relative_mount_source
+from osprey.deployment.compose_generator import (
+    repo_relative_mount_source,
+    resolve_upstream_images,
+)
 from osprey.deployment.control_identity import (
     CONTROL_IDENTITY_CONTAINER_DIR,
     CONTROL_IDENTITY_CONTAINER_PATH,
@@ -207,6 +210,7 @@ def _context(
             "repo_id": "abc123def456",
         },
         "osprey_images": _image_defaults("proj"),
+        "upstream_images": resolve_upstream_images({}),
         "osprey_version": "2026.8.1",
         "system": {"timezone": "UTC"},
         "deployment": {},

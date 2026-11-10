@@ -58,11 +58,13 @@ CONTROL_IDENTITY_CONTAINER_PATH = CONTROL_IDENTITY_CONTAINER_DIR + "/control_ide
 # The file the guarded import above loads when this script runs by path.
 _HELPER_FILENAME = "osprey_safety_file.py"
 
-IDENTITY_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}\Z")
-"""A portable POSIX login name: lowercase, at most 32 characters."""
+IDENTITY_RE = re.compile(r"^[a-z_][a-z0-9._-]{0,31}\Z")
+"""A portable POSIX login name: lowercase letters, digits, ``.``, ``_`` and ``-``, a letter
+or ``_`` first, at most 32 characters."""
 
-RESERVED_RE = re.compile(r"^(root|osprey(-[a-z0-9_-]*)?)\Z")
-"""Names OSPREY owns: ``root``, ``osprey``, and the generated ``osprey-*`` service names."""
+RESERVED_RE = re.compile(r"^(root|osprey([-.][a-z0-9._-]*)?)\Z")
+"""Names OSPREY owns: ``root``, ``osprey``, the generated ``osprey-*`` service names, and
+``osprey.*``, which no service or person may take."""
 
 BASE_IMAGE_ACCOUNTS: frozenset[str] = frozenset(
     {
@@ -132,7 +134,7 @@ def validate_identity(name: object, *, allow_service: bool = False) -> None:
     :data:`BASE_IMAGE_ACCOUNTS`.
 
     ``allow_service=True`` admits the generated ``osprey-*`` service names; it
-    never admits ``root`` or ``osprey`` themselves.
+    never admits ``root``, ``osprey`` or an ``osprey.*`` name.
     """
     if not isinstance(name, str):
         raise ValueError(f"control identity must be a string, got {type(name).__name__}")
@@ -141,10 +143,10 @@ def validate_identity(name: object, *, allow_service: bool = False) -> None:
     if IDENTITY_RE.fullmatch(name) is None:
         raise ValueError(
             f"control identity {name!r} must match {IDENTITY_RE.pattern} "
-            "(lowercase letter or underscore first, then up to 31 of a-z 0-9 _ -)"
+            "(lowercase letter or underscore first, then up to 31 of a-z 0-9 . _ -)"
         )
     if RESERVED_RE.fullmatch(name) is not None:
-        service = name not in CANONICAL_NAME.values()
+        service = name.startswith("osprey-")
         if not (allow_service and service):
             raise ValueError(f"control identity {name!r} is reserved for OSPREY")
     if name in BASE_IMAGE_ACCOUNTS:

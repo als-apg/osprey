@@ -28,7 +28,6 @@ from tests.e2e.ariel_picture import FIXTURES, PictureCase, run_picture_case
 from tests.e2e.sdk_helpers import HAS_SDK
 
 pytestmark = [
-    pytest.mark.agentic_benchmark,
     pytest.mark.requires_e2e_provider,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
 ]
@@ -59,6 +58,12 @@ CASE = PictureCase(
 )
 
 
+@pytest.mark.agentic(
+    tier=1,
+    title="Read a logbook plot",
+    asks="How far did the orbit drift during the sector 9 overnight study?",
+    passes_if="the drift read off the plot attached to the right logbook entry",
+)
 @pytest.mark.flaky(reruns=2)  # agentic; absorbs a rare miss of the delegation directive
 @pytest.mark.asyncio
 async def test_agent_reads_the_attached_plot(

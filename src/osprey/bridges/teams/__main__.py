@@ -61,15 +61,20 @@ queue is pulled.
 from __future__ import annotations
 
 import logging
-import signal
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from types import FrameType
 
 import httpx
 
-from osprey.bridges.core import BridgeRuntime, PipelineDeps, build_deps, run_forever
+from osprey.bridges.core import (
+    BridgeRuntime,
+    PipelineDeps,
+    build_deps,
+    configure_bridge_logging,
+    install_signal_handlers,
+    run_forever,
+)
 
 from .client import Audience, ConnectorClient, TokenSource
 from .config import TeamsBridgeConfig, require_boot
@@ -78,14 +83,6 @@ from .ops import TeamsOps
 from .receiver import QueueReceiver, ReceiverFactory, make_receiver, serve
 
 logger = logging.getLogger(__name__)
-
-LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s: %(message)s"
-"""Timestamp, level, logger, message — the same fields the framework's MCP-server
-entrypoints show, through plain stdlib handlers: a container log is read with
-``docker logs`` and wants no ANSI, and the bridge process deliberately stays clear of
-the framework's rich logging stack. Records go to stderr (``basicConfig``'s default),
-which Python line-buffers even when it is a pipe, so a log line is visible as it
-happens rather than whenever an 8 KiB block fills."""
 
 QUIET_LIBRARIES = ("httpx", "httpcore", "azure", "uamqp")
 """Loggers demoted to WARNING, each because it logs per-request or per-frame at INFO
@@ -99,18 +96,6 @@ have to keep in step with the SDK."""
 CANNOT_START = "microsoft teams bridge cannot start: {reason}"
 """Message of the :class:`SystemExit` raised for an incomplete environment. One
 template, so the abort an operator reads always names the missing variables."""
-
-
-def configure_logging() -> None:
-    """Send INFO and above to stderr in :data:`LOG_FORMAT`.
-
-    A no-op when the root logger already has handlers (``basicConfig``'s own
-    behaviour), so a host that configured logging before importing this module keeps
-    its configuration.
-    """
-    logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-    for name in QUIET_LIBRARIES:
-        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def config_from_env() -> TeamsBridgeConfig:
@@ -325,26 +310,6 @@ def run(
     )
 
 
-def install_signal_handlers(stop: threading.Event) -> None:
-    """Make SIGTERM and SIGINT set ``stop``.
-
-    Compose stops the container with SIGTERM, and setting that one event is the entire
-    shutdown: :func:`serve_events` returns once the loop sees it, and ``run_forever``'s
-    ``finally`` calls :meth:`BridgeRuntime.shutdown` — the same event, so the drain
-    thread wakes too.
-
-    Main thread only — :func:`signal.signal` refuses to run anywhere else — which is
-    why :func:`main` installs these and :func:`run` does not.
-    """
-
-    def _handler(signum: int, _frame: FrameType | None) -> None:
-        logger.info("received %s; shutting down", signal.Signals(signum).name)
-        stop.set()
-
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(sig, _handler)
-
-
 def main() -> None:
     """Run the bridge from the environment. The container's command.
 
@@ -353,7 +318,7 @@ def main() -> None:
             variables; the config error is not allowed to escape as a traceback,
             because the one thing an operator needs from a failed boot is that list.
     """
-    configure_logging()
+    configure_bridge_logging(QUIET_LIBRARIES)
     try:
         cfg = config_from_env()
     except ValueError as exc:

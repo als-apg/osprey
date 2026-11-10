@@ -513,32 +513,6 @@ async def _resolve_one(
 # ---------------------------------------------------------------------------
 
 
-async def resolve_run_artifacts(run_id: str) -> list[ArtifactRef]:
-    """Resolve every artifact a dispatch run produced to a fetchable file.
-
-    Association is the store's write-time ``run_id`` tag (created-by), NOT the
-    run's tool-call results. Returns an empty list for an unknown/empty run or a
-    run that produced no artifacts. Artifacts whose files are missing from the
-    store are skipped. Converts one PNG per rendered artifact, so callers that
-    only need metadata should use :func:`describe_run_artifacts` instead.
-    """
-    if not run_id:
-        return []
-
-    store = _get_store()
-    entries = store.list_entries(run_filter=run_id)
-    if not entries:
-        return []
-
-    output_dir = _run_artifacts_dir(run_id)
-    refs: list[ArtifactRef] = []
-    for entry in entries:
-        ref = await _resolve_one(store, entry.id, output_dir)
-        if ref is not None:
-            refs.append(ref)
-    return refs
-
-
 async def resolve_single_run_artifact(run_id: str, artifact_id: str) -> ArtifactRef | None:
     """Resolve ONE artifact of a run, converting only that artifact.
 

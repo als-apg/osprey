@@ -235,6 +235,14 @@ JOINED_GIDS=''
 #: the host's root. Anything else is a user namespace of the container's own.
 UID_MAP=/proc/self/uid_map
 
+#: Where the kernel reports whether SELinux is enforcing: `1` when it is. A
+#: runtime may mask selinuxfs inside the container, so its absence says nothing.
+SELINUX_ENFORCE=/sys/fs/selinux/enforce
+
+#: Where the kernel reports this process's security context. Under SELinux it
+#: is a `user:role:type:level` label; unconfined it is a bare word.
+PROC_ATTR=/proc/self/attr/current
+
 # Whether this container's root is an unprivileged host user rather than the
 # host's root — the rootless shape (rootless podman, rootless docker), where
 # the invoking user maps to uid/gid 0 inside and everything that user owns on
@@ -388,6 +396,37 @@ join_mounted_group() {
     fi
 }
 
+# The SELinux line a failed access probe appends, printed only when this
+# container can see that SELinux confines it. A readable enforce file decides:
+# `1` names SELinux, anything else names nothing. The process label speaks only
+# when that file is masked (absent or unreadable), and only for a confining
+# container type: a privileged (`spc_t`) or unconfined process is not confined
+# by SELinux. The hint is a cause to check, not a diagnosis: the probe's outcome and exit code never depend on it. Every
+# read sits inside an `if`, so an unreadable or empty file cannot abort the
+# boot under `set -e`. Both files end without a newline (selinuxfs writes
+# none, the attribute ends in a NUL), so a `read` that hits end-of-file still
+# keeps the value it read. Its own `_sx_` names, for the probe's reason.
+log_selinux_hint() {
+    _sx_lead=''
+    _sx_v=''
+    if [ -r "$SELINUX_ENFORCE" ]; then
+        if { read -r _sx_v < "$SELINUX_ENFORCE" || [ -n "$_sx_v" ]; } \
+            && [ "$_sx_v" = 1 ]; then
+            _sx_lead='SELinux is enforcing'
+        fi
+    elif [ -r "$PROC_ATTR" ] \
+        && { read -r _sx_v < "$PROC_ATTR" || [ -n "$_sx_v" ]; }; then
+        case "$_sx_v" in
+            *:*:container_runtime_t:*) ;;
+            *:*:container_t:*|*:*:container_*_t:*) _sx_lead='SELinux labels this container' ;;
+        esac
+    fi
+    [ -n "$_sx_lead" ] || return 0
+    log "         $_sx_lead: the host directory needs the container_file_t type"
+    log "         (check with ls -Zd <dir> on the host); ausearch -m avc -ts recent on the host"
+    log "         names the denial."
+}
+
 # ── access probe ────────────────────────────────────────────────────
 # Membership is the mechanism; access is the property the deployment actually
 # depends on, and the two are not the same thing — a 2700 directory, a
@@ -446,6 +485,7 @@ probe_mounted_dir() {
             log "         nobody/nogroup and 32-bit overflow gids, which pass that floor"
             log "         and are refused by groupadd instead. Fix the host directory's"
             log "         group and mode (2770) rather than granting this container more."
+            log_selinux_hint
             ;;
         write)
             # Both bits, for the same reason the read arm checks two: creating
@@ -466,6 +506,7 @@ probe_mounted_dir() {
             log "         this) is one way a bind arrives unwritable: it reaches this"
             log "         container as gid 0, refused above as the root group, or as the"
             log "         nobody/nogroup and 32-bit overflow gids, which groupadd refuses."
+            log_selinux_hint
             ;;
         *)
             # Unreachable from the dispatcher below, whose modes are literals.

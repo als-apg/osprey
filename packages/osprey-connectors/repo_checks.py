@@ -48,6 +48,10 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.safety_file.SHARED_DIR_MODE": (
+        "transitional: its framework users land with the connectors floor bump to "
+        ">=2026.11.8 (#2571)"
+    ),
     "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
         "the framework's archive rewrite reads the burst window"
     ),
@@ -59,6 +63,18 @@ EXTENSION_POINTS: Mapping[str, str] = {
     "osprey_connectors.simulation.view.OUTPUT": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.PERIODIC": "a word of the wiring vocabulary",
     "osprey_connectors.simulation.view.READBACK": "a word of the wiring vocabulary",
+    "osprey_connectors.write_authorization.Approver": "a grant says who approved it in this type",
+    "osprey_connectors.write_authorization.ChannelRange": (
+        "a grant and a request bound each channel in this type"
+    ),
+    "osprey_connectors.write_authorization.GrantStanding": "every grant listing answers in this type",
+    "osprey_connectors.write_authorization.Ledger": (
+        "a lease and a grant listing return the holder's ledger in this type"
+    ),
+    "osprey_connectors.write_authorization.LedgerStep": "a ledger lists its spent steps in this type",
+    "osprey_connectors.write_authorization.Revocation": (
+        "a revoked grant says whose stop ended it in this type"
+    ),
 }
 
 #: Interim: the listed names that had no user when this check was added. Each
@@ -171,10 +187,10 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.simulation.values.WAVEFORM",
         "osprey_connectors.simulation.view.Binding",
         "osprey_connectors.simulation.view.Channel",
+        "osprey_connectors.simulation.view.ENGINE_ROLES",
         "osprey_connectors.simulation.view.NO_VIEW_MESSAGE",
         "osprey_connectors.simulation.view.PLANES",
         "osprey_connectors.simulation.view.REFRESH",
-        "osprey_connectors.simulation.view.ROLES",
         "osprey_connectors.simulation.write_active_state",
         "osprey_connectors.standin.ARCHIVER_RECORDER_SERVICE",
         "osprey_connectors.standin.DEPLOYED_SERVICES_KEY",
@@ -184,30 +200,6 @@ UNUSED_BASELINE: frozenset[str] = frozenset(
         "osprey_connectors.types.SERVED",
         "osprey_connectors.types.TRANSPORT_DOOCS",
         "osprey_connectors.types.TRANSPORT_TANGO",
-        "osprey_connectors.write_authorization.APPROVAL_SURFACES",
-        "osprey_connectors.write_authorization.Approver",
-        "osprey_connectors.write_authorization.COMPLETIONS",
-        "osprey_connectors.write_authorization.ChannelRange",
-        "osprey_connectors.write_authorization.GrantStanding",
-        "osprey_connectors.write_authorization.LEDGER_DIR_ENV_VAR",
-        "osprey_connectors.write_authorization.Ledger",
-        "osprey_connectors.write_authorization.LedgerStep",
-        "osprey_connectors.write_authorization.PRUNE_AFTER_S",
-        "osprey_connectors.write_authorization.Revocation",
-        "osprey_connectors.write_authorization.SCHEMA_VERSION",
-        "osprey_connectors.write_authorization.SURFACES",
-        "osprey_connectors.write_authorization.auth_overlap",
-        "osprey_connectors.write_authorization.authorization_verdict",
-        "osprey_connectors.write_authorization.grant_in_force",
-        "osprey_connectors.write_authorization.issue_grant",
-        "osprey_connectors.write_authorization.parse_grant",
-        "osprey_connectors.write_authorization.parse_ledger",
-        "osprey_connectors.write_authorization.parse_request",
-        "osprey_connectors.write_authorization.pid_namespace",
-        "osprey_connectors.write_authorization.process_start_time",
-        "osprey_connectors.write_authorization.read_ledger",
-        "osprey_connectors.write_authorization.self_issued_grants",
-        "osprey_connectors.write_authorization.spend_step",
         "osprey_connectors.write_target.FALLBACK_WRITE_TOOLS",
         "osprey_connectors.write_target.UNRESOLVED",
         "osprey_connectors.write_target.Unresolved",

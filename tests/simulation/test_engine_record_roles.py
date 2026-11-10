@@ -1,4 +1,4 @@
-"""A wiring record's role and marks, from an engine's description to the view's bindings."""
+"""A wiring record's engine_role and marks, from an engine's description to the view's bindings."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from osprey.facility.errors import FacilityBuildError
 from osprey.facility.records import FacilityRecords
 from osprey.facility.views.simulator import simulator_wiring
 from osprey_connectors.simulation import view as view_module
-from osprey_connectors.simulation.view import COMMAND_MARK, REFRESH, ROLES, Binding
+from osprey_connectors.simulation.view import COMMAND_MARK, ENGINE_ROLES, REFRESH, Binding
 
 MODEL = {"name": "M", "engine": "fake"}
 WRITE = {"id": "M/M:CMD", "address": "M:CMD", "direction": "write", "element": "E"}
@@ -31,7 +31,7 @@ def _describe(record: dict[str, Any], **said: Any) -> tuple[dict[str, Any], list
 
 
 def test_a_listed_mark_is_written_onto_the_record() -> None:
-    filled, errors = _describe(WRITE, role="setpoint", marks=["command"], kind="kick")
+    filled, errors = _describe(WRITE, engine_role="setpoint", marks=["command"], kind="kick")
     assert errors == []
     assert filled["marks"] == ["command"]
     assert "kind" not in filled
@@ -39,26 +39,26 @@ def test_a_listed_mark_is_written_onto_the_record() -> None:
 
 
 def test_a_record_without_marks_carries_none() -> None:
-    filled, errors = _describe(WRITE, role="setpoint")
+    filled, errors = _describe(WRITE, engine_role="setpoint")
     assert errors == []
     assert "marks" not in filled
 
 
 def test_only_a_write_record_may_carry_the_command_mark() -> None:
-    filled, errors = _describe(READ, role="monitor", marks=["command"])
+    filled, errors = _describe(READ, engine_role="monitor", marks=["command"])
     (stop,) = errors
     assert (stop.kind, stop.record_id) == ("engine-invalid", "M")
     assert "M:TBT" in str(stop) and "command" in str(stop)
-    assert "role" not in filled
+    assert "engine_role" not in filled
 
 
 @pytest.mark.parametrize(
     ("said", "word"),
     [
-        ({"role": "turn_series"}, "turn_series"),
-        ({"role": "monitor", "marks": ["kick"]}, "kick"),
-        ({"role": "monitor", "plane": "z"}, "z"),
-        ({"role": "monitor", "refresh": "never"}, "never"),
+        ({"engine_role": "turn_series"}, "turn_series"),
+        ({"engine_role": "monitor", "marks": ["kick"]}, "kick"),
+        ({"engine_role": "monitor", "plane": "z"}, "z"),
+        ({"engine_role": "monitor", "refresh": "never"}, "never"),
     ],
 )
 def test_a_word_the_schema_does_not_state_stops_the_build(said: dict[str, Any], word: str) -> None:
@@ -67,11 +67,11 @@ def test_a_word_the_schema_does_not_state_stops_the_build(said: dict[str, Any], 
     assert isinstance(stop, FacilityBuildError)
     assert stop.kind == "engine-invalid"
     assert word in str(stop) and "facility schema" in str(stop)
-    assert "role" not in filled
+    assert "engine_role" not in filled
 
 
 def test_the_view_copies_the_marks_from_the_built_record() -> None:
-    record = {**WRITE, "role": "setpoint", "plane": None, "refresh": "pass"}
+    record = {**WRITE, "engine_role": "setpoint", "plane": None, "refresh": "pass"}
     facility = {
         "channels": [{"id": "M:CMD"}],
         "models": [{**MODEL, "wiring": [{**record, "marks": ["command"]}]}],
@@ -81,14 +81,14 @@ def test_the_view_copies_the_marks_from_the_built_record() -> None:
 
 
 def test_a_binding_carries_the_records_marks() -> None:
-    record = {"id": "w1", "address": "M:CMD", "direction": "write", "role": "setpoint"}
+    record = {"id": "w1", "address": "M:CMD", "direction": "write", "engine_role": "setpoint"}
     record |= {"plane": None, "refresh": "pass"}
     assert Binding.from_record("M", record).marks == frozenset()
     marked = Binding.from_record("M", {**record, "marks": [COMMAND_MARK]})
     assert marked.marks == frozenset({COMMAND_MARK})
 
 
-#: The modules that read roles and refresh from the view.
+#: The modules that read engine roles and refresh from the view.
 ROLE_READERS = (
     Path(view_module.__file__).parent / "composite.py",
     Path(view_module.__file__).parent / "texture.py",
@@ -104,6 +104,6 @@ def test_the_role_readers_name_no_role_of_their_own(path: Path) -> None:
         for node in tree.body
         if isinstance(node, ast.Assign | ast.AnnAssign)
         and isinstance(node.value, ast.Constant)
-        and node.value.value in (*ROLES, *REFRESH)
+        and node.value.value in (*ENGINE_ROLES, *REFRESH)
     ]
     assert named == []

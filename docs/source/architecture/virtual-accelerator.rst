@@ -55,7 +55,7 @@ consumer of a view opens it with. Each wiring record of ``variables.json``
 states what its engine's ``describe()`` said of it at build time, written
 into the facility file:
 
-- its ``role``: ``setpoint``, ``readback``, ``monitor`` or ``output``;
+- its ``engine_role``: ``setpoint``, ``readback``, ``monitor`` or ``output``;
 - the transverse ``plane`` it steers or reads: ``x``, ``y`` or none;
 - its ``refresh``.
 

@@ -1,0 +1,1 @@
+The configuration reference names the health suite timing keys in full (`health.suite_timeout_s` and its two siblings), so the docs check compares their stated defaults with the config-key manifest; the manifest comment now says so.

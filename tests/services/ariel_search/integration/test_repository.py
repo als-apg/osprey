@@ -1335,6 +1335,47 @@ class TestFollowsUpSurvivesUpsert:
 
 
 @pytest.mark.usefixtures("_seed_integ_prefix")
+@pytest.mark.parametrize("method", FOLLOWS_UP_UPSERTS)
+class TestSyncStatusSurvivesUpsert:
+    """A re-upsert that omits ``sync_status`` keeps the stored one: no link appears."""
+
+    async def _write(self, repository, seed_entry_factory, method, entry_id, metadata):
+        entry = seed_entry_factory(entry_id=entry_id, metadata=metadata)
+        await getattr(repository, method)(entry)
+        return (await repository.get_entry(entry_id))["metadata"]
+
+    async def test_local_only_kept_when_incoming_lacks_it(
+        self, repository, seed_entry_factory, method
+    ):
+        entry_id = f"{INTEG_PREFIX}ss-kept-{method}"
+        await self._write(
+            repository,
+            seed_entry_factory,
+            method,
+            entry_id,
+            {"sync_status": "local_only", "follows_up": "parent-1", "logbook": "Ops"},
+        )
+        stored = await self._write(
+            repository, seed_entry_factory, method, entry_id, {"logbook": "Physics"}
+        )
+        assert stored == {
+            "sync_status": "local_only",
+            "follows_up": "parent-1",
+            "logbook": "Physics",
+        }
+
+    async def test_incoming_status_replaces_stored(self, repository, seed_entry_factory, method):
+        entry_id = f"{INTEG_PREFIX}ss-replaced-{method}"
+        await self._write(
+            repository, seed_entry_factory, method, entry_id, {"sync_status": "pending_sync"}
+        )
+        stored = await self._write(
+            repository, seed_entry_factory, method, entry_id, {"sync_status": "synced"}
+        )
+        assert stored == {"sync_status": "synced"}
+
+
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestGetFollowUps:
     """``get_follow_ups`` lists an entry's children oldest first, as list rows."""
 

@@ -22,6 +22,7 @@ import pytest
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
+from osprey.deployment.compose_generator import resolve_upstream_images
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 
 COMPOSE_TEMPLATE = "services/postgresql/docker-compose.yml.j2"
@@ -49,6 +50,7 @@ def _context(**postgresql_block: object) -> dict:
             "project_root": "/r/probe-test",
         },
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        "upstream_images": resolve_upstream_images({}),
     }
 
 

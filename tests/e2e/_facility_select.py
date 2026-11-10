@@ -72,7 +72,7 @@ def corrector_addresses(
     """
     return frozenset(
         binding.address
-        for binding in view.bindings(role="setpoint", model=model)
+        for binding in view.bindings(engine_role="setpoint", model=model)
         if binding.plane is not None and (plane is None or binding.plane == plane)
     )
 
@@ -83,7 +83,8 @@ def monitor_addresses(
     """Every monitor reading the view's bindings serve, optionally of one plane
     and of one model."""
     return frozenset(
-        binding.address for binding in view.bindings(role="monitor", plane=plane, model=model)
+        binding.address
+        for binding in view.bindings(engine_role="monitor", plane=plane, model=model)
     )
 
 
@@ -209,7 +210,7 @@ def lane_selection(view: SimulatorView) -> LaneSelection:
     setpoint, readback, model = found
     plane = next(
         binding.plane
-        for binding in view.bindings(role="setpoint", model=model)
+        for binding in view.bindings(engine_role="setpoint", model=model)
         if binding.address == setpoint
     )
     if plane is None:

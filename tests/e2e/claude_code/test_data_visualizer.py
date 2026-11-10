@@ -25,8 +25,6 @@ from tests.e2e.sdk_helpers import (
     run_sdk_query,
 )
 
-pytestmark = pytest.mark.agentic_benchmark
-
 
 class TestDataVisualizerAgent:
     """E2E tests for the data-visualizer sub-agent."""
@@ -39,6 +37,18 @@ class TestDataVisualizerAgent:
     # create_interactive_plot -> HTML artifact) on Haiku. Same stochastic-miss
     # class as the other pipeline tests; rerun absorbs the rare LLM
     # nondeterminism while the strict viz/artifact assertions still gate.
+    @pytest.mark.agentic(
+        tier=1,
+        title="Plot archived data by reference",
+        asks=(
+            "Read three BPMs from the archiver, then have the data visualizer plot two of them "
+            "against each other, coloured by time."
+        ),
+        passes_if=(
+            "the plot loads the archived data by reference and the HTML plot is written without "
+            "errors"
+        ),
+    )
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
@@ -150,6 +160,12 @@ class TestDataVisualizerAgent:
     # create_interactive_plot -> HTML artifact) on Haiku. Same stochastic-miss
     # class as the other pipeline tests; rerun absorbs the rare LLM
     # nondeterminism while the strict viz/artifact assertions still gate.
+    @pytest.mark.agentic(
+        tier=1,
+        title="Chart two BPMs over time",
+        asks="Read two BPMs from the archiver over four hours and chart both over time.",
+        passes_if="the data visualizer writes an interactive HTML chart of both",
+    )
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api

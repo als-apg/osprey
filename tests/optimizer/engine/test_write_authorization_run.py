@@ -115,8 +115,8 @@ class Deployment:
         return sorted(directory.glob("*.json")) if directory.is_dir() else []
 
     def spent(self, authorization: str) -> int:
-        ledger = wa.read_ledger(self.ledger, authorization)
-        return 0 if ledger is None else len(ledger.steps)
+        path = self.ledger / f"{authorization}.ledger.json"
+        return len(wa._parse_ledger(path.read_text()).steps) if path.exists() else 0
 
     def approve(self, request_path: Path) -> wa.Grant:
         request = wa.read_request(request_path)
@@ -278,7 +278,7 @@ def test_at_allowed_the_run_self_issues_and_spends_one_step_per_evaluation_and_o
     assert deployment.spent(grant_id) == EVALUATIONS + 1
     assert deployment.requests() == []
     # Done with it, the run ends its own grant rather than leave it standing.
-    grant = wa.parse_grant((deployment.ledger / f"{grant_id}.json").read_text())
+    grant = wa._parse_grant((deployment.ledger / f"{grant_id}.json").read_text())
     assert grant.revoked is not None and grant.revoked.by == HOLDER
 
 
@@ -287,7 +287,7 @@ def test_the_channels_asked_for_are_the_setpoints_at_the_runs_window(
 ) -> None:
     deployment.switch("allowed")
     deployment.run(deployment.config(on_complete="hold"))
-    grant = wa.parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
+    grant = wa._parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
     assert dict(grant.channels) == {
         A: wa.ChannelRange(-2.0, 2.0),
         B: wa.ChannelRange(-2.0, 2.0),
@@ -304,7 +304,7 @@ def test_an_expiry_set_past_the_ceiling_is_held_under_it(
     deployment.switch("allowed")
     monkeypatch.setattr(run_auth, "EXPIRES_S", 7 * 24 * 3600.0)
     deployment.run(deployment.config(on_complete="hold"))
-    grant = wa.parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
+    grant = wa._parse_grant((deployment.ledger / f"{deployment.granted_id()}.json").read_text())
     held = (wa.MAX_EXPIRES_S - run_auth._EXPIRY_MARGIN_S) * 1e9
     assert grant.expires_at_ns - grant.issued_at_ns <= held
 

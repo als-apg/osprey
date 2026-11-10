@@ -347,7 +347,7 @@ class Composite(LUMEModel):
         )
         groups: dict[str, list[str]] = {}
         for binding in source.bindings:
-            if binding.role == MONITOR and binding.element is not None:
+            if binding.engine_role == MONITOR and binding.element is not None:
                 groups.setdefault(str(binding.element), []).append(binding.address)
         partners = {address: tuple(sorted(group)) for group in groups.values() for address in group}
         return _Child(
