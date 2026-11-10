@@ -967,9 +967,9 @@ ignore_imports = [
     # backend routes
     # Strings, not imports: `web_terminal/agent_content_routes.py` `SCANNED_PACKAGES`
     # names `osprey.interfaces.okf_panel`.
-    # untangled by facility-frontmatter-reader
+    # removable now: the frontmatter reader belongs to the facility layer
     "osprey.facility.knowledge_links -> osprey.services.facility_knowledge.okf.document",
-    # untangled by graph-store-leaves-knowledge
+    # removable now: the graph seeder serves two features and belongs to neither
     "osprey.cli.build_cmd -> osprey.services.facility_knowledge.seeder.graph_seeder",
     "osprey.deployment.container_lifecycle -> osprey.services.facility_knowledge.seeder.graph_seeder",
     "osprey.deployment.container_lifecycle -> osprey.services.facility_knowledge.seeder.prompt_snapshot",
@@ -1024,10 +1024,10 @@ ignore_imports = [
     # facility view
     "osprey.facility.views.channel_finder -> osprey.services.channel_finder.databases.duckdb_import",
     "osprey.facility.views.channel_finder -> osprey.services.channel_finder.databases.middle_layer",
-    # untangled by drop-dead-channel-finder-service
+    # removable now: a registration nothing resolves
     # A string, not an import: `registry/builtins.py` registers the service
     # `module_path="osprey.services.channel_finder"`.
-    # untangled by mml-family-rule-to-facility
+    # removable now: the MML family rule belongs to the facility layer
     "osprey.facility.layers.mml.loaders.json_any -> osprey.services.channel_finder.tools.preview_database",
 ]
 
@@ -1076,7 +1076,7 @@ ignore_imports = [
     "osprey.simulation.apply -> osprey.services.ariel_search.entry_url",
     "osprey.simulation.apply -> osprey.services.ariel_search.exceptions",
     "osprey.simulation.apply -> osprey.services.ariel_search.models",
-    # untangled by artifact-converters-to-core
+    # removable now: the artifact converters belong to the artifact store
     "osprey.agent_runner.artifact_resolve -> osprey.mcp_server.ariel.converters",
     "osprey.interfaces.artifacts.logbook -> osprey.mcp_server.ariel.tools.entry",
 ]
