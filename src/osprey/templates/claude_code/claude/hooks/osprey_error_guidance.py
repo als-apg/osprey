@@ -117,6 +117,9 @@ ERROR_CLASS_MAP = {
     "limits_violation": "Validation",
     # This deployment simply has no such target to switch to.
     "target_switch_unavailable": "Validation",
+    # The optimizer's 409: the job is not in the state the request needs (a
+    # draft edited after its start, a pause of a job that is not running).
+    "optimizer_conflict": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
     # A panel url that is not a root-relative path or an http(s) URL: pass one.
@@ -242,8 +245,8 @@ ERROR_CLASS_MAP = {
     "permission_denied": "Internal",
     "bluesky_bridge_error": "Internal",
     # A 5xx (or other unclassed answer) from the optimizer; details.status and
-    # details.detail say which. A 404 or 422 is relayed as not_found or
-    # validation_error instead.
+    # details.detail say which. A 404, 409 or 422 is relayed as not_found,
+    # optimizer_conflict or validation_error instead.
     "optimizer_error": "Internal",
     "phoebus_error": "Internal",
     "phoebus_open_failed": "Internal",

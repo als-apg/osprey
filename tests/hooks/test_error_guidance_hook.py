@@ -402,6 +402,7 @@ EXPECTED_ERROR_CLASSES = {
     "bad_offset": "Validation",
     "limits_violation": "Validation",
     "target_switch_unavailable": "Validation",
+    "optimizer_conflict": "Validation",
     "invalid_query": "Validation",
     "invalid_pattern": "Validation",
     "invalid_url": "Validation",
