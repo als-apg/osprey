@@ -39,7 +39,7 @@ import logging
 import signal
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -767,7 +767,7 @@ class TestRunIngestSharedPath:
 
         assert seen == [("E0", adapter)]
         stored = mock_repository.upsert_entry.await_args.args[0]
-        assert stored["metadata"] == {"from": "sidecar"}
+        assert stored["metadata"] == {"from": "sidecar", "sync_status": "synced"}
 
 
 class TestRunQuickstartSharedPath:
@@ -1937,3 +1937,33 @@ class TestCommandsPrintTheVocabularyLine:
 
         assert messages[0].startswith(_VOCABULARY_LINE_PREFIX)
         assert messages[1:] == ["No enhancement modules enabled or selected"]
+
+
+# ---------------------------------------------------------------------------
+# sync_status -- every write path records it
+# ---------------------------------------------------------------------------
+
+
+class TestWritePathsRecordSyncStatus:
+    async def test_seeded_entries_are_recorded_local_only(self, monkeypatch, mock_repository):
+        """A seeded entry lives only in ARIEL; the caller's entries are not mutated."""
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        entries = [{**entry, "metadata": {"tags": ["sim"]}} for entry in _entries(2)]
+
+        await ops.seed_logbook_entries(dict(_DB), entries)
+
+        stored = [call.args[0] for call in mock_repository.upsert_entry.call_args_list]
+        assert [entry["metadata"] for entry in stored] == [
+            {"tags": ["sim"], "sync_status": "local_only"}
+        ] * 2
+        assert entries[0]["metadata"] == {"tags": ["sim"]}
+
+    async def test_an_ingested_entry_is_recorded_synced(self, mock_repository):
+        """An entry read from the facility logbook is stored with ``synced``."""
+        from osprey.services.ariel_search.ingestion.ingest import ingest_one
+
+        entry = {**_entries(1)[0], "metadata": {"logbook": "Ops"}}
+        await ingest_one(entry, MagicMock(), mock_repository, [], mock_repository.config, None)
+
+        stored = mock_repository.upsert_entry.call_args.args[0]
+        assert stored["metadata"] == {"logbook": "Ops", "sync_status": "synced"}

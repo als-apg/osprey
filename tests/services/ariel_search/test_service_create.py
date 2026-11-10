@@ -222,6 +222,7 @@ async def test_create_entry_mirrors_inline_when_qmd_export_enabled(tmp_path):
     mock_adapter = AsyncMock(spec=FacilityAdapter)
     mock_adapter.supports_write = True
     mock_adapter.source_system_name = "Generic JSON"
+    mock_adapter.writes_local_only = True
     mock_adapter.create_entry = AsyncMock(return_value="inline-mirror-001")
 
     request = FacilityEntryCreateRequest(subject="Inline mirror", details="Body", author="tester")
@@ -262,6 +263,7 @@ async def test_create_entry_mirror_failure_is_warned_not_raised(caplog):
     mock_adapter = AsyncMock(spec=FacilityAdapter)
     mock_adapter.supports_write = True
     mock_adapter.source_system_name = "Generic JSON"
+    mock_adapter.writes_local_only = True
     mock_adapter.create_entry = AsyncMock(return_value="inline-mirror-002")
 
     request = FacilityEntryCreateRequest(subject="Broken mirror", details="Body")
@@ -298,6 +300,7 @@ async def test_create_entry_skips_mirror_when_qmd_export_disabled(tmp_path):
     mock_adapter = AsyncMock(spec=FacilityAdapter)
     mock_adapter.supports_write = True
     mock_adapter.source_system_name = "Generic JSON"
+    mock_adapter.writes_local_only = True
     mock_adapter.create_entry = AsyncMock(return_value="inline-mirror-003")
 
     with patch(
@@ -460,4 +463,53 @@ async def test_create_entry_synced_copy_is_facility_record_not_merged():
     optimistic = mock_repository.upsert_entry.call_args_list[0][0][0]
     assert optimistic["metadata"]["created_via"] == "ariel-web"
     synced = mock_repository.upsert_entry.call_args_list[1][0][0]
-    assert synced["metadata"] == {"facility": "yes"}
+    # The read-back is stored as the facility recorded it, plus its sync status.
+    assert synced["metadata"] == {"facility": "yes", "sync_status": SyncStatus.SYNCED.value}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source_system", "writes_local_only", "expected"),
+    [
+        # The adapter's declaration decides, never its name.
+        ("Generic JSON", False, SyncStatus.PENDING_SYNC),
+        ("Example eLog", True, SyncStatus.LOCAL_ONLY),
+    ],
+)
+async def test_create_entry_local_only_comes_from_the_adapter_declaration(
+    source_system, writes_local_only, expected
+):
+    """``writes_local_only`` decides the recorded sync status and the read-back."""
+    service, mock_adapter, mock_repository = make_mock_service(
+        adapter_supports_write=True,
+        source_system=source_system,
+        writes_local_only=writes_local_only,
+    )
+    fetched = MagicMock(side_effect=AssertionError("a local-only write is never read back"))
+    if writes_local_only:
+        mock_adapter.fetch_entries = fetched
+
+    with patch(
+        "osprey.services.ariel_search.ingestion.get_adapter",
+        return_value=mock_adapter,
+    ):
+        result = await service.create_entry(FacilityEntryCreateRequest(subject="S", details="D"))
+
+    assert result.sync_status == expected
+    stored = mock_repository.upsert_entry.call_args_list[0][0][0]
+    assert stored["metadata"]["sync_status"] == expected.value
+
+
+def test_adapters_declare_whether_their_writes_stay_local(tmp_path):
+    """A facility adapter's writes reach the facility; the JSON file adapter's never do."""
+    from osprey.services.ariel_search.config import ARIELConfig
+    from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter
+
+    assert FacilityAdapter.writes_local_only.fget(MagicMock()) is False
+    config = ARIELConfig.from_dict(
+        {
+            "database": {"uri": "postgresql://test"},
+            "ingestion": {"adapter": "generic_json", "source_url": str(tmp_path / "x.json")},
+        }
+    )
+    assert GenericJSONAdapter(config).writes_local_only is True

@@ -255,6 +255,7 @@ class TestCreateEntryFollowsUpReadback:
         adapter.supports_write = True
         adapter.supports_attachments = False
         adapter.source_system_name = "Example eLog"
+        adapter.writes_local_only = False
         adapter.create_entry = AsyncMock(return_value=child_id)
 
         async def read_back(**kwargs):

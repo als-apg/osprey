@@ -29,7 +29,7 @@ __all__ = [
 
 # The source_system value ARIEL stamps on its own natively-created entries
 # (see mcp_server/ariel/tools/entry.py entry_create direct mode). Such entries
-# are not (yet) in the facility logbook, so no canonical entry_url exists.
+# are recorded ``local_only``: the facility logbook has no page for them.
 ARIEL_NATIVE_SOURCE_SYSTEM = "ARIEL MCP"
 
 # The source_system value of an entry the Logbook panel's compose sheet saves
@@ -41,17 +41,15 @@ LOGBOOK_WEB_SOURCE_SYSTEM = "OSPREY Logbook Web"
 _entry_url_template_warned = False
 
 
-def is_ariel_only(source_system: str | None, metadata: Mapping[str, Any] | None) -> bool:
+def is_ariel_only(metadata: Mapping[str, Any] | None) -> bool:
     """Whether the entry lives only in ARIEL, with no facility logbook page.
 
-    True for an entry saved local-only (``metadata.sync_status`` is
-    ``local_only``, e.g. a :data:`LOGBOOK_WEB_SOURCE_SYSTEM` save) and for an ARIEL-native entry
-    (``source_system`` is :data:`ARIEL_NATIVE_SOURCE_SYSTEM`).
+    Reads ``metadata.sync_status`` alone: every write path records it, and the
+    ``ariel_only_sync_status`` migration stamped the rows written before they
+    did. An entry without the key is a facility entry.
     """
     from osprey.services.ariel_search.models import SyncStatus
 
-    if source_system == ARIEL_NATIVE_SOURCE_SYSTEM:
-        return True
     if isinstance(metadata, Mapping):
         return metadata.get("sync_status") == SyncStatus.LOCAL_ONLY.value
     return False
@@ -59,7 +57,6 @@ def is_ariel_only(source_system: str | None, metadata: Mapping[str, Any] | None)
 
 def build_entry_url(
     entry_id: str | None,
-    source_system: str | None = None,
     *,
     metadata: Mapping[str, Any] | None = None,
 ) -> str | None:
@@ -72,8 +69,8 @@ def build_entry_url(
 
     Returns ``None`` (emit no URL) when:
 
-    - the entry is ARIEL-only (:func:`is_ariel_only`): an ARIEL-native entry or
-      a local-only save is not in the facility logbook;
+    - the entry is ARIEL-only (:func:`is_ariel_only`): its ``sync_status`` is
+      ``local_only``, so the facility logbook has no page for it;
     - ``entry_id`` is empty/blank;
     - no ``ariel.entry_url_template`` is configured (a deployment that
       configures no template emits no ``entry_url`` and shows plain IDs);
@@ -86,7 +83,7 @@ def build_entry_url(
     # Imported here, not at module level: tests patch the source module.
     from osprey_connectors.config import get_config_value
 
-    if is_ariel_only(source_system, metadata):
+    if is_ariel_only(metadata):
         return None
     if not entry_id or not str(entry_id).strip():
         return None

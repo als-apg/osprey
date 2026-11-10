@@ -1,0 +1,1 @@
+A Logbook web entry saved before October 2026 and a simulation seed entry no longer carry a facility logbook link (`entry_url`) that leads to no page: every ARIEL write now records whether the entry exists only in ARIEL, and a one-time migration stamps the entries stored before.
