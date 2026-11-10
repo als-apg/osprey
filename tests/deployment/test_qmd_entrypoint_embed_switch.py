@@ -13,6 +13,7 @@ to run.
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
@@ -55,6 +56,7 @@ def _run(
     docs: int = 5,
     vectors: int = 0,
     pending: int = 5,
+    stub: str = _STUB,
 ):
     state = tmp_path / "state"
     corpus = tmp_path / "corpus"
@@ -73,7 +75,7 @@ def _run(
     }
     if embed is not None:
         env["OSPREY_QMD_EMBED"] = embed
-    result = run_entrypoint(tmp_path, stub=_STUB, script=script, env=env)
+    result = run_entrypoint(tmp_path, stub=stub, script=script, env=env)
     return result, calls.read_text().split()
 
 
@@ -147,3 +149,108 @@ def test_stop_heartbeat_leaves_no_process_behind(tmp_path):
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "STOPPED" in result.stdout
+
+
+#: A stub qmd whose vectors live in the index file, as qmd's do: ``update``
+#: creates ``index.sqlite`` holding 0 vectors when it is absent, ``embed``
+#: writes $STUB_DOCS into it, and ``status`` reports what it holds. Deleting the
+#: index file drops the vectors with it.
+_DB_STUB = """#!/bin/sh
+echo "$1" >> "$STUB_CALLS"
+db="$OSPREY_QMD_STATE_DIR/.qmd/index.sqlite"
+case "$1" in
+    update)
+        mkdir -p "$(dirname "$db")"
+        [ -f "$db" ] || echo 0 > "$db"
+        ;;
+    embed)
+        echo "$STUB_DOCS" > "$db"
+        ;;
+    collection)
+        echo "notes (qmd://notes/)"
+        echo "  Files:    $STUB_DOCS"
+        ;;
+    status)
+        vectors=$(cat "$db" 2>/dev/null || echo 0)
+        echo "Documents"
+        echo "  Total:    $STUB_DOCS files indexed"
+        echo "  Vectors:  $vectors embedded"
+        pending=$((STUB_DOCS - vectors))
+        if [ "$pending" -gt 0 ]; then
+            echo "  Pending:  $pending need embedding (run 'qmd embed')"
+        fi
+        ;;
+esac
+exit 0
+"""
+
+
+def _switch(tmp_path: Path, *, first: str, second: str):
+    """Run a startup pass with embed *first*, then one with embed *second*.
+
+    Returns the run, the qmd calls of the second pass, and the vectors the
+    index holds at the end.
+    """
+    script = (
+        f"prepare_state; EMBED={first}; run_startup_pass; "
+        'echo PASS2 >> "$STUB_CALLS"; '
+        f"EMBED={second}; run_startup_pass; qmd status"
+    )
+    result, calls = _run(tmp_path, script, embed=first, stub=_DB_STUB)
+    second_calls = calls[calls.index("PASS2") + 1 :]
+    vectors = re.search(r"Vectors:\s+(\d+)", result.stdout.rsplit("Documents", 1)[-1])
+    assert vectors is not None, result.stdout + result.stderr
+    return result, second_calls, int(vectors.group(1))
+
+
+def test_embedding_off_then_on_embeds_the_pending_set_without_a_rebuild(tmp_path):
+    result, second_calls, vectors = _switch(tmp_path, first="0", second="1")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    second_pass = result.stdout.split("startup pass finished", 1)[1]
+    assert "incremental startup pass" in second_pass
+    assert "FULL REINDEX" not in second_pass
+    assert "embed" in second_calls
+    assert vectors == 5
+
+
+def test_embedding_on_then_off_rebuilds_the_keyword_index_without_vectors(tmp_path):
+    result, second_calls, vectors = _switch(tmp_path, first="1", second="0")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    second_pass = result.stdout.split("startup pass finished", 1)[1]
+    assert "FULL REINDEX required: embedding turned off" in second_pass
+    assert "embed" not in second_calls
+    assert vectors == 0
+
+
+def _prose(path: Path) -> str:
+    return " ".join(path.read_text().split())
+
+
+def test_a_vector_query_after_embedding_is_turned_off_returns_nothing(tmp_path):
+    repo = Path(__file__).resolve().parents[2]
+    assert "a vector query on that corpus returns nothing" in _prose(
+        repo / "src/osprey/deployment/qmd_service.py"
+    )
+    assert "a vector search on that corpus returns nothing" in _prose(
+        repo / "docs/source/how-to/ariel/search-sidecar.rst"
+    )
+
+    result, _, vectors = _switch(tmp_path, first="1", second="0")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert vectors == 0
+
+
+def test_a_stamp_without_an_embed_mode_counts_as_embedded(tmp_path):
+    script = (
+        "prepare_state; "
+        'mkdir -p "$(dirname "$DB_FILE")"; : > "$DB_FILE"; '
+        f'echo "{EMBEDDER}" > "$IDENTITY_STAMP"; '
+        'decide_build_mode; echo "MODE=$BUILD_MODE"'
+    )
+    result, _ = _run(tmp_path, script, embed="0")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "MODE=full" in result.stdout

@@ -196,7 +196,9 @@ A corpus's index comes to exist in one of two ways:
     The sidecar indexes ``source``, a directory of markdown, and keeps the
     index current itself, exactly as it does for ``okf`` and ``ariel``.
     ``embed: false`` skips the embedding pass and builds the keyword index
-    only, so a vector search on that corpus returns nothing.
+    only, so a vector search on that corpus returns nothing. Turning ``embed``
+    off rebuilds the keyword index once, and the search port stays closed while
+    it runs; turning it back on embeds the pending documents without a rebuild.
 
 ``prebuilt``
     The index was built elsewhere --- typically on a GPU host, where embedding
