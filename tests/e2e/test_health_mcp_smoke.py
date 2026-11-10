@@ -41,7 +41,6 @@ from tests.e2e.sdk_helpers import (
 # ``provider="als-apg"`` to ``init_project`` (the GitHub-Actions default).
 pytestmark = [
     pytest.mark.e2e_smoke,
-    pytest.mark.agentic_benchmark,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available"),
@@ -85,6 +84,12 @@ def _unwrap_health_payload(raw: str) -> dict | None:
     return obj if isinstance(obj, dict) and "summary" in obj else None
 
 
+@pytest.mark.agentic(
+    tier=1,
+    title="Machine health",
+    asks="Is the machine healthy right now?",
+    passes_if="the health check runs and its result is reported",
+)
 @pytest.mark.flaky(reruns=2)  # multi-step agentic; absorb rare stochastic LLM misses
 @pytest.mark.asyncio
 async def test_health_poll_tier_from_operator_prompt(tmp_path: Path) -> None:
