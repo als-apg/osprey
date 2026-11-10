@@ -3470,7 +3470,8 @@ def _apply_presets(
             item,
             start,
             label,
-            elsewhere=list(tiers.values()) if item.rel == PROFILE_FILENAME else [],
+            # The one-time fill is the old fill, which read profile.yml alone.
+            elsewhere=list(tiers.values()) if item.rel == PROFILE_FILENAME and not filled else [],
             comments=_config_comments(source) if source else None,
             skips=skips,
         )
@@ -3503,7 +3504,11 @@ def _reference_text(root: Path, item: Any, document: Any, preset: str | None) ->
             preset, project_name=str(document.get("project_name") or ""), profile_name=profile_name
         )
     if item.rel.startswith(f"{TIERS_DIRNAME}/"):
-        return emit_layer_delta_yaml(item.key.removesuffix(".yml"), profile_name, item.rel)
+        return emit_layer_delta_yaml(
+            preset_name=item.key.removesuffix(".yml"),
+            profile_name=profile_name,
+            profile_filename=item.rel,
+        )
     return None
 
 

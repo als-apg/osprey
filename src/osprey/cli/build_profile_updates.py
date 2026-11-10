@@ -294,7 +294,9 @@ def covered_files(
         installed = compute_preset_hash(f"{TIERS_DIRNAME}/{stem}")
         if installed is None:
             continue
-        emitted = emit_layer_delta_yaml(f"{TIERS_DIRNAME}/{stem}", profile_name, rel)
+        emitted = emit_layer_delta_yaml(
+            preset_name=f"{TIERS_DIRNAME}/{stem}", profile_name=profile_name, profile_filename=rel
+        )
         covered.append(
             CoveredFile(
                 rel,
@@ -583,7 +585,8 @@ def preset_delta(saved: Mapping[str, Any], today: Mapping[str, Any]) -> list[Cha
         node = next(
             (
                 path[:cut]
-                for cut in range(1, len(path) + 1)
+                # `config:` is not a node of its own: its keys are the leaves.
+                for cut in range(2 if path[0] == "config" else 1, len(path) + 1)
                 if path[:cut] not in had or path[:cut] not in has
             ),
             path,
