@@ -475,6 +475,26 @@ export function closeContextMenu() {
 }
 
 /**
+ * The element the open menu hands focus back to on a keyboard dismissal, or
+ * null when no menu is open.
+ * @returns {HTMLElement | null}
+ */
+export function menuFocusReturn() {
+  return menuEl ? previousFocus : null;
+}
+
+/**
+ * Hand the open menu's focus back to `el` instead. A surface that redraws
+ * the element the focus came from calls it with that element's replacement:
+ * the old one is gone, and focus would otherwise fall to the body.
+ * @param {HTMLElement} el
+ * @returns {void}
+ */
+export function retargetMenuFocusReturn(el) {
+  if (menuEl) previousFocus = el;
+}
+
+/**
  * Build one row element.
  * @param {MenuItem} item
  * @param {number} depth - depth of the level the row belongs to (0 = root)
