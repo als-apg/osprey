@@ -7,3 +7,9 @@ ci.yml's zero-skip gates and stranded-stack cleanups each run one shared script
 (`scripts/ci/junit_no_skips.py`, `scripts/ci/cleanup_stacks.sh`) instead of a copy per lane.
 The merge gate applies one rule to every needed job's result and no longer needs the main-only qmd
 cache warm-up, whose skip failed every nightly revalidation of main.
+CI lanes no longer delete preinstalled toolchains to free runner disk; the failure diagnostics log
+`df -h /` instead.
+On a pull request, a failed lint, docs build, package build, frontend JS or plugin-smoke lane
+cancels the rest of the run.
+The e2e lanes no longer wait for a changed-path classifier, so they start sooner and run on
+docs-only pull requests too; the classifier and `scripts/ci/docs_only.py` are gone.

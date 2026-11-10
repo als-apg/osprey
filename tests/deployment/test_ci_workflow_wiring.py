@@ -4466,7 +4466,7 @@ def test_record_lane_runs_on_every_pull_request_without_a_key(workflow: dict[str
     """Model-free: no label, no actor guard, no gateway key; the revalidation
     dispatch runs it too, as it runs every lane a push skips."""
     job = _jobs(workflow)[RECORD_E2E_JOB]
-    expected = f"(github.event_name == 'pull_request' && {DOCS_ONLY_CLAUSE}) || {REVALIDATION_ARM}"
+    expected = f"(github.event_name == 'pull_request') || {REVALIDATION_ARM}"
     assert " ".join(str(job.get("if")).split()) == expected, job.get("if")
     assert not _job_declares_secret(workflow, RECORD_E2E_JOB, SECRET_TOKEN), (
         f"'{RECORD_E2E_JOB}' declares the gateway key; it reaches no model"
@@ -13959,7 +13959,7 @@ def test_gate_reads_canopy_contract_as_always_on(workflow: dict[str, Any]) -> No
 
 def test_gate_reads_canopy_contract_as_always_on__mutation_needs_a_job() -> None:
     mutated = _load_workflow()
-    _jobs(mutated)[CANOPY_CONTRACT_JOB]["needs"] = ["changes"]
+    _jobs(mutated)[CANOPY_CONTRACT_JOB]["needs"] = ["test"]
     with pytest.raises(AssertionError, match="need nothing"):
         test_gate_reads_canopy_contract_as_always_on(mutated)
 
@@ -14668,6 +14668,7 @@ _SETUP_RUN_RES = (
     re.compile(r"uv python install \S+(?: \S+)*"),
     re.compile(r"uv sync --locked(?: --extra [\w-]+)*"),
     re.compile(r"npm ci"),
+    re.compile(r'gh run cancel "\$GITHUB_RUN_ID" --repo "\$GITHUB_REPOSITORY"'),
     re.compile(r"sudo apt-get update && sudo apt-get install -y --no-install-recommends [\w -]+"),
     re.compile(
         r"python3 scripts/ci/diag_summary\.py ci-diag >> \"\$GITHUB_STEP_SUMMARY\" \|\| true"
@@ -15682,117 +15683,74 @@ def test_every_qmd_deploying_step_starts_the_shared_image__mutation_unlisted_cal
 
 
 # ---------------------------------------------------------------------------
-# Docs-only pull requests stand the pull-request-scoped lanes down
+# A failed cheap, deterministic lane cancels the rest of a pull request's run
 # ---------------------------------------------------------------------------
 #
-# The `changes` job publishes `docs_only` (scripts/ci/docs_only.py). Every lane
-# with a pull-request arm reads it in that arm and nowhere else: a dispatch
-# arm that read it would let a revalidation run skip a lane. A lane that needs
-# `changes` skips when `changes` fails, and the gate reads a skip as a pass on
-# a pull request, so the gate requires `changes` to succeed.
+# Only on a pull request: on a push or a dispatch every lane's signal matters.
+# The gate runs `if: !cancelled()`, so a cancelled run leaves it unreported and
+# the merge blocked. The docs lane stops before its link check, which fails with
+# external sites.
 
-CHANGES_JOB = "changes"
-DOCS_ONLY_CLAUSE = "needs.changes.outputs.docs_only != 'true'"
-_PR_ARM = "github.event_name == 'pull_request'"
-
-
-def _docs_only_problems(wf: dict[str, Any]) -> list[str]:
-    problems = []
-    for name, job in _jobs(wf).items():
-        condition = " ".join(str(job.get("if", "")).split())
-        if name == GATE_JOB or _PR_ARM not in condition:
-            continue
-        pr_arm = condition.split("||")[0]
-        if _PR_ARM not in pr_arm or DOCS_ONLY_CLAUSE not in pr_arm:
-            problems.append(f"{name}: its pull-request arm does not read docs_only")
-        if DOCS_ONLY_CLAUSE in condition.replace(pr_arm, "", 1):
-            problems.append(f"{name}: docs_only is read outside the pull-request arm")
-        if CHANGES_JOB not in (
-            [job["needs"]] if isinstance(job.get("needs"), str) else job.get("needs", [])
-        ):
-            problems.append(f"{name}: reads docs_only without needing {CHANGES_JOB}")
-    return problems
+CANCEL_STEP = "Stop the run on a failed cheap lane"
+CANCELLING_LANES = {
+    "lint": [],
+    "docs": ["Check for broken links"],
+    "package": [],
+    "frontend-js": [],
+    "plugin-smoke": [],
+}
 
 
-def test_every_pull_request_lane_stands_down_on_docs_only(workflow: dict[str, Any]) -> None:
-    assert _docs_only_problems(workflow) == []
-
-
-def test_every_pull_request_lane_stands_down__mutation_drops_the_clause() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    job = _jobs(mutated)[RECORD_E2E_JOB]
-    job["if"] = str(job["if"]).replace(f"&& {DOCS_ONLY_CLAUSE}", "")
-    assert _docs_only_problems(mutated) == [
-        f"{RECORD_E2E_JOB}: its pull-request arm does not read docs_only"
-    ]
-
-
-def test_every_pull_request_lane_stands_down__mutation_reads_it_on_dispatch() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    job = _jobs(mutated)[RECORD_E2E_JOB]
-    job["if"] = f"{job['if']} && {DOCS_ONLY_CLAUSE}"
-    assert f"{RECORD_E2E_JOB}: docs_only is read outside the pull-request arm" in (
-        _docs_only_problems(mutated)
-    )
-
-
-def test_every_pull_request_lane_stands_down__mutation_drops_the_need() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    del _jobs(mutated)[RECORD_E2E_JOB]["needs"]
-    assert _docs_only_problems(mutated) == [
-        f"{RECORD_E2E_JOB}: reads docs_only without needing {CHANGES_JOB}"
-    ]
-
-
-def test_the_classifier_runs_on_every_event_and_forces_full_on_the_label(
-    workflow: dict[str, Any],
-) -> None:
-    """No `if:`, so pushes and dispatches get `docs_only=false` from it rather
-    than a skip that would take every dependent lane with it; the `full-ci`
-    label always runs everything."""
-    job = _jobs(workflow)[CHANGES_JOB]
-    assert "if" not in job
-    run = _find_named_step(workflow, CHANGES_JOB, "Classify changed paths")["run"]
-    assert '"$HAS_FULL_CI" == "true"' in run
-    assert "scripts/ci/docs_only.py" in run
-    assert "previous_filename" in run, "a rename's old name must be classified too"
-
-
-def test_the_gate_fails_when_the_classifier_fails(workflow: dict[str, Any]) -> None:
-    """A failed classifier skips every lane that needs it, each of which passes
-    the gate on a pull request; the classifier's own failure is what fails it."""
-    results = {
-        job: "skipped"
-        for job, spec in _jobs(workflow).items()
-        if CHANGES_JOB in (spec.get("needs") or []) and job != GATE_JOB
-    }
-    assert results, f"no lane needs {CHANGES_JOB}"
-    assert _gate_exit(workflow, results)[0] == 0
-    code, out, _ = _gate_exit(workflow, {**results, CHANGES_JOB: "failure"})
-    assert code != 0, "the gate passes a failed classifier"
-    assert f"{CHANGES_JOB}: failure" in out
-
-
-def _pr_lanes_naming_docs_tests(wf: dict[str, Any]) -> list[str]:
-    """Lanes `docs_only` stands down that run something under tests/docs/."""
-    return sorted(
+def _cancel_step_problems(wf: dict[str, Any]) -> list[str]:
+    holders = sorted(
         name
         for name, job in _jobs(wf).items()
-        if DOCS_ONLY_CLAUSE in str(job.get("if", ""))
-        and "tests/docs" in json.dumps(job.get("steps", []))
+        if any(step.get("name") == CANCEL_STEP for step in job.get("steps", []))
     )
+    problems = [] if holders == sorted(CANCELLING_LANES) else [f"cancelling lanes: {holders}"]
+    for name in set(holders) & set(CANCELLING_LANES):
+        job = _jobs(wf)[name]
+        names = [step.get("name") for step in job["steps"]]
+        step = job["steps"][names.index(CANCEL_STEP)]
+        if "".join(str(step.get("if", "")).split()) != (
+            "failure()&&github.event_name=='pull_request'"
+        ):
+            problems.append(f"{name}: the cancel is not limited to a failed pull-request run")
+        if 'gh run cancel "$GITHUB_RUN_ID"' not in step.get("run", ""):
+            problems.append(f"{name}: the step does not cancel the run")
+        if (job.get("permissions") or {}).get("actions") != "write":
+            problems.append(f"{name}: no actions: write")
+        if names[names.index(CANCEL_STEP) + 1 :] != CANCELLING_LANES[name]:
+            problems.append(f"{name}: steps after the cancel step")
+    return sorted(problems)
 
 
-def test_no_lane_docs_only_stands_down_runs_the_docs_tests(workflow: dict[str, Any]) -> None:
-    """tests/docs/ counts as docs (scripts/ci/docs_only.py) only because the
-    always-on lanes are its sole runners: a docs-only PR's own guard test must
-    still run. A pull-request-scoped lane that ran it would skip it there."""
-    assert _pr_lanes_naming_docs_tests(workflow) == []
+def test_cheap_lanes_cancel_a_failed_pull_request_run(workflow: dict[str, Any]) -> None:
+    assert _cancel_step_problems(workflow) == []
+    assert _gate_stands_down_only_when_cancelled(workflow)
 
 
-def test_no_lane_docs_only_stands_down_runs_the_docs_tests__mutation() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    _jobs(mutated)[RECORD_E2E_JOB]["steps"].append(
-        {"name": "x", "run": "uv run pytest tests/docs/test_redirects.py"}
-    )
-    assert _pr_lanes_naming_docs_tests(mutated) == [RECORD_E2E_JOB]
+def test_cheap_lanes_cancel__mutations() -> None:
+    def mutated(edit: Any) -> list[str]:
+        wf = _load_workflow()
+        edit(_jobs(wf))
+        return _cancel_step_problems(wf)
+
+    cancel = _find_named_step(_load_workflow(), "lint", CANCEL_STEP)
+    assert mutated(lambda jobs: jobs["static-checks"]["steps"].append(dict(cancel))) == [
+        "cancelling lanes: ['docs', 'frontend-js', 'lint', 'package', 'plugin-smoke', "
+        "'static-checks']"
+    ]
+    assert mutated(lambda jobs: jobs["package"]["steps"].pop()) == [
+        "cancelling lanes: ['docs', 'frontend-js', 'lint', 'plugin-smoke']"
+    ]
+    # A new dict, not .update(): every lane's step is the one parsed anchor.
+    assert mutated(
+        lambda jobs: jobs["lint"]["steps"].__setitem__(-1, {**cancel, "if": "failure()"})
+    ) == ["lint: the cancel is not limited to a failed pull-request run"]
+    assert mutated(lambda jobs: jobs["package"].update({"permissions": {"contents": "read"}})) == [
+        "package: no actions: write"
+    ]
+    assert mutated(lambda jobs: jobs["docs"]["steps"].pop()) == [
+        "docs: steps after the cancel step"
+    ]
