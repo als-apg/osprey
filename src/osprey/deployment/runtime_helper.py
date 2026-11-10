@@ -1369,14 +1369,10 @@ def buildkit_missing(runtime: str, env: Mapping[str, str]) -> str | None:
 # One-time transcripts copy
 # ---------------------------------------------------------------------------
 
-#: The image the transcripts copy runs, fully qualified and pinned so the copy
-#: means the same thing on every host. Not the project image: the copy runs
-#: before that image is built. ``images.base_registry`` moves it onto a site
-#: mirror of Docker Hub; the env variable still replaces it whole.
-TRANSCRIPTS_COPY_IMAGE = "docker.io/library/alpine:3.20"
-
-#: Environment variable holding a complete image reference that replaces
-#: :data:`TRANSCRIPTS_COPY_IMAGE`.
+#: Environment variable holding a complete image reference that replaces the
+#: transcripts copy's image, the catalogue's ``transcripts_copy`` entry
+#: (:data:`~osprey.deployment.upstream_images.UPSTREAM_IMAGES`). That entry is
+#: not the project image, because the copy runs before that image is built.
 TRANSCRIPTS_COPY_IMAGE_ENV = "OSPREY_TRANSCRIPTS_COPY_IMAGE"
 
 #: Copies the parent's transcripts directory, named by ``$1``, into ``/to``
@@ -1399,14 +1395,15 @@ def transcripts_copy_image(env: Mapping[str, str] | None = None, base_registry: 
     """The transcripts copy's image reference.
 
     ``OSPREY_TRANSCRIPTS_COPY_IMAGE`` in *env* (this process's environment when
-    not given), when set and not blank, else :data:`TRANSCRIPTS_COPY_IMAGE` on
-    *base_registry*, the registry standing in for docker.io (``""`` for none).
+    not given), when set and not blank, else the catalogue's ``transcripts_copy``
+    entry on *base_registry*, the registry standing in for docker.io (``""`` for
+    none).
     """
-    from osprey.deployment.upstream_images import hub_image
+    from osprey.deployment.upstream_images import upstream_image
 
     source = os.environ if env is None else env
     override = (source.get(TRANSCRIPTS_COPY_IMAGE_ENV) or "").strip()
-    return override or hub_image(TRANSCRIPTS_COPY_IMAGE, base_registry)
+    return override or upstream_image("transcripts_copy", base_registry)
 
 
 def copy_transcripts_once(
