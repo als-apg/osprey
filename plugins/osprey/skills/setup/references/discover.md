@@ -75,7 +75,7 @@ sections 4 and 5 run no verb at all.
 | Command | What it yields |
 | --- | --- |
 | `osprey profile card --json` | Users and their tiers, provider, control system, panels, services |
-| `osprey validate` | Validity, advisory warnings, and one line when the preset has moved on since `osprey init` |
+| `osprey validate` | Validity, advisory warnings, and one line when the preset has changed since the repo last took it |
 | `osprey scaffold list` | Framework-managed and claimed artifacts. Run **only** when `build/.osprey-manifest.json` exists |
 | `osprey profile artifacts` | The menu the six profile lists can name. Installation-wide: it takes no `--repo` and reads no repo |
 
@@ -91,9 +91,11 @@ Each such warning is a card line, not a silent omission.
 
 **`osprey validate`** never refuses a difference from the preset the profile came from:
 the profile is the user's to edit. When the preset bundled with the osprey that runs the
-command has changed since `osprey init` (by its hash under `provenance:`), it prints one
-line saying so. Put `update available` on the card's `update` row then, `update none`
-otherwise; a profile with no `provenance:` has nothing to compare and reads `update n/a`.
+command has changed since the repo last took it, it prints one line pointing at
+`osprey init --revalidate`; a repo older than that tracking gets one line saying it
+predates it. Put `update available` on the card's `update` row for either line, `update
+none` otherwise; a profile with no `provenance:` has nothing to compare and reads `update
+n/a`.
 
 Validate also prints advisory `⚠` lines — a privileged terminal with no
 login wall, a bar item whose panel is not selected. They are findings, not failures. Append
