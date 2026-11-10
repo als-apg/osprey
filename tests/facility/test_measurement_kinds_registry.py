@@ -40,10 +40,19 @@ def registry_kind(monkeypatch: pytest.MonkeyPatch) -> kinds.KindDeclaration:
     return kinds.registered()[REGISTRY_KIND]
 
 
+#: The fixture kind's sub-block with no command step: what its schema requires and nothing more.
+_PLAIN_BLOCK = {"trigger_sample": 12}
+
+
 def _tree(**sr: Any) -> dict[str, Any]:
     """SR with correctors, the RF and the fixture kind listed; ``sr`` edits its file."""
     tree = with_correctors(with_rf(measured_tree()))
-    tree["measurement/SR.yaml"] |= {"kinds": [REGISTRY_KIND], "corrector_delta": 1.0e-5, **sr}
+    tree["measurement/SR.yaml"] |= {
+        "kinds": [REGISTRY_KIND],
+        "corrector_delta": 1.0e-5,
+        "kind_blocks": {REGISTRY_KIND: dict(_PLAIN_BLOCK)},
+        **sr,
+    }
     return tree
 
 
@@ -160,6 +169,7 @@ def test_a_single_pass_kind_runs_on_a_single_pass_model(tmp_path, registry_kind)
     tree["measurement/LINE.yaml"] |= {
         "kinds": ["orm", REGISTRY_KIND],
         "instruments": {"tune": "SR:TUNE:X"},
+        "kind_blocks": {REGISTRY_KIND: dict(_PLAIN_BLOCK)},
     }
     document, _ = built_document(tmp_path / "ok", tree)
     (line,) = [model for model in document["models"] if model["name"] == "LINE"]

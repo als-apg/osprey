@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import dataclasses
 import json
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import BaseModel, ConfigDict, Field
 
 from osprey.facility import kinds
 from osprey.facility.errors import FacilityBuildError
@@ -29,6 +31,35 @@ from tests.facility._pyaml_trees import built_document, measured_tree, with_corr
 pytest.importorskip("pyaml")
 
 KIND = "turn_kind"
+
+
+class TurnBlock(BaseModel):
+    """The kind's own sub-block: a trigger sample and an ordered chain of step ids."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    trigger_sample: int = Field(ge=0)
+    steps: list[str] = []
+
+
+def _stops(document: Mapping[str, Any], block: Any) -> Iterator[kinds.KindStop]:
+    """Refuse a step named ``refuse``; record what the hook was handed."""
+    del document
+    HANDED.append(block)
+    for step in block.get("steps") or []:
+        if step == "refuse":
+            yield kinds.KindStop("step refuse is refused", "drop step refuse")
+
+
+def _facts_writer(document: Mapping[str, Any], block: Mapping[str, Any]) -> dict[str, Any]:
+    del document
+    return {"trigger_sample": block["trigger_sample"], "chain": list(block.get("steps") or [])}
+
+
+#: Every block the kind's ``build_stops`` hook was handed, in order.
+HANDED: list[Any] = []
+
+BLOCK = {"trigger_sample": 3, "steps": ["arm", "fire"]}
 
 #: The kind's own roles and their sorts.
 OWN_SORTS = {
@@ -56,6 +87,9 @@ DECLARATION = dataclasses.replace(
     tool_keys=(),
     single_pass=False,
     description="a kind with roles of its own",
+    measurement_schema=TurnBlock,
+    build_stops=_stops,
+    facts_writer=_facts_writer,
 )
 
 
@@ -74,6 +108,7 @@ def _register(monkeypatch: pytest.MonkeyPatch, *declarations: kinds.KindDeclarat
 def turn_kind(monkeypatch: pytest.MonkeyPatch) -> None:
     """The kind registered for the test's duration."""
     _register(monkeypatch, DECLARATION)
+    HANDED.clear()
 
 
 def _tree(**sr: Any) -> dict[str, Any]:
@@ -83,6 +118,7 @@ def _tree(**sr: Any) -> dict[str, Any]:
     measurement["kinds"] = [KIND]
     measurement["groups"] |= {"turn_bpm": "SR/BPM", "kick": "SR/Q"}
     measurement["instruments"] |= {"inject": "SR:TUNE:Y"}
+    measurement["kind_blocks"] = {KIND: dict(BLOCK)}
     measurement |= sr
     return tree
 
@@ -209,4 +245,93 @@ def test_an_instrument_named_as_a_list_stops_the_build(tmp_path):
         "facility: source-invalid: path models.1.measurement.instruments.inject — "
         "measurement/SR.yaml `instruments.inject` is not a channel address; fix: write `instruments.inject` in measurement/SR.yaml "
         "as a channel address"
+    )
+
+
+# --- the kind's own sub-block ------------------------------------------------------
+
+
+def _sr_measurement(document: dict[str, Any]) -> dict[str, Any]:
+    (sr,) = [model for model in document["models"] if model["name"] == "SR"]
+    measurement: dict[str, Any] = sr["measurement"]
+    return measurement
+
+
+@_with_kind
+def test_the_sub_block_reaches_the_build_stops_hook_and_the_per_model_block(tmp_path):
+    facts = _facts(tmp_path, _tree())
+
+    assert HANDED == [BLOCK]
+    assert facts["measurement_models"]["SR"]["kinds"][KIND]["block"] == BLOCK
+    assert "block" not in facts["measurement_models"]["SR"]["kinds"].get("trm", {})
+
+
+@_with_kind
+def test_a_block_the_kinds_schema_refuses_stops_the_build_before_its_hook(tmp_path):
+    from osprey.facility.validate import _measurement_stops
+
+    document, _ = built_document(tmp_path / "tree", _tree())
+    HANDED.clear()
+    _sr_measurement(document)["kind_blocks"][KIND] = {"trigger_sample": -1, "steps": ["refuse"]}
+
+    (stop,) = _measurement_stops(document)
+    assert stop.detail == (
+        f"`kind_blocks.{KIND}.trigger_sample: Input should be greater than or equal to 0`"
+    )
+    assert stop.remedy == f"correct `kind_blocks.{KIND}` as kind {KIND}'s measurement schema states"
+    assert HANDED == []
+
+
+@_with_kind
+def test_a_block_the_schema_admits_is_judged_by_the_kinds_hook(tmp_path):
+    tree = _tree(kind_blocks={KIND: {"trigger_sample": 3, "steps": ["refuse"]}})
+
+    assert _stop(tmp_path, tree) == (
+        f"facility: value-invalid: measurement SR — kind {KIND}: step refuse is refused; "
+        "fix: drop step refuse"
+    )
+
+
+@_with_kind
+def test_an_absent_block_is_judged_as_an_empty_one(tmp_path):
+    tree = _tree()
+    del tree["measurement/SR.yaml"]["kind_blocks"]
+
+    assert _stop(tmp_path, tree) == (
+        f"facility: value-invalid: measurement SR — `kind_blocks.{KIND}.trigger_sample: "
+        f"Field required`; fix: correct `kind_blocks.{KIND}` as kind {KIND}'s measurement "
+        "schema states"
+    )
+
+
+@_with_kind
+def test_a_block_of_a_kind_the_file_does_not_list_stops_the_build(tmp_path):
+    tree = _tree()
+    tree["measurement/SR.yaml"]["kind_blocks"]["orm"] = {}
+
+    assert _stop(tmp_path, tree) == (
+        "facility: value-invalid: measurement SR — `kind_blocks.orm` is the block of a kind "
+        "the file does not list; fix: remove `kind_blocks.orm`, or list orm in `kinds`"
+    )
+
+
+@_with_kind
+def test_a_block_of_a_kind_with_no_schema_stops_the_build(tmp_path):
+    tree = _tree(kinds=[KIND, "trm"])
+    tree["measurement/SR.yaml"]["kind_blocks"]["trm"] = {"anything": 1}
+
+    assert _stop(tmp_path, tree) == (
+        "facility: value-invalid: measurement SR — kind trm declares no measurement schema, "
+        "so it takes no block; fix: remove `kind_blocks.trm`"
+    )
+
+
+@_with_kind
+def test_kind_blocks_is_a_mapping(tmp_path):
+    tree = _tree(kind_blocks=[KIND])
+
+    assert _stop(tmp_path, tree) == (
+        "facility: source-invalid: path models.1.measurement.kind_blocks — "
+        "measurement/SR.yaml `kind_blocks` is not a mapping of kind to a mapping; fix: write "
+        "`kind_blocks` in measurement/SR.yaml as a mapping of kind to a mapping"
     )
