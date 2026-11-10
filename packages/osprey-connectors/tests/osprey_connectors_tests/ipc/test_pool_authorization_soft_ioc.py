@@ -50,7 +50,7 @@ SEED_READ = 1.0
 SEED_WRITE = 100.0
 
 CA_TIMEOUT_S = 5.0
-FAR_FUTURE_NS = time.time_ns() + 10 * 365 * 24 * 3600 * 10**9
+FAR_FUTURE_NS = time.time_ns() + 12 * 3600 * 10**9
 
 
 @pytest.fixture
