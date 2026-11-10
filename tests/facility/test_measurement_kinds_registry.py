@@ -324,10 +324,11 @@ def test_the_facts_writer_and_the_settings_transform_read_the_block(registry_kin
         "trigger_sample": 12,
         "settings": ["gain"],
     }
-    assert registry_kind.settings_from_measurement({"turns": 8, "solve": "periodic"}, _BLOCK) == {
-        "turns": 12 + 64,
-        "solve": "periodic",
-    }
+    model = {"name": "SR", "engine": "pyat", "settings": {"pyat": {"solve": "periodic"}}}
+    assert registry_kind.settings_from_measurement(
+        model, {"kind_blocks": {REGISTRY_KIND: _BLOCK}}
+    ) == {"pyat": {"rest_mass_gev": 12.0 + 64}}
+    assert registry_kind.settings_from_measurement(model, {"kinds": [REGISTRY_KIND]}) == {}
 
 
 # --- what the runtime readers make of it ----------------------------------------------

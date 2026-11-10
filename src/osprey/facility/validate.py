@@ -2441,12 +2441,12 @@ def _block_stops(
     model: str, files: list[str], declaration: Any, block: Any
 ) -> list[FacilityBuildError]:
     """What a listed kind refuses in its own sub-block; an absent block is an empty one."""
-    from osprey.facility.kinds import block_problems
+    from osprey.facility.kinds import block_admitted, block_problems
 
+    if block_admitted(declaration, block):
+        return []
     kind = declaration.name
     if declaration.measurement_schema is None:
-        if block is None:
-            return []
         return [
             FacilityBuildError(
                 "value-invalid",
