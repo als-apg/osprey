@@ -30,7 +30,7 @@ def _job(job_id: str) -> str:
     return f"/jobs/{quote(job_id, safe='')}"
 
 
-def _for_session_target(config: dict[str, Any]) -> dict[str, Any]:
+def _on_control_target(config: dict[str, Any]) -> dict[str, Any]:
     """*config* with the session's control target, refused unsent when it names another."""
     target = control_target()
     named = config.get("control_target")
@@ -44,7 +44,7 @@ def _for_session_target(config: dict[str, Any]) -> dict[str, Any]:
                 "To draft for another machine, the session's control target has to be "
                 "switched first: ask the operator.",
             ],
-            details={"control_target": named, "session_control_target": target},
+            details={"named": named, "control_target": target},
         )
     return {**config, "control_target": target}
 
@@ -99,7 +99,7 @@ async def create_draft(config: dict[str, Any]) -> str:
     Args:
         config: The optimization config, as a JSON object.
     """
-    body = _for_session_target(config)
+    body = _on_control_target(config)
     job = await request("POST", "/optimizations", json_body=body)
     return json.dumps({**job, "control_target": body["control_target"]})
 
@@ -114,7 +114,7 @@ async def update_draft(job_id: str, config: dict[str, Any]) -> str:
         job_id: Job id of a draft (status ``created``).
         config: The full optimization config, as a JSON object.
     """
-    body = _for_session_target(config)
+    body = _on_control_target(config)
     return json.dumps(await request("PUT", f"{_job(job_id)}/config", json_body=body))
 
 

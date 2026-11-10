@@ -162,10 +162,7 @@ async def test_a_draft_for_another_target_is_refused_unsent(optimizer, name, kwa
     with assert_raises_error(error_type="validation_error") as ctx:
         await _tool(jobs, name)(config={**_NO_TARGET, "control_target": "live"}, **kwargs)
     assert optimizer.requests == []
-    assert ctx["envelope"]["details"] == {
-        "control_target": "live",
-        "session_control_target": SESSION_TARGET,
-    }
+    assert ctx["envelope"]["details"] == {"named": "live", "control_target": SESSION_TARGET}
 
 
 @pytest.mark.parametrize(("headers", "revision"), [({"X-Config-Revision": "7"}, "7"), ({}, None)])
