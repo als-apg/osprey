@@ -2417,6 +2417,27 @@ keys:
     default_note: >-
       the runner refuses a benchmark with no query set, naming this key and --queries-path
 
+  # ── PV directory ────────────────────────────────────────────────────
+  pv_directory:
+    evidence: 'section = config\.get\(SECTION_KEY\)'
+    default: no-fallback
+    default_note: >-
+      absent or null, resolve_section answers None, every pv_directory_* predicate
+      is false and nothing of the section is rendered; a section without `type`
+      lists the build's simulator channels and IOC health PVs
+  pv_directory.alarm_state:
+    evidence: '_SUB_BLOCKS = \("alarm_log", "alarm_state", "put_log"\)'
+    default: no-fallback
+    default_note: >-
+      absent, no alarm feed and pv_directory_alarm_state is false; `type:
+      phoebus_alarm_server` needs settings.bootstrap_servers and settings.topic
+  pv_directory.alarm_state.replay_file:
+    evidence: 'block\.get\("replay_file"\)'
+    default: no-fallback
+    default_note: >-
+      absent, nothing is replayed; `demo:<name>` names a packaged feed, any other
+      value a project-relative .ndjson path, checked at build
+
   # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
   ariel.ingestion:
@@ -4672,7 +4693,7 @@ render_contexts:
       claude_code.servers: <server>
       apps: <app>
       apps.<app>.approval: <tool>
-  expected_union_size: 431
+  expected_union_size: 434
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the
