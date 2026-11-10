@@ -47,12 +47,6 @@ exit 0
 """
 
 
-#: The heartbeat is a background sleeper that would hold the captured output
-#: open long after the pass returns; these tests are about which qmd commands
-#: run, so it is stubbed out.
-_NO_HEARTBEAT = "start_heartbeat() { :; }; stop_heartbeat() { :; }; "
-
-
 def _run(
     tmp_path: Path,
     script: str,
@@ -79,7 +73,7 @@ def _run(
     }
     if embed is not None:
         env["OSPREY_QMD_EMBED"] = embed
-    result = run_entrypoint(tmp_path, stub=_STUB, script=_NO_HEARTBEAT + script, env=env)
+    result = run_entrypoint(tmp_path, stub=_STUB, script=script, env=env)
     return result, calls.read_text().split()
 
 
@@ -138,3 +132,18 @@ def test_embedding_on_full_build_with_no_vectors_is_still_refused(tmp_path):
     assert result.returncode != 0
     assert "0 embeddings" in result.stdout + result.stderr
     assert "SERVED" not in result.stdout
+
+
+def test_stop_heartbeat_leaves_no_process_behind(tmp_path):
+    # The stop comes once the heartbeat's sleep is running. A sleeper left
+    # behind holds the captured pipes open past the run's timeout, so a run
+    # that returns at all proves the heartbeat took its sleep along.
+    script = (
+        "start_heartbeat demo; "
+        'until pgrep -x -P "$HEARTBEAT_PID" sleep >/dev/null; do :; done; '
+        "stop_heartbeat; echo STOPPED"
+    )
+    result, _ = _run(tmp_path, script, embed=None)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "STOPPED" in result.stdout
