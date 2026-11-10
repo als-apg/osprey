@@ -987,11 +987,14 @@ When the key is set, every entry the ARIEL tools return carries an
 result of ``entry_publish``. The id is URL-encoded before it is filled in. The
 agent is told to link that URL as given and never to build one, so with the key
 unset it shows plain entry IDs. An entry that exists only in ARIEL gets no URL,
-because the logbook has no page for it: one ``entry_create`` wrote directly
-(``source_system`` ``ARIEL MCP``) or one saved local-only (``metadata.sync_status``
-``local_only``, such as a Logbook web save or a publish the logbook did not take).
-A ``sql_query`` row also gets none when looking up the ``source_system`` or
-``metadata`` it does not select fails.
+because the logbook has no page for it. Every write records which kind an entry
+is in ``metadata.sync_status``, and the URL reads that alone: ``local_only`` for
+an entry ``entry_create`` wrote directly, a Logbook web save, a simulation seed,
+an entry of a Generic JSON file or a publish the logbook did not take; ``pending_sync`` or ``synced`` for an
+entry the facility logbook holds. Entries stored before the field was recorded
+everywhere are stamped once by the ``ariel_only_sync_status`` migration. A
+``sql_query`` row also gets none when looking up the ``metadata`` it does not
+select fails.
 
 A template that does not format (a misspelled placeholder, an unbalanced brace)
 is logged once as a warning and emits no URL; it never fails the read. The
