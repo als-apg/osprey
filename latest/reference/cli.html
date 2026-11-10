@@ -514,7 +514,6 @@ osprey<span class="w"> </span>knowledge<span class="w">          </span><span cl
 osprey<span class="w"> </span>facility<span class="w">           </span><span class="c1"># Check and show the facility description under data/facility/</span>
 osprey<span class="w"> </span>app<span class="w">                </span><span class="c1"># Make and check a deployment&#39;s apps</span>
 osprey<span class="w"> </span>sim<span class="w">                </span><span class="c1"># Simulation scenario commands</span>
-osprey<span class="w"> </span>eject<span class="w">              </span><span class="c1"># Copy framework components for customization</span>
 osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
 osprey<span class="w"> </span>archive<span class="w">            </span><span class="c1"># Copy artifacts and plan-queue history into var/archive</span>
 osprey<span class="w"> </span><span class="nb">history</span><span class="w">            </span><span class="c1"># Serve the history page (the history service&#39;s entry)</span>
@@ -1419,23 +1418,6 @@ osprey<span class="w"> </span>query<span class="w"> </span>--json<span class="w"
 </pre></div>
 </div>
 </section>
-<section id="osprey-eject">
-<h2>osprey eject<a class="headerlink" href="#osprey-eject" title="Link to this heading">#</a></h2>
-<p>Copy framework services to your project for customization.</p>
-<dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">eject</span> <span class="pre">list</span></code></dt><dd><p>List all ejectable framework capabilities and services.</p>
-</dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">eject</span> <span class="pre">service</span> <span class="pre">NAME</span> <span class="pre">[-o,</span> <span class="pre">--output</span> <span class="pre">PATH]</span> <span class="pre">[--include-tests]</span></code></dt><dd><p>Copy a framework service directory locally, sub-modules included.
-<code class="docutils literal notranslate"><span class="pre">-o,</span> <span class="pre">--output</span> <span class="pre">PATH</span></code> names the destination (default:
-<code class="docutils literal notranslate"><span class="pre">./src/&lt;package&gt;/services/&lt;name&gt;/</span></code>); <code class="docutils literal notranslate"><span class="pre">--include-tests</span></code> also copies the
-service’s test files.</p>
-</dd>
-</dl>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>eject<span class="w"> </span>list
-osprey<span class="w"> </span>eject<span class="w"> </span>service<span class="w"> </span>channel_finder<span class="w"> </span>--include-tests
-</pre></div>
-</div>
-</section>
 <section id="osprey-channel-finder">
 <h2>osprey channel-finder<a class="headerlink" href="#osprey-channel-finder" title="Link to this heading">#</a></h2>
 <p>Tools for validating, previewing, serving and benchmarking control system
@@ -2123,7 +2105,6 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-chat">osprey chat</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-query">osprey query</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-eject">osprey eject</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-channel-finder">osprey channel-finder</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-knowledge">osprey knowledge</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-app">osprey app</a></li>
