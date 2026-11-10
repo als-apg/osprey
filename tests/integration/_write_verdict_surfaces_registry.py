@@ -805,6 +805,57 @@ def _authorized_gateway(staged: Staged) -> Any:
     return (verdict.allowed, verdict.reason), _expected(case)
 
 
+# -- an application backend ---------------------------------------------------
+
+
+def _orbit_bump_posture(staged: Staged) -> Any:
+    """The orbit-bump backend's posture: the owner the gate stamps, the target it is on."""
+    case = staged.case
+    if not _pin_honoured_any_owner(case) or not _str_target(case):
+        return OUT_OF_DOMAIN
+    from fastapi.testclient import TestClient
+    from orbit_bump import server as backend
+    from starlette.middleware import Middleware
+
+    from osprey.apps.sdk import OWNER_STATE_KEY, owner_from_header, owner_target
+    from osprey.interfaces.common_middleware import WebAuthMiddleware
+
+    owner = None
+    if case.has_owner:
+        if not isinstance(case.owner, str) or owner_from_header(case.owner) != case.owner:
+            return OUT_OF_DOMAIN  # the gate stamps a header name or nothing
+        owner = case.owner
+    if owner_target(case.section, owner) != case.target:
+        return OUT_OF_DOMAIN
+
+    class _NoModels:
+        def closed_orbit_models(self) -> list[str]:
+            return []
+
+    async def _unreachable(target: str) -> Any:
+        raise AssertionError(f"the state read no channel, yet {target} was built")
+
+    class _GatedAs:
+        """Stamp the owner the gate would have stamped, in place of the gate."""
+
+        def __init__(self, inner: Any) -> None:
+            self.inner = inner
+
+        async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+            if scope["type"] == "http" and owner is not None:
+                scope.setdefault("state", {})[OWNER_STATE_KEY] = owner
+            await self.inner(scope, receive, send)
+
+    app = backend.create_app(_unreachable, sdk=_NoModels())
+    app.user_middleware = [
+        entry for entry in app.user_middleware if entry.cls is not WebAuthMiddleware
+    ] + [Middleware(_GatedAs)]
+    response = TestClient(app).get(backend.STATE_ROUTE)
+    assert response.status_code == 200, response.text
+    posture = response.json()["posture"]
+    return (posture["allowed"], posture["reason"]), _expected(case)
+
+
 # -- the registry -------------------------------------------------------------
 
 SURFACES: tuple[Surface, ...] = (
@@ -1127,6 +1178,14 @@ SURFACES: tuple[Surface, ...] = (
         stage1=False,
         reports_reason=True,
         project=_authorized_gateway,
+    ),
+    Surface(
+        "orbit-bump-posture",
+        "osprey.profiles.presets.apps.orbit-bump.orbit_bump.server",
+        "write",
+        stage1=False,
+        reports_reason=True,
+        project=_orbit_bump_posture,
     ),
 )
 
