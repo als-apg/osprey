@@ -260,13 +260,13 @@ function alarmConfigSection(section) {
 }
 
 /**
- * The footer of a history: its caveats and, when the service cut the rows,
- * that only the newest are shown.
+ * The footer of a section: the caveats of its source and, when the service
+ * cut a history's rows, that only the newest are shown.
  * @param {PvFactsSection} section
  * @returns {HTMLElement|null}
  */
-function historyFooter(section) {
-  const lines = [...(section.caveats ?? [])];
+function sectionFooter(section) {
+  const lines = [...section.caveats];
   if (section.truncated) lines.push(`Newest ${HISTORY_LIMIT} rows shown`);
   if (!lines.length) return null;
   const footer = node('footer', 'pvp-footer');
@@ -316,8 +316,6 @@ function historySection(section) {
       )
     );
   }
-  const footer = historyFooter(section);
-  if (footer) frame.append(footer);
   return frame;
 }
 
@@ -326,6 +324,17 @@ function historySection(section) {
  * @returns {HTMLElement}
  */
 export function factsSection(section) {
+  const frame = sectionBody(section);
+  const footer = sectionFooter(section);
+  if (footer) frame.append(footer);
+  return frame;
+}
+
+/**
+ * @param {PvFactsSection} section
+ * @returns {HTMLElement}
+ */
+function sectionBody(section) {
   switch (section.section) {
     case 'directory':
       return directorySection(section);
