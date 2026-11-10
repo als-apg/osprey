@@ -1,0 +1,1 @@
+A new docs test merges every roster and login snippet on the multi-user web-terminal pages into the `demo` preset's profile, as the pages instruct, and runs the web-stack checks of `osprey profile validate` on the result. Each snippet must draw no code, or the refusal its page names.
