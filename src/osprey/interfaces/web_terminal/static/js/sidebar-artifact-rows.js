@@ -24,7 +24,6 @@
 import { icon } from '/design-system/js/icons.js';
 import { facilityDayKey, formatFacilityTime } from '/design-system/js/facility-time.js';
 import { isMacPlatform } from '/design-system/js/platform.js';
-import { menuFocusReturn, retargetMenuFocusReturn } from '/design-system/js/context-menu.js';
 
 /** The session peek's element id (sidebar-session-peek.js draws it). */
 export const SESSION_PEEK_ID = 'sidebar-session-peek';
@@ -124,26 +123,16 @@ export function rowIn(list, id) {
 
 /**
  * What holds the focus in a tree, as a function that gives it back after the
- * tree's rows are redrawn: an artifact row or a session's pin button. While a
- * menu opened from such a row is open, the focus is in the menu and comes back
- * to the row on Escape; the redraw then points the menu at the row drawn in
- * the old one's place.
+ * tree's rows are redrawn: an artifact row or a session's pin button. (A menu
+ * open over the tree holds the focus itself, and finds the redrawn row on its
+ * own when it closes.)
  * @param {HTMLElement} tree
  * @returns {() => void}
  */
 export function keepFocus(tree) {
   const el = document.activeElement;
-  if (el instanceof HTMLElement && tree.contains(el)) {
-    return () => replacementIn(tree, el)?.focus({ preventScroll: true });
-  }
-  const back = menuFocusReturn();
-  if (back instanceof HTMLElement && tree.contains(back)) {
-    return () => {
-      const next = replacementIn(tree, back);
-      if (next) retargetMenuFocusReturn(next);
-    };
-  }
-  return () => {};
+  if (!(el instanceof HTMLElement) || !tree.contains(el)) return () => {};
+  return () => replacementIn(tree, el)?.focus({ preventScroll: true });
 }
 
 /**

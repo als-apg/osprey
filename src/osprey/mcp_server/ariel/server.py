@@ -273,9 +273,7 @@ def serialize_entry(
         **entry_text_fields(entry["raw_text"], text_limit, field="raw_text"),
         "summary": entry.get("summary"),
     }
-    entry_url = build_entry_url(
-        entry["entry_id"], entry["source_system"], metadata=entry.get("metadata")
-    )
+    entry_url = build_entry_url(entry["entry_id"], metadata=entry.get("metadata"))
     if entry_url is not None:
         result["entry_url"] = entry_url
     if "_score" in entry:

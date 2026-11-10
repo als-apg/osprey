@@ -41,10 +41,29 @@ EXTENSION_POINTS: Mapping[str, str] = {
     ),
     "osprey_connectors.ipc.FrameDecodeError": "a caller tells a bad frame read from the others",
     "osprey_connectors.ipc.FrameEncodeError": "a caller tells a bad frame write from the others",
+    "osprey_connectors.ipc.GATEWAYS_MISSING": (
+        "transitional: its framework user lands with the connectors floor bump to "
+        ">=2026.11.8 (#2592)"
+    ),
+    "osprey_connectors.ipc.GATEWAYS_NONE_DECLARED": (
+        "transitional: its framework user lands with the connectors floor bump to "
+        ">=2026.11.8 (#2592)"
+    ),
+    "osprey_connectors.ipc.GATEWAYS_ROWS": (
+        "a caller names the verdict that a target declares gateway rows"
+    ),
+    "osprey_connectors.ipc.declared_gateways": (
+        "transitional: its framework user lands with the connectors floor bump to "
+        ">=2026.11.8 (#2592)"
+    ),
     "osprey_connectors.connection.ConnectionSettings": "a connector author declares its settings",
     "osprey_connectors.connection.Credential": "a connector author declares its credentials",
     "osprey_connectors.connection.Login": "a connector author declares how it logs in",
     "osprey_connectors.connection.LoginKind": "a connector author names its login kind",
+    "osprey_connectors.safety_file.SHARED_DIR_MODE": (
+        "transitional: its framework users land with the connectors floor bump to "
+        ">=2026.11.8 (#2571)"
+    ),
     "osprey_connectors.simulation.series.BURST_WINDOW_TAUS": (
         "the framework's archive rewrite reads the burst window"
     ),

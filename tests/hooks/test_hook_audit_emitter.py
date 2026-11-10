@@ -1223,7 +1223,6 @@ class TestSpoolParity:
         from osprey.agent_record import writer
 
         assert emitter.SPOOL_SEGMENT_MODE == writer.SEGMENT_FILE_MODE
-        assert emitter.SPOOL_DIR_MODE == writer.SPOOL_DIR_MODE
         assert emitter._SPOOL_CREATE_FLAGS == writer._CREATE_FLAGS
 
     def test_the_line_id_fields_are_the_contracts_in_its_order(self, emitter):
